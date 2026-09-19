@@ -32,7 +32,19 @@ import asmLogo from "@/assets/images/asm.png";
 import loginBgImage from "@/assets/images/login-image.jpg";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
-import { BRAND_COLORS, useAppTheme } from "@/theme";
+import {
+  ERROR_SHADOWS,
+  ICON_BUTTON_SHADOWS_DARK,
+  ICON_BUTTON_SHADOWS_LIGHT,
+  INPUT_ERROR_SHADOWS,
+  INPUT_FOCUS_SHADOWS,
+  INPUT_SHADOWS,
+  LOGIN_BUTTON_PRESSED_SHADOWS,
+  LOGIN_BUTTON_SHADOWS,
+  SOCIAL_PRESSED_SHADOWS,
+  SOCIAL_SHADOWS,
+  useAppTheme,
+} from "@/theme";
 
 function getPressedBg(
   pressed: boolean,
@@ -42,32 +54,11 @@ function getPressedBg(
   return pressed ? pressedBg : defaultBg;
 }
 
-function getInputFieldBorder(
-  hasError: boolean,
-  isFocused: boolean,
-  defaultBorder: string
-): string {
+function getInputShadow(hasError: boolean, isFocused: boolean): string {
   if (hasError) {
-    return "rgba(255, 123, 99, 0.6)";
+    return INPUT_ERROR_SHADOWS;
   }
-  if (isFocused) {
-    return BRAND_COLORS.accent;
-  }
-  return defaultBorder;
-}
-
-function getInputFieldBorderTop(
-  hasError: boolean,
-  isFocused: boolean,
-  defaultBorderTop: string
-): string {
-  if (hasError) {
-    return "rgba(255, 123, 99, 0.75)";
-  }
-  if (isFocused) {
-    return BRAND_COLORS.accent;
-  }
-  return defaultBorderTop;
+  return isFocused ? INPUT_FOCUS_SHADOWS : INPUT_SHADOWS;
 }
 
 export default function LoginScreen() {
@@ -214,17 +205,13 @@ export default function LoginScreen() {
                               theme.socialBtnBg,
                               theme.socialBtnPressedBg
                             ),
-                            borderColor: theme.socialBtnBorder,
+                            boxShadow: pressed
+                              ? SOCIAL_PRESSED_SHADOWS
+                              : SOCIAL_SHADOWS,
                           },
                           pressed && styles.pressedShift,
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.innerLipTopInset,
-                            { backgroundColor: theme.socialBtnLip },
-                          ]}
-                        />
                         {activeSocial === "google" ? (
                           <ActivityIndicator
                             color={theme.socialBtnText}
@@ -262,17 +249,13 @@ export default function LoginScreen() {
                               theme.socialBtnBg,
                               theme.socialBtnPressedBg
                             ),
-                            borderColor: theme.socialBtnBorder,
+                            boxShadow: pressed
+                              ? SOCIAL_PRESSED_SHADOWS
+                              : SOCIAL_SHADOWS,
                           },
                           pressed && styles.pressedShift,
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.innerLipTopInset,
-                            { backgroundColor: theme.socialBtnLip },
-                          ]}
-                        />
                         {activeSocial === "reddit" ? (
                           <ActivityIndicator
                             color={theme.socialBtnText}
@@ -316,10 +299,10 @@ export default function LoginScreen() {
                 {/* Error Banner (premium-error) */}
                 {error ? (
                   <View
-                    className="mb-3 flex-row items-center justify-center gap-2 rounded-xl border px-3 py-2"
+                    className="mb-3 flex-row items-center justify-center gap-2 rounded-xl px-3 py-2"
                     style={{
                       backgroundColor: theme.errorBannerBg,
-                      borderColor: theme.errorBannerBorder,
+                      boxShadow: ERROR_SHADOWS,
                     }}
                   >
                     <AlertCircle color="#ff7b63" size={15} />
@@ -351,17 +334,10 @@ export default function LoginScreen() {
                         backgroundColor: error
                           ? "rgba(255, 123, 99, 0.1)"
                           : theme.inputBg,
-                        borderColor: getInputFieldBorder(
+                        boxShadow: getInputShadow(
                           error !== null,
-                          isFocusedUser,
-                          theme.inputBorder
+                          isFocusedUser
                         ),
-                        borderTopColor: getInputFieldBorderTop(
-                          error !== null,
-                          isFocusedUser,
-                          theme.inputBorderTop
-                        ),
-                        borderWidth: isFocusedUser ? 1.5 : 1,
                       },
                     ]}
                   >
@@ -402,17 +378,10 @@ export default function LoginScreen() {
                         backgroundColor: error
                           ? "rgba(255, 123, 99, 0.1)"
                           : theme.inputBg,
-                        borderColor: getInputFieldBorder(
+                        boxShadow: getInputShadow(
                           error !== null,
-                          isFocusedPass,
-                          theme.inputBorder
+                          isFocusedPass
                         ),
-                        borderTopColor: getInputFieldBorderTop(
-                          error !== null,
-                          isFocusedPass,
-                          theme.inputBorderTop
-                        ),
-                        borderWidth: isFocusedPass ? 1.5 : 1,
                       },
                     ]}
                   >
@@ -488,6 +457,11 @@ export default function LoginScreen() {
                       <View
                         style={[
                           styles.loginBtn3d,
+                          {
+                            boxShadow: pressed
+                              ? LOGIN_BUTTON_PRESSED_SHADOWS
+                              : LOGIN_BUTTON_SHADOWS,
+                          },
                           pressed && styles.pressedShift,
                         ]}
                       >
@@ -495,13 +469,8 @@ export default function LoginScreen() {
                           colors={["#ff9500", "#e65500"]}
                           end={{ x: 0.5, y: 1 }}
                           start={{ x: 0.5, y: 0 }}
-                          style={[
-                            styles.loginBtnGradient,
-                            { borderColor: theme.loginBtnBorder },
-                          ]}
+                          style={styles.loginBtnGradient}
                         >
-                          {/* Bright inner lip reflection catching light */}
-                          <View style={styles.btn3dInnerLip} />
                           {isLoading ? (
                             <ActivityIndicator color="#ffffff" size="small" />
                           ) : null}
@@ -531,17 +500,13 @@ export default function LoginScreen() {
                               theme.passkeyBg,
                               isDark ? "#202020" : "#e5e7eb"
                             ),
-                            borderColor: theme.passkeyBorder,
+                            boxShadow: isDark
+                              ? ICON_BUTTON_SHADOWS_DARK
+                              : ICON_BUTTON_SHADOWS_LIGHT,
                           },
                           pressed && styles.pressedShift,
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.innerLipTopInset,
-                            { backgroundColor: theme.passkeyLip },
-                          ]}
-                        />
                         {activeSocial === "passkey" ? (
                           <ActivityIndicator color="#ff9500" size="small" />
                         ) : (
@@ -595,16 +560,6 @@ const styles = StyleSheet.create({
     height: 32,
     width: 44,
   },
-  btn3dInnerLip: {
-    backgroundColor: "rgba(255, 255, 255, 0.45)",
-    borderTopLeftRadius: 9999,
-    borderTopRightRadius: 9999,
-    height: 1.5,
-    left: 12,
-    position: "absolute",
-    right: 12,
-    top: 0,
-  },
   btnFullWidth: {
     width: "100%",
   },
@@ -634,40 +589,18 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProReg",
     fontWeight: "normal",
   },
-  innerLipTopInset: {
-    height: 1,
-    left: 8,
-    position: "absolute",
-    right: 8,
-    top: 0,
-  },
   inputField3d: {
     borderRadius: 12,
-    borderTopWidth: 1,
-    borderWidth: 1,
   },
   keyboardAvoid: {
     flex: 1,
   },
   loginBtn3d: {
     borderRadius: 9999,
-    overflow: "hidden",
-    ...Platform.select({
-      android: {
-        elevation: 0,
-      },
-      ios: {
-        shadowColor: "#ff9500",
-        shadowOffset: { height: 3, width: 0 },
-        shadowOpacity: 0.35,
-        shadowRadius: 6,
-      },
-    }),
   },
   loginBtnGradient: {
     alignItems: "center",
     borderRadius: 9999,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 8,
     height: 44,
@@ -686,23 +619,9 @@ const styles = StyleSheet.create({
   passkeyBtn3d: {
     alignItems: "center",
     borderRadius: 9999,
-    borderWidth: 1,
     height: 44,
     justifyContent: "center",
-    overflow: "hidden",
-    position: "relative",
     width: 44,
-    ...Platform.select({
-      android: {
-        elevation: 0,
-      },
-      ios: {
-        shadowColor: "#000000",
-        shadowOffset: { height: 1, width: 0 },
-        shadowOpacity: 0.04,
-        shadowRadius: 2,
-      },
-    }),
   },
   pressedShift: {
     opacity: 0.88,
@@ -727,24 +646,10 @@ const styles = StyleSheet.create({
   socialBtn3d: {
     alignItems: "center",
     borderRadius: 12,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 8,
     height: 40,
     justifyContent: "center",
-    overflow: "hidden",
-    position: "relative",
     width: "100%",
-    ...Platform.select({
-      android: {
-        elevation: 0,
-      },
-      ios: {
-        shadowColor: "#000000",
-        shadowOffset: { height: 1, width: 0 },
-        shadowOpacity: 0.04,
-        shadowRadius: 2,
-      },
-    }),
   },
 });
