@@ -545,6 +545,7 @@ export default function LoginScreen() {
               <Pressable
                 className="mt-4 flex-row items-center justify-center gap-1.5 py-1"
                 hitSlop={6}
+                onPress={() => router.replace("/")}
               >
                 <ArrowLeft color={theme.guestLink} size={15} />
                 <Text
