@@ -195,7 +195,7 @@ function AlbumGrid({
             isThree && index === 0 && "col-span-2 aspect-[2/1]"
           )}
           image={image}
-          key={image.url}
+          key={`${index}-${image.url}`}
           kind={kind}
           onClick={() => onOpen(index)}
           overlayCount={
