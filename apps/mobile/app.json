@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.0.8",
+    "version": "0.0.10",
     "description": "The open social platform you'll ever need. Open source, cozy, and slightly unhinged.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -34,6 +34,15 @@
           "backgroundColor": "#00000000",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 140
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
         }
       ]
     ],

@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.8",
+  "version": "0.0.10",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -8,12 +8,14 @@
     "android": "expo start --android -p 8082",
     "ios": "expo start --ios -p 8082",
     "web": "expo start --web -p 8082",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
+    "build:apk": "bun scripts/build-android-apk.ts"
   },
   "dependencies": {
     "@expo/ui": "~57.0.18",
     "@tailwindcss/postcss": "^4.3.3",
     "expo": "~57.0.23",
+    "expo-build-properties": "~57.0.21",
     "expo-constants": "~57.0.18",
     "expo-device": "~57.0.2",
     "expo-font": "~57.0.4",

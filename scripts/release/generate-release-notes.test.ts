@@ -32,30 +32,44 @@ describe("formatReleaseNotes", () => {
     },
   };
 
-  test("generates full markdown with header image, PR link, and versions", () => {
+  test("generates full markdown with header image, PR link, and containers", () => {
     const markdown = formatReleaseNotes(baseOptions);
 
     expect(markdown).toContain(
       'src="https://img.przknv.cc/t/Assets_zephyr-githubanner.jpg"'
     );
-    expect(markdown).toContain("# Release v1.5.80");
+    expect(markdown).toContain("### Release v1.5.80");
     expect(markdown).toContain("[#42 - Mobile release]");
     expect(markdown).toContain("> **Contributors:** @parazeeknova");
     expect(markdown).toContain("### What's Changed");
     expect(markdown).toContain(
       "- feat\\[mobile\\]: Implement 3D auth screen (`c779d93`) by @parazeeknova"
     );
-    expect(markdown).toContain("| **Monorepo Root** | `v1.5.80` |");
-    expect(markdown).toContain(
-      "| **Mobile Application (Android)** | `v0.0.2` |"
-    );
-    expect(markdown).toContain("| **Web Application** | `v1.0.2` |");
     expect(markdown).toContain(
       "| **Web Application** | `ghcr.io/asocialmedia/asm-web` | `web-v1.0.2` |"
     );
     expect(markdown).toContain(
       "*No mobile application update was included in this release.*"
     );
+  });
+
+  test("no longer renders the workspace version table", () => {
+    const markdown = formatReleaseNotes(baseOptions);
+
+    expect(markdown).not.toContain("Workspace & App Versions");
+    expect(markdown).not.toContain("Monorepo Root");
+  });
+
+  test("uses h3 headings only, never h1 or h2", () => {
+    const markdown = formatReleaseNotes(baseOptions);
+    const headings = markdown
+      .split("\n")
+      .filter((line) => /^#{1,6}\s/u.test(line));
+
+    expect(headings.length).toBeGreaterThan(0);
+    for (const heading of headings) {
+      expect(heading.startsWith("### ")).toBe(true);
+    }
   });
 
   test("includes mobile artifact and sha256 checksum when provided", () => {
