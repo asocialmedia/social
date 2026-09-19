@@ -13,6 +13,7 @@ import {
 } from "react-native";
 
 import resetBgImage from "@/assets/images/password-reset-image.jpg";
+import { requestPasswordReset } from "@/lib/auth-api";
 import { validateIdentifier } from "@/lib/auth-validation";
 import { INPUT_FOCUS_SHADOWS, INPUT_SHADOWS, useAppTheme } from "@/theme";
 
@@ -38,7 +39,7 @@ export default function ResetPasswordScreen() {
     return INPUT_SHADOWS;
   }
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const validationError = validateIdentifier(identifier);
     if (validationError) {
       setError(validationError);
@@ -46,11 +47,13 @@ export default function ResetPasswordScreen() {
     }
     setError(null);
     setIsLoading(true);
-    // UI-only: simulate requestPasswordReset.
-    setTimeout(() => {
-      setIsLoading(false);
+    const result = await requestPasswordReset(identifier.trim());
+    setIsLoading(false);
+    if (result.ok) {
       setIsEmailSent(true);
-    }, 900);
+      return;
+    }
+    setError(result.error ?? "Couldn't send the reset email, try again?");
   }, [identifier]);
 
   return (
@@ -143,7 +146,9 @@ export default function ResetPasswordScreen() {
             <AuthPrimaryButton
               label="Send Reset Link"
               loading={isLoading}
-              onPress={handleSubmit}
+              onPress={() => {
+                void handleSubmit();
+              }}
             />
           </View>
           <View className="mt-6 items-center">

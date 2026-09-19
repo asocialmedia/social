@@ -232,23 +232,20 @@ export default function SignupScreen() {
       return;
     }
     setIsLoading(true);
-    // UI-only: simulate requestSignup then advance to the OTP panel.
-    later(() => {
-      setIsLoading(false);
-      const stampedAt = Date.now();
-      setOtpDeadline(stampedAt + OTP_EXPIRY_MS);
-      setResendAvailableAt(stampedAt + OTP_RESEND_GATE_MS);
-      setNow(stampedAt);
-      setOTPState(email.trim());
-    }, 900);
+    // In-app signup is not wired yet: /api/signup requires a Turnstile token,
+    // and the native Turnstile integration has not shipped. Faking success here
+    // walked users through an OTP screen that created nothing, so state the
+    // limitation plainly and point at the web flow instead.
+    setIsLoading(false);
+    setFormError(
+      "Creating an account in the app isn't available yet. Please sign up at asocialmedia.cc, then log in here."
+    );
   }, [
     acceptedTerms,
     email,
     humanVerified,
     isAgeVerified,
-    later,
     password,
-    setOTPState,
     triggerShake,
     username,
   ]);

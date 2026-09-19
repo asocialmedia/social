@@ -14,14 +14,7 @@ import {
   Upload,
 } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import Animated, { withTiming } from "react-native-reanimated";
 
 import signupBgImage from "@/assets/images/signup-image.jpg";
@@ -189,7 +182,6 @@ export default function HelpScreen() {
   const [formData, setFormData] = useState<SupportFormData>(INITIAL_FORM_DATA);
   const [emailTouched, setEmailTouched] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState<{
     kind: "error" | "success";
     text: string;
@@ -216,21 +208,23 @@ export default function HelpScreen() {
 
   const handleSubmit = useCallback(() => {
     if (!formData.message.trim()) {
+      setNotice({
+        kind: "error",
+        text: "Add a message so we know how to help before sending.",
+        title: "Message required",
+      });
       return;
     }
-    setIsLoading(true);
-    // UI-only: simulate POST /api/support.
-    setTimeout(() => {
-      setIsLoading(false);
-      setNotice({
-        kind: "success",
-        text: "We'll get back to you as soon as we can!",
-        title: "Message Sent",
-      });
-      setFormData(INITIAL_FORM_DATA);
-      setEmailTouched(false);
-      setStep(1);
-    }, 900);
+    // There is no support backend to post to yet: /api/support and
+    // /api/support/upload return 404 (the web form hits the same dead ends).
+    // Rather than fake a "Message Sent" success and silently drop the report -
+    // which could be an account or security issue - say plainly that it was not
+    // sent and keep the entered data so nothing is lost.
+    setNotice({
+      kind: "error",
+      text: "In-app support isn't connected yet, so this wasn't sent. Email hello@asocialmedia.cc and we'll pick it up from there - your message is still in the form.",
+      title: "Not sent",
+    });
   }, [formData.message]);
 
   const inputShadow = (name: string, hasError: boolean) => {
@@ -571,8 +565,7 @@ export default function HelpScreen() {
               </Pressable>
               <View className="flex-1">
                 <AuthPrimaryButton
-                  label={isLoading ? "Sending..." : "Send Message"}
-                  loading={isLoading}
+                  label="Send Message"
                   onPress={handleSubmit}
                 />
               </View>
@@ -649,23 +642,19 @@ export default function HelpScreen() {
       </View>
 
       <View className="mt-4 items-center">
-        {isLoading ? (
-          <ActivityIndicator color="#ff9500" size="small" />
-        ) : (
-          <Pressable
-            className="flex-row items-center gap-2"
-            hitSlop={6}
-            onPress={() => router.push("/(auth)/login")}
+        <Pressable
+          className="flex-row items-center gap-2"
+          hitSlop={6}
+          onPress={() => router.push("/(auth)/login")}
+        >
+          <ArrowLeft color={theme.auxLink} size={15} />
+          <Text
+            className="text-sm"
+            style={{ color: theme.auxLink, fontFamily: "SofiaProMed" }}
           >
-            <ArrowLeft color={theme.auxLink} size={15} />
-            <Text
-              className="text-sm"
-              style={{ color: theme.auxLink, fontFamily: "SofiaProMed" }}
-            >
-              Back to login
-            </Text>
-          </Pressable>
-        )}
+            Back to login
+          </Text>
+        </Pressable>
       </View>
     </AuthShell>
   );

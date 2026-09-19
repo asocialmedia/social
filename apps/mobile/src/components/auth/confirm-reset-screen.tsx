@@ -1,13 +1,14 @@
 // 1:1 native port of web ConfirmResetForm (set-new-password screen).
-// UI-only: validates the token state locally, validates both password
-// fields against the shared rules, then routes back to login.
+// Reads the reset token from the deep link, verifies it against the web
+// route's token check, and submits the new password to the auth service.
 
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { AlertCircle, Eye, EyeOff } from "lucide-react-native";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import confirmBgImage from "@/assets/images/confirm-reset-image.jpg";
+import { confirmPasswordReset, validateResetToken } from "@/lib/auth-api";
 import { validateNewPassword } from "@/lib/auth-validation";
 import {
   ERROR_SHADOWS,
@@ -23,6 +24,8 @@ import { PasswordStrength } from "./password-strength";
 export default function ConfirmResetScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ token?: string }>();
+  const token = typeof params.token === "string" ? params.token : "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -32,6 +35,26 @@ export default function ConfirmResetScreen() {
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // null while the token check is in flight, so the form does not flash.
+  const [isTokenValid, setIsTokenValid] = useState<boolean | null>(
+    token ? null : false
+  );
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+    let active = true;
+    void (async () => {
+      const valid = await validateResetToken(token);
+      if (active) {
+        setIsTokenValid(valid);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   function getFieldShadow(field: "confirm" | "password"): string {
     if (error) {
@@ -43,7 +66,11 @@ export default function ConfirmResetScreen() {
     return INPUT_SHADOWS;
   }
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
+    if (!token) {
+      setError("This reset link is missing its token. Request a new one.");
+      return;
+    }
     const passwordError = validateNewPassword(password);
     if (passwordError) {
       setError(passwordError);
@@ -55,12 +82,15 @@ export default function ConfirmResetScreen() {
     }
     setError(null);
     setIsLoading(true);
-    // UI-only: simulate resetPassword, then go back to login.
-    setTimeout(() => {
-      setIsLoading(false);
-      router.replace("/(auth)/login");
-    }, 900);
-  }, [confirmPassword, password, router]);
+    const result = await confirmPasswordReset(password, token);
+    setIsLoading(false);
+    if (!result.ok) {
+      setError(result.error ?? "Couldn't reset your password, try again?");
+      return;
+    }
+    // Only reached once the server accepted the new password.
+    router.replace("/(auth)/login");
+  }, [confirmPassword, password, router, token]);
 
   const renderPasswordField = (
     label: string,
@@ -122,49 +152,80 @@ export default function ConfirmResetScreen() {
       headingColor="#3b82f6"
       onGuestPress={() => router.replace("/")}
     >
-      {error ? (
-        <View
-          className="mb-3 flex-row items-center justify-center gap-2 rounded-xl px-3 py-2"
-          style={{
-            backgroundColor: theme.errorBannerBg,
-            boxShadow: ERROR_SHADOWS,
-          }}
-        >
-          <AlertCircle color="#ff7b63" size={15} />
+      {isTokenValid === false ? (
+        <View className="items-center gap-3 py-4">
+          <AlertCircle color="#ff7b63" size={22} />
           <Text
-            className="flex-1 text-center text-xs"
-            style={{ color: theme.errorBannerText, fontFamily: "SofiaProMed" }}
+            className="text-center text-sm"
+            style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
           >
-            {error}
+            This reset link is invalid or has expired. Request a new one to
+            continue.
           </Text>
+          <Pressable
+            hitSlop={6}
+            onPress={() => router.replace("/(auth)/reset-password")}
+          >
+            <Text
+              className="text-sm"
+              style={{ color: theme.auxLink, fontFamily: "SofiaProMed" }}
+            >
+              Request a new link
+            </Text>
+          </Pressable>
         </View>
-      ) : null}
-      {renderPasswordField(
-        "New Password",
-        password,
-        setPassword,
-        "password",
-        showPassword,
-        () => setShowPassword(!showPassword),
-        "••••••••"
+      ) : (
+        <>
+          {error ? (
+            <View
+              className="mb-3 flex-row items-center justify-center gap-2 rounded-xl px-3 py-2"
+              style={{
+                backgroundColor: theme.errorBannerBg,
+                boxShadow: ERROR_SHADOWS,
+              }}
+            >
+              <AlertCircle color="#ff7b63" size={15} />
+              <Text
+                className="flex-1 text-center text-xs"
+                style={{
+                  color: theme.errorBannerText,
+                  fontFamily: "SofiaProMed",
+                }}
+              >
+                {error}
+              </Text>
+            </View>
+          ) : null}
+          {renderPasswordField(
+            "New Password",
+            password,
+            setPassword,
+            "password",
+            showPassword,
+            () => setShowPassword(!showPassword),
+            "••••••••"
+          )}
+          <PasswordStrength password={password} />
+          {renderPasswordField(
+            "Confirm Password",
+            confirmPassword,
+            setConfirmPassword,
+            "confirm",
+            showConfirm,
+            () => setShowConfirm(!showConfirm),
+            "••••••••"
+          )}
+          <View className="mt-2">
+            <AuthPrimaryButton
+              label="Reset Password"
+              loading={isLoading}
+              onPress={() => {
+                void handleSubmit();
+              }}
+            />
+          </View>
+        </>
       )}
-      <PasswordStrength password={password} />
-      {renderPasswordField(
-        "Confirm Password",
-        confirmPassword,
-        setConfirmPassword,
-        "confirm",
-        showConfirm,
-        () => setShowConfirm(!showConfirm),
-        "••••••••"
-      )}
-      <View className="mt-2">
-        <AuthPrimaryButton
-          label="Reset Password"
-          loading={isLoading}
-          onPress={handleSubmit}
-        />
-      </View>
     </AuthShell>
   );
 }

@@ -2,16 +2,8 @@ pre-commit:
   commands:
     bump:
       run: bun scripts/hooks/bump-versions.ts
-      # The bump rewrites version manifests, and the script stages them itself.
-      # But `lint` below then reformats those same files (oxfmt collapses the
-      # JSON arrays the bump's JSON.stringify expands), and that reformat was
-      # never re-staged - so every commit left the tree dirty with the
-      # un-staged formatting and the next commit re-bumped from a stale index.
-      # stage_fixed folds each command's writes back into the commit.
-      stage_fixed: true
     lint:
       run: bun run check
-      stage_fixed: true
     types:
       run: bun run check-types
 
