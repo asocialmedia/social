@@ -174,4 +174,43 @@ describe("buildConversationMediaIndex", () => {
     expect(index.items).toEqual([]);
     expect(index.indexByKey.size).toBe(0);
   });
+
+  test("handles a 1000-image conversation in order and reuses identities", () => {
+    const count = 1000;
+    const list = messages(...Array.from({ length: count }, (_, i) => `m${i}`));
+    const entries: Record<string, ReturnType<typeof mediaPayload>> = {};
+    for (let index = 0; index < count; index += 1) {
+      entries[`m${index}`] = mediaPayload([`/api/media/${index}`]);
+    }
+
+    const first = buildConversationMediaIndex(list, lookup(entries));
+    expect(first.items).toHaveLength(count);
+    expect(first.items[0]?.flatKey).toBe("m0:0");
+    expect(first.items[999]?.flatKey).toBe("m999:0");
+    expect(first.indexByKey.get("m500:0")).toBe(500);
+
+    // A second pass over the same array must reuse every item identity, which
+    // is what keeps the viewer from remounting on unrelated decrypt ticks.
+    const second = buildConversationMediaIndex(list, lookup(entries));
+    expect(second.items[0]).toBe(first.items[0]);
+    expect(second.items[999]).toBe(first.items[999]);
+  });
+
+  test("skips a long imageless stretch while keeping media order", () => {
+    const list = messages(...Array.from({ length: 1000 }, (_, i) => `m${i}`));
+    const entries: Record<string, ReturnType<typeof mediaPayload>> = {};
+    // Only every 100th message is media; the rest decrypt to text.
+    for (let index = 0; index < 1000; index += 1) {
+      if (index % 100 === 0) {
+        entries[`m${index}`] = mediaPayload([`/api/media/${index}`]);
+      }
+    }
+    const index = buildConversationMediaIndex(list, (id) => {
+      const media = entries[id];
+      return media ?? { content: "hi", type: "text" };
+    });
+    expect(index.items.map((item) => item.flatKey)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `m${i * 100}:0`)
+    );
+  });
 });
