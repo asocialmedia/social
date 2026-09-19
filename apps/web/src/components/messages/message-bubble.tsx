@@ -214,7 +214,7 @@ export function MessageBubble({
           </div>
 
           {/* Mobile: message options tucked into a dropdown, styled like the
-              postcard's more menu (apple-panel + pill-3d-hover items). */}
+              postcard's more menu (panel-3d + pill-3d-hover items). */}
           <div
             className={cn(
               "max-sm:block sm:hidden",
@@ -234,10 +234,7 @@ export function MessageBubble({
                   <MoreHorizontal className="size-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="apple-panel min-w-36 p-1.5 shadow-none"
-              >
+              <DropdownMenuContent align="end" className="min-w-36 p-1.5">
                 <DropdownMenuItem
                   className="pill-3d-hover rounded-md px-2 py-2"
                   onClick={() => {

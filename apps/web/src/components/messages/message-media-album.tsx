@@ -1,6 +1,11 @@
 "use client";
 
-import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@asm/ui/shadui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
 import Image from "next/image";
@@ -357,6 +362,10 @@ function MessageMediaViewer({
       >
         <VisuallyHidden>
           <DialogTitle>Shared image</DialogTitle>
+          <DialogDescription>
+            {kind === "gif" ? "Shared GIF" : "Shared image"} {index + 1} of{" "}
+            {images.length}
+          </DialogDescription>
         </VisuallyHidden>
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center">
@@ -426,7 +435,10 @@ function MessageMediaViewer({
             >
               <ChevronRight className="h-6 w-6" />
             </button>
-            <span className="absolute bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white backdrop-blur-md">
+            <span
+              aria-live="polite"
+              className="absolute bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white backdrop-blur-md"
+            >
               {index + 1} / {images.length}
             </span>
           </>

@@ -30,7 +30,7 @@ function AttachmentTile({
   );
 
   return (
-    <div
+    <li
       className={cn(
         "surface-3d group relative size-16 shrink-0 overflow-hidden rounded-xl",
         errored && "ring-1 ring-red-500/60"
@@ -91,7 +91,7 @@ function AttachmentTile({
       >
         <X className="size-3" />
       </button>
-    </div>
+    </li>
   );
 }
 
@@ -111,9 +111,9 @@ export function MessageAttachmentStrip({
   }
 
   return (
-    <div
+    <ul
       aria-label="Attached images"
-      className="mb-2 flex [scrollbar-width:none] gap-2 overflow-x-auto overscroll-x-contain pb-0.5 [&::-webkit-scrollbar]:hidden"
+      className="mb-2 flex [scrollbar-width:none] list-none gap-2 overflow-x-auto overscroll-x-contain p-0 pb-0.5 [&::-webkit-scrollbar]:hidden"
     >
       {attachments.map((attachment) => (
         <AttachmentTile
@@ -124,6 +124,6 @@ export function MessageAttachmentStrip({
           onRetry={() => onRetry(attachment.id)}
         />
       ))}
-    </div>
+    </ul>
   );
 }
