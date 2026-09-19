@@ -9,10 +9,12 @@ import { discardMessageMedia, uploadMessageMedia } from "@/lib/messages/client";
 import type {
   GroupedMessageAttachments,
   MessageAttachmentDraft,
+  StagedMediaId,
 } from "./message-attachment-state";
 import {
   groupReadyAttachments,
   hasUploading,
+  isMediaReferenced,
   isReadyToSend,
   kindForFile,
   selectAcceptedFiles,
@@ -22,8 +24,7 @@ type AttachmentAction =
   | { drafts: MessageAttachmentDraft[]; type: "add" }
   | { id: string; patch: Partial<MessageAttachmentDraft>; type: "update" }
   | { id: string; type: "remove" }
-  | { draft: MessageAttachmentDraft; id: string; type: "replace" }
-  | { type: "clear" };
+  | { draft: MessageAttachmentDraft; id: string; type: "replace" };
 
 function attachmentReducer(
   state: MessageAttachmentDraft[],
@@ -48,9 +49,6 @@ function attachmentReducer(
         attachment.id === action.id ? action.draft : attachment
       );
     }
-    case "clear": {
-      return [];
-    }
     default: {
       return state;
     }
@@ -73,9 +71,10 @@ export function useMessageAttachments(conversationId: string) {
   const [attachments, dispatch] = useReducer(attachmentReducer, []);
   const controllersRef = useRef(new Map<string, AbortController>());
   const progressRef = useRef(new Map<string, number>());
-  // Server media ids keyed by draft id, captured as soon as the row exists (see
-  // onMediaId) so a removal can discard it even while bytes are still in flight.
-  const mediaIdsRef = useRef(new Map<string, string>());
+  // Server media rows keyed by draft id, captured as soon as the row exists
+  // (see onMediaId) so a removal can discard it even while bytes are still in
+  // flight. `owned` guards against discarding deduped rows.
+  const mediaIdsRef = useRef(new Map<string, StagedMediaId>());
   const attachmentsRef = useRef(attachments);
 
   useEffect(() => {
@@ -92,8 +91,10 @@ export function useMessageAttachments(conversationId: string) {
         controller.abort();
       }
       controllersRef.current.clear();
-      for (const mediaId of mediaIdsRef.current.values()) {
-        void discardMessageMedia(mediaId);
+      for (const entry of mediaIdsRef.current.values()) {
+        if (entry.owned) {
+          void discardMessageMedia(entry.mediaId);
+        }
       }
       mediaIdsRef.current.clear();
       for (const attachment of attachmentsRef.current) {
@@ -126,8 +127,11 @@ export function useMessageAttachments(conversationId: string) {
           draft.kind,
           conversationId,
           {
-            onMediaId: (mediaId) => {
-              mediaIdsRef.current.set(draft.id, mediaId);
+            onMediaId: (mediaId, meta) => {
+              mediaIdsRef.current.set(draft.id, {
+                mediaId,
+                owned: meta.owned,
+              });
               dispatch({
                 id: draft.id,
                 patch: { mediaId },
@@ -175,11 +179,18 @@ export function useMessageAttachments(conversationId: string) {
           return;
         }
         // A failed/aborted transfer leaves a server row behind; reclaim it since
-        // it can never be sent.
-        const failedMediaId = mediaIdsRef.current.get(draft.id);
+        // it can never be sent (unless another draft still references it).
+        const failedEntry = mediaIdsRef.current.get(draft.id);
         mediaIdsRef.current.delete(draft.id);
-        if (failedMediaId) {
-          void discardMessageMedia(failedMediaId);
+        if (
+          failedEntry?.owned &&
+          !isMediaReferenced(
+            mediaIdsRef.current,
+            failedEntry.mediaId,
+            new Set([draft.id])
+          )
+        ) {
+          void discardMessageMedia(failedEntry.mediaId);
         }
         dispatch({
           id: draft.id,
@@ -231,6 +242,11 @@ export function useMessageAttachments(conversationId: string) {
         width: null,
       }));
 
+      // Optimistically advance the ref used for capacity checks: the effect
+      // that syncs it from state runs after commit, so two adds in the same
+      // tick (e.g. paste + drop) could otherwise each see the old length and
+      // together exceed the cap.
+      attachmentsRef.current = [...attachmentsRef.current, ...drafts];
       dispatch({ drafts, type: "add" });
       for (const draft of drafts) {
         void startUpload(draft);
@@ -247,10 +263,14 @@ export function useMessageAttachments(conversationId: string) {
         controllersRef.current.get(id)?.abort();
         controllersRef.current.delete(id);
         progressRef.current.delete(id);
-        const mediaId = mediaIdsRef.current.get(id);
+        const entry = mediaIdsRef.current.get(id);
         mediaIdsRef.current.delete(id);
-        if (shouldDiscard && mediaId) {
-          void discardMessageMedia(mediaId);
+        if (
+          shouldDiscard &&
+          entry?.owned &&
+          !isMediaReferenced(mediaIdsRef.current, entry.mediaId, idSet)
+        ) {
+          void discardMessageMedia(entry.mediaId);
         }
       }
       for (const attachment of attachmentsRef.current) {
@@ -277,11 +297,18 @@ export function useMessageAttachments(conversationId: string) {
       controllersRef.current.get(id)?.abort();
       controllersRef.current.delete(id);
       progressRef.current.delete(id);
-      const previousMediaId = mediaIdsRef.current.get(id);
+      const previousEntry = mediaIdsRef.current.get(id);
       mediaIdsRef.current.delete(id);
-      if (previousMediaId) {
+      if (
+        previousEntry?.owned &&
+        !isMediaReferenced(
+          mediaIdsRef.current,
+          previousEntry.mediaId,
+          new Set([id])
+        )
+      ) {
         // The replaced upload is never sent; reclaim it instead of orphaning it.
-        void discardMessageMedia(previousMediaId);
+        void discardMessageMedia(previousEntry.mediaId);
       }
       const target = attachmentsRef.current.find(
         (attachment) => attachment.id === id
@@ -319,22 +346,6 @@ export function useMessageAttachments(conversationId: string) {
     [startUpload]
   );
 
-  const resetAttachments = useCallback(() => {
-    for (const controller of controllersRef.current.values()) {
-      controller.abort();
-    }
-    controllersRef.current.clear();
-    progressRef.current.clear();
-    for (const mediaId of mediaIdsRef.current.values()) {
-      void discardMessageMedia(mediaId);
-    }
-    mediaIdsRef.current.clear();
-    for (const attachment of attachmentsRef.current) {
-      URL.revokeObjectURL(attachment.objectUrl);
-    }
-    dispatch({ type: "clear" });
-  }, []);
-
   const readyGroups = useMemo(
     (): GroupedMessageAttachments[] => groupReadyAttachments(attachments),
     [attachments]
@@ -349,7 +360,6 @@ export function useMessageAttachments(conversationId: string) {
     removeAttachment,
     removeAttachments,
     replaceAttachmentFile,
-    resetAttachments,
     retryAttachment,
   };
 }

@@ -2,11 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
 
-import type { MessageAttachmentDraft } from "./message-attachment-state";
+import type {
+  MessageAttachmentDraft,
+  StagedMediaId,
+} from "./message-attachment-state";
 import {
   groupReadyAttachments,
   hasUploading,
   isAllowedMessageImage,
+  isMediaReferenced,
   isReadyToSend,
   kindForFile,
   selectAcceptedFiles,
@@ -30,6 +34,12 @@ function draft(
     width: 100,
     ...overrides,
   };
+}
+
+function entries(
+  ...pairs: [string, StagedMediaId][]
+): Map<string, StagedMediaId> {
+  return new Map(pairs);
 }
 
 describe("isAllowedMessageImage", () => {
@@ -153,5 +163,36 @@ describe("groupReadyAttachments", () => {
       draft({ height: null, id: "1", mediaUrl: "/api/media/1", width: null }),
     ]);
     expect(groups[0].images[0]).toEqual({ url: "/api/media/1" });
+  });
+});
+
+describe("isMediaReferenced", () => {
+  test("detects another draft still holding the same media row", () => {
+    const map = entries(
+      ["a", { mediaId: "m1", owned: true }],
+      ["b", { mediaId: "m1", owned: false }]
+    );
+    expect(isMediaReferenced(map, "m1", new Set(["a"]))).toBe(true);
+  });
+
+  test("ignores drafts that are part of the same removal batch", () => {
+    const map = entries(
+      ["a", { mediaId: "m1", owned: true }],
+      ["b", { mediaId: "m1", owned: false }]
+    );
+    expect(isMediaReferenced(map, "m1", new Set(["a", "b"]))).toBe(false);
+  });
+
+  test("returns false when the last reference is gone", () => {
+    const map = entries(["a", { mediaId: "m1", owned: true }]);
+    expect(isMediaReferenced(map, "m1", new Set(["a"]))).toBe(false);
+  });
+
+  test("distinguishes media ids", () => {
+    const map = entries(
+      ["a", { mediaId: "m1", owned: true }],
+      ["b", { mediaId: "m2", owned: true }]
+    );
+    expect(isMediaReferenced(map, "m1", new Set(["a"]))).toBe(false);
   });
 });

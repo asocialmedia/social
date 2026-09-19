@@ -239,9 +239,9 @@ export interface MessageMediaUploadOptions {
   // Fires as the pipeline advances through scan/process, so the tile can label
   // the current phase.
   onStage?: (stage: UploadStage) => void;
-  // Reports the media id as soon as the server row exists, so the composer can
-  // discard it if the sender removes the attachment before sending.
-  onMediaId?: (mediaId: string) => void;
+  // Reports the media id as soon as the server row exists, with `owned` false
+  // when the row was reused via dedup (so callers know not to discard it).
+  onMediaId?: (mediaId: string, meta: { owned: boolean }) => void;
   // Aborts the upload when the sender removes the attachment or unmounts.
   signal?: AbortSignal;
 }
@@ -285,8 +285,10 @@ export async function uploadMessageMedia(
 
 // Best-effort discard for a staged message attachment the sender removed before
 // sending. The endpoint refuses rows the caller does not own, and detaches the
-// conversation link so the normal cleanup job can reclaim the objects and
-// quota; failures are non-fatal (the abandoned-upload sweep is the backstop).
+// conversation link so the cleanup job can reclaim the objects and quota.
+// Failures are non-fatal: message media has no server-side abandoned-upload
+// sweep (the pipeline cannot link ciphertext to a media row), so a discard that
+// never reaches the server leaves the row orphaned.
 export async function discardMessageMedia(mediaId: string): Promise<void> {
   try {
     await fetch(`/api/media/${mediaId}/message-discard`, {

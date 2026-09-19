@@ -80,6 +80,30 @@ export function hasUploading(attachments: MessageAttachmentDraft[]): boolean {
   return attachments.some((attachment) => attachment.status === "uploading");
 }
 
+// A staged upload's server row. `owned` is true only when this draft uploaded
+// fresh bytes: a dedup hit may point at a row already backing a sent message, so
+// it must never be discarded on removal.
+export interface StagedMediaId {
+  mediaId: string;
+  owned: boolean;
+}
+
+// Whether any draft outside `removedIds` still references the media row.
+// Prevents removing one tile from deleting a row another tile (or an earlier
+// send) still depends on.
+export function isMediaReferenced(
+  entries: Map<string, StagedMediaId>,
+  mediaId: string,
+  removedIds: Set<string>
+): boolean {
+  for (const [draftId, entry] of entries) {
+    if (!removedIds.has(draftId) && entry.mediaId === mediaId) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Groups ready attachments by media kind, preserving order. A mixed batch (some
 // GIFs, some photos) becomes one album message per kind, because a single
 // encrypted media payload carries one `kind` for all of its images.

@@ -284,14 +284,16 @@ export function MessageComposer({
           };
           // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
           const ok = await sendPayload(payload);
-          // Drop exactly this group without server-discarding it: these media
-          // ids now back sent messages, and removing only this group keeps a
-          // failed later group retryable without resending earlier ones.
-          removeAttachments(group.attachmentIds, { discard: false });
           if (!ok) {
+            // Leave every group staged and tracked so the sender can retry and
+            // the media rows are still reclaimed if they leave the thread.
             setSending(false);
             return;
           }
+          // Only drop groups that actually landed, and never discard their media
+          // (now referenced by sent messages). Earlier groups stay dropped so a
+          // later failure cannot cause a resend.
+          removeAttachments(group.attachmentIds, { discard: false });
           first = false;
         }
       } else {
@@ -488,7 +490,7 @@ export function MessageComposer({
       ) : null}
 
       {gifPickerOpen ? (
-        <div className="apple-panel mb-2 w-full rounded-2xl p-2">
+        <div className="panel-3d mb-2 w-full rounded-2xl p-2">
           <KlipyGifPicker
             disabled={busy}
             onSelect={(gif) => {
