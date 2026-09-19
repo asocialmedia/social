@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import { toast } from "@/lib/gooey-toast";
@@ -209,7 +210,7 @@ export function useMessageAttachments(conversationId: string) {
       }
       if (overflow > 0) {
         toast({
-          description: `You can send up to 10 images at a time.`,
+          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} images at a time.`,
           title: "Attachment Limit",
           variant: "destructive",
         });
