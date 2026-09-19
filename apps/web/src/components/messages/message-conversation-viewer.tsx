@@ -538,7 +538,10 @@ export function ConversationMediaViewer({
           </DialogDescription>
         </VisuallyHidden>
 
-        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+        {/* Stage: sits on the darker grey surface (the app's raised/secondary
+            tone) so it reads as a distinct image container against the
+            `bg-background` chrome bars above and below. */}
+        <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[hsl(var(--background-alt))]">
           {item ? (
             <StageImage
               item={item}
