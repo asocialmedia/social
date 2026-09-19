@@ -694,7 +694,7 @@ export function MessageThread({
     if (!mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
       return;
     }
-    const { data } = messagesQuery;
+    const {data} = messagesQuery;
     if (!data) {
       return;
     }
@@ -728,7 +728,7 @@ export function MessageThread({
     conversationId,
     isFetchingPreviousPage,
     mediaViewerKey,
-    messagesQuery,
+    messagesQuery.data,
     queryClient,
     viewerPosition,
   ]);
