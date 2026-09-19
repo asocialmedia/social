@@ -19,9 +19,9 @@
 
 Anything that changes how message keys are derived, stored, wrapped, or recovered must keep all three of these true in the same PR — a change missing one is how a recoverable account became permanently stranding:
 
-1. **The server can never derive a key.** Only ciphertext, salts, iteration counts, and verifier hashes may be persisted. Never store a raw secret, master key, or private key (see `apps/web/src/lib/messages/crypto.ts`). Guarded by "the stored row alone cannot decrypt the backup" in `crypto.test.ts`.
-2. **A user can always recover on a fresh device.** If a key material source is device-only, it must also be displayable and re-enterable (see the messages recovery card and locked screen). A secret the user was never shown is not a recovery mechanism.
-3. **A lost key degrades, never bricks.** When a key is unrecoverable, there must be a self-scoped reset path that loses only the resetting account's own history and leaves the peer's intact (`DELETE /api/messages/identity`, and versioned wraps in `MessageConversationKey`).
+1. **The server can never derive a key.** Only ciphertext, salts, iteration counts, and verifier hashes may be persisted. Never store a raw secret, master key, private key, or WebAuthn PRF output (see `apps/web/src/lib/messages/crypto.ts` and `recovery-*.ts`). The PRF extension is applied client-side; the browser serializers send an empty `clientExtensionResults` so the output cannot leak to a verification route. Guarded by "the stored row alone cannot decrypt the backup" in `crypto.test.ts`.
+2. **A user can always recover on a fresh device.** The primary mechanism is a WebAuthn recovery credential whose PRF output derives the backup key (synced passkeys follow the user's platform account). The manual recovery secret remains the fallback: if a key-material source is device-only, it must also be displayable and re-enterable (see the messages recovery card and locked screen). A secret the user was never shown is not a recovery mechanism. Enrolling a passkey stores a _second_ backup copy, never replaces the manual one, so enrolling cannot lock out a device that only holds the secret.
+3. **A lost key degrades, never bricks.** When a key is unrecoverable, there must be a self-scoped reset path that loses only the resetting account's own history and leaves the peer's intact (`DELETE /api/messages/identity`, and versioned wraps in `MessageConversationKey`). Bump the conversation-key `version` rather than overwriting a wrap: the peer's older epochs must stay readable.
 
 # UI:
 

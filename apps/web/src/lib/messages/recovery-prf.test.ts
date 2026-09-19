@@ -33,7 +33,7 @@ describe("extractPrfOutput", () => {
       prf: { enabled: true, results: { first: bytes.buffer } },
     });
     expect(output).not.toBeNull();
-    expect([...output as Uint8Array]).toEqual([1, 2, 3, 4]);
+    expect([...(output as Uint8Array)]).toEqual([1, 2, 3, 4]);
   });
 
   test("normalizes a buffer view, honoring its offset and length", () => {
@@ -43,7 +43,7 @@ describe("extractPrfOutput", () => {
     const output = extractPrfOutput({
       prf: { results: { first: view } },
     });
-    expect([...output as Uint8Array]).toEqual([5, 6]);
+    expect([...(output as Uint8Array)]).toEqual([5, 6]);
   });
 
   test("is null when PRF is unsupported or produced no result", () => {
