@@ -27,9 +27,10 @@ import {
   GITHUB_REPO_DEFAULT,
   findLatestApkRelease,
   githubReleasesUrl,
+  isTrustedApkUrl,
   isUpdateRequired,
+  parseReleases,
 } from "@/lib/update-check";
-import type { UpdateRelease } from "@/lib/update-check";
 import { ERROR_SHADOWS, useAppTheme } from "@/theme";
 
 type GateState =
@@ -48,6 +49,10 @@ function getCurrentVersion(): string | null {
 }
 
 const UPDATE_CHECK_ENABLED = !__DEV__ && Platform.OS === "android";
+
+// A download that stops delivering bytes should not hang the gate forever;
+// abort once nothing has arrived for this long.
+const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 60_000;
 
 export function UpdateGate() {
   const { theme } = useAppTheme();
@@ -70,14 +75,18 @@ export function UpdateGate() {
         setState({ status: "current" });
         return;
       }
-      const releases = (await response.json()) as UpdateRelease[];
+      const releases = parseReleases(await response.json());
       const latest = findLatestApkRelease(releases);
       const current = getCurrentVersion();
       logInfo("update.check", {
         current: current ?? "unknown",
         latest: latest?.version ?? "none",
       });
-      if (latest && isUpdateRequired(current, latest.version)) {
+      if (
+        latest &&
+        isTrustedApkUrl(latest.asset.browser_download_url, repo) &&
+        isUpdateRequired(current, latest.version)
+      ) {
         setState({
           assetName: latest.asset.name,
           assetUrl: latest.asset.browser_download_url,
@@ -85,6 +94,11 @@ export function UpdateGate() {
           version: latest.version,
         });
         return;
+      }
+      if (latest && !isTrustedApkUrl(latest.asset.browser_download_url, repo)) {
+        // Refuse to point the installer at anything outside this repo's
+        // releases; treat it as "no update" rather than trusting the URL.
+        logWarn("update.untrusted_asset_url", { repo });
       }
       setState({ status: "current" });
     } catch (error) {
@@ -116,15 +130,29 @@ export function UpdateGate() {
       void checkForUpdate();
       return;
     }
+    const controller = new AbortController();
+    let inactivity: ReturnType<typeof setTimeout> | null = null;
+    const armInactivity = () => {
+      if (inactivity) {
+        clearTimeout(inactivity);
+      }
+      inactivity = setTimeout(
+        () => controller.abort(),
+        DOWNLOAD_INACTIVITY_TIMEOUT_MS
+      );
+    };
     try {
       setState({ progress: 0, status: "downloading", version });
       logInfo("update.download_start", { version });
+      armInactivity();
       const file = await File.downloadFileAsync(
         assetUrl,
         new File(new Directory(Paths.cache), assetName),
         {
           idempotent: true,
           onProgress: ({ bytesWritten, totalBytes }) => {
+            // Bytes arriving means the transfer is alive, so restart the window.
+            armInactivity();
             if (totalBytes > 0) {
               setState({
                 progress: bytesWritten / totalBytes,
@@ -133,8 +161,16 @@ export function UpdateGate() {
               });
             }
           },
+          signal: controller.signal,
         }
       );
+      // The download is done, so the inactivity window no longer applies.
+      // Cleared here (not in a `finally`) because the React Compiler rejects
+      // try/finally.
+      if (inactivity) {
+        clearTimeout(inactivity);
+        inactivity = null;
+      }
       const { contentUri } = file;
       logInfo("update.download_done", { version });
       await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
@@ -143,6 +179,10 @@ export function UpdateGate() {
         type: "application/vnd.android.package-archive",
       });
     } catch (error) {
+      if (inactivity) {
+        clearTimeout(inactivity);
+        inactivity = null;
+      }
       logError("update.download_failed", error, { version });
       setState({
         message:

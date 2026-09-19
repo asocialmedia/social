@@ -4,8 +4,10 @@ import {
   compareVersions,
   findLatestApkRelease,
   githubReleasesUrl,
+  isTrustedApkUrl,
   isUpdateRequired,
   parseApkVersion,
+  parseReleases,
 } from "./update-check";
 
 describe("parseApkVersion", () => {
@@ -51,6 +53,52 @@ describe("findLatestApkRelease", () => {
       findLatestApkRelease([{ assets: [], tag_name: "v1.6.0+aaa" }])
     ).toBeNull();
   });
+
+  test("ignores prerelease APKs", () => {
+    const found = findLatestApkRelease([
+      {
+        assets: [
+          {
+            browser_download_url: "https://x/rc.apk",
+            name: "asocialmedia-v0.0.30.apk",
+            size: 1,
+          },
+        ],
+        prerelease: true,
+        tag_name: "v1.6.1+rc",
+      },
+      {
+        assets: [
+          {
+            browser_download_url: "https://x/stable.apk",
+            name: "asocialmedia-v0.0.19.apk",
+            size: 1,
+          },
+        ],
+        prerelease: false,
+        tag_name: "v1.6.0+stable",
+      },
+    ]);
+    expect(found?.version).toBe("0.0.19");
+  });
+
+  test("returns null when only prereleases ship an APK", () => {
+    expect(
+      findLatestApkRelease([
+        {
+          assets: [
+            {
+              browser_download_url: "https://x/rc.apk",
+              name: "asocialmedia-v0.0.30.apk",
+              size: 1,
+            },
+          ],
+          prerelease: true,
+          tag_name: "v1.6.1+rc",
+        },
+      ])
+    ).toBeNull();
+  });
 });
 
 describe("isUpdateRequired", () => {
@@ -70,5 +118,63 @@ describe("githubReleasesUrl", () => {
     expect(githubReleasesUrl("asocialmedia/social")).toBe(
       "https://api.github.com/repos/asocialmedia/social/releases?per_page=10"
     );
+  });
+});
+
+describe("isTrustedApkUrl", () => {
+  const repo = "asocialmedia/social";
+
+  test("accepts this repo's https release asset", () => {
+    expect(
+      isTrustedApkUrl(
+        "https://github.com/asocialmedia/social/releases/download/v1.0.0/app.apk",
+        repo
+      )
+    ).toBe(true);
+  });
+
+  test("rejects cleartext, other hosts, and other repos", () => {
+    expect(isTrustedApkUrl("http://github.com/a/b/releases/x", repo)).toBe(
+      false
+    );
+    expect(
+      isTrustedApkUrl("https://evil.example.com/asocialmedia/social/x", repo)
+    ).toBe(false);
+    expect(
+      isTrustedApkUrl("https://github.com/other/repo/releases/x", repo)
+    ).toBe(false);
+  });
+
+  test("rejects non-URL garbage", () => {
+    expect(isTrustedApkUrl("not a url", repo)).toBe(false);
+  });
+});
+
+describe("parseReleases", () => {
+  test("drops malformed entries and assets", () => {
+    const releases = parseReleases([
+      null,
+      "nope",
+      { assets: "not-an-array", tag_name: "v1" },
+      {
+        assets: [
+          { browser_download_url: 1, name: "x" },
+          { browser_download_url: "https://x/a.apk", name: 2 },
+          {
+            browser_download_url: "https://x/a.apk",
+            name: "asocialmedia-v0.0.1.apk",
+            size: 5,
+          },
+        ],
+        tag_name: "v2",
+      },
+    ]);
+    expect(releases).toHaveLength(2);
+    expect(releases[1]?.assets).toHaveLength(1);
+    expect(releases[1]?.assets[0]?.size).toBe(5);
+  });
+
+  test("returns an empty list for a non-array payload", () => {
+    expect(parseReleases({ message: "rate limited" })).toEqual([]);
   });
 });

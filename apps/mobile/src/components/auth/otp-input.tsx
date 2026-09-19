@@ -13,7 +13,6 @@ interface OtpInputProps {
   value: string;
 }
 
-const DIGITS_ONLY = /^\d*$/;
 const SLOT_COUNT = 6;
 
 export function OtpInput({
@@ -28,19 +27,39 @@ export function OtpInput({
   const digits = [...value].slice(0, SLOT_COUNT);
 
   const handleSlotChange = (text: string, index: number) => {
-    const char = text.replaceAll(/\D/g, "").slice(-1);
-    if (text !== "" && char === "" && !DIGITS_ONLY.test(text)) {
+    const numeric = text.replaceAll(/\D/g, "");
+    if (text !== "" && numeric === "") {
+      // Purely non-numeric input contributes nothing.
       return;
     }
     const next = [...digits];
     while (next.length < SLOT_COUNT) {
       next.push("");
     }
-    next[index] = char;
-    onChange(next.join("").slice(0, SLOT_COUNT));
-    if (char !== "" && index < SLOT_COUNT - 1) {
-      inputsRef.current[index + 1]?.focus();
+
+    if (numeric.length <= 1) {
+      // Manual entry replaces only the slot being edited.
+      next[index] = numeric;
+      onChange(next.join("").slice(0, SLOT_COUNT));
+      if (numeric !== "" && index < SLOT_COUNT - 1) {
+        inputsRef.current[index + 1]?.focus();
+      }
+      return;
     }
+
+    // Paste or OS one-time-code autofill delivers the whole code to whichever
+    // slot has focus, so spread the digits forward from there instead of
+    // discarding all but one.
+    for (let offset = 0; offset < numeric.length; offset += 1) {
+      const slot = index + offset;
+      if (slot >= SLOT_COUNT) {
+        break;
+      }
+      next[slot] = numeric[offset] ?? "";
+    }
+    onChange(next.join("").slice(0, SLOT_COUNT));
+    const lastFilled = Math.min(index + numeric.length, SLOT_COUNT - 1);
+    inputsRef.current[lastFilled]?.focus();
   };
 
   const handleKeyPress = (key: string, index: number) => {
@@ -69,7 +88,7 @@ export function OtpInput({
             editable={!disabled}
             inputMode="numeric"
             keyboardType={Platform.OS === "ios" ? "number-pad" : "numeric"}
-            maxLength={1}
+            maxLength={SLOT_COUNT}
             onChangeText={(text) => handleSlotChange(text, index)}
             onKeyPress={({ nativeEvent }) =>
               handleKeyPress(nativeEvent.key, index)

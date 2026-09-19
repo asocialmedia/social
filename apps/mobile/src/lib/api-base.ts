@@ -19,9 +19,23 @@ export function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
+// Release builds must never talk to a cleartext or non-http(s) origin: the
+// session cookie rides every request, so an `http://` override would leak it
+// on the wire. An unusable override falls back to prod rather than shipping.
+function resolveReleaseBaseUrl(publicApiUrl: string | undefined): string {
+  const candidate = normalizeBaseUrl(publicApiUrl ?? "");
+  if (!candidate) {
+    return PROD_API_URL;
+  }
+  if (!candidate.startsWith("https://")) {
+    return PROD_API_URL;
+  }
+  return candidate;
+}
+
 export function resolveApiBaseUrl(options: ApiBaseOptions): string {
   if (!options.dev) {
-    return normalizeBaseUrl(options.publicApiUrl || PROD_API_URL);
+    return resolveReleaseBaseUrl(options.publicApiUrl);
   }
   if (options.devApiUrl?.trim()) {
     return normalizeBaseUrl(options.devApiUrl);

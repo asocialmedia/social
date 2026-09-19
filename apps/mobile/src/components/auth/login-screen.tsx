@@ -487,6 +487,10 @@ export default function LoginScreen() {
                           setTwoFactorMethod("totp");
                           setCode("");
                           setError(null);
+                          // Switching method invalidates "a code was already
+                          // emailed"; otherwise returning to Email hides the
+                          // send button and looks like a code is in flight.
+                          setEmailSent(false);
                         }}
                         style={[
                           styles.methodChip,
@@ -528,6 +532,7 @@ export default function LoginScreen() {
                           setTwoFactorMethod("email");
                           setCode("");
                           setError(null);
+                          setEmailSent(false);
                         }}
                         style={[
                           styles.methodChip,

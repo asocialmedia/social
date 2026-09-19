@@ -90,7 +90,12 @@ export function MobileHeader({
         >
           {user ? (
             <>
-              <Pressable hitSlop={6} onPress={() => router.push("/")}>
+              <Pressable
+                accessibilityLabel="Notifications"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => router.push("/")}
+              >
                 {({ pressed }) => (
                   <View
                     style={[
@@ -125,7 +130,12 @@ export function MobileHeader({
                   </View>
                 )}
               </Pressable>
-              <Pressable hitSlop={6} onPress={onSearchPress}>
+              <Pressable
+                accessibilityLabel="Search"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={onSearchPress}
+              >
                 {({ pressed }) => (
                   <View
                     style={[

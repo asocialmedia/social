@@ -40,6 +40,37 @@ describe("resolveApiBaseUrl", () => {
     ).toBe("https://staging.example.com");
   });
 
+  test("release builds treat a whitespace-only override as unset", () => {
+    expect(
+      resolveApiBaseUrl({
+        dev: false,
+        platform: "android",
+        publicApiUrl: "   ",
+      })
+    ).toBe(PROD_API_URL);
+  });
+
+  test("release builds refuse a cleartext override", () => {
+    // The session cookie rides every request, so http:// must never be used.
+    expect(
+      resolveApiBaseUrl({
+        dev: false,
+        platform: "android",
+        publicApiUrl: "http://evil.example.com",
+      })
+    ).toBe(PROD_API_URL);
+  });
+
+  test("release builds refuse a non-http(s) override", () => {
+    expect(
+      resolveApiBaseUrl({
+        dev: false,
+        platform: "android",
+        publicApiUrl: "ftp://example.com",
+      })
+    ).toBe(PROD_API_URL);
+  });
+
   test("dev on android emulator routes to 10.0.2.2", () => {
     expect(resolveApiBaseUrl({ dev: true, platform: "android" })).toBe(
       DEV_ANDROID_EMULATOR_API_URL

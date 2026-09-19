@@ -11,13 +11,17 @@ import { MobileHeader } from "./mobile-header";
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();
-  const { user } = useSessionContext();
+  const { isPending, user } = useSessionContext();
+  // While the session is still resolving, `user` is null for everyone. Treating
+  // that as "guest" flashes the Log in pill at signed-in users, so neither the
+  // avatar nor the guest bar renders until the answer is known.
+  const showUser = !isPending && Boolean(user);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
         user={
-          user
+          showUser && user
             ? {
                 avatarUrl: user.image ?? null,
                 username: user.username ?? user.name,
@@ -26,7 +30,7 @@ export default function HomeScreen() {
         }
       />
       <View style={styles.feed} />
-      {user ? null : <GuestAuthBar />}
+      {isPending || user ? null : <GuestAuthBar />}
     </View>
   );
 }
