@@ -41,7 +41,7 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -126,7 +126,7 @@ jobs:
       # The script below lives in the repository, so it must be checked out:
       # each job gets a fresh, empty workspace.
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check whether commit came from merged PR
         id: pr-check
@@ -150,7 +150,7 @@ jobs:
       # The script below lives in the repository, so it must be checked out:
       # each job gets a fresh, empty workspace.
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve changed apps from merged PR
         id: changed-apps
@@ -181,7 +181,7 @@ jobs:
       matrix: ${{ fromJSON(needs.determine-build-matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Print merged PR context
         run: |
@@ -320,7 +320,7 @@ jobs:
       should-run: ${{ steps.resolve-prisma.outputs.should-run }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve whether Prisma schema sync should run
         id: resolve-prisma
@@ -413,7 +413,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -474,6 +474,12 @@ jobs:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          # Only read for a JKS keystore; the release keystore is PKCS12, which
+          # carries a single password, so the script derives the key password
+          # from the store password and ignores this. Supplied so the JKS path
+          # stays usable without another workflow edit if the key is ever
+          # migrated.
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: bun apps/mobile/scripts/build-android-apk.ts
 
       - name: Upload APK artifact
@@ -501,7 +507,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 

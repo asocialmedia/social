@@ -163,9 +163,12 @@ async function resolveKeystore(): Promise<ResolvedKeystore> {
     process.env.ANDROID_KEY_ALIAS?.trim() ??
     (await readCredentialFile("alias.txt"));
   // Only meaningful for JKS; PKCS12 has no second password to supply.
+  // An empty value (an unset CI secret resolves to "") means "not provided",
+  // not "the key password is the empty string", so it must fall through to the
+  // file and then to the store password rather than being used as-is.
+  const envKeyPassword = process.env.ANDROID_KEY_PASSWORD?.trim() || null;
   const explicitKeyPassword =
-    process.env.ANDROID_KEY_PASSWORD?.trim() ??
-    (await readCredentialFile("keypass.txt"));
+    envKeyPassword ?? (await readCredentialFile("keypass.txt"));
 
   if (!storePassword) {
     fail(

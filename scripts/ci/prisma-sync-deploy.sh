@@ -40,7 +40,24 @@ if ! printf '%s' "${BASELINE_RESPONSE}" | jq -e 'type == "array"' >/dev/null 2>&
   exit 1
 fi
 
-BASELINE=$(printf '%s' "${BASELINE_RESPONSE}" | jq -r 'if length > 0 then .[0].deploymentId else "" end')
+# An empty list legitimately means "no deployment yet". A present record with a
+# missing, null or non-string deploymentId is malformed: `jq -r` would yield the
+# literal string "null", which never equals a real id, so the wait loop below
+# would treat the previous deployment as new and could report success before the
+# new run starts. Reject that rather than carry a bogus baseline.
+RECORD_COUNT=$(printf '%s' "${BASELINE_RESPONSE}" | jq -r 'length')
+if [ "${RECORD_COUNT}" -eq 0 ]; then
+  BASELINE=""
+else
+  BASELINE=$(printf '%s' "${BASELINE_RESPONSE}" | jq -r '.[0].deploymentId | if type == "string" then . else "" end')
+  if [ -z "${BASELINE}" ]; then
+    echo "Dokploy returned a deployment record without a usable deploymentId; refusing to continue." >&2
+    printf '%s\n' "${BASELINE_RESPONSE}" | head -c 300 >&2
+    echo "" >&2
+    exit 1
+  fi
+fi
+
 echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
 
 dokploy_curl -X 'POST' \
