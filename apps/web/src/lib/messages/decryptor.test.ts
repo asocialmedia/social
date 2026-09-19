@@ -284,6 +284,22 @@ describe("message decryptor", () => {
     expect(decryptor.get("m3")).toEqual(MEDIA);
   });
 
+  test("does not evict media that finishes before still-pending text", async () => {
+    // The oldest entry is media and completes first (concurrency 1, media
+    // first). A blind FIFO would evict it immediately; the deferral must hold
+    // it until the text entries resolve, then drop text instead.
+    const decryptor = createDecryptor({
+      cacheCap: 2,
+      concurrency: 1,
+      decrypt: (decryptItem) =>
+        Promise.resolve(decryptItem.message.id.startsWith("m") ? MEDIA : TEXT),
+    });
+    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    decryptor.request([item("m0"), item("t1"), item("t2")], keys);
+    await settle();
+    expect(decryptor.get("m0")).toEqual(MEDIA);
+  });
+
   test("scope reset drops the cache and re-decrypts on demand", async () => {
     let calls = 0;
     const decryptor = createDecryptor({

@@ -388,6 +388,8 @@ export function ConversationMediaViewer({
       if (nextIndex === undefined) {
         return;
       }
+      // A manual selection takes over from any in-flight jump-to-oldest walk.
+      jumpCancelRef.current = true;
       const currentIndex = indexByKey.get(activeKey);
       const direction: MediaNavDirection =
         currentIndex !== undefined && nextIndex < currentIndex
@@ -406,6 +408,8 @@ export function ConversationMediaViewer({
       if (activeIndex < 0) {
         return;
       }
+      // Manual stepping takes over from any in-flight jump-to-oldest walk.
+      jumpCancelRef.current = true;
       const target = items[activeIndex + delta];
       if (target) {
         selectKey(target.flatKey);
@@ -664,7 +668,10 @@ export function ConversationMediaViewer({
         </span>
 
         <div className="pointer-events-auto z-40 flex flex-col gap-2 border-t border-white/10 bg-black/80 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
-          {items.length > 1 ? (
+          {/* Shown whenever there is more than one image OR older history to
+              reach, so a lone image with unseen older media is never a dead
+              end (the Oldest button is the escape hatch). */}
+          {items.length > 1 || hasOlder ? (
             <div className="flex items-center gap-3">
               {hasOlder ? (
                 <button
@@ -684,34 +691,40 @@ export function ConversationMediaViewer({
                   Oldest
                 </button>
               ) : null}
-              <input
-                aria-label="Image position"
-                className="h-1 min-w-0 flex-1 cursor-pointer accent-[#ff9500] disabled:opacity-50"
-                disabled={loadingOldest}
-                max={items.length - 1}
-                min={0}
-                onChange={(event) => {
-                  const next = items[Number(event.target.value)];
-                  if (next) {
-                    selectKey(next.flatKey);
-                  }
-                }}
-                type="range"
-                value={Math.max(0, activeIndex)}
-              />
-              <span
-                aria-hidden
-                className="shrink-0 text-xs text-white/80 tabular-nums"
-              >
-                {activeIndex + 1} / {items.length}
-              </span>
+              {items.length > 1 ? (
+                <>
+                  <input
+                    aria-label="Image position"
+                    className="h-1 min-w-0 flex-1 cursor-pointer accent-[#ff9500] disabled:opacity-50"
+                    disabled={loadingOldest}
+                    max={items.length - 1}
+                    min={0}
+                    onChange={(event) => {
+                      const next = items[Number(event.target.value)];
+                      if (next) {
+                        selectKey(next.flatKey);
+                      }
+                    }}
+                    type="range"
+                    value={Math.max(0, activeIndex)}
+                  />
+                  <span
+                    aria-hidden
+                    className="shrink-0 text-xs text-white/80 tabular-nums"
+                  >
+                    {activeIndex + 1} / {items.length}
+                  </span>
+                </>
+              ) : null}
             </div>
           ) : null}
-          <Filmstrip
-            activeIndex={activeIndex}
-            items={items}
-            onSelect={selectKey}
-          />
+          {activeIndex >= 0 ? (
+            <Filmstrip
+              activeIndex={activeIndex}
+              items={items}
+              onSelect={selectKey}
+            />
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

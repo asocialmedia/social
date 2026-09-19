@@ -148,8 +148,14 @@ export function MessageThread({
   const pendingScanRef = useRef(new Set<string>());
   // Serializes older-page loads: the jump-to-oldest loop and the boundary
   // auto-loader both call through here, and concurrent fetchPreviousPage calls
-  // would race the cursor.
+  // would race the cursor. Deliberately a ref (not query state) so the awaited
+  // jump loop never sees a stale `isFetching` closure and bails after one page.
   const loadingOlderRef = useRef(false);
+  // True while the user is walking older history. The viewer's history trim is
+  // suppressed during a walk, because dropping the freshly loaded pages would
+  // make the walk retread the same ground (a load/trim loop). It resets when
+  // the viewer moves newer, which is exactly when old pages become dead weight.
+  const olderWalkRef = useRef(false);
   // The viewer's current media position, reported up so the thread can bound
   // loaded history. Only updates while the viewer is open and navigating, so it
   // never causes transcript re-renders during normal scrolling.
@@ -173,7 +179,7 @@ export function MessageThread({
     // Newer messages arrive over the SSE stream; there is no next page.
     // oxlint-disable-next-line unicorn/no-useless-undefined -- sentinel for "no more pages"
     getNextPageParam: () => undefined,
-    getPreviousPageParam: (lastPage) => lastPage.previousCursor,
+    getPreviousPageParam: (firstPage) => firstPage.previousCursor,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => fetchMessages(conversationId, pageParam),
     queryKey: ["messages", conversationId] as const,
@@ -201,11 +207,17 @@ export function MessageThread({
     () => new Map(allMessages.map((message) => [message.id, message])),
     [allMessages]
   );
-  // Bumped only when a PREVIOUS page is prepended (pages.length grows). An
-  // appended message can never introduce a reply parent (parents are older),
-  // so rows can skip re-rendering on append but must re-render on prepend to
-  // resolve a parent that just became available. See the row memo comparator.
-  const historyVersion = messagesQuery.data?.pages.length ?? 0;
+  // Bumped only when a PREVIOUS page is prepended. An appended message can
+  // never introduce a reply parent (parents are older), so rows can skip
+  // re-rendering on append but must re-render on prepend to resolve a parent
+  // that just became available. See the row memo comparator. Monotonic (a
+  // running max) so the viewer's history trim, which shrinks pages, does not
+  // lower the value and force every visible row to re-render.
+  const pageCount = messagesQuery.data?.pages.length ?? 0;
+  const [historyVersion, setHistoryVersion] = useState(0);
+  if (pageCount > historyVersion) {
+    setHistoryVersion(pageCount);
+  }
 
   // Transcript position by message id, used to center the viewer's decrypt
   // window on the active image.
@@ -481,6 +493,11 @@ export function MessageThread({
 
   const handleViewerActive = useCallback(
     (flatKey: string, direction: MediaNavDirection) => {
+      // Moving newer ends an older-history walk, which re-enables the history
+      // trim; moving older or staying put keeps it suppressed.
+      if (direction === "newer") {
+        olderWalkRef.current = false;
+      }
       requestViewerWindow(messageIdFromFlatKey(flatKey), direction);
     },
     [requestViewerWindow]
@@ -630,10 +647,15 @@ export function MessageThread({
   // is decrypted explicitly: it sits above the visible window, so the normal
   // viewport-driven decrypt effect would not reach it.
   const loadOlderMedia = useCallback(async (): Promise<boolean> => {
-    if (!hasPreviousPage || isFetchingPreviousPage || loadingOlderRef.current) {
+    // Only `loadingOlderRef` gates concurrency. Dropping the `isFetching`
+    // check keeps the awaited jump loop going between fetches: query state
+    // flips asynchronously, so a render-scoped closure would report "busy" as
+    // "no more history" and stop after a single page.
+    if (loadingOlderRef.current || !hasPreviousPage) {
       return false;
     }
     loadingOlderRef.current = true;
+    olderWalkRef.current = true;
     // Identify the new messages by id, not by a length delta: the history
     // window may trim oldest pages concurrently, so a length comparison would
     // mis-slice the decrypt subset.
@@ -655,13 +677,7 @@ export function MessageThread({
       return true;
     }
     return false;
-  }, [
-    allMessages,
-    fetchPreviousPage,
-    hasPreviousPage,
-    isFetchingPreviousPage,
-    requestDecryptMessages,
-  ]);
+  }, [allMessages, fetchPreviousPage, hasPreviousPage, requestDecryptMessages]);
 
   const handleViewerPosition = useCallback((index: number, total: number) => {
     setViewerPosition((current) =>
@@ -673,9 +689,9 @@ export function MessageThread({
 
   // Bound the viewer's loaded history: once the active image is far from the
   // oldest loaded one, drop the dead pages below it. Gated so it can never
-  // orphan the anchor or race the boundary loader (see viewer-history-window).
+  // orphan the anchor or race an older-history walk (see viewer-history-window).
   useEffect(() => {
-    if (!mediaViewerKey || isFetchingPreviousPage) {
+    if (!mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
       return;
     }
     const { data } = messagesQuery;
@@ -712,16 +728,16 @@ export function MessageThread({
     conversationId,
     isFetchingPreviousPage,
     mediaViewerKey,
-    messagesQuery.data,
+    messagesQuery,
     queryClient,
     viewerPosition,
-    messagesQuery,
   ]);
 
   // Close the viewer and land the transcript on the image the user was viewing.
   // Trimming while open can shift message indices, so re-anchor explicitly
   // instead of trusting the old scroll offset.
   const closeViewer = useCallback(() => {
+    olderWalkRef.current = false;
     const anchorId = mediaViewerKey
       ? messageIdFromFlatKey(mediaViewerKey)
       : null;
