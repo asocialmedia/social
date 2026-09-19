@@ -138,7 +138,7 @@ export default function ResetPasswordForm() {
     <AnimatePresence>
       <motion.div
         animate="visible"
-        className="bg-background relative flex min-h-screen overflow-hidden"
+        className="bg-background relative flex min-h-dvh overflow-hidden"
         initial="hidden"
         variants={containerVariants}
       >

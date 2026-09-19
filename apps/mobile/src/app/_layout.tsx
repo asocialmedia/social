@@ -6,6 +6,9 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 
+import { UpdateGate } from "@/components/home/update-gate";
+import { initTelemetry } from "@/lib/telemetry";
+import { SessionProvider } from "@/state/session";
 import { useAppTheme } from "@/theme";
 
 import sofiaProBold from "../../assets/fonts/SofiaProSoftBold.ttf";
@@ -32,6 +35,10 @@ export default function RootLayout() {
   }, [theme.containerBg]);
 
   useEffect(() => {
+    initTelemetry();
+  }, []);
+
+  useEffect(() => {
     async function hideSplash() {
       if (loaded || error) {
         try {
@@ -51,14 +58,20 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
-      <Stack
-        screenOptions={{
-          contentStyle: { backgroundColor: theme.containerBg },
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen name="index" />
-      </Stack>
+      <SessionProvider>
+        <UpdateGate />
+        <Stack
+          screenOptions={{
+            animation: "fade",
+            animationDuration: 200,
+            contentStyle: { backgroundColor: theme.containerBg },
+            headerShown: false,
+          }}
+        >
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(auth)" />
+        </Stack>
+      </SessionProvider>
     </ThemeProvider>
   );
 }

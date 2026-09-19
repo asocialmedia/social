@@ -84,7 +84,9 @@ const NavIcon: React.FC<{ active: boolean; icon: typeof Home }> = ({
   return <Icon className="size-5 transition-colors" />;
 };
 
-const MobileBottomNav: React.FC = () => {
+const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
+  hidden: hiddenOverride,
+}) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
@@ -94,7 +96,12 @@ const MobileBottomNav: React.FC = () => {
   // Context-aware: scopes the composer to the community being viewed when the
   // reader can post there. See useOpenComposer.
   const openComposer = useOpenComposer();
-  const hidden = useHideOnPageScroll();
+  const hookHidden = useHideOnPageScroll();
+  // A page with its own scroll container (communities) passes the same hide
+  // signal that drives its top bar, so the dock moves in lockstep with it.
+  // Deriving a second signal here from capture-phase document events desyncs
+  // from the page's own listener during bottom overscroll, which flickers both.
+  const hidden = hiddenOverride ?? hookHidden;
   const reduceMotion = useReducedMotion();
 
   const isInsideActiveChat =

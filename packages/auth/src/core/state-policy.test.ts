@@ -23,6 +23,12 @@ mock.module("better-auth/adapters/prisma", () => ({
 mock.module("@better-auth/passkey", () => ({
   passkey: () => ({}),
 }));
+// @better-auth/expo pulls HIDE_METADATA from "better-auth" at import time, and
+// the better-auth mock below only provides `betterAuth` - so leaving this
+// unmocked fails module resolution before any test runs.
+mock.module("@better-auth/expo", () => ({
+  expo: () => ({}),
+}));
 mock.module("better-auth/api", () => ({
   APIError: class APIError extends Error {
     override name = "APIError";
