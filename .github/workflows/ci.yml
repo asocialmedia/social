@@ -41,7 +41,7 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -123,85 +123,18 @@ jobs:
       merge-pr-number: ${{ steps.pr-check.outputs.pr-number }}
       quality-already-passed: ${{ steps.pr-check.outputs.quality-already-passed }}
     steps:
+      # The script below lives in the repository, so it must be checked out:
+      # each job gets a fresh, empty workspace.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Check whether commit came from merged PR
         id: pr-check
         uses: actions/github-script@v8
         with:
           script: |
-            const { owner, repo } = context.repo
-            const commit_sha = context.sha
-
-            let mergedPr = null
-
-            // 1. Try to extract PR number from commit message (e.g. "Merge pull request #117 from ...", "... (#117)")
-            const commitMsg = context.payload?.head_commit?.message || ""
-            const prMatch = commitMsg.match(/Merge pull request #(\d+)/i) || commitMsg.match(/\(#(\d+)\)/m)
-            if (prMatch && prMatch[1]) {
-              try {
-                const prRes = await github.rest.pulls.get({
-                  owner,
-                  repo,
-                  pull_number: Number(prMatch[1]),
-                })
-                if (prRes.data && prRes.data.merged_at && prRes.data.base.ref === "main") {
-                  mergedPr = prRes.data
-                }
-              } catch (err) {
-                core.warning(`Could not fetch PR #${prMatch[1]} from commit message: ${err.message}`)
-              }
-            }
-
-            // 2. Fallback to listPullRequestsAssociatedWithCommit
-            if (!mergedPr) {
-              try {
-                const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner,
-                  repo,
-                  commit_sha
-                })
-                mergedPr = response.data.find((pr) => pr.merged_at && pr.base.ref === "main")
-              } catch (err) {
-                core.warning(`listPullRequestsAssociatedWithCommit failed: ${err.message}`)
-              }
-            }
-
-            // Always build on push to main
-            core.setOutput("should-build", "true")
-            core.setOutput("pr-number", mergedPr ? String(mergedPr.number) : "")
-            core.setOutput("quality-already-passed", "false")
-
-            if (mergedPr) {
-              core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
-            } else {
-              core.info(`Push on main without PR association for ${commit_sha}; will build from push diff.`)
-            }
-
-            if (mergedPr) {
-              try {
-                const headSha = mergedPr.head?.sha || mergedPr.merge_commit_sha
-                const checks = await github.rest.checks.listForRef({
-                  check_name: "Lint and Typecheck",
-                  filter: "latest",
-                  owner,
-                  per_page: 1,
-                  ref: headSha,
-                  repo,
-                })
-
-                const qualityCheck = checks.data.check_runs[0]
-                const alreadyPassed = Boolean(
-                  qualityCheck && qualityCheck.conclusion === "success"
-                )
-                core.setOutput("quality-already-passed", alreadyPassed ? "true" : "false")
-                core.info(
-                  alreadyPassed
-                    ? `PR #${mergedPr.number} "Lint and Typecheck" already passed (status ${qualityCheck.status}, conclusion ${qualityCheck.conclusion}); skipping quality on merge.`
-                    : `PR #${mergedPr.number} "Lint and Typecheck" did not pass (${qualityCheck?.conclusion ?? "no check run"}); quality will re-run.`
-                )
-              } catch (error) {
-                core.warning(`Failed to check PR CI status: ${error.message}; quality will re-run.`)
-              }
-            }
+            const detectPrMerge = require('./.github/scripts/detect-pr-merge.cjs')
+            await detectPrMerge({ github, context, core })
 
   determine-build-matrix:
     name: Determine changed app images
@@ -214,99 +147,23 @@ jobs:
       has-mobile-changes: ${{ steps.changed-apps.outputs.has-mobile-changes }}
       selected-apps: ${{ steps.changed-apps.outputs.selected-apps }}
     steps:
+      # The script below lives in the repository, so it must be checked out:
+      # each job gets a fresh, empty workspace.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Resolve changed apps from merged PR
         id: changed-apps
         uses: actions/github-script@v8
         with:
           script: |
-            const { owner, repo } = context.repo
-            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
-
-            let changedFiles = []
-            if (prNumber) {
-              const files = await github.paginate(
-                github.rest.pulls.listFiles,
-                {
-                  owner,
-                  repo,
-                  pull_number: prNumber,
-                  per_page: 100,
-                },
-              )
-              changedFiles = files.map((file) => file.filename)
-              core.info(`Merged PR #${prNumber} changed ${changedFiles.length} files.`)
-            } else {
-              if (context.payload.before && context.payload.after && context.payload.before !== '0000000000000000000000000000000000000000') {
-                const comparison = await github.rest.repos.compareCommitsWithBasehead({
-                  owner,
-                  repo,
-                  basehead: `${context.payload.before}...${context.payload.after}`,
-                })
-                changedFiles = (comparison.data.files || []).map((file) => file.filename)
-              } else {
-                const commit = await github.rest.repos.getCommit({
-                  owner,
-                  repo,
-                  ref: context.sha,
-                })
-                changedFiles = (commit.data.files || []).map((file) => file.filename)
-              }
-              core.info(`Push changed ${changedFiles.length} files.`)
-            }
-
-            const appEntries = [
-              {
-                app: 'web',
-                dockerfile: './apps/web/Dockerfile',
-                image: 'asm-web',
-              },
-              {
-                app: 'auth',
-                dockerfile: './apps/auth/Dockerfile',
-                image: 'asm-auth',
-              },
-              {
-                app: 'media-processing',
-                dockerfile: './apps/media-processing/Dockerfile',
-                image: 'asm-media-processing',
-              },
-            ]
-
-            const triggerAllPrefixes = ['packages/', 'docker/']
-            const triggerAllFiles = new Set(['bun.lock', 'package.json', 'turbo.json', 'tsconfig.json'])
-
-            const shouldBuildAll = changedFiles.some((file) =>
-              triggerAllPrefixes.some((prefix) => file.startsWith(prefix)) || triggerAllFiles.has(file),
-            )
-
-            const selectedApps = shouldBuildAll
-              ? appEntries
-              : appEntries.filter(({ app }) => changedFiles.some((file) => file.startsWith(`apps/${app}/`)))
-
-            // The mobile build only cares about the mobile workspace plus the
-            // root manifests that can change dependency resolution. Changes
-            // under packages/ stay excluded from mobile-build detection.
-            const hasMobileChanges = changedFiles.some(
-              (file) =>
-                file.startsWith('apps/mobile/') ||
-                file === 'package.json' ||
-                file === 'bun.lock',
-            )
-            core.setOutput('has-mobile-changes', hasMobileChanges ? 'true' : 'false')
-            core.info(`Mobile app changes: ${hasMobileChanges}`)
-
-            if (selectedApps.length === 0) {
-              core.setOutput('matrix', JSON.stringify({ include: [] }))
-              core.setOutput('has-app-changes', 'false')
-              core.setOutput('selected-apps', '')
-              core.info(`No app-specific changes detected; skipping Docker builds.`)
-              return
-            }
-
-            core.setOutput('matrix', JSON.stringify({ include: selectedApps }))
-            core.setOutput('has-app-changes', 'true')
-            core.setOutput('selected-apps', selectedApps.map(({ app }) => app).join(','))
-            core.info(`Selected Docker image builds: ${selectedApps.map(({ app }) => app).join(', ')}`)
+            const determineBuildMatrix = require('./.github/scripts/determine-build-matrix.cjs')
+            await determineBuildMatrix({
+              github,
+              context,
+              core,
+              prNumber: Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}'),
+            })
 
   build-and-push:
     name: Build and Push (${{ matrix.app }})
@@ -324,7 +181,7 @@ jobs:
       matrix: ${{ fromJSON(needs.determine-build-matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Print merged PR context
         run: |
@@ -333,17 +190,7 @@ jobs:
 
       - name: Read app version metadata
         id: version
-        shell: bash
-        run: |
-          APP_VERSION=$(jq -r '.version' "apps/${{ matrix.app }}/package.json")
-          ROOT_VERSION=$(jq -r '.version' "package.json")
-
-          {
-            echo "app_version=${APP_VERSION}"
-            echo "root_version=${ROOT_VERSION}"
-            echo "tag_name=${{ matrix.app }}-v${APP_VERSION}"
-            echo "sha_short=$(git rev-parse --short HEAD)"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/app-version.sh "${{ matrix.app }}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -403,47 +250,7 @@ jobs:
           WEB_HEALTH_URL: ${{ secrets.WEB_HEALTH_URL }}
           AUTH_HEALTH_URL: ${{ secrets.AUTH_HEALTH_URL }}
           MEDIA_HEALTH_URL: ${{ secrets.MEDIA_HEALTH_URL }}
-        run: |
-          app_id=""
-          health_url=""
-          health_initial_delay="30"
-          health_retries="10"
-          health_retry_interval="10"
-          deploy_enabled="false"
-          health_enabled="false"
-
-          case "${{ matrix.app }}" in
-            web)
-              app_id="${DOKPLOY_WEB_APP_ID}"
-              health_url="${WEB_HEALTH_URL}"
-              ;;
-            auth)
-              app_id="${DOKPLOY_AUTH_APP_ID}"
-              health_url="${AUTH_HEALTH_URL}"
-              ;;
-            media-processing)
-              app_id="${DOKPLOY_MEDIA_APP_ID}"
-              health_url="${MEDIA_HEALTH_URL}"
-              ;;
-          esac
-
-          if [ -n "${DOKPLOY_API_URL}" ] && [ -n "${DOKPLOY_API_TOKEN}" ] && [ -n "${app_id}" ]; then
-            deploy_enabled="true"
-          fi
-
-          if [ -n "${health_url}" ]; then
-            health_enabled="true"
-          fi
-
-          {
-            echo "app_id=${app_id}"
-            echo "health_url=${health_url}"
-            echo "health_initial_delay=${health_initial_delay}"
-            echo "health_retries=${health_retries}"
-            echo "health_retry_interval=${health_retry_interval}"
-            echo "deploy_enabled=${deploy_enabled}"
-            echo "health_enabled=${health_enabled}"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/resolve-deploy-targets.sh "${{ matrix.app }}"
 
       - name: Trigger Dokploy deployment via API
         if: success() && steps.deploy-targets.outputs.deploy_enabled == 'true'
@@ -451,49 +258,15 @@ jobs:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
           DOKPLOY_APP_ID: ${{ steps.deploy-targets.outputs.app_id }}
-        run: |
-          API_URL="${DOKPLOY_API_URL%/}"
-          case "$API_URL" in
-            http://*) API_URL="https://${API_URL#http://}" ;;
-          esac
-
-          curl -L -X 'POST' \
-            --retry 3 \
-            --retry-delay 5 \
-            --retry-connrefused \
-            "${API_URL}/api/application.deploy" \
-            -H 'accept: application/json' \
-            -H 'Content-Type: application/json' \
-            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-            -d "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}" \
-            --fail --silent --show-error
+        run: bash scripts/ci/dokploy-deploy.sh
 
       - name: Trigger worker deployment via API
         if: success() && matrix.app == 'auth'
         env:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
-          DOKPLOY_WORKER_APP_ID: ${{ secrets.DOKPLOY_WORKER_APP_ID }}
-        run: |
-          API_URL="${DOKPLOY_API_URL%/}"
-          case "$API_URL" in
-            http://*) API_URL="https://${API_URL#http://}" ;;
-          esac
-
-          if [ -n "${DOKPLOY_WORKER_APP_ID}" ]; then
-            curl -L -X 'POST' \
-              --retry 3 \
-              --retry-delay 5 \
-              --retry-connrefused \
-              "${API_URL}/api/application.deploy" \
-              -H 'accept: application/json' \
-              -H 'Content-Type: application/json' \
-              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-              -d "{\"applicationId\":\"${DOKPLOY_WORKER_APP_ID}\"}" \
-              --fail --silent --show-error
-          else
-            echo "DOKPLOY_WORKER_APP_ID not configured; skipping worker deploy."
-          fi
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_WORKER_APP_ID }}
+        run: bash scripts/ci/dokploy-deploy.sh
 
       # Fire-and-forget observability only. The edge blocks everything but
       # app traffic, so GitHub runners can never reach the public health URL;
@@ -507,22 +280,7 @@ jobs:
           HEALTH_INITIAL_DELAY: ${{ steps.deploy-targets.outputs.health_initial_delay }}
           HEALTH_RETRIES: ${{ steps.deploy-targets.outputs.health_retries }}
           HEALTH_RETRY_INTERVAL: ${{ steps.deploy-targets.outputs.health_retry_interval }}
-        run: |
-          echo "Waiting ${HEALTH_INITIAL_DELAY}s for container to start..."
-          sleep "${HEALTH_INITIAL_DELAY}"
-
-          echo "Checking health endpoint..."
-          for i in $(seq 1 "${HEALTH_RETRIES}"); do
-            if curl -sfL "${HEALTH_URL}" > /dev/null; then
-              echo "Health check passed!"
-              exit 0
-            fi
-
-            echo "Attempt ${i}/${HEALTH_RETRIES} failed, retrying in ${HEALTH_RETRY_INTERVAL}s..."
-            sleep "${HEALTH_RETRY_INTERVAL}"
-          done
-
-          echo "Health endpoint unreachable from the runner (expected when the edge blocks external traffic). Deployment continues via Dokploy's own healthcheck."
+        run: bash scripts/ci/observe-health.sh
 
   cleanup-old-images:
     name: Cleanup old GHCR images
@@ -562,67 +320,20 @@ jobs:
       should-run: ${{ steps.resolve-prisma.outputs.should-run }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve whether Prisma schema sync should run
         id: resolve-prisma
         uses: actions/github-script@v9
         with:
           script: |
-            const { owner, repo } = context.repo
-            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
-
-            let changedFiles = []
-            if (prNumber) {
-              const files = await github.paginate(
-                github.rest.pulls.listFiles,
-                {
-                  owner,
-                  repo,
-                  pull_number: prNumber,
-                  per_page: 100,
-                },
-              )
-              changedFiles = files.map((file) => file.filename)
-            } else {
-              if (context.payload.before && context.payload.after && context.payload.before !== '0000000000000000000000000000000000000000') {
-                const comparison = await github.rest.repos.compareCommitsWithBasehead({
-                  owner,
-                  repo,
-                  basehead: `${context.payload.before}...${context.payload.after}`,
-                })
-                changedFiles = (comparison.data.files || []).map((file) => file.filename)
-              } else {
-                const commit = await github.rest.repos.getCommit({
-                  owner,
-                  repo,
-                  ref: context.sha,
-                })
-                changedFiles = (commit.data.files || []).map((file) => file.filename)
-              }
-            }
-
-            const prismaPaths = [
-              'packages/db/prisma/schema.prisma',
-              'packages/db/prisma.config.ts',
-              'packages/db/keys.ts',
-              'docker/prisma-package.json',
-              'docker/prisma-sync.dockerfile',
-              'docker/prisma-sync.sh',
-              'scripts/sync-trending-scores.ts',
-            ]
-            const prismaPrefixes = ['packages/db/']
-            const triggerFiles = new Set(['bun.lock', 'package.json', 'turbo.json', 'tsconfig.json'])
-
-            const relevant = changedFiles.filter((file) =>
-              prismaPaths.includes(file) ||
-              prismaPrefixes.some((prefix) => file.startsWith(prefix)) ||
-              triggerFiles.has(file),
-            )
-
-            core.setOutput('should-run', relevant.length > 0 ? 'true' : 'false')
-            core.setOutput('needed-files', relevant.join(', '))
-            core.info(`Prisma sync ${relevant.length > 0 ? 'needed' : 'skipped'}. Changed files: ${changedFiles.join(', ')}`)
+            const resolvePrismaSync = require('./.github/scripts/resolve-prisma-sync.cjs')
+            await resolvePrismaSync({
+              github,
+              context,
+              core,
+              prNumber: Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}'),
+            })
 
       - name: Print Prisma sync context
         if: steps.resolve-prisma.outputs.should-run == 'true'
@@ -634,14 +345,7 @@ jobs:
       - name: Read version metadata
         id: version
         if: steps.resolve-prisma.outputs.should-run == 'true'
-        shell: bash
-        run: |
-          ROOT_VERSION=$(jq -r '.version' "package.json")
-          {
-            echo "root_version=${ROOT_VERSION}"
-            echo "tag_name=prisma-sync-v${ROOT_VERSION}"
-            echo "sha_short=$(git rev-parse --short HEAD)"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/root-version.sh
 
       - name: Set up QEMU
         if: steps.resolve-prisma.outputs.should-run == 'true'
@@ -691,146 +395,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Trigger Prisma sync container via Dokploy
-        id: trigger-deploy
+      - name: Deploy Prisma sync and wait for completion
         if: steps.resolve-prisma.outputs.should-run == 'true'
         env:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
           DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
-        run: |
-          set -eu
-
-          if [ -z "$DOKPLOY_API_URL" ] || [ -z "$DOKPLOY_API_TOKEN" ] || [ -z "$DOKPLOY_PRISMA_APP_ID" ]; then
-            echo "Missing Dokploy configuration. Set DOKPLOY_API_URL, DOKPLOY_API_TOKEN and DOKPLOY_PRISMA_APP_ID secrets."
-            exit 1
-          fi
-
-          API_URL="${DOKPLOY_API_URL%/}"
-          case "$API_URL" in
-            http://*) API_URL="https://${API_URL#http://}" ;;
-          esac
-
-          BASELINE=$(curl -sS -L \
-            --retry 3 \
-            --retry-delay 3 \
-            --retry-connrefused \
-            "${API_URL}/api/deployment.all?applicationId=${DOKPLOY_PRISMA_APP_ID}" \
-            -H 'accept: application/json' \
-            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-            | jq -r 'if type == "array" and length > 0 then .[0].deploymentId else "" end' 2>/dev/null || true)
-          echo "baseline_deployment_id=${BASELINE}" >> "$GITHUB_OUTPUT"
-          echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
-
-          curl -L -X 'POST' \
-            --retry 3 \
-            --retry-delay 5 \
-            --retry-connrefused \
-            "${API_URL}/api/application.deploy" \
-            -H 'accept: application/json' \
-            -H 'Content-Type: application/json' \
-            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-            -d "{\"applicationId\":\"${DOKPLOY_PRISMA_APP_ID}\"}" \
-            --fail --silent --show-error
-
-          echo "Prisma sync container triggered for application ${DOKPLOY_PRISMA_APP_ID}."
-
-      - name: Wait for Prisma sync deployment
-        if: success() && steps.resolve-prisma.outputs.should-run == 'true'
-        env:
-          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
-          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
-          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
-          BASELINE_DEPLOYMENT_ID: ${{ steps.trigger-deploy.outputs.baseline_deployment_id }}
-        run: |
-          set -eu
-
-          API_URL="${DOKPLOY_API_URL%/}"
-          case "$API_URL" in
-            http://*) API_URL="https://${API_URL#http://}" ;;
-          esac
-          APP_ID="${DOKPLOY_PRISMA_APP_ID}"
-          BASELINE="${BASELINE_DEPLOYMENT_ID:-}"
-
-          fetch_deployments() {
-            curl -sS -L \
-              --retry 2 \
-              --retry-delay 3 \
-              --retry-connrefused \
-              "${API_URL}/api/deployment.all?applicationId=${APP_ID}" \
-              -H 'accept: application/json' \
-              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-              || true
-          }
-
-          fetch_logs() {
-            curl -sS -L \
-              --retry 2 \
-              --retry-delay 3 \
-              --retry-connrefused \
-              "${API_URL}/api/deployment.readLogs?deploymentId=${1}&tail=300" \
-              -H 'accept: application/json' \
-              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-              || true
-          }
-
-          RETRIES=45
-          CONSECUTIVE_ERRORS=0
-          MAX_CONSECUTIVE_ERRORS=6
-          for i in $(seq 1 "${RETRIES}"); do
-            RESPONSE=$(fetch_deployments)
-            if ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
-              CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
-              echo "Attempt ${i}/${RETRIES}: deployment.all did not return an array (${CONSECUTIVE_ERRORS}/${MAX_CONSECUTIVE_ERRORS} consecutive transient errors). Response snippet:"
-              printf '%s\n' "$RESPONSE" | head -c 300
-              echo ""
-              if [ "$CONSECUTIVE_ERRORS" -ge "$MAX_CONSECUTIVE_ERRORS" ]; then
-                echo "Exceeded maximum consecutive API errors from Dokploy endpoint. Exiting."
-                exit 1
-              fi
-              sleep 10
-              continue
-            fi
-            CONSECUTIVE_ERRORS=0
-
-            DEPLOYMENT=$(printf '%s' "$RESPONSE" | jq -r 'if length > 0 then .[0] else empty end' 2>/dev/null || true)
-            DEPLOYMENT_ID=$(printf '%s' "$DEPLOYMENT" | jq -r '.deploymentId // empty' 2>/dev/null || true)
-            STATUS=$(printf '%s' "$DEPLOYMENT" | jq -r '.status // empty' 2>/dev/null || true)
-
-            if [ -z "$DEPLOYMENT_ID" ]; then
-              echo "Attempt ${i}/${RETRIES}: no deployment record yet, waiting..."
-              sleep 10
-              continue
-            fi
-
-            if [ "$DEPLOYMENT_ID" = "$BASELINE" ]; then
-              echo "Attempt ${i}/${RETRIES}: still on previous deployment (${DEPLOYMENT_ID}, ${STATUS}), waiting for new one..."
-              sleep 10
-              continue
-            fi
-
-            echo "Attempt ${i}/${RETRIES}: deployment ${DEPLOYMENT_ID} status: ${STATUS}"
-
-            case "$STATUS" in
-              done)
-                echo "Prisma sync deployment ${DEPLOYMENT_ID} completed successfully."
-                printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
-                exit 0
-                ;;
-              error|failed|cancelled)
-                echo "Prisma sync deployment ${DEPLOYMENT_ID} ended with status: ${STATUS}"
-                printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
-                exit 1
-                ;;
-              *)
-                sleep 10
-                continue
-                ;;
-            esac
-          done
-
-          echo "Timed out waiting for Prisma sync deployment to finish."
-          exit 1
+        run: bash scripts/ci/prisma-sync-deploy.sh
 
   build-mobile-apk:
     name: Build Android APK
@@ -842,7 +413,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -893,72 +464,23 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate native Android project
-        working-directory: apps/mobile
-        run: bunx expo prebuild --platform android --no-install --clean
-
-      # A release channel must be signed with a stable production key: an
-      # unsigned or debug-keyed APK cannot be upgraded in place, so refuse to
-      # build rather than publish one.
-      - name: Provision release keystore
+      # Prebuilds the native project, provisions the release keystore, injects
+      # release signing, builds the arm64-v8a APK, verifies the signature and
+      # packages the artifact with its checksum. A release channel must be
+      # signed with a stable production key, so a missing keystore fails the
+      # build rather than publishing an unsigned APK.
+      - name: Build signed release APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "${ANDROID_KEYSTORE_BASE64}" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not configured; refusing to build an unsigned release APK."
-            exit 1
-          fi
-          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > apps/mobile/android/app/release.keystore
-
-      - name: Configure release signing
-        run: bun scripts/configure-android-release-signing.ts
-
-      - name: Build Android Release APK
-        working-directory: apps/mobile/android
-        env:
-          ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_FILE: release.keystore
-          ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
-
-      - name: Verify APK signature
-        working-directory: apps/mobile/android
-        run: |
-          APKSIGNER=$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT}}/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)
-          if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner was not found in the Android SDK build-tools."
-            exit 1
-          fi
-          APK=$(find app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)
-          if [ -z "$APK" ]; then
-            echo "::error::No release APK found to verify."
-            exit 1
-          fi
-          "$APKSIGNER" verify --print-certs "$APK"
-
-      - name: Package and checksum APK
-        id: package-apk
-        shell: bash
-        run: |
-          MOBILE_VERSION=$(jq -r '.version' apps/mobile/package.json)
-          APK_SRC="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$APK_SRC" ]; then
-            APK_SRC=$(find apps/mobile/android/app/build/outputs/apk/ -name "*.apk" | head -n 1)
-          fi
-
-          if [ -z "$APK_SRC" ] || [ ! -f "$APK_SRC" ]; then
-            echo "Error: Generated APK not found"
-            exit 1
-          fi
-
-          mkdir -p build-artifacts
-          APK_NAME="asocialmedia-v${MOBILE_VERSION}.apk"
-          cp "$APK_SRC" "build-artifacts/${APK_NAME}"
-
-          cd build-artifacts
-          sha256sum "${APK_NAME}" > "${APK_NAME}.sha256"
-          cd ..
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          # Only read for a JKS keystore; the release keystore is PKCS12, which
+          # carries a single password, so the script derives the key password
+          # from the store password and ignores this. Supplied so the JKS path
+          # stays usable without another workflow edit if the key is ever
+          # migrated.
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: bun apps/mobile/scripts/build-android-apk.ts
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -985,7 +507,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -1006,52 +528,13 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const { owner, repo } = context.repo;
-            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}');
-            let commits = [];
-            let authors = [];
-            let prTitle = '';
-            let prUrl = '';
-
-            if (prNumber) {
-              try {
-                const prRes = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                prTitle = prRes.data?.title || '';
-                prUrl = prRes.data?.html_url || '';
-                const prCommits = await github.paginate(github.rest.pulls.listCommits, {
-                  owner,
-                  repo,
-                  pull_number: prNumber,
-                  per_page: 100,
-                });
-                commits = prCommits.map((c) => ({
-                  sha: c.sha,
-                  message: c.commit.message,
-                  author: c.author?.login || c.commit.author?.name || 'unknown',
-                  authorUrl: c.author?.html_url || '',
-                }));
-                authors = [...new Set(commits.map((c) => c.author).filter((a) => a !== 'unknown'))];
-              } catch (err) {
-                core.warning(`Failed to fetch PR commits: ${err.message}`);
-              }
-            }
-
-            if (commits.length === 0) {
-              const headCommit = context.payload?.head_commit;
-              if (headCommit) {
-                commits.push({
-                  sha: headCommit.id,
-                  message: headCommit.message,
-                  author: headCommit.author?.username || headCommit.author?.name || context.actor,
-                });
-                authors = [headCommit.author?.username || context.actor];
-              }
-            }
-
-            core.setOutput('commits_json', JSON.stringify(commits));
-            core.setOutput('authors_json', JSON.stringify(authors));
-            core.setOutput('pr_title', prTitle);
-            core.setOutput('pr_url', prUrl);
+            const collectReleaseMetadata = require('./.github/scripts/collect-release-metadata.cjs')
+            await collectReleaseMetadata({
+              github,
+              context,
+              core,
+              prNumber: Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}'),
+            })
 
       - name: Generate release notes
         id: release-notes

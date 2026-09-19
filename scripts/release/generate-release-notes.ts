@@ -56,7 +56,7 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
   // Header banner
   const sections: string[] = [
     `<p align="center">\n  <img src="${headerUrl}" alt="asocialmedia release header" width="100%" />\n</p>`,
-    `# Release v${options.versions.root}`,
+    `### Release v${options.versions.root}`,
   ];
 
   // PR context and contributors
@@ -100,37 +100,6 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
   } else {
     sections.push("- General maintenance and bug fixes.");
   }
-
-  // Workspace Versions table
-  sections.push("---");
-  sections.push("### Workspace & App Versions");
-  const versionRows: string[] = [
-    "| Component | Version | Package |",
-    "| :--- | :--- | :--- |",
-    `| **Monorepo Root** | \`v${options.versions.root}\` | \`@asocialmedia/social\` |`,
-  ];
-
-  if (options.versions.web) {
-    versionRows.push(
-      `| **Web Application** | \`v${options.versions.web}\` | \`@asm/web\` |`
-    );
-  }
-  if (options.versions.auth) {
-    versionRows.push(
-      `| **Auth Service** | \`v${options.versions.auth}\` | \`@asm/auth-app\` |`
-    );
-  }
-  if (options.versions.mediaProcessing) {
-    versionRows.push(
-      `| **Media Processing** | \`v${options.versions.mediaProcessing}\` | \`@asm/media-processing\` |`
-    );
-  }
-  if (options.versions.mobile) {
-    versionRows.push(
-      `| **Mobile Application (Android)** | \`v${options.versions.mobile}\` | \`@asocialmedia/mobile\` |`
-    );
-  }
-  sections.push(versionRows.join("\n"));
 
   // Container Images section
   sections.push("---");

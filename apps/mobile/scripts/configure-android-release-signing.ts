@@ -1,12 +1,12 @@
 // Points the generated Android release build at a production keystore instead
 // of the debug keystore `expo prebuild` writes by default. The keystore and its
-// credentials are supplied by the release workflow as Gradle project properties
+// credentials are supplied as Gradle project properties
 // (ORG_GRADLE_PROJECT_ASM_UPLOAD_*), so no secret is ever committed.
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const gradlePath = fileURLToPath(
-  new URL("../apps/mobile/android/app/build.gradle", import.meta.url)
+  new URL("../android/app/build.gradle", import.meta.url)
 );
 
 const RELEASE_SIGNING_CONFIG = `    signingConfigs {
@@ -17,6 +17,10 @@ const RELEASE_SIGNING_CONFIG = `    signingConfigs {
                 keyAlias ASM_UPLOAD_KEY_ALIAS
                 keyPassword ASM_UPLOAD_KEY_PASSWORD
             }
+            // APK Signature Scheme v3 (Android 9+) is required for key rotation
+            // and is what the platform prefers; v2 alone cannot be upgraded to
+            // a rotated key later.
+            enableV3Signing true
         }
     }
 `;
@@ -42,7 +46,7 @@ async function main(): Promise<void> {
   );
 
   const releaseSigningPattern =
-    /(release\s*\{[^}]*?)signingConfig signingConfigs\.debug/su;
+    /(?<prefix>release\s*\{[^}]*?)signingConfig signingConfigs\.debug/su;
   if (!releaseSigningPattern.test(gradle)) {
     throw new Error(
       "Could not find the release buildType signing config in android/app/build.gradle"
@@ -51,7 +55,7 @@ async function main(): Promise<void> {
 
   gradle = gradle.replace(
     releaseSigningPattern,
-    "$1signingConfig signingConfigs.release"
+    "$<prefix>signingConfig signingConfigs.release"
   );
 
   await writeFile(gradlePath, gradle);
