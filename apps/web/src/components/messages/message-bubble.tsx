@@ -59,6 +59,9 @@ export function MessageBubble({
   quote,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
+  // Media albums render as bare collages (their own frames), unlike text/post
+  // messages which sit in a tinted bubble.
+  const isMedia = content?.type === "media";
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -149,6 +152,34 @@ export function MessageBubble({
   if (isDecrypting) {
     return null;
   }
+
+  // A bare media collage has no tint to sit on, so its reply quote brings its
+  // own neutral surface; inside a bubble the quote is one step darker than the
+  // bubble tint. Precomputed as plain strings to keep the JSX ternary-free.
+  let quoteSurfaceClass = "bg-muted/40";
+  if (isMedia) {
+    quoteSurfaceClass = "border-border/50 bg-muted/50 border";
+  } else if (mine) {
+    quoteSurfaceClass = "bg-black/20";
+  }
+
+  let bubbleClass: string;
+  if (isMedia) {
+    // Media albums carry their own rounded frames, so they opt out of the
+    // colored bubble entirely: no background, border, shadow, or padding.
+    bubbleClass = "flex flex-col items-start text-sm";
+  } else if (mine) {
+    bubbleClass = cn(
+      "rounded-2xl px-3.5 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]",
+      "rounded-br-sm bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+    );
+  } else {
+    bubbleClass = cn(
+      "rounded-2xl px-3.5 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]",
+      "border-border/60 rounded-bl-sm border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]"
+    );
+  }
+  const onColoredBubble = mine && !isMedia;
 
   return (
     <div
@@ -272,32 +303,28 @@ export function MessageBubble({
             </DropdownMenu>
           </div>
 
-          <div
-            className={cn(
-              "relative max-w-full min-w-0 rounded-2xl px-3.5 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]",
-              mine
-                ? "rounded-br-sm bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
-                : "border-border/60 rounded-bl-sm border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]"
-            )}
-          >
+          {/* Media albums carry their own rounded frames, so they opt out of
+              the colored bubble entirely: no background, border, shadow, or
+              padding. Text/post messages keep the tinted bubble. */}
+          <div className={cn("relative max-w-full min-w-0", bubbleClass)}>
             {quote ? (
               <div
                 className={cn(
                   "mb-1.5 flex items-center gap-2 overflow-hidden rounded-lg py-1.5 pr-2.5 pl-2 text-xs",
-                  mine ? "bg-black/20" : "bg-muted/40"
+                  quoteSurfaceClass
                 )}
               >
                 <MessageSquareQuote
                   className={cn(
                     "h-3.5 w-3.5 shrink-0",
-                    mine ? "text-white/70" : "text-muted-foreground"
+                    onColoredBubble ? "text-white/70" : "text-muted-foreground"
                   )}
                 />
                 <div className="min-w-0">
                   <span
                     className={cn(
                       "block truncate font-semibold",
-                      mine ? "text-white/90" : "text-foreground"
+                      onColoredBubble ? "text-white/90" : "text-foreground"
                     )}
                   >
                     {quote.senderName}
@@ -305,7 +332,9 @@ export function MessageBubble({
                   <span
                     className={cn(
                       "block truncate",
-                      mine ? "text-white/70" : "text-muted-foreground"
+                      onColoredBubble
+                        ? "text-white/70"
+                        : "text-muted-foreground"
                     )}
                   >
                     {quote.content}

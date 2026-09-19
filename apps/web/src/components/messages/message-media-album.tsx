@@ -135,7 +135,7 @@ function AlbumTile({
           key={attempt}
           onError={handleError}
           onLoad={handleLoad}
-          sizes="(max-width: 640px) 90vw, 320px"
+          sizes="(max-width: 640px) 80vw, 384px"
           src={src}
           // Session-gated media can't be fetched by the server-side Image
           // optimizer (no viewer cookies), so sources are pre-sized pipeline
@@ -181,7 +181,7 @@ function AlbumGrid({
 
   return (
     <div
-      className="grid w-72 max-w-full gap-1 overflow-hidden rounded-xl"
+      className="grid w-[min(24rem,80vw,100%)] gap-1 overflow-hidden rounded-2xl"
       style={{
         aspectRatio: `${layout.cols} / ${layout.rows}`,
         gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
@@ -227,7 +227,7 @@ function SingleImage({
 
   return (
     <div
-      className="relative w-64 max-w-full overflow-hidden rounded-lg bg-black/15 text-left"
+      className="relative w-[min(24rem,80vw,100%)] overflow-hidden rounded-2xl bg-black/15 text-left"
       style={{ aspectRatio }}
     >
       {status === "loading" ? (
@@ -258,7 +258,7 @@ function SingleImage({
           key={attempt}
           onError={handleError}
           onLoad={handleLoad}
-          sizes="(max-width: 640px) 80vw, 256px"
+          sizes="(max-width: 640px) 80vw, 384px"
           src={src}
           unoptimized
         />
