@@ -846,4 +846,50 @@ describe("account backup secret", () => {
     expect(recoveredPrivate.x).toBe(originalPublic.x);
     expect(recoveredPrivate.y).toBe(originalPublic.y);
   });
+
+  test("current v2 rows unlock from the raw secret supplied by the user", async () => {
+    // Device A provisions exactly as enableIdentity does: the master key
+    // derives from the RAW secret, and only its hash is stored as a verifier.
+    const pair = await generateIdentityKeyPair();
+    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const secret = generateAccountSecret();
+    const masterKeyHash = await hashAccountSecret(secret);
+    const masterKey = await deriveMasterKey(secret, salt, 100_000);
+    const backup = await encryptWithMasterKey(
+      masterKey,
+      JSON.stringify(privateKeyJwk)
+    );
+
+    // Device B lost local storage, so it has neither the secret nor the key;
+    // the user supplies the secret from their saved copy. This mirrors
+    // unlockIdentity's v2 path: verify the hash, then derive from the raw
+    // secret (NOT the hash) and decrypt.
+    const supplied = secret;
+    const verifier = await hashAccountSecret(supplied);
+    expect(verifier.toLowerCase()).toBe(masterKeyHash.toLowerCase());
+
+    const recoveredKey = await deriveMasterKey(supplied, salt, 100_000);
+    const decrypted = await decryptWithMasterKey(recoveredKey, backup);
+    const recovered = await importPrivateKeyJwk(
+      JSON.parse(decrypted) as JsonWebKey
+    );
+    const recoveredPrivate = await exportPrivateKeyJwk(recovered);
+    const originalPublic = await exportPublicKeyJwk(pair.publicKey);
+    expect(recoveredPrivate.x).toBe(originalPublic.x);
+    expect(recoveredPrivate.y).toBe(originalPublic.y);
+  });
+
+  test("a wrong recovery secret fails the hash check before decryption", async () => {
+    const pair = await generateIdentityKeyPair();
+    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const secret = generateAccountSecret();
+    const masterKeyHash = await hashAccountSecret(secret);
+    const masterKey = await deriveMasterKey(secret, salt, 100_000);
+    await encryptWithMasterKey(masterKey, JSON.stringify(privateKeyJwk));
+
+    const wrongVerifier = await hashAccountSecret(generateAccountSecret());
+    expect(wrongVerifier.toLowerCase()).not.toBe(masterKeyHash.toLowerCase());
+  });
 });

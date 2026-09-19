@@ -12,6 +12,7 @@ import {
   ArrowDown,
   ArrowLeft,
   KeyRound,
+  Loader2,
   ShieldAlert,
   ShieldCheck,
   Users,
@@ -47,6 +48,7 @@ import {
   appendMessageToLastPage,
   fetchConversationDetail,
   fetchMessages,
+  linkMessageMedia,
   markConversationRead,
 } from "@/lib/messages/client";
 import type { ConversationDetailResponse } from "@/lib/messages/client";
@@ -64,6 +66,7 @@ import { messageDecryptor } from "@/lib/messages/decryptor";
 import {
   formatArrivalCount,
   isNearBottom,
+  jumpBehavior,
   nextArrivalCount,
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
@@ -80,6 +83,7 @@ import {
 import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
 import { cn } from "@/lib/utils";
+import { getMessageMediaId } from "@/lib/utils/image-url";
 
 import {
   pagesToDropForViewerHistory,
@@ -92,13 +96,20 @@ interface MessageThreadProps {
   onToggleRail: () => void;
 }
 
-// Estimated row height before measurement. Close to a one-line bubble so the
-// scrollbar is roughly right on first paint; measureElement corrects each
-// row after mount and on decrypt/image-load resizes.
-const ESTIMATED_ROW_SIZE = 80;
+// Estimated row height before measurement, and the exact height the decrypt
+// skeleton is pinned to. Keeping the two equal means a pending row and a
+// measured one start at the same size, so mounting a window of undecrypted
+// history does not change the total extent (and therefore does not trigger the
+// virtualizer's scroll compensation). Sits between a one-line bubble and a
+// two-line one; measureElement corrects each row after decrypt.
+const ESTIMATED_ROW_SIZE = 64;
 // The decrypt window extends this many rows beyond the viewport each way;
 // history outside it is not requested until scrolled near.
 const DECRYPT_PREFETCH_ROWS = 64;
+// Rows rendered beyond the viewport each way. Matches TanStack's chat example:
+// enough that a normal fling does not outrun measurement, without mounting the
+// large media subtrees (image, avatar, actions) that would slow each frame.
+const ROW_OVERSCAN = 6;
 // When the media viewer is open, decrypt this many transcript rows either side
 // of the active image so adjacent media is discovered. Bounded, so a sparse
 // conversation cannot make the viewer decrypt the whole history at once.
@@ -314,18 +325,28 @@ export function MessageThread({
     count: allMessages.length,
     estimateSize: () => ESTIMATED_ROW_SIZE,
     followOnAppend: true,
+    // Must track `allMessages`, not a ref. The virtualizer calls setOptions
+    // during render (before layout effects sync a ref), so a stale getItemKey
+    // would resolve the wrong key for every index on a prepend and break the
+    // end-anchor math — the viewport teleports instead of holding position.
     getItemKey: useCallback(
       (index: number) => allMessages[index]?.id ?? `index-${index}`,
       [allMessages]
     ),
     getScrollElement: () => scrollRef.current,
-    overscan: 8,
+    overscan: ROW_OVERSCAN,
     paddingEnd: 8,
     paddingStart: 16,
     // Same threshold the pinned tracker uses, so "follow new messages" and
     // "show the jump badge" flip at exactly the same scroll position.
     scrollEndThreshold: PINNED_THRESHOLD_PX,
-    useFlushSync: false,
+    // Keep the library default. When a row above the fold re-measures (decrypt
+    // or image load), the virtualizer writes `scrollTop` in the ResizeObserver
+    // callback; the matching transform commit has to land in the same frame or
+    // the browser paints one frame at the new offset with the old positions and
+    // the viewport visibly jumps. Only fires on range/isScrolling changes, not
+    // per scroll frame.
+    useFlushSync: true,
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -335,12 +356,22 @@ export function MessageThread({
       ? `${virtualItems[0].index}:${lastItem.index}`
       : "empty";
   })();
+  // True while a fling/scroll is in progress. Pending rows drop their pulse
+  // animation while it is true (a compositor animation on every mounted
+  // skeleton is pure cost mid-scroll); decrypt requests are NOT gated on it, so
+  // prefetch keeps up with the fling instead of stalling until it settles.
+  const scrolling = rowVirtualizer.isScrolling;
 
   // Queue decrypts for the visible window plus a prefetch margin, visible
   // rows first. History outside the window is never requested until scrolled
   // near, and deleted rows need no payload at all. Reply parents are fetched
   // by the row that quotes them (see VirtualRow), so this effect does not
   // depend on decrypt results and never re-runs on a completion batch.
+  //
+  // Deliberately synchronous: a requestAnimationFrame deferral here was tried
+  // and reverted. During a fling the range key changes every few frames, so the
+  // effect's cleanup kept cancelling the pending frame and prefetch stalled
+  // until the scroll settled — rows then arrived still encrypted and popped in.
   useEffect(() => {
     if (!detail || !rootKeyStore || !userId || allMessages.length === 0) {
       return;
@@ -374,8 +405,8 @@ export function MessageThread({
       push(allMessages[index]);
     }
     messageDecryptor.request(items, { getBaseKey });
-    // virtualRangeKey re-runs this on scroll; request() itself is a cheap
-    // skip for cached, queued, and in-flight ids.
+    // virtualRangeKey re-runs this on scroll; request() itself is a cheap skip
+    // for cached, queued, and in-flight ids.
   }, [
     allMessages,
     conversationId,
@@ -762,7 +793,18 @@ export function MessageThread({
     pinnedRef.current = true;
     setPinnedToBottom(true);
     setArrivalCount(0);
-    rowVirtualizer.scrollToEnd({ behavior: "smooth" });
+    // Smooth scrolling disables the virtualizer's own scroll compensation, so
+    // animating across a growing (decrypting, imaging) list lets the viewport
+    // drift. Only a short hop animates; far jumps land instantly.
+    const el = scrollRef.current;
+    const behavior = el
+      ? jumpBehavior({
+          clientHeight: el.clientHeight,
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop,
+        })
+      : "auto";
+    rowVirtualizer.scrollToEnd({ behavior });
   }, [rowVirtualizer]);
 
   // Mark the conversation read when it opens and when the peer sends while
@@ -938,7 +980,12 @@ export function MessageThread({
 
         <div className="relative min-h-0 flex-1">
           <div
-            className="hide-native-scrollbar h-full overflow-y-auto"
+            // `overflow-anchor: none` disables the browser's own scroll
+            // anchoring, which otherwise competes with the virtualizer's
+            // scrollTop compensation when rows above the viewport re-measure
+            // (decrypt, image load) — the two corrections fight and the
+            // viewport jitters while scrolling up.
+            className="hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]"
             ref={scrollRef}
           >
             {allMessages.length === 0 ? (
@@ -979,6 +1026,7 @@ export function MessageThread({
                       }}
                     >
                       <VirtualRow
+                        conversationId={conversationId}
                         historyVersion={historyVersion}
                         message={message}
                         messagesById={messagesById}
@@ -987,6 +1035,7 @@ export function MessageThread({
                         onRequest={requestDecrypt}
                         onRetry={retryDecrypt}
                         peerName={peer?.displayName ?? "them"}
+                        scrolling={scrolling}
                       />
                     </div>
                   );
@@ -994,6 +1043,15 @@ export function MessageThread({
               </div>
             )}
           </div>
+
+          {isFetchingPreviousPage && !mediaViewerKey ? (
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+              <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading older messages
+              </span>
+            </div>
+          ) : null}
 
           {peerTyping ? (
             <div className="pointer-events-none absolute bottom-2 left-4">
@@ -1055,6 +1113,7 @@ export function MessageThread({
 }
 
 interface VirtualRowProps {
+  conversationId: string;
   historyVersion: number;
   message: MessageData;
   messagesById: Map<string, MessageData>;
@@ -1063,12 +1122,35 @@ interface VirtualRowProps {
   onRequest: (message: MessageData | undefined) => void;
   onRetry: (message: MessageData) => void;
   peerName: string;
+  scrolling: boolean;
+}
+
+// Media ids whose message-conversation link this session has already asserted,
+// so a recycled row does not re-POST on every mount. Keyed by conversation too
+// so the same id can be re-linked if it ever surfaces in another thread (which
+// the server refuses anyway). Cleared entry on failure so the next mount heals.
+const linkedMessageMedia = new Set<string>();
+
+async function ensureMessageMediaLinked(
+  mediaId: string,
+  conversationId: string
+): Promise<void> {
+  const key = `${conversationId}:${mediaId}`;
+  if (linkedMessageMedia.has(key)) {
+    return;
+  }
+  linkedMessageMedia.add(key);
+  const ok = await linkMessageMedia(mediaId, conversationId);
+  if (!ok) {
+    linkedMessageMedia.delete(key);
+  }
 }
 
 // One virtualized transcript row. Subscribes to its own decrypt entry (and,
 // when it quotes a reply, the parent's) so a completion batch re-renders only
 // the rows whose payloads landed, never the whole visible window.
 function VirtualRowInner({
+  conversationId,
   message,
   messagesById,
   myUserId,
@@ -1076,13 +1158,38 @@ function VirtualRowInner({
   onRequest,
   onRetry,
   peerName,
+  scrolling,
 }: VirtualRowProps) {
   const mine = message.senderId === myUserId;
   const payload = useDecryptEntry(message.id);
 
+  // Self-heal legacy unbound media. A row uploaded before the conversation
+  // link existed is owner-readable but 404s for the peer; the sender's client
+  // is the only party that knows the media ids, so re-assert the binding when
+  // it renders its own media message. Idempotent and deduped per session.
+  useEffect(() => {
+    if (
+      !mine ||
+      !payload ||
+      payload === "error" ||
+      payload === "pending" ||
+      payload.type !== "media"
+    ) {
+      return;
+    }
+    for (const image of getMediaImages(payload)) {
+      const mediaId = getMessageMediaId(image.url);
+      if (mediaId) {
+        void ensureMessageMediaLinked(mediaId, conversationId);
+      }
+    }
+  }, [conversationId, mine, payload]);
+
   // Self-heal: an entry can legitimately be missing while the row is mounted
   // (evicted from the LRU, dropped by scope reset, or cleared after key
   // healing). Re-request it so the bubble can never stay a permanent skeleton.
+  // Not gated on `scrolling`: doing so starved prefetch during a fling and the
+  // rows then decrypted all at once on settle.
   useEffect(() => {
     if (payload === undefined) {
       onRequest(message);
@@ -1127,6 +1234,13 @@ function VirtualRowInner({
     };
   }, [myUserId, parent, parentPayload, payload, peerName, replyToId]);
 
+  // A reply whose own payload is decrypted but whose quoted parent has not
+  // landed yet. The bubble reserves the quote's height for it so the parent
+  // arriving does not re-measure the row.
+  const quotePending =
+    Boolean(replyToId && parent) &&
+    (!parentPayload || parentPayload === "pending");
+
   if (message.deletedAt) {
     return (
       <div
@@ -1146,22 +1260,31 @@ function VirtualRowInner({
   }
 
   if (!payload || payload === "pending") {
+    // Pinned to the estimate so mounting a window of undecrypted history does
+    // not change the list's total extent (and therefore does not trigger the
+    // virtualizer's scroll compensation). Mid-scroll the pulse is dropped: a
+    // compositor animation per mounted row is pure cost while flinging.
+    const pulse = scrolling ? null : "animate-pulse";
     return (
       <div
         className={cn(
           "flex items-end gap-2 px-4 pb-1",
           mine ? "justify-end" : "justify-start"
         )}
+        style={{ height: ESTIMATED_ROW_SIZE }}
       >
         {mine ? null : (
-          <div className="bg-muted/40 h-7 w-7 shrink-0 animate-pulse rounded-full" />
+          <div
+            className={cn("bg-muted/40 h-7 w-7 shrink-0 rounded-full", pulse)}
+          />
         )}
         <div
           className={cn(
-            "h-9 w-48 animate-pulse rounded-2xl",
+            "h-9 w-48 rounded-2xl",
             mine
               ? "rounded-br-sm bg-current opacity-10"
-              : "bg-muted/40 rounded-bl-sm"
+              : "bg-muted/40 rounded-bl-sm",
+            pulse
           )}
         />
       </div>
@@ -1193,7 +1316,7 @@ function VirtualRowInner({
   }
 
   return (
-    <div className="motion-safe:animate-in motion-safe:fade-in px-4 pb-1 duration-200">
+    <div className="px-4 pb-1">
       <MessageBubble
         content={payload}
         isDecrypting={false}
@@ -1202,6 +1325,7 @@ function VirtualRowInner({
         onReply={() => onReply(message)}
         peerName={peerName}
         quote={quote}
+        quotePending={quotePending}
       />
     </div>
   );
@@ -1216,10 +1340,12 @@ function VirtualRowInner({
 const VirtualRow = memo(
   VirtualRowInner,
   (prev, next) =>
+    prev.conversationId === next.conversationId &&
     prev.message === next.message &&
     prev.historyVersion === next.historyVersion &&
     prev.myUserId === next.myUserId &&
     prev.peerName === next.peerName &&
+    prev.scrolling === next.scrolling &&
     prev.onReply === next.onReply &&
     prev.onRequest === next.onRequest &&
     prev.onRetry === next.onRetry

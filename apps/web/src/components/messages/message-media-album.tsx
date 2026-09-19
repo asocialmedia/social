@@ -102,8 +102,10 @@ function AlbumTile({
             "object-cover transition-opacity duration-200",
             status === "loaded" ? "opacity-100" : "opacity-0"
           )}
+          decoding="async"
           fill
           key={attempt}
+          loading="lazy"
           onError={handleError}
           onLoad={handleLoad}
           sizes="(max-width: 640px) 80vw, 384px"
@@ -229,8 +231,10 @@ function SingleImage({
             "object-contain transition-opacity duration-200",
             status === "loaded" ? "opacity-100" : "opacity-0"
           )}
+          decoding="async"
           fill
           key={attempt}
+          loading="lazy"
           onError={handleError}
           onLoad={handleLoad}
           sizes="(max-width: 640px) 80vw, 384px"

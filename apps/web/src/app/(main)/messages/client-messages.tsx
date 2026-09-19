@@ -9,12 +9,17 @@ import { useCallback, useEffect, useState } from "react";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
 import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import {
+  MessageIdentityLocked,
+  RecoverySecretDialog,
+} from "@/components/messages/message-identity-recovery";
 import { MessageThread } from "@/components/messages/message-thread";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { cn } from "@/lib/utils";
 
 export default function ClientMessages() {
-  const { status } = useMessagesIdentity();
+  const { status, recoverySecret, dismissRecoverySecret, unlock } =
+    useMessagesIdentity();
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
@@ -69,6 +74,10 @@ export default function ClientMessages() {
     );
   }
 
+  if (status === "locked") {
+    return <MessageIdentityLocked onUnlock={unlock} />;
+  }
+
   if (status === "error") {
     return (
       <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
@@ -82,69 +91,79 @@ export default function ClientMessages() {
   }
 
   return (
-    <div
-      className={cn(
-        "border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
-        // The bottom nav only shows when no thread is open (it unmounts for
-        // an active chat), so the padding reserved for it must too.
-        pendingConversation ? "" : "pb-14"
-      )}
-    >
+    <>
+      {recoverySecret ? (
+        <RecoverySecretDialog
+          onClose={dismissRecoverySecret}
+          secret={recoverySecret}
+        />
+      ) : null}
       <div
-        className="hide-native-scrollbar flex min-h-0 flex-1 flex-row overflow-hidden"
-        // Lift everything above the on-screen keyboard: the software keyboard
-        // overlays the layout viewport, so pad by its height to keep the
-        // composer visible without the browser panning the page.
-        style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
+        className={cn(
+          "border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
+          // The bottom nav only shows when no thread is open (it unmounts for
+          // an active chat), so the padding reserved for it must too.
+          pendingConversation ? "" : "pb-14"
+        )}
       >
-        <ConversationList
-          activeConversationId={pendingConversation ?? null}
-          onSelect={selectConversation}
-        />
+        <div
+          className="hide-native-scrollbar flex min-h-0 flex-1 flex-row overflow-hidden"
+          // Lift everything above the on-screen keyboard: the software keyboard
+          // overlays the layout viewport, so pad by its height to keep the
+          // composer visible without the browser panning the page.
+          style={
+            keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined
+          }
+        >
+          <ConversationList
+            activeConversationId={pendingConversation ?? null}
+            onSelect={selectConversation}
+          />
 
-        <div className="flex min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]">
-          {pendingConversation ? (
-            <MessageThread
-              conversationId={pendingConversation}
-              key={pendingConversation}
-              onBack={() => selectConversation(null)}
-              onToggleRail={() => setRailOpen((open) => !open)}
-            />
-          ) : (
-            <>
-              {/* Keep the header line continuous when no thread is open. */}
-              <div className="border-border/60 flex h-14 shrink-0 items-center justify-end border-b px-4">
-                <button
-                  aria-label="Online friends"
-                  className="icon-btn-3d flex h-8 w-8 items-center justify-center rounded-full lg:hidden"
-                  onClick={() => setRailOpen((open) => !open)}
-                  type="button"
-                >
-                  <Users className="h-4 w-4" />
-                </button>
-              </div>
-              <EmptyThreadState />
-            </>
-          )}
+          <div className="flex min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]">
+            {pendingConversation ? (
+              <MessageThread
+                conversationId={pendingConversation}
+                key={pendingConversation}
+                onBack={() => selectConversation(null)}
+                onToggleRail={() => setRailOpen((open) => !open)}
+              />
+            ) : (
+              <>
+                {/* Keep the header line continuous when no thread is open. */}
+                <div className="border-border/60 flex h-14 shrink-0 items-center justify-end border-b px-4">
+                  <button
+                    aria-label="Online friends"
+                    className="icon-btn-3d flex h-8 w-8 items-center justify-center rounded-full lg:hidden"
+                    onClick={() => setRailOpen((open) => !open)}
+                    type="button"
+                  >
+                    <Users className="h-4 w-4" />
+                  </button>
+                </div>
+                <EmptyThreadState />
+              </>
+            )}
+          </div>
+
+          <ActiveFriendsRail
+            onClose={() => setRailOpen(false)}
+            onSelect={(userId) => {
+              // Clicking an online friend opens a fresh conversation with them;
+              // the conversation list search handles the create-or-find flow.
+              setRailOpen(false);
+              selectConversation(null);
+              window.dispatchEvent(
+                new CustomEvent("messages:new-conversation", {
+                  detail: { userId },
+                })
+              );
+            }}
+            open={railOpen}
+          />
         </div>
-
-        <ActiveFriendsRail
-          onClose={() => setRailOpen(false)}
-          onSelect={(userId) => {
-            // Clicking an online friend opens a fresh conversation with them;
-            // the conversation list search handles the create-or-find flow.
-            setRailOpen(false);
-            selectConversation(null);
-            window.dispatchEvent(
-              new CustomEvent("messages:new-conversation", {
-                detail: { userId },
-              })
-            );
-          }}
-          open={railOpen}
-        />
       </div>
-    </div>
+    </>
   );
 }
 

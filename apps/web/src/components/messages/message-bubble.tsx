@@ -47,6 +47,7 @@ interface MessageBubbleProps {
   onReply: () => void;
   peerName: string;
   quote: { senderName: string; content: string } | null;
+  quotePending: boolean;
 }
 
 export function MessageBubble({
@@ -57,6 +58,7 @@ export function MessageBubble({
   onReply,
   peerName,
   quote,
+  quotePending,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
   // Media albums render as bare collages (their own frames), unlike text/post
@@ -180,6 +182,71 @@ export function MessageBubble({
     );
   }
   const onColoredBubble = mine && !isMedia;
+
+  // Both the resolved quote and its reserved placeholder share one box shape,
+  // so the parent payload landing never changes this block's height.
+  const quoteBoxClass = cn(
+    "mb-1.5 flex items-center gap-2 overflow-hidden rounded-lg py-1.5 pr-2.5 pl-2 text-xs",
+    quoteSurfaceClass
+  );
+  let quoteBlock: React.ReactNode = null;
+  if (quote) {
+    quoteBlock = (
+      <div className={quoteBoxClass}>
+        <MessageSquareQuote
+          className={cn(
+            "h-3.5 w-3.5 shrink-0",
+            onColoredBubble ? "text-white/70" : "text-muted-foreground"
+          )}
+        />
+        <div className="min-w-0">
+          <span
+            className={cn(
+              "block truncate font-semibold",
+              onColoredBubble ? "text-white/90" : "text-foreground"
+            )}
+          >
+            {quote.senderName}
+          </span>
+          <span
+            className={cn(
+              "block truncate",
+              onColoredBubble ? "text-white/70" : "text-muted-foreground"
+            )}
+          >
+            {quote.content}
+          </span>
+        </div>
+      </div>
+    );
+  } else if (quotePending) {
+    // Reserved space for a reply quote whose parent payload has not decrypted
+    // yet; the same box means the parent landing does not re-measure the row.
+    quoteBlock = (
+      <div className={quoteBoxClass}>
+        <MessageSquareQuote
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 opacity-50",
+            onColoredBubble ? "text-white/70" : "text-muted-foreground"
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <span
+            className={cn(
+              "block h-4 w-16 animate-pulse rounded",
+              onColoredBubble ? "bg-white/25" : "bg-muted-foreground/20"
+            )}
+          />
+          <span
+            className={cn(
+              "block h-4 w-3/4 animate-pulse rounded",
+              onColoredBubble ? "bg-white/25" : "bg-muted-foreground/20"
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -307,41 +374,7 @@ export function MessageBubble({
               the colored bubble entirely: no background, border, shadow, or
               padding. Text/post messages keep the tinted bubble. */}
           <div className={cn("relative max-w-full min-w-0", bubbleClass)}>
-            {quote ? (
-              <div
-                className={cn(
-                  "mb-1.5 flex items-center gap-2 overflow-hidden rounded-lg py-1.5 pr-2.5 pl-2 text-xs",
-                  quoteSurfaceClass
-                )}
-              >
-                <MessageSquareQuote
-                  className={cn(
-                    "h-3.5 w-3.5 shrink-0",
-                    onColoredBubble ? "text-white/70" : "text-muted-foreground"
-                  )}
-                />
-                <div className="min-w-0">
-                  <span
-                    className={cn(
-                      "block truncate font-semibold",
-                      onColoredBubble ? "text-white/90" : "text-foreground"
-                    )}
-                  >
-                    {quote.senderName}
-                  </span>
-                  <span
-                    className={cn(
-                      "block truncate",
-                      onColoredBubble
-                        ? "text-white/70"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    {quote.content}
-                  </span>
-                </div>
-              </div>
-            ) : null}
+            {quoteBlock}
 
             {renderContent()}
           </div>

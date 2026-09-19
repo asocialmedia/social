@@ -303,6 +303,30 @@ export async function discardMessageMedia(mediaId: string): Promise<void> {
   }
 }
 
+// Best-effort (re)bind for a message attachment the sender owns. Message media
+// is bound to its thread at upload; rows created before that binding existed
+// are unlinked, which leaves the uploader able to read them (unlinked rows are
+// owner-readable) while the peer 404s on every fetch — a one-sided message.
+// The sender's client is the only party that knows the media ids (they live
+// inside the E2EE payload), so it re-asserts the link when it renders its own
+// media message. Failures are non-fatal and retried on the next mount.
+export async function linkMessageMedia(
+  mediaId: string,
+  conversationId: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/media/${mediaId}/message-link`, {
+      body: JSON.stringify({ conversationId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Natural image dimensions from the file's first frame, so the sender can
 // encrypt them into the payload and receivers avoid layout shift. Null when
 // the browser cannot decode the file; bubbles fall back to a fixed ratio.

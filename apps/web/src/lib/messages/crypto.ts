@@ -615,10 +615,13 @@ export async function generateFingerprint(
 
 // ---- account backup secret -----------------------------------------------------
 
-// Fully automatic, account-scoped backup secret: a random 64-character value
-// generated once per account. Only its SHA-256 hash is ever stored (server
-// side, with the identity), and that hash is the actual secret used for the
-// PBKDF2 master key, so no user input is needed to enable or unlock.
+// Account-scoped backup secret: a random 64-character value generated once per
+// account. The master key is derived from this raw secret, and only its SHA-256
+// hash is stored server-side as a verifier. Knowing the hash does not allow
+// re-deriving the master key, so a database reader cannot decrypt the backup;
+// the trade-off is that the raw secret must be retained on the user's device
+// (or supplied by the user on a new one), which is why it is shown once at
+// provisioning.
 export function generateAccountSecret(length = ACCOUNT_SECRET_LENGTH): string {
   // base64url encodes 3 bytes as 4 characters, so derive the random-byte count
   // from the requested length. That keeps the returned secret exactly `length`

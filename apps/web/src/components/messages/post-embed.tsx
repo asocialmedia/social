@@ -48,20 +48,39 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
   }
 
   if (!data) {
-    // Loading skeleton in the message bubble while the post is fetched.
+    // Loading skeleton shaped like the loaded card (author row, text block,
+    // h-40 cover, footer) so the query resolving does not grow the bubble and
+    // force the transcript to re-measure mid-scroll.
     return (
       <div
         className={cn(
-          "mt-1 w-full max-w-72 animate-pulse rounded-xl border p-3",
+          "mt-1 w-full max-w-72 animate-pulse overflow-hidden rounded-xl border",
           mine ? "border-white/40 bg-black/25" : "border-border/60 bg-muted/50"
         )}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 px-3 pt-2.5">
           <div className="size-6 rounded-full bg-current opacity-20" />
-          <div className="h-3 w-1/3 rounded bg-current opacity-20" />
+          <div className="min-w-0 flex-1">
+            <div className="h-3 w-1/3 rounded bg-current opacity-20" />
+            <div className="mt-1 h-2.5 w-1/4 rounded bg-current opacity-15" />
+          </div>
         </div>
-        <div className="mt-2.5 h-3 w-3/4 rounded bg-current opacity-20" />
-        <div className="mt-1.5 h-3 w-2/3 rounded bg-current opacity-20" />
+        <div className="space-y-1.5 px-3 py-2">
+          <div className="h-3 w-3/4 rounded bg-current opacity-20" />
+          <div className="h-3 w-2/3 rounded bg-current opacity-20" />
+        </div>
+        <div className="px-3 pb-2">
+          <div className="h-40 w-full rounded-lg bg-current opacity-15" />
+        </div>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 border-t px-3 py-1.5",
+            mine ? "border-white/15" : "border-border/50"
+          )}
+        >
+          <div className="h-2.5 w-16 rounded bg-current opacity-20" />
+          <div className="h-2.5 w-12 rounded bg-current opacity-20" />
+        </div>
       </div>
     );
   }
@@ -213,7 +232,9 @@ function PostEmbedCard({ data, mine }: { data: PostData; mine: boolean }) {
                 <Image
                   alt=""
                   className="h-full w-full object-cover"
+                  decoding="async"
                   fill
+                  loading="lazy"
                   sizes="(max-width: 640px) 50vw, 320px"
                   src={getMediaProxyUrl(previews[0])}
                   unoptimized
@@ -223,7 +244,9 @@ function PostEmbedCard({ data, mine }: { data: PostData; mine: boolean }) {
               <Image
                 alt=""
                 className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                decoding="async"
                 fill
+                loading="lazy"
                 sizes="(max-width: 640px) 50vw, 320px"
                 src={getMediaProxyUrl(previews[0])}
                 unoptimized
