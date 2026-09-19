@@ -7,7 +7,6 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronLeft,
   ChevronRight,
@@ -126,8 +125,8 @@ function StageImage({
   );
 }
 
-// One filmstrip thumbnail. A fixed-size button so the horizontal virtualizer
-// can position it without measurement.
+// One filmstrip thumbnail. Fixed-size and absolutely positioned so the strip
+// can slide by translating its track (GPU-composited), never by layout.
 function Thumb({
   active,
   item,
@@ -152,9 +151,9 @@ function Thumb({
       aria-current={active}
       aria-label={`Open image ${position} of ${total}`}
       className={cn(
-        "absolute top-0 overflow-hidden rounded-md bg-zinc-900 transition-all",
+        "absolute top-0 overflow-hidden rounded-md bg-zinc-900 transition-[opacity,box-shadow] duration-200",
         active
-          ? "ring-2 ring-white"
+          ? "z-10 opacity-100 ring-2 ring-white"
           : "opacity-60 hover:opacity-100 focus-visible:opacity-100"
       )}
       onClick={onClick}
@@ -173,96 +172,107 @@ function Thumb({
   );
 }
 
+// Only this many tiles beyond the viewport are mounted each side. Because the
+// track is centered on the active tile, items dropped at the edges are always
+// off-screen, so windowing is invisible.
+const STRIP_OVERSCAN = 4;
+
+// Centered, transform-driven filmstrip. The active thumbnail is always exactly
+// in the middle; changing it slides the track with a single compositor-only
+// transform instead of native scrolling or per-tile layout. Only the tiles near
+// the active index are mounted, so a conversation with thousands of images
+// still renders a couple dozen DOM nodes.
 function Filmstrip({
   activeIndex,
-  hasOlder,
-  isFetchingOlder,
   items,
-  onLoadOlder,
   onSelect,
-  scrollRef,
 }: {
   activeIndex: number;
-  hasOlder: boolean;
-  isFetchingOlder: boolean;
   items: ConversationMediaItem[];
-  onLoadOlder: () => void;
   onSelect: (flatKey: string) => void;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const offset = hasOlder ? 1 : 0;
-  const count = items.length + offset;
-  // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream recipe); the strip is small and keyed on flatKey, so remounts are already prevented
-  const virtualizer = useVirtualizer({
-    count,
-    estimateSize: () => THUMB_STRIDE,
-    getScrollElement: () => scrollRef.current,
-    horizontal: true,
-    overscan: 6,
-  });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  // Transitions stay off until after the first measured frame, so opening the
+  // viewer reveals the strip already centered instead of sliding in from the
+  // left. Enabled on the next frame, then every navigation animates.
+  const [animate, setAnimate] = useState(false);
 
-  const activeVirtualIndex = activeIndex + offset;
   useEffect(() => {
-    if (activeVirtualIndex >= 0 && activeVirtualIndex < count) {
-      virtualizer.scrollToIndex(activeVirtualIndex, { align: "center" });
+    const element = containerRef.current;
+    if (!element) {
+      return;
     }
-  }, [activeVirtualIndex, count, virtualizer]);
+    const update = () => setWidth(element.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
-  const virtualItems = virtualizer.getVirtualItems();
+  useEffect(() => {
+    if (width <= 0 || animate) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => setAnimate(true));
+    return () => cancelAnimationFrame(frame);
+  }, [animate, width]);
+
+  const count = items.length;
+  const center = width / 2;
+  // Offset that puts the active tile's midpoint at the container's midpoint.
+  const trackX =
+    width > 0 ? center - (activeIndex * THUMB_STRIDE + THUMB_SIZE / 2) : 0;
+
+  const visibleCount =
+    width > 0 ? Math.ceil(width / THUMB_STRIDE) + STRIP_OVERSCAN * 2 : 0;
+  const half = Math.floor(visibleCount / 2);
+  const start = Math.max(0, activeIndex - half);
+  const end = Math.min(count - 1, activeIndex + half);
+  const windowItems: { index: number; item: ConversationMediaItem }[] = [];
+  for (let index = start; index <= end; index += 1) {
+    const item = items[index];
+    if (item) {
+      windowItems.push({ index, item });
+    }
+  }
 
   return (
     <div
-      className="min-w-0 flex-1 [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
-      ref={scrollRef}
+      className="relative min-w-0 flex-1 overflow-hidden"
+      ref={containerRef}
+      style={{
+        WebkitMaskImage:
+          "linear-gradient(to right, transparent, black 12%, black 88%, transparent)",
+        height: THUMB_SIZE,
+        // Feather the strip edges; a plain string keeps it out of the class
+        // pipeline where `calc`/comma parsing is fragile.
+        maskImage:
+          "linear-gradient(to right, transparent, black 12%, black 88%, transparent)",
+      }}
     >
       <div
-        className="relative"
-        style={{ height: THUMB_SIZE, width: virtualizer.getTotalSize() }}
+        className="absolute top-0 left-0 h-full will-change-transform"
+        style={{
+          transform: `translate3d(${trackX}px, 0, 0)`,
+          transition: animate
+            ? "transform 320ms cubic-bezier(0.22, 0.61, 0.36, 1)"
+            : "none",
+        }}
       >
-        {virtualItems.map((virtualItem) => {
-          const style = {
-            transform: `translateX(${virtualItem.start}px)`,
-          };
-          if (hasOlder && virtualItem.index === 0) {
-            return (
-              <button
-                aria-label="Load older images"
-                className="absolute top-0 flex items-center justify-center rounded-md border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-60"
-                disabled={isFetchingOlder}
-                key="load-older"
-                onClick={onLoadOlder}
-                style={{
-                  ...style,
-                  height: THUMB_SIZE,
-                  left: 0,
-                  width: THUMB_SIZE,
-                }}
-                type="button"
-              >
-                {isFetchingOlder ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <ChevronLeft className="size-5" />
-                )}
-              </button>
-            );
-          }
-          const item = items[virtualItem.index - offset];
-          if (!item) {
-            return null;
-          }
-          return (
-            <Thumb
-              active={virtualItem.index === activeVirtualIndex}
-              item={item}
-              key={item.flatKey}
-              onClick={() => onSelect(item.flatKey)}
-              position={virtualItem.index - offset + 1}
-              style={style}
-              total={items.length}
-            />
-          );
-        })}
+        {windowItems.map(({ index, item }) => (
+          <Thumb
+            active={index === activeIndex}
+            item={item}
+            key={item.flatKey}
+            onClick={() => onSelect(item.flatKey)}
+            position={index + 1}
+            style={{
+              transform: `translate3d(${index * THUMB_STRIDE}px, 0, 0)`,
+            }}
+            total={count}
+          />
+        ))}
       </div>
     </div>
   );
@@ -314,8 +324,11 @@ export function ConversationMediaViewer({
   }
   const extending =
     extension && extension.count === items.length ? extension.direction : null;
-  const stripRef = useRef<HTMLDivElement | null>(null);
   const preloadedRef = useRef(new Set<string>());
+  // Set once reaching the oldest known image so a page that turns out to
+  // contain no media cannot chain-load older history; reset on leaving the
+  // boundary so a later visit can request again.
+  const boundaryRequestedRef = useRef(false);
 
   // Fail-safe: if a boundary extension discovers no further media, clear the
   // spinner after a beat so an arrow can never spin forever.
@@ -371,10 +384,27 @@ export function ConversationMediaViewer({
       // decrypted, and show a spinner until the list changes.
       const direction: MediaNavDirection = delta > 0 ? "newer" : "older";
       setExtension({ count: items.length, direction });
+      if (direction === "older") {
+        onLoadOlder();
+      }
       onActive(activeKey, direction);
     },
-    [activeIndex, activeKey, items, onActive, selectKey]
+    [activeIndex, activeKey, items, onActive, onLoadOlder, selectKey]
   );
+
+  // Reaching the oldest known image pulls one more page of history so the strip
+  // keeps extending as the user walks back through the conversation.
+  useEffect(() => {
+    if (activeIndex !== 0) {
+      boundaryRequestedRef.current = false;
+      return;
+    }
+    if (!hasOlder || isFetchingOlder || boundaryRequestedRef.current) {
+      return;
+    }
+    boundaryRequestedRef.current = true;
+    onLoadOlder();
+  }, [activeIndex, hasOlder, isFetchingOlder, onLoadOlder]);
 
   // Keep the decrypt window centered on wherever the viewer currently is. The
   // effect re-runs on navigation AND whenever the thread's callback identity
@@ -552,15 +582,11 @@ export function ConversationMediaViewer({
             : ""}
         </span>
 
-        <div className="pointer-events-auto z-40 flex items-center gap-2 border-t border-white/10 bg-black/80 px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+        <div className="pointer-events-auto z-40 flex items-center border-t border-white/10 bg-black/80 px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
           <Filmstrip
             activeIndex={activeIndex}
-            hasOlder={hasOlder}
-            isFetchingOlder={isFetchingOlder}
             items={items}
-            onLoadOlder={onLoadOlder}
             onSelect={selectKey}
-            scrollRef={stripRef}
           />
         </div>
       </DialogContent>
