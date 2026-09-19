@@ -1,5 +1,6 @@
 import { isReservedUsername, prisma } from "@asm/db";
 import { createLogger } from "@asm/logger";
+import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
@@ -395,6 +396,10 @@ export function createAuthConfig(config: AuthConfig = {}) {
 
     plugins: [
       username(),
+      // Native mobile app (Expo, scheme asocialmedia://). The after-hook only
+      // rewrites OAuth magic-link/verify deep-link redirects, so email login
+      // flows are unaffected; the scheme must stay in trustedOrigins below.
+      expo(),
       jwt(),
       adminPlugin(),
       twoFactor({
@@ -597,11 +602,21 @@ export function createAuthConfig(config: AuthConfig = {}) {
       env.AUTH_URL,
       "https://asocialmedia.cc",
       "https://auth.asocialmedia.cc",
+      // Native mobile app scheme (Expo app.json scheme). Required for
+      // deep-link auth callbacks; email login via the web proxy is unaffected.
+      "asocialmedia://",
       // Local development origins never ship to production. Web, auth and
       // media all run as plain localhost servers in dev (3000/3001/3010).
       ...(environment === "production"
         ? []
-        : ["http://localhost:3000", "http://localhost:3001"]),
+        : [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            // Expo Go / dev-client origins. Dev only, never production.
+            "exp://",
+            "exp://**",
+            "exp://192.168.*.*:*/**",
+          ]),
     ].filter(Boolean),
 
     telemetry: {
