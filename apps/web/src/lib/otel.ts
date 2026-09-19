@@ -46,6 +46,21 @@ const CONSOLE_TO_PINO: Record<ConsoleMethod, LogMethod> = {
   warn: "warn",
 };
 
+// Dependency chatter that carries no diagnostic value and would otherwise
+// dominate the warn stream. Deliberately tiny and exact-substring: a broad
+// pattern here would swallow real warnings.
+const IGNORED_CONSOLE_MESSAGES = [
+  // Satori (@vercel/og, used by the opengraph-image routes) emits this for any
+  // element carrying a stacking hint. The OG cards render correctly; the
+  // library simply cannot honour `z-index`. It fired on every OG request and
+  // was the single largest WARN source in asm_web_logs.
+  "`z-index` is currently not supported.",
+];
+
+function isIgnoredConsoleMessage(message: string): boolean {
+  return IGNORED_CONSOLE_MESSAGES.some((needle) => message.includes(needle));
+}
+
 // Forwards the Next.js server's console output into the pino logger (and thus
 // OpenObserve under the configured stream, e.g. asm_web_logs). The original
 // console methods still run so terminal output and Dokploy logs are unchanged.
@@ -63,7 +78,11 @@ function forwardConsoleOutput(logger: PinoLogger): void {
     const pinoLevel = CONSOLE_TO_PINO[method];
     consoleRef[method] = (...args: unknown[]) => {
       original(...args);
-      logger[pinoLevel](toMessage(args));
+      const message = toMessage(args);
+      if (isIgnoredConsoleMessage(message)) {
+        return;
+      }
+      logger[pinoLevel](message);
     };
   }
 }

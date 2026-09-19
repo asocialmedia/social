@@ -1,4 +1,5 @@
 import { metrics, trace } from "@opentelemetry/api";
+import type { Context } from "@opentelemetry/api";
 import { logs } from "@opentelemetry/api-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
@@ -13,6 +14,11 @@ import {
   PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import type {
+  ReadableSpan,
+  Span,
+  SpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
   ATTR_SERVICE_NAME,
@@ -25,6 +31,84 @@ import {
   readOtelConfig,
 } from "./otel-config";
 import type { OtelConfig } from "./otel-config";
+
+// Container health probes hit /api/health every 30s per replica. Next traces
+// each one into a full request span, so four health-check spans a minute per
+// container swamped the trace stream with zero diagnostic value. Dropping them
+// at the span processor removes the volume before it reaches the wire without
+// touching application instrumentation.
+const DEFAULT_DROP_SPAN_PATTERNS = ["/api/health"];
+
+function readDropSpanPatterns(): string[] {
+  const configured = process.env.OTEL_DROP_SPAN_PATTERNS;
+  const patterns =
+    configured === undefined
+      ? DEFAULT_DROP_SPAN_PATTERNS
+      : configured.split(",");
+  return patterns
+    .map((pattern) => pattern.trim().toLowerCase())
+    .filter((pattern) => pattern.length > 0);
+}
+
+// Span attributes that can carry the request path/route, across Next.js's own
+// span naming and the semantic conventions.
+const SPAN_PATH_ATTRIBUTES = [
+  "http.route",
+  "http.target",
+  "http.url",
+  "next.route",
+  "next.span_name",
+] as const;
+
+export function shouldDropSpan(
+  span: ReadableSpan,
+  patterns: string[]
+): boolean {
+  if (patterns.length === 0) {
+    return false;
+  }
+  const attributes = span.attributes ?? {};
+  const parts: string[] = [span.name];
+  for (const key of SPAN_PATH_ATTRIBUTES) {
+    const value = attributes[key];
+    if (typeof value === "string") {
+      parts.push(value);
+    }
+  }
+  const haystack = parts.join(" ").toLowerCase();
+  return patterns.some((pattern) => haystack.includes(pattern));
+}
+
+// Wraps a span processor and drops matching spans on end. `onStart` is a no-op
+// on BatchSpanProcessor, so filtering on end is sufficient to keep a span out
+// of the export buffer entirely.
+class DroppingSpanProcessor implements SpanProcessor {
+  readonly #inner: SpanProcessor;
+  readonly #patterns: string[];
+
+  constructor(inner: SpanProcessor, patterns: string[]) {
+    this.#inner = inner;
+    this.#patterns = patterns;
+  }
+
+  onStart(span: Span, parentContext: Context): void {
+    this.#inner.onStart(span, parentContext);
+  }
+
+  onEnd(span: ReadableSpan): void {
+    if (!shouldDropSpan(span, this.#patterns)) {
+      this.#inner.onEnd(span);
+    }
+  }
+
+  shutdown(): Promise<void> {
+    return this.#inner.shutdown();
+  }
+
+  forceFlush(): Promise<void> {
+    return this.#inner.forceFlush();
+  }
+}
 
 export interface Telemetry {
   shutdown: () => Promise<void>;
@@ -111,7 +195,12 @@ export function initTelemetry(options: {
 
   const tracerProvider = new NodeTracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor(traceExporter)],
+    spanProcessors: [
+      new DroppingSpanProcessor(
+        new BatchSpanProcessor(traceExporter),
+        readDropSpanPatterns()
+      ),
+    ],
   });
   tracerProvider.register();
 
