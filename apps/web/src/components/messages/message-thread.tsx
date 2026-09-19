@@ -694,7 +694,7 @@ export function MessageThread({
     if (!mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
       return;
     }
-    const {data} = messagesQuery;
+    const { data } = messagesQuery;
     if (!data) {
       return;
     }
@@ -731,6 +731,7 @@ export function MessageThread({
     messagesQuery.data,
     queryClient,
     viewerPosition,
+    messagesQuery,
   ]);
 
   // Close the viewer and land the transcript on the image the user was viewing.
