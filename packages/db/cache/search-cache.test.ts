@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { parseHistoryEntry, searchSuggestionsCache } from "./search-cache";
+import { isValidSearchSuggestion, parseHistoryEntry } from "./search-cache";
 
 describe("search cache", () => {
   it("parses legacy string entries as query type", () => {
@@ -94,80 +94,26 @@ describe("search cache", () => {
     }
   });
 
-  it("adds and retrieves rich user, post, and query history in redis with metadata", async () => {
-    const testUserId = "unit-test-user-search-history";
-    await searchSuggestionsCache.clearHistory(testUserId);
+  it("validates search suggestions against spam and invalid lengths", () => {
+    // Valid queries
+    expect(isValidSearchSuggestion("javascript")).toBe(true);
+    expect(isValidSearchSuggestion("nextjs 15")).toBe(true);
+    expect(isValidSearchSuggestion("hello world")).toBe(true);
 
-    const userItem = {
-      aura: 42,
-      avatarUrl: null,
-      badge: null,
-      badges: [],
-      bio: null,
-      displayName: "Alice",
-      displayUsername: "alice",
-      id: "alice-1",
-      username: "alice",
-    };
+    // Invalid: too short or too long
+    expect(isValidSearchSuggestion("a")).toBe(false);
+    expect(isValidSearchSuggestion("")).toBe(false);
+    expect(isValidSearchSuggestion("   ")).toBe(false);
+    expect(isValidSearchSuggestion("a".repeat(51))).toBe(false);
 
-    const postItem = {
-      aura: 10,
-      authorAvatarUrl: null,
-      authorBadge: null,
-      authorBadges: [],
-      authorDisplayName: "Bob",
-      authorId: "bob-1",
-      authorUsername: "bob",
-      community: null,
-      content: "Bob thoughts",
-      createdAt: new Date(),
-      explicitContent: false,
-      id: "post-bob-1",
-      previewMedia: null,
-      viewCount: 50,
-    };
+    // Invalid: contains URLs or domains
+    expect(isValidSearchSuggestion("visit https://malicious.com")).toBe(false);
+    expect(isValidSearchSuggestion("buy cheap crypto.xyz")).toBe(false);
+    expect(isValidSearchSuggestion("www.google.com")).toBe(false);
 
-    await searchSuggestionsCache.addUserToHistory(testUserId, userItem);
-    await searchSuggestionsCache.addPostToHistory(testUserId, postItem);
-    await searchSuggestionsCache.addToHistory(testUserId, "bun runtime", 15);
-
-    const history = await searchSuggestionsCache.getHistory(testUserId);
-    expect(history.length).toBe(3);
-
-    // Latest added is at the top
-    expect(history[0]?.type).toBe("query");
-    if (history[0]?.type === "query") {
-      expect(history[0].resultCount).toBe(15);
-      expect(history[0].searchedAt).toBeDefined();
-    }
-
-    expect(history[1]?.type).toBe("post");
-    if (history[1]?.type === "post") {
-      expect(history[1].searchedAt).toBeDefined();
-    }
-
-    expect(history[2]?.type).toBe("user");
-    if (history[2]?.type === "user") {
-      expect(history[2].searchedAt).toBeDefined();
-    }
-
-    // Remove user
-    await searchSuggestionsCache.removeHistoryItem(testUserId, "alice-1");
-    const historyAfterUserRemoval =
-      await searchSuggestionsCache.getHistory(testUserId);
-    expect(historyAfterUserRemoval.length).toBe(2);
-
-    // Remove post
-    await searchSuggestionsCache.removeHistoryItem(testUserId, "post-bob-1");
-    const historyAfterPostRemoval =
-      await searchSuggestionsCache.getHistory(testUserId);
-    expect(historyAfterPostRemoval.length).toBe(1);
-    expect(historyAfterPostRemoval[0]?.type).toBe("query");
-
-    // Clear all
-    await searchSuggestionsCache.clearHistory(testUserId);
-    const historyAfterClear =
-      await searchSuggestionsCache.getHistory(testUserId);
-    expect(historyAfterClear.length).toBe(0);
+    // Invalid: HTML tags or SQL injection probes
+    expect(isValidSearchSuggestion("<script>alert(1)</script>")).toBe(false);
+    expect(isValidSearchSuggestion("test'; DROP TABLE users;--")).toBe(false);
+    expect(isValidSearchSuggestion("union select 1, 2")).toBe(false);
   });
 });

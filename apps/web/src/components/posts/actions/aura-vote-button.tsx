@@ -2,6 +2,7 @@ import { clientLog } from "@asm/config/debug";
 import type { VoteInfo } from "@asm/db";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
+import { HTTPError } from "ky";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
@@ -87,6 +88,16 @@ export default function AuraVoteButton({
     onError(error, _variables, context) {
       queryClient.setQueryData(queryKey, context?.previousState);
       clientLog.error(error);
+      // A 404 means the post/eddie no longer exists (deleted while on screen).
+      // "Give it another try" is a lie there - retrying can never succeed - so
+      // say what actually happened instead of implying a transient failure.
+      if (error instanceof HTTPError && error.response.status === 404) {
+        toast({
+          description: `This ${noun} is no longer available.`,
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         description: "That didn't go through, give it another try?",
         variant: "destructive",

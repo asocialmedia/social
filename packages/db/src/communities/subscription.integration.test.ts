@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   canViewCommunity,
@@ -8,6 +15,7 @@ import {
   getSubscribedCommunityIds,
   isSubscribedToCommunity,
   joinCommunity,
+  leaveCommunity,
   notifyCommunitySubscribers,
   prisma,
   subscribeToCommunity,
@@ -46,11 +54,19 @@ let privateCommunityId: string;
 let fanoutCommunityId: string;
 const fanoutPosts: string[] = [];
 
+// A far-past createdAt keeps these fixture posts OUT of the newest-N global
+// candidate pools that other integration suites (the For-You feed test) rank
+// over: a post that is concurrently ranked and then deleted by this suite's
+// cleanup makes that test intermittently see a short page. The notification
+// fan-out does not read createdAt, so an arbitrary timestamp is harmless here.
+const FANOUT_POST_CREATED_AT = new Date("2020-01-01T00:00:00.000Z");
+
 async function createFanoutPost(): Promise<string> {
   const post = await prisma.post.create({
     data: {
       communityId: fanoutCommunityId,
       content: "a community post",
+      createdAt: FANOUT_POST_CREATED_AT,
       userId: OWNER_ID,
     },
   });
@@ -226,17 +242,102 @@ describe("community subscriptions", () => {
     // The follower never joined the private community they don't follow.
     expect(ids).not.toContain(privateCommunityId);
   });
+
+  test("leaving a private community drops its subscription and notifications", async () => {
+    // STRANGER is an ACTIVE member of the private community (set up above) and
+    // subscribed to it. Seed a post notification so the cleanup has something to
+    // remove.
+    await subscribeToCommunity(privateCommunityId, STRANGER_ID);
+    const post = await prisma.post.create({
+      data: {
+        communityId: privateCommunityId,
+        content: "private post",
+        userId: OWNER_ID,
+      },
+    });
+    await prisma.notification.create({
+      data: {
+        communityId: privateCommunityId,
+        count: 1,
+        issuerId: OWNER_ID,
+        postId: post.id,
+        recipientId: STRANGER_ID,
+        type: "COMMUNITY_POST",
+      },
+    });
+
+    await leaveCommunity(privateCommunityId, STRANGER_ID);
+
+    // Read access is gone, so both the follow and the already-delivered
+    // notification (whose rendered body carries the post) must be gone too.
+    expect(await isSubscribedToCommunity(privateCommunityId, STRANGER_ID)).toBe(
+      false
+    );
+    expect(
+      await prisma.notification.count({
+        where: { communityId: privateCommunityId, recipientId: STRANGER_ID },
+      })
+    ).toBe(0);
+
+    await prisma.post.delete({ where: { id: post.id } });
+  });
+
+  test("the fan-out drops a stale subscription to a private community", async () => {
+    // Simulate the leak directly: a subscription row for a user with no ACTIVE
+    // membership (the state leave would have produced before cleanup existed).
+    await prisma.communitySubscription.upsert({
+      create: { communityId: privateCommunityId, userId: FOLLOWER_ID },
+      update: {},
+      where: {
+        communityId_userId: {
+          communityId: privateCommunityId,
+          userId: FOLLOWER_ID,
+        },
+      },
+    });
+
+    const notified = await getCommunitySubscriberIds(
+      privateCommunityId,
+      OWNER_ID
+    );
+    expect(notified).not.toContain(FOLLOWER_ID);
+
+    await prisma.communitySubscription.deleteMany({
+      where: { communityId: privateCommunityId, userId: FOLLOWER_ID },
+    });
+  });
 });
 
 describe("community post notification fan-out", () => {
-  test("excludes the author and returns the fresh recipients", async () => {
+  // Each case owns the notification state it asserts on. The fan-out's behavior
+  // depends on which unread rows already exist, so a shared fixture would make
+  // these pass only when run in file order (and fail under a name filter). A
+  // clean slate per test keeps fresh/fold/row-count independent of order.
+  beforeEach(async () => {
+    await prisma.notification.deleteMany({
+      where: { communityId: fanoutCommunityId },
+    });
+  });
+
+  test("excludes the author and creates one unread row per subscriber", async () => {
     const postId = await createFanoutPost();
     const fresh = await runFanout(postId);
-    // The follower is notified; the author is not.
+
+    // The follower gets a fresh row; the author is not notified.
     expect(fresh).toEqual([FOLLOWER_ID]);
+    const rows = await prisma.notification.findMany({
+      where: { communityId: fanoutCommunityId, recipientId: FOLLOWER_ID },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.count).toBe(1);
+    expect(rows[0]?.postId).toBe(postId);
+    expect(rows[0]?.read).toBe(false);
   });
 
   test("folds a second post into the unread row instead of adding another", async () => {
+    // Seed exactly the state this case is about: one unread row already waiting.
+    await runFanout(await createFanoutPost());
+
     const postId = await createFanoutPost();
     const fresh = await runFanout(postId);
 
@@ -252,10 +353,13 @@ describe("community post notification fan-out", () => {
   });
 
   test("starts a fresh row after the previous one is read", async () => {
+    // Seed a read row, so the next fan-out has nothing to fold into.
+    await runFanout(await createFanoutPost());
     await prisma.notification.updateMany({
       data: { read: true },
       where: { communityId: fanoutCommunityId, recipientId: FOLLOWER_ID },
     });
+
     const postId = await createFanoutPost();
     const fresh = await runFanout(postId);
 
@@ -266,6 +370,7 @@ describe("community post notification fan-out", () => {
     expect(rows).toHaveLength(2);
     const unread = rows.find((row) => !row.read);
     expect(unread?.count).toBe(1);
+    expect(unread?.postId).toBe(postId);
   });
 
   test("getCommunitySubscriberIds excludes the given author", async () => {

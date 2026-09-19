@@ -36,4 +36,5 @@ devenv.local.yaml
 .pre-commit-config.yaml
 .dev-c2pa/
 concepts/
+.expo/
 re/

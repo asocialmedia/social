@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { isMessageMediaViewer } from "./message-media-access";
 
 const mockFindUnique = mock(
@@ -20,13 +22,18 @@ const mockRedisSet = mock((key: string, value: string) => {
 });
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
     messageConversationMember: {
       findFirst: mockFindFirst,
       findUnique: mockFindUnique,
     },
   },
-  redis: { get: mockRedisGet, set: mockRedisSet },
+  redis: {
+    ...asmDbMockBase.redis,
+    get: mockRedisGet,
+    set: mockRedisSet,
+  },
 }));
 
 mock.module("@/lib/messages/server", () => ({

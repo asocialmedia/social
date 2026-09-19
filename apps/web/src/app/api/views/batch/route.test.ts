@@ -34,7 +34,19 @@ const mockFindMany = mock((args: { where?: { id?: { in?: string[] } } }) => {
     .filter((post): post is { id: string; viewCount: number } => post !== null);
 });
 
+let mockRateLimitAllowed = true;
+const mockConsumeRateLimit = mock(() =>
+  Promise.resolve({
+    allowed: mockRateLimitAllowed,
+    limit: 60,
+    remaining: mockRateLimitAllowed ? 59 : 0,
+    resetAt: new Date(Date.now() + 60_000),
+    retryAfterSeconds: mockRateLimitAllowed ? 0 : 45,
+  })
+);
+
 mock.module("@asm/db", () => ({
+  consumeRateLimit: mockConsumeRateLimit,
   getClientIpFromRequest: (request: Request) =>
     request.headers.get("cf-connecting-ip") ?? "unknown",
   hashViewerId: (ip: string) => `hash-${ip}`,
@@ -54,6 +66,8 @@ mock.module("@/lib/auth/session", () => ({
 
 describe("POST /api/views/batch", () => {
   beforeEach(() => {
+    mockRateLimitAllowed = true;
+    mockConsumeRateLimit.mockClear();
     deltas.clear();
     mockIncrementView.mockClear();
     mockFindMany.mockClear();
@@ -112,5 +126,45 @@ describe("POST /api/views/batch", () => {
     const json = (await res.json()) as { results: Record<string, number> };
 
     expect(json.results).toEqual({ "missing-post": 1 });
+  });
+
+  test("rejects with 429 when rate limit is exceeded", async () => {
+    mockRateLimitAllowed = false;
+
+    const req = new Request("http://localhost:3000/api/views/batch", {
+      body: JSON.stringify({ postIds: ["post1"] }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("45");
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toContain("Too many view requests");
+    expect(mockIncrementView).not.toHaveBeenCalled();
+  });
+
+  test("does not increment view count for author self-views", async () => {
+    mockFindMany.mockImplementationOnce(() => [
+      { id: "own-post", userId: "user1", viewCount: 42 },
+    ]);
+
+    const req = new Request("http://localhost:3000/api/views/batch", {
+      body: JSON.stringify({ postIds: ["own-post"] }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      results: Record<string, number>;
+      success: boolean;
+    };
+    expect(json.success).toBe(true);
+    // Persisted count unchanged, incrementView not called for author
+    expect(json.results["own-post"]).toBe(42);
+    expect(mockIncrementView).not.toHaveBeenCalled();
   });
 });

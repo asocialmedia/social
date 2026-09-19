@@ -217,8 +217,10 @@ describe("Notification component (grouped rendering)", () => {
     });
 
     const html = renderNotificationComponent(notif);
-    expect(html).toContain("posted");
-    expect(html).toContain("3 new fleets in a/anime");
+    // A folded row spans several authors, so it is community-level and carries
+    // no single issuer name.
+    expect(html).toContain("3 new fleets posted in a/anime");
+    expect(html).not.toContain("User alice");
     // The batched row links to the community itself, not a single post.
     expect(html).toContain('href="/a/anime"');
   });

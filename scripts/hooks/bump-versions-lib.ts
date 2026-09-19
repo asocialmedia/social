@@ -10,12 +10,23 @@ export interface PackageJson {
   [key: string]: unknown;
 }
 
+export interface AppJson {
+  expo?: {
+    version?: string;
+    [key: string]: unknown;
+  };
+  version?: string;
+  [key: string]: unknown;
+}
+
 export interface BumpContext {
   fileExists: (pkgPath: string) => Promise<boolean>;
   getStagedFiles: () => Promise<string[]>;
   readPackageJson: (pkgPath: string) => Promise<PackageJson>;
+  readAppJson?: (appPath: string) => Promise<AppJson>;
   stageFile: (filePath: string) => Promise<void>;
   writePackageJson: (pkgPath: string, pkg: PackageJson) => Promise<void>;
+  writeAppJson?: (appPath: string, app: AppJson) => Promise<void>;
 }
 
 interface GitCommandResult {
@@ -78,12 +89,22 @@ export function hasRootChanges(stagedFiles: string[]): boolean {
   );
 }
 
-function getVersionTargets(changedPackages: Set<string>): string[] {
+export function getVersionTargets(changedPackages: Set<string>): string[] {
   const targets = new Set<string>(["package.json"]);
 
   for (const pkg of changedPackages) {
     targets.add(path.join("packages", pkg, "package.json"));
     targets.add(path.join("apps", pkg, "package.json"));
+  }
+
+  return [...targets];
+}
+
+export function getAppJsonTargets(changedPackages: Set<string>): string[] {
+  const targets = new Set<string>();
+
+  for (const pkg of changedPackages) {
+    targets.add(path.join("apps", pkg, "app.json"));
   }
 
   return [...targets];
@@ -109,6 +130,46 @@ async function bumpVersion(
   return true;
 }
 
+async function bumpAppJsonVersion(
+  appPath: string,
+  context: BumpContext
+): Promise<boolean> {
+  if (!(await context.fileExists(appPath))) {
+    return false;
+  }
+
+  const app = context.readAppJson
+    ? await context.readAppJson(appPath)
+    : ((await context.readPackageJson(appPath)) as unknown as AppJson);
+
+  const currentVersion =
+    app.expo?.version ??
+    (typeof app.version === "string" ? app.version : undefined);
+
+  if (typeof currentVersion !== "string") {
+    throw new TypeError(`Missing version in ${appPath}`);
+  }
+
+  const nextVersion = bumpPatchVersion(currentVersion);
+
+  if (app.expo && typeof app.expo.version === "string") {
+    app.expo.version = nextVersion;
+  }
+  if (typeof app.version === "string") {
+    app.version = nextVersion;
+  }
+
+  if (context.writeAppJson) {
+    await context.writeAppJson(appPath, app);
+  } else {
+    await context.writePackageJson(appPath, app as unknown as PackageJson);
+  }
+
+  await context.stageFile(appPath);
+
+  return true;
+}
+
 async function bumpVersions(
   changedPackages: Set<string>,
   context: BumpContext
@@ -118,6 +179,12 @@ async function bumpVersions(
   for (const target of targets) {
     // eslint-disable-next-line no-await-in-loop
     await bumpVersion(target, context);
+  }
+
+  const appTargets = getAppJsonTargets(changedPackages);
+  for (const appTarget of appTargets) {
+    // eslint-disable-next-line no-await-in-loop
+    await bumpAppJsonVersion(appTarget, context);
   }
 }
 
@@ -204,6 +271,10 @@ function createRuntimeContext(repoRoot: string): BumpContext {
       const content = await readFile(path.join(repoRoot, pkgPath), "utf-8");
       return JSON.parse(content) as PackageJson;
     },
+    readAppJson: async (appPath) => {
+      const content = await readFile(path.join(repoRoot, appPath), "utf-8");
+      return JSON.parse(content) as AppJson;
+    },
     stageFile: async (filePath) => {
       const result = await runGitCommand(repoRoot, ["add", filePath]);
       if (result.exitCode !== 0) {
@@ -216,6 +287,12 @@ function createRuntimeContext(repoRoot: string): BumpContext {
       await writeFile(
         path.join(repoRoot, pkgPath),
         `${JSON.stringify(pkg, null, 2)}\n`
+      );
+    },
+    writeAppJson: async (appPath, app) => {
+      await writeFile(
+        path.join(repoRoot, appPath),
+        `${JSON.stringify(app, null, 2)}\n`
       );
     },
   };

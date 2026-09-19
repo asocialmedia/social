@@ -34,6 +34,7 @@ export async function processMediaCleanup(
           createdAt: true,
           id: true,
           key: true,
+          messageConversationId: true,
           originalKey: true,
           postId: true,
           publishedKey: true,
@@ -46,11 +47,12 @@ export async function processMediaCleanup(
       });
 
       // Still orphaned after the grace period (never attached to a post, a
-      // comment, a profile, or a community): delete.
+      // comment, a profile, a conversation, or a community): delete.
       if (
         !media ||
         media.postId ||
         media.commentId ||
+        media.messageConversationId ||
         media.avatarOf ||
         media.bannerOf ||
         media.communityAvatarOf ||

@@ -87,6 +87,35 @@ async function writeCached(
   }
 }
 
+// A monotonic per-key generation, bumped on every invalidation. It exists to
+// close the compute/invalidate race: a read miss starts a compute, a writer
+// invalidates mid-flight, and the compute then writes its now-stale result back
+// over the fresh state - exactly the stale-count bug the eager invalidation was
+// meant to fix. The generation is captured before compute and re-checked before
+// writing, so a computation that spans an invalidation is discarded.
+function generationKey(key: string): string {
+  return `${key}:gen`;
+}
+
+async function readGeneration(key: string): Promise<string | null> {
+  try {
+    return await redis.get(generationKey(key));
+  } catch (error) {
+    // Fail open: without a readable generation the guard is a no-op and the
+    // cache behaves as it did before (stale-while-invalidate is possible but
+    // Redis is already down, so every read misses anyway).
+    logger.warn(
+      { error: String(error), key },
+      "community cache generation read failed"
+    );
+    return null;
+  }
+}
+
+async function bumpGeneration(keys: string[]): Promise<void> {
+  await Promise.all(keys.map((key) => redis.incr(generationKey(key))));
+}
+
 // Read-through cache with single-flight and a stale fallback. Fails open: if
 // Redis is unreachable every call recomputes, exactly as the previous
 // uncached-on-error behaviour did.
@@ -116,9 +145,23 @@ async function withAggregateCache<T>(
     }
   }
 
+  const generationBefore = await readGeneration(key);
   const value = await compute();
-  await writeCached(key, value, ttlSeconds);
-  await writeCached(staleKey, value, ttlSeconds * STALE_TTL_MULTIPLIER);
+  const generationAfter = await readGeneration(key);
+
+  // Only cache the result if no invalidation happened while it was computing.
+  // On a null guard (Redis unreachable) both reads are null and match, so the
+  // write proceeds - the pre-guard behaviour.
+  if (generationBefore === generationAfter) {
+    await writeCached(key, value, ttlSeconds);
+    await writeCached(staleKey, value, ttlSeconds * STALE_TTL_MULTIPLIER);
+  } else {
+    logger.info(
+      { key },
+      "community aggregate invalidated mid-compute; skipping cache write"
+    );
+  }
+
   return value;
 }
 
@@ -137,6 +180,9 @@ export async function invalidateCommunityStats(
 ): Promise<void> {
   const key = statsKey(communityId);
   try {
+    // Bump the generation FIRST so any compute already in flight for this key
+    // observes the change and skips its write, then drop the stored copies.
+    await bumpGeneration([key]);
     await redis.del(key, `${key}:stale`);
   } catch (error) {
     logger.warn(
@@ -152,6 +198,9 @@ export async function invalidateCommunityStats(
 async function invalidateKeys(keys: string[]): Promise<void> {
   const targets = keys.flatMap((key) => [key, `${key}:stale`]);
   try {
+    // Generations are bumped before the delete so a concurrent compute cannot
+    // repopulate either copy with a value that predates this invalidation.
+    await bumpGeneration(keys);
     await redis.del(...targets);
   } catch (error) {
     logger.warn(
@@ -172,6 +221,19 @@ export function invalidateCommunityCreationAggregates(): Promise<void> {
     "community:top-by-aura",
     "community:top-by-population",
     "community:most-active-category",
+  ]);
+}
+
+// A post being published or deleted moves three post-derived aggregates: the
+// hero's post total, the highest-aura community ranking, and the most-active
+// category (which is measured by POST count, not community count). The
+// community's own stats are dropped separately by id. Without this each stayed
+// stale until its TTL.
+export function invalidateCommunityPostAggregates(): Promise<void> {
+  return invalidateKeys([
+    DISCOVERY_STATS_CACHE_KEY,
+    "community:most-active-category",
+    "community:top-by-aura",
   ]);
 }
 

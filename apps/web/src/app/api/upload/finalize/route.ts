@@ -1,4 +1,4 @@
-import { enqueueMediaScan, prisma } from "@asm/db";
+import { deleteObject, enqueueMediaScan, prisma } from "@asm/db";
 import { maxBytesForType } from "@asm/media";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -89,6 +89,16 @@ export async function POST(request: Request) {
         },
         where: { id: mediaId, status: "UPLOADING", userId: user.id },
       });
+      if (media.originalKey) {
+        try {
+          await deleteObject(media.originalKey);
+        } catch (error) {
+          console.error(
+            "Failed to delete rejected upload from quarantine:",
+            error
+          );
+        }
+      }
       return Response.json(
         { error: policyError.message },
         { status: policyError.status }

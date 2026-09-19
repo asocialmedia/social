@@ -119,12 +119,20 @@ export default function HomeFeed({
   );
   const hasCommunityLead = Boolean(communitySlug) && communityPosts.length > 0;
   // The community segment yields to the global feed once it runs out of pages
-  // or hits the lead cap.
-  const communityExhausted =
-    !communitySlug ||
-    communityPosts.length === 0 ||
-    (communityData?.pages.length ?? 0) >= COMMUNITY_LEAD_PAGE_LIMIT ||
-    communityHasNextPage === false;
+  // or hits the lead cap. An EMPTY list only counts as exhausted once the query
+  // has SETTLED: while it is still loading the segment must not be judged
+  // finished, or the global feed would start rendering underneath and then get
+  // shoved down when community page one lands above it. An error, by contrast,
+  // degrades straight to the global feed.
+  let communityExhausted = true;
+  if (communitySlug && communityStatus === "pending") {
+    communityExhausted = false;
+  } else if (communitySlug && communityStatus === "success") {
+    communityExhausted =
+      communityPosts.length === 0 ||
+      (communityData?.pages.length ?? 0) >= COMMUNITY_LEAD_PAGE_LIMIT ||
+      communityHasNextPage === false;
+  }
   const communityStillLeading = hasCommunityLead && !communityExhausted;
 
   // The global feed is held back until the community segment is done, so its

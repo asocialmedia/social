@@ -8,6 +8,7 @@ import { useToast } from "@/lib/gooey-toast";
 import {
   applyPostAuraDeltaToCaches,
   applyResponseCountDeltaToCaches,
+  removePostFromFeedCache,
 } from "@/lib/posts/cache-sync";
 import { getShortPostId } from "@/lib/seo/seo";
 
@@ -66,6 +67,30 @@ export function useDeletePostMutation() {
         queryClient.invalidateQueries({
           queryKey: ["post", deletedPost.parentPostId],
         });
+      }
+
+      // A native community post also lives in that community's feed(s) - the
+      // community page, and the community-first related feed on its detail
+      // page. Drop it from those caches and refetch, otherwise the deleted post
+      // lingered there until a full reload (only the create path invalidated
+      // community-feed before this).
+      if (deletedPost.community?.slug) {
+        removePostFromFeedCache(
+          queryClient,
+          ["community-feed"],
+          deletedPost.id
+        );
+        queryClient.invalidateQueries({ queryKey: ["community-feed"] });
+      }
+
+      // Deleting a community post moves the community's post count, so the
+      // discovery grid's card stats need a refetch too. The community page's
+      // server-rendered stats (the About card's community aura) come from the
+      // RSC payload, so refresh the current route to pick up the invalidated
+      // server cache as well.
+      if (deletedPost.communityId) {
+        queryClient.invalidateQueries({ queryKey: ["communities"] });
+        router.refresh();
       }
 
       toast({

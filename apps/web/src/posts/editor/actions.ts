@@ -15,6 +15,7 @@ import {
   getPostDataInclude,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
+  invalidateCommunityPostAggregates,
   invalidateCommunityStats,
   invalidateFypProfile,
   MENTION_RECEIVED_AURA,
@@ -242,6 +243,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           select: {
             commentId: true,
             id: true,
+            messageConversationId: true,
             postId: true,
             status: true,
             userId: true,
@@ -260,6 +262,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   m.userId === sessionData.user.id &&
                   m.postId === null &&
                   m.commentId === null &&
+                  m.messageConversationId === null &&
                   // Rejected, deleted, and failed media can never ride into
                   // a post; claimable statuses come from the pipeline
                   // contract so serving gates and this check cannot drift.
@@ -417,6 +420,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           where: {
             commentId: null,
             id: { in: validatedInput.mediaIds },
+            messageConversationId: null,
             postId: null,
             status: { in: [...CLAIMABLE_STATUSES] },
             userId: sessionData.user.id,
@@ -660,12 +664,16 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       return completePost;
     });
 
-    // A new community post changes the community's aggregate aura, so drop the
-    // cached stats so the sidebar reflects it on the next read. Best effort:
-    // a cache miss only means a stale count for a minute.
+    // A new community post changes the community's aggregate aura and the
+    // global post-derived aggregates (hero totals, top-by-aura), so drop both
+    // caches so the sidebar and discover hero reflect it on the next read. Best
+    // effort: a cache miss only means a stale count for a minute.
     if (communityId) {
       try {
-        await invalidateCommunityStats(communityId);
+        await Promise.all([
+          invalidateCommunityStats(communityId),
+          invalidateCommunityPostAggregates(),
+        ]);
       } catch (error) {
         console.error("Failed to invalidate community stats:", error);
       }

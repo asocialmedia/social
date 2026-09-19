@@ -1,6 +1,6 @@
 {
   "name": "@asm/media-processing",
-  "version": "1.0.78",
+  "version": "1.0.82",
   "private": true,
   "description": "asocialmedia media pipeline worker: scan, validate, transcode, publish",
   "license": "AGPL-3.0",

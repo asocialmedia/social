@@ -5,7 +5,7 @@ import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import {
@@ -51,10 +51,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const router = useRouter();
   const normalizedInitial = useMemo(
     () =>
-      normalizePostsData(initialPosts ?? []).filter(
-        (post) => !excludeIds?.has(post.id)
-      ),
-    [initialPosts, excludeIds]
+      filterFeedPosts(normalizePostsData(initialPosts ?? []), {
+        excludeIds,
+        excludePostId,
+      }),
+    [initialPosts, excludeIds, excludePostId]
   );
   const [posts, setPosts] = useState<PostData[]>(normalizedInitial);
   // Posts the viewer dismissed with "Not interested" this session. Kept out of
@@ -63,6 +64,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
+  // The removed post data behind each dismissal, so Undo can put the exact post
+  // back without a refetch. A plain id set is not enough: once the post is gone
+  // from local state and the cache there is nothing left to restore it from.
+  const removedPostsRef = useRef<Map<string, PostData>>(new Map());
 
   // Self-heal: stale `post.bookmarks` entries (pre-fix cache, persisted SSR
   // props, or optimistic drafts) crash `post.bookmarks.some` in production.
@@ -122,39 +127,44 @@ export const FeedView: React.FC<FeedViewProps> = ({
       if (!postId) {
         return;
       }
-      // Remember the dismissal locally. The cache and local list are both
-      // filtered below, but the prop-sync reconciliation (and any refetch that
-      // reintroduces the post) rebuilds `posts` from the server props, which
-      // still contain it - so without this set the post reappeared immediately
-      // when it happened to be the feed's first item. Filtering by this set in
-      // `sortedPosts` keeps it hidden for the session regardless.
+      // Remember the dismissal locally. The local list is filtered below, but
+      // the prop-sync reconciliation (and any refetch that reintroduces the
+      // post) rebuilds `posts` from the server props, which still contain it -
+      // so without this set the post reappeared immediately when it happened to
+      // be the feed's first item. Filtering by this set in `sortedPosts` keeps
+      // it hidden for the session regardless.
+      //
+      // The cache is deliberately NOT mutated: Undo has to restore the post, and
+      // a post filtered out of the shared cache has nothing left to restore from
+      // (and would desync the cache from what the server holds). The id set is
+      // the whole hide mechanism, so Undo is a pure, symmetric state change.
       setDismissedIds((current) =>
         current.has(postId) ? current : new Set([...current, postId])
       );
-      setPosts((current) => current.filter((post) => post.id !== postId));
-      queryClient.setQueriesData<{
-        pageParams: unknown[];
-        pages: { posts: PostData[] }[];
-      }>({ queryKey: cacheKey }, (data) => {
-        if (!data) {
-          return data;
+      setPosts((current) => {
+        const removed = current.find((post) => post.id === postId);
+        if (removed) {
+          removedPostsRef.current.set(postId, removed);
         }
-        return {
-          ...data,
-          pages: data.pages.map((page) => ({
-            ...page,
-            posts: page.posts.filter((post) => post.id !== postId),
-          })),
-        };
+        return current.filter((post) => post.id !== postId);
       });
     };
-    // Undo: drop the local dismissal and put the post back into the cache so it
-    // reappears in place without a refetch.
+    // Undo: clear the dismissal AND put the removed post back, since the id set
+    // alone no longer contains the data to re-render it.
     const handleInterested = (event: Event) => {
       const { detail } = event as CustomEvent<{ postId?: string }>;
       const postId = detail?.postId;
       if (!postId) {
         return;
+      }
+      const restored = removedPostsRef.current.get(postId);
+      if (restored) {
+        removedPostsRef.current.delete(postId);
+        setPosts((current) =>
+          current.some((post) => post.id === postId)
+            ? current
+            : [restored, ...current]
+        );
       }
       setDismissedIds((current) => {
         if (!current.has(postId)) {
@@ -178,7 +188,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
       );
       window.removeEventListener("recommendation:interested", handleInterested);
     };
-  }, [cacheKey, queryClient]);
+    // Only stable setters and a ref are used, so this subscribes once. The
+    // cache is deliberately no longer touched here (Undo restores from the
+    // removed-post snapshot), so cacheKey/queryClient are not dependencies.
+  }, []);
 
   // Mirrors the last inputs seen by the prop-sync check below so fresh server
   // posts are adopted during render (the documented adjust-state pattern)
@@ -230,7 +243,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }
 
   const sortedPosts = useMemo(() => {
-    const filtered = filterFeedPosts(posts, { dismissedIds, excludeIds });
+    const filtered = filterFeedPosts(posts, {
+      dismissedIds,
+      excludeIds,
+      excludePostId,
+    });
     if (sortBy === "server") {
       return filtered;
     }
@@ -238,7 +255,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [posts, excludeIds, dismissedIds, sortBy]);
+  }, [posts, excludeIds, excludePostId, dismissedIds, sortBy]);
 
   const threadGroups = useMemo(
     () => groupPostsIntoThreads(sortedPosts),

@@ -74,6 +74,8 @@ export interface SearchPostResult {
   createdAt: Date;
   explicitContent: boolean;
   id: string;
+  // A gust must route to /gusts, not /posts, so the URL builder needs to know.
+  isGust: boolean;
   previewMedia: {
     id: string;
     thumbnailKey: string | null;
@@ -165,6 +167,7 @@ export async function searchPosts(
       createdAt: true,
       explicitContent: true,
       id: true,
+      isGust: true,
       moderated: true,
       user: {
         select: {
@@ -203,6 +206,7 @@ export async function searchPosts(
       createdAt: post.createdAt,
       explicitContent: post.explicitContent,
       id: post.id,
+      isGust: post.isGust,
       previewMedia: post.attachments?.[0]
         ? {
             id: post.attachments[0].id,

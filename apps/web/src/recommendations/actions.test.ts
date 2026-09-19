@@ -5,8 +5,13 @@ const USER_ID = "user-1";
 
 const deletedEvents: { eventType: string; postId: string; userId: string }[] =
   [];
-const createdEvents: { eventType: string; postId: string; userId: string }[] =
-  [];
+const createdEvents: {
+  dedupeKey: string;
+  eventType: string;
+  postId: string;
+  userId: string;
+}[] = [];
+const upsertedKeys: string[] = [];
 const invalidatedUsers: string[] = [];
 
 let postExists = true;
@@ -15,23 +20,7 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: USER_ID },
 }));
 
-const tx = {
-  recommendationEvent: {
-    create: (args: {
-      data: { eventType: string; postId: string; userId: string };
-    }): void => {
-      createdEvents.push(args.data);
-    },
-    deleteMany: (args: {
-      where: { eventType: string; postId: string; userId: string };
-    }): void => {
-      deletedEvents.push(args.where);
-    },
-  },
-};
-
 const mockPrisma = {
-  $transaction: (fn: (client: typeof tx) => unknown) => fn(tx),
   post: {
     findUnique: (args: { where: { id: string } }) =>
       postExists && args.where.id === POST_ID ? { id: POST_ID } : null,
@@ -41,6 +30,20 @@ const mockPrisma = {
       where: { eventType: string; postId: string; userId: string };
     }): void => {
       deletedEvents.push(args.where);
+    },
+    // The durable hide is an atomic upsert on the unique dedupeKey, so the mock
+    // records the create payload and the conflict key.
+    upsert: (args: {
+      create: {
+        dedupeKey: string;
+        eventType: string;
+        postId: string;
+        userId: string;
+      };
+      where: { dedupeKey: string };
+    }): void => {
+      createdEvents.push(args.create);
+      upsertedKeys.push(args.where.dedupeKey);
     },
   },
 };
@@ -66,24 +69,29 @@ describe("recommendation hide actions", () => {
   beforeEach(() => {
     createdEvents.length = 0;
     deletedEvents.length = 0;
+    upsertedKeys.length = 0;
     invalidatedUsers.length = 0;
     postExists = true;
     mockGetSession.mockImplementation(() => ({ user: { id: USER_ID } }));
   });
 
-  test("hide deletes any prior dismissal then writes exactly one event", async () => {
+  test("hide writes one event via an atomic upsert on the dedupe key", async () => {
     const { hideRecommendationPost } = await import("./actions");
     await hideRecommendationPost(POST_ID);
 
-    // Idempotent write: the stale row is cleared before the fresh one, so a
-    // repeat dismiss (or a two-tab race) cannot stack duplicates that would eat
-    // the exclusion cap.
-    expect(deletedEvents).toEqual([
-      { eventType: "NOT_INTERESTED", postId: POST_ID, userId: USER_ID },
-    ]);
+    // A single upsert on the unique dedupeKey is race-safe by construction: two
+    // tabs cannot both insert, so the exclusion cap is not eaten by duplicates.
     expect(createdEvents).toEqual([
-      { eventType: "NOT_INTERESTED", postId: POST_ID, userId: USER_ID },
+      {
+        dedupeKey: `not_interested:${USER_ID}:${POST_ID}`,
+        eventType: "NOT_INTERESTED",
+        postId: POST_ID,
+        userId: USER_ID,
+      },
     ]);
+    expect(upsertedKeys).toEqual([`not_interested:${USER_ID}:${POST_ID}`]);
+    // Hide no longer deletes first (that was the racy pattern it replaced).
+    expect(deletedEvents).toEqual([]);
     expect(invalidatedUsers).toEqual([USER_ID]);
   });
 

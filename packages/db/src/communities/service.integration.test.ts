@@ -125,6 +125,12 @@ describe("community service integration", () => {
       throw new Error("community missing");
     }
 
+    // A far-past createdAt keeps these fixture posts OUT of the newest-N global
+    // candidate pools another suite (the For-You feed integration test) ranks
+    // over: a post that is concurrently ranked and then deleted by this suite's
+    // cleanup makes that test intermittently see a short page. Only relative
+    // order matters to the community feed, so a fixed old base preserves it.
+    const fixtureBase = new Date("2020-01-01T00:00:00.000Z").getTime();
     const created = await Promise.all(
       [0, 1, 2].map((index) =>
         prisma.post.create({
@@ -132,6 +138,7 @@ describe("community service integration", () => {
             aura: index * 10,
             communityId: community.id,
             content: `community post ${index}`,
+            createdAt: new Date(fixtureBase - index * 60_000),
             userId: OWNER_ID,
           },
         })

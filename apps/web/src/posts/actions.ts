@@ -5,6 +5,7 @@ import {
   enqueuePostDeleted,
   getPostDataInclude,
   invalidateAuraSignals,
+  invalidateCommunityPostAggregates,
   invalidateCommunityStats,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
@@ -12,6 +13,7 @@ import {
   publishResponseDeleted,
   redis,
   RESPONSE_RECEIVED_POST_AURA,
+  reverseExactAura,
   unreadNotificationCache,
 } from "@asm/db";
 import { updateTag } from "next/cache";
@@ -235,10 +237,54 @@ export async function deletePost(id: string) {
     ),
   ].filter((key): key is string => Boolean(key && key.length > 0));
 
-  const deletedPost = await prisma.post.delete({
-    include: getPostDataInclude(session.user.id),
-    where: { id },
+  let reversedAuraCount = 0;
+  const deletedPost = await prisma.$transaction(async (tx) => {
+    // Reversing creation and bonus aura prevents create-delete farming loops.
+    const creationLogs = await tx.auraLog.findMany({
+      select: { amount: true, id: true, type: true },
+      where: {
+        amount: { gt: 0 },
+        postId: id,
+        type: {
+          in: ["POST_CREATION", "POST_ATTACHMENT_BONUS", "HN_SHARE_BONUS"],
+        },
+        userId: session.user.id,
+      },
+    });
+
+    for (const log of creationLogs) {
+      // oxlint-disable-next-line no-await-in-loop -- each award reversal writes to the user ledger strictly in sequence
+      await reverseExactAura(tx, {
+        issuerId: session.user.id,
+        openAmount: log.amount,
+        postId: id,
+        recipientId: session.user.id,
+        targetUserId: session.user.id,
+        type: log.type,
+      });
+      reversedAuraCount += 1;
+    }
+
+    // Unlink any remaining aura logs from this post before deletion so foreign
+    // key constraints stay valid while preserving audit history.
+    await tx.auraLog.updateMany({
+      data: { postId: null },
+      where: { postId: id },
+    });
+
+    return await tx.post.delete({
+      include: getPostDataInclude(session.user.id),
+      where: { id },
+    });
   });
+
+  if (reversedAuraCount > 0) {
+    try {
+      await invalidateAuraSignals([session.user.id]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
+    }
+  }
 
   try {
     await Promise.all([
@@ -277,11 +323,14 @@ export async function deletePost(id: string) {
   }
 
   // A deleted community post changes the community's aggregate aura and post
-  // count, so drop the cached stats so the sidebar reflects it on the next read
-  // (the create path already does this).
+  // count, so drop the cached stats so the sidebar reflects it on the next read.
+  // The global post-derived aggregates (hero totals, top-by-aura) move too.
   if (deletedPost.communityId) {
     try {
-      await invalidateCommunityStats(deletedPost.communityId);
+      await Promise.all([
+        invalidateCommunityStats(deletedPost.communityId),
+        invalidateCommunityPostAggregates(),
+      ]);
     } catch (error) {
       console.error("Failed to invalidate community stats:", error);
     }

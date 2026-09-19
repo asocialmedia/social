@@ -17,6 +17,10 @@ export async function GET(req: Request) {
       return Response.json({ error: "Missing userId" }, { status: 400 });
     }
 
+    if (userId !== user.id) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const data = await followerInfoCache.get(userId);
     return Response.json(data);
   } catch (error) {

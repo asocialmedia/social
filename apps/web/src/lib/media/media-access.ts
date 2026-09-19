@@ -22,6 +22,22 @@ export interface MediaOwnership {
   commentId: string | null;
   messageConversationId?: string | null;
   userId: string | null;
+  isPrivateCommunityPost?: boolean;
+}
+
+// The community a media row belongs to, whether the row is attached directly to
+// a post or hangs off a comment. Both serving routes need this to treat a
+// private community's media as members-only: a comment attachment carries no
+// postId, so without walking to the parent post its community is invisible.
+export function resolveOwningCommunity<
+  T extends { id: string; type: string },
+>(ownership: {
+  post?: { community?: T | null } | null;
+  comment?: { post?: { community?: T | null } | null } | null;
+}): T | null {
+  return (
+    ownership.post?.community ?? ownership.comment?.post?.community ?? null
+  );
 }
 
 export interface MediaViewer {
@@ -32,6 +48,8 @@ export interface MediaAccessOptions {
   // Whether the viewer is a member of media.messageConversationId (and not
   // blocked). Resolved by the caller via message-media-access.ts.
   isConversationMember?: boolean;
+  // Whether the viewer is an active member of the private community hosting the post.
+  isCommunityMember?: boolean;
 }
 
 export type MediaAccessDecision =
@@ -44,10 +62,26 @@ export function decideMediaAccess(
   options: MediaAccessOptions = {}
 ): MediaAccessDecision {
   if (media.postId) {
+    if (
+      media.isPrivateCommunityPost &&
+      (!viewer || !options.isCommunityMember)
+    ) {
+      return { allowed: false, status: 404 };
+    }
     return { allowed: true };
   }
 
   if (media.commentId) {
+    // Comment media on a PRIVATE community's post is members-only, exactly like
+    // the post's own media: the caller resolves the community from the comment's
+    // parent post and sets isPrivateCommunityPost. Without this, any signed-in
+    // user holding the id could read a private community's comment attachment.
+    if (
+      media.isPrivateCommunityPost &&
+      (!viewer || !options.isCommunityMember)
+    ) {
+      return { allowed: false, status: 404 };
+    }
     return viewer ? { allowed: true } : { allowed: false, status: 401 };
   }
 

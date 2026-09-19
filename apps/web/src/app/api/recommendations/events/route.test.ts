@@ -6,6 +6,10 @@ const createMany = mock(() => Promise.resolve({ count: 0 }));
 const mockGetSession = mock(() =>
   Promise.resolve<{ user: { id: string } } | null>({ user: { id: "user-1" } })
 );
+// Posts the route treats as still existing. A test can drop an id to simulate a
+// post deleted while a viewer still had it on screen.
+let existingPosts = [{ id: "post-1" }];
+const findPosts = mock(() => Promise.resolve(existingPosts));
 
 mock.module("@asm/db", () => ({
   consumeRateLimit: mock(() =>
@@ -13,9 +17,7 @@ mock.module("@asm/db", () => ({
   ),
   invalidateFypProfile: mock(() => Promise.resolve()),
   prisma: {
-    post: {
-      findMany: mock(() => Promise.resolve([{ id: "post-1" }])),
-    },
+    post: { findMany: findPosts },
     recommendationEvent: { createMany },
   },
 }));
@@ -36,6 +38,8 @@ describe("POST /api/recommendations/events", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     createMany.mockClear();
+    findPosts.mockClear();
+    existingPosts = [{ id: "post-1" }];
   });
 
   test("requires an authenticated viewer", async () => {
@@ -90,5 +94,50 @@ describe("POST /api/recommendations/events", () => {
       ],
       skipDuplicates: true,
     });
+  });
+
+  test("drops events for a deleted post but still records the rest", async () => {
+    // Only post-2 exists now; the post-1 event is stale telemetry.
+    existingPosts = [{ id: "post-2" }];
+
+    const response = await POST(
+      request({
+        events: [
+          { eventType: "VIEW_START", postId: "post-1" },
+          { eventType: "VIEW_START", postId: "post-2" },
+        ],
+      })
+    );
+
+    // A partial drop must still succeed: rejecting the batch would make the
+    // client re-queue it forever and stall every later event behind it.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ accepted: 1 });
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          dedupeKey: undefined,
+          durationMs: undefined,
+          eventType: "VIEW_START",
+          postId: "post-2",
+          sessionId: undefined,
+          userId: "user-1",
+          value: undefined,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  test("accepts (and drops) an all-stale batch without a 404", async () => {
+    existingPosts = [];
+
+    const response = await POST(
+      request({ events: [{ eventType: "VIEW_START", postId: "gone" }] })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ accepted: 0 });
+    expect(createMany).not.toHaveBeenCalled();
   });
 });

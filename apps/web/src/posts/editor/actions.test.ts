@@ -46,6 +46,7 @@ const mockTx = {
           .map((id) => ({
             commentId: null,
             id,
+            messageConversationId: null,
             postId: null,
             status: "READY",
             userId: AUTHOR_ID,
@@ -321,6 +322,36 @@ describe("submitPost attachment claiming", () => {
         tags: [],
       } as Parameters<typeof submitPost>[0])
     ).rejects.toThrow("One or more attachments are invalid");
+  });
+
+  test("rejects media bound to a message conversation", async () => {
+    const { submitPost } = await import("./actions");
+    state.ownedMediaIds = ["media-dm"];
+    const originalFindMany = mockTx.media.findMany;
+    mockTx.media.findMany = () =>
+      Promise.resolve([
+        {
+          commentId: null,
+          id: "media-dm",
+          messageConversationId: "dm-conv-123",
+          postId: null,
+          status: "READY",
+          userId: AUTHOR_ID,
+        },
+      ]);
+
+    try {
+      await expect(
+        submitPost({
+          content: "attempting to leak dm media",
+          mediaIds: ["media-dm"],
+          mentions: [],
+          tags: [],
+        } as Parameters<typeof submitPost>[0])
+      ).rejects.toThrow("One or more attachments are invalid");
+    } finally {
+      mockTx.media.findMany = originalFindMany;
+    }
   });
 });
 

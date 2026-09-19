@@ -1,4 +1,5 @@
 import {
+  consumeRateLimit,
   getClientIpFromRequest,
   hashViewerId,
   postViewsCache,
@@ -8,17 +9,36 @@ import {
 import { getSessionFromApi } from "@/lib/auth/session";
 
 // Batched view increment: the client accumulates visible post ids and posts
-// them here in one request instead of one request per post. Signed-in viewers
-// count on every screenview; guests dedupe per hashed IP inside incrementView.
-//
-// incrementView returns the Redis counter, which only holds the delta since
-// the last worker flush (often just 1). The client patches its caches with
-// these results, so returning the raw delta made every viewed post display a
-// tiny count ("1") until a hard refresh. Persisted counts are read before the
-// increments so the total (persisted + delta) is accurate even if the flush
-// worker runs mid-request.
+// them here in one request instead of one request per post. Views deduplicate
+// per viewer (15 minutes). Self-views by authors return current counts without
+// inflating metrics or milestone aura.
 export async function POST(request: Request) {
   try {
+    const session = await getSessionFromApi();
+    const userId = session?.user?.id;
+    const clientIp = getClientIpFromRequest(request);
+
+    // Apply smart rate limiting to prevent high-frequency scraping or bot loops.
+    // 60 requests/min is generous for continuous scrolling, while preventing automated flooding.
+    const rateLimit = await consumeRateLimit({
+      bucket: "views-batch",
+      identifier: userId || clientIp || "unknown",
+      limit: 60,
+      windowSeconds: 60,
+    });
+
+    if (!rateLimit.allowed) {
+      return Response.json(
+        { error: "Too many view requests. Please slow down." },
+        {
+          headers: {
+            "retry-after": String(rateLimit.retryAfterSeconds),
+          },
+          status: 429,
+        }
+      );
+    }
+
     const body = (await request.json()) as { postIds?: unknown };
     const postIds = Array.isArray(body.postIds)
       ? body.postIds
@@ -26,35 +46,36 @@ export async function POST(request: Request) {
           .slice(0, 100)
       : [];
 
-    const session = await getSessionFromApi();
-    const userId = session?.user?.id;
-    // Anonymous viewers dedupe per hashed IP+post, mirroring the single-post
-    // views route, so a batch ping cannot inflate counts by rotating post ids.
-    const viewerHash = userId
-      ? undefined
-      : hashViewerId(getClientIpFromRequest(request));
+    const viewerHash = userId ? undefined : hashViewerId(clientIp);
 
     const persistedPosts = postIds.length
       ? await prisma.post.findMany({
-          select: { id: true, viewCount: true },
+          select: { id: true, userId: true, viewCount: true },
           where: { id: { in: postIds } },
         })
       : [];
     const persistedById = new Map(
       persistedPosts.map((post) => [post.id, post.viewCount])
     );
+    const authorById = new Map(
+      persistedPosts.map((post) => [post.id, post.userId])
+    );
 
     const entries = await Promise.all(
-      postIds.map(
-        async (postId) =>
-          [
-            postId,
-            await postViewsCache.incrementView(postId, {
-              userId: userId || undefined,
-              viewerHash,
-            }),
-          ] as const
-      )
+      postIds.map(async (postId) => {
+        // Author self-views do not increment counts or contribute to view milestone aura
+        const isSelfView = Boolean(userId && authorById.get(postId) === userId);
+        if (isSelfView) {
+          return [postId, 0] as const;
+        }
+        return [
+          postId,
+          await postViewsCache.incrementView(postId, {
+            userId: userId || undefined,
+            viewerHash,
+          }),
+        ] as const;
+      })
     );
 
     const results: Record<string, number> = {};
