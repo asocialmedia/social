@@ -4,7 +4,9 @@
     "target": {
       "namespace": "android_app",
       "package_name": "cc.asocialmedia.mobile",
-      "sha256_cert_fingerprints": ["REPLACE_WITH_UPLOAD_CERT_SHA256"]
+      "sha256_cert_fingerprints": [
+        "88:C2:38:F8:B9:57:0F:17:92:28:70:FA:94:38:C3:78:03:09:4E:6C:A8:6D:36:BB:0B:DE:67:AC:63:F0:07:19"
+      ]
     }
   }
 ]
