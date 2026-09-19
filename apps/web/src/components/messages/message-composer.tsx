@@ -285,8 +285,9 @@ export function MessageComposer({
           // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
           const ok = await sendPayload(payload);
           if (!ok) {
-            // Leave every group staged and tracked so the sender can retry and
-            // the media rows are still reclaimed if they leave the thread.
+            // Leave the failed group and any unsent ones staged and tracked so
+            // the sender can retry and their media rows are still reclaimed if
+            // they leave the thread. Groups already sent above stay removed.
             setSending(false);
             return;
           }
