@@ -382,47 +382,67 @@ export function MessageThread({
   );
 
   // Decrypt a window of transcript around the viewer's active image so adjacent
-  // media is discovered. `extend` widens the window in the direction the user
-  // is trying to move when they hit the end of the known media list. request()
-  // is idempotent and cheap for cached/queued/in-flight ids, so calling this on
-  // every navigation is fine.
-  const requestViewerWindow = useCallback(
-    (messageId: string, extend: MediaNavDirection) => {
+  // media is discovered. Shared by the viewer's centered window (via
+  // requestViewerWindow) and by the older-page loader.
+  const requestDecryptRange = useCallback(
+    (start: number, end: number) => {
       if (!detail || !rootKeyStore || !userId) {
         return;
       }
-      const base = messageIndexById.get(messageId);
-      if (base === undefined) {
-        return;
-      }
-      let start = Math.max(0, base - VIEWER_DECRYPT_RADIUS);
-      let end = Math.min(allMessages.length - 1, base + VIEWER_DECRYPT_RADIUS);
-      if (extend === "older") {
-        start = Math.max(0, base - VIEWER_DECRYPT_RADIUS * 2);
-      } else if (extend === "newer") {
-        end = Math.min(
-          allMessages.length - 1,
-          base + VIEWER_DECRYPT_RADIUS * 2
-        );
-      }
+      const from = Math.max(0, start);
+      const to = Math.min(allMessages.length - 1, end);
       const items: DecryptItem[] = [];
-      for (let index = start; index <= end; index += 1) {
+      for (let index = from; index <= to; index += 1) {
         const message = allMessages[index];
         if (message && !message.deletedAt) {
           items.push(toDecryptItem(message));
         }
       }
-      messageDecryptor.request(items, { getBaseKey });
+      if (items.length > 0) {
+        messageDecryptor.request(items, { getBaseKey });
+      }
     },
-    [
-      allMessages,
-      detail,
-      getBaseKey,
-      messageIndexById,
-      rootKeyStore,
-      toDecryptItem,
-      userId,
-    ]
+    [allMessages, detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
+  );
+
+  // Decrypt an explicit list of messages (already-resolved objects, so callers
+  // are not tied to `allMessages` indices). Used for freshly prepended pages.
+  const requestDecryptMessages = useCallback(
+    (messages: MessageData[]) => {
+      if (!detail || !rootKeyStore || !userId) {
+        return;
+      }
+      const items: DecryptItem[] = [];
+      for (const message of messages) {
+        if (!message.deletedAt) {
+          items.push(toDecryptItem(message));
+        }
+      }
+      if (items.length > 0) {
+        messageDecryptor.request(items, { getBaseKey });
+      }
+    },
+    [detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
+  );
+
+  // Center the viewer's decrypt window on its active image; `extend` widens it
+  // in the travel direction when the user hits the end of known media.
+  const requestViewerWindow = useCallback(
+    (messageId: string, extend: MediaNavDirection) => {
+      const base = messageIndexById.get(messageId);
+      if (base === undefined) {
+        return;
+      }
+      let start = base - VIEWER_DECRYPT_RADIUS;
+      let end = base + VIEWER_DECRYPT_RADIUS;
+      if (extend === "older") {
+        start = base - VIEWER_DECRYPT_RADIUS * 2;
+      } else if (extend === "newer") {
+        end = base + VIEWER_DECRYPT_RADIUS * 2;
+      }
+      requestDecryptRange(start, end);
+    },
+    [messageIndexById, requestDecryptRange]
   );
 
   const handleViewerActive = useCallback(
@@ -531,12 +551,29 @@ export function MessageThread({
 
   // Load one older page on demand for the viewer's "Load older images"
   // affordance. The viewer never pages history on its own, so a long thread
-  // cannot be pulled in wholesale just by opening an image.
-  const loadOlderMedia = useCallback(() => {
-    if (hasPreviousPage && !isFetchingPreviousPage) {
-      void fetchPreviousPage();
+  // cannot be pulled in wholesale just by opening an image. The prepended page
+  // is decrypted explicitly: it sits above the visible window, so the normal
+  // viewport-driven decrypt effect would not reach it.
+  const loadOlderMedia = useCallback(async () => {
+    if (!hasPreviousPage || isFetchingPreviousPage) {
+      return;
     }
-  }, [fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage]);
+    const loadedCount = allMessages.length;
+    const result = await fetchPreviousPage();
+    const nextMessages = (result.data?.pages ?? []).flatMap(
+      (page) => page.messages
+    );
+    const added = nextMessages.length - loadedCount;
+    if (added > 0) {
+      requestDecryptMessages(nextMessages.slice(0, added));
+    }
+  }, [
+    allMessages.length,
+    fetchPreviousPage,
+    hasPreviousPage,
+    isFetchingPreviousPage,
+    requestDecryptMessages,
+  ]);
 
   // Jump to the newest message and clear the badge. Optimistically marks the
   // viewport pinned so followOnAppend resumes tracking immediately, without
