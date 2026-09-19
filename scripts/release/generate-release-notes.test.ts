@@ -43,7 +43,7 @@ describe("formatReleaseNotes", () => {
     expect(markdown).toContain("> **Contributors:** @parazeeknova");
     expect(markdown).toContain("### What's Changed");
     expect(markdown).toContain(
-      "- feat[mobile]: Implement 3D auth screen (`c779d93`) by @parazeeknova"
+      "- feat\\[mobile\\]: Implement 3D auth screen (`c779d93`) by @parazeeknova"
     );
     expect(markdown).toContain("| **Monorepo Root** | `v1.5.80` |");
     expect(markdown).toContain(
@@ -106,5 +106,25 @@ describe("formatReleaseNotes", () => {
       "*No new container images were published in this release.*"
     );
     expect(markdown).not.toContain("> **Contributors:**");
+  });
+
+  test("escapes Markdown metacharacters in untrusted PR titles and commits", () => {
+    const markdown = formatReleaseNotes({
+      ...baseOptions,
+      commits: [
+        {
+          author: "mallory",
+          message: "feat: [click](https://evil.example) **bold**",
+          sha: "abcdef1234567890abcdef1234567890abcdef12",
+        },
+      ],
+      prTitle: "Fix ](https://evil.example) injection",
+    });
+
+    expect(markdown).not.toContain("[click](https://evil.example)");
+    expect(markdown).toContain("\\[click\\]\\(https://evil.example\\)");
+    expect(markdown).toContain("\\*\\*bold\\*\\*");
+    expect(markdown).not.toContain("](https://evil.example) injection");
+    expect(markdown).toContain("\\]\\(https://evil.example\\) injection");
   });
 });

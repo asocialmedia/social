@@ -27,6 +27,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isForeignKeyError(error: unknown): boolean {
+  return isRecord(error) && error.code === "P2003";
+}
+
 function parseEvent(value: unknown): RecommendationEventInput | null {
   if (!isRecord(value)) {
     return null;
@@ -109,7 +113,7 @@ export async function POST(request: Request) {
     where: { id: { in: postIds } },
   });
   const existingPostIds = new Set(posts.map((post) => post.id));
-  const acceptedEvents = events.filter((event) =>
+  let acceptedEvents = events.filter((event) =>
     existingPostIds.has(event.postId)
   );
   if (acceptedEvents.length === 0) {
@@ -117,21 +121,46 @@ export async function POST(request: Request) {
     return Response.json({ accepted: 0 });
   }
 
-  await prisma.recommendationEvent.createMany({
-    data: acceptedEvents.map((event) => ({
-      dedupeKey:
-        event.eventType === "IMPRESSION"
-          ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
-          : undefined,
-      durationMs: event.durationMs,
-      eventType: event.eventType,
-      postId: event.postId,
-      sessionId: session.session?.id,
-      userId,
-      value: event.value,
-    })),
-    skipDuplicates: true,
-  });
+  const insertEvents = (eventList: RecommendationEventInput[]) =>
+    prisma.recommendationEvent.createMany({
+      data: eventList.map((event) => ({
+        dedupeKey:
+          event.eventType === "IMPRESSION"
+            ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
+            : undefined,
+        durationMs: event.durationMs,
+        eventType: event.eventType,
+        postId: event.postId,
+        sessionId: session.session?.id,
+        userId,
+        value: event.value,
+      })),
+      skipDuplicates: true,
+    });
+
+  try {
+    await insertEvents(acceptedEvents);
+  } catch (error) {
+    // The existence check above and this insert are separate queries, so a post
+    // can be deleted in between and trip the foreign key, which would reject the
+    // whole batch. Re-check once and retry with only the posts that still exist;
+    // anything else is a genuine failure and is rethrown.
+    if (!isForeignKeyError(error)) {
+      throw error;
+    }
+    const remainingPosts = await prisma.post.findMany({
+      select: { id: true },
+      where: { id: { in: acceptedEvents.map((event) => event.postId) } },
+    });
+    const remainingPostIds = new Set(remainingPosts.map((post) => post.id));
+    acceptedEvents = acceptedEvents.filter((event) =>
+      remainingPostIds.has(event.postId)
+    );
+    if (acceptedEvents.length === 0) {
+      return Response.json({ accepted: 0 });
+    }
+    await insertEvents(acceptedEvents);
+  }
   const eventCounts = Object.fromEntries(
     [...new Set(acceptedEvents.map((event) => event.eventType))].map(
       (eventType) => [

@@ -133,6 +133,15 @@ export function embedImageUrl(embed: LinkEmbed): string | null {
   return embed.imageUrl ?? null;
 }
 
+// Posts preserve up to five embeds in content order, so an earlier plain link
+// must not hide a later YouTube/OG preview: pick the first embed that actually
+// has a visual, falling back to the first embed only when none are visual.
+export function selectPreviewEmbed(embeds: LinkEmbed[]): LinkEmbed | undefined {
+  return (
+    embeds.find((candidate) => embedImageUrl(candidate) !== null) ?? embeds[0]
+  );
+}
+
 // A link embed's visual for the masonry tile. The image is always served
 // through the SSRF-guarded proxy (raw third-party URLs never reach the
 // browser), and on load failure it falls back to the embed's text row so the
@@ -194,7 +203,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   // Link embeds are a first-class visual here, like native media: a text-only
   // post that carries a YouTube/OG preview would otherwise render as a bare
   // paragraph tile, hiding the preview it actually has.
-  const [embed] = parseStoredEmbeds(post.embeds);
+  const embed = selectPreviewEmbed(parseStoredEmbeds(post.embeds));
   const hasEmbed = Boolean(embed);
   let aspectRatio = DEFAULT_ASPECT;
   if (isGustPost) {

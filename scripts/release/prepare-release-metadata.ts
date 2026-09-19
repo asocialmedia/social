@@ -233,7 +233,15 @@ export async function generateReleaseNotesFile(
   const markdown = formatReleaseNotes(options);
   await writeFile(outputFile, `${markdown}\n`);
 
-  const tagName = `v${versions.root}`;
+  // The root version is advanced only by the local pre-commit hook, which a
+  // web-authored merge, direct push or revert can bypass. Suffix the commit SHA
+  // so every push publishes a distinct tag (and release) instead of silently
+  // replacing the notes and assets of an existing one. The `+` build-metadata
+  // suffix keeps semver tooling able to read the base version.
+  const shortSha = env.GITHUB_SHA?.slice(0, 7);
+  const tagName = shortSha
+    ? `v${versions.root}+${shortSha}`
+    : `v${versions.root}`;
   const releaseTitle = `v${versions.root}`;
 
   const apkFiles: string[] = [];

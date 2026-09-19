@@ -11,6 +11,7 @@ import {
   hasRootChanges,
   runBumpVersions,
   runBumpVersionWithContext,
+  updateLockfileWorkspaceVersions,
 } from "./bump-versions-lib";
 import type { AppJson, PackageJson } from "./bump-versions-lib";
 
@@ -97,6 +98,54 @@ describe("getAppJsonTargets", () => {
 
   test("returns empty array when no packages changed", () => {
     expect(getAppJsonTargets(new Set())).toEqual([]);
+  });
+});
+
+describe("updateLockfileWorkspaceVersions", () => {
+  const lockfile = [
+    "{",
+    '  "lockfileVersion": 1,',
+    '  "workspaces": {',
+    '    "apps/web": {',
+    '      "name": "@asm/web",',
+    '      "version": "1.4.73",',
+    '      "dependencies": {',
+    '        "react": "^19.2.8",',
+    "      },",
+    "    },",
+    '    "apps/mobile": {',
+    '      "name": "@asocialmedia/mobile",',
+    '      "version": "0.0.3",',
+    "    },",
+    "  },",
+    "}",
+    "",
+  ].join("\n");
+
+  test("updates only the targeted workspace versions", () => {
+    const updated = updateLockfileWorkspaceVersions(
+      lockfile,
+      new Map([
+        ["apps/web", "1.4.74"],
+        ["apps/mobile", "0.0.4"],
+      ])
+    );
+
+    expect(updated).toContain('"version": "1.4.74"');
+    expect(updated).toContain('"version": "0.0.4"');
+    // Dependency ranges are untouched.
+    expect(updated).toContain('"react": "^19.2.8"');
+    expect(updated).not.toContain('"version": "1.4.73"');
+    expect(updated).not.toContain('"version": "0.0.3"');
+  });
+
+  test("ignores workspace paths that are not present in the lock", () => {
+    expect(
+      updateLockfileWorkspaceVersions(
+        lockfile,
+        new Map([["apps/missing", "9.9.9"]])
+      )
+    ).toBe(lockfile);
   });
 });
 
@@ -341,6 +390,53 @@ describe("runBumpVersionWithContext", () => {
       "apps/mobile/package.json",
       "package.json",
     ]);
+  });
+
+  test("keeps bun.lock workspace versions in sync with the bumped manifests", async () => {
+    await writeFile(
+      path.join(sandboxDir, "bun.lock"),
+      [
+        "{",
+        '  "workspaces": {',
+        '    "apps/web": {',
+        '      "name": "web",',
+        '      "version": "1.0.1",',
+        "    },",
+        "  },",
+        "}",
+        "",
+      ].join("\n")
+    );
+    stagedFiles = new Set(["apps/web/src/app/page.tsx"]);
+
+    await runBumpVersionWithContext({
+      fileExists: (pkgPath) =>
+        Bun.file(path.join(sandboxDir, pkgPath)).exists(),
+      getStagedFiles: () => Promise.resolve([...stagedFiles]),
+      readLockfile: (lockPath) =>
+        readFile(path.join(sandboxDir, lockPath), "utf-8"),
+      readPackageJson: async (pkgPath) =>
+        JSON.parse(
+          await readFile(path.join(sandboxDir, pkgPath), "utf-8")
+        ) as PackageJson,
+      stageFile: (filePath) => {
+        stagedByScript.add(filePath);
+        return Promise.resolve();
+      },
+      writeLockfile: async (lockPath, content) => {
+        await writeFile(path.join(sandboxDir, lockPath), content);
+      },
+      writePackageJson: async (pkgPath, pkg) => {
+        await writeFile(
+          path.join(sandboxDir, pkgPath),
+          `${JSON.stringify(pkg, null, 2)}\n`
+        );
+      },
+    });
+
+    const lock = await readFile(path.join(sandboxDir, "bun.lock"), "utf-8");
+    expect(lock).toContain('"version": "1.0.2"');
+    expect(stagedByScript.has("bun.lock")).toBe(true);
   });
 
   test("does not bump mobile app.json when only other apps are staged", async () => {

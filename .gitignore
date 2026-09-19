@@ -28,6 +28,9 @@ yarn-error.log*
 .DS_Store
 *.pem
 *.tsbuildinfo
+android-signing/
+*.jks
+*.keystore
 packages/db/prisma/generated/
 .devenv*
 devenv.local.nix
