@@ -6,10 +6,16 @@ LABEL org.opencontainers.image.title="Asocialmedia Web App" \
       org.opencontainers.image.vendor="Asocialmedia"
 ARG NEXT_PUBLIC_URL
 ARG NEXT_PUBLIC_AUTH_URL
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY
 RUN test -n "$NEXT_PUBLIC_URL" || (echo "NEXT_PUBLIC_URL build-arg is required" && exit 1)
 RUN test -n "$NEXT_PUBLIC_AUTH_URL" || (echo "NEXT_PUBLIC_AUTH_URL build-arg is required" && exit 1)
+# Turnstile's site key is public (it ships in the client bundle) but Next inlines
+# NEXT_PUBLIC_* at BUILD time, so the arg must be declared and forwarded or the
+# signup widget renders its "temporarily unavailable" fallback in production.
+RUN test -n "$NEXT_PUBLIC_TURNSTILE_SITE_KEY" || (echo "NEXT_PUBLIC_TURNSTILE_SITE_KEY build-arg is required" && exit 1)
 ENV NEXT_PUBLIC_URL=${NEXT_PUBLIC_URL}
 ENV NEXT_PUBLIC_AUTH_URL=${NEXT_PUBLIC_AUTH_URL}
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y openssl curl unzip && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://bun.sh/install | bash
