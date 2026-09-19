@@ -22,10 +22,13 @@ import type { EncryptedBlob, MessagePayload } from "./crypto";
 // plaintext.
 
 export interface MessageIdentityPayload {
+  backupMethod?: string;
   createdAt: string;
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
+  prfEncryptedPrivateKey?: string | null;
+  prfVerifier?: string | null;
   publicKey: string;
   salt: string;
   updatedAt: string;
@@ -135,6 +138,8 @@ export async function saveIdentity(payload: {
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
+  prfEncryptedPrivateKey?: string;
+  prfVerifier?: string;
   publicKey: string;
   salt: string;
 }): Promise<void> {

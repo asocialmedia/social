@@ -9,6 +9,8 @@ export interface MessageIdentityPayload {
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
+  prfEncryptedPrivateKey?: string | null;
+  prfVerifier?: string | null;
   publicKey: string;
   salt: string;
   updatedAt: string;
@@ -34,6 +36,8 @@ export async function GET() {
     encryptedPrivateKey: identity.encryptedPrivateKey,
     kdfIterations: identity.kdfIterations,
     masterKeyHash: identity.masterKeyHash,
+    prfEncryptedPrivateKey: identity.prfEncryptedPrivateKey,
+    prfVerifier: identity.prfVerifier,
     publicKey: identity.publicKey,
     salt: identity.salt,
     updatedAt: identity.updatedAt.toISOString(),
@@ -50,9 +54,12 @@ export async function POST(request: Request) {
 
   const parsed = await parseJsonBody(request);
   const body = parsed as {
+    backupMethod?: string;
     encryptedPrivateKey?: string;
     kdfIterations?: number;
     masterKeyHash?: string;
+    prfEncryptedPrivateKey?: string;
+    prfVerifier?: string;
     publicKey?: string;
     salt?: string;
   } | null;
@@ -77,11 +84,34 @@ export async function POST(request: Request) {
     );
   }
 
+  // The PRF backup pair is optional (accounts that never enroll a passkey omit
+  // it) but must be internally consistent when present. Both fields carry
+  // ciphertext/verifier material only; the PRF output itself is never accepted.
+  const hasPrf = body.prfEncryptedPrivateKey !== undefined;
+  if (
+    hasPrf &&
+    (typeof body.prfEncryptedPrivateKey !== "string" ||
+      body.prfEncryptedPrivateKey.length === 0 ||
+      typeof body.prfVerifier !== "string" ||
+      body.prfVerifier.length < 32)
+  ) {
+    return Response.json(
+      { error: "Invalid PRF backup payload" },
+      { status: 400 }
+    );
+  }
+  const backupMethod =
+    body.backupMethod === "passkey-prf" && hasPrf
+      ? "passkey-prf"
+      : "manual-secret";
+
   try {
-    // Create-only: an existing identity owns its keypair. Re-provisioning with
-    // the SAME public key is a harmless no-op (the client may re-run the
-    // bootstrap), but a different public key must never replace the stored
-    // keypair, which would orphan every existing conversation key for it.
+    // Create-only for the KEYPAIR: an existing identity owns its public key.
+    // Re-provisioning with the SAME public key is not a no-op though — it is the
+    // path that adds or refreshes the PRF backup copy once the user enrolls a
+    // recovery credential, so the mutable backup fields are updated in place. A
+    // DIFFERENT public key must never replace the stored keypair, which would
+    // orphan every existing conversation key for it.
     const existing = await prisma.messageIdentity.findUnique({
       select: { publicKey: true },
       where: { userId: user.id },
@@ -93,14 +123,37 @@ export async function POST(request: Request) {
           { status: 409 }
         );
       }
+      await prisma.messageIdentity.update({
+        data: {
+          backupMethod,
+          encryptedPrivateKey: body.encryptedPrivateKey,
+          kdfIterations: body.kdfIterations,
+          masterKeyHash: body.masterKeyHash,
+          ...(hasPrf
+            ? {
+                prfEncryptedPrivateKey: body.prfEncryptedPrivateKey,
+                prfVerifier: body.prfVerifier,
+              }
+            : {}),
+          salt: body.salt,
+        },
+        where: { userId: user.id },
+      });
       return Response.json({ ok: true });
     }
 
     await prisma.messageIdentity.create({
       data: {
+        backupMethod,
         encryptedPrivateKey: body.encryptedPrivateKey,
         kdfIterations: body.kdfIterations,
         masterKeyHash: body.masterKeyHash,
+        ...(hasPrf
+          ? {
+              prfEncryptedPrivateKey: body.prfEncryptedPrivateKey,
+              prfVerifier: body.prfVerifier,
+            }
+          : {}),
         publicKey: body.publicKey,
         salt: body.salt,
         userId: user.id,

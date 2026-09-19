@@ -22,6 +22,7 @@ import {
   KDF_ITERATIONS,
   clearStoredPrivateKey,
   decryptWithMasterKey,
+  deriveBackupKeyFromPrf,
   deriveMasterKey,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -31,11 +32,17 @@ import {
   getStoredAccountSecret,
   getStoredPrivateKey,
   hashAccountSecret,
+  hashPrfOutput,
   importPrivateKeyJwk,
   publicKeyJwkToBase64,
   setStoredAccountSecret,
   setStoredPrivateKey,
 } from "@/lib/messages/crypto";
+import {
+  enrollRecoveryCredential,
+  recoverPrfOutput,
+} from "@/lib/messages/recovery-client";
+import { buildPasskeyBackup } from "@/lib/messages/recovery-enroll";
 
 export type IdentityStatus = "loading" | "ready" | "error" | "locked";
 
@@ -49,6 +56,9 @@ export class MessageIdentityLockedError extends Error {
 }
 
 interface MessageIdentityContextValue {
+  // True when the stored identity has a passkey-encrypted backup copy, so the
+  // UI can offer "unlock with passkey" rather than only the manual secret.
+  canUsePasskey: boolean;
   error: string | null;
   identity: MessageIdentityPayload | null;
   privateKey: CryptoKey | null;
@@ -58,6 +68,10 @@ interface MessageIdentityContextValue {
   // from the server (only its hash is stored).
   recoverySecret: string | null;
   dismissRecoverySecret: () => void;
+  // Enrolls a recovery passkey and stores a second, PRF-encrypted backup copy.
+  enrollPasskey: () => Promise<void>;
+  // Unlocks using the enrolled recovery passkey (one platform gesture).
+  recoverWithPasskey: () => Promise<void>;
   // Unlocks a locked identity with a user-supplied recovery secret, persisting
   // it on this device so the prompt does not recur.
   unlock: (secret: string) => Promise<void>;
@@ -249,6 +263,95 @@ export function MessageIdentityProvider({
     setRecoverySecret(null);
   }, []);
 
+  // Decrypts the PRF backup copy and caches the private key. The PRF output is
+  // re-derived from the enrolled credential each time (it is never stored); the
+  // verifier recorded at enrollment confirms the authenticator returned the
+  // expected bytes before we attempt the decryption.
+  const unlockWithPrf = useCallback(
+    async (identityToUnlock: MessageIdentityPayload): Promise<void> => {
+      if (!user) {
+        return;
+      }
+      const backup = identityToUnlock.prfEncryptedPrivateKey;
+      if (!backup) {
+        throw new MessageIdentityLockedError("No passkey recovery is set up");
+      }
+      const [iv, ciphertext] = backup.split(".");
+      if (!iv || !ciphertext) {
+        throw new Error("Malformed passkey backup");
+      }
+      const prfOutput = await recoverPrfOutput(user.id);
+      if (
+        identityToUnlock.prfVerifier &&
+        (await hashPrfOutput(prfOutput)) !== identityToUnlock.prfVerifier
+      ) {
+        throw new MessageIdentityLockedError(
+          "That passkey doesn't match your messages backup"
+        );
+      }
+      const saltBytes = Uint8Array.from(
+        atob(identityToUnlock.salt),
+        (char) => char.codePointAt(0) ?? 0
+      );
+      const prfKey = await deriveBackupKeyFromPrf(
+        prfOutput,
+        saltBytes,
+        identityToUnlock.kdfIterations
+      );
+      try {
+        const decrypted = await decryptWithMasterKey(prfKey, {
+          ciphertext,
+          iv,
+        });
+        const key = await importPrivateKeyJwk(JSON.parse(decrypted));
+        await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
+        setPrivateKey(key);
+        setIdentityError(null);
+        setStatus("ready");
+      } catch {
+        throw new MessageIdentityLockedError(
+          "Couldn't unlock your messages with that passkey"
+        );
+      }
+    },
+    [user]
+  );
+
+  // Exposed to the locked screen: retry the passkey flow on user request.
+  const recoverWithPasskey = useCallback(async (): Promise<void> => {
+    if (!identity) {
+      return;
+    }
+    await unlockWithPrf(identity);
+  }, [identity, unlockWithPrf]);
+
+  // Enrolls a recovery credential and stores a SECOND copy of the private key
+  // encrypted under its PRF output. The manual-secret backup is left untouched
+  // and re-sent as-is, so a device that only holds the recovery secret can
+  // still unlock after this runs.
+  const enrollPasskey = useCallback(async (): Promise<void> => {
+    if (!user || !privateKey || !identity) {
+      throw new Error("Messages aren't ready yet");
+    }
+    const prfOutput = await enrollRecoveryCredential(user.id);
+    const backup = await buildPasskeyBackup({
+      identity,
+      prfOutput,
+      privateKey,
+    });
+
+    await saveIdentity({
+      ...backup,
+      encryptedPrivateKey: identity.encryptedPrivateKey,
+      kdfIterations: identity.kdfIterations,
+      masterKeyHash: identity.masterKeyHash,
+      publicKey: identity.publicKey,
+      salt: identity.salt,
+    });
+
+    setIdentity({ ...identity, ...backup });
+  }, [identity, privateKey, user]);
+
   // The bootstrap body, split out so the caller can reset its in-flight guard
   // without a `try/finally` (the React Compiler cannot lower a `finally`).
   const runBootstrap = useCallback(async () => {
@@ -277,8 +380,20 @@ export function MessageIdentityProvider({
       return;
     }
     setIdentity(data.identity);
+    // Prefer the passkey copy when it exists: it is the seamless path (one
+    // platform gesture, nothing to type). A cancelled or failed prompt falls
+    // through to the manual secret, then to the locked state, so this never
+    // makes recovery worse than before passkey enrollment.
+    if (data.identity.prfEncryptedPrivateKey) {
+      try {
+        await unlockWithPrf(data.identity);
+        return;
+      } catch {
+        // Fall through to the manual paths below.
+      }
+    }
     await unlockIdentity(data.identity);
-  }, [enableIdentity, unlockIdentity, user]);
+  }, [enableIdentity, unlockIdentity, unlockWithPrf, user]);
 
   const bootstrap = useCallback(async () => {
     if (typeof window === "undefined" || bootstrappingRef.current) {
@@ -338,10 +453,13 @@ export function MessageIdentityProvider({
 
   const value = useMemo(
     () => ({
+      canUsePasskey: Boolean(identity?.prfEncryptedPrivateKey),
       dismissRecoverySecret,
+      enrollPasskey,
       error: identityError,
       identity,
       privateKey,
+      recoverWithPasskey,
       recoverySecret,
       reset,
       status,
@@ -349,10 +467,12 @@ export function MessageIdentityProvider({
     }),
     [
       dismissRecoverySecret,
+      enrollPasskey,
       identity,
       identityError,
       privateKey,
       recoverySecret,
+      recoverWithPasskey,
       reset,
       status,
       unlock,

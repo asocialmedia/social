@@ -23,6 +23,7 @@ import type React from "react";
 import { useCallback, useState } from "react";
 
 import { toast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 
 // Confirmation for the destructive "start over" path. Shared by the locked
 // screen and the settings recovery card so the warning copy cannot drift
@@ -93,14 +94,19 @@ export function ResetIdentityDialog({
 // hash, so user input is the only path. Mirrors the locked error status from
 // MessageIdentityProvider.
 export function MessageIdentityLocked({
+  canUsePasskey,
+  onPasskeyUnlock,
   onReset,
   onUnlock,
 }: {
+  canUsePasskey: boolean;
+  onPasskeyUnlock: () => Promise<void>;
   onReset: () => Promise<void>;
   onUnlock: (secret: string) => Promise<void>;
 }) {
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
 
@@ -126,52 +132,86 @@ export function MessageIdentityLocked({
     [busy, onUnlock, secret]
   );
 
+  const handlePasskey = useCallback(async () => {
+    if (passkeyBusy) {
+      return;
+    }
+    setPasskeyBusy(true);
+    setFormError(null);
+    try {
+      await onPasskeyUnlock();
+    } catch (unlockError) {
+      setFormError(
+        unlockError instanceof Error
+          ? unlockError.message
+          : "That passkey didn't work"
+      );
+    }
+    setPasskeyBusy(false);
+  }, [onPasskeyUnlock, passkeyBusy]);
+
   return (
     <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
       <div className="flex flex-1 items-center justify-center p-6">
-        <form
-          className="panel-3d w-full max-w-sm rounded-2xl p-5"
-          onSubmit={handleSubmit}
-        >
+        <div className="panel-3d w-full max-w-sm rounded-2xl p-5">
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-[#ff9500]" />
             <h2 className="text-sm font-semibold">Unlock your messages</h2>
           </div>
           <p className="text-muted-foreground mt-2 text-xs">
-            Your encrypted messages are locked to the recovery secret created
-            when you first set up messages. If you saved that secret — or can
-            still open your messages on another signed-in device — enter it
-            below to unlock this one.
+            {canUsePasskey
+              ? "Use the passkey you set up for messages, or enter your recovery secret."
+              : "Your encrypted messages are locked to the recovery secret created when you first set up messages. If you saved that secret — or can still open your messages on another signed-in device — enter it below."}
           </p>
 
-          <label
-            className="text-muted-foreground mt-4 block text-xs font-medium"
-            htmlFor="message-recovery-secret"
-          >
-            Recovery secret
-          </label>
-          <Input
-            autoComplete="off"
-            className="mt-1.5 font-mono text-xs"
-            id="message-recovery-secret"
-            onChange={(event) => setSecret(event.target.value)}
-            placeholder="Paste your recovery secret"
-            spellCheck={false}
-            value={secret}
-          />
-
-          {formError ? (
-            <p className="mt-2 text-xs text-red-500">{formError}</p>
+          {canUsePasskey ? (
+            <Button
+              className="mt-4 w-full"
+              disabled={passkeyBusy}
+              onClick={() => {
+                void handlePasskey();
+              }}
+              type="button"
+              variant="premium"
+            >
+              <KeyRound className="h-4 w-4" />
+              {passkeyBusy ? "Waiting for passkey…" : "Unlock with passkey"}
+            </Button>
           ) : null}
 
-          <Button
-            className="mt-4 w-full"
-            disabled={busy || secret.trim().length === 0}
-            type="submit"
-            variant="premium"
-          >
-            {busy ? "Unlocking…" : "Unlock messages"}
-          </Button>
+          <form onSubmit={handleSubmit}>
+            <label
+              className={cn(
+                "text-muted-foreground block text-xs font-medium",
+                canUsePasskey ? "mt-4" : "mt-4"
+              )}
+              htmlFor="message-recovery-secret"
+            >
+              Recovery secret
+            </label>
+            <Input
+              autoComplete="off"
+              className="mt-1.5 font-mono text-xs"
+              id="message-recovery-secret"
+              onChange={(event) => setSecret(event.target.value)}
+              placeholder="Paste your recovery secret"
+              spellCheck={false}
+              value={secret}
+            />
+
+            {formError ? (
+              <p className="mt-2 text-xs text-red-500">{formError}</p>
+            ) : null}
+
+            <Button
+              className="mt-4 w-full"
+              disabled={busy || secret.trim().length === 0}
+              type="submit"
+              variant={canUsePasskey ? "outline" : "premium"}
+            >
+              {busy ? "Unlocking…" : "Unlock messages"}
+            </Button>
+          </form>
 
           <div className="border-border/50 mt-4 border-t pt-3">
             <p className="text-muted-foreground text-[11px]">
@@ -180,7 +220,7 @@ export function MessageIdentityLocked({
             </p>
             <Button
               className="mt-2 w-full"
-              disabled={busy}
+              disabled={busy || passkeyBusy}
               onClick={() => setResetOpen(true)}
               type="button"
               variant="outline"
@@ -188,7 +228,7 @@ export function MessageIdentityLocked({
               Start over
             </Button>
           </div>
-        </form>
+        </div>
       </div>
 
       <ResetIdentityDialog

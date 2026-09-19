@@ -18,8 +18,15 @@ import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { cn } from "@/lib/utils";
 
 export default function ClientMessages() {
-  const { status, recoverySecret, dismissRecoverySecret, reset, unlock } =
-    useMessagesIdentity();
+  const {
+    status,
+    canUsePasskey,
+    recoverySecret,
+    dismissRecoverySecret,
+    recoverWithPasskey,
+    reset,
+    unlock,
+  } = useMessagesIdentity();
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
@@ -75,7 +82,14 @@ export default function ClientMessages() {
   }
 
   if (status === "locked") {
-    return <MessageIdentityLocked onReset={reset} onUnlock={unlock} />;
+    return (
+      <MessageIdentityLocked
+        canUsePasskey={canUsePasskey}
+        onPasskeyUnlock={recoverWithPasskey}
+        onReset={reset}
+        onUnlock={unlock}
+      />
+    );
   }
 
   if (status === "error") {
