@@ -22,7 +22,6 @@ import {
 } from "react-native";
 
 import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
-import { logError, logInfo, logWarn } from "@/lib/telemetry";
 import {
   GITHUB_REPO_DEFAULT,
   findLatestApkRelease,
@@ -31,6 +30,7 @@ import {
   isUpdateRequired,
   parseReleases,
 } from "@/features/update/lib/update-check";
+import { logError, logInfo, logWarn } from "@/lib/telemetry";
 import { ERROR_SHADOWS, useAppTheme } from "@/theme";
 
 type GateState =

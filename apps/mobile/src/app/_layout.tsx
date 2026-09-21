@@ -6,12 +6,12 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 
+import { SessionProvider } from "@/features/auth/state/session";
 import { UpdateGate } from "@/features/update/components/update-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
 import { initTelemetry } from "@/lib/telemetry";
-import { SessionProvider } from "@/features/auth/state/session";
 import { useAppTheme } from "@/theme";
 
 import sofiaProBold from "../../assets/fonts/SofiaProSoftBold.ttf";
