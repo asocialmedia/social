@@ -90,11 +90,19 @@ function hostOfUrlString(value: string | null): string | null {
   }
 }
 
-// A browser request from this app always carries at least one same-origin
-// signal: fetch/XHR/server actions send an Origin, subresources (img,
-// EventSource) send a Referer, and every modern browser tags the request with
-// a Sec-Fetch-Site metadata header. A bare scripted client carries none.
-function hasSameOriginEvidence(request: NextRequest): boolean {
+// A browser cannot issue a cross-origin request without origin metadata: the
+// Origin header, the Referer fallback and the Sec-Fetch-Site tag are all
+// browser-controlled and always populated for scripted cross-site requests.
+// So *cross-site evidence* - not the absence of same-origin evidence - is the
+// genuine CSRF signal.
+//
+// The gate previously demanded positive same-origin proof, which also rejected
+// every caller that legitimately sends none: the native app (React Native's
+// fetch sends no Origin, Referer or Sec-Fetch-Site), CLI tools and
+// server-to-server calls. That silently 403'd the entire mobile client in
+// production. Those callers are governed by the per-IP rate limits below
+// instead, which is the right control for scripted traffic.
+function isCrossSiteRequest(request: NextRequest): boolean {
   const forwardedHost = request.headers.get("x-forwarded-host");
   const targetHost = getHostname(
     forwardedHost || request.headers.get("host") || ""
@@ -104,30 +112,16 @@ function hasSameOriginEvidence(request: NextRequest): boolean {
   }
 
   const originHost = hostOfUrlString(request.headers.get("origin"));
-  if (originHost && originHost === targetHost) {
+  if (originHost && originHost !== targetHost) {
     return true;
   }
 
   const refererHost = hostOfUrlString(request.headers.get("referer"));
-  if (refererHost && refererHost === targetHost) {
+  if (refererHost && refererHost !== targetHost) {
     return true;
   }
 
-  const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite === "same-origin" || fetchSite === "same-site") {
-    return true;
-  }
-  // Direct browser navigation (typed URL, bookmark) is marked "none"; allow
-  // it for safe methods only so a shared link still opens, while stateful
-  // verbs still demand real same-origin evidence.
-  if (
-    fetchSite === "none" &&
-    (request.method === "GET" || request.method === "HEAD")
-  ) {
-    return true;
-  }
-
-  return false;
+  return request.headers.get("sec-fetch-site") === "cross-site";
 }
 
 export function getHostname(host: string): string {
@@ -237,17 +231,18 @@ export async function proxy(request: NextRequest) {
     return withSecurityHeaders(new NextResponse("Forbidden", { status: 403 }));
   }
 
-  // Same-origin gate for the API surface: reject scripted / cross-site
-  // requests at the edge, before route handlers or the auth proxy run.
-  // Loopback callers (container health checks, the Next.js image optimizer's
-  // internal fetches) are exempt like the redirect logic above.
+  // Same-origin gate for the API surface: reject cross-site browser requests
+  // (real CSRF) at the edge, before route handlers or the auth proxy run.
+  // Requests with no origin metadata at all - the native app, CLI tools,
+  // server-to-server - are not browser CSRF and pass through to the rate
+  // limits below. Loopback callers stay exempt as before.
   if (
     !SAME_ORIGIN_GUARD_DISABLED &&
     request.nextUrl.pathname.startsWith(API_PATH_PREFIX) &&
     !isLoopback &&
     request.method !== "OPTIONS" &&
     !isSameOriginExemptRequest(request.nextUrl.pathname, request.method) &&
-    !hasSameOriginEvidence(request)
+    isCrossSiteRequest(request)
   ) {
     return withSecurityHeaders(
       NextResponse.json({ error: "Forbidden" }, { status: 403 })

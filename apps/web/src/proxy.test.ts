@@ -192,6 +192,60 @@ describe("proxy middleware", () => {
   });
 });
 
+describe("api cross-site guard", () => {
+  // The guard must reject genuine browser CSRF while letting through callers
+  // that send no origin metadata at all - the native app's fetch, CLI tools,
+  // server-to-server. Those used to be rejected, which 403'd the mobile client.
+  const API = "https://asocialmedia.cc/api/auth/get-session";
+
+  test("allows a native client that sends no origin metadata", async () => {
+    const res = await proxy(
+      makeRequest(API, { host: "asocialmedia.cc", "user-agent": "okhttp/4.9" })
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("allows a same-origin browser request", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        origin: "https://asocialmedia.cc",
+      })
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("rejects a cross-site Origin", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        origin: "https://evil.example",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects a cross-site Referer", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        referer: "https://evil.example/page",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects Sec-Fetch-Site: cross-site", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        "sec-fetch-site": "cross-site",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("proxy middleware matcher config", () => {
   // Mirrors the matcher in proxy.ts. /api/ is deliberately NOT excluded so
   // route handlers get the guard and security headers too.
