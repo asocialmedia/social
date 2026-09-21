@@ -2,6 +2,11 @@ import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import {
+  INSTALL_TOKEN_HEADER,
+  resolveInstallTokenSecret,
+  verifyInstallToken,
+} from "@/lib/mobile/install-token";
 import { guardApiRequest } from "@/lib/security/api-security";
 
 const LOOPBACK_HOSTNAMES = new Set([
@@ -77,6 +82,43 @@ function isSameOriginExemptRequest(pathname: string, method: string): boolean {
   }
 
   return false;
+}
+
+// Methods that cannot change state. Read-only requests stay reachable without
+// a credential because the API serves public content (feeds, media, profiles).
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// Reachable by a no-origin client with no install token yet, or by design:
+// the bootstrap itself, infrastructure probes, and flows a browser reaches by
+// top-level navigation (OAuth callbacks, emailed links) where the caller is
+// never the native app.
+const INSTALL_TOKEN_EXEMPT_PATHS = [
+  "/api/mobile/register",
+  "/api/health",
+  "/api/auth/callback/",
+  "/api/auth/error",
+  "/api/auth/verify-email",
+];
+
+function isInstallTokenExemptPath(pathname: string): boolean {
+  return INSTALL_TOKEN_EXEMPT_PATHS.some(
+    (exempt) =>
+      pathname === exempt ||
+      pathname.startsWith(`${exempt}/`) ||
+      (exempt.endsWith("/") && pathname.startsWith(exempt))
+  );
+}
+
+// True when the request carries no browser origin metadata at all. A browser
+// always sends at least one of these (they are browser-controlled and cannot
+// be suppressed), so this identifies non-browser callers: the native app, CLI
+// tools, server-to-server jobs.
+function hasNoOriginMetadata(request: NextRequest): boolean {
+  return (
+    !request.headers.get("origin") &&
+    !request.headers.get("referer") &&
+    !request.headers.get("sec-fetch-site")
+  );
 }
 
 function hostOfUrlString(value: string | null): string | null {
@@ -233,9 +275,8 @@ export async function proxy(request: NextRequest) {
 
   // Same-origin gate for the API surface: reject cross-site browser requests
   // (real CSRF) at the edge, before route handlers or the auth proxy run.
-  // Requests with no origin metadata at all - the native app, CLI tools,
-  // server-to-server - are not browser CSRF and pass through to the rate
-  // limits below. Loopback callers stay exempt as before.
+  // Requests with no origin metadata at all are not browser CSRF and fall
+  // through to the install-token gate below.
   if (
     !SAME_ORIGIN_GUARD_DISABLED &&
     request.nextUrl.pathname.startsWith(API_PATH_PREFIX) &&
@@ -247,6 +288,35 @@ export async function proxy(request: NextRequest) {
     return withSecurityHeaders(
       NextResponse.json({ error: "Forbidden" }, { status: 403 })
     );
+  }
+
+  // Install-token gate. A no-origin client that wants to CHANGE something must
+  // prove it holds a token this server issued. Without this, "no origin" would
+  // mean "trusted", and any script could mutate the API - the previous guard
+  // only appeared to prevent that, since setting `Origin` to the expected
+  // value was enough to pass it. Read-only methods stay open so public content
+  // remains fetchable, and the bootstrap endpoint stays open so a fresh
+  // install can obtain its first token (it is Turnstile-gated instead).
+  //
+  // Fails open when no signing secret is configured, matching the rate
+  // limiter's policy: a missing secret must not take the API down. Production
+  // sets one, so the gate is active there.
+  const installSecret = resolveInstallTokenSecret();
+  if (
+    !SAME_ORIGIN_GUARD_DISABLED &&
+    installSecret &&
+    request.nextUrl.pathname.startsWith(API_PATH_PREFIX) &&
+    !isLoopback &&
+    !SAFE_METHODS.has(request.method) &&
+    !isInstallTokenExemptPath(request.nextUrl.pathname) &&
+    hasNoOriginMetadata(request)
+  ) {
+    const presented = request.headers.get(INSTALL_TOKEN_HEADER);
+    if (!verifyInstallToken(presented, installSecret)) {
+      return withSecurityHeaders(
+        NextResponse.json({ error: "install-token-required" }, { status: 403 })
+      );
+    }
   }
 
   // Per-IP tiered rate limiting for API routes. Fails open on Redis errors;

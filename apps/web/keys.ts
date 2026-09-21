@@ -20,6 +20,7 @@ export const keys = createEnv({
     ENFORCE_CLOUDFLARE: process.env.ENFORCE_CLOUDFLARE,
     KLIPY_APP_KEY: process.env.KLIPY_APP_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    MOBILE_INSTALL_SECRET: process.env.MOBILE_INSTALL_SECRET,
     NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
@@ -63,6 +64,7 @@ export const keys = createEnv({
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
+    MOBILE_INSTALL_SECRET: z.string().min(1).optional(),
     NEXT_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
