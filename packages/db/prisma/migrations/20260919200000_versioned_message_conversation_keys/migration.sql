@@ -1,13 +1,12 @@
--- Versioned message conversation keys + identity backup method.
+-- Versioned message conversation keys.
 --
 -- MessageConversationKey gains `version` so a member can hold more than one
--- root-key wrap for the same conversation. An identity reset (the device that
--- held the backup secret is gone) mints a fresh root and appends a new epoch,
+-- root-key wrap for the same conversation. An identity reset (the account
+-- starts over with a new keypair) mints a fresh root and appends a new epoch,
 -- while the peer's older wraps stay untouched so their history remains
--- readable. `MessageIdentity.backupMethod` records how the backup key is
--- derived (`manual-secret`, the original scheme, or `passkey-prf`).
+-- readable.
 --
--- Locking: both new columns are NOT NULL with a DEFAULT, which PostgreSQL 11+
+-- Locking: the new column is NOT NULL with a DEFAULT, which PostgreSQL 11+
 -- applies as a metadata-only change (no table rewrite, no long lock) even on a
 -- large post_media-sized table. The replacement unique index is built
 -- CONCURRENTLY so writers are never blocked; the superseded index is dropped
@@ -23,9 +22,6 @@
 -- deploy`, which wraps each migration in a transaction; do not move this file
 -- to that path. docker/prisma-sync.sh applies the same statements inline so a
 -- drift-based sync works on databases that never ran this file.
-
-ALTER TABLE "message_identities"
-  ADD COLUMN IF NOT EXISTS "backupMethod" TEXT NOT NULL DEFAULT 'manual-secret';
 
 ALTER TABLE "message_conversation_keys"
   ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;

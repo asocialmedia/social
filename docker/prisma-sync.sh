@@ -140,19 +140,23 @@ SQL
   # which the destructive-diff guard below (correctly) refuses, and it demands
   # --accept-data-loss for the new unique constraint because it cannot prove a
   # brand-new column is duplicate-free. Handle it here instead, manually and
-  # idempotently: add the columns, build the replacement indexes CONCURRENTLY
+  # idempotently: add the column, build the replacement indexes CONCURRENTLY
   # (no write lock on a large table; `db execute` runs without a wrapping
   # transaction, so CONCURRENTLY is valid), then drop the superseded index.
   # Every existing row takes version = 1, and the old unique index already
   # guaranteed one row per (conversationId, ownerUserId), so the new unique
   # index cannot conflict and no row data is read or lost.
+  #
+  # The same block drops the abandoned passkey-recovery artifacts: a
+  # `message_recovery_credentials` table and three MessageIdentity columns from a
+  # scheme that never shipped (messages are server-recoverable now). Those are
+  # DROPs, which the guard below refuses, so they are applied explicitly here.
+  # All four are guarded by IF EXISTS, so this is a no-op on any database that
+  # never carried them.
   echo "Migrating message conversation keys to per-epoch versioned wraps..."
   MSG_KEY_VERSION_SQL="$(mktemp "${TMPDIR:-/tmp}/msg-key-version.XXXXXX.sql")"
   trap 'rm -f "$DROP_TRGM_SQL" "$MSG_KEY_VERSION_SQL"' EXIT
   cat > "$MSG_KEY_VERSION_SQL" <<'SQL'
-ALTER TABLE "message_identities"
-  ADD COLUMN IF NOT EXISTS "backupMethod" TEXT NOT NULL DEFAULT 'manual-secret';
-
 ALTER TABLE "message_conversation_keys"
   ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
 
@@ -163,6 +167,12 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "message_conversation_keys_conver
   ON "message_conversation_keys"("conversationId", "ownerUserId", "version");
 
 DROP INDEX IF EXISTS "message_conversation_keys_conversationId_ownerUserId_key";
+
+DROP TABLE IF EXISTS "message_recovery_credentials";
+ALTER TABLE "message_identities"
+  DROP COLUMN IF EXISTS "backupMethod",
+  DROP COLUMN IF EXISTS "prfEncryptedPrivateKey",
+  DROP COLUMN IF EXISTS "prfVerifier";
 SQL
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file "$MSG_KEY_VERSION_SQL"
   rm -f "$MSG_KEY_VERSION_SQL"
