@@ -2,12 +2,18 @@
 //
 // The web app runs these as Server Actions, which a native client cannot
 // invoke, so the native flow uses the route handlers behind them:
-//   POST /api/signup       - Turnstile-verified account creation
-//   POST /api/verify-email - OTP/enumeration-safe email verification
-// Both are exempt from the install-token gate precisely because they carry
+//   POST /api/signup           - Turnstile-verified account creation
+//   POST /api/verify-email     - OTP/enumeration-safe email verification
+//   POST /api/signup/resend    - re-send the OTP
+//   POST /api/signup/send-link - email a verification link instead of an OTP
+// All are exempt from the install-token gate precisely because they carry
 // their own defences (a Turnstile challenge and the auth service's OTP
 // budgets), so a new user never faces two challenges to sign up.
 
+import {
+  NETWORK_ERROR,
+  describeSignupError,
+} from "@/features/auth/lib/auth-errors";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logError } from "@/lib/telemetry";
 
@@ -57,7 +63,10 @@ export async function requestSignup(values: {
     const { data, ok } = await postJson<SignupResponse>("/api/signup", values);
     if (!ok || data?.success !== true) {
       return {
-        error: data?.error ?? data?.message ?? "Signup failed. Try again?",
+        error: describeSignupError(
+          data?.error ?? data?.message,
+          "Signup failed. Try again?"
+        ),
         ok: false,
       };
     }
@@ -68,7 +77,7 @@ export async function requestSignup(values: {
   } catch (error) {
     logError("signup.request_failed", error);
     return {
-      error: "Couldn't reach the server. Check your connection and try again.",
+      error: NETWORK_ERROR,
       ok: false,
     };
   }
@@ -98,7 +107,10 @@ export async function verifySignupOtp(
     const verified = ok && (data?.ok === true || data?.success === true);
     if (!verified) {
       return {
-        error: data?.error ?? "That code didn't match. Check and try again.",
+        error: describeSignupError(
+          data?.error,
+          "That code didn't match, try again."
+        ),
         ok: false,
       };
     }
@@ -106,7 +118,7 @@ export async function verifySignupOtp(
   } catch (error) {
     logError("signup.otp_verify_failed", error);
     return {
-      error: "Couldn't reach the server. Check your connection and try again.",
+      error: NETWORK_ERROR,
       ok: false,
     };
   }
@@ -126,9 +138,10 @@ export async function resendSignupOtp(email: string): Promise<OtpVerifyResult> {
     });
     if (!ok || data?.success !== true) {
       return {
-        error:
-          data?.error ??
-          "Couldn't send a new code. Give it a moment and try again.",
+        error: describeSignupError(
+          data?.error,
+          "Couldn't send a new code, try again?"
+        ),
         ok: false,
       };
     }
@@ -136,7 +149,38 @@ export async function resendSignupOtp(email: string): Promise<OtpVerifyResult> {
   } catch (error) {
     logError("signup.otp_resend_failed", error);
     return {
-      error: "Couldn't reach the server. Check your connection and try again.",
+      error: NETWORK_ERROR,
+      ok: false,
+    };
+  }
+}
+
+/**
+ * Emails a verification link as the alternative to typing the OTP (the web
+ * form's "Verify via Email Link Instead"). Rate-limited by the auth service.
+ */
+export async function sendSignupVerificationLink(
+  email: string
+): Promise<OtpVerifyResult> {
+  try {
+    const { data, ok } = await postJson<ResendResponse>(
+      "/api/signup/send-link",
+      { email }
+    );
+    if (!ok || data?.success !== true) {
+      return {
+        error: describeSignupError(
+          data?.error,
+          "Couldn't send the link, try again?"
+        ),
+        ok: false,
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    logError("signup.send_link_failed", error);
+    return {
+      error: NETWORK_ERROR,
       ok: false,
     };
   }

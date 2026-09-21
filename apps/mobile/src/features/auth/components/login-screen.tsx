@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   AlertCircle,
   ArrowLeft,
@@ -39,7 +39,10 @@ import { RedditIcon } from "@/components/icons/reddit-icon";
 import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
 import { OtpInput } from "@/features/auth/components/otp-input";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { useInstall } from "@/features/auth/state/install";
+import {
+  describeAuthError,
+  describeOAuthRedirectError,
+} from "@/features/auth/lib/auth-errors";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   ERROR_SHADOWS,
@@ -80,8 +83,16 @@ export default function LoginScreen() {
   const [isFocusedUser, setIsFocusedUser] = useState(false);
   const [isFocusedPass, setIsFocusedPass] = useState(false);
   const { signIn, signInPasskey, signInSocial } = useSessionContext();
-  const { ensureToken } = useInstall();
-  const [error, setError] = useState<string | null>(null);
+  // A failed provider callback deep-links back here as /login?error=<code>
+  // (mirrors the web's /login/error page). A cold start lands with the param
+  // already set, so it seeds the banner; while the screen is up, the session
+  // provider captures the same URL itself and returns the message directly.
+  const { error: redirectErrorCode } = useLocalSearchParams<{
+    error?: string;
+  }>();
+  const [error, setError] = useState<string | null>(() =>
+    describeOAuthRedirectError(redirectErrorCode)
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [activeSocial, setActiveSocial] = useState<
     "google" | "reddit" | "passkey" | null
@@ -122,12 +133,10 @@ export default function LoginScreen() {
 
     setError(null);
     setTwoFactorRequired(false);
-    // Sign-in is a mutation, so it needs the install credential. When none is
-    // stored this opens the verification gate and we stop here; the user
-    // retries once verified.
-    if (!(await ensureToken())) {
-      return;
-    }
+    // No human check here (Turnstile is signup-only); the session provider
+    // only shows the install gate if the server explicitly demands a token,
+    // and resumes the request afterwards, so the spinner stays on until it
+    // settles.
     setIsLoading(true);
     const result = await signIn(username, password);
     setIsLoading(false);
@@ -141,9 +150,12 @@ export default function LoginScreen() {
       setEmailSent(false);
       return;
     }
+    if ("cancelled" in result) {
+      return;
+    }
     setError(result.error);
     triggerShake();
-  }, [ensureToken, router, signIn, password, triggerShake, username]);
+  }, [router, signIn, password, triggerShake, username]);
 
   const handleSendEmailCode = useCallback(async () => {
     setIsVerifying(true);
@@ -152,7 +164,10 @@ export default function LoginScreen() {
       const result = await authClient.twoFactor.sendOtp({ trustDevice: false });
       if (result.error) {
         setError(
-          result.error.message || "We couldn't send a security code. Try again."
+          describeAuthError(
+            result.error,
+            "We couldn't send a security code. Try again."
+          ).message
         );
       } else {
         setEmailSent(true);
@@ -184,8 +199,10 @@ export default function LoginScreen() {
               });
         if (result.error) {
           setError(
-            result.error.message ||
+            describeAuthError(
+              result.error,
               "That code could not be verified. Try again."
+            ).message
           );
           triggerShake();
         } else {
@@ -238,10 +255,11 @@ export default function LoginScreen() {
       router.replace("/");
       return;
     }
-    if (!("twoFactor" in result)) {
-      setError(result.error);
-      triggerShake();
+    if ("twoFactor" in result || "cancelled" in result) {
+      return;
     }
+    setError(result.error);
+    triggerShake();
   }, [router, signInPasskey, triggerShake]);
 
   return (

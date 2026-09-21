@@ -1,6 +1,11 @@
 // Thin client for the auth endpoints the native app drives directly. Every
 // call rides the web origin, which proxies /api/auth/* to the auth service and
 // injects the internal secret server-side - the app never holds one.
+import {
+  NETWORK_ERROR,
+  describeAuthError,
+  describeSignupError,
+} from "@/features/auth/lib/auth-errors";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logError } from "@/lib/telemetry";
 
@@ -56,10 +61,13 @@ export async function requestPasswordReset(
     );
     if (!ok) {
       const wait = data?.retryAfter
-        ? ` Please wait ${Math.ceil(data.retryAfter / 60)} minutes before trying again.`
+        ? ` Wait ${Math.ceil(data.retryAfter / 60)} min.`
         : "";
       return {
-        error: `${data?.error ?? "Couldn't send the reset email, try again?"}${wait}`,
+        error: `${describeSignupError(
+          data?.error,
+          "Couldn't send the reset email, try again?"
+        )}${wait}`,
         ok: false,
       };
     }
@@ -67,7 +75,7 @@ export async function requestPasswordReset(
   } catch (error) {
     logError("auth.reset_request_failed", error);
     return {
-      error: "Couldn't reach the server. Check your connection and try again.",
+      error: NETWORK_ERROR,
       ok: false,
     };
   }
@@ -92,10 +100,8 @@ interface ResetConfirmResponse {
 }
 
 const RESET_ERROR_MESSAGES: Record<string, string> = {
-  INVALID_TOKEN:
-    "This reset link is invalid or has expired. Request a new one.",
-  PASSWORD_COMPROMISED:
-    "That password has appeared in a data breach. Pick a different one.",
+  INVALID_TOKEN: "This reset link expired, request a new one.",
+  PASSWORD_COMPROMISED: "That password leaked in a breach, pick another.",
   PASSWORD_TOO_SHORT: "That password is too short.",
 };
 
@@ -114,7 +120,9 @@ export async function confirmPasswordReset(
       const mapped = data?.code ? RESET_ERROR_MESSAGES[data.code] : undefined;
       return {
         error:
-          mapped ?? data?.message ?? "Couldn't reset your password, try again?",
+          mapped ??
+          describeAuthError(data, "Couldn't reset your password, try again?")
+            .message,
         ok: false,
       };
     }
@@ -122,7 +130,7 @@ export async function confirmPasswordReset(
   } catch (error) {
     logError("auth.reset_confirm_failed", error);
     return {
-      error: "Couldn't reach the server. Check your connection and try again.",
+      error: NETWORK_ERROR,
       ok: false,
     };
   }

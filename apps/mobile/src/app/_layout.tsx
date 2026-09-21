@@ -73,8 +73,10 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
-      <SessionProvider>
-        <InstallProvider>
+      {/* Install credential first: the session provider wraps every mutating
+          auth call in it, so a fresh install is verified before signing in. */}
+      <InstallProvider>
+        <SessionProvider>
           <UpdateGate />
           <Stack
             screenOptions={{
@@ -92,8 +94,8 @@ export default function RootLayout() {
           <InstallVerificationGate
             sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
           />
-        </InstallProvider>
-      </SessionProvider>
+        </SessionProvider>
+      </InstallProvider>
     </ThemeProvider>
   );
 }

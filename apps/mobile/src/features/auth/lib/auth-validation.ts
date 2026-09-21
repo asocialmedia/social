@@ -1,13 +1,15 @@
-// UI-only validation mirroring packages/auth/src/validation/schemas.ts.
-// No API calls here. Error copy matches the web forms 1:1 so the mobile
-// screens read exactly like apps/web.
+// Field validation for the auth screens, backed by the SAME zod schemas the
+// web forms use (@asm/auth/validation), so rules and copy cannot drift. The
+// screens want one message per field, so this adapts safeParse to that shape.
 
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
+import {
+  EMAIL_REGEX,
+  USERNAME_REGEX,
+  newPasswordSchema,
+  signUpSchema,
+} from "@asm/auth/validation";
 
-const THREEPEAT_REGEX = /(?<char>.)\k<char>{2,}/;
-const COMMON_SEQUENCE_REGEX = /(?:abc|123|qwe|xyz)/i;
-const COMMON_WORDS = ["password", "admin", "user", "login"];
+export { EMAIL_REGEX, USERNAME_REGEX } from "@asm/auth/validation";
 
 export interface SignupErrors {
   email?: string;
@@ -15,60 +17,27 @@ export interface SignupErrors {
   username?: string;
 }
 
+interface ParseOutcome {
+  error?: { issues: readonly { message: string }[] };
+  success: boolean;
+}
+
+// The first issue is the most specific one the user can act on: the schemas
+// order their checks required -> shape -> strength, like the web forms.
+function firstIssue(outcome: ParseOutcome): string | undefined {
+  return outcome.success ? undefined : outcome.error?.issues[0]?.message;
+}
+
 export function validateUsername(username: string): string | undefined {
-  const value = username.trim();
-  if (!value) {
-    return "Username is required, pick something cool!";
-  }
-  if (!USERNAME_REGEX.test(value)) {
-    return "Username can only contain letters, numbers, and underscores (no weird symbols pls)";
-  }
-  if (value.toLowerCase() === "zeph") {
-    return "That username is taken, try something else";
-  }
-  return undefined;
+  return firstIssue(signUpSchema.shape.username.safeParse(username));
 }
 
 export function validateSignupEmail(email: string): string | undefined {
-  const value = email.trim();
-  if (!value) {
-    return "Email is required, we need to reach you!";
-  }
-  if (!EMAIL_REGEX.test(value)) {
-    return "Please enter a valid email address";
-  }
-  return undefined;
+  return firstIssue(signUpSchema.shape.email.safeParse(email));
 }
 
 export function validateNewPassword(password: string): string | undefined {
-  if (!password.trim()) {
-    return "Password is required, keep it safe!";
-  }
-  if (password.length < 8) {
-    return "Password needs at least 8 characters, keep it 100";
-  }
-  if (!/[A-Z]/.test(password)) {
-    return "Need at least one uppercase letter (be fancy!)";
-  }
-  if (!/[a-z]/.test(password)) {
-    return "Need at least one lowercase letter (keep it real!)";
-  }
-  if (!/[0-9]/.test(password)) {
-    return "Need at least one number (math time!)";
-  }
-  if (!/[@$!%*?&#]/.test(password)) {
-    return "Need at least one special character (be spicy!)";
-  }
-  if (THREEPEAT_REGEX.test(password)) {
-    return "No spamming the same letter 3+ times (that's not cute anymore)";
-  }
-  if (COMMON_SEQUENCE_REGEX.test(password)) {
-    return "ABC or 123? Nah, be more creative than that!";
-  }
-  if (COMMON_WORDS.some((word) => password.toLowerCase().includes(word))) {
-    return "'password123' is so last season, pick something better!";
-  }
-  return undefined;
+  return firstIssue(newPasswordSchema.safeParse(password));
 }
 
 export function validateSignup(
@@ -92,6 +61,8 @@ export function validateSignup(
   return errors;
 }
 
+// Login accepts either identifier; the web loginSchema only requires a value,
+// so the shape check here is a UX nicety rather than a rule to keep in sync.
 export function validateIdentifier(identifier: string): string | undefined {
   const value = identifier.trim();
   if (!value) {

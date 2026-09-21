@@ -1,7 +1,8 @@
 // 1:1 native port of web SignUpForm (components/auth/forms/sign-up-form.tsx).
-// Stages: form -> OTP panel -> email-link panel. UI-only: timers, validation,
-// and simulated verification replace requestSignup / fetch / Turnstile /
-// BroadcastChannel. State lives in SignupStateProvider (replaces nuqs).
+// Stages: form -> OTP panel -> email-link panel, all against the real
+// /api/signup routes with Turnstile in a WebView. Social buttons share the
+// session provider's sign-in with the login screen. State lives in
+// SignupStateProvider (replaces nuqs).
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -16,7 +17,7 @@ import {
   Mail,
   XCircle,
 } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -41,6 +42,7 @@ import signupBgImage from "@/assets/images/signup-image.jpg";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { validateSignup } from "@/features/auth/lib/auth-validation";
+import { useSessionContext } from "@/features/auth/state/session";
 import { useSignupState } from "@/features/auth/state/signup-state";
 import { getApiBaseUrl } from "@/lib/api-env";
 import {
@@ -58,6 +60,7 @@ import {
 import {
   resendSignupOtp,
   requestSignup,
+  sendSignupVerificationLink,
   verifySignupOtp,
 } from "../lib/signup-api";
 import { resolveTurnstileBaseUrl } from "../lib/turnstile-page";
@@ -118,6 +121,7 @@ export default function SignupScreen() {
     setOTPState,
     stage,
   } = useSignupState();
+  const { signInSocial } = useSessionContext();
 
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -151,7 +155,6 @@ export default function SignupScreen() {
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const showOTPPanel = stage === "otp" || stage === "email-verify";
   const showEmailVerification = stage === "email-verify";
@@ -174,15 +177,6 @@ export default function SignupScreen() {
 
   const expiryCount = Math.max(0, Math.ceil((otpDeadline - now) / 1000));
   const resendGate = Math.max(0, Math.ceil((resendAvailableAt - now) / 1000));
-
-  useEffect(() => {
-    const timers = timersRef.current;
-    return () => {
-      for (const timer of timers) {
-        clearTimeout(timer);
-      }
-    };
-  }, []);
 
   // Clear the OTP input whenever the flow leaves the OTP panel. Uses React's
   // documented adjust-state-during-render pattern (same as the web form) so
@@ -215,17 +209,26 @@ export default function SignupScreen() {
     );
   }, [shakeX]);
 
-  const later = useCallback((fn: () => void, ms: number) => {
-    const timer = setTimeout(fn, ms);
-    timersRef.current.push(timer);
-  }, []);
-
+  // Same social sign-in as the login screen (the web card shows these in
+  // signup mode too): a new Google/Reddit account is created on the fly.
   const handleSocialClick = useCallback(
-    (provider: "google" | "reddit") => {
+    async (provider: "google" | "reddit") => {
       setActiveSocial(provider);
-      later(() => setActiveSocial(null), 1000);
+      setFormError(null);
+      const result = await signInSocial(provider);
+      setActiveSocial(null);
+      if (result.ok) {
+        clearSignupState();
+        router.replace("/");
+        return;
+      }
+      if ("cancelled" in result) {
+        return;
+      }
+      setFormError(result.error);
+      triggerShake();
     },
-    [later]
+    [clearSignupState, router, signInSocial, triggerShake]
   );
 
   const handleSubmit = useCallback(async () => {
@@ -375,16 +378,22 @@ export default function SignupScreen() {
     setOTPState(currentEmail || email.trim());
   }, [currentEmail, email, setOTPState]);
 
-  const handleResendVerificationLink = useCallback(() => {
+  const handleResendVerificationLink = useCallback(async () => {
     if (isResending) {
       return;
     }
     setIsResending(true);
-    later(() => {
-      setIsResending(false);
-      setEmailSent(true);
-    }, 900);
-  }, [isResending, later]);
+    setFormError(null);
+    const result = await sendSignupVerificationLink(
+      currentEmail || email.trim()
+    );
+    setIsResending(false);
+    if (!result.ok) {
+      setFormError(result.error ?? "Couldn't send the verification link.");
+      return;
+    }
+    setEmailSent(true);
+  }, [currentEmail, email, isResending]);
 
   const inputShadow = (field: "email" | "password" | "username") => {
     if (fieldErrors[field]) {
