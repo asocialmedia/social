@@ -14,7 +14,6 @@ import {
   Eye,
   EyeOff,
   Mail,
-  ShieldCheck,
   XCircle,
 } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -55,12 +54,22 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import {
+  resendSignupOtp,
+  requestSignup,
+  verifySignupOtp,
+} from "../lib/signup-api";
 import { OtpInput } from "./otp-input";
 import { PasswordStrength } from "./password-strength";
+import { TurnstileWebView } from "./turnstile-webview";
 
 const OTP_EXPIRY_MS = 300_000;
 const OTP_RESEND_GATE_MS = 30_000;
 const DIGITS_ONLY = /^\d*$/;
+
+// Public by design: it ships in the app and is served to every browser on the
+// web signup page. The matching secret stays server-side.
+const TURNSTILE_SITE_KEY = process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
 
 function NativeCheckbox({
   checked,
@@ -117,9 +126,11 @@ export default function SignupScreen() {
   const [showLoginLink, setShowLoginLink] = useState(false);
   const [isAgeVerified, setIsAgeVerified] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  // Native stand-in for Cloudflare Turnstile (web-only widget). UI-only:
-  // tapping the box issues a local token that enables Create account.
-  const [humanVerified, setHumanVerified] = useState(false);
+  // Cloudflare Turnstile token for the "signup" action. Tokens are single-use,
+  // so it is cleared and the challenge reset whenever a submit fails.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileReset, setTurnstileReset] = useState(0);
+  const humanVerified = turnstileToken !== null;
   const [isLoading, setIsLoading] = useState(false);
   const [activeSocial, setActiveSocial] = useState<"google" | "reddit" | null>(
     null
@@ -208,7 +219,7 @@ export default function SignupScreen() {
     [later]
   );
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setFormError(null);
     setShowLoginLink(false);
     const errors = validateSignup(username, email, password);
@@ -226,51 +237,83 @@ export default function SignupScreen() {
       triggerShake();
       return;
     }
-    if (!humanVerified) {
+    if (!turnstileToken) {
       setFormError("Complete the security check before creating your account.");
       triggerShake();
       return;
     }
     setIsLoading(true);
-    // In-app signup is not wired yet: /api/signup requires a Turnstile token,
-    // and the native Turnstile integration has not shipped. Faking success here
-    // walked users through an OTP screen that created nothing, so state the
-    // limitation plainly and point at the web flow instead.
+    const result = await requestSignup({
+      email: email.trim(),
+      password,
+      turnstileToken,
+      username: username.trim(),
+    });
     setIsLoading(false);
-    setFormError(
-      "Creating an account in the app isn't available yet. Please sign up at asocialmedia.cc, then log in here."
-    );
+    if (!result.ok) {
+      // Turnstile tokens are single-use, so a failed attempt needs a fresh one.
+      setTurnstileToken(null);
+      setTurnstileReset((value) => value + 1);
+      setFormError(result.error ?? "Signup failed. Try again?");
+      triggerShake();
+      return;
+    }
+    setTurnstileToken(null);
+    setTurnstileReset((value) => value + 1);
+    if (result.requiresEmailVerification === false) {
+      clearSignupState();
+      router.replace("/(auth)/login");
+      return;
+    }
+    const stampedAt = Date.now();
+    setOtpDeadline(stampedAt + OTP_EXPIRY_MS);
+    setResendAvailableAt(stampedAt + OTP_RESEND_GATE_MS);
+    setNow(stampedAt);
+    setOTPState(email.trim());
   }, [
     acceptedTerms,
+    clearSignupState,
     email,
-    humanVerified,
     isAgeVerified,
     password,
+    router,
+    setOTPState,
     triggerShake,
+    turnstileToken,
     username,
   ]);
 
   const verifyOtp = useCallback(
-    (otpValue: string) => {
+    async (otpValue: string) => {
       if (otpValue.length !== 6 || isVerifyingOtp || expiryCount === 0) {
         return;
       }
       setIsVerifyingOtp(true);
       setOtpError(false);
-      // UI-only: any 6 digits succeed after a beat; "000000" demos the error path.
-      later(() => {
-        setIsVerifyingOtp(false);
-        if (otpValue === "000000") {
-          setOtpError(true);
-          setOtp("");
-          triggerShake();
-          return;
-        }
-        clearSignupState();
-        router.replace("/(auth)/login");
-      }, 900);
+      const result = await verifySignupOtp(
+        currentEmail || email.trim(),
+        otpValue
+      );
+      setIsVerifyingOtp(false);
+      if (!result.ok) {
+        setOtpError(true);
+        setOtp("");
+        setFormError(result.error ?? "That code didn't match.");
+        triggerShake();
+        return;
+      }
+      clearSignupState();
+      router.replace("/(auth)/login");
     },
-    [clearSignupState, expiryCount, isVerifyingOtp, later, router, triggerShake]
+    [
+      clearSignupState,
+      currentEmail,
+      email,
+      expiryCount,
+      isVerifyingOtp,
+      router,
+      triggerShake,
+    ]
   );
 
   const handleOtpChange = useCallback(
@@ -284,28 +327,31 @@ export default function SignupScreen() {
       setOtpError(false);
       setOtp(val);
       if (val.length === 6) {
-        verifyOtp(val);
+        void verifyOtp(val);
       }
     },
     [verifyOtp]
   );
 
-  const handleResendOtp = useCallback(() => {
+  const handleResendOtp = useCallback(async () => {
     if (isResending) {
       return;
     }
     setIsResending(true);
     setTooltipDismissed(true);
-    later(() => {
-      setIsResending(false);
-      setOtp("");
-      setOtpError(false);
-      setTooltipDismissed(false);
-      setOtpDeadline(Date.now() + OTP_EXPIRY_MS);
-      setResendAvailableAt(Date.now() + OTP_RESEND_GATE_MS);
-      setNow(Date.now());
-    }, 900);
-  }, [isResending, later]);
+    const result = await resendSignupOtp(currentEmail || email.trim());
+    setIsResending(false);
+    setTooltipDismissed(false);
+    if (!result.ok) {
+      setFormError(result.error ?? "Couldn't send a new code.");
+      return;
+    }
+    setOtp("");
+    setOtpError(false);
+    setOtpDeadline(Date.now() + OTP_EXPIRY_MS);
+    setResendAvailableAt(Date.now() + OTP_RESEND_GATE_MS);
+    setNow(Date.now());
+  }, [currentEmail, email, isResending]);
 
   const handleVerifyViaEmailLink = useCallback(() => {
     setEmailVerificationState(currentEmail || email.trim());
@@ -660,66 +706,46 @@ export default function SignupScreen() {
                         </Text>
                       </View>
 
-                      {/* Turnstile stand-in (web uses Cloudflare Turnstile) */}
-                      <Pressable
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: humanVerified }}
-                        onPress={() => setHumanVerified(!humanVerified)}
-                        style={[
-                          styles.turnstile,
-                          {
-                            backgroundColor: theme.inputBg,
-                            boxShadow: INPUT_SHADOWS,
-                          },
-                        ]}
-                      >
-                        <View
+                      {/* Cloudflare Turnstile, hosted in a WebView. The token
+                          it returns is required by /api/signup and verified
+                          server-side against the auth service. */}
+                      {TURNSTILE_SITE_KEY ? (
+                        <TurnstileWebView
+                          action="signup"
+                          onError={() => {
+                            setTurnstileToken(null);
+                            setFormError(
+                              "The security check could not load. Check your connection and try again."
+                            );
+                          }}
+                          onExpire={() => {
+                            setTurnstileToken(null);
+                          }}
+                          onVerify={(token) => {
+                            setFormError(null);
+                            setTurnstileToken(token);
+                          }}
+                          resetSignal={turnstileReset}
+                          sitekey={TURNSTILE_SITE_KEY}
+                        />
+                      ) : (
+                        <Text
+                          className="text-xs"
                           style={[
-                            styles.turnstileBox,
-                            {
-                              backgroundColor: humanVerified
-                                ? "#ff9500"
-                                : "transparent",
-                              borderColor: humanVerified
-                                ? "#ff9500"
-                                : theme.inputPlaceholder,
-                            },
+                            styles.fontRegular,
+                            { color: theme.errorBannerText },
                           ]}
                         >
-                          {humanVerified ? (
-                            <Check color="#ffffff" size={14} />
-                          ) : null}
-                        </View>
-                        <View className="flex-1">
-                          <Text
-                            className="text-sm"
-                            style={[
-                              styles.fontMedium,
-                              { color: theme.inputLabel },
-                            ]}
-                          >
-                            I&apos;m not a robot
-                          </Text>
-                          <Text
-                            className="text-xs"
-                            style={[
-                              styles.fontRegular,
-                              { color: theme.dividerText },
-                            ]}
-                          >
-                            Complete the security check to create your account.
-                          </Text>
-                        </View>
-                        {humanVerified ? (
-                          <Check color="#22c55e" size={20} />
-                        ) : (
-                          <ShieldCheck color={theme.eyeIcon} size={20} />
-                        )}
-                      </Pressable>
+                          This build has no Turnstile site key, so account
+                          creation is unavailable here.
+                        </Text>
+                      )}
 
                       <Pressable
                         disabled={isLoading}
-                        onPress={handleSubmit}
+                        onPress={() => {
+                          void handleSubmit();
+                        }}
                         style={styles.btnFullWidth}
                       >
                         {({ pressed }) => (

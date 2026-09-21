@@ -333,6 +333,40 @@ describe("install-token gate", () => {
     });
   });
 
+  test("leaves the signup bootstrap open (Turnstile + OTP gated instead)", async () => {
+    await withSecret(async () => {
+      const responses = await Promise.all(
+        ["/api/signup", "/api/signup/resend", "/api/verify-email"].map((path) =>
+          proxy(
+            makeRequest(
+              `https://asocialmedia.cc${path}`,
+              {
+                host: "asocialmedia.cc",
+              },
+              "POST"
+            )
+          )
+        )
+      );
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+      }
+    });
+  });
+
+  test("still gates other auth mutations such as sign-in", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/auth/sign-in/email",
+          { host: "asocialmedia.cc" },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(403);
+    });
+  });
+
   test("does not gate browser mutations with same-origin evidence", async () => {
     await withSecret(async () => {
       const res = await proxy(

@@ -490,6 +490,11 @@ jobs:
           # backend before reintroducing a credential here.
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
           EXPO_PUBLIC_OTEL_ENDPOINT: ${{ vars.EXPO_PUBLIC_OTEL_ENDPOINT }}
+          # Public by design (it ships in the app and is served to every browser
+          # on the web signup page); the matching secret stays server-side. The
+          # app needs it to run the Turnstile challenge that gates signup and
+          # the install-credential bootstrap.
+          EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
         run: bun apps/mobile/scripts/build-android-apk.ts
 
       - name: Upload APK artifact
