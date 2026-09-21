@@ -39,6 +39,7 @@ import { RedditIcon } from "@/components/icons/reddit-icon";
 import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
 import { OtpInput } from "@/features/auth/components/otp-input";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   ERROR_SHADOWS,
@@ -79,6 +80,7 @@ export default function LoginScreen() {
   const [isFocusedUser, setIsFocusedUser] = useState(false);
   const [isFocusedPass, setIsFocusedPass] = useState(false);
   const { signIn, signInPasskey, signInSocial } = useSessionContext();
+  const { ensureToken } = useInstall();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeSocial, setActiveSocial] = useState<
@@ -120,6 +122,12 @@ export default function LoginScreen() {
 
     setError(null);
     setTwoFactorRequired(false);
+    // Sign-in is a mutation, so it needs the install credential. When none is
+    // stored this opens the verification gate and we stop here; the user
+    // retries once verified.
+    if (!(await ensureToken())) {
+      return;
+    }
     setIsLoading(true);
     const result = await signIn(username, password);
     setIsLoading(false);
@@ -135,7 +143,7 @@ export default function LoginScreen() {
     }
     setError(result.error);
     triggerShake();
-  }, [router, signIn, password, triggerShake, username]);
+  }, [ensureToken, router, signIn, password, triggerShake, username]);
 
   const handleSendEmailCode = useCallback(async () => {
     setIsVerifying(true);

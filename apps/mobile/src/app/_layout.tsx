@@ -6,6 +6,8 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 
+import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
+import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
 import { UpdateGate } from "@/features/update/components/update-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -72,18 +74,25 @@ export default function RootLayout() {
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <SessionProvider>
-        <UpdateGate />
-        <Stack
-          screenOptions={{
-            animation: "fade",
-            animationDuration: 200,
-            contentStyle: { backgroundColor: theme.containerBg },
-            headerShown: false,
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(auth)" />
-        </Stack>
+        <InstallProvider>
+          <UpdateGate />
+          <Stack
+            screenOptions={{
+              animation: "fade",
+              animationDuration: 200,
+              contentStyle: { backgroundColor: theme.containerBg },
+              headerShown: false,
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(auth)" />
+          </Stack>
+          {/* Shown only when a mutating request needs the install credential
+              and none is stored yet, so browsing never pays the cost. */}
+          <InstallVerificationGate
+            sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
+          />
+        </InstallProvider>
       </SessionProvider>
     </ThemeProvider>
   );

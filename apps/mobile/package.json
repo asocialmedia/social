@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.34",
+  "version": "0.0.35",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -50,6 +50,7 @@
     "react-native-screens": "~4.26.0",
     "react-native-svg": "^15.15.5",
     "react-native-web": "~0.21.0",
+    "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1",
     "tailwindcss": "^4.3.3"
   },
