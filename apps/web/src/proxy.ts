@@ -90,18 +90,32 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 // Reachable by a no-origin client with no install token yet, or by design:
 // the bootstrap itself, infrastructure probes, flows a browser reaches by
-// top-level navigation (OAuth callbacks, emailed links), and the signup
-// bootstrap. Signup carries its own Turnstile challenge and the OTP routes the
-// auth service's per-email/per-IP budgets, so demanding an install token too
-// would only force a new user through two challenges to create one account.
+// top-level navigation (OAuth callbacks, emailed links), the signup
+// bootstrap, and signing in. Signup carries its own Turnstile challenge and
+// the OTP routes the auth service's per-email/per-IP budgets, so demanding an
+// install token too would only force a new user through two challenges to
+// create one account. Sign-in (password, social, passkey, 2FA, sign-out and
+// password reset) is deliberately token-free as well: the product asks a
+// human check at signup only, and these endpoints are brute-force targets
+// already covered by the auth service's strict per-IP limits, which is the
+// control that matters against scripts (an install token never was: this gate
+// only applies to callers with no origin metadata at all).
 const INSTALL_TOKEN_EXEMPT_PATHS = [
   "/api/mobile/register",
   "/api/health",
   "/api/signup",
   "/api/verify-email",
+  "/api/reset-password",
   "/api/auth/callback/",
   "/api/auth/error",
   "/api/auth/verify-email",
+  "/api/auth/sign-in/",
+  "/api/auth/sign-out",
+  "/api/auth/two-factor/",
+  "/api/auth/passkey/",
+  "/api/auth/reset-password",
+  "/api/auth/forget-password",
+  "/api/auth/request-password-reset",
 ];
 
 function isInstallTokenExemptPath(pathname: string): boolean {

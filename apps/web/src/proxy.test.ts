@@ -322,6 +322,45 @@ describe("install-token gate", () => {
     });
   });
 
+  test("leaves signing in token-free (rate limits guard it instead)", async () => {
+    await withSecret(async () => {
+      const paths = [
+        "/api/auth/sign-in/email",
+        "/api/auth/sign-in/username",
+        "/api/auth/sign-in/social",
+        "/api/auth/two-factor/verify-totp",
+        "/api/auth/passkey/verify-authentication",
+        "/api/auth/sign-out",
+        "/api/reset-password",
+        "/api/auth/reset-password",
+      ];
+      const responses = await Promise.all(
+        paths.map((path) =>
+          proxy(
+            makeRequest(
+              `https://asocialmedia.cc${path}`,
+              { host: "asocialmedia.cc", "user-agent": "okhttp/4.12" },
+              "POST"
+            )
+          )
+        )
+      );
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+      }
+      // Sign-up stays behind its own gates, and unrelated mutations still
+      // need the token.
+      const blocked = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/auth/update-user",
+          { host: "asocialmedia.cc", "user-agent": "okhttp/4.12" },
+          "POST"
+        )
+      );
+      expect(blocked.status).toBe(403);
+    });
+  });
+
   test("leaves the register bootstrap open (Turnstile-gated instead)", async () => {
     await withSecret(async () => {
       const res = await proxy(
@@ -354,16 +393,22 @@ describe("install-token gate", () => {
     });
   });
 
-  test("still gates other auth mutations such as sign-in", async () => {
+  test("still gates auth mutations outside the sign-in family", async () => {
     await withSecret(async () => {
-      const res = await proxy(
-        makeRequest(
-          "https://asocialmedia.cc/api/auth/sign-in/email",
-          { host: "asocialmedia.cc" },
-          "POST"
+      const responses = await Promise.all(
+        ["/api/auth/update-user", "/api/auth/change-password"].map((path) =>
+          proxy(
+            makeRequest(
+              `https://asocialmedia.cc${path}`,
+              { host: "asocialmedia.cc" },
+              "POST"
+            )
+          )
         )
       );
-      expect(res.status).toBe(403);
+      for (const res of responses) {
+        expect(res.status).toBe(403);
+      }
     });
   });
 
