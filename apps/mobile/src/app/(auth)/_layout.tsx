@@ -4,7 +4,7 @@
 
 import { Stack } from "expo-router";
 
-import { SignupStateProvider } from "@/state/signup-state";
+import { SignupStateProvider } from "@/features/auth/state/signup-state";
 import { useAppTheme } from "@/theme";
 
 export default function AuthGroupLayout() {

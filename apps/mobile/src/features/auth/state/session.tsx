@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 
-import { authClient } from "@/lib/auth-client";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { logError, logInfo } from "@/lib/telemetry";
 
 export interface SessionUser {

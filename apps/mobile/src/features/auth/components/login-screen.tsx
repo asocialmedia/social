@@ -34,12 +34,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
 import loginBgImage from "@/assets/images/login-image.jpg";
-import { AuthPrimaryButton } from "@/components/auth/auth-primary-button";
-import { OtpInput } from "@/components/auth/otp-input";
+import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
+import { OtpInput } from "@/features/auth/components/otp-input";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
-import { authClient } from "@/lib/auth-client";
-import { useSessionContext } from "@/state/session";
+import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
 import {
   ERROR_SHADOWS,
   ICON_BUTTON_SHADOWS_DARK,

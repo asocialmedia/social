@@ -41,8 +41,8 @@ import asmLogo from "@/assets/images/asm.png";
 import signupBgImage from "@/assets/images/signup-image.jpg";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
-import { validateSignup } from "@/lib/auth-validation";
-import { useSignupState } from "@/state/signup-state";
+import { validateSignup } from "@/features/auth/lib/auth-validation";
+import { useSignupState } from "@/features/auth/state/signup-state";
 import {
   ERROR_SHADOWS,
   INPUT_ERROR_SHADOWS,

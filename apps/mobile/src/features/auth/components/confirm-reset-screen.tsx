@@ -8,8 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import confirmBgImage from "@/assets/images/confirm-reset-image.jpg";
-import { confirmPasswordReset, validateResetToken } from "@/lib/auth-api";
-import { validateNewPassword } from "@/lib/auth-validation";
+import { confirmPasswordReset, validateResetToken } from "@/features/auth/lib/auth-api";
+import { validateNewPassword } from "@/features/auth/lib/auth-validation";
 import {
   ERROR_SHADOWS,
   INPUT_FOCUS_SHADOWS,

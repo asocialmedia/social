@@ -1,8 +1,8 @@
 // Thin client for the auth endpoints the native app drives directly. Every
 // call rides the web origin, which proxies /api/auth/* to the auth service and
 // injects the internal secret server-side - the app never holds one.
-import { getApiBaseUrl } from "./api-env";
-import { logError } from "./telemetry";
+import { getApiBaseUrl } from "@/lib/api-env";
+import { logError } from "@/lib/telemetry";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
