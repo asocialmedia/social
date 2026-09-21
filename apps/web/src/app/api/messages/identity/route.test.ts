@@ -6,7 +6,6 @@ type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 
 type IdentityRow = {
-  backupMethod?: string;
   createdAt: Date;
   encryptedPrivateKey: string;
   kdfIterations: number;
@@ -18,7 +17,6 @@ type IdentityRow = {
 } | null;
 const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
 const mockCreate = mock(() => ({}));
-const mockUpdate = mock(() => ({}));
 
 // Reset path: the route issues both deletes in one $transaction array.
 const mockIdentityDeleteMany = mock(() => ({ count: 1 }));
@@ -37,7 +35,6 @@ mock.module("@asm/db", () => ({
       create: mockCreate,
       deleteMany: mockIdentityDeleteMany,
       findUnique: mockFindUnique,
-      update: mockUpdate,
     },
   },
 }));
@@ -119,7 +116,6 @@ describe("POST /api/messages/identity", () => {
   beforeEach(() => {
     mockFindUnique.mockClear();
     mockCreate.mockClear();
-    mockUpdate.mockClear();
     mockGetSession.mockClear();
     mockFindUnique.mockReturnValue(null);
   });
@@ -173,10 +169,10 @@ describe("POST /api/messages/identity", () => {
     expect(args.data.masterKeyHash).toBe(validBody.masterKeyHash);
   });
 
-  test("refreshes the backup in place when re-provisioning with the same public key", async () => {
-    // The keypair is immutable but the backup fields are not: this is the path
-    // that attaches a PRF-encrypted copy once the user enrolls a recovery
-    // credential. It must not create a second row.
+  test("refuses to replace an existing identity", async () => {
+    // Create-only: an existing row owns its keypair, and replacing it would
+    // orphan every conversation key wrapped for the old one. Re-keying is the
+    // explicit DELETE reset path.
     mockFindUnique.mockReturnValueOnce({
       publicKey: "pub-key",
     } as never);
@@ -187,61 +183,11 @@ describe("POST /api/messages/identity", () => {
         method: "POST",
       })
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
     expect(mockCreate).not.toHaveBeenCalled();
-    expect(mockUpdate).toHaveBeenCalledTimes(1);
-    const args = mockUpdate.mock.calls[0]?.[0] as {
-      where: { userId: string };
-    };
-    expect(args.where).toEqual({ userId: "user1" });
   });
 
-  test("stores the PRF backup pair alongside the manual one", async () => {
-    mockFindUnique.mockReturnValueOnce({
-      publicKey: "pub-key",
-    } as never);
-    const res = await POST(
-      new Request("http://localhost:3000/api/messages/identity", {
-        body: JSON.stringify({
-          ...validBody,
-          backupMethod: "passkey-prf",
-          prfEncryptedPrivateKey: "prf-iv.prf-ct",
-          prfVerifier: "a".repeat(64),
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      })
-    );
-    expect(res.status).toBe(200);
-    const args = mockUpdate.mock.calls[0]?.[0] as {
-      data: {
-        backupMethod: string;
-        prfEncryptedPrivateKey: string;
-        prfVerifier: string;
-      };
-    };
-    expect(args.data.backupMethod).toBe("passkey-prf");
-    expect(args.data.prfEncryptedPrivateKey).toBe("prf-iv.prf-ct");
-    expect(args.data.prfVerifier).toBe("a".repeat(64));
-  });
-
-  test("rejects an incomplete PRF backup payload", async () => {
-    const res = await POST(
-      new Request("http://localhost:3000/api/messages/identity", {
-        body: JSON.stringify({
-          ...validBody,
-          prfEncryptedPrivateKey: "prf-iv.prf-ct",
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      })
-    );
-    expect(res.status).toBe(400);
-    expect(mockCreate).not.toHaveBeenCalled();
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  test("rejects replacing an existing identity's public key", async () => {
+  test("refuses to replace an existing identity with a different public key", async () => {
     mockFindUnique.mockReturnValueOnce({
       publicKey: "a-different-key",
     } as never);

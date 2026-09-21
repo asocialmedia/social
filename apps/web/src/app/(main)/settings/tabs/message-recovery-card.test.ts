@@ -4,25 +4,12 @@ import { resolveRecoveryState } from "./message-recovery-state";
 
 describe("resolveRecoveryState", () => {
   test("reports not-set-up when no server identity exists", () => {
-    expect(
-      resolveRecoveryState({ deviceSecret: null, identityExists: false })
-    ).toBe("not-set-up");
-    // A leftover secret without an identity is still not set up: the secret
-    // cannot decrypt anything until an identity row exists.
-    expect(
-      resolveRecoveryState({ deviceSecret: "s", identityExists: false })
-    ).toBe("not-set-up");
+    expect(resolveRecoveryState({ identityExists: false })).toBe("not-set-up");
   });
 
-  test("is recoverable when the identity and this device's secret both exist", () => {
-    expect(
-      resolveRecoveryState({ deviceSecret: "secret", identityExists: true })
-    ).toBe("recoverable");
-  });
-
-  test("is locked when the identity exists but this device has no secret", () => {
-    expect(
-      resolveRecoveryState({ deviceSecret: null, identityExists: true })
-    ).toBe("locked");
+  test("reports enabled when the server identity exists", () => {
+    // Recovery is deterministic from the stored row, so the row's existence is
+    // the whole state: there is no device-local secret to check.
+    expect(resolveRecoveryState({ identityExists: true })).toBe("enabled");
   });
 });

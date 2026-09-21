@@ -22,7 +22,6 @@ import {
   KDF_ITERATIONS,
   clearStoredPrivateKey,
   decryptWithMasterKey,
-  deriveBackupKeyFromPrf,
   deriveMasterKey,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -32,51 +31,29 @@ import {
   getStoredAccountSecret,
   getStoredPrivateKey,
   hashAccountSecret,
-  hashPrfOutput,
   importPrivateKeyJwk,
   publicKeyJwkToBase64,
-  setStoredAccountSecret,
   setStoredPrivateKey,
 } from "@/lib/messages/crypto";
-import {
-  enrollRecoveryCredential,
-  recoverPrfOutput,
-} from "@/lib/messages/recovery-client";
-import { buildPasskeyBackup } from "@/lib/messages/recovery-enroll";
 
 export type IdentityStatus = "loading" | "ready" | "error" | "locked";
 
-// Raised when a server-side identity exists but this device cannot derive its
-// master key: the raw backup secret is absent (cleared storage, another
-// origin, a new device) and the legacy derivation did not apply. Distinct from
-// a genuine bootstrap failure so the UI can offer the recovery-secret form
-// instead of a dead "reload to try again" message.
+// Raised when a server-side identity exists but neither derivation produced the
+// backup key: the row is corrupt, or it belongs to the short-lived "verifier"
+// scheme and this device no longer holds its raw secret. Distinct from a
+// genuine bootstrap failure so the UI can offer an accountable reset instead of
+// a dead "reload to try again" message.
 export class MessageIdentityLockedError extends Error {
   override name = "MessageIdentityLockedError";
 }
 
 interface MessageIdentityContextValue {
-  // True when the stored identity has a passkey-encrypted backup copy, so the
-  // UI can offer "unlock with passkey" rather than only the manual secret.
-  canUsePasskey: boolean;
   error: string | null;
   identity: MessageIdentityPayload | null;
   privateKey: CryptoKey | null;
   status: IdentityStatus;
-  // The backup secret generated when this device provisioned a fresh identity.
-  // Surfaced once so the user can store it; a lost secret cannot be recovered
-  // from the server (only its hash is stored).
-  recoverySecret: string | null;
-  dismissRecoverySecret: () => void;
-  // Enrolls a recovery passkey and stores a second, PRF-encrypted backup copy.
-  enrollPasskey: () => Promise<void>;
-  // Unlocks using the enrolled recovery passkey (one platform gesture).
-  recoverWithPasskey: () => Promise<void>;
-  // Unlocks a locked identity with a user-supplied recovery secret, persisting
-  // it on this device so the prompt does not recur.
-  unlock: (secret: string) => Promise<void>;
   // Destroys this account's server identity + own key wraps and provisions a
-  // fresh one. The escape hatch when the recovery secret is gone. The caller
+  // fresh one. The recovery path when a row cannot be read here. The caller
   // must have already confirmed with the user: existing messages become
   // unreadable to this account (the peer's copy is unaffected).
   reset: () => Promise<void>;
@@ -95,25 +72,33 @@ export function MessageIdentityProvider({
   const [identity, setIdentity] = useState<MessageIdentityPayload | null>(null);
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
-  // Set only when this device just minted an identity, so the UI can show the
-  // generated secret once. Never persisted to the server.
-  const [recoverySecret, setRecoverySecret] = useState<string | null>(null);
   // Serializes bootstrap: `bootstrap` is recreated when the session user
   // changes, and a re-render can otherwise start a second pass that races the
   // first (two concurrent provisions mint different keypairs, and the loser
-  // then fails to unlock the winner's row with the "Backup secret required"
-  // error). One pass at a time.
+  // then cannot unlock the winner's row). One pass at a time.
   const bootstrappingRef = useRef(false);
-  // Guards the one-time secret reveal: once dismissed it must not reappear if
-  // the component re-renders (e.g. the user object identity changes).
-  const recoverySecretSeenRef = useRef(false);
 
-  // Provisions a fresh identity: keypair + random backup secret. The server
-  // receives only the SHA-256 hash of the secret, which acts as a VERIFIER:
-  // the master key is derived from the raw secret itself, so the stored row
-  // alone can never decrypt the backup. The raw secret persists only in this
-  // device's storage; unlocking on a NEW device requires the user to supply
-  // it.
+  // Decrypts the backup with `masterKey`, imports the private key, and caches
+  // it on this device. Shared by both unlock derivations.
+  const persistUnlockedKey = useCallback(
+    async (
+      userId: string,
+      masterKey: CryptoKey,
+      blob: { ciphertext: string; iv: string }
+    ): Promise<void> => {
+      const decrypted = await decryptWithMasterKey(masterKey, blob);
+      const key = await importPrivateKeyJwk(JSON.parse(decrypted));
+      await setStoredPrivateKey(userId, await exportPrivateKeyJwk(key));
+      setPrivateKey(key);
+    },
+    []
+  );
+
+  // Provisions a fresh identity: keypair plus a random per-identity seed. Only
+  // the seed's SHA-256 hash is sent to the server, and the backup key is
+  // derived from that hash — so the stored row alone can always re-derive the
+  // backup key. That is what makes recovery automatic on a new device; it also
+  // means a database reader can decrypt the backup (see crypto.ts).
   const enableIdentity = useCallback(async (): Promise<void> => {
     if (!user || typeof window === "undefined") {
       return;
@@ -122,11 +107,12 @@ export function MessageIdentityProvider({
     const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const secret = generateAccountSecret();
-    // Verifier only: proves knowledge of the secret without enabling
-    // derivation (SHA-256 preimage resistance).
     const masterKeyHash = await hashAccountSecret(secret);
-    // KDF input is the RAW secret, never the stored hash.
-    const masterKey = await deriveMasterKey(secret, salt, KDF_ITERATIONS);
+    const masterKey = await deriveMasterKey(
+      masterKeyHash,
+      salt,
+      KDF_ITERATIONS
+    );
     const backup = await encryptWithMasterKey(
       masterKey,
       JSON.stringify(privateKeyJwk)
@@ -136,38 +122,26 @@ export function MessageIdentityProvider({
     );
 
     await saveIdentity({
-      backupMethod: "manual-secret",
       encryptedPrivateKey: `${backup.iv}.${backup.ciphertext}`,
       kdfIterations: KDF_ITERATIONS,
       masterKeyHash,
       publicKey,
       salt: btoa(String.fromCodePoint(...salt)),
     });
-    setStoredAccountSecret(user.id, secret);
     await setStoredPrivateKey(user.id, privateKeyJwk);
     setPrivateKey(pair.privateKey);
-    // Surface the secret once so the user can store it off-device. Without
-    // this the identity is unrecoverable if local storage is ever cleared:
-    // the server keeps only the hash.
-    if (!recoverySecretSeenRef.current) {
-      setRecoverySecret(secret);
-    }
     setStatus("ready");
   }, [user]);
 
   // Decrypts the backed-up private key and remembers it on this device.
   //
-  // v2 rows (current): the master key derives from the RAW backup secret,
-  // which must come from this device's storage or from user input. The
-  // stored masterKeyHash is verified against it before use.
-  // Legacy rows: identities created before the verifier redesign derived the
-  // master key from the stored hash itself; those still unlock automatically
-  // until re-provisioned.
+  // Current rows derive the backup key from the stored hash, so this succeeds
+  // with no user input on any device. Verifier-scheme rows instead encrypted
+  // under a raw secret that lived only on one device; those still unlock when
+  // that secret is present here. Only when neither derivation works does this
+  // raise MessageIdentityLockedError.
   const unlockIdentity = useCallback(
-    async (
-      identityToUnlock: MessageIdentityPayload,
-      suppliedSecret?: string
-    ): Promise<void> => {
+    async (identityToUnlock: MessageIdentityPayload): Promise<void> => {
       if (!user) {
         return;
       }
@@ -178,179 +152,53 @@ export function MessageIdentityProvider({
       // The backup is stored as `iv.ciphertext` (see enableIdentity()).
       const [iv, ciphertext] = identityToUnlock.encryptedPrivateKey.split(".");
       if (!iv || !ciphertext) {
-        throw new Error("Malformed identity backup");
+        throw new MessageIdentityLockedError(
+          "This device can't read its messages key"
+        );
       }
 
-      const deviceSecret = suppliedSecret ?? getStoredAccountSecret(user.id);
-
+      // Legacy verifier row: the backup key came from the raw secret, so try
+      // the copy this device still holds (if any) before the row derivation.
+      const deviceSecret = getStoredAccountSecret(user.id);
       if (deviceSecret) {
-        const verifier = await hashAccountSecret(deviceSecret);
-        if (
-          verifier.toLowerCase() ===
-          identityToUnlock.masterKeyHash.toLowerCase()
-        ) {
-          // v2 path: derive from the raw secret after verifying knowledge of it.
-          const masterKey = await deriveMasterKey(
-            deviceSecret,
-            saltBytes,
-            identityToUnlock.kdfIterations
-          );
-          try {
-            const decrypted = await decryptWithMasterKey(masterKey, {
-              ciphertext,
-              iv,
-            });
-            const key = await importPrivateKeyJwk(JSON.parse(decrypted));
-            await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
-            setPrivateKey(key);
+        try {
+          const verifier = await hashAccountSecret(deviceSecret);
+          if (
+            verifier.toLowerCase() ===
+            identityToUnlock.masterKeyHash.toLowerCase()
+          ) {
+            const secretKey = await deriveMasterKey(
+              deviceSecret,
+              saltBytes,
+              identityToUnlock.kdfIterations
+            );
+            await persistUnlockedKey(user.id, secretKey, { ciphertext, iv });
             setStatus("ready");
             return;
-          } catch {
-            // Hash matched but decryption failed: fall through so legacy
-            // rows (where the "verifier" doubles as the KDF input) still
-            // unlock below.
           }
+        } catch {
+          // Fall through to the stored-hash derivation below.
         }
-        // Secret known to this device but hash mismatch: it belongs to an
-        // older provisioned identity. Legacy derivation below may apply.
       }
 
-      // Legacy path (pre-verifier rows): the stored hash IS the KDF input.
+      // Current (and original) rows: the stored hash IS the KDF input, so the
+      // row alone is enough.
       try {
-        const legacyMasterKey = await deriveMasterKey(
+        const masterKey = await deriveMasterKey(
           identityToUnlock.masterKeyHash,
           saltBytes,
           identityToUnlock.kdfIterations
         );
-        const decrypted = await decryptWithMasterKey(legacyMasterKey, {
-          ciphertext,
-          iv,
-        });
-        const key = await importPrivateKeyJwk(JSON.parse(decrypted));
-        await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
-        setPrivateKey(key);
+        await persistUnlockedKey(user.id, masterKey, { ciphertext, iv });
         setStatus("ready");
       } catch {
         throw new MessageIdentityLockedError(
-          "Backup secret required: enter your messages recovery secret to unlock on this device"
+          "This device can't read its messages key"
         );
       }
     },
-    [user]
+    [persistUnlockedKey, user]
   );
-
-  // Unlock with a user-supplied recovery secret (the one shown when the
-  // identity was first provisioned). On success the secret is persisted to this
-  // device so the prompt does not recur, and the private key is cached.
-  const unlock = useCallback(
-    async (secret: string): Promise<void> => {
-      if (!user || !identity) {
-        return;
-      }
-      const trimmed = secret.trim();
-      if (!trimmed) {
-        throw new MessageIdentityLockedError("Enter your recovery secret");
-      }
-      await unlockIdentity(identity, trimmed);
-      setStoredAccountSecret(user.id, trimmed);
-      setIdentityError(null);
-    },
-    [identity, unlockIdentity, user]
-  );
-
-  const dismissRecoverySecret = useCallback(() => {
-    recoverySecretSeenRef.current = true;
-    setRecoverySecret(null);
-  }, []);
-
-  // Decrypts the PRF backup copy and caches the private key. The PRF output is
-  // re-derived from the enrolled credential each time (it is never stored); the
-  // verifier recorded at enrollment confirms the authenticator returned the
-  // expected bytes before we attempt the decryption.
-  const unlockWithPrf = useCallback(
-    async (identityToUnlock: MessageIdentityPayload): Promise<void> => {
-      if (!user) {
-        return;
-      }
-      const backup = identityToUnlock.prfEncryptedPrivateKey;
-      if (!backup) {
-        throw new MessageIdentityLockedError("No passkey recovery is set up");
-      }
-      const [iv, ciphertext] = backup.split(".");
-      if (!iv || !ciphertext) {
-        throw new Error("Malformed passkey backup");
-      }
-      const prfOutput = await recoverPrfOutput(user.id);
-      if (
-        identityToUnlock.prfVerifier &&
-        (await hashPrfOutput(prfOutput)) !== identityToUnlock.prfVerifier
-      ) {
-        throw new MessageIdentityLockedError(
-          "That passkey doesn't match your messages backup"
-        );
-      }
-      const saltBytes = Uint8Array.from(
-        atob(identityToUnlock.salt),
-        (char) => char.codePointAt(0) ?? 0
-      );
-      const prfKey = await deriveBackupKeyFromPrf(
-        prfOutput,
-        saltBytes,
-        identityToUnlock.kdfIterations
-      );
-      try {
-        const decrypted = await decryptWithMasterKey(prfKey, {
-          ciphertext,
-          iv,
-        });
-        const key = await importPrivateKeyJwk(JSON.parse(decrypted));
-        await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
-        setPrivateKey(key);
-        setIdentityError(null);
-        setStatus("ready");
-      } catch {
-        throw new MessageIdentityLockedError(
-          "Couldn't unlock your messages with that passkey"
-        );
-      }
-    },
-    [user]
-  );
-
-  // Exposed to the locked screen: retry the passkey flow on user request.
-  const recoverWithPasskey = useCallback(async (): Promise<void> => {
-    if (!identity) {
-      return;
-    }
-    await unlockWithPrf(identity);
-  }, [identity, unlockWithPrf]);
-
-  // Enrolls a recovery credential and stores a SECOND copy of the private key
-  // encrypted under its PRF output. The manual-secret backup is left untouched
-  // and re-sent as-is, so a device that only holds the recovery secret can
-  // still unlock after this runs.
-  const enrollPasskey = useCallback(async (): Promise<void> => {
-    if (!user || !privateKey || !identity) {
-      throw new Error("Messages aren't ready yet");
-    }
-    const prfOutput = await enrollRecoveryCredential(user.id);
-    const backup = await buildPasskeyBackup({
-      identity,
-      prfOutput,
-      privateKey,
-    });
-
-    await saveIdentity({
-      ...backup,
-      encryptedPrivateKey: identity.encryptedPrivateKey,
-      kdfIterations: identity.kdfIterations,
-      masterKeyHash: identity.masterKeyHash,
-      publicKey: identity.publicKey,
-      salt: identity.salt,
-    });
-
-    setIdentity({ ...identity, ...backup });
-  }, [identity, privateKey, user]);
 
   // The bootstrap body, split out so the caller can reset its in-flight guard
   // without a `try/finally` (the React Compiler cannot lower a `finally`).
@@ -361,8 +209,8 @@ export function MessageIdentityProvider({
       setStatus("ready");
       return;
     }
-    // A device that already unlocked keeps the private key in IndexedDB so
-    // the browser does not have to re-decrypt the backup every session.
+    // A device that already unlocked keeps the private key in storage so the
+    // browser does not have to re-decrypt the backup every session.
     const stored = await getStoredPrivateKey(user.id);
     if (stored) {
       const key = await importPrivateKeyJwk(stored);
@@ -373,27 +221,13 @@ export function MessageIdentityProvider({
 
     const data = await fetchIdentity();
     if (!data.identity) {
-      // No usable identity: provision one automatically. The backup secret
-      // is random and account-scoped; only its hash is stored, so nothing
-      // user-facing is needed here.
+      // No usable identity: provision one automatically.
       await enableIdentity();
       return;
     }
     setIdentity(data.identity);
-    // Prefer the passkey copy when it exists: it is the seamless path (one
-    // platform gesture, nothing to type). A cancelled or failed prompt falls
-    // through to the manual secret, then to the locked state, so this never
-    // makes recovery worse than before passkey enrollment.
-    if (data.identity.prfEncryptedPrivateKey) {
-      try {
-        await unlockWithPrf(data.identity);
-        return;
-      } catch {
-        // Fall through to the manual paths below.
-      }
-    }
     await unlockIdentity(data.identity);
-  }, [enableIdentity, unlockIdentity, unlockWithPrf, user]);
+  }, [enableIdentity, unlockIdentity, user]);
 
   const bootstrap = useCallback(async () => {
     if (typeof window === "undefined" || bootstrappingRef.current) {
@@ -403,9 +237,9 @@ export function MessageIdentityProvider({
     try {
       await runBootstrap();
     } catch (error) {
-      // A locked identity is an expected, recoverable state (the user can
-      // supply the secret), not a bootstrap fault, so it must not log as a
-      // scary console error or offer only "reload".
+      // A locked identity is an expected, recoverable state (the user can reset
+      // it), not a bootstrap fault, so it must not log as a scary console error
+      // or offer only "reload".
       if (error instanceof MessageIdentityLockedError) {
         setIdentityError(error.message);
         setStatus("locked");
@@ -438,14 +272,12 @@ export function MessageIdentityProvider({
       return;
     }
     await resetMessageIdentity();
-    // Clear the cached private key and the backup secret so the fresh identity
-    // starts from nothing, and arm the one-time reveal for the new secret.
+    // Clear the cached private key and any leftover verifier-scheme secret so
+    // the fresh identity starts from nothing.
     await clearStoredPrivateKey(user.id);
-    recoverySecretSeenRef.current = false;
     setPrivateKey(null);
     setIdentity(null);
     setIdentityError(null);
-    setRecoverySecret(null);
     // Provision the replacement. bootstrap sees no local key and no server
     // identity, so it mints a fresh keypair.
     await bootstrap();
@@ -453,30 +285,13 @@ export function MessageIdentityProvider({
 
   const value = useMemo(
     () => ({
-      canUsePasskey: Boolean(identity?.prfEncryptedPrivateKey),
-      dismissRecoverySecret,
-      enrollPasskey,
       error: identityError,
       identity,
       privateKey,
-      recoverWithPasskey,
-      recoverySecret,
       reset,
       status,
-      unlock,
     }),
-    [
-      dismissRecoverySecret,
-      enrollPasskey,
-      identity,
-      identityError,
-      privateKey,
-      recoverySecret,
-      recoverWithPasskey,
-      reset,
-      status,
-      unlock,
-    ]
+    [identity, identityError, privateKey, reset, status]
   );
 
   return (

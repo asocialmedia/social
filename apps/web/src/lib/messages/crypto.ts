@@ -1,22 +1,24 @@
-// Client-side E2EE primitives for Messages. Everything here runs in the
-// browser (and in bun unit tests); the server never sees plaintext, private
-// keys, master keys, or conversation keys.
+// Client-side encryption primitives for Messages. Everything here runs in the
+// browser (and in bun unit tests).
 //
-// Trust model: each user owns an ECDH P-256 identity keypair. The public half
-// is stored in plaintext on the server so anyone can derive a shared secret
-// to wrap conversation keys for that user. The private half is backed up on
-// the server encrypted under a master key derived (PBKDF2) from the account's
-// random 64-char backup SECRET itself. The server stores only a SHA-256 hash
-// of that secret, used purely as a verifier: knowing the hash does NOT allow
-// re-deriving the master key (preimage resistance), so a database reader can
-// no longer decrypt the backup. The raw secret lives only on the user's
-// device(s); unlocking on a new device requires the user to supply it.
+// Trust model (server-recoverable, "Telegram-cloud" semantics — NOT E2EE):
+// each user owns an ECDH P-256 identity keypair. The public half is stored in
+// plaintext on the server so anyone can derive a shared secret to wrap
+// conversation keys for that user. The private half is backed up on the server
+// encrypted under a master key derived (PBKDF2) from a random per-identity
+// value whose SHA-256 hash is stored in the SAME row. Deriving the backup key
+// from that stored row is exactly what automatic recovery does, so anyone who
+// can read the database can decrypt the backup and every message wrapped under
+// it. That is an accepted trade-off: messages are encrypted in transit and at
+// rest and access is gated by session + membership, which protects against
+// everyone who is not the database operator. See AGENTS.md for the threat
+// model before changing anything here.
 //
-// Legacy rows: identities created before this scheme stored the hash and
-// derived from it, making them decryptable from the DB row alone. Unlock
-// still accepts those rows via the legacy derivation so existing accounts
-// keep working; they become safe again the next time the identity is
-// re-enabled (re-provisioned backup).
+// A second, short-lived scheme ("verifier rows") derived the master key from a
+// raw random secret held only on the user's device and stored just its hash.
+// Those rows cannot be auto-recovered; unlock still accepts them when this
+// device still holds the raw secret, and they are otherwise abandoned by the
+// reset path.
 //
 // Per-conversation, a fresh random 256-bit root key is wrapped for each
 // participant via ECDH(myPrivate, theirPublic) + HKDF + AES-GCM. Message
@@ -150,49 +152,6 @@ export async function deriveMasterKey(
 export interface EncryptedBlob {
   ciphertext: string;
   iv: string;
-}
-
-// Derives the identity backup key from a WebAuthn PRF output. The PRF extension
-// yields a stable 256-bit secret from the authenticator for a fixed input, so
-// unlike the manual-secret scheme there is nothing for the user to store: the
-// credential lives in their platform keychain (and syncs with iCloud/Google
-// when it is a synced passkey). The output is fed straight into PBKDF2 as the
-// base key, so the full entropy reaches the KDF with no encoding round-trip.
-// The server never sees the PRF output — only the encrypted backup and a
-// verifier hash.
-export async function deriveBackupKeyFromPrf(
-  prfOutput: Uint8Array,
-  salt: Uint8Array,
-  iterations = KDF_ITERATIONS
-): Promise<CryptoKey> {
-  const baseKey = await globalThis.crypto.subtle.importKey(
-    "raw",
-    toBufferSource(prfOutput),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  return globalThis.crypto.subtle.deriveKey(
-    { hash: "SHA-256", iterations, name: "PBKDF2", salt: toBufferSource(salt) },
-    baseKey,
-    { length: 256, name: "AES-GCM" },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-// Verifier for a PRF-derived backup: SHA-256 of the PRF output, hex. Stored
-// with the identity (like masterKeyHash for the manual scheme) so the client
-// can confirm the authenticator released the expected bytes before attempting
-// decryption, without the server learning anything that yields the key.
-export async function hashPrfOutput(prfOutput: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    toBufferSource(prfOutput)
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 export async function encryptWithMasterKey(
@@ -658,13 +617,10 @@ export async function generateFingerprint(
 
 // ---- account backup secret -----------------------------------------------------
 
-// Account-scoped backup secret: a random 64-character value generated once per
-// account. The master key is derived from this raw secret, and only its SHA-256
-// hash is stored server-side as a verifier. Knowing the hash does not allow
-// re-deriving the master key, so a database reader cannot decrypt the backup;
-// the trade-off is that the raw secret must be retained on the user's device
-// (or supplied by the user on a new one), which is why it is shown once at
-// provisioning.
+// Random per-identity seed. Its SHA-256 hash is stored with the identity and
+// used as the PBKDF2 input for the backup key, so the server can re-derive the
+// backup key from the row alone (automatic recovery). The raw value is
+// discarded immediately and is no longer persisted anywhere.
 export function generateAccountSecret(length = ACCOUNT_SECRET_LENGTH): string {
   // base64url encodes 3 bytes as 4 characters, so derive the random-byte count
   // from the requested length. That keeps the returned secret exactly `length`
@@ -816,14 +772,12 @@ export async function clearStoredPrivateKey(userId: string): Promise<void> {
   }
 }
 
-// ---- device-scoped backup-secret storage ------------------------------------
+// ---- device-scoped legacy backup-secret storage ------------------------------
 
-// The raw backup secret must live ONLY on the user's device: it is the input
-// to the master-key KDF and its SHA-256 is merely a verifier on the server.
-// Keeping it here lets the same device re-derive the master key without
-// prompting, while a database reader still learns nothing. A NEW device must
-// ask the user for this secret; there is deliberately no server-side path to
-// recover it.
+// Storage for the raw secret of the short-lived "verifier" scheme. It is only
+// READ now: current identities derive their backup key from the stored hash, so
+// nothing writes this key anymore. Keeping the reader lets a device that still
+// holds a verifier-row secret unlock it instead of needing a reset.
 const LS_SECRET_PREFIX = "asm_msg_secret_";
 
 export function getStoredAccountSecret(userId: string): string | null {
@@ -831,22 +785,8 @@ export function getStoredAccountSecret(userId: string): string | null {
     return null;
   }
   try {
-    // Device-local E2EE material by design; see the block comment above.
-    return localStorage.getItem(`${LS_SECRET_PREFIX}${userId}`); // codeql[js/clear-text-storage-of-sensitive-data]
+    return localStorage.getItem(`${LS_SECRET_PREFIX}${userId}`);
   } catch {
     return null;
-  }
-}
-
-export function setStoredAccountSecret(userId: string, secret: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    // Device-local E2EE material by design; see the block comment above.
-    localStorage.setItem(`${LS_SECRET_PREFIX}${userId}`, secret); // codeql[js/clear-text-storage-of-sensitive-data]
-  } catch {
-    // Restricted storage environments lose convenience, not security: the
-    // unlock flow falls back to prompting for the secret.
   }
 }

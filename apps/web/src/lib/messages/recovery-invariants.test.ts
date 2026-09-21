@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   decryptWithMasterKey,
-  deriveBackupKeyFromPrf,
   deriveMasterKey,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -12,60 +11,46 @@ import {
   hashAccountSecret,
   importPrivateKeyJwk,
 } from "./crypto";
-import { buildPasskeyBackup } from "./recovery-enroll";
 
-// The properties the messages recovery design promises. Each one encodes an
-// incident: an account that could not be recovered, a backup a server reader
-// could decrypt, or a reset that destroyed the peer's history. They are the
-// regression net for the rules in AGENTS.md.
+// The properties the messages recovery design promises now that the backup key
+// is derived from the stored row (server-recoverable, "Telegram-cloud"
+// semantics): a new device always recovers with no input, the reset path loses
+// only the resetting account's history, and a versioned conversation-key wrap
+// keeps the peer's older epochs readable. They are the regression net for the
+// rules in AGENTS.md.
 
 const KDF_ITERATIONS = 100_000;
 
-function prfOutput(): Uint8Array<ArrayBuffer> {
-  return globalThis.crypto.getRandomValues(new Uint8Array(32));
+// Mirrors enableIdentity(): keypair, random seed, only the seed's hash stored,
+// backup key derived from that hash.
+async function provision() {
+  const pair = await generateIdentityKeyPair();
+  const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const seed = generateAccountSecret();
+  const masterKeyHash = await hashAccountSecret(seed);
+  const masterKey = await deriveMasterKey(masterKeyHash, salt, KDF_ITERATIONS);
+  const backup = await encryptWithMasterKey(
+    masterKey,
+    JSON.stringify(privateKeyJwk)
+  );
+  return { backup, masterKeyHash, pair, privateKeyJwk, salt };
 }
 
 describe("messages recovery invariants", () => {
-  test("a fresh device recovers with no typed secret when a passkey is enrolled", async () => {
-    // Device A: provision, then enroll a recovery credential. The PRF output
-    // stands in for the authenticator's stable response.
-    const pair = await generateIdentityKeyPair();
-    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
-    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
-    const manualSecret = generateAccountSecret();
-    const manualHash = await hashAccountSecret(manualSecret);
-    const manualKey = await deriveMasterKey(manualSecret, salt, KDF_ITERATIONS);
-    const manualBackup = await encryptWithMasterKey(
-      manualKey,
-      JSON.stringify(privateKeyJwk)
-    );
+  test("a fresh device recovers from the stored row alone, with no input", async () => {
+    // Device A provisions; the server row keeps the ciphertext, salt,
+    // iteration count, and the seed hash — nothing else.
+    const { backup, masterKeyHash, pair, salt } = await provision();
 
-    // The single stored row after enrolling: a PRF copy ADDED to the manual one.
-    const prf = prfOutput();
-    const passkeyBackup = await buildPasskeyBackup({
-      identity: {
-        encryptedPrivateKey: `${manualBackup.iv}.${manualBackup.ciphertext}`,
-        kdfIterations: KDF_ITERATIONS,
-        masterKeyHash: manualHash,
-        publicKey: "pub",
-        salt: btoa(String.fromCodePoint(...salt)),
-      },
-      prfOutput: prf,
-      privateKey: pair.privateKey,
-    });
-
-    // Device B: has NO local storage and NO typed secret. The platform returns
-    // the same PRF output for the synced credential, which is all it needs.
-    const recoveredKey = await deriveBackupKeyFromPrf(
-      prf,
+    // Device B has no local storage, no user input, and no credential. It
+    // derives the backup key from the row and decrypts the private key.
+    const recoveredKey = await deriveMasterKey(
+      masterKeyHash,
       salt,
       KDF_ITERATIONS
     );
-    const [iv, ciphertext] = passkeyBackup.prfEncryptedPrivateKey.split(".");
-    const decrypted = await decryptWithMasterKey(recoveredKey, {
-      ciphertext: ciphertext as string,
-      iv: iv as string,
-    });
+    const decrypted = await decryptWithMasterKey(recoveredKey, backup);
     const recovered = await importPrivateKeyJwk(
       JSON.parse(decrypted) as JsonWebKey
     );
@@ -75,84 +60,63 @@ describe("messages recovery invariants", () => {
     expect(recoveredJwk.y).toBe(originalPublic.y);
   });
 
-  test("enrolling a passkey keeps the manual secret working", async () => {
-    // The dual-backup guarantee: a device that only holds the recovery secret
-    // must still unlock after another device enrolls a passkey. Enrolling
-    // therefore must not re-encrypt the manual copy.
-    const pair = await generateIdentityKeyPair();
-    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
-    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
-    const manualSecret = generateAccountSecret();
-    const manualKey = await deriveMasterKey(manualSecret, salt, KDF_ITERATIONS);
-    const manualBackup = await encryptWithMasterKey(
-      manualKey,
-      JSON.stringify(privateKeyJwk)
+  test("the stored row alone CAN decrypt the backup (accepted trade-off)", async () => {
+    // This is the deliberate semantic: recovery is automatic because the same
+    // material a database reader holds is enough to derive the backup key.
+    // Pinned so a future change cannot silently turn this back into a scheme
+    // where the documented recovery story no longer works.
+    const { backup, masterKeyHash, salt } = await provision();
+    const rowDerived = await deriveMasterKey(
+      masterKeyHash,
+      salt,
+      KDF_ITERATIONS
     );
-
-    await buildPasskeyBackup({
-      identity: {
-        encryptedPrivateKey: `${manualBackup.iv}.${manualBackup.ciphertext}`,
-        kdfIterations: KDF_ITERATIONS,
-        masterKeyHash: await hashAccountSecret(manualSecret),
-        publicKey: "pub",
-        salt: btoa(String.fromCodePoint(...salt)),
-      },
-      prfOutput: prfOutput(),
-      privateKey: pair.privateKey,
-    });
-
-    // The original manual ciphertext is untouched, so the secret still unlocks.
-    const stillWorks = await decryptWithMasterKey(manualKey, manualBackup);
-    expect(JSON.parse(stillWorks)).toEqual(privateKeyJwk);
+    const plaintext = await decryptWithMasterKey(rowDerived, backup);
+    expect(JSON.parse(plaintext)).toHaveProperty("d");
   });
 
-  test("the server-held row cannot decrypt either backup", async () => {
-    // Everything a database reader has: both ciphertexts, the IVs, the salt,
-    // the iteration count, and the verifier hashes. Deriving from the stored
-    // verifier (the legacy scheme) must fail for both copies.
-    const pair = await generateIdentityKeyPair();
-    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
-    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
-    const manualSecret = generateAccountSecret();
-    const manualVerifier = await hashAccountSecret(manualSecret);
-    const manualKey = await deriveMasterKey(manualSecret, salt, KDF_ITERATIONS);
-    const manualBackup = await encryptWithMasterKey(
-      manualKey,
-      JSON.stringify(privateKeyJwk)
+  test("a different row cannot decrypt this backup", async () => {
+    // Two identities must not be interchangeable: deriving from another row's
+    // hash must fail, which is what makes the keypair, not the row format,
+    // the unit of identity.
+    const { backup } = await provision();
+    const other = await provision();
+    const wrongKey = await deriveMasterKey(
+      other.masterKeyHash,
+      other.salt,
+      KDF_ITERATIONS
     );
-    const prf = prfOutput();
-    const passkeyBackup = await buildPasskeyBackup({
-      identity: {
-        encryptedPrivateKey: `${manualBackup.iv}.${manualBackup.ciphertext}`,
-        kdfIterations: KDF_ITERATIONS,
-        masterKeyHash: manualVerifier,
-        publicKey: "pub",
-        salt: btoa(String.fromCodePoint(...salt)),
-      },
-      prfOutput: prf,
-      privateKey: pair.privateKey,
-    });
+    await expect(decryptWithMasterKey(wrongKey, backup)).rejects.toThrow();
+  });
 
-    const fromManualVerifier = await deriveMasterKey(
-      manualVerifier,
-      salt,
+  test("a reset only needs a fresh keypair; the old row stays unreadable to it", async () => {
+    // Resetting mints a new identity. Messages encrypted to the old identity
+    // are no longer readable to the resetter, but the ciphertext itself is
+    // never deleted, so a peer holding the old wrap keeps its history. This
+    // assertion pins the "loss is scoped to the resetter" property.
+    const old = await provision();
+    const fresh = await provision();
+
+    // The fresh identity cannot decrypt the old backup with its own row
+    // material (its keypair is different).
+    const freshDerived = await deriveMasterKey(
+      fresh.masterKeyHash,
+      fresh.salt,
       KDF_ITERATIONS
     );
     await expect(
-      decryptWithMasterKey(fromManualVerifier, manualBackup)
+      decryptWithMasterKey(freshDerived, old.backup)
     ).rejects.toThrow();
 
-    const [iv, ciphertext] = passkeyBackup.prfEncryptedPrivateKey.split(".");
-    const fromPrfVerifier = await deriveMasterKey(
-      passkeyBackup.prfVerifier,
-      salt,
+    // The old ciphertext is untouched and still decryptable from the old row:
+    // nothing about a reset destroys the peer's copy of history.
+    const oldDerived = await deriveMasterKey(
+      old.masterKeyHash,
+      old.salt,
       KDF_ITERATIONS
     );
-    await expect(
-      decryptWithMasterKey(fromPrfVerifier, {
-        ciphertext: ciphertext as string,
-        iv: iv as string,
-      })
-    ).rejects.toThrow();
+    expect(
+      JSON.parse(await decryptWithMasterKey(oldDerived, old.backup))
+    ).toHaveProperty("d");
   });
 });

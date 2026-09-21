@@ -4,13 +4,10 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { parseJsonBody } from "@/lib/messages/server";
 
 export interface MessageIdentityPayload {
-  backupMethod?: string;
   createdAt: string;
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
-  prfEncryptedPrivateKey?: string | null;
-  prfVerifier?: string | null;
   publicKey: string;
   salt: string;
   updatedAt: string;
@@ -31,13 +28,10 @@ export async function GET() {
   }
 
   const payload: MessageIdentityPayload = {
-    backupMethod: identity.backupMethod,
     createdAt: identity.createdAt.toISOString(),
     encryptedPrivateKey: identity.encryptedPrivateKey,
     kdfIterations: identity.kdfIterations,
     masterKeyHash: identity.masterKeyHash,
-    prfEncryptedPrivateKey: identity.prfEncryptedPrivateKey,
-    prfVerifier: identity.prfVerifier,
     publicKey: identity.publicKey,
     salt: identity.salt,
     updatedAt: identity.updatedAt.toISOString(),
@@ -54,12 +48,9 @@ export async function POST(request: Request) {
 
   const parsed = await parseJsonBody(request);
   const body = parsed as {
-    backupMethod?: string;
     encryptedPrivateKey?: string;
     kdfIterations?: number;
     masterKeyHash?: string;
-    prfEncryptedPrivateKey?: string;
-    prfVerifier?: string;
     publicKey?: string;
     salt?: string;
   } | null;
@@ -84,76 +75,27 @@ export async function POST(request: Request) {
     );
   }
 
-  // The PRF backup pair is optional (accounts that never enroll a passkey omit
-  // it) but must be internally consistent when present. Both fields carry
-  // ciphertext/verifier material only; the PRF output itself is never accepted.
-  const hasPrf = body.prfEncryptedPrivateKey !== undefined;
-  if (
-    hasPrf &&
-    (typeof body.prfEncryptedPrivateKey !== "string" ||
-      body.prfEncryptedPrivateKey.length === 0 ||
-      typeof body.prfVerifier !== "string" ||
-      body.prfVerifier.length < 32)
-  ) {
-    return Response.json(
-      { error: "Invalid PRF backup payload" },
-      { status: 400 }
-    );
-  }
-  const backupMethod =
-    body.backupMethod === "passkey-prf" && hasPrf
-      ? "passkey-prf"
-      : "manual-secret";
-
   try {
-    // Create-only for the KEYPAIR: an existing identity owns its public key.
-    // Re-provisioning with the SAME public key is not a no-op though — it is the
-    // path that adds or refreshes the PRF backup copy once the user enrolls a
-    // recovery credential, so the mutable backup fields are updated in place. A
-    // DIFFERENT public key must never replace the stored keypair, which would
-    // orphan every existing conversation key for it.
+    // Create-only: an existing identity owns its public key. Re-provisioning
+    // with a different keypair must never replace the stored one, which would
+    // orphan every existing conversation key for it; a reset is the explicit
+    // path for replacing a keypair.
     const existing = await prisma.messageIdentity.findUnique({
       select: { publicKey: true },
       where: { userId: user.id },
     });
     if (existing) {
-      if (existing.publicKey !== body.publicKey) {
-        return Response.json(
-          { error: "Identity already exists" },
-          { status: 409 }
-        );
-      }
-      await prisma.messageIdentity.update({
-        data: {
-          backupMethod,
-          encryptedPrivateKey: body.encryptedPrivateKey,
-          kdfIterations: body.kdfIterations,
-          masterKeyHash: body.masterKeyHash,
-          ...(hasPrf
-            ? {
-                prfEncryptedPrivateKey: body.prfEncryptedPrivateKey,
-                prfVerifier: body.prfVerifier,
-              }
-            : {}),
-          salt: body.salt,
-        },
-        where: { userId: user.id },
-      });
-      return Response.json({ ok: true });
+      return Response.json(
+        { error: "Identity already exists" },
+        { status: 409 }
+      );
     }
 
     await prisma.messageIdentity.create({
       data: {
-        backupMethod,
         encryptedPrivateKey: body.encryptedPrivateKey,
         kdfIterations: body.kdfIterations,
         masterKeyHash: body.masterKeyHash,
-        ...(hasPrf
-          ? {
-              prfEncryptedPrivateKey: body.prfEncryptedPrivateKey,
-              prfVerifier: body.prfVerifier,
-            }
-          : {}),
         publicKey: body.publicKey,
         salt: body.salt,
         userId: user.id,
@@ -167,9 +109,8 @@ export async function POST(request: Request) {
   }
 }
 
-// Re-provisions a lost identity. This is the escape hatch for a device that no
-// longer holds the backup secret: the stored backup cannot be decrypted without
-// it, so the only way forward is to start a new keypair. The reset is strictly
+// Re-provisions a lost identity. This is the recovery path when a device can no
+// longer read the stored backup: start a new keypair. The reset is strictly
 // self-scoped:
 //
 //   - Only the caller's identity row is deleted (`where.userId = user.id`).

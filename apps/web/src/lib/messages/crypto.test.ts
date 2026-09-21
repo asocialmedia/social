@@ -6,7 +6,6 @@ import {
   decryptMessage,
   decryptMessageWithBaseKey,
   decryptWithMasterKey,
-  deriveBackupKeyFromPrf,
   deriveMasterKey,
   deriveMessageKey,
   encryptMessage,
@@ -19,7 +18,6 @@ import {
   generateRootKey,
   getMediaImages,
   hashAccountSecret,
-  hashPrfOutput,
   importPrivateKeyJwk,
   importPublicKeyJwk,
   importRatchetBaseKey,
@@ -38,12 +36,6 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 function base64ToBytes(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (char) => char.codePointAt(0));
-}
-
-// A stand-in for a WebAuthn PRF output: 32 random bytes, the size authenticators
-// return for the PRF extension's first result.
-function prfOutput(): Uint8Array<ArrayBuffer> {
-  return globalThis.crypto.getRandomValues(new Uint8Array(32));
 }
 
 // Encrypts an arbitrary JSON payload under the message ratchet key for the
@@ -855,9 +847,11 @@ describe("account backup secret", () => {
     expect(recoveredPrivate.y).toBe(originalPublic.y);
   });
 
-  test("current v2 rows unlock from the raw secret supplied by the user", async () => {
-    // Device A provisions exactly as enableIdentity does: the master key
-    // derives from the RAW secret, and only its hash is stored as a verifier.
+  test("verifier rows unlock from the raw secret this device still holds", async () => {
+    // The short-lived verifier scheme encrypted under a raw secret and stored
+    // only its hash, so the row alone cannot derive the key. A device that
+    // still holds that secret must still be able to unlock; unlockIdentity
+    // verifies the hash before deriving.
     const pair = await generateIdentityKeyPair();
     const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
     const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
@@ -871,8 +865,8 @@ describe("account backup secret", () => {
 
     // Device B lost local storage, so it has neither the secret nor the key;
     // the user supplies the secret from their saved copy. This mirrors
-    // unlockIdentity's v2 path: verify the hash, then derive from the raw
-    // secret (NOT the hash) and decrypt.
+    // unlockIdentity's verifier-row path: verify the hash, then derive from the
+    // raw secret (NOT the hash) and decrypt.
     const supplied = secret;
     const verifier = await hashAccountSecret(supplied);
     expect(verifier.toLowerCase()).toBe(masterKeyHash.toLowerCase());
@@ -901,69 +895,26 @@ describe("account backup secret", () => {
     expect(wrongVerifier.toLowerCase()).not.toBe(masterKeyHash.toLowerCase());
   });
 
-  test("the stored row alone cannot decrypt the backup", async () => {
-    // The security property the verifier design exists to provide: a database
-    // reader who holds the entire identity row still cannot recover the private
-    // key. This is the invariant that must never regress — it is what
-    // distinguishes the current scheme from the legacy one, where the stored
-    // hash WAS the KDF input.
+  test("the stored row alone derives the backup key (automatic recovery)", async () => {
+    // Deliberate trade-off of the server-recoverable model: a database reader
+    // who holds the entire identity row derives the same backup key the client
+    // does, because the row is the recovery material. Pinned so the documented
+    // recovery behavior and the accepted risk stay in lockstep.
     const pair = await generateIdentityKeyPair();
     const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
     const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
     const secret = generateAccountSecret();
     const masterKeyHash = await hashAccountSecret(secret);
-    const masterKey = await deriveMasterKey(secret, salt, 100_000);
+    const masterKey = await deriveMasterKey(masterKeyHash, salt, 100_000);
     const backup = await encryptWithMasterKey(
       masterKey,
       JSON.stringify(privateKeyJwk)
     );
 
     // Everything a DB reader has: the ciphertext, the IV, the salt, the
-    // iteration count, and the verifier hash. The only derivation the row
-    // enables is the legacy one (hash as KDF input), which must fail on a v2
-    // row because the real key came from the raw secret.
+    // iteration count, and the seed hash. That is sufficient by design.
     const rowDerived = await deriveMasterKey(masterKeyHash, salt, 100_000);
-    await expect(decryptWithMasterKey(rowDerived, backup)).rejects.toThrow();
-  });
-});
-
-describe("passkey PRF backup key", () => {
-  test("derives a key that round-trips the backup and rejects the wrong PRF", async () => {
-    const pair = await generateIdentityKeyPair();
-    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
-    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
-    const prf = prfOutput();
-
-    const key = await deriveBackupKeyFromPrf(prf, salt, 100_000);
-    const blob = await encryptWithMasterKey(key, JSON.stringify(privateKeyJwk));
-
-    // The same authenticator PRF output re-derives the key (the "new device,
-    // synced passkey" path) and decrypts the backup.
-    const recovered = await deriveBackupKeyFromPrf(prf, salt, 100_000);
-    const decrypted = await decryptWithMasterKey(recovered, blob);
-    const imported = await importPrivateKeyJwk(
-      JSON.parse(decrypted) as JsonWebKey
-    );
-    const recoveredPrivate = await exportPrivateKeyJwk(imported);
-    const originalPublic = await exportPublicKeyJwk(pair.publicKey);
-    expect(recoveredPrivate.x).toBe(originalPublic.x);
-    expect(recoveredPrivate.y).toBe(originalPublic.y);
-
-    // A different PRF output must not decrypt it.
-    await expect(
-      decryptWithMasterKey(
-        await deriveBackupKeyFromPrf(prfOutput(), salt),
-        blob
-      )
-    ).rejects.toThrow();
-  });
-
-  test("the verifier is a deterministic hash of the PRF output, not the key", async () => {
-    const prf = prfOutput();
-    const verifier = await hashPrfOutput(prf);
-    expect(verifier).toHaveLength(64);
-    expect(verifier).toMatch(/^[0-9a-f]+$/);
-    expect(await hashPrfOutput(prf)).toBe(verifier);
-    expect(await hashPrfOutput(prfOutput())).not.toBe(verifier);
+    const decrypted = await decryptWithMasterKey(rowDerived, backup);
+    expect(JSON.parse(decrypted)).toEqual(privateKeyJwk);
   });
 });

@@ -22,13 +22,10 @@ import type { EncryptedBlob, MessagePayload } from "./crypto";
 // plaintext.
 
 export interface MessageIdentityPayload {
-  backupMethod?: string;
   createdAt: string;
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
-  prfEncryptedPrivateKey?: string | null;
-  prfVerifier?: string | null;
   publicKey: string;
   salt: string;
   updatedAt: string;
@@ -134,12 +131,9 @@ export async function fetchIdentity(): Promise<{
 }
 
 export async function saveIdentity(payload: {
-  backupMethod?: string;
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
-  prfEncryptedPrivateKey?: string;
-  prfVerifier?: string;
   publicKey: string;
   salt: string;
 }): Promise<void> {
@@ -155,11 +149,11 @@ export async function saveIdentity(payload: {
 }
 
 // Drops this account's server-side identity and its own conversation-key wraps
-// so the next bootstrap provisions a fresh keypair. The escape hatch for a
-// device that lost the backup secret. Messages are untouched: the caller's
-// pre-reset history becomes unreadable to them, while the peer's own wraps
-// remain, so the peer keeps the full history. Callers must confirm with the
-// user before invoking this.
+// so the next bootstrap provisions a fresh keypair. The recovery path when the
+// stored identity row can no longer be read on any device. Messages are
+// untouched: the caller's pre-reset history becomes unreadable to them, while
+// the peer's own wraps remain, so the peer keeps the full history. Callers must
+// confirm with the user before invoking this.
 export async function resetMessageIdentity(): Promise<void> {
   const response = await fetch("/api/messages/identity", {
     credentials: "same-origin",
@@ -277,7 +271,7 @@ export async function uploadMessageMedia(
   conversationId: string,
   options: MessageMediaUploadOptions = {}
 ): Promise<MessageMediaUpload> {
-  // Message attachments live inside E2EE ciphertext and can't be linked to a
+  // Message attachments live inside message ciphertext and can't be linked to a
   // post, so the pipeline skips post-linking; they still go through the full
   // scan -> publish lifecycle. The stored URL is the app proxy path, never a
   // raw object-storage address. The row is bound to the conversation so the
@@ -333,7 +327,7 @@ export async function discardMessageMedia(mediaId: string): Promise<void> {
 // are unlinked, which leaves the uploader able to read them (unlinked rows are
 // owner-readable) while the peer 404s on every fetch — a one-sided message.
 // The sender's client is the only party that knows the media ids (they live
-// inside the E2EE payload), so it re-asserts the link when it renders its own
+// inside the encrypted payload), so it re-asserts the link when it renders its own
 // media message. Failures are non-fatal and retried on the next mount.
 export async function linkMessageMedia(
   mediaId: string,
