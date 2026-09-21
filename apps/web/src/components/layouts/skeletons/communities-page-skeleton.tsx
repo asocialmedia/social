@@ -77,7 +77,7 @@ const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
 
       <div
         className={cn(
-          "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+          "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain",
           isLoggedIn ? "pb-16 lg:pb-0" : "pb-24 lg:pb-12"
         )}
       >

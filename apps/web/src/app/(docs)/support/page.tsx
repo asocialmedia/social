@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function SupportPage() {
   return (
-    <div className="bg-background relative flex min-h-screen overflow-hidden">
+    <div className="bg-background relative flex min-h-dvh overflow-hidden">
       <div className="from-primary/5 via-background to-background/95 absolute inset-0 z-0 bg-gradient-to-br" />
 
       <div className="absolute left-20 hidden h-full items-center md:flex">

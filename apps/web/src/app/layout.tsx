@@ -208,7 +208,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
         </>
       ) : null}
     </head>
-    <body className="min-h-screen font-sans antialiased">
+    <body className="min-h-dvh font-sans antialiased">
       <JsonLd data={websiteJsonLd} />
       <VideoCaptionsHydration />
       <DesignSystemProvider>{children}</DesignSystemProvider>

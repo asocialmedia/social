@@ -23,6 +23,25 @@ const nextConfig: NextConfig = withStreamConfig({
         ],
         source: "/feed.xml",
       },
+      // Native passkey association files must parse as JSON on-device.
+      {
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/json",
+          },
+        ],
+        source: "/.well-known/apple-app-site-association",
+      },
+      {
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/json",
+          },
+        ],
+        source: "/.well-known/assetlinks.json",
+      },
     ];
   },
 });

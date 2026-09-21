@@ -1,0 +1,19 @@
+{
+  "include": ["**/*.ts"],
+  "compilerOptions": {
+    "allowJs": true,
+    "esModuleInterop": true,
+    "lib": ["ESNext"],
+    "module": "preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ESNext",
+    // These are Node/Bun build scripts, not app code, so they need the Node
+    // globals the Expo app tsconfig deliberately leaves out.
+    "types": ["node", "bun"]
+  }
+}

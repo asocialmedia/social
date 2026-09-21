@@ -392,6 +392,62 @@ describe("runBumpVersionWithContext", () => {
     ]);
   });
 
+  test("formats the rewritten manifests and re-stages them", async () => {
+    const formatted: string[][] = [];
+    const stagedAfterFormat: string[] = [];
+    const written: string[] = [];
+    let formatting = false;
+
+    await runBumpVersionWithContext({
+      // Only the paths this scenario actually has on disk; a blanket `true`
+      // would invent `packages/mobile/package.json`.
+      fileExists: (pkgPath) =>
+        Promise.resolve(
+          [
+            "package.json",
+            "apps/mobile/package.json",
+            "apps/mobile/app.json",
+          ].includes(pkgPath)
+        ),
+      formatFiles: (filePaths) => {
+        formatting = true;
+        formatted.push([...filePaths]);
+        return Promise.resolve();
+      },
+      getStagedFiles: () => Promise.resolve(["apps/mobile/app.json"]),
+      readPackageJson: (pkgPath) =>
+        Promise.resolve({
+          version: pkgPath === "package.json" ? "1.0.1" : "0.0.1",
+        }),
+      readAppJson: () => Promise.resolve({ expo: { version: "0.0.1" } }),
+      stageFile: (filePath) => {
+        if (formatting) {
+          stagedAfterFormat.push(filePath);
+        } else {
+          written.push(filePath);
+        }
+        return Promise.resolve();
+      },
+      writePackageJson: () => Promise.resolve(),
+      writeAppJson: () => Promise.resolve(),
+    });
+
+    // Formatter runs once, over every manifest the bump rewrote...
+    expect(formatted).toHaveLength(1);
+    expect([...(formatted[0] ?? [])].toSorted()).toEqual([
+      "apps/mobile/app.json",
+      "apps/mobile/package.json",
+      "package.json",
+    ]);
+    // ...and every one of them is staged again afterwards, so the committed
+    // bytes are the formatter's output rather than the raw JSON.stringify.
+    expect([...stagedAfterFormat].toSorted()).toEqual([
+      "apps/mobile/app.json",
+      "apps/mobile/package.json",
+      "package.json",
+    ]);
+  });
+
   test("keeps bun.lock workspace versions in sync with the bumped manifests", async () => {
     await writeFile(
       path.join(sandboxDir, "bun.lock"),

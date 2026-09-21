@@ -186,7 +186,7 @@ export default function ConfirmResetForm() {
 
   if (isValidating) {
     return (
-      <div className="container flex min-h-screen items-center justify-center">
+      <div className="container flex min-h-dvh items-center justify-center">
         <CenteredLogoLoader size={72} />
       </div>
     );
@@ -194,7 +194,7 @@ export default function ConfirmResetForm() {
 
   if (!isTokenValid) {
     return (
-      <div className="container flex min-h-screen items-center justify-center">
+      <div className="container flex min-h-dvh items-center justify-center">
         <motion.div
           animate={{ opacity: 1, scale: 1 }}
           className="bg-card/40 rounded-lg border border-white/10 p-8 text-center backdrop-blur-xl"
@@ -227,7 +227,7 @@ export default function ConfirmResetForm() {
     <AnimatePresence>
       <motion.div
         animate={{ opacity: 1 }}
-        className="bg-background relative flex min-h-screen overflow-hidden"
+        className="bg-background relative flex min-h-dvh overflow-hidden"
         initial={{ opacity: 0 }}
       >
         <div className="via-background to-background/95 absolute inset-0 z-0 bg-linear-to-bl from-blue-500/8" />
