@@ -134,6 +134,6 @@ export function maxBytesForType(limits: MediaLimits, type: string): number {
 export const MAX_POST_ATTACHMENTS = 10;
 
 // Hard ceiling on images per grouped DM message. Enforced client-side (the
-// composer caps the staging strip) and in the E2EE payload validator (crypto.ts)
+// composer caps the staging strip) and in the message payload validator (crypto.ts)
 // so a peer cannot craft an oversized album that forces heavy rendering.
 export const MAX_MESSAGE_ATTACHMENTS = 10;

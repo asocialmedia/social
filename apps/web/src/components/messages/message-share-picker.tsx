@@ -267,8 +267,8 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       <div className="flex flex-col items-center gap-2.5 py-4 text-center">
         <Lock className="text-muted-foreground h-6 w-6" />
         <p className="text-muted-foreground max-w-56 text-sm">
-          Messages are end-to-end encrypted and set up automatically. Open
-          Messages once to get started.
+          Messages are encrypted and set up automatically. Open Messages once to
+          get started.
         </p>
         <Button
           asChild

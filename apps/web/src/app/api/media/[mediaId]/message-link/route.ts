@@ -13,7 +13,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 // permanently one-sided message.
 //
 // The uploader's own client is the only party that can reconstruct the link:
-// the media ids live inside the E2EE payload, so the server never sees them.
+// the media ids live inside the encrypted payload, so the server never sees them.
 // A row being viewed in a thread therefore re-asserts its binding here. The
 // endpoint is deliberately conservative — the caller must own the row AND be a
 // member of the target conversation, and the update only fills a null link or

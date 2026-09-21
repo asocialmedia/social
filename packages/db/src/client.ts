@@ -360,7 +360,7 @@ export interface NotificationCountInfo {
   unreadCount: number;
 }
 
-// E2EE message shapes. The server only ever sees ciphertext; the include below
+// Message shapes. The server only ever sees ciphertext; the include below
 // is intentionally lean (no plaintext fields to leak).
 export const messageConversationInclude = {
   keys: true,

@@ -515,7 +515,7 @@ export async function publishResponseDeleted(
   await publishResponseEvent({ kind: "response.deleted", postId, response });
 }
 
-// ---- E2EE messages ---------------------------------------------------------
+// ---- messages --------------------------------------------------------------
 // Real-time DMs: message writes are published to a per-conversation Redis
 // channel and fanned out to open SSE streams, mirroring the comments stack.
 // Ciphertext is safe to broadcast; the plaintext never leaves the client.

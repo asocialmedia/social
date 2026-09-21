@@ -138,7 +138,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.27",
+      "version": "1.5.28",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -265,7 +265,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.1.61",
+      "version": "1.1.62",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -318,7 +318,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.32",
+      "version": "1.0.33",
       "devDependencies": {
         "@asm/config": "workspace:*",
         "@types/bun": "^1.4.0",

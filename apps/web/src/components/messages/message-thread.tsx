@@ -1002,7 +1002,7 @@ export function MessageThread({
                     Say hi to {peer?.displayName ?? "them"}
                   </p>
                   <p className="text-muted-foreground/70 mt-1 text-xs">
-                    Messages here are end-to-end encrypted.
+                    Messages here are encrypted.
                   </p>
                 </div>
               </div>

@@ -1,7 +1,7 @@
 import { decryptMessageWithBaseKey } from "./crypto";
 import type { MessagePayload } from "./crypto";
 
-// Batched, priority-ordered E2EE decrypt scheduler shared by every message
+// Batched, priority-ordered message decrypt scheduler shared by every message
 // thread in the session.
 //
 // Why this exists: the thread used to fire one unthrottled decrypt per
