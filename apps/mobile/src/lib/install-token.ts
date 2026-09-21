@@ -72,22 +72,30 @@ export function isSameOrigin(url: string | null, origin: string): boolean {
   return url.startsWith(origin);
 }
 
-function mergeHeaders(
-  init: RequestInit | undefined,
-  token: string
-): RequestInit {
-  const headers = new Headers(init?.headers);
-  // Never clobber a caller that set the header deliberately.
-  if (!headers.has(INSTALL_TOKEN_HEADER)) {
-    headers.set(INSTALL_TOKEN_HEADER, token);
+/**
+ * Returns a copy of `headers` with the install token added, or the same object
+ * when it already carries one (a caller that set it deliberately wins).
+ */
+export function withTokenHeader(headers: Headers, token: string): Headers {
+  if (headers.has(INSTALL_TOKEN_HEADER)) {
+    return headers;
   }
-  return { ...init, headers };
+  const next = new Headers(headers);
+  next.set(INSTALL_TOKEN_HEADER, token);
+  return next;
 }
 
 /**
  * Builds a fetch that attaches the install token to same-origin requests only,
  * so the credential never leaks to another host (the update gate talks to
  * GitHub). Pure and injectable for testing.
+ *
+ * The two input shapes are handled separately and deliberately. When `input` is
+ * a Request its headers live ON the Request, and passing `{ headers }` as init
+ * REPLACES them - which silently dropped `content-type` and the session
+ * `cookie` that better-auth sets, breaking every call it made. So the token is
+ * merged into the Request's own headers and a new Request is forwarded. Only
+ * when the caller uses the url + init form do we touch init.
  */
 export function createInstallFetch(options: {
   baseFetch: FetchLike;
@@ -105,6 +113,15 @@ export function createInstallFetch(options: {
       // install-token-required, which the caller turns into a re-registration.
       return options.baseFetch(input, init);
     }
-    return options.baseFetch(input, mergeHeaders(init, token));
+
+    if (input instanceof Request) {
+      return options.baseFetch(
+        new Request(input, { headers: withTokenHeader(input.headers, token) })
+      );
+    }
+    return options.baseFetch(input, {
+      ...init,
+      headers: withTokenHeader(new Headers(init?.headers), token),
+    });
   };
 }

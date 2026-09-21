@@ -109,6 +109,61 @@ describe("createInstallFetch", () => {
     expect(call.init?.method).toBe("POST");
     expect(call.init?.body).toBe("{}");
   });
+
+  // Regression: better-auth passes a Request object, so its headers live on the
+  // Request. Passing `{ headers }` as init REPLACES them, which silently dropped
+  // content-type and the session cookie and broke every auth call.
+  test("merges into a Request's own headers instead of replacing them", async () => {
+    const received: Request[] = [];
+    const baseFetch = ((input: RequestInfo | URL) => {
+      received.push(input as Request);
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as typeof fetch;
+    const wrapped = createInstallFetch({
+      baseFetch,
+      getToken: () => "tok",
+      origin: ORIGIN,
+    });
+
+    await wrapped(
+      new Request(`${ORIGIN}/api/auth/sign-in/social`, {
+        body: JSON.stringify({ provider: "google" }),
+        headers: {
+          "Content-Type": "application/json",
+          cookie: "session_token=abc",
+        },
+        method: "POST",
+      })
+    );
+
+    const [sent] = received;
+    expect(sent?.headers.get("content-type")).toBe("application/json");
+    expect(sent?.headers.get("cookie")).toBe("session_token=abc");
+    expect(sent?.headers.get("x-asm-install")).toBe("tok");
+    expect(sent?.method).toBe("POST");
+    expect(await sent?.text()).toBe(JSON.stringify({ provider: "google" }));
+  });
+
+  test("does not clobber an install token already on a Request", async () => {
+    const received: Request[] = [];
+    const baseFetch = ((input: RequestInfo | URL) => {
+      received.push(input as Request);
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as typeof fetch;
+    const wrapped = createInstallFetch({
+      baseFetch,
+      getToken: () => "store-token",
+      origin: ORIGIN,
+    });
+
+    await wrapped(
+      new Request(`${ORIGIN}/api/x`, {
+        headers: { "x-asm-install": "explicit" },
+      })
+    );
+    const [sent] = received;
+    expect(sent?.headers.get("x-asm-install")).toBe("explicit");
+  });
 });
 
 describe("parseRegisterResponse", () => {
