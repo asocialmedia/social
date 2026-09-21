@@ -1,6 +1,33 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildTurnstilePage, parseTurnstileMessage } from "./turnstile-page";
+import {
+  buildTurnstilePage,
+  parseTurnstileMessage,
+  resolveTurnstileBaseUrl,
+} from "./turnstile-page";
+
+describe("resolveTurnstileBaseUrl", () => {
+  test("prefers an explicit origin and strips trailing slashes", () => {
+    expect(
+      resolveTurnstileBaseUrl("http://localhost:3000///", "https://api.test")
+    ).toBe("http://localhost:3000");
+  });
+
+  test("falls back to the API origin in release builds", () => {
+    expect(resolveTurnstileBaseUrl(undefined, "https://asocialmedia.cc")).toBe(
+      "https://asocialmedia.cc"
+    );
+    expect(resolveTurnstileBaseUrl("", "https://asocialmedia.cc/")).toBe(
+      "https://asocialmedia.cc"
+    );
+  });
+
+  test("treats a whitespace-only override as unset", () => {
+    expect(resolveTurnstileBaseUrl("   ", "https://asocialmedia.cc")).toBe(
+      "https://asocialmedia.cc"
+    );
+  });
+});
 
 describe("parseTurnstileMessage", () => {
   test("parses a verify message", () => {

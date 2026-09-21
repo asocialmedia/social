@@ -5,14 +5,25 @@
 import { useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
+import { resolveTurnstileBaseUrl } from "../lib/turnstile-page";
 import { useInstall } from "../state/install";
 import { TurnstileWebView } from "./turnstile-webview";
 
 interface InstallVerificationGateProps {
   sitekey: string | undefined;
 }
+
+// Cloudflare accepts localhost for any sitekey, and the dev server's
+// TURNSTILE_HOSTNAMES allowlist does too, so it is the one origin that works
+// for both while the dev API sits on an emulator/LAN alias.
+// See resolveTurnstileBaseUrl for why the origin matters at all.
+const TURNSTILE_BASE_URL = resolveTurnstileBaseUrl(
+  process.env.EXPO_PUBLIC_TURNSTILE_BASE_URL,
+  getApiBaseUrl()
+);
 
 export function InstallVerificationGate({
   sitekey,
@@ -23,12 +34,24 @@ export function InstallVerificationGate({
   const [resetSignal, setResetSignal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  // Only a solved-then-expired challenge is worth retrying automatically.
+  // A load/connection error must NOT reset, or the widget re-renders, errors,
+  // resets again and flickers forever (which is exactly what it used to do).
+  const handleExpire = () => {
+    setError("The check expired. Try again.");
+  };
+
+  const retry = () => {
+    setError(null);
+    setResetSignal((value) => value + 1);
+  };
+
   const handleVerify = async (token: string) => {
     setError(null);
     const ok = await submitVerification(token);
     if (!ok) {
+      // Server refused. Leave the widget alone and offer an explicit retry.
       setError("That check didn't go through. Try again.");
-      setResetSignal((value) => value + 1);
     }
   };
 
@@ -60,13 +83,13 @@ export function InstallVerificationGate({
           {sitekey ? (
             <TurnstileWebView
               action="mobile-register"
-              onError={(code) => {
-                setError(`The check could not load (${code}).`);
-                setResetSignal((value) => value + 1);
+              baseUrl={TURNSTILE_BASE_URL}
+              onError={() => {
+                setError(
+                  "The check could not load. Check your connection, then tap Retry."
+                );
               }}
-              onExpire={() => {
-                setResetSignal((value) => value + 1);
-              }}
+              onExpire={handleExpire}
               onVerify={(token) => {
                 void handleVerify(token);
               }}
@@ -91,11 +114,20 @@ export function InstallVerificationGate({
             </Text>
           ) : null}
 
-          <Pressable hitSlop={6} onPress={dismissGate} style={styles.dismiss}>
-            <Text style={[styles.dismissText, { color: theme.auxLink }]}>
-              Not now
-            </Text>
-          </Pressable>
+          <View style={styles.footer}>
+            {error ? (
+              <Pressable hitSlop={6} onPress={retry}>
+                <Text style={[styles.action, { color: theme.auxLink }]}>
+                  Retry
+                </Text>
+              </Pressable>
+            ) : null}
+            <Pressable hitSlop={6} onPress={dismissGate}>
+              <Text style={[styles.action, { color: theme.auxLink }]}>
+                Not now
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </Modal>
@@ -103,6 +135,11 @@ export function InstallVerificationGate({
 }
 
 const styles = StyleSheet.create({
+  action: {
+    fontFamily: "SofiaProMed",
+    fontSize: 13,
+    fontWeight: "normal",
+  },
   body: {
     fontFamily: "SofiaProReg",
     fontSize: 13,
@@ -117,14 +154,12 @@ const styles = StyleSheet.create({
     padding: 20,
     width: "100%",
   },
-  dismiss: {
+  footer: {
     alignItems: "center",
+    flexDirection: "row",
+    gap: 20,
+    justifyContent: "center",
     paddingVertical: 4,
-  },
-  dismissText: {
-    fontFamily: "SofiaProMed",
-    fontSize: 13,
-    fontWeight: "normal",
   },
   overlay: {
     alignItems: "center",

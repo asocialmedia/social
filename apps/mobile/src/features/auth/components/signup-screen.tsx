@@ -42,6 +42,7 @@ import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { validateSignup } from "@/features/auth/lib/auth-validation";
 import { useSignupState } from "@/features/auth/state/signup-state";
+import { getApiBaseUrl } from "@/lib/api-env";
 import {
   ERROR_SHADOWS,
   INPUT_ERROR_SHADOWS,
@@ -59,6 +60,7 @@ import {
   requestSignup,
   verifySignupOtp,
 } from "../lib/signup-api";
+import { resolveTurnstileBaseUrl } from "../lib/turnstile-page";
 import { OtpInput } from "./otp-input";
 import { PasswordStrength } from "./password-strength";
 import { TurnstileWebView } from "./turnstile-webview";
@@ -70,6 +72,13 @@ const DIGITS_ONLY = /^\d*$/;
 // Public by design: it ships in the app and is served to every browser on the
 // web signup page. The matching secret stays server-side.
 const TURNSTILE_SITE_KEY = process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
+
+// The challenge page must claim an origin Cloudflare recognises for this
+// sitekey (it is domain-bound); see resolveTurnstileBaseUrl.
+const TURNSTILE_BASE_URL = resolveTurnstileBaseUrl(
+  process.env.EXPO_PUBLIC_TURNSTILE_BASE_URL,
+  getApiBaseUrl()
+);
 
 function NativeCheckbox({
   checked,
@@ -712,6 +721,7 @@ export default function SignupScreen() {
                       {TURNSTILE_SITE_KEY ? (
                         <TurnstileWebView
                           action="signup"
+                          baseUrl={TURNSTILE_BASE_URL}
                           onError={() => {
                             setTurnstileToken(null);
                             setFormError(

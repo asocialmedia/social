@@ -42,3 +42,4 @@ devenv.local.yaml
 concepts/
 .expo/
 re/
+.tmp-ts/

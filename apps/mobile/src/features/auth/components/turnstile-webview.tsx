@@ -16,6 +16,9 @@ import type { TurnstileAppearance } from "../lib/turnstile-page";
 interface TurnstileWebViewProps {
   action: string;
   appearance?: TurnstileAppearance;
+  // Origin the page claims. Turnstile is hostname-bound, so the inline page
+  // MUST be given a real base URL or the widget fails with 110200.
+  baseUrl: string;
   onError?: (code: string) => void;
   onExpire?: () => void;
   onVerify: (token: string) => void;
@@ -27,6 +30,7 @@ interface TurnstileWebViewProps {
 export function TurnstileWebView({
   action,
   appearance = "always",
+  baseUrl,
   onError,
   onExpire,
   onVerify,
@@ -111,7 +115,9 @@ export function TurnstileWebView({
         ref={webViewRef}
         scrollEnabled={false}
         setSupportMultipleWindows={false}
-        source={{ html }}
+        // `baseUrl` is what makes this work: it gives the inline page a real
+        // hostname, which the domain-bound sitekey requires.
+        source={{ baseUrl, html }}
         style={styles.webview}
       />
       {isReady ? null : (

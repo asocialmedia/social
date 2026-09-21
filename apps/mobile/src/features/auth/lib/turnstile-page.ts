@@ -51,6 +51,31 @@ export function parseTurnstileMessage(raw: unknown): TurnstileMessage | null {
 
 export type TurnstileAppearance = "always" | "execute" | "interaction-only";
 
+/**
+ * Origin the challenge page must claim.
+ *
+ * A Turnstile sitekey is bound to hostnames, so the page has to sit on one
+ * Cloudflare recognises or the widget fails with "unable to connect to
+ * website" (error 110200). Inline HTML alone has an opaque origin and no
+ * hostname at all, which is why the WebView is given a real `baseUrl`.
+ *
+ * The origin must ALSO be accepted by the server's TURNSTILE_HOSTNAMES
+ * allowlist on siteverify, so the two have to agree. Production uses the app
+ * origin; development overrides this because the dev API sits on a host alias
+ * (an emulator's 10.0.2.2, or a LAN address) that neither Cloudflare nor the
+ * dev allowlist knows about - localhost is the one host both accept.
+ */
+export function resolveTurnstileBaseUrl(
+  configured: string | undefined,
+  apiBaseUrl: string
+): string {
+  const trimmed = configured?.trim();
+  if (trimmed) {
+    return trimmed.replace(/\/+$/, "");
+  }
+  return apiBaseUrl.replace(/\/+$/, "");
+}
+
 export interface TurnstilePageOptions {
   action: string;
   appearance: TurnstileAppearance;
