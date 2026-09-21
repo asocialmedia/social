@@ -12,6 +12,7 @@ export const keys = createEnv({
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     NODE_ENV: process.env.NODE_ENV,
+    PASSKEY_ANDROID_APK_KEY_HASHES: process.env.PASSKEY_ANDROID_APK_KEY_HASHES,
     REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
     REDDIT_CLIENT_SECRET: process.env.REDDIT_CLIENT_SECRET,
     TURNSTILE_HOSTNAMES: process.env.TURNSTILE_HOSTNAMES,
@@ -32,6 +33,10 @@ export const keys = createEnv({
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
+    // Comma-separated Android signing-cert digests (or keytool SHA-256
+    // fingerprints) the passkey plugin accepts as app origins. Release certs
+    // only: a debug key here would let any debug-signed APK use passkeys.
+    PASSKEY_ANDROID_APK_KEY_HASHES: z.string().optional(),
     REDDIT_CLIENT_ID: z.string().optional(),
     REDDIT_CLIENT_SECRET: z.string().optional(),
     TURNSTILE_HOSTNAMES: z.string().optional(),
