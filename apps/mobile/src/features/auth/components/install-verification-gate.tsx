@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -104,9 +105,12 @@ export function InstallVerificationGate({
           )}
 
           {status === "verifying" ? (
-            <Text style={[styles.body, { color: theme.dividerText }]}>
-              Verifying…
-            </Text>
+            <View style={styles.verifying}>
+              <Spinner3D size={32} />
+              <Text style={[styles.body, { color: theme.dividerText }]}>
+                Verifying…
+              </Text>
+            </View>
           ) : null}
           {error ? (
             <Text style={[styles.body, { color: theme.errorBannerText }]}>
@@ -173,5 +177,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "normal",
     textAlign: "center",
+  },
+  verifying: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
   },
 });

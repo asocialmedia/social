@@ -3,9 +3,11 @@
 // than a native SDK (none exists).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 import type { WebViewMessageEvent } from "react-native-webview";
+
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 
 import {
   buildTurnstilePage,
@@ -121,8 +123,8 @@ export function TurnstileWebView({
         style={styles.webview}
       />
       {isReady ? null : (
-        <View style={styles.loading}>
-          <ActivityIndicator />
+        <View pointerEvents="none" style={styles.loading}>
+          <Spinner3D size={44} />
         </View>
       )}
     </View>
