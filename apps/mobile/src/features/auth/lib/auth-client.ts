@@ -9,7 +9,7 @@ import { createAuthClient } from "better-auth/react";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 
-import { getAuthBaseUrl } from "./api-env";
+import { getAuthBaseUrl } from "@/lib/api-env";
 
 // Type-only view of the passkey bridge, so the plugin's inferred type is kept
 // without emitting a runtime import of the native module. The package exports

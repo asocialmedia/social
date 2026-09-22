@@ -13,8 +13,8 @@ import {
 } from "react-native";
 
 import resetBgImage from "@/assets/images/password-reset-image.jpg";
-import { requestPasswordReset } from "@/lib/auth-api";
-import { validateIdentifier } from "@/lib/auth-validation";
+import { requestPasswordReset } from "@/features/auth/lib/auth-api";
+import { validateIdentifier } from "@/features/auth/lib/auth-validation";
 import { INPUT_FOCUS_SHADOWS, INPUT_SHADOWS, useAppTheme } from "@/theme";
 
 import { AuthPrimaryButton } from "./auth-primary-button";

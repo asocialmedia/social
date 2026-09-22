@@ -63,7 +63,14 @@ function parseNumber(value: string | undefined, fallback: number): number {
 export function readSecurityConfig(
   env: NodeJS.ProcessEnv = process.env
 ): SecurityConfig {
+  const isProduction = env.NODE_ENV === "production";
   return {
+    // Development only: the native app reaches this server on the Android
+    // emulator alias (10.0.2.2) or a LAN address, neither of which is the
+    // literal "localhost". Allowing private-network origins keeps device
+    // testing working without an allowlist edit per network, and the flag is
+    // hard-off in production where only real public origins are accepted.
+    allowPrivateNetworkOrigins: !isProduction,
     allowedOrigins: buildAllowedOrigins(env),
     anonRateLimitMax: parseNumber(
       env.AUTH_ANON_RATE_LIMIT_MAX,

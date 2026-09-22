@@ -3,6 +3,12 @@ import { createHash, timingSafeEqual } from "node:crypto";
 const TRAILING_SLASH_REGEX = /\/+$/;
 
 export interface SecurityConfig {
+  // Dev-only escape hatch: accept origins on loopback and private networks
+  // (see isPrivateNetworkOrigin). The native app reaches the dev server on a
+  // host alias that is not the literal "localhost" - Android emulators use
+  // 10.0.2.2 and physical devices use a LAN address - and that address changes
+  // with the network. Must stay false in production.
+  allowPrivateNetworkOrigins: boolean;
   allowedOrigins: string[];
   anonRateLimitMax: number;
   anonRateLimitWindowMs: number;
@@ -102,6 +108,49 @@ function isAllowedOrigin(
   return allowed.some(
     (entry) => entry.replace(TRAILING_SLASH_REGEX, "") === normalized
   );
+}
+
+// Hostnames that always mean "this machine" regardless of how it is addressed.
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "0.0.0.0", "::1", "[::1]"]);
+
+// RFC 1918 private ranges, plus 127/8. Written out rather than regexed so the
+// ranges are auditable at a glance.
+function isPrivateIpv4(host: string): boolean {
+  const segments = host.split(".");
+  if (segments.length !== 4) {
+    return false;
+  }
+  const octets = segments.map(Number);
+  if (
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return false;
+  }
+  const [first, second] = octets as [number, number, number, number];
+  if (first === 10 || first === 127) {
+    return true;
+  }
+  if (first === 192 && second === 168) {
+    return true;
+  }
+  return first === 172 && second >= 16 && second <= 31;
+}
+
+/**
+ * True for loopback and private-network origins. Used only when
+ * `allowPrivateNetworkOrigins` is set (development), so the native app can
+ * reach the dev server on the emulator alias (10.0.2.2) or a LAN address
+ * without every change of network needing an allowlist edit. Public hosts are
+ * still rejected, so this cannot be used to accept a real cross-site origin.
+ */
+export function isPrivateNetworkOrigin(origin: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return LOOPBACK_HOSTNAMES.has(hostname) || isPrivateIpv4(hostname);
 }
 
 // OAuth providers redirect the browser straight back to these endpoints
@@ -280,7 +329,10 @@ export function createSecurity(
     }
     const origin = getClientOrigin(request);
     if (origin) {
-      if (!isAllowedOrigin(origin, config.allowedOrigins)) {
+      if (
+        !isAllowedOrigin(origin, config.allowedOrigins) &&
+        !(config.allowPrivateNetworkOrigins && isPrivateNetworkOrigin(origin))
+      ) {
         return buildReject(403, { error: "origin-not-allowed" });
       }
       return { allowed: true };

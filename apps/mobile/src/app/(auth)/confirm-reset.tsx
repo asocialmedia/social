@@ -1,4 +1,4 @@
-import ConfirmResetScreen from "@/components/auth/confirm-reset-screen";
+import ConfirmResetScreen from "@/features/auth/components/confirm-reset-screen";
 
 export default function ConfirmResetRoute() {
   return <ConfirmResetScreen />;

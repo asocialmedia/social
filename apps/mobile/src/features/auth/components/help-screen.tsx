@@ -18,7 +18,7 @@ import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import Animated, { withTiming } from "react-native-reanimated";
 
 import signupBgImage from "@/assets/images/signup-image.jpg";
-import { EMAIL_REGEX } from "@/lib/auth-validation";
+import { EMAIL_REGEX } from "@/features/auth/lib/auth-validation";
 import {
   ERROR_SHADOWS,
   INPUT_ERROR_SHADOWS,

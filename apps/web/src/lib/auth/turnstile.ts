@@ -11,6 +11,10 @@ type TurnstileFetch = (
 
 export interface SignupTurnstileConfig {
   allowedHostnames: string[];
+  // Turnstile action the widget was rendered with. Defaults to "signup" so
+  // existing callers are unaffected; the native registration bootstrap uses
+  // its own action so a signup token cannot be replayed there.
+  expectedAction?: string;
   secret: string;
 }
 
@@ -123,7 +127,7 @@ export async function verifySignupTurnstileToken(
   }
   if (
     body.success !== true ||
-    body.action !== "signup" ||
+    body.action !== (config.expectedAction ?? "signup") ||
     typeof body.hostname !== "string" ||
     !config.allowedHostnames.includes(body.hostname.toLowerCase())
   ) {

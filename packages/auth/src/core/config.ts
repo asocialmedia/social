@@ -22,6 +22,7 @@ import type {
 
 import { env } from "../../env";
 import { validateEmailAdvanced } from "../validation/email-validator";
+import { buildPasskeyOrigins } from "./passkey-origins";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
@@ -216,6 +217,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
       : "http://localhost:3000";
   const passkeyOrigin = new URL(env.APP_URL || defaultPasskeyAppUrl).origin;
   const passkeyRpId = new URL(passkeyOrigin).hostname;
+  // Native Android passkeys present the APK signing-cert hash as their
+  // origin, so the release cert(s) must be listed alongside the web origin.
+  const passkeyOrigins = buildPasskeyOrigins(
+    passkeyOrigin,
+    env.PASSKEY_ANDROID_APK_KEY_HASHES
+  );
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
@@ -429,7 +436,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
           : undefined,
       }),
       passkey({
-        origin: passkeyOrigin,
+        origin: passkeyOrigins,
         rpID: passkeyRpId,
         rpName: "asocialmedia",
       }),

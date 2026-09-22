@@ -1,12 +1,25 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { readSecurityConfig } from "./config";
-import { createSecurity, securityHeaders } from "./index";
+import {
+  createSecurity,
+  isPrivateNetworkOrigin,
+  securityHeaders,
+} from "./index";
 
 const TEST_SECRET = "test-better-auth-secret-1234567890";
 
+// A GET /api/auth/get-session request carrying an Origin, used by the
+// private-network origin tests below.
+function authGetSessionRequest(origin: string): Request {
+  return new Request("http://localhost:3001/api/auth/get-session", {
+    headers: { origin },
+  });
+}
+
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return {
+    allowPrivateNetworkOrigins: false,
     allowedOrigins: ["http://localhost:3000"],
     anonRateLimitMax: 5,
     anonRateLimitWindowMs: 60_000,
@@ -389,5 +402,102 @@ describe("readSecurityConfig", () => {
     });
     expect(config.allowedOrigins).toContain("https://asocialmedia.cc");
     expect(config.allowedOrigins).toContain("https://auth.asocialmedia.cc");
+  });
+
+  test("allows private-network origins in development only", () => {
+    expect(
+      readSecurityConfig({ NODE_ENV: "development" }).allowPrivateNetworkOrigins
+    ).toBe(true);
+    expect(
+      readSecurityConfig({ NODE_ENV: "test" }).allowPrivateNetworkOrigins
+    ).toBe(true);
+    expect(
+      readSecurityConfig({ NODE_ENV: "production" }).allowPrivateNetworkOrigins
+    ).toBe(false);
+  });
+});
+
+describe("isPrivateNetworkOrigin", () => {
+  test("accepts loopback hosts", () => {
+    for (const origin of [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://0.0.0.0:3000",
+      "http://[::1]:3000",
+    ]) {
+      expect(isPrivateNetworkOrigin(origin)).toBe(true);
+    }
+  });
+
+  test("accepts the Android emulator host alias", () => {
+    // This is the alias an emulator uses to reach the host machine, and the
+    // reason device testing broke without this change.
+    expect(isPrivateNetworkOrigin("http://10.0.2.2:3000")).toBe(true);
+  });
+
+  test("accepts RFC 1918 LAN addresses", () => {
+    for (const origin of [
+      "http://192.168.1.5:3000",
+      "http://10.1.2.3:3000",
+      "http://172.16.0.9:3000",
+      "http://172.31.255.1:3000",
+    ]) {
+      expect(isPrivateNetworkOrigin(origin)).toBe(true);
+    }
+  });
+
+  test("rejects public hosts, including ones just outside the private ranges", () => {
+    for (const origin of [
+      "https://evil.example.com",
+      "https://asocialmedia.cc",
+      "http://172.15.0.1:3000",
+      "http://172.32.0.1:3000",
+      "http://192.169.1.1:3000",
+      "http://11.0.0.1:3000",
+    ]) {
+      expect(isPrivateNetworkOrigin(origin)).toBe(false);
+    }
+  });
+
+  test("rejects unparseable input", () => {
+    expect(isPrivateNetworkOrigin("not a url")).toBe(false);
+    expect(isPrivateNetworkOrigin("")).toBe(false);
+  });
+});
+
+describe("private-network origins in the guard", () => {
+  test("accepts the emulator alias when the dev flag is on", async () => {
+    const security = createSecurity(
+      baseConfig({ allowPrivateNetworkOrigins: true })
+    );
+    const decision = await security.check(
+      authGetSessionRequest("http://10.0.2.2:3000"),
+      "1.2.3.4"
+    );
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("rejects the emulator alias in production mode", async () => {
+    const security = createSecurity(
+      baseConfig({ allowPrivateNetworkOrigins: false })
+    );
+    const decision = await security.check(
+      authGetSessionRequest("http://10.0.2.2:3000"),
+      "1.2.3.4"
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.response?.status).toBe(403);
+  });
+
+  test("still rejects a public origin even in development mode", async () => {
+    const security = createSecurity(
+      baseConfig({ allowPrivateNetworkOrigins: true })
+    );
+    const decision = await security.check(
+      authGetSessionRequest("https://evil.example.com"),
+      "1.2.3.4"
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.response?.status).toBe(403);
   });
 });

@@ -3,6 +3,8 @@ import { describe, expect, mock, test } from "bun:test";
 import * as actualDb from "@asm/db";
 import { NextRequest } from "next/server";
 
+import { issueInstallToken } from "./lib/mobile/install-token";
+
 // The proxy's API guard calls consumeRateLimit (@asm/db -> ioredis). Unit
 // tests here must not touch Redis: fail-open is the contract under test.
 mock.module("@asm/db", () => ({
@@ -23,9 +25,10 @@ const { proxy } = await import("./proxy");
 
 function makeRequest(
   url: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  method = "GET"
 ): NextRequest {
-  return new NextRequest(url, { headers });
+  return new NextRequest(url, { headers, method });
 }
 
 describe("proxy middleware", () => {
@@ -189,6 +192,237 @@ describe("proxy middleware", () => {
     const mediaRes = await proxy(mediaReq);
     expect(mediaRes.status).toBe(200);
     expect(mediaRes.headers.get("x-robots-tag")).toBe("noindex");
+  });
+});
+
+describe("api cross-site guard", () => {
+  // The guard must reject genuine browser CSRF while letting through callers
+  // that send no origin metadata at all - the native app's fetch, CLI tools,
+  // server-to-server. Those used to be rejected, which 403'd the mobile client.
+  const API = "https://asocialmedia.cc/api/auth/get-session";
+
+  test("allows a native client that sends no origin metadata", async () => {
+    const res = await proxy(
+      makeRequest(API, { host: "asocialmedia.cc", "user-agent": "okhttp/4.9" })
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("allows a same-origin browser request", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        origin: "https://asocialmedia.cc",
+      })
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("rejects a cross-site Origin", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        origin: "https://evil.example",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects a cross-site Referer", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        referer: "https://evil.example/page",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects Sec-Fetch-Site: cross-site", async () => {
+    const res = await proxy(
+      makeRequest(API, {
+        host: "asocialmedia.cc",
+        "sec-fetch-site": "cross-site",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("install-token gate", () => {
+  const SECRET = "unit-test-install-secret";
+  const CHANGE_API = "https://asocialmedia.cc/api/some/mutation";
+
+  async function withSecret<T>(run: () => Promise<T>): Promise<T> {
+    const original = process.env.MOBILE_INSTALL_SECRET;
+    process.env.MOBILE_INSTALL_SECRET = SECRET;
+    try {
+      return await run();
+    } finally {
+      if (original === undefined) {
+        delete process.env.MOBILE_INSTALL_SECRET;
+      } else {
+        process.env.MOBILE_INSTALL_SECRET = original;
+      }
+    }
+  }
+
+  test("blocks a scripted mutation that presents no token", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          CHANGE_API,
+          { host: "asocialmedia.cc", "user-agent": "curl/8" },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "install-token-required" });
+    });
+  });
+
+  test("blocks a mutation carrying a forged token", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          CHANGE_API,
+          {
+            host: "asocialmedia.cc",
+            "x-asm-install": "v1.forged.1700000000000.nope",
+          },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(403);
+    });
+  });
+
+  test("allows a mutation carrying a valid install token", async () => {
+    await withSecret(async () => {
+      const issued = issueInstallToken(SECRET);
+      const res = await proxy(
+        makeRequest(
+          CHANGE_API,
+          { host: "asocialmedia.cc", "x-asm-install": issued?.token ?? "" },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  test("leaves read-only requests open for public content", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest("https://asocialmedia.cc/api/communities", {
+          host: "asocialmedia.cc",
+        })
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  test("leaves signing in token-free (rate limits guard it instead)", async () => {
+    await withSecret(async () => {
+      const paths = [
+        "/api/auth/sign-in/email",
+        "/api/auth/sign-in/username",
+        "/api/auth/sign-in/social",
+        "/api/auth/two-factor/verify-totp",
+        "/api/auth/passkey/verify-authentication",
+        "/api/auth/sign-out",
+        "/api/reset-password",
+        "/api/auth/reset-password",
+      ];
+      const responses = await Promise.all(
+        paths.map((path) =>
+          proxy(
+            makeRequest(
+              `https://asocialmedia.cc${path}`,
+              { host: "asocialmedia.cc", "user-agent": "okhttp/4.12" },
+              "POST"
+            )
+          )
+        )
+      );
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+      }
+      // Sign-up stays behind its own gates, and unrelated mutations still
+      // need the token.
+      const blocked = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/auth/update-user",
+          { host: "asocialmedia.cc", "user-agent": "okhttp/4.12" },
+          "POST"
+        )
+      );
+      expect(blocked.status).toBe(403);
+    });
+  });
+
+  test("leaves the register bootstrap open (Turnstile-gated instead)", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest("https://asocialmedia.cc/api/mobile/register", {
+          host: "asocialmedia.cc",
+        })
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  test("leaves the signup bootstrap open (Turnstile + OTP gated instead)", async () => {
+    await withSecret(async () => {
+      const responses = await Promise.all(
+        ["/api/signup", "/api/signup/resend", "/api/verify-email"].map((path) =>
+          proxy(
+            makeRequest(
+              `https://asocialmedia.cc${path}`,
+              {
+                host: "asocialmedia.cc",
+              },
+              "POST"
+            )
+          )
+        )
+      );
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+      }
+    });
+  });
+
+  test("still gates auth mutations outside the sign-in family", async () => {
+    await withSecret(async () => {
+      const responses = await Promise.all(
+        ["/api/auth/update-user", "/api/auth/change-password"].map((path) =>
+          proxy(
+            makeRequest(
+              `https://asocialmedia.cc${path}`,
+              { host: "asocialmedia.cc" },
+              "POST"
+            )
+          )
+        )
+      );
+      for (const res of responses) {
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  test("does not gate browser mutations with same-origin evidence", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          CHANGE_API,
+          { host: "asocialmedia.cc", origin: "https://asocialmedia.cc" },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(200);
+    });
   });
 });
 

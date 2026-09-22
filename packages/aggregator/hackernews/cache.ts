@@ -91,7 +91,9 @@ export const hackerNewsCache = {
       }
 
       await pipeline.exec();
-      console.log("Invalidated HN cache");
+      // No success log: this fires on every periodic refresh, carries no
+      // diagnostic fields, and the app's console forwarder would ship it to
+      // OpenTelemetry as an unstructured line. Failures are still logged below.
     } catch (error) {
       console.error("Error invalidating HN cache:", error);
     }

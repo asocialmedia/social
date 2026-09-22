@@ -1,10 +1,13 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.29",
+  "version": "0.0.43",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start -p 8082 --go",
+    "start": "expo start -p 8082",
+    "start:go": "expo start -p 8082 --go",
+    "dev:android": "bun scripts/dev-android.ts",
+    "reverse": "bun scripts/dev-android.ts --reverse-only",
     "android": "expo start --android -p 8082",
     "ios": "expo start --ios -p 8082",
     "web": "expo start --web -p 8082",
@@ -12,15 +15,18 @@
     "build:apk": "bun scripts/build-android-apk.ts"
   },
   "dependencies": {
+    "@asm/auth": "workspace:*",
     "@better-auth/expo": "^1.7.5",
     "@expo/ui": "~57.0.18",
     "@lobehub/expo-better-auth-passkey": "^1.0.2",
+    "@react-native-google-signin/google-signin": "^16.1.5",
     "@tailwindcss/postcss": "^4.3.3",
     "better-auth": "^1.7.5",
     "expo": "~57.0.23",
     "expo-application": "^57.0.3",
     "expo-build-properties": "~57.0.21",
     "expo-constants": "~57.0.18",
+    "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",
     "expo-file-system": "^57.0.7",
     "expo-font": "~57.0.4",
@@ -50,6 +56,7 @@
     "react-native-screens": "~4.26.0",
     "react-native-svg": "^15.15.5",
     "react-native-web": "~0.21.0",
+    "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1",
     "tailwindcss": "^4.3.3"
   },

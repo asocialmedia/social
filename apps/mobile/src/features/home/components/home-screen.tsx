@@ -3,7 +3,7 @@
 // web); guests get the Log in pill. UI-only otherwise: feed not ported yet.
 import { StyleSheet, View } from "react-native";
 
-import { useSessionContext } from "@/state/session";
+import { useSessionContext } from "@/features/auth/state/session";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";

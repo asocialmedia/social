@@ -6,9 +6,14 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 
-import { UpdateGate } from "@/components/home/update-gate";
+import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
+import { InstallProvider } from "@/features/auth/state/install";
+import { SessionProvider } from "@/features/auth/state/session";
+import { UpdateGate } from "@/features/update/components/update-gate";
+import { getApiBaseUrl } from "@/lib/api-env";
+import { loadInstallToken } from "@/lib/install-credentials";
+import { installFetchInterceptor } from "@/lib/install-fetch";
 import { initTelemetry } from "@/lib/telemetry";
-import { SessionProvider } from "@/state/session";
 import { useAppTheme } from "@/theme";
 
 import sofiaProBold from "../../assets/fonts/SofiaProSoftBold.ttf";
@@ -38,6 +43,16 @@ export default function RootLayout() {
     initTelemetry();
   }, []);
 
+  // Attach the install token to every same-origin request, then hydrate it from
+  // SecureStore. The interceptor is installed first (synchronously) so no early
+  // request escapes without it; the token is attached from the next tick on,
+  // which is why callers must tolerate the header being absent for the first
+  // moments after launch.
+  useEffect(() => {
+    installFetchInterceptor(getApiBaseUrl());
+    void loadInstallToken();
+  }, []);
+
   useEffect(() => {
     async function hideSplash() {
       if (loaded || error) {
@@ -58,20 +73,29 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
-      <SessionProvider>
-        <UpdateGate />
-        <Stack
-          screenOptions={{
-            animation: "fade",
-            animationDuration: 200,
-            contentStyle: { backgroundColor: theme.containerBg },
-            headerShown: false,
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(auth)" />
-        </Stack>
-      </SessionProvider>
+      {/* Install credential first: the session provider wraps every mutating
+          auth call in it, so a fresh install is verified before signing in. */}
+      <InstallProvider>
+        <SessionProvider>
+          <UpdateGate />
+          <Stack
+            screenOptions={{
+              animation: "fade",
+              animationDuration: 200,
+              contentStyle: { backgroundColor: theme.containerBg },
+              headerShown: false,
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(auth)" />
+          </Stack>
+          {/* Shown only when a mutating request needs the install credential
+              and none is stored yet, so browsing never pays the cost. */}
+          <InstallVerificationGate
+            sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
+          />
+        </SessionProvider>
+      </InstallProvider>
     </ThemeProvider>
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.6.15",
+  "version": "1.6.35",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -22,6 +22,7 @@
     "docker:clean": "docker compose -f docker/docker-compose.dev.yml down -v && docker volume rm asmdev-postgres18-data asmdev-redis-data asmdev-asmob-data asmdev-redisinsight-data && rm -f .dev-init",
     "docker:dev": "docker compose -f docker/docker-compose.dev.yml --profile init --profile studio up -d",
     "mob": "bun --cwd apps/mobile start",
+    "mob:dev": "bun --cwd apps/mobile dev:android",
     "mob:emu": "bun scripts/run-emulator.ts",
     "postinstall": "bun run --filter=@asm/db db:generate",
     "test": "bun scripts/run-tests.ts",
