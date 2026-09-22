@@ -12,7 +12,6 @@ import { Directory, File, Paths } from "expo-file-system";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Modal,
   Platform,
   Pressable,
@@ -31,7 +30,12 @@ import {
   parseReleases,
 } from "@/features/update/lib/update-check";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
-import { ERROR_SHADOWS, useAppTheme } from "@/theme";
+import {
+  ERROR_SHADOWS,
+  SURFACE_SHADOWS,
+  SURFACE_SHADOWS_DARK,
+  useAppTheme,
+} from "@/theme";
 
 type GateState =
   | { status: "checking" }
@@ -55,7 +59,7 @@ const UPDATE_CHECK_ENABLED = !__DEV__ && Platform.OS === "android";
 const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 60_000;
 
 export function UpdateGate() {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const [state, setState] = useState<GateState>(() =>
     UPDATE_CHECK_ENABLED ? { status: "checking" } : { status: "current" }
   );
@@ -205,7 +209,7 @@ export function UpdateGate() {
             {
               backgroundColor: theme.cardBg,
               borderColor: theme.cardBorder,
-              shadowColor: theme.cardShadow,
+              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
             },
           ]}
         >
@@ -256,9 +260,9 @@ export function UpdateGate() {
               </Text>
             </View>
           ) : null}
-          {state.status === "downloading" ? (
-            <ActivityIndicator color="#ff9500" size="small" />
-          ) : (
+          {/* While downloading the progress bar + percent above is the only
+              indicator; a spinner next to it reads as a second loader. */}
+          {state.status === "downloading" ? null : (
             <AuthPrimaryButton
               label={state.status === "failed" ? "Try again" : "Update app"}
               onPress={() => {

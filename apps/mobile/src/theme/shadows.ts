@@ -42,6 +42,16 @@ export const ICON_BUTTON_SHADOWS_DARK =
 export const ICON_BUTTON_SHADOWS_LIGHT =
   "inset 0 1px 1px rgba(255, 255, 255, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06)";
 
+// `.surface-3d` (the dual-border card language: inset white ring + gloss for
+// the inner lip, outer hairline, soft drop). The card keeps its own
+// theme.cardBorder, which matches the recipe's border on both schemes.
+export const SURFACE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.06)";
+
+// `.dark .surface-3d`
+export const SURFACE_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.06)";
+
 // `.premium-error`
 export const ERROR_SHADOWS =
   "inset 0 0 0 1px rgba(255, 120, 100, 0.18), inset 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.04), 0 0 0 1px rgba(180, 180, 180, 0.35), 0 1px 1px rgba(255, 255, 255, 0.04), 0 3px 6px rgba(0, 0, 0, 0.3)";
