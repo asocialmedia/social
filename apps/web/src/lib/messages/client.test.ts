@@ -389,6 +389,118 @@ describe("ensureConversationKeys", () => {
     expect(postedKeys[0].ownerUserId).toBe(bob.id);
     expect((postedKeys[0] as { version?: number }).version).toBe(2);
   });
+
+  test("refreshes before rotating so a stale peer key is never used", async () => {
+    // The stale-snapshot bug: Alice holds a snapshot whose peer public key is
+    // Bob's OLD key, so nothing unwraps and she would rotate a fresh epoch
+    // wrapped for a key Bob can no longer use. With a refresh available, the
+    // freshest snapshot (Bob's current key + an unwrappable wrap) is used
+    // instead and no rotation happens.
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const staleBob = await makeIdentity();
+    const rootKey = generateRootKey();
+
+    // The stored wrap was made for Alice's CURRENT key against Bob's CURRENT
+    // key; only the conversation snapshot's peer public key is stale.
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const wrappedForAlice = await wrapRootKey(
+      alice.pair.privateKey,
+      bobKey,
+      "convo-refresh",
+      rootKey
+    );
+    const staleConvo = makeConversation("convo-refresh", alice, staleBob);
+    staleConvo.keys = [
+      {
+        encryptedKey: wrappedForAlice.ciphertext,
+        iv: wrappedForAlice.iv,
+        ownerUserId: alice.id,
+        version: 1,
+      },
+      {
+        encryptedKey: wrappedForAlice.ciphertext,
+        iv: wrappedForAlice.iv,
+        ownerUserId: bob.id,
+        version: 1,
+      },
+    ];
+
+    const freshConvo = makeConversation("convo-refresh", alice, bob);
+    freshConvo.keys = staleConvo.keys;
+
+    const unwrapped = await ensureConversationKeys(
+      staleConvo as never,
+      alice.pair.privateKey,
+      alice.id,
+      { refreshConversation: () => Promise.resolve(freshConvo as never) }
+    );
+    expect(
+      Buffer.from(unwrapped ?? new Uint8Array()).equals(Buffer.from(rootKey))
+    ).toBe(true);
+    // No new epoch was minted: the refresh healed it.
+    expect(postedKeys).toHaveLength(0);
+  });
+
+  test("rotates against the refreshed snapshot when still nothing unwraps", async () => {
+    // When the identity really did change, the refresh still returns a newer
+    // peer key and the rotation must use THAT key, not the stale one.
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const staleBob = await makeIdentity();
+    const oldAlice = await makeIdentity();
+
+    // A wrap only oldAlice could unwrap, so current Alice must rotate.
+    const staleBobPub = await publicKeyBase64ToJwk(staleBob.publicKeyBase64);
+    const staleBobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      staleBobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const staleWrap = await wrapRootKey(
+      oldAlice.pair.privateKey,
+      staleBobKey,
+      "convo-rotate-refresh",
+      generateRootKey()
+    );
+    const staleConvo = makeConversation(
+      "convo-rotate-refresh",
+      alice,
+      staleBob
+    );
+    staleConvo.keys = [
+      {
+        encryptedKey: staleWrap.ciphertext,
+        iv: staleWrap.iv,
+        ownerUserId: alice.id,
+        version: 1,
+      },
+    ];
+    const freshConvo = makeConversation("convo-rotate-refresh", alice, bob);
+    freshConvo.keys = staleConvo.keys;
+
+    const rootKey = await ensureConversationKeys(
+      staleConvo as never,
+      alice.pair.privateKey,
+      alice.id,
+      { refreshConversation: () => Promise.resolve(freshConvo as never) }
+    );
+    expect(rootKey).not.toBeNull();
+    expect(postedKeys).toHaveLength(2);
+    // Both wraps are epoch 2 for both members (a fresh rotation).
+    expect(
+      postedKeys.map((key) => (key as { version?: number }).version)
+    ).toEqual([2, 2]);
+  });
 });
 
 function pages(messages: { id: string }[]) {

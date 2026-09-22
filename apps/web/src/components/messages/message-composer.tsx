@@ -26,6 +26,7 @@ import {
   MessagesApiError,
   appendMessageToLastPage,
   ensureConversationKeys,
+  fetchConversationDetail,
   sendEncryptedMessage,
   sendTypingIndicator,
 } from "@/lib/messages/client";
@@ -161,11 +162,29 @@ export function MessageComposer({
       try {
         // Unwrap the root key (cached per conversation). This also heals any
         // missing wrapped key rows from a conversation created before this
-        // device had keys.
+        // device had keys. The refresh callback guards the rotate path: if our
+        // cached detail is stale (the peer rotated or reset), refetch it before
+        // minting a new epoch so we never wrap for a superseded peer key.
         const rootKey = await ensureConversationKeys(
           conversation.conversation,
           privateKey,
-          user.id
+          user.id,
+          {
+            refreshConversation: async () => {
+              try {
+                const fresh = await fetchConversationDetail(
+                  conversation.conversation.id
+                );
+                queryClient.setQueryData(
+                  ["message-conversation", conversation.conversation.id],
+                  fresh
+                );
+                return fresh.conversation;
+              } catch {
+                return null;
+              }
+            },
+          }
         );
         if (!rootKey) {
           toast({

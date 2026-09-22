@@ -597,32 +597,39 @@ function importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
   );
 }
 
-// Makes sure a conversation has wrapped root keys for both members, then
-// returns the unwrapped root key. Handles the heal cases: a conversation
-// created before this device had keys (both missing → generate + wrap both), a
-// crash that left only one member's key posted (unwrap mine → wrap for the
-// peer), and an identity reset (my old wraps no longer unwrap → rotate to a
-// new epoch and wrap it for both). Idempotent: posting keys is append-only.
-export async function ensureConversationKeys(
+// Signature of the material a key decision depends on: my wraps for the
+// conversation (ciphertext per epoch) and the peer's identity public key. Used
+// to tell a genuinely stale snapshot from an unchanged refetch, so a rotate
+// cannot silently wrap for a peer key that has been superseded.
+function conversationKeySignature(
   conversation: MessageConversationData,
-  privateKey: CryptoKey,
   myUserId: string
-): Promise<Uint8Array | null> {
+): string {
+  const wraps = conversation.keys
+    .filter((key) => key.ownerUserId === myUserId)
+    .map((key) => `${key.version ?? 1}:${key.encryptedKey}`)
+    .toSorted()
+    .join("|");
   const peer = conversation.members.find(
     (member) => member.userId !== myUserId
   );
-  const peerPublicKeyBase64 = peer?.user.messageIdentity?.publicKey;
-  if (!peerPublicKeyBase64 || !peer) {
-    return null;
-  }
-  const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
-  const peerKey = await importPublicKey(peerPublicKey);
+  return `${wraps}#${peer?.user.messageIdentity?.publicKey ?? ""}`;
+}
 
+// Unwraps the newest wrap this device can read, healing a missing peer wrap for
+// that epoch. Returns null when nothing unwraps, which means the stored wraps
+// belong to a superseded identity and the caller must rotate.
+async function unwrapExistingKey(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  peerUserId: string,
+  peerKey: CryptoKey
+): Promise<Uint8Array | null> {
   // Newest epoch first. The first wrap I can actually unwrap is my current
   // epoch; a wrap left over from a superseded identity simply fails to unwrap
-  // and falls through. If none unwrap (I reset and lost the old key), the loop
-  // ends and we rotate below. Sequential on purpose: each iteration's await
-  // depends on the previous failure, and the first success exits the loop.
+  // and falls through. Sequential on purpose: each iteration's await depends on
+  // the previous failure, and the first success exits the loop.
   const myKeys = conversation.keys
     .filter((key) => key.ownerUserId === myUserId)
     .toSorted((left, right) => (right.version ?? 1) - (left.version ?? 1));
@@ -642,7 +649,7 @@ export async function ensureConversationKeys(
     // the two entries, or a peer who has not fetched the rotation yet). The
     // wrap is symmetric, so one blob serves both entries.
     const peerHasEpoch = conversation.keys.some(
-      (key) => key.ownerUserId === peer.userId && (key.version ?? 1) === version
+      (key) => key.ownerUserId === peerUserId && (key.version ?? 1) === version
     );
     if (!peerHasEpoch) {
       const wrappedForPeer = await wrapRootKey(
@@ -652,16 +659,25 @@ export async function ensureConversationKeys(
         rootKey
       );
       await postConversationKeys(conversation.id, [
-        { encryptedKey: wrappedForPeer, ownerUserId: peer.userId, version },
+        { encryptedKey: wrappedForPeer, ownerUserId: peerUserId, version },
       ]);
     }
     return rootKey;
   }
   // oxlint-enable no-await-in-loop
+  return null;
+}
 
-  // Nothing unwraps: this device's identity changed (reset) since these wraps
-  // were made. Rotate to a fresh epoch so new messages work for both members,
-  // while the peer's older wraps stay intact and keep their history readable.
+// Rotates to a fresh epoch: a new root key wrapped for both members at the next
+// version. Used when this device's identity changed (reset) and no stored wrap
+// unwraps, so the peer's older wraps stay intact and keep their history.
+async function rotateConversationEpoch(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  peerUserId: string,
+  peerKey: CryptoKey
+): Promise<Uint8Array> {
   let maxVersion = 0;
   for (const key of conversation.keys) {
     maxVersion = Math.max(maxVersion, key.version ?? 1);
@@ -676,7 +692,96 @@ export async function ensureConversationKeys(
   );
   await postConversationKeys(conversation.id, [
     { encryptedKey: wrapped, ownerUserId: myUserId, version: nextVersion },
-    { encryptedKey: wrapped, ownerUserId: peer.userId, version: nextVersion },
+    { encryptedKey: wrapped, ownerUserId: peerUserId, version: nextVersion },
   ]);
   return rootKey;
+}
+
+// Makes sure a conversation has wrapped root keys for both members, then
+// returns the unwrapped root key. Handles the heal cases: a conversation
+// created before this device had keys (both missing → generate + wrap both), a
+// crash that left only one member's key posted (unwrap mine → wrap for the
+// peer), and an identity reset (my old wraps no longer unwrap → rotate to a
+// new epoch and wrap it for both). Idempotent: posting keys is append-only.
+//
+// `refreshConversation` is the stale-snapshot guard for the rotate case: when
+// nothing unwraps we cannot tell "my identity reset" from "I am holding an
+// outdated snapshot of a conversation the peer already rotated". Rotating on
+// the latter would mint a fresh epoch wrapped for the peer's OLD public key,
+// which they can never unwrap, so their new messages stay unreadable. When a
+// refresh is supplied it is consulted once before rotating; if the key material
+// changed, the freshest snapshot is used instead.
+export async function ensureConversationKeys(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  options?: {
+    refreshConversation?: () => Promise<MessageConversationData | null>;
+  }
+): Promise<Uint8Array | null> {
+  const peer = conversation.members.find(
+    (member) => member.userId !== myUserId
+  );
+  const peerPublicKeyBase64 = peer?.user.messageIdentity?.publicKey;
+  if (!peerPublicKeyBase64 || !peer) {
+    return null;
+  }
+  const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
+  const peerKey = await importPublicKey(peerPublicKey);
+
+  const existing = await unwrapExistingKey(
+    conversation,
+    privateKey,
+    myUserId,
+    peer.userId,
+    peerKey
+  );
+  if (existing) {
+    return existing;
+  }
+
+  // Nothing unwraps. Before rotating, confirm our snapshot is current.
+  const refresh = options?.refreshConversation;
+  if (refresh) {
+    const before = conversationKeySignature(conversation, myUserId);
+    const fresh = await refresh();
+    if (fresh && conversationKeySignature(fresh, myUserId) !== before) {
+      const freshPeer = fresh.members.find(
+        (member) => member.userId !== myUserId
+      );
+      const freshPeerPublicKey = freshPeer?.user.messageIdentity?.publicKey;
+      if (freshPeer && freshPeerPublicKey) {
+        const freshPeerKey = await importPublicKey(
+          await publicKeyBase64ToJwk(freshPeerPublicKey)
+        );
+        const healed = await unwrapExistingKey(
+          fresh,
+          privateKey,
+          myUserId,
+          freshPeer.userId,
+          freshPeerKey
+        );
+        if (healed) {
+          return healed;
+        }
+        // Still nothing on the freshest snapshot: rotate against it so the
+        // peer wrap uses their current public key.
+        return rotateConversationEpoch(
+          fresh,
+          privateKey,
+          myUserId,
+          freshPeer.userId,
+          freshPeerKey
+        );
+      }
+    }
+  }
+
+  return rotateConversationEpoch(
+    conversation,
+    privateKey,
+    myUserId,
+    peer.userId,
+    peerKey
+  );
 }
