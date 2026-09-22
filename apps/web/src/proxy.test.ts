@@ -424,6 +424,19 @@ describe("install-token gate", () => {
       expect(res.status).toBe(200);
     });
   });
+
+  test("leaves view counting token-free (deduped telemetry, not state)", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/views/batch",
+          { host: "asocialmedia.cc", "user-agent": "okhttp/4.12" },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(200);
+    });
+  });
 });
 
 describe("proxy middleware matcher config", () => {

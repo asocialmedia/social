@@ -73,6 +73,14 @@ export const AVATAR_RING_SHADOWS =
 export const AVATAR_RING_SHADOWS_DARK =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(45, 50, 60, 0.95), 0 1px 1px rgba(255, 255, 255, 0.35), 0 2px 4px rgba(0, 0, 0, 0.12)";
 
+// `.apple-panel` (the audio player's floating panel).
+export const APPLE_PANEL_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1px 2px rgba(255, 255, 255, 0.8), inset 0 -1px 2px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.1)";
+
+// `.dark .apple-panel`
+export const APPLE_PANEL_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.2), 0 4px 14px rgba(0, 0, 0, 0.3)";
+
 // `.meta-chip` (inline link/mention/tag pills in authored text).
 export const META_CHIP_SHADOWS =
   "inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 1px 2px rgba(0, 0, 0, 0.05)";

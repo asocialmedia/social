@@ -103,7 +103,13 @@ function LinkChip({ title, url }: { title?: string; url: string }) {
   );
 }
 
-function MentionChip({ username }: { username: string }) {
+export function MentionChip({
+  avatarUrl,
+  username,
+}: {
+  avatarUrl?: string | null;
+  username: string;
+}) {
   const { isDark, theme } = useAppTheme();
   return (
     <View
@@ -115,7 +121,7 @@ function MentionChip({ username }: { username: string }) {
       >
         <Image
           contentFit="cover"
-          source={avatarPlaceholder}
+          source={avatarUrl ? { uri: avatarUrl } : avatarPlaceholder}
           style={styles.mentionAvatar}
         />
         <Text
@@ -129,7 +135,7 @@ function MentionChip({ username }: { username: string }) {
   );
 }
 
-function TagChip({ tag }: { tag: string }) {
+export function TagChip({ tag }: { tag: string }) {
   const { isDark, theme } = useAppTheme();
   return (
     <View accessibilityLabel={`Hashtag ${tag}`} accessibilityRole="text">
@@ -176,13 +182,48 @@ function BioPiece({
   }
 }
 
-export function BioContent({ apiBase, bio }: { apiBase: string; bio: string }) {
-  const segments = useMemo(() => segmentBioContent(bio), [bio]);
+export function BioContent({
+  apiBase,
+  bio,
+  clampLength,
+}: {
+  apiBase: string;
+  bio: string;
+  // Long bodies collapse behind Show more/less, mirroring web's ~6-line
+  // clamp. Cutting happens at segment boundaries so pills never split.
+  clampLength?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { theme } = useAppTheme();
+  const full = useMemo(() => segmentBioContent(bio), [bio]);
+  const { clamped, segments } = useMemo(() => {
+    if (clampLength === undefined || expanded || bio.length <= clampLength) {
+      return { clamped: false, segments: full };
+    }
+    let length = 0;
+    const visible: BioSegment[] = [];
+    for (const segment of full) {
+      let size = segment.type === "text" ? segment.text.length : 0;
+      if (segment.type === "url") {
+        size = segment.url.length;
+      } else if (segment.type === "mention") {
+        size = segment.username.length + 1;
+      } else if (segment.type === "tag") {
+        size = segment.tag.length + 1;
+      }
+      if (length + size > clampLength) {
+        break;
+      }
+      length += size;
+      visible.push(segment);
+    }
+    return { clamped: visible.length < full.length, segments: visible };
+  }, [bio, clampLength, expanded, full]);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const urls: string[] = [];
-    for (const segment of segments) {
+    for (const segment of full) {
       if (segment.type === "url" && !urls.includes(segment.url)) {
         urls.push(segment.url);
       }
@@ -224,19 +265,28 @@ export function BioContent({ apiBase, bio }: { apiBase: string; bio: string }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, segments]);
+  }, [apiBase, full]);
 
   return (
-    <View style={styles.wrap}>
-      {segments.map((segment, index) => (
-        // Index keys are safe: segments derive deterministically from the
-        // immutable bio string, so order never shuffles under a render.
-        <BioPiece
-          key={`${segment.type}-${index}`}
-          segment={segment}
-          titles={titles}
-        />
-      ))}
+    <View>
+      <View style={styles.wrap}>
+        {segments.map((segment, index) => (
+          // Index keys are safe: segments derive deterministically from the
+          // immutable bio string, so order never shuffles under a render.
+          <BioPiece
+            key={`${segment.type}-${index}`}
+            segment={segment}
+            titles={titles}
+          />
+        ))}
+      </View>
+      {clampLength !== undefined && (clamped || expanded) ? (
+        <Pressable hitSlop={4} onPress={() => setExpanded((value) => !value)}>
+          <Text style={[styles.expand, { color: theme.auxLink }]}>
+            {expanded ? "Show less" : "Show more"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -258,6 +308,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "normal",
     maxWidth: 224,
+  },
+  expand: {
+    fontFamily: "SofiaProMed",
+    fontSize: 14,
+    fontWeight: "normal",
+    marginTop: 4,
   },
   initialText: {
     fontFamily: "SofiaProBold",
@@ -286,6 +342,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 10,
   },
 });

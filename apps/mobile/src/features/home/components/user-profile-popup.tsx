@@ -363,7 +363,9 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                 </View>
 
                 {profile.bio ? (
-                  <BioContent apiBase={apiBase} bio={profile.bio} />
+                  <View style={styles.bioWrap}>
+                    <BioContent apiBase={apiBase} bio={profile.bio} />
+                  </View>
                 ) : null}
 
                 {socialLinks.length > 0 ? (
@@ -621,6 +623,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
+  },
+  bioWrap: {
+    marginTop: 10,
   },
   bookmarks: {
     marginTop: 12,
