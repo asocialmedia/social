@@ -320,7 +320,11 @@ export function PostCard({
                   ]}
                 >
                   {post.explicitContent ? (
-                    <ExplicitGate apiBase={apiBase} attachments={attachments}>
+                    <ExplicitGate
+                      apiBase={apiBase}
+                      attachments={attachments}
+                      revealKey={post.id}
+                    >
                       <View style={styles.mediaColumn}>
                         {attachments.length > 0 ? (
                           <MediaGallery

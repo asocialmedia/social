@@ -19,6 +19,7 @@ import type { ReactNode } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -27,6 +28,7 @@ import {
 import type { ViewStyle } from "react-native";
 
 import noMediaImage from "@/assets/images/nomedia.png";
+import nosearchImage from "@/assets/images/nosearch.png";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
@@ -241,6 +243,10 @@ function VideoTile({
   const [duration, setDuration] = useState(0);
   // A broken poster shows web's nomedia still instead of an empty tile.
   const [posterFailed, setPosterFailed] = useState(false);
+  // Web keeps the poster mounted until the video is visibly playing;
+  // unmounting it the instant playback starts flashes a black frame while
+  // the stream buffers (and stalls black forever on a stuck stream).
+  const [hasFrames, setHasFrames] = useState(false);
   const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id));
   // expo-video surfaces load failure on the player status; an errored clip
   // renders the same nomedia still as a broken poster.
@@ -293,8 +299,13 @@ function VideoTile({
     player.play();
     const timer = setInterval(() => {
       try {
-        setPosition(player.currentTime);
+        const { currentTime } = player;
+        setPosition(currentTime);
         setDuration(player.duration);
+        if (currentTime > 0.25) {
+          // Same value bails out of re-rendering; runs once per tile.
+          setHasFrames(true);
+        }
       } catch {
         // Player teardown races the poll; the tile unmounts anyway.
       }
@@ -503,6 +514,16 @@ function VideoTile({
         player={player}
         style={styles.videoPlayer}
       />
+      {!hasFrames && !posterFailed ? (
+        <Image
+          accessibilityLabel=""
+          contentFit="cover"
+          onError={() => setPosterFailed(true)}
+          pointerEvents="none"
+          source={{ uri: mediaPosterUrl(apiBase, media.id) }}
+          style={[styles.posterCover, { borderRadius: videoRadius }]}
+        />
+      ) : null}
       <LinearGradient
         colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.5)"]}
         end={{ x: 0.5, y: 1 }}
@@ -798,23 +819,45 @@ export function ModeratedNotice() {
   );
 }
 
+// Dismissed explicit gates, shared per post like web's revealKey store: one
+// Continue covers every surface rendering the same post for the session.
+const revealedExplicitIds = new Set<string>();
+
+// expo-image blurRadius renders through RenderEffect, which needs Android 14
+// (API 34+ for the framework path expo-image uses) — older devices show the
+// still sharp. Those fall back to a fully opaque veil so nothing leaks.
+function explicitBlurSupported(): boolean {
+  if (Platform.OS === "ios" || Platform.OS === "web") {
+    return true;
+  }
+  if (Platform.OS === "android") {
+    const version = typeof Platform.Version === "number" ? Platform.Version : 0;
+    return version >= 34;
+  }
+  return false;
+}
+
 export function ExplicitGate({
   apiBase,
   attachments,
   children,
+  revealKey,
 }: {
   apiBase: string;
   attachments: FeedMedia[];
   children: ReactNode;
+  revealKey?: string;
 }) {
-  const [revealed, setRevealed] = useState(false);
+  const { isDark, theme } = useAppTheme();
+  const [revealed, setRevealed] = useState(() =>
+    revealKey ? revealedExplicitIds.has(revealKey) : false
+  );
   if (revealed) {
     return children;
   }
   // Concealment, not translucency: the live gallery (players included) is
-  // NOT mounted until consent. The backdrop is a heavily blurred still (or
-  // a dark wash when there is no visual attachment), under a full-area mask
-  // and the consent panel - so nothing protected is legible beforehand.
+  // NOT mounted until consent - so nothing protected is legible beforehand
+  // and reveal needs no refetch. The veil below only styles the cover still.
   const cover = attachments.find((media) => !isAudioMedia(media));
   let coverUri: string | null = null;
   if (cover) {
@@ -822,15 +865,31 @@ export function ExplicitGate({
       ? mediaPosterUrl(apiBase, cover.id)
       : mediaGridImageUrl(apiBase, cover);
   }
+  const coverAspect =
+    cover && cover.width && cover.height && cover.height > 0
+      ? cover.width / cover.height
+      : 16 / 10;
+  const blurSupported = explicitBlurSupported();
+
+  const handleContinue = () => {
+    if (revealKey) {
+      revealedExplicitIds.add(revealKey);
+    }
+    setRevealed(true);
+  };
+
   return (
-    <View style={styles.gateWrap}>
+    <View style={[styles.gateWrap, { aspectRatio: coverAspect }]}>
       {coverUri ? (
         <Image
           accessibilityLabel=""
-          blurRadius={40}
+          blurRadius={blurSupported ? 24 : 0}
           contentFit="cover"
           source={{ uri: coverUri }}
-          style={styles.gateBackdrop}
+          style={[
+            styles.gateBackdrop,
+            { opacity: 0.6, transform: [{ scale: 1.05 }] },
+          ]}
         />
       ) : (
         <LinearGradient
@@ -840,21 +899,63 @@ export function ExplicitGate({
           style={styles.gateBackdrop}
         />
       )}
-      <View pointerEvents="none" style={styles.gateMask} />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.gateMask,
+          {
+            backgroundColor: blurSupported
+              ? "rgba(0, 0, 0, 0.4)"
+              : theme.containerBg,
+          },
+        ]}
+      />
       <View style={styles.gateOverlay}>
         <View
-          style={[styles.gatePanel, { backgroundColor: "rgba(0, 0, 0, 0.4)" }]}
+          style={[
+            styles.gatePanel,
+            {
+              backgroundColor: theme.cardBg,
+              borderColor: theme.cardBorder,
+              boxShadow: isDark
+                ? APPLE_PANEL_SHADOWS_DARK
+                : APPLE_PANEL_SHADOWS,
+            },
+          ]}
         >
-          <Text style={styles.gateTitle}>This post has explicit media</Text>
-          <Text style={styles.gateBody}>Do you want to continue watching?</Text>
-          <Pressable
-            accessibilityLabel="Show explicit media"
-            accessibilityRole="button"
-            onPress={() => setRevealed(true)}
-            style={styles.gateBtn}
-          >
-            <Text style={styles.gateBtnText}>Continue</Text>
-          </Pressable>
+          <View style={styles.gateRow}>
+            <Image
+              accessibilityLabel=""
+              contentFit="contain"
+              source={nosearchImage}
+              style={styles.gateArt}
+            />
+            <View style={styles.gateCopy}>
+              <Text style={[styles.gateTitle, { color: theme.inputText }]}>
+                This post has explicit media.
+              </Text>
+              <Text style={[styles.gateBody, { color: theme.dividerText }]}>
+                Do you want to continue watching?
+              </Text>
+            </View>
+          </View>
+          <View style={styles.gateAction}>
+            <LinearGradient
+              colors={["#ff9500", "#e65500"]}
+              end={{ x: 0.5, y: 1 }}
+              start={{ x: 0.5, y: 0 }}
+              style={[styles.gateBtn, { boxShadow: LOGIN_BUTTON_SHADOWS }]}
+            >
+              <Pressable
+                accessibilityLabel="Show explicit media"
+                accessibilityRole="button"
+                onPress={handleContinue}
+                style={styles.gatePress}
+              >
+                <Text style={styles.gateBtnText}>Continue</Text>
+              </Pressable>
+            </LinearGradient>
+          </View>
         </View>
       </View>
     </View>
@@ -1171,6 +1272,15 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     textAlign: "center",
   },
+  gateAction: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  gateArt: {
+    height: 48,
+    width: 48,
+  },
   gateBackdrop: {
     bottom: 0,
     left: 0,
@@ -1179,28 +1289,30 @@ const styles = StyleSheet.create({
     top: 0,
   },
   gateBody: {
-    color: "#ffffff",
     fontFamily: "SofiaProReg",
     fontSize: 12,
     fontWeight: "normal",
-    textAlign: "center",
+    lineHeight: 15,
+    marginTop: 2,
   },
   gateBtn: {
     alignItems: "center",
-    backgroundColor: "#ff9500",
     borderRadius: 9999,
-    marginTop: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+    height: 36,
+    justifyContent: "center",
+    paddingHorizontal: 24,
   },
   gateBtnText: {
     color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 13,
+    fontFamily: "SofiaProMed",
+    fontSize: 14,
     fontWeight: "normal",
   },
+  gateCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   gateMask: {
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
     bottom: 0,
     left: 0,
     position: "absolute",
@@ -1212,22 +1324,34 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     left: 0,
+    paddingHorizontal: 16,
     position: "absolute",
     right: 0,
     top: 0,
   },
   gatePanel: {
-    alignItems: "center",
     borderRadius: 16,
-    maxWidth: 280,
+    borderWidth: 1,
+    gap: 12,
+    maxWidth: 320,
     padding: 16,
+    width: "100%",
+  },
+  gatePress: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  gateRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
   },
   gateTitle: {
-    color: "#ffffff",
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
-    textAlign: "center",
+    lineHeight: 18,
   },
   gateWrap: {
     aspectRatio: 16 / 10,
@@ -1350,6 +1474,15 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 8,
     width: 28,
+  },
+  posterCover: {
+    bottom: 0,
+    height: "100%",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: "100%",
   },
   posterImage: {
     height: "100%",

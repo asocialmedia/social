@@ -61,6 +61,12 @@ function PullLoader({
   progress: number;
   refreshing: boolean;
 }) {
+  // Android keeps its platform indicator (see refreshControl below) and
+  // clamps pull distance at zero, so the overlay is iOS-only: rendering it
+  // on Android stacks two spinners.
+  if (Platform.OS !== "ios") {
+    return null;
+  }
   if (!refreshing && progress <= 0) {
     return null;
   }
@@ -73,7 +79,7 @@ function PullLoader({
           transform: [{ scale: 0.5 + 0.5 * shown }],
         }}
       >
-        <Spinner3D />
+        <Spinner3D size={32} />
       </View>
     </View>
   );
