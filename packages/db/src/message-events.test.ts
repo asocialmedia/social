@@ -22,6 +22,7 @@ const {
   parseMessageEvent,
   publishMessageCreated,
   publishMessageDeleted,
+  publishMessageKeysRotated,
   serializeMessageEvent,
 } = await import("@asm/db");
 
@@ -67,6 +68,25 @@ describe("publishMessageCreated / publishMessageDeleted", () => {
       publishMessageCreated("convo-1", { id: "m1" })
     ).resolves.toBeUndefined();
   });
+
+  test("publishes a keys.rotated event with no key material", async () => {
+    await publishMessageKeysRotated("convo-1", "u1");
+
+    expect(published).toHaveBeenCalledTimes(1);
+    const [channel, payload] = published.mock.calls[0] as [string, string];
+    expect(channel).toBe("messages:convo-1");
+    const parsed = JSON.parse(payload) as {
+      conversationId: string;
+      kind: string;
+      message?: unknown;
+      userId: string;
+    };
+    expect(parsed.kind).toBe("keys.rotated");
+    expect(parsed.conversationId).toBe("convo-1");
+    expect(parsed.userId).toBe("u1");
+    // The event only tells the peer to refetch; it must never carry a wrap.
+    expect(parsed.message).toBeUndefined();
+  });
 });
 
 describe("message event (de)serialization", () => {
@@ -110,6 +130,21 @@ describe("message event (de)serialization", () => {
       conversation: undefined,
       conversationId: "convo-1",
       kind: "typing.started",
+      message: undefined,
+      userId: "u1",
+    });
+  });
+
+  test("round-trips a keys.rotated event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "keys.rotated",
+      userId: "u1",
+    });
+    expect(parseMessageEvent(raw)).toEqual({
+      conversation: undefined,
+      conversationId: "convo-1",
+      kind: "keys.rotated",
       message: undefined,
       userId: "u1",
     });

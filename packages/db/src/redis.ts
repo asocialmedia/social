@@ -529,7 +529,14 @@ export interface MessageStreamEvent {
     | "message.deleted"
     | "conversation.created"
     | "conversation.read"
-    | "typing.started";
+    | "typing.started"
+    // A member posted new wrapped root keys (a first send in a new
+    // conversation, a heal, or an identity reset that rotated the epoch). The
+    // payload is deliberately empty: the only correct response is to refetch
+    // the conversation detail, because the wraps and/or the peer's identity
+    // public key may have changed and a stale copy silently fails every
+    // decrypt. Carries no key material, so it is safe to broadcast.
+    | "keys.rotated";
   conversationId: string;
   message?: unknown;
   conversation?: unknown;
@@ -548,7 +555,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "message.deleted" &&
       parsed.kind !== "conversation.created" &&
       parsed.kind !== "conversation.read" &&
-      parsed.kind !== "typing.started"
+      parsed.kind !== "typing.started" &&
+      parsed.kind !== "keys.rotated"
     ) {
       return null;
     }
@@ -636,6 +644,22 @@ export async function publishTypingStarted(
   await publishMessageEvent({
     conversationId,
     kind: "typing.started",
+    userId,
+  });
+}
+
+// Signals that a member posted new wrapped root keys, so every other open
+// thread refetches the conversation detail instead of trusting a snapshot whose
+// wraps or peer public key may now be stale. Sent by the keys route after a
+// successful append (the first send in a conversation, an epoch rotation, or a
+// missing-peer-wrap heal). No key material rides along.
+export async function publishMessageKeysRotated(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "keys.rotated",
     userId,
   });
 }
