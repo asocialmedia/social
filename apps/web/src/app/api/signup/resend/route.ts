@@ -24,5 +24,13 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const result = await resendVerificationEmail(email.trim());
-  return Response.json(result, { status: result.success ? 200 : 400 });
+  // Surface rate limiting as 429 so native clients can back off instead of
+  // treating it like any other validation failure.
+  let status = 400;
+  if (result.success) {
+    status = 200;
+  } else if (result.rateLimited) {
+    status = 429;
+  }
+  return Response.json(result, { status });
 }

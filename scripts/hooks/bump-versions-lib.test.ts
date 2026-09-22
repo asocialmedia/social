@@ -448,6 +448,47 @@ describe("runBumpVersionWithContext", () => {
     ]);
   });
 
+  test("a formatter failure still re-stages, then aborts loudly", async () => {
+    const stagedAfterFormat: string[] = [];
+
+    await expect(
+      runBumpVersionWithContext({
+        fileExists: (pkgPath) =>
+          Promise.resolve(
+            [
+              "package.json",
+              "apps/mobile/package.json",
+              "apps/mobile/app.json",
+            ].includes(pkgPath)
+          ),
+        formatFiles: () => Promise.reject(new Error("oxfmt boom")),
+        getStagedFiles: () => Promise.resolve(["apps/mobile/app.json"]),
+        readPackageJson: (pkgPath) =>
+          Promise.resolve({
+            version: pkgPath === "package.json" ? "1.0.1" : "0.0.1",
+          }),
+        readAppJson: () => Promise.resolve({ expo: { version: "0.0.1" } }),
+        stageFile: (filePath) => {
+          stagedAfterFormat.push(filePath);
+          return Promise.resolve();
+        },
+        writePackageJson: () => Promise.resolve(),
+        writeAppJson: () => Promise.resolve(),
+      })
+    ).rejects.toThrow("oxfmt boom");
+
+    // The index is re-synced with the worktree even on failure, so no
+    // stale-index/dirty-worktree split is left behind silently.
+    expect([...stagedAfterFormat].toSorted()).toEqual([
+      "apps/mobile/app.json",
+      "apps/mobile/app.json",
+      "apps/mobile/package.json",
+      "apps/mobile/package.json",
+      "package.json",
+      "package.json",
+    ]);
+  });
+
   test("keeps bun.lock workspace versions in sync with the bumped manifests", async () => {
     await writeFile(
       path.join(sandboxDir, "bun.lock"),
@@ -616,6 +657,10 @@ describe("runBumpVersions", () => {
         stdoutStr = "docker/docker-compose.dev.yml\n";
       } else if (command.startsWith("git add ")) {
         exitCode = 0;
+      } else if (args[0]?.endsWith("oxfmt")) {
+        // The post-bump formatter: success on this path (its failure path is
+        // covered by "a formatter failure still re-stages, then aborts loudly").
+        exitCode = 0;
       } else {
         exitCode = 1;
       }
@@ -676,6 +721,28 @@ describe("runBumpVersions", () => {
     });
 
     await expect(runBumpVersions()).rejects.toThrow("Failed to stage");
+  });
+
+  test("aborts when the post-bump formatter exits non-zero", async () => {
+    setSpawnMock((args: string[]) => {
+      if (args[0] === "git" && args[1] === "rev-parse") {
+        return createSpawnResult(`${sandboxDir}\n`, "", 0);
+      }
+      if (args[0] === "git" && args[1] === "diff") {
+        return createSpawnResult("docker/docker-compose.dev.yml\n", "", 0);
+      }
+      if (args[0] === "git" && args[1] === "add") {
+        return createSpawnResult("", "", 0);
+      }
+      if (args[0]?.endsWith("oxfmt")) {
+        return createSpawnResult("", "oxfmt: bad output", 1);
+      }
+      return createSpawnResult("", "", 0);
+    });
+
+    await expect(runBumpVersions()).rejects.toThrow(
+      "Formatter failed (oxfmt exit 1)"
+    );
   });
 });
 

@@ -63,6 +63,15 @@ describe("isSameOrigin", () => {
     expect(isSameOrigin("https://evil.example/api/auth", ORIGIN)).toBe(false);
   });
 
+  test("rejects hosts that merely start with the origin", () => {
+    expect(isSameOrigin(`${ORIGIN}.evil.example/api/auth`, ORIGIN)).toBe(false);
+    expect(isSameOrigin(`${ORIGIN}evil.example/api/auth`, ORIGIN)).toBe(false);
+  });
+
+  test("rejects protocol-relative URLs to other hosts", () => {
+    expect(isSameOrigin("//evil.example/api/auth", ORIGIN)).toBe(false);
+  });
+
   test("rejects null/empty", () => {
     expect(isSameOrigin(null, ORIGIN)).toBe(false);
     expect(isSameOrigin(`${ORIGIN}/x`, "")).toBe(false);
@@ -163,6 +172,33 @@ describe("createInstallFetch", () => {
     );
     const [sent] = received;
     expect(sent?.headers.get("x-asm-install")).toBe("explicit");
+  });
+
+  test("forwards a Request's init (signal, per-call headers) with the token", async () => {
+    const received: Request[] = [];
+    const baseFetch = ((input: RequestInfo | URL) => {
+      received.push(input as Request);
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as typeof fetch;
+    const wrapped = createInstallFetch({
+      baseFetch,
+      getToken: () => "tok",
+      origin: ORIGIN,
+    });
+
+    const controller = new AbortController();
+    await wrapped(
+      new Request(`${ORIGIN}/api/x`, {
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }),
+      { headers: { "x-extra": "1" }, signal: controller.signal }
+    );
+    const [sent] = received;
+    expect(sent?.headers.get("content-type")).toBe("application/json");
+    expect(sent?.headers.get("x-extra")).toBe("1");
+    expect(sent?.headers.get("x-asm-install")).toBe("tok");
+    expect(sent?.signal).toBe(controller.signal);
   });
 });
 

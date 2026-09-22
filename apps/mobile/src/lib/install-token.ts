@@ -61,15 +61,43 @@ export function resolveRequestUrl(input: RequestInfo | URL): string | null {
   return typeof input.url === "string" ? input.url : null;
 }
 
-/** True when `url` belongs to `origin` (relative URLs are same-origin). */
+/**
+ * True when `url` belongs to `origin`. Relative URLs resolve against the
+ * configured origin, so they stay same-origin; absolute URLs must have exactly
+ * the same `URL.origin` (a string prefix is not enough -
+ * `https://asocialmedia.cc.evil.example/` starts with the origin but is
+ * another host, and `//evil.example/` is protocol-relative, not relative).
+ * Non-HTTP(S) URLs such as `about:blank` carry no origin to compare, so they
+ * keep the historical `true`. Unparseable input is never same-origin.
+ */
 export function isSameOrigin(url: string | null, origin: string): boolean {
   if (!url || !origin) {
     return false;
   }
-  if (!url.startsWith("http")) {
+  // Only absolute HTTP(S) URLs and protocol-relative URLs (`//host/path`,
+  // which inherit the caller's scheme) have an origin worth comparing.
+  if (!/^https?:\/\//i.test(url) && !url.startsWith("//")) {
     return true;
   }
-  return url.startsWith(origin);
+  try {
+    return new URL(url, origin).origin === new URL(origin).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Merges a Request's own headers with per-call init headers (init wins on
+ * conflict, matching `fetch(request, init)`), so neither set is dropped.
+ */
+function mergeRequestHeaders(input: Request, init?: RequestInit): Headers {
+  const merged = new Headers(input.headers);
+  if (init?.headers) {
+    for (const [name, value] of new Headers(init.headers)) {
+      merged.set(name, value);
+    }
+  }
+  return merged;
 }
 
 /**
@@ -94,8 +122,9 @@ export function withTokenHeader(headers: Headers, token: string): Headers {
  * a Request its headers live ON the Request, and passing `{ headers }` as init
  * REPLACES them - which silently dropped `content-type` and the session
  * `cookie` that better-auth sets, breaking every call it made. So the token is
- * merged into the Request's own headers and a new Request is forwarded. Only
- * when the caller uses the url + init form do we touch init.
+ * merged into the Request's own headers and a new Request is forwarded,
+ * carrying the caller's init (signal, per-call headers) with it. Only
+ * when the caller uses the url + init form do we build the headers from init.
  */
 export function createInstallFetch(options: {
   baseFetch: FetchLike;
@@ -115,8 +144,14 @@ export function createInstallFetch(options: {
     }
 
     if (input instanceof Request) {
+      // Forward the caller's init (signal, method/body overrides, per-call
+      // headers) instead of dropping it, with the token merged into the
+      // combined headers. An explicit token in either place still wins.
       return options.baseFetch(
-        new Request(input, { headers: withTokenHeader(input.headers, token) })
+        new Request(input, {
+          ...init,
+          headers: withTokenHeader(mergeRequestHeaders(input, init), token),
+        })
       );
     }
     return options.baseFetch(input, {

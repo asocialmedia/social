@@ -9,6 +9,7 @@
 // binding at startup and crash Expo Go, where it does not exist.
 
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 import { logError } from "@/lib/telemetry";
 
@@ -20,6 +21,12 @@ type GoogleSdk = typeof import("@react-native-google-signin/google-signin");
 // Public OAuth client id of the auth server (its GOOGLE_CLIENT_ID). Not a
 // secret; the SDK uses it as the ID token audience.
 const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim();
+
+// iOS OAuth client id. There is none yet (no reversed
+// `com.googleusercontent.apps.*` scheme is registered in app.json), so the
+// native flow stays off on iOS until this is configured. Setting this alone is
+// not enough - the matching iosUrlScheme must be added to the Expo config too.
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim();
 
 function loadGoogleModule(): GoogleSdk | null {
   if (Constants.executionEnvironment === "storeClient") {
@@ -36,7 +43,14 @@ function loadGoogleModule(): GoogleSdk | null {
 const googleModule = loadGoogleModule();
 
 /** True when the native SDK is present AND a web client id is configured. */
-export const hasNativeGoogle = googleModule !== null && Boolean(WEB_CLIENT_ID);
+export const hasNativeGoogle =
+  googleModule !== null &&
+  Boolean(WEB_CLIENT_ID) &&
+  // iOS needs its own OAuth client (reversed URL scheme) on top of the web
+  // client id. Until one is configured the native flow would hand Google a
+  // callback scheme the app does not own, so it stays off there and iOS falls
+  // back to the browser flow.
+  (Platform.OS !== "ios" || Boolean(IOS_CLIENT_ID));
 
 let configured = false;
 
@@ -45,6 +59,7 @@ function ensureConfigured(module: GoogleSdk): void {
     return;
   }
   module.GoogleSignin.configure({
+    iosClientId: IOS_CLIENT_ID,
     // The server never calls Google APIs on the user's behalf; it only needs
     // the identity token, so no offline access / server auth code.
     offlineAccess: false,
@@ -63,7 +78,7 @@ export const GOOGLE_GENERIC_ERROR = "Error connecting with social provider.";
 
 /** Runs the native account picker and returns Google's tokens. */
 export async function signInWithGoogleNative(): Promise<NativeGoogleResult> {
-  if (!(googleModule && WEB_CLIENT_ID)) {
+  if (!(googleModule && hasNativeGoogle)) {
     return { error: GOOGLE_UNAVAILABLE_ERROR };
   }
   const { GoogleSignin, isCancelledResponse, isErrorWithCode, statusCodes } =

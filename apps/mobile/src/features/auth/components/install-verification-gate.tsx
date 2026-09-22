@@ -47,6 +47,12 @@ export function InstallVerificationGate({
     setResetSignal((value) => value + 1);
   };
 
+  // Dismissal is unavailable while a verification request is in flight:
+  // dismissing then would report cancellation while the request could still
+  // persist a credential afterwards (the provider also ignores such a stale
+  // result, so Android-back dismissal stays consistent too).
+  const isVerifying = status === "verifying";
+
   const handleVerify = async (token: string) => {
     setError(null);
     const ok = await submitVerification(token);
@@ -126,7 +132,12 @@ export function InstallVerificationGate({
                 </Text>
               </Pressable>
             ) : null}
-            <Pressable hitSlop={6} onPress={dismissGate}>
+            <Pressable
+              disabled={isVerifying}
+              hitSlop={6}
+              onPress={dismissGate}
+              style={isVerifying ? styles.disabled : undefined}
+            >
               <Text style={[styles.action, { color: theme.auxLink }]}>
                 Not now
               </Text>
@@ -157,6 +168,9 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     padding: 20,
     width: "100%",
+  },
+  disabled: {
+    opacity: 0.4,
   },
   footer: {
     alignItems: "center",

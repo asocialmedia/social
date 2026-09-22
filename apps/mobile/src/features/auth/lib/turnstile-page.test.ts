@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildTurnstilePage,
+  isAllowedTurnstileNavigation,
   parseTurnstileMessage,
   resolveTurnstileBaseUrl,
 } from "./turnstile-page";
@@ -122,5 +123,29 @@ describe("buildTurnstilePage", () => {
     });
     expect(page).not.toContain("</script><script>alert(1)");
     expect(page).toContain("\\u003c");
+  });
+});
+
+describe("isAllowedTurnstileNavigation", () => {
+  test("allows the widget origin and the blank inline page", () => {
+    expect(
+      isAllowedTurnstileNavigation(
+        "https://challenges.cloudflare.com/turnstile/v0/api.js"
+      )
+    ).toBe(true);
+    expect(isAllowedTurnstileNavigation("about:blank")).toBe(true);
+  });
+
+  test("rejects hosts that merely start with the challenge origin", () => {
+    expect(
+      isAllowedTurnstileNavigation(
+        "https://challenges.cloudflare.com.evil.example/"
+      )
+    ).toBe(false);
+    expect(isAllowedTurnstileNavigation("https://evil.example/")).toBe(false);
+  });
+
+  test("rejects unparseable URLs", () => {
+    expect(isAllowedTurnstileNavigation("::::")).toBe(false);
   });
 });

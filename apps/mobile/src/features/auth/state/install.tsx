@@ -73,6 +73,11 @@ export function InstallProvider({ children }: { children: ReactNode }) {
   // Requests parked on the gate. Settled true when verification succeeds,
   // false when the user dismisses (or the provider unmounts).
   const waitersRef = useRef<VerificationWaiter[]>([]);
+  // Counts verification attempts. Dismissing the gate bumps it, so a
+  // `registerInstall` that was already in flight is recognised as stale when
+  // it resolves and its result is ignored - dismissal keeps meaning
+  // cancellation even if the request later succeeds.
+  const verifyAttemptRef = useRef(0);
 
   const settleWaiters = useCallback((verified: boolean) => {
     const waiters = waitersRef.current;
@@ -149,8 +154,16 @@ export function InstallProvider({ children }: { children: ReactNode }) {
 
   const submitVerification = useCallback(
     async (turnstileToken: string): Promise<boolean> => {
+      const attempt = verifyAttemptRef.current + 1;
+      verifyAttemptRef.current = attempt;
       setStatus("verifying");
       const credentials = await registerInstall(turnstileToken);
+      if (verifyAttemptRef.current !== attempt) {
+        // Dismissed while verifying: the persisted credential (if any) stays
+        // stored for next time, but this dismissal already reported
+        // cancellation, so the late result must not flip the provider ready.
+        return false;
+      }
       setStatus(credentials ? "ready" : "failed");
       if (credentials) {
         setIsGateVisible(false);
@@ -162,7 +175,14 @@ export function InstallProvider({ children }: { children: ReactNode }) {
   );
 
   const dismissGate = useCallback(() => {
+    // Invalidate any in-flight verification (see submitVerification).
+    verifyAttemptRef.current += 1;
     setIsGateVisible(false);
+    // A dismissal during verification must not leave the provider stuck
+    // reporting "verifying" with the gate gone.
+    setStatus((current) =>
+      current === "verifying" ? "needs-verification" : current
+    );
     settleWaiters(false);
   }, [settleWaiters]);
 

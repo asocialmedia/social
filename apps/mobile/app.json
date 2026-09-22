@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.0.41",
+    "version": "0.0.42",
     "description": "The open social platform you'll ever need. Open source, cozy, and slightly unhinged.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -45,12 +45,6 @@
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
           }
-        }
-      ],
-      [
-        "@react-native-google-signin/google-signin",
-        {
-          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_ID"
         }
       ]
     ],

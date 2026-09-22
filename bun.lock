@@ -86,7 +86,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.0.41",
+      "version": "0.0.42",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@better-auth/expo": "^1.7.5",
@@ -142,7 +142,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.4.94",
+      "version": "1.4.95",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",

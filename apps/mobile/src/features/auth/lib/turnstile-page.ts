@@ -82,6 +82,27 @@ export interface TurnstilePageOptions {
   sitekey: string;
 }
 
+/** Origin the Turnstile widget is served from. Navigations anywhere else. */
+export const TURNSTILE_CHALLENGE_ORIGIN = "https://challenges.cloudflare.com";
+
+/**
+ * True when a WebView navigation is part of the Turnstile widget. The inline
+ * page itself loads as `about:blank`; everything else must come from exactly
+ * the challenge origin. A string prefix is not enough -
+ * `https://challenges.cloudflare.com.evil.example/` starts with the origin
+ * but is another host - so the URL is parsed and origins are compared.
+ */
+export function isAllowedTurnstileNavigation(url: string): boolean {
+  if (url === "about:blank") {
+    return true;
+  }
+  try {
+    return new URL(url).origin === TURNSTILE_CHALLENGE_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Embeds a value as a JS string literal. JSON.stringify already escapes quotes,
  * backslashes and control characters, and the extra pass neutralises the

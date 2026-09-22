@@ -11,6 +11,7 @@ import { Spinner3D } from "@/components/feedback/spinner-3d";
 
 import {
   buildTurnstilePage,
+  isAllowedTurnstileNavigation,
   parseTurnstileMessage,
 } from "../lib/turnstile-page";
 import type { TurnstileAppearance } from "../lib/turnstile-page";
@@ -109,8 +110,7 @@ export function TurnstileWebView({
         javaScriptEnabled
         // No navigation is expected; anything that tries is not the widget.
         onShouldStartLoadWithRequest={(request) =>
-          request.url.startsWith("https://challenges.cloudflare.com") ||
-          request.url === "about:blank"
+          isAllowedTurnstileNavigation(request.url)
         }
         onMessage={handleMessage}
         originWhitelist={["https://challenges.cloudflare.com", "about:blank"]}
