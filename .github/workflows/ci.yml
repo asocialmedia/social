@@ -171,7 +171,14 @@ jobs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
+      - prisma-sync
+    # The web image's route handlers query columns the schema sync adds, so the
+    # deploy it triggers must not start before the migration has landed: the two
+    # otherwise run in parallel and the app would 500 on every message query for
+    # the gap between them. prisma-sync no-ops quickly when nothing changed, so
+    # waiting on it costs little. `skipped` is accepted because prisma-sync only
+    # runs for pushes to main, and `always()` keeps the rest of the gate intact.
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
