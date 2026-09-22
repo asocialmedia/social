@@ -31,13 +31,20 @@ import {
   parseReleases,
 } from "@/features/update/lib/update-check";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
-import { ERROR_SHADOWS, useAppTheme } from "@/theme";
+import {
+  ERROR_SHADOWS,
+  SURFACE_SHADOWS,
+  SURFACE_SHADOWS_DARK,
+  useAppTheme,
+} from "@/theme";
 
 type GateState =
   | { status: "checking" }
   | { status: "current" }
   | { assetName: string; assetUrl: string; status: "update"; version: string }
-  | { progress: number; status: "downloading"; version: string }
+  // progress is null while the server has not reported a size yet: the bar
+  // renders indeterminate instead of a stuck 0%.
+  | { progress: number | null; status: "downloading"; version: string }
   | { status: "failed"; message: string };
 
 function getCurrentVersion(): string | null {
@@ -55,7 +62,7 @@ const UPDATE_CHECK_ENABLED = !__DEV__ && Platform.OS === "android";
 const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 60_000;
 
 export function UpdateGate() {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const [state, setState] = useState<GateState>(() =>
     UPDATE_CHECK_ENABLED ? { status: "checking" } : { status: "current" }
   );
@@ -142,7 +149,7 @@ export function UpdateGate() {
       );
     };
     try {
-      setState({ progress: 0, status: "downloading", version });
+      setState({ progress: null, status: "downloading", version });
       logInfo("update.download_start", { version });
       armInactivity();
       const file = await File.downloadFileAsync(
@@ -153,13 +160,11 @@ export function UpdateGate() {
           onProgress: ({ bytesWritten, totalBytes }) => {
             // Bytes arriving means the transfer is alive, so restart the window.
             armInactivity();
-            if (totalBytes > 0) {
-              setState({
-                progress: bytesWritten / totalBytes,
-                status: "downloading",
-                version,
-              });
-            }
+            setState({
+              progress: totalBytes > 0 ? bytesWritten / totalBytes : null,
+              status: "downloading",
+              version,
+            });
           },
           signal: controller.signal,
         }
@@ -205,7 +210,7 @@ export function UpdateGate() {
             {
               backgroundColor: theme.cardBg,
               borderColor: theme.cardBorder,
-              shadowColor: theme.cardShadow,
+              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
             },
           ]}
         >
@@ -222,7 +227,10 @@ export function UpdateGate() {
               v{state.version} available
             </Text>
           ) : null}
-          {state.status === "downloading" ? (
+          {state.status === "downloading" && state.progress === null ? (
+            <ActivityIndicator color="#ff9500" size="small" />
+          ) : null}
+          {state.status === "downloading" && state.progress !== null ? (
             <View style={styles.progressRow}>
               <View
                 style={[styles.track, { backgroundColor: theme.dividerLine }]}
@@ -256,9 +264,10 @@ export function UpdateGate() {
               </Text>
             </View>
           ) : null}
-          {state.status === "downloading" ? (
-            <ActivityIndicator color="#ff9500" size="small" />
-          ) : (
+          {/* Downloading shows one indicator: the determinate bar + percent
+              once the server reports a size, a lone spinner while the size
+              is still unknown. */}
+          {state.status === "downloading" ? null : (
             <AuthPrimaryButton
               label={state.status === "failed" ? "Try again" : "Update app"}
               onPress={() => {

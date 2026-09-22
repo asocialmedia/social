@@ -1,3 +1,6 @@
+// Logout jokes, copied verbatim from web
+// (components/layouts/dialogs/constants/logout-messages.ts) so the native
+// dialog reads exactly like its browser twin.
 export const logoutJokes = [
   "Logging out? Don't forget to touch grass!",
   "See you later, code navigator!",
@@ -53,5 +56,5 @@ export const logoutJokes = [
   "Merge your work-life branches already!",
 ];
 
-export const getRandomJoke = () =>
-  logoutJokes[Math.floor(Math.random() * logoutJokes.length)];
+export const getRandomJoke = (): string =>
+  logoutJokes[Math.floor(Math.random() * logoutJokes.length)] ?? "";

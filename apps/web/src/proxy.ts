@@ -116,6 +116,11 @@ const INSTALL_TOKEN_EXEMPT_PATHS = [
   "/api/auth/reset-password",
   "/api/auth/forget-password",
   "/api/auth/request-password-reset",
+  // View counting is telemetry, not state: the batch endpoint dedupes per
+  // user/IP server-side, and gating it would silently drop every view from
+  // fresh installs (including the native app before its first Turnstile
+  // check) while stopping no abuse the per-IP budgets do not already stop.
+  "/api/views/",
 ];
 
 function isInstallTokenExemptPath(pathname: string): boolean {
