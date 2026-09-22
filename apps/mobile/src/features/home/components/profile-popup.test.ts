@@ -520,7 +520,7 @@ describe("fetchLinkPreview", () => {
 });
 
 describe("clampBioSegments", () => {
-  test("admits the first segment even past the limit", () => {
+  test("admits a long first pill whole", () => {
     const long = segmentBioContent("https://example.com/a-very-long-url-here");
     const { clamped, visible } = clampBioSegments(long, 10);
     expect(visible).toHaveLength(1);
@@ -531,6 +531,14 @@ describe("clampBioSegments", () => {
     expect(clamped).toBe(false);
   });
 
+  test("truncates a long opening paragraph with Show more", () => {
+    const long = "a".repeat(500);
+    const { clamped, visible } = clampBioSegments(segmentBioContent(long), 400);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]).toEqual({ text: "a".repeat(400), type: "text" });
+    expect(clamped).toBe(true);
+  });
+
   test("cuts later segments at the boundary", () => {
     const segments = segmentBioContent("hi @octo see this");
     const { clamped, visible } = clampBioSegments(segments, 8);
@@ -539,5 +547,25 @@ describe("clampBioSegments", () => {
       { type: "mention", username: "octo" },
     ]);
     expect(clamped).toBe(true);
+  });
+});
+
+describe("profile request timeout", () => {
+  test("aborts a stalled request instead of hanging", async () => {
+    const hanging = ((_input: unknown, init?: RequestInit) =>
+      // oxlint-disable-next-line promise/avoid-new -- constructing a hanging fetch is the entire point of this test
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new Error("aborted"));
+        });
+      })) as typeof fetch;
+    await expect(
+      fetchPopupProfile({
+        apiBase: API,
+        baseFetch: hanging,
+        timeoutMs: 50,
+        userId: "x",
+      })
+    ).rejects.toThrow();
   });
 });

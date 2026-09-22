@@ -638,13 +638,16 @@ export function parseLinkPreview(payload: unknown): BioLinkPreview | null {
 }
 
 // Cuts segments to a character budget at segment boundaries so pills never
-// split. The first segment is always admitted, even when it alone exceeds
-// the budget: otherwise a single long URL would clamp to an empty body.
+// split. Non-text first segments (a long URL, mention or tag) are always
+// admitted whole - they cannot be cut. A long opening paragraph IS cut at
+// the limit (like web's visual line-clamp), otherwise one text segment
+// would render an arbitrarily tall collapsed card with no Show more.
 export function clampBioSegments(
   segments: BioSegment[],
   limit: number
 ): { clamped: boolean; visible: BioSegment[] } {
   let length = 0;
+  let truncated = false;
   const visible: BioSegment[] = [];
   for (const segment of segments) {
     let size = segment.type === "text" ? segment.text.length : 0;
@@ -655,11 +658,20 @@ export function clampBioSegments(
     } else if (segment.type === "tag") {
       size = segment.tag.length + 1;
     }
-    if (visible.length > 0 && length + size > limit) {
+    if (visible.length === 0 && segment.type !== "text") {
+      visible.push(segment);
+      length += size;
+      continue;
+    }
+    if (length + size > limit) {
+      if (visible.length === 0 && segment.type === "text") {
+        visible.push({ text: segment.text.slice(0, limit), type: "text" });
+      }
+      truncated = true;
       break;
     }
     length += size;
     visible.push(segment);
   }
-  return { clamped: visible.length < segments.length, visible };
+  return { clamped: truncated || visible.length < segments.length, visible };
 }

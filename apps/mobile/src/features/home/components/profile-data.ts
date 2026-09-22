@@ -38,6 +38,7 @@ interface AuthedGetOptions {
   apiBase: string;
   baseFetch?: typeof fetch;
   cookie?: string;
+  timeoutMs?: number;
 }
 
 interface ProfileFetchOptions extends AuthedGetOptions {
@@ -93,19 +94,28 @@ function parseProfile(payload: unknown): PopupProfile | null {
   };
 }
 
-function authedGet(path: string, options: AuthedGetOptions): Promise<Response> {
+async function authedGet(
+  path: string,
+  options: AuthedGetOptions
+): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
   // Bounded wait: a stalled connection must fail instead of hanging the
   // popup forever. Manual AbortController (not AbortSignal.timeout) so the
-  // injected baseFetch in tests needs no timer support.
+  // injected baseFetch in tests needs no timer support. The fetch is
+  // awaited (not returned directly) so the timer survives until the
+  // request settles - returning the promise would run `finally` (and clear
+  // the timer) immediately, cancelling the timeout itself.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20_000);
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? 20_000
+  );
   try {
     const headers: Record<string, string> = {};
     if (options.cookie) {
       headers.cookie = options.cookie;
     }
-    return baseFetch(`${options.apiBase}${path}`, {
+    return await baseFetch(`${options.apiBase}${path}`, {
       headers,
       signal: controller.signal,
     });
