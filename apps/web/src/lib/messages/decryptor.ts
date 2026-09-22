@@ -56,6 +56,10 @@ export interface DecryptorOptions {
 const DEFAULT_CONCURRENCY = 6;
 const DEFAULT_CACHE_CAP = 2000;
 
+// Shared empty set returned for conversations with no failures, so the common
+// case allocates nothing.
+const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();
+
 const defaultDecrypt: DecryptImpl = (item, baseKey) =>
   decryptMessageWithBaseKey(
     baseKey,
@@ -80,6 +84,12 @@ export interface MessageDecryptor {
   clearKeys: () => void;
   configureScope: (scopeKey: string) => void;
   get: (id: string) => DecryptEntry | undefined;
+  // Ids whose last attempt failed in `conversationId`. The thread watches these
+  // to self-heal a stale key snapshot (see the keys.rotated handling): a failure
+  // is the only signal that the cached wraps/peer key may be out of date. Scoped
+  // to one conversation so an unrelated thread's failures cannot trigger a
+  // refetch here. Returns a live set, so callers must not mutate it.
+  getErroredIds: (conversationId: string) => ReadonlySet<string>;
   getVersion: () => number;
   request: (items: DecryptItem[], keys: DecryptorKeySource) => void;
   retry: (id: string) => void;
@@ -101,6 +111,15 @@ export function createDecryptor(
   let scopeKey: string | null = null;
   let generation = 0;
   const entries = new Map<string, DecryptEntry>();
+  // Ids currently mapped to "error", bucketed by conversation so a thread can
+  // ask "did anything fail in THIS conversation" without seeing another
+  // thread's failures (the cache is a session-wide singleton). Maintained
+  // alongside `entries` so the lookup never scans the whole cache.
+  const erroredByConversation = new Map<string, Set<string>>();
+  // Which conversation each tracked id belongs to, so an error can be filed
+  // (and later cleared) under the right bucket. Bounded by the entry cache: an
+  // id is removed here when it leaves `entries`.
+  const conversationById = new Map<string, string>();
   const inFlight = new Set<string>();
   const queued = new Set<string>();
   const queue: DecryptItem[] = [];
@@ -120,6 +139,37 @@ export function createDecryptor(
     // inside a listener cannot corrupt the broadcast.
     for (const listener of listeners) {
       listener();
+    }
+  }
+
+  // Records `id` as errored in its conversation bucket (creating the bucket on
+  // demand) and remembers the id's conversation for later cleanup.
+  function markErrored(id: string, conversationId: string): void {
+    conversationById.set(id, conversationId);
+    const bucket = erroredByConversation.get(conversationId);
+    if (bucket) {
+      bucket.add(id);
+    } else {
+      erroredByConversation.set(conversationId, new Set([id]));
+    }
+  }
+
+  // Removes `id` from its error bucket (if any) and forgets its conversation.
+  // Called whenever an id stops being an error, leaves the cache, or is
+  // retried.
+  function clearErrored(id: string): void {
+    const conversationId = conversationById.get(id);
+    if (conversationId === undefined) {
+      return;
+    }
+    conversationById.delete(id);
+    const bucket = erroredByConversation.get(conversationId);
+    if (!bucket) {
+      return;
+    }
+    bucket.delete(id);
+    if (bucket.size === 0) {
+      erroredByConversation.delete(conversationId);
     }
   }
 
@@ -172,6 +222,7 @@ export function createDecryptor(
         break;
       }
       entries.delete(victim);
+      clearErrored(victim);
     }
   }
 
@@ -213,6 +264,11 @@ export function createDecryptor(
       return;
     }
     entries.set(id, payload ?? "error");
+    if (payload) {
+      clearErrored(id);
+    } else {
+      markErrored(id, item.conversationId);
+    }
     // Release this run's slot before deciding on eviction: the just-finished
     // item is no longer in flight, so the "still working" guard in
     // evictIfNeeded sees only genuinely pending work and the final completion
@@ -285,6 +341,7 @@ export function createDecryptor(
       for (const [id, entry] of entries) {
         if (entry === "error") {
           entries.delete(id);
+          clearErrored(id);
           cleared = true;
         }
       }
@@ -304,6 +361,8 @@ export function createDecryptor(
       scopeKey = key;
       generation += 1;
       entries.clear();
+      erroredByConversation.clear();
+      conversationById.clear();
       queued.clear();
       queue.length = 0;
       baseKeys.clear();
@@ -318,6 +377,10 @@ export function createDecryptor(
 
     get(id: string): DecryptEntry | undefined {
       return entries.get(id);
+    },
+
+    getErroredIds(conversationId: string): ReadonlySet<string> {
+      return erroredByConversation.get(conversationId) ?? EMPTY_ID_SET;
     },
 
     getVersion(): number {
@@ -345,6 +408,7 @@ export function createDecryptor(
 
     retry(id: string): void {
       const existed = entries.delete(id);
+      clearErrored(id);
       queued.delete(id);
       // Notify so subscribers see the entry drop back to "unrequested"; the
       // row-level self-heal then re-queues it. Without this a retry that is

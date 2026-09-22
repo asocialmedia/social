@@ -537,13 +537,30 @@ export function MessageThread({
     [requestViewerWindow]
   );
 
-  // Healed keys (re-provisioned identity, first wrapped-key post) must retry
-  // payloads that previously failed. Dropping the errors makes both the
-  // request effect and each row's self-heal re-queue them. The viewer scan
+  // A signature of everything decryption depends on: my wraps for this
+  // conversation (ciphertext per epoch) and the peer's public key. When it
+  // changes, the cached roots are invalid and every failed payload is worth
+  // retrying. Used both to clear the decryptor's caches and to gate the
+  // stale-snapshot refetch below so a failure cannot loop forever.
+  const keySignature = useMemo(() => {
+    if (!detail || !userId) {
+      return "";
+    }
+    const wraps = findMyWrappedKeys(detail.keys, userId)
+      .map((key) => `${key.version}:${key.encryptedKey.ciphertext}`)
+      .join("|");
+    return `${wraps}#${findPeerPublicKey(detail.conversation, userId) ?? ""}`;
+  }, [detail, userId]);
+
+  // Healed keys (re-provisioned identity, first wrapped-key post, peer reset)
+  // must retry payloads that previously failed. Dropping the errors makes both
+  // the request effect and each row's self-heal re-queue them. The viewer scan
   // cache is dropped too: under new keys a previously non-media resolution is
-  // no longer trustworthy.
+  // no longer trustworthy. Gated on `keySignature`, not `detail` identity, so a
+  // refetch that returns the same keys (e.g. a read-receipt-driven invalidate)
+  // does not needlessly clear errors and re-decrypt the visible window.
   useEffect(() => {
-    if (!detail || !rootKeyStore || !userId) {
+    if (!keySignature || !rootKeyStore || !userId) {
       return;
     }
     messageDecryptor.clearErrors();
@@ -553,7 +570,43 @@ export function MessageThread({
     messageDecryptor.clearKeys();
     viewerScanCache.clear();
     pendingScanRef.current.clear();
-  }, [detail, rootKeyStore, userId, viewerScanCache]);
+  }, [keySignature, rootKeyStore, userId, viewerScanCache]);
+
+  // Last key signature for which a decrypt failure already triggered a refetch.
+  // A payload that is genuinely undecryptable (an old epoch whose wrap is gone,
+  // or corrupt ciphertext) stays "error" forever, so refetching on every
+  // failure would spin. One refetch per signature is enough: if the keys really
+  // did change, the refetch lands a new signature and re-arms this; if they did
+  // not, the payload is permanently unreadable and there is nothing to fetch.
+  const refetchedForSignatureRef = useRef<string | null>(null);
+
+  // Self-heal a stale key snapshot from the read side. A failed decrypt is the
+  // only signal that our cached wraps or the peer's public key may be out of
+  // date (their reset published `keys.rotated`, but that event can be missed on
+  // a reconnect gap or a raced query). When a failure appears under a signature
+  // we have not already refetched for, invalidate the detail; the resulting
+  // signature change clears errors and re-queues the payloads.
+  useEffect(() => {
+    if (!detail || !rootKeyStore || !userId || keySignature === "") {
+      return;
+    }
+    const heal = () => {
+      if (messageDecryptor.getErroredIds(conversationId).size === 0) {
+        return;
+      }
+      if (refetchedForSignatureRef.current === keySignature) {
+        return;
+      }
+      refetchedForSignatureRef.current = keySignature;
+      void queryClient.invalidateQueries({
+        queryKey: ["message-conversation", conversationId],
+      });
+    };
+    const unsubscribe = messageDecryptor.subscribe(heal);
+    // A failure may already be present when this effect (re)mounts.
+    heal();
+    return unsubscribe;
+  }, [conversationId, detail, keySignature, queryClient, rootKeyStore, userId]);
 
   // Classify viewer discovery results into the scan cache without re-rendering:
   // a plain decryptor subscription (not useSyncExternalStore) runs on every
@@ -856,7 +909,8 @@ export function MessageThread({
         | "message.created"
         | "message.deleted"
         | "conversation.read"
-        | "typing.started";
+        | "typing.started"
+        | "keys.rotated";
       message?: MessageData;
       userId?: string;
     }) => {
@@ -875,6 +929,17 @@ export function MessageThread({
       }
 
       const { message } = event;
+      if (event.kind === "keys.rotated") {
+        // A member rotated the conversation keys (first send, heal, or an
+        // identity reset). Our cached detail holds the old wraps and possibly a
+        // superseded peer public key, so every subsequent decrypt would fail
+        // silently. Refetch the detail; the resulting identity change clears
+        // the decryptor's cached roots and errors, which re-queues the payloads.
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversationId],
+        });
+        return;
+      }
       if (!message) {
         return;
       }

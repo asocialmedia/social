@@ -231,6 +231,75 @@ describe("message decryptor", () => {
     decryptor.clearErrors();
     // Dropped to undefined, which is what a mounted row self-heals on.
     expect(decryptor.get("a")).toBeUndefined();
+    expect(decryptor.getErroredIds(CONVO_ID).size).toBe(0);
+  });
+
+  test("tracks errored ids per conversation", async () => {
+    // A failure in one conversation must not be visible to another thread, or
+    // the unrelated thread would refetch its detail for no reason.
+    const decryptor = createDecryptor({
+      decrypt: (decryptItem) =>
+        decryptItem.message.id === "bad"
+          ? Promise.reject(new Error("nope"))
+          : Promise.resolve(TEXT),
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request(
+      [
+        item("bad"),
+        item("other-convo", {
+          conversationId: "convo-2",
+          message: {
+            ciphertext: "c",
+            id: "other-convo",
+            iv: "i",
+            ratchetIndex: 0,
+            senderId: "alice",
+          },
+        }),
+      ],
+      keys
+    );
+    await settle();
+
+    expect(decryptor.get("bad")).toBe("error");
+    expect(decryptor.getErroredIds(CONVO_ID)).toEqual(new Set(["bad"]));
+    expect(decryptor.getErroredIds("convo-2").size).toBe(0);
+  });
+
+  test("drops an id from the error set once it decrypts", async () => {
+    // A retried payload that now succeeds must not keep flagging the thread as
+    // needing a heal.
+    let shouldFail = true;
+    const decryptor = createDecryptor({
+      decrypt: () =>
+        shouldFail ? Promise.reject(new Error("nope")) : Promise.resolve(TEXT),
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.getErroredIds(CONVO_ID).has("a")).toBe(true);
+
+    shouldFail = false;
+    decryptor.retry("a");
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toEqual(TEXT);
+    expect(decryptor.getErroredIds(CONVO_ID).has("a")).toBe(false);
+  });
+
+  test("clears the error set when the scope changes", async () => {
+    const decryptor = createDecryptor({
+      decrypt: () => Promise.reject(new Error("nope")),
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.configureScope("user-1");
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.getErroredIds(CONVO_ID).size).toBe(1);
+
+    decryptor.configureScope("user-2");
+    expect(decryptor.getErroredIds(CONVO_ID).size).toBe(0);
   });
 
   test("evicts oldest terminal entries past the cap", async () => {

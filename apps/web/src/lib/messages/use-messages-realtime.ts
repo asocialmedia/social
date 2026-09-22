@@ -13,7 +13,8 @@ interface MessageStreamEvent {
     | "message.created"
     | "message.deleted"
     | "conversation.read"
-    | "typing.started";
+    | "typing.started"
+    | "keys.rotated";
   conversationId: string;
   message?: unknown;
   userId?: string;
@@ -28,7 +29,8 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
       parsed.kind !== "conversation.read" &&
-      parsed.kind !== "typing.started"
+      parsed.kind !== "typing.started" &&
+      parsed.kind !== "keys.rotated"
     ) {
       return null;
     }
