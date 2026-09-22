@@ -3,19 +3,25 @@
 // Left: avatar (signed in) or spacer (guest). Center: asm logo pinned to the
 // bar's centerline via a full-size centered overlay, linking home. Right:
 // notification bell with unread badge + search (signed in) or a premium
-// (orange 3D) Log in pill (guest). UI-only: session, unread count, and
-// search are props; no API calls.
+// (orange 3D) Log in pill (guest). The avatar opens the profile popup (same
+// content as web's UserProfilePopover); session, unread count, and search
+// are props, while the popup fetches its own profile data.
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Bell, Search } from "lucide-react-native";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { getApiBaseUrl } from "@/lib/api-env";
+import { logWarn } from "@/lib/telemetry";
 import {
+  AVATAR_RING_SHADOWS,
+  AVATAR_RING_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_LIGHT,
   LOGIN_BUTTON_PRESSED_SHADOWS,
@@ -23,10 +29,13 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import { resolveProfileImageUrl } from "./profile-utils";
+import { UserProfilePopup } from "./user-profile-popup";
+
 interface MobileHeaderProps {
   onSearchPress?: () => void;
   unreadCount?: number;
-  user?: { avatarUrl?: string | null; username: string } | null;
+  user?: { avatarUrl?: string | null; id: string; username: string } | null;
 }
 
 export function MobileHeader({
@@ -36,9 +45,18 @@ export function MobileHeader({
 }: MobileHeaderProps) {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  // A remote avatar that fails to load (bad URL, offline) falls back to the
+  // bundled placeholder instead of rendering an empty frame.
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const iconShadows = isDark
     ? ICON_BUTTON_SHADOWS_DARK
     : ICON_BUTTON_SHADOWS_LIGHT;
+  // Web UserAvatar renders 36px with the avatar-ring bevel over a muted
+  // gradient; the header matches that frame exactly.
+  const avatarUri = user?.avatarUrl
+    ? resolveProfileImageUrl(user.avatarUrl, getApiBaseUrl())
+    : null;
 
   return (
     <SafeAreaView
@@ -56,14 +74,42 @@ export function MobileHeader({
       >
         <View style={styles.sideLeft}>
           {user ? (
-            <Pressable hitSlop={6} onPress={() => router.push("/")}>
-              <Image
-                contentFit="cover"
-                source={
-                  user.avatarUrl ? { uri: user.avatarUrl } : avatarPlaceholder
-                }
-                style={styles.avatar}
-              />
+            <Pressable
+              accessibilityLabel={`Open profile menu for ${user.username}`}
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={() => setProfileUserId(user.id)}
+            >
+              <View style={styles.avatarFrame}>
+                <Image
+                  contentFit="cover"
+                  key={avatarUri ?? "placeholder"}
+                  onError={() => {
+                    logWarn("profile.header_avatar_failed", {});
+                    setAvatarFailed(true);
+                  }}
+                  source={
+                    avatarUri && !avatarFailed
+                      ? { uri: avatarUri }
+                      : avatarPlaceholder
+                  }
+                  style={[styles.avatar, { backgroundColor: theme.cardBg }]}
+                />
+                {/* avatar-ring bevel: boxShadow is not part of expo-image's
+                    ImageStyle, so the ring rides an overlay like the web's
+                    box-shadow layer does. */}
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.avatarRing,
+                    {
+                      boxShadow: isDark
+                        ? AVATAR_RING_SHADOWS_DARK
+                        : AVATAR_RING_SHADOWS,
+                    },
+                  ]}
+                />
+              </View>
             </Pressable>
           ) : null}
         </View>
@@ -180,15 +226,31 @@ export function MobileHeader({
           )}
         </View>
       </View>
+      <UserProfilePopup
+        onClose={() => setProfileUserId(null)}
+        userId={profileUserId}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   avatar: {
-    borderRadius: 9999,
-    height: 40,
-    width: 40,
+    borderRadius: 12,
+    height: 36,
+    width: 36,
+  },
+  avatarFrame: {
+    height: 36,
+    width: 36,
+  },
+  avatarRing: {
+    borderRadius: 12,
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   badge: {
     borderRadius: 9999,

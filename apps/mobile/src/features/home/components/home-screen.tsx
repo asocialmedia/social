@@ -24,6 +24,7 @@ export default function HomeScreen() {
           showUser && user
             ? {
                 avatarUrl: user.image ?? null,
+                id: user.id,
                 username: user.username ?? user.name,
               }
             : null
