@@ -65,7 +65,13 @@ export function InstallVerificationGate({
   return (
     <Modal
       animationType="fade"
-      onRequestClose={dismissGate}
+      onRequestClose={() => {
+        // Android back must not dismiss mid-verification, matching the
+        // disabled "Not now" button above.
+        if (!isVerifying) {
+          dismissGate();
+        }
+      }}
       transparent
       visible={isGateVisible}
     >
