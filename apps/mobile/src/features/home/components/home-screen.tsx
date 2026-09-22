@@ -4,7 +4,7 @@
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
 // keeps its own cached pages and scroll position.
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 
 import { useSessionContext } from "@/features/auth/state/session";
@@ -21,6 +21,7 @@ import {
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
+import { MobileBottomNav } from "./mobile-bottom-nav";
 import { MobileHeader, headerSlide } from "./mobile-header";
 
 export default function HomeScreen() {
@@ -35,6 +36,10 @@ export default function HomeScreen() {
   const storedHome = useTabStore((state) => state.home);
   const setHomeTab = useTabStore((state) => state.setHomeTab);
   const tab = resolveHomeTab(null, isLoggedIn, storedHome, memoryReady);
+  // The floating dock lifts above the guest bar when it is showing, so it
+  // never covers the bar's actions.
+  const [guestBarHeight, setGuestBarHeight] = useState(0);
+  const showGuestBar = !isPending && !user;
   const activeIndex = Math.max(
     0,
     HOME_TAB_DEFS.findIndex((entry) => entry.value === tab)
@@ -109,7 +114,16 @@ export default function HomeScreen() {
           </FeedPager>
         </View>
       </Animated.View>
-      {isPending || user ? null : <GuestAuthBar />}
+      {showGuestBar ? (
+        <View
+          onLayout={(event) => {
+            setGuestBarHeight(event.nativeEvent.layout.height);
+          }}
+        >
+          <GuestAuthBar />
+        </View>
+      ) : null}
+      <MobileBottomNav bottomOffset={showGuestBar ? guestBarHeight : 0} />
     </View>
   );
 }
