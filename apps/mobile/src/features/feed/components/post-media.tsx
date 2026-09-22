@@ -450,16 +450,49 @@ export function ModeratedNotice() {
   );
 }
 
-function ExplicitGate({ children }: { children: ReactNode }) {
+function ExplicitGate({
+  apiBase,
+  attachments,
+  children,
+}: {
+  apiBase: string;
+  attachments: FeedMedia[];
+  children: ReactNode;
+}) {
   const [revealed, setRevealed] = useState(false);
   if (revealed) {
     return children;
   }
+  // Concealment, not translucency: the live gallery (players included) is
+  // NOT mounted until consent. The backdrop is a heavily blurred still (or
+  // a dark wash when there is no visual attachment), under a full-area mask
+  // and the consent panel - so nothing protected is legible beforehand.
+  const cover = attachments.find((media) => !isAudioMedia(media));
+  let coverUri: string | null = null;
+  if (cover) {
+    coverUri = isVideoMedia(cover)
+      ? mediaPosterUrl(apiBase, cover.id)
+      : mediaGridImageUrl(apiBase, cover);
+  }
   return (
     <View style={styles.gateWrap}>
-      <View pointerEvents="none" style={styles.gateBlur}>
-        {children}
-      </View>
+      {coverUri ? (
+        <Image
+          accessibilityLabel=""
+          blurRadius={40}
+          contentFit="cover"
+          source={{ uri: coverUri }}
+          style={styles.gateBackdrop}
+        />
+      ) : (
+        <LinearGradient
+          colors={["#2a2d34", "#17181c"]}
+          end={{ x: 0.5, y: 1 }}
+          start={{ x: 0.5, y: 0 }}
+          style={styles.gateBackdrop}
+        />
+      )}
+      <View pointerEvents="none" style={styles.gateMask} />
       <View style={styles.gateOverlay}>
         <View
           style={[styles.gatePanel, { backgroundColor: "rgba(0, 0, 0, 0.4)" }]}
@@ -496,7 +529,11 @@ export function MediaGallery({
     <SingleOrGrid apiBase={apiBase} items={visible} onFailed={markFailed} />
   );
   if (explicitContent) {
-    return <ExplicitGate>{gallery}</ExplicitGate>;
+    return (
+      <ExplicitGate apiBase={apiBase} attachments={attachments}>
+        {gallery}
+      </ExplicitGate>
+    );
   }
   return gallery;
 }
@@ -575,7 +612,7 @@ function MediaGrid({
   // 4: the second tile spans two columns on top, two squares below.
   // 5+: a 2x2 block on the right; 6+ appends an overflow row.
   if (items.length === 4) {
-    const [wide, ...pair] = rest;
+    const [wide, ...pair] = [second, ...rest];
     return (
       <View style={styles.bento}>
         <View style={[styles.bentoRow, { aspectRatio: 3 / 2 }]}>
@@ -751,8 +788,12 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     lineHeight: 15,
   },
-  gateBlur: {
-    opacity: 0.6,
+  gateBackdrop: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   gateBody: {
     color: "#ffffff",
@@ -774,6 +815,14 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProBold",
     fontSize: 13,
     fontWeight: "normal",
+  },
+  gateMask: {
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   gateOverlay: {
     alignItems: "center",
@@ -798,6 +847,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   gateWrap: {
+    aspectRatio: 16 / 10,
+    borderRadius: 12,
+    minHeight: 200,
+    overflow: "hidden",
     position: "relative",
   },
   grid2: {

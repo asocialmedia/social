@@ -72,9 +72,15 @@ export default function HomeScreen() {
       <FeedTabs active={tab} onChange={handleTabChange} />
       <View style={styles.feed}>
         <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
-          {HOME_TAB_DEFS.map((def) => (
+          {HOME_TAB_DEFS.map((def, index) => (
+            // Only the visible tab fetches and probes: four parallel loops
+            // would burn mobile data and backend capacity for hidden tabs.
+            // Caches make switching back instant without refetching.
             <FeedList
-              enabled={def.value === "following" ? isLoggedIn : !isPending}
+              enabled={
+                index === activeIndex &&
+                (def.value === "following" ? isLoggedIn : !isPending)
+              }
               key={def.value}
               userId={user?.id}
               variant={def.value}

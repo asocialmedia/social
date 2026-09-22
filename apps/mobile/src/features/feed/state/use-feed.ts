@@ -70,15 +70,27 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   const entry = feedCache.get(cacheKey);
   const { error, hasMore, pages, status } = entry;
 
+  // External cache writes (view-count reconciles, invalidations from other
+  // tabs) must also rerender the list.
+  useEffect(() => feedCache.subscribe(() => setTick((value) => value + 1)), []);
+
   const runFetch = useCallback(
     async (mode: "append" | "replace", headCursor: string | null) => {
       if (fetchingRef.current) {
         return;
       }
       fetchingRef.current = true;
+      // Replacement over existing pages is a refresh; the very first load
+      // (no pages yet) stays "loading" so the skeleton renders.
+      let opening: "loading" | "loading-more" | "refreshing" = "refreshing";
+      if (mode === "append") {
+        opening = "loading-more";
+      } else if (feedCache.get(cacheKey).pages.length === 0) {
+        opening = "loading";
+      }
       feedCache.patch(cacheKey, {
         error: null,
-        status: mode === "append" ? "loading-more" : "refreshing",
+        status: opening,
       });
       setTick((value) => value + 1);
       try {

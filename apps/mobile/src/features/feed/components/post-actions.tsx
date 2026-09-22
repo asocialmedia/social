@@ -15,7 +15,7 @@ import {
   MoreHorizontal,
   Share2,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -69,9 +69,16 @@ export function VoteCluster({
   const { theme } = useAppTheme();
   const [aura, setAura] = useState(initialAura);
   const [userVote, setUserVote] = useState(initialVote);
+  // Mutation generation: rapid taps resolve out of order, so only the
+  // latest tap's response or rollback may touch state.
+  const generationRef = useRef(0);
 
   // Reconcile with the server snapshot on mount (web's vote-info query).
+  // Guests hold no vote state server-side, so there is nothing to read.
   useEffect(() => {
+    if (!viewerLoggedIn) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const context = await mutationContext();
@@ -86,13 +93,15 @@ export function VoteCluster({
     return () => {
       cancelled = true;
     };
-  }, [postId]);
+  }, [postId, viewerLoggedIn]);
 
   const cast = (value: 1 | -1) => {
     if (!viewerLoggedIn) {
       onRequireLogin();
       return;
     }
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
     const toggleOff = userVote === value;
     const target = toggleOff ? 0 : value;
     const previous = { aura, userVote };
@@ -103,9 +112,15 @@ export function VoteCluster({
       try {
         const context = await mutationContext();
         const info = await submitVote(postId, target, toggleOff, context);
+        if (generationRef.current !== generation) {
+          return;
+        }
         setAura(info.aura);
         setUserVote(info.userVote);
       } catch (error) {
+        if (generationRef.current !== generation) {
+          return;
+        }
         setAura(previous.aura);
         setUserVote(previous.userVote);
         logWarn("feed.vote_failed", {
@@ -171,8 +186,12 @@ export function BookmarkToggle({
 }: BookmarkToggleProps) {
   const { theme } = useAppTheme();
   const [bookmarked, setBookmarked] = useState(initialBookmarked);
+  const generationRef = useRef(0);
 
   useEffect(() => {
+    if (!viewerLoggedIn) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const context = await mutationContext();
@@ -185,13 +204,15 @@ export function BookmarkToggle({
     return () => {
       cancelled = true;
     };
-  }, [postId]);
+  }, [postId, viewerLoggedIn]);
 
   const toggle = () => {
     if (!viewerLoggedIn) {
       onRequireLogin();
       return;
     }
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
     const next = !bookmarked;
     setBookmarked(next);
     void (async () => {
@@ -199,6 +220,9 @@ export function BookmarkToggle({
         const context = await mutationContext();
         await submitBookmark(postId, next, context);
       } catch (error) {
+        if (generationRef.current !== generation) {
+          return;
+        }
         setBookmarked(!next);
         logWarn("feed.bookmark_failed", {
           reason: error instanceof Error ? error.message : String(error),

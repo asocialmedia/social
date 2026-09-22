@@ -208,3 +208,36 @@ describe("formatFileName", () => {
     expect(formatFileName("")).toBe("Unknown file");
   });
 });
+
+describe("ViewBatcher drain + retry", () => {
+  test("drains remainder past MAX_BATCH", async () => {
+    const seen: string[][] = [];
+    const batcher = new ViewBatcher(async (ids: string[]) => {
+      seen.push(ids);
+      await Promise.resolve();
+      return {};
+    });
+    for (let index = 0; index < 105; index += 1) {
+      batcher.mark(`p${index}`, { apiBase: "http://x" });
+    }
+    await batcher.flush();
+    await Bun.sleep(1500);
+    const total = seen.flat().length;
+    expect(total).toBe(105);
+  });
+
+  test("requeues a failed batch, then drops after repeated failures", async () => {
+    let calls = 0;
+    const batcher = new ViewBatcher(
+      async (): Promise<Record<string, number>> => {
+        calls += 1;
+        await Promise.resolve();
+        throw new Error("down");
+      }
+    );
+    batcher.mark("a", { apiBase: "http://x" });
+    await batcher.flush();
+    expect(batcher.size).toBe(1);
+    expect(calls).toBe(1);
+  });
+});

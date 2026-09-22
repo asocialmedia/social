@@ -15,6 +15,7 @@ interface BatcherOptions {
 }
 
 export class ViewBatcher {
+  private consecutiveFailures = 0;
   private latest: BatcherOptions | null = null;
   /** Called with reconciled counts after every flush (view-count display). */
   public onFlush: ((counts: Record<string, number>) => void) | null = null;
@@ -39,7 +40,13 @@ export class ViewBatcher {
       this.pending.push(postId);
     }
     this.latest = options;
-    if (!this.timer) {
+    this.scheduleFlush();
+  }
+
+  // Starts the flush timer only when none runs and work remains, so a slow
+  // request cannot stack parallel batches.
+  private scheduleFlush(): void {
+    if (!this.timer && this.pending.length > 0) {
       this.timer = setTimeout(() => {
         void this.flush();
       }, FLUSH_DELAY_MS);
@@ -57,11 +64,24 @@ export class ViewBatcher {
     }
     try {
       const counts = await this.submit(batch, this.latest);
+      this.consecutiveFailures = 0;
       this.onFlush?.(counts);
       return counts;
     } catch {
-      // View counts are best-effort telemetry; failures stay silent.
+      // Best-effort telemetry, but a transient failure must not silently
+      // drop the batch: requeue ahead of newer ids and retry on schedule.
+      // After repeated failures the endpoint is presumed down and the batch
+      // is dropped, so a dead backend cannot spin the radio forever.
+      if (this.consecutiveFailures < 3) {
+        this.consecutiveFailures += 1;
+        this.pending.unshift(
+          ...batch.filter((id) => !this.pending.includes(id))
+        );
+      }
       return {};
+    } finally {
+      // A batch caps at MAX_BATCH; keep draining while work remains.
+      this.scheduleFlush();
     }
   }
 

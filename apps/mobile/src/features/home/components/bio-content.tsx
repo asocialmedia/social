@@ -27,6 +27,7 @@ import { popupCache } from "./profile-cache";
 import { fetchLinkPreview } from "./profile-data";
 import type { BioSegment } from "./profile-utils";
 import {
+  clampBioSegments,
   getLinkPlatform,
   hostLabel,
   safeLinkUrl,
@@ -196,28 +197,11 @@ export function BioContent({
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
   const full = useMemo(() => segmentBioContent(bio), [bio]);
-  const { clamped, segments } = useMemo(() => {
+  const { clamped, visible: segments } = useMemo(() => {
     if (clampLength === undefined || expanded || bio.length <= clampLength) {
-      return { clamped: false, segments: full };
+      return { clamped: false, visible: full };
     }
-    let length = 0;
-    const visible: BioSegment[] = [];
-    for (const segment of full) {
-      let size = segment.type === "text" ? segment.text.length : 0;
-      if (segment.type === "url") {
-        size = segment.url.length;
-      } else if (segment.type === "mention") {
-        size = segment.username.length + 1;
-      } else if (segment.type === "tag") {
-        size = segment.tag.length + 1;
-      }
-      if (length + size > clampLength) {
-        break;
-      }
-      length += size;
-      visible.push(segment);
-    }
-    return { clamped: visible.length < full.length, segments: visible };
+    return clampBioSegments(full, clampLength);
   }, [bio, clampLength, expanded, full]);
   const [titles, setTitles] = useState<Record<string, string>>({});
 

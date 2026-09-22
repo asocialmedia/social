@@ -46,9 +46,10 @@ export function MobileHeader({
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
-  // A remote avatar that fails to load (bad URL, offline) falls back to the
-  // bundled placeholder instead of rendering an empty frame.
-  const [avatarFailed, setAvatarFailed] = useState(false);
+  // The URL that last failed to load. A boolean would stick forever: a new
+  // (valid) URL must render normally, which comparing against the failed
+  // one guarantees without key-remount tricks.
+  const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
   const iconShadows = isDark
     ? ICON_BUTTON_SHADOWS_DARK
     : ICON_BUTTON_SHADOWS_LIGHT;
@@ -86,10 +87,10 @@ export function MobileHeader({
                   key={avatarUri ?? "placeholder"}
                   onError={() => {
                     logWarn("profile.header_avatar_failed", {});
-                    setAvatarFailed(true);
+                    setFailedAvatarUri(avatarUri);
                   }}
                   source={
-                    avatarUri && !avatarFailed
+                    avatarUri && avatarUri !== failedAvatarUri
                       ? { uri: avatarUri }
                       : avatarPlaceholder
                   }

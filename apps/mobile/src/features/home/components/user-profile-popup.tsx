@@ -160,7 +160,8 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
   const { isDark, theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { signOut } = useSessionContext();
-  const { state }: { state: PopupDataState } = usePopupProfile(userId);
+  const { reload, state }: { reload: () => void; state: PopupDataState } =
+    usePopupProfile(userId);
   const [badgesOpen, setBadgesOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -187,6 +188,12 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
     // The next account must never see this one's cached popup.
     popupCache.clear();
     void signOut();
+  };
+
+  const openLogoutDialog = () => {
+    // Keep the popup mounted: the confirm dialog renders inside it, so
+    // closing first would unmount the dialog before it ever appears.
+    setLogoutOpen(true);
   };
 
   const profile = state.status === "ready" ? state.profile : null;
@@ -249,11 +256,11 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
               </View>
               <Pressable
                 hitSlop={6}
-                onPress={() => onClose()}
+                onPress={() => reload()}
                 style={styles.retryRow}
               >
                 <Text style={[styles.retryText, { color: theme.auxLink }]}>
-                  Close
+                  Try again
                 </Text>
               </Pressable>
             </View>
@@ -469,8 +476,7 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                   accessibilityRole="button"
                   hitSlop={6}
                   onPress={() => {
-                    onClose();
-                    setLogoutOpen(true);
+                    openLogoutDialog();
                   }}
                 >
                   {({ pressed }) => (

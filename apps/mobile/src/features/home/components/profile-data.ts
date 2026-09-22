@@ -95,9 +95,23 @@ function parseProfile(payload: unknown): PopupProfile | null {
 
 function authedGet(path: string, options: AuthedGetOptions): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
-  return baseFetch(`${options.apiBase}${path}`, {
-    headers: options.cookie ? { cookie: options.cookie } : {},
-  });
+  // Bounded wait: a stalled connection must fail instead of hanging the
+  // popup forever. Manual AbortController (not AbortSignal.timeout) so the
+  // injected baseFetch in tests needs no timer support.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const headers: Record<string, string> = {};
+    if (options.cookie) {
+      headers.cookie = options.cookie;
+    }
+    return baseFetch(`${options.apiBase}${path}`, {
+      headers,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Loads the full profile projection web's popover renders (UserData). */

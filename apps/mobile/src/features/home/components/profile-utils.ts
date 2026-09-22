@@ -636,3 +636,30 @@ export function parseLinkPreview(payload: unknown): BioLinkPreview | null {
   }
   return { title: title.trim() };
 }
+
+// Cuts segments to a character budget at segment boundaries so pills never
+// split. The first segment is always admitted, even when it alone exceeds
+// the budget: otherwise a single long URL would clamp to an empty body.
+export function clampBioSegments(
+  segments: BioSegment[],
+  limit: number
+): { clamped: boolean; visible: BioSegment[] } {
+  let length = 0;
+  const visible: BioSegment[] = [];
+  for (const segment of segments) {
+    let size = segment.type === "text" ? segment.text.length : 0;
+    if (segment.type === "url") {
+      size = segment.url.length;
+    } else if (segment.type === "mention") {
+      size = segment.username.length + 1;
+    } else if (segment.type === "tag") {
+      size = segment.tag.length + 1;
+    }
+    if (visible.length > 0 && length + size > limit) {
+      break;
+    }
+    length += size;
+    visible.push(segment);
+  }
+  return { clamped: visible.length < segments.length, visible };
+}

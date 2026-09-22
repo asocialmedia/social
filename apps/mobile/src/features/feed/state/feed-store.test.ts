@@ -83,3 +83,22 @@ describe("FeedCache", () => {
     expect(cache.get("a").status).toBe("idle");
   });
 });
+
+describe("FeedCache.updatePostEverywhere", () => {
+  test("patches one post across tabs and notifies", () => {
+    const cache = new FeedCache();
+    cache.applyPage("a", [post("x")], null, {}, false);
+    cache.applyPage("b", [post("x")], null, {}, false);
+    let notifications = 0;
+    const stop = cache.subscribe(() => {
+      notifications += 1;
+    });
+    cache.updatePostEverywhere("x", { viewCount: 42 });
+    expect(cache.get("a").pages[0]?.[0]?.viewCount).toBe(42);
+    expect(cache.get("b").pages[0]?.[0]?.viewCount).toBe(42);
+    expect(notifications).toBe(1);
+    stop();
+    cache.updatePostEverywhere("x", { viewCount: 43 });
+    expect(notifications).toBe(1);
+  });
+});

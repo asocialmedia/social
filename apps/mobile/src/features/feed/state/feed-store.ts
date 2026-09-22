@@ -64,11 +64,26 @@ export function prependPosts(
 }
 
 export class FeedCache {
+  private listeners = new Set<() => void>();
   private now: () => number;
   private tabs = new Map<string, TabFeed>();
 
   constructor(now: () => number = Date.now) {
     this.now = now;
+  }
+
+  /** Subscribe to cache writes (view-count reconciles included). */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   private prune(): void {
@@ -91,6 +106,7 @@ export class FeedCache {
   patch(key: string, partial: Partial<TabFeed>): TabFeed {
     const next = { ...this.get(key), ...partial, fetchedAt: this.now() };
     this.tabs.set(key, next);
+    this.notify();
     return next;
   }
 
@@ -117,20 +133,25 @@ export class FeedCache {
 
   /** Patches one post everywhere it is cached (view-count reconcile). */
   updatePostEverywhere(postId: string, partial: Partial<FeedPost>): void {
+    let changed = false;
     for (const [key, feed] of this.tabs) {
-      let changed = false;
+      let tabChanged = false;
       const pages = feed.pages.map((page) =>
         page.map((post) => {
           if (post.id !== postId) {
             return post;
           }
-          changed = true;
+          tabChanged = true;
           return { ...post, ...partial };
         })
       );
-      if (changed) {
+      if (tabChanged) {
+        changed = true;
         this.tabs.set(key, { ...feed, pages });
       }
+    }
+    if (changed) {
+      this.notify();
     }
   }
 
@@ -139,12 +160,14 @@ export class FeedCache {
     for (const [key, feed] of this.tabs) {
       this.tabs.set(key, { ...feed, stale: true });
     }
+    this.notify();
   }
 
   invalidate(key: string): void {
     const feed = this.tabs.get(key);
     if (feed) {
       this.tabs.set(key, { ...feed, stale: true });
+      this.notify();
     }
   }
 

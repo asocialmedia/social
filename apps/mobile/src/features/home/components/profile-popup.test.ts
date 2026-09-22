@@ -12,6 +12,7 @@ import {
 } from "./profile-data";
 import {
   badgeRank,
+  clampBioSegments,
   formatJoinedDate,
   formatNumber,
   getAuraFlameStyle,
@@ -515,5 +516,28 @@ describe("fetchLinkPreview", () => {
         baseFetch: jsonFetch({}, 500),
       })
     ).resolves.toBeNull();
+  });
+});
+
+describe("clampBioSegments", () => {
+  test("admits the first segment even past the limit", () => {
+    const long = segmentBioContent("https://example.com/a-very-long-url-here");
+    const { clamped, visible } = clampBioSegments(long, 10);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]).toEqual({
+      type: "url",
+      url: "https://example.com/a-very-long-url-here",
+    });
+    expect(clamped).toBe(false);
+  });
+
+  test("cuts later segments at the boundary", () => {
+    const segments = segmentBioContent("hi @octo see this");
+    const { clamped, visible } = clampBioSegments(segments, 8);
+    expect(visible).toEqual([
+      { text: "hi ", type: "text" },
+      { type: "mention", username: "octo" },
+    ]);
+    expect(clamped).toBe(true);
   });
 });
