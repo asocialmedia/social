@@ -70,12 +70,14 @@ export async function GET(
         if (!event) {
           return;
         }
-        // A user's own typing/read echoes carry no information on their own
-        // stream; drop them before the fan-out so every open tab on this
-        // conversation skips the redundant work.
+        // A user's own typing/read/keys echoes carry no information on their
+        // own stream; drop them before the fan-out so every open tab on this
+        // conversation skips the redundant work. (The actor already refetched
+        // its own detail via the composer's explicit invalidation.)
         if (
           (event.kind === "typing.started" ||
-            event.kind === "conversation.read") &&
+            event.kind === "conversation.read" ||
+            event.kind === "keys.rotated") &&
           event.userId === user.id
         ) {
           return;

@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { prisma, publishMessageKeysRotated } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
@@ -88,10 +88,20 @@ export async function POST(
   // Create-only: a wrapped key may never be overwritten. Once a key exists for
   // an (owner, version) it is immutable, so a re-run (heal path, concurrent
   // retry) is a no-op instead of replacing the ciphertext the peer relies on.
-  await prisma.messageConversationKey.createMany({
+  const result = await prisma.messageConversationKey.createMany({
     data: rows as NonNullable<(typeof rows)[number]>[],
     skipDuplicates: true,
   });
+
+  // Tell the peer's open threads to refetch the conversation detail. A new
+  // epoch means their cached wraps are stale and every new message would fail
+  // to decrypt until a reload. Only announce when rows were actually written:
+  // an idempotent re-run has nothing new for the peer to pick up. Publishing is
+  // best-effort (the peer's retry-on-error path still heals without it), so a
+  // pub/sub failure must not fail the key write.
+  if (result.count > 0) {
+    await publishMessageKeysRotated(id, user.id);
+  }
 
   return Response.json({ ok: true });
 }

@@ -17,6 +17,7 @@ const mockFindFirst = mock(() =>
   maxVersion > 0 ? { version: maxVersion } : null
 );
 const mockCreateMany = mock(() => ({ count: 1 }));
+const mockPublishKeysRotated = mock(() => Promise.resolve());
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
@@ -34,6 +35,7 @@ mock.module("@asm/db", () => ({
       findFirst: mockFindFirst,
     },
   },
+  publishMessageKeysRotated: mockPublishKeysRotated,
 }));
 
 function keyBody(version?: number) {
@@ -69,6 +71,8 @@ describe("POST /api/messages/conversations/:id/keys", () => {
     mockFindFirst.mockClear();
     mockGetSession.mockClear();
     mockGetConversation.mockClear();
+    mockPublishKeysRotated.mockClear();
+    mockCreateMany.mockReturnValue({ count: 1 });
     mockGetSession.mockReturnValue({ user: { id: "user1" } });
     mockGetConversation.mockImplementation(
       (conversationId: string, userId: string) =>
@@ -127,5 +131,25 @@ describe("POST /api/messages/conversations/:id/keys", () => {
     });
     expect(res.status).toBe(400);
     expect(mockCreateMany).not.toHaveBeenCalled();
+  });
+
+  test("announces a rotation when new wraps are written", async () => {
+    // The peer's open thread relies on this to refetch the detail; without it
+    // their cached wraps go stale and every new message fails to decrypt.
+    maxVersion = 1;
+    const res = await post(keyBody(2));
+    expect(res.status).toBe(200);
+    expect(mockPublishKeysRotated).toHaveBeenCalledTimes(1);
+    expect(mockPublishKeysRotated).toHaveBeenCalledWith("convo-1", "user1");
+  });
+
+  test("stays silent when the write was an idempotent no-op", async () => {
+    // createMany with skipDuplicates reports 0 for an already-present wrap:
+    // there is nothing new for the peer to pick up, so no event is published.
+    maxVersion = 1;
+    mockCreateMany.mockReturnValue({ count: 0 });
+    const res = await post(keyBody(2));
+    expect(res.status).toBe(200);
+    expect(mockPublishKeysRotated).not.toHaveBeenCalled();
   });
 });
