@@ -1,3 +1,4 @@
+import { LinearGradient } from "expo-linear-gradient";
 // Post action bar pieces, ported from web's posts/actions cluster
 // (aura-vote-button, bookmark-button) plus the presentational buttons
 // (comment/respond/views/share/more). Vote and bookmark mutate optimistically
@@ -44,6 +45,18 @@ async function mutationContext(): Promise<MutationContext> {
   return { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() };
 }
 
+// `.vote-btn-up` / `.vote-btn-down` 3D dual-border shadows, light + dark.
+// Resting vote buttons are bare (web's idle state); the gradient + ring only
+// applies while the vote is active.
+const VOTE_UP_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+const VOTE_UP_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+const VOTE_DOWN_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(70, 40, 170, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+const VOTE_DOWN_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
 function ActionLabel({ children }: { children: string }) {
   const { theme } = useAppTheme();
   return (
@@ -53,6 +66,9 @@ function ActionLabel({ children }: { children: string }) {
 
 interface VoteClusterProps {
   aura: number;
+  // When set, the vote targets a comment eddie instead of a post, sharing
+  // the optimistic flow against /api/comments/:id/vote like web.
+  commentId?: string;
   onRequireLogin: () => void;
   postId: string;
   userVote: number;
@@ -61,12 +77,13 @@ interface VoteClusterProps {
 
 export function VoteCluster({
   aura: initialAura,
+  commentId,
   onRequireLogin,
   postId,
   userVote: initialVote,
   viewerLoggedIn,
 }: VoteClusterProps) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const [aura, setAura] = useState(initialAura);
   const [userVote, setUserVote] = useState(initialVote);
   // Mutation generation: rapid taps resolve out of order, so only the
@@ -82,7 +99,7 @@ export function VoteCluster({
     let cancelled = false;
     void (async () => {
       const context = await mutationContext();
-      const info = await fetchVoteInfo(postId, context);
+      const info = await fetchVoteInfo(postId, context, commentId);
       if (!cancelled && info) {
         // oxlint-disable-next-line react/set-state-in-effect -- server reconciliation after mount, not derivable during render
         setAura(info.aura);
@@ -93,7 +110,7 @@ export function VoteCluster({
     return () => {
       cancelled = true;
     };
-  }, [postId, viewerLoggedIn]);
+  }, [commentId, postId, viewerLoggedIn]);
 
   const cast = (value: 1 | -1) => {
     if (!viewerLoggedIn) {
@@ -111,7 +128,13 @@ export function VoteCluster({
     void (async () => {
       try {
         const context = await mutationContext();
-        const info = await submitVote(postId, target, toggleOff, context);
+        const info = await submitVote(
+          postId,
+          target,
+          toggleOff,
+          context,
+          commentId
+        );
         if (generationRef.current !== generation) {
           return;
         }
@@ -135,39 +158,87 @@ export function VoteCluster({
   const downActive = userVote === -1;
   return (
     <View style={styles.voteCluster}>
-      <Pressable
-        accessibilityLabel="Amplify"
-        accessibilityRole="button"
-        hitSlop={6}
+      <VoteButton
+        active={upActive}
+        colors={["#ff9500", "#e65500"]}
+        label="Amplify"
         onPress={() => cast(1)}
-        style={[styles.voteBtn, upActive && { backgroundColor: "#ff9500" }]}
+        shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
       >
         <ArrowBigUp
           color={upActive ? "#ffffff" : theme.dividerText}
           fill={upActive ? "#ffffff" : "none"}
           size={16}
         />
-      </Pressable>
+      </VoteButton>
       <Flame
         color={flame.color}
         fill={flame.filled ? flame.color : "none"}
         size={16}
       />
       <ActionLabel>{formatNumber(aura)}</ActionLabel>
-      <Pressable
-        accessibilityLabel="Mute"
-        accessibilityRole="button"
-        hitSlop={6}
+      <VoteButton
+        active={downActive}
+        colors={["#7c5cff", "#5a3ae0"]}
+        label="Mute"
         onPress={() => cast(-1)}
-        style={[styles.voteBtn, downActive && { backgroundColor: "#8b5cf6" }]}
+        shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
       >
         <ArrowBigDown
           color={downActive ? "#ffffff" : theme.dividerText}
           fill={downActive ? "#ffffff" : "none"}
           size={16}
         />
-      </Pressable>
+      </VoteButton>
     </View>
+  );
+}
+
+function VoteButton({
+  active,
+  children,
+  colors,
+  label,
+  onPress,
+  shadows,
+}: {
+  active: boolean;
+  children: ReactNode;
+  colors: [string, string];
+  label: string;
+  onPress: () => void;
+  shadows: string;
+}) {
+  if (!active) {
+    return (
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        hitSlop={6}
+        onPress={onPress}
+        style={styles.voteBtn}
+      >
+        {children}
+      </Pressable>
+    );
+  }
+  return (
+    <LinearGradient
+      colors={colors}
+      end={{ x: 0.5, y: 1 }}
+      start={{ x: 0.5, y: 0 }}
+      style={[styles.voteBtn, { boxShadow: shadows }]}
+    >
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        hitSlop={6}
+        onPress={onPress}
+        style={styles.votePress}
+      >
+        {children}
+      </Pressable>
+    </LinearGradient>
   );
 }
 
@@ -396,5 +467,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 2,
+  },
+  votePress: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
   },
 });

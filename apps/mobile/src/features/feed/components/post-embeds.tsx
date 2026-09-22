@@ -3,8 +3,16 @@
 // ResponseParentRow, HNStoryCard and CommunityShareCard (post-card.tsx).
 // Navigation targets have no mobile screens yet, so rows are static.
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
-import { ArrowUpRight, ImageOff } from "lucide-react-native";
+import {
+  ArrowUpRight,
+  ImageOff,
+  Link2,
+  MessageCircle,
+  ThumbsUp,
+  User,
+} from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -18,6 +26,22 @@ import {
 import { formatRelativeDate } from "../lib/feed-types";
 import type { FeedPost } from "../lib/feed-types";
 import { mediaGridImageUrl } from "../lib/media-url";
+
+// `.hn-story-solid` panel shadows, light + dark.
+const HN_CARD_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 1px 2px rgba(255, 255, 255, 0.95), inset 0 -1px 2px rgba(154, 52, 18, 0.05), 0 1px 2px rgba(154, 52, 18, 0.05), 0 3px 8px rgba(154, 52, 18, 0.06)";
+const HN_CARD_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 2px rgba(255, 255, 255, 0.04), inset 0 -1px 2px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.15)";
+
+// `.hn-chip` resting shadows, light + dark.
+const HN_CHIP_SHADOWS =
+  "inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 1px 1px rgba(154, 52, 18, 0.06)";
+const HN_CHIP_SHADOWS_DARK =
+  "inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 1px 1px rgba(0, 0, 0, 0.2)";
+
+// Gradient Y mark: inner highlight + warm drop.
+const HN_MARK_SHADOWS =
+  "inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 1px 2px rgba(154, 52, 18, 0.3)";
 
 export function ResponseParentRow({ post }: { post: FeedPost }) {
   const { theme } = useAppTheme();
@@ -112,74 +136,193 @@ function openExternalUrl(url: string | undefined): void {
   }
 }
 
+function hnDomain(url: string | null | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+// Hacker News reshare card: 1:1 port of web's HNStoryCard. Orange-tinted
+// gradient panel, gradient Y mark with the eyebrow left and the story time
+// right, title row with a domain chip, icon stat chips, and a split footer
+// (Browse HN / View original).
 export function HNStoryCard({ post }: { post: FeedPost }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const story = post.hnStoryShare;
   if (!story) {
     return null;
   }
+  const accent = isDark ? "#fdba74" : "#c2410c";
+  const domain = hnDomain(story.url);
   return (
     <View
       style={[
         styles.hnCard,
-        { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+        {
+          borderColor: isDark
+            ? "rgba(251, 146, 60, 0.16)"
+            : "rgba(234, 88, 12, 0.18)",
+          boxShadow: isDark ? HN_CARD_SHADOWS_DARK : HN_CARD_SHADOWS,
+        },
       ]}
     >
-      <View style={styles.hnHead}>
-        <View style={styles.hnMark}>
-          <Text style={styles.hnMarkText}>Y</Text>
-        </View>
-        <Text style={[styles.hnEyebrow, { color: theme.dividerText }]}>
-          Hacker News · {hnTimeAgo(story.time)}
-        </Text>
-      </View>
-      <Pressable onPress={() => openExternalUrl(story.url)}>
-        <Text
-          numberOfLines={2}
-          style={[styles.hnTitle, { color: theme.inputText }]}
-        >
-          {story.title}
-        </Text>
-      </Pressable>
-      <View style={styles.hnChips}>
-        {story.by ? (
-          <Text style={[styles.hnChip, { color: theme.dividerText }]}>
-            by {story.by}
-          </Text>
-        ) : null}
-        {typeof story.score === "number" ? (
-          <Text style={[styles.hnChip, { color: theme.dividerText }]}>
-            {story.score} pts
-          </Text>
-        ) : null}
-        {typeof story.descendants === "number" ? (
-          <Text style={[styles.hnChip, { color: theme.dividerText }]}>
-            {story.descendants} comments
-          </Text>
-        ) : null}
-      </View>
-      <View
-        style={[styles.hnFooter, { borderTopColor: "rgba(255, 149, 0, 0.15)" }]}
+      <LinearGradient
+        colors={isDark ? ["#4a2410", "#3a1a0c"] : ["#fff7ed", "#ffedd5"]}
+        end={{ x: 0.5, y: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        style={styles.hnGradient}
       >
-        <Pressable
-          onPress={() =>
-            openExternalUrl(
-              story.storyId === undefined
-                ? undefined
-                : `https://news.ycombinator.com/item?id=${story.storyId}`
-            )
-          }
+        <View style={styles.hnHead}>
+          <View style={styles.hnHeadLeft}>
+            <LinearGradient
+              colors={["#ff9500", "#e65500"]}
+              end={{ x: 0.5, y: 1 }}
+              start={{ x: 0.5, y: 0 }}
+              style={[styles.hnMark, { boxShadow: HN_MARK_SHADOWS }]}
+            >
+              <Text style={styles.hnMarkText}>Y</Text>
+            </LinearGradient>
+            <Text style={[styles.hnEyebrow, { color: accent }]}>
+              Hacker News
+            </Text>
+          </View>
+          <Text style={[styles.hnTime, { color: theme.dividerText }]}>
+            {hnTimeAgo(story.time)}
+          </Text>
+        </View>
+        <View style={styles.hnTitleRow}>
+          <Pressable
+            onPress={() => openExternalUrl(story.url)}
+            style={styles.hnTitlePress}
+          >
+            <Text
+              numberOfLines={2}
+              style={[styles.hnTitle, { color: theme.inputText }]}
+            >
+              {story.title}
+            </Text>
+          </Pressable>
+          {domain ? (
+            <View
+              style={[
+                styles.hnChip,
+                styles.hnDomain,
+                {
+                  backgroundColor: "rgba(255, 149, 0, 0.12)",
+                  borderColor: isDark
+                    ? "rgba(251, 146, 60, 0.15)"
+                    : "rgba(234, 88, 12, 0.18)",
+                  boxShadow: isDark ? HN_CHIP_SHADOWS_DARK : HN_CHIP_SHADOWS,
+                },
+              ]}
+            >
+              <Link2 color={accent} size={12} />
+              <Text
+                numberOfLines={1}
+                style={[styles.hnChipText, { color: accent }]}
+              >
+                {domain}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.hnChips}>
+          {story.by ? (
+            <View
+              style={[
+                styles.hnChip,
+                {
+                  backgroundColor: "rgba(255, 149, 0, 0.12)",
+                  borderColor: isDark
+                    ? "rgba(251, 146, 60, 0.15)"
+                    : "rgba(234, 88, 12, 0.18)",
+                  boxShadow: isDark ? HN_CHIP_SHADOWS_DARK : HN_CHIP_SHADOWS,
+                },
+              ]}
+            >
+              <User color={accent} size={12} />
+              <Text
+                numberOfLines={1}
+                style={[styles.hnChipText, styles.hnBy, { color: accent }]}
+              >
+                {story.by}
+              </Text>
+            </View>
+          ) : null}
+          {typeof story.score === "number" ? (
+            <View
+              style={[
+                styles.hnChip,
+                {
+                  backgroundColor: "rgba(255, 149, 0, 0.12)",
+                  borderColor: isDark
+                    ? "rgba(251, 146, 60, 0.15)"
+                    : "rgba(234, 88, 12, 0.18)",
+                  boxShadow: isDark ? HN_CHIP_SHADOWS_DARK : HN_CHIP_SHADOWS,
+                },
+              ]}
+            >
+              <ThumbsUp color={accent} size={12} />
+              <Text style={[styles.hnChipText, { color: accent }]}>
+                {story.score} pts
+              </Text>
+            </View>
+          ) : null}
+          {typeof story.descendants === "number" ? (
+            <Pressable
+              onPress={() =>
+                openExternalUrl(
+                  story.storyId === undefined
+                    ? undefined
+                    : `https://news.ycombinator.com/item?id=${story.storyId}`
+                )
+              }
+              style={[
+                styles.hnChip,
+                {
+                  backgroundColor: "rgba(255, 149, 0, 0.12)",
+                  borderColor: isDark
+                    ? "rgba(251, 146, 60, 0.15)"
+                    : "rgba(234, 88, 12, 0.18)",
+                  boxShadow: isDark ? HN_CHIP_SHADOWS_DARK : HN_CHIP_SHADOWS,
+                },
+              ]}
+            >
+              <MessageCircle color={accent} size={12} />
+              <Text style={[styles.hnChipText, { color: accent }]}>
+                {story.descendants}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View
+          style={[
+            styles.hnFooter,
+            { borderTopColor: "rgba(249, 115, 22, 0.15)" },
+          ]}
         >
-          <Text style={[styles.hnLink, { color: theme.auxLink }]}>
-            Browse HN
-          </Text>
-        </Pressable>
-        <Pressable onPress={() => openExternalUrl(story.url)}>
-          <Text style={[styles.hnLink, { color: theme.auxLink }]}>
-            View original
-          </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            onPress={() => openExternalUrl("https://news.ycombinator.com")}
+            style={styles.hnFooterLink}
+          >
+            <Text style={[styles.hnLink, { color: accent }]}>Browse HN →</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => openExternalUrl(story.url)}
+            style={styles.hnFooterLink}
+          >
+            <ArrowUpRight color={accent} size={14} />
+            <Text style={[styles.hnLink, { color: accent }]}>
+              View original
+            </Text>
+          </Pressable>
+        </View>
+      </LinearGradient>
     </View>
   );
 }
@@ -230,42 +373,76 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "normal",
   },
+  hnBy: {
+    maxWidth: 80,
+  },
   hnCard: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    gap: 6,
     marginTop: 12,
     overflow: "hidden",
-    padding: 12,
   },
   hnChip: {
-    fontFamily: "SofiaProReg",
-    fontSize: 11,
+    alignItems: "center",
+    borderRadius: 9999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  hnChipText: {
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
     fontWeight: "normal",
   },
   hnChips: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 6,
+    marginTop: 2,
+  },
+  hnDomain: {
+    flexShrink: 0,
+    marginTop: 2,
+    maxWidth: "40%",
   },
   hnEyebrow: {
-    fontFamily: "SofiaProMed",
-    fontSize: 11,
+    fontFamily: "SofiaProBold",
+    fontSize: 10,
     fontWeight: "normal",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
     textTransform: "uppercase",
   },
   hnFooter: {
+    alignItems: "center",
     borderTopWidth: 1,
     flexDirection: "row",
-    gap: 16,
-    marginTop: 4,
+    justifyContent: "space-between",
+    marginTop: 2,
     paddingTop: 6,
+  },
+  hnFooterLink: {
+    alignItems: "center",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  hnGradient: {
+    gap: 6,
+    padding: 12,
   },
   hnHead: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 6,
+    justifyContent: "space-between",
+  },
+  hnHeadLeft: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
   },
   hnLink: {
     fontFamily: "SofiaProMed",
@@ -274,11 +451,10 @@ const styles = StyleSheet.create({
   },
   hnMark: {
     alignItems: "center",
-    backgroundColor: "#ff6600",
-    borderRadius: 4,
-    height: 16,
+    borderRadius: 6,
+    height: 20,
     justifyContent: "center",
-    width: 16,
+    width: 20,
   },
   hnMarkText: {
     color: "#ffffff",
@@ -286,14 +462,28 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "normal",
   },
+  hnTime: {
+    fontFamily: "SofiaProReg",
+    fontSize: 11,
+    fontWeight: "normal",
+  },
   hnTitle: {
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
-    lineHeight: 18,
+    lineHeight: 19,
+  },
+  hnTitlePress: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hnTitleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
   },
   parentAvatar: {
-    borderRadius: 9999,
+    borderRadius: 12,
     height: 36,
     width: 36,
     zIndex: 1,

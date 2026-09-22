@@ -8,6 +8,7 @@
 // calls neither.
 
 export interface FeedMedia {
+  aiGenerated?: boolean | null;
   altText?: string | null;
   blurDataUrl?: string | null;
   height?: number | null;

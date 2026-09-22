@@ -73,6 +73,12 @@ export function FeedSkeleton() {
   );
 }
 
+// Single post-shaped placeholder for the pagination footer: web's
+// LoadMoreSkeleton renders two of these while the next page loads.
+export function FeedSkeletonCard() {
+  return <SkeletonCard />;
+}
+
 const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
@@ -80,7 +86,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   avatar: {
-    borderRadius: 9999,
+    borderRadius: 12,
     height: 40,
     width: 40,
   },

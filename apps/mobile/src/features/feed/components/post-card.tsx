@@ -35,6 +35,7 @@ import {
   isBookmarkedByUser,
   getUserVote,
 } from "../lib/feed-types";
+import { parseStoredEmbeds } from "../lib/link-embeds";
 import {
   BookmarkToggle,
   CommentButton,
@@ -50,7 +51,8 @@ import {
   HNStoryCard,
   ResponseParentRow,
 } from "./post-embeds";
-import { MediaGallery, ModeratedNotice } from "./post-media";
+import { PostLinkEmbeds } from "./post-link-embeds";
+import { ExplicitGate, MediaGallery, ModeratedNotice } from "./post-media";
 
 // Content past this length collapses behind Show more, mirroring web's
 // ~6-line clamp. BioContent cuts at segment boundaries so pills never split.
@@ -176,6 +178,13 @@ export function PostCard({
   );
   const hasMeta = extraTags.length > 0 || extraMentions.length > 0;
   const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+  // Stored link embeds (YouTube facade + OG cards) render below the media
+  // in one gated column, like web's mediaAndEmbeds block.
+  const linkEmbeds = useMemo(
+    () => parseStoredEmbeds(post.embeds),
+    [post.embeds]
+  );
+  const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
   const commentCount = post._count?.comments ?? 0;
   const responseCount = post._count?.responses ?? 0;
 
@@ -255,7 +264,11 @@ export function PostCard({
                 {formatRelativeDate(post.createdAt)}
               </Text>
             </View>
-            <MoreButton onPress={() => onMore(post)} />
+            {/* Web's header buttons carry -my-1 so the text row sets the row
+                height and the name stays top-aligned with the avatar. */}
+            <View style={styles.moreFix}>
+              <MoreButton onPress={() => onMore(post)} />
+            </View>
           </View>
 
           {post.moderated ? (
@@ -297,13 +310,40 @@ export function PostCard({
               {post.hnStoryShare ? <HNStoryCard post={post} /> : null}
               {post.communityShare ? <CommunityShareCard post={post} /> : null}
 
-              {attachments.length > 0 ? (
-                <View style={styles.media}>
-                  <MediaGallery
-                    apiBase={apiBase}
-                    attachments={attachments}
-                    explicitContent={post.explicitContent}
-                  />
+              {hasMediaOrEmbeds ? (
+                <View
+                  style={[
+                    styles.media,
+                    // Web's media rule: a roomier top gap only when the post
+                    // opens straight into attachment media.
+                    { marginTop: post.content?.trim() ? 10 : 14 },
+                  ]}
+                >
+                  {post.explicitContent ? (
+                    <ExplicitGate apiBase={apiBase} attachments={attachments}>
+                      <View style={styles.mediaColumn}>
+                        {attachments.length > 0 ? (
+                          <MediaGallery
+                            apiBase={apiBase}
+                            attachments={attachments}
+                            postId={post.id}
+                          />
+                        ) : null}
+                        <PostLinkEmbeds apiBase={apiBase} embeds={linkEmbeds} />
+                      </View>
+                    </ExplicitGate>
+                  ) : (
+                    <View style={styles.mediaColumn}>
+                      {attachments.length > 0 ? (
+                        <MediaGallery
+                          apiBase={apiBase}
+                          attachments={attachments}
+                          postId={post.id}
+                        />
+                      ) : null}
+                      <PostLinkEmbeds apiBase={apiBase} embeds={linkEmbeds} />
+                    </View>
+                  )}
                   {showAlt
                     ? attachments
                         .filter((media) => media.altText)
@@ -348,12 +388,18 @@ export function PostCard({
               />
             </View>
           </View>
-
-          {showComments ? (
-            <PostComments postId={post.id} viewerId={viewerId} />
-          ) : null}
         </View>
       </View>
+
+      {/* Eddies own the full card width below the body (web's FeedComments
+          sits outside the padded content column, not indented by the rail). */}
+      {showComments ? (
+        <PostComments
+          postId={post.id}
+          tight={hasThreadChild}
+          viewerId={viewerId}
+        />
+      ) : null}
     </View>
   );
 }
@@ -460,12 +506,18 @@ const styles = StyleSheet.create({
   media: {
     marginTop: 10,
   },
+  mediaColumn: {
+    gap: 10,
+  },
   meta: {
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
     marginTop: 10,
+  },
+  moreFix: {
+    marginVertical: -4,
   },
   name: {
     flexShrink: 1,

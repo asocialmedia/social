@@ -117,14 +117,21 @@ function parseVoteInfo(payload: unknown): VoteInfo | null {
   return { aura: data.aura, userVote: data.userVote };
 }
 
+// Posts vote on /api/posts/:id/votes; eddies share the flow against
+// /api/comments/:id/vote, exactly like web's AuraVoteButton with commentId.
+function voteEndpoint(postId: string, commentId?: string): string {
+  if (commentId) {
+    return `/api/comments/${encodeURIComponent(commentId)}/vote`;
+  }
+  return `/api/posts/${encodeURIComponent(postId)}/votes`;
+}
+
 export async function fetchVoteInfo(
   postId: string,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  commentId?: string
 ): Promise<VoteInfo | null> {
-  const response = await callFeedApi(
-    `/api/posts/${encodeURIComponent(postId)}/votes`,
-    options
-  );
+  const response = await callFeedApi(voteEndpoint(postId, commentId), options);
   if (!response.ok) {
     return null;
   }
@@ -136,16 +143,14 @@ export async function submitVote(
   postId: string,
   value: 1 | -1 | 0,
   isToggleOff: boolean,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  commentId?: string
 ): Promise<VoteInfo> {
-  const response = await callFeedApi(
-    `/api/posts/${encodeURIComponent(postId)}/votes`,
-    {
-      ...options,
-      body: isToggleOff ? undefined : JSON.stringify({ value }),
-      method: isToggleOff ? "DELETE" : "POST",
-    }
-  );
+  const response = await callFeedApi(voteEndpoint(postId, commentId), {
+    ...options,
+    body: isToggleOff ? undefined : JSON.stringify({ value }),
+    method: isToggleOff ? "DELETE" : "POST",
+  });
   if (!response.ok) {
     throw new FeedApiError(
       `Vote request failed (${response.status})`,
@@ -203,18 +208,23 @@ export interface FeedComment {
     mimeType?: string | null;
     type?: string | null;
   }[];
+  aura?: number | null;
   content?: string | null;
   createdAt: string;
+  deleted?: boolean | null;
   id: string;
   parentId?: string | null;
   postId?: string;
   replies?: FeedComment[];
   user?: {
     avatarUrl: string | null;
+    badge?: string | null;
+    badges?: string[] | null;
+    communityMemberships?: { role: string }[] | null;
     displayName?: string | null;
     id: string;
     username?: string | null;
-  };
+  } | null;
   votes?: { userId: string; value: number }[];
 }
 
@@ -259,11 +269,16 @@ export async function fetchCommentsPage(
 export async function createComment(
   postId: string,
   content: string,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  parentId?: string
 ): Promise<void> {
   const response = await callFeedApi(
     `/api/posts/${encodeURIComponent(postId)}/comments`,
-    { ...options, body: JSON.stringify({ content }), method: "POST" }
+    {
+      ...options,
+      body: JSON.stringify(parentId ? { content, parentId } : { content }),
+      method: "POST",
+    }
   );
   if (!response.ok) {
     throw new FeedApiError(

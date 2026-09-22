@@ -35,13 +35,20 @@ function MenuRow({
   label: string;
   onPress: () => void;
 }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
       onPress={onPress}
-      style={styles.row}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && {
+          backgroundColor: isDark
+            ? "rgba(255, 255, 255, 0.08)"
+            : "rgba(0, 0, 0, 0.05)",
+        },
+      ]}
     >
       {icon}
       <Text
@@ -90,18 +97,18 @@ export function MoreMenu({
         >
           <View style={styles.handle} />
           <MenuRow
-            icon={<Share2 color={theme.dividerText} size={18} />}
+            icon={<Share2 color={theme.dividerText} size={16} />}
             label="Share post"
             onPress={() => fire({ type: "share" })}
           />
           <MenuRow
             destructive
-            icon={<EyeOff color="#dc2626" size={18} />}
+            icon={<EyeOff color="#dc2626" size={16} />}
             label="Not interested"
             onPress={() => fire({ type: "hide" })}
           />
           <MenuRow
-            icon={<ImageIcon color={theme.dividerText} size={18} />}
+            icon={<ImageIcon color={theme.dividerText} size={16} />}
             label={showingAlt ? "Hide alt text" : "Show alt text"}
             onPress={() => fire({ type: "toggle-alt" })}
           />
@@ -127,9 +134,11 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: "center",
+    borderRadius: 6,
     flexDirection: "row",
     gap: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
   rowLabel: {
     fontFamily: "SofiaProMed",
@@ -140,8 +149,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    paddingBottom: 32,
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 8,
   },
 });

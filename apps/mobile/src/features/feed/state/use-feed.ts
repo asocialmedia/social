@@ -62,7 +62,10 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   );
   const [newItems, setNewItems] = useState<FeedPost[]>([]);
   const removedPostsRef = useRef(new Map<string, FeedPost>());
-  const fetchingRef = useRef(false);
+  // The in-flight cache key: a session upgrade mid-fetch (guest key to user
+  // key) must not swallow the second fetch, so the guard is per key rather
+  // than a single boolean.
+  const inflightKey = useRef<string | null>(null);
 
   // Re-read from the module cache every render: patch() always stores a
   // fresh object identity, so useMemo below recomputes exactly when the
@@ -74,12 +77,73 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   // tabs) must also rerender the list.
   useEffect(() => feedCache.subscribe(() => setTick((value) => value + 1)), []);
 
-  const runFetch = useCallback(
-    async (mode: "append" | "replace", headCursor: string | null) => {
-      if (fetchingRef.current) {
+  // Head-only probe: new posts collect in newItems without moving the list,
+  // exactly like web. Starts from the mount fill and from fetch settles,
+  // never from an effect watching cache pages (the Compiler rejects that
+  // dep). Probes immediately and every 45s; swallows fetch errors.
+  const probeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const probeKey = useRef<string | null>(null);
+  const probeCancel = useRef<(() => void) | null>(null);
+
+  const stopProbe = useCallback(() => {
+    probeCancel.current?.();
+    probeCancel.current = null;
+    if (probeTimer.current !== null) {
+      clearInterval(probeTimer.current);
+      probeTimer.current = null;
+    }
+    probeKey.current = null;
+  }, []);
+
+  const startProbe = useCallback(
+    (key: string) => {
+      if (probeTimer.current !== null && probeKey.current === key) {
         return;
       }
-      fetchingRef.current = true;
+      stopProbe();
+      let cancelled = false;
+      probeCancel.current = () => {
+        cancelled = true;
+      };
+      const probe = async () => {
+        try {
+          const apiBase = getApiBaseUrl();
+          const cookie = await authClient.getCookie();
+          const fresh = normalizePostsData(
+            await fetchFeedHead(variant, { apiBase, cookie })
+          );
+          if (cancelled || fresh.length === 0) {
+            return;
+          }
+          const known = new Set(
+            flattenUniquePosts(feedCache.get(key).pages).map((post) => post.id)
+          );
+          if (known.size === 0) {
+            return;
+          }
+          const unseen = findUnseenItems(fresh, known);
+          if (!cancelled && unseen.length > 0) {
+            setNewItems(unseen);
+          }
+        } catch {
+          // Probe failures are silent by design (web swallows them too).
+        }
+      };
+      probeKey.current = key;
+      void probe();
+      probeTimer.current = setInterval(() => {
+        void probe();
+      }, PROBE_INTERVAL_MS);
+    },
+    [stopProbe, variant]
+  );
+
+  const runFetch = useCallback(
+    async (mode: "append" | "replace", headCursor: string | null) => {
+      if (inflightKey.current === cacheKey) {
+        return;
+      }
+      inflightKey.current = cacheKey;
       // Replacement over existing pages is a refresh; the very first load
       // (no pages yet) stays "loading" so the skeleton renders.
       let opening: "loading" | "loading-more" | "refreshing" = "refreshing";
@@ -107,7 +171,14 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
           { dismissedIds: undefined },
           mode === "append"
         );
-        fetchingRef.current = false;
+        if (mode === "replace") {
+          // First paint landed: the head probe may start now (it never
+          // races the first page on cold start).
+          startProbe(cacheKey);
+        }
+        if (inflightKey.current === cacheKey) {
+          inflightKey.current = null;
+        }
         setTick((value) => value + 1);
       } catch (fetchError) {
         feedCache.patch(cacheKey, {
@@ -126,17 +197,22 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         });
         // No finally: the React Compiler rejects try/finally, so the reset
         // is written out on both paths (same reason as update-gate.ts).
-        fetchingRef.current = false;
+        if (inflightKey.current === cacheKey) {
+          inflightKey.current = null;
+        }
         setTick((value) => value + 1);
       }
     },
-    [cacheKey, variant]
+    [cacheKey, startProbe, variant]
   );
 
   // First page: cached entries render as-is (staleTime Infinity); missing or
-  // invalidated entries fetch. refetchOnMount picks up invalidations.
+  // invalidated entries fetch. refetchOnMount picks up invalidations. Tabs
+  // with content already cached resume their probe; empty tabs probe once
+  // their first page lands (see runFetch).
   useEffect(() => {
     if (!enabled) {
+      stopProbe();
       return;
     }
     const current = feedCache.get(cacheKey);
@@ -145,10 +221,15 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
       feedCache.patch(cacheKey, { error: null, status: "loading" });
       // oxlint-disable-next-line react/set-state-in-effect -- mount-fill must kick off the first fetch here; steady state is cache-driven
       void runFetch("replace", null);
+    } else if (current.pages.length > 0) {
+      startProbe(cacheKey);
     }
+    return () => {
+      stopProbe();
+    };
     // Runs on mount/tab-switch/enable; runFetch is stable per cacheKey.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional mount-fill keyed by cacheKey via runFetch identity
-  }, [cacheKey, enabled, runFetch]);
+  }, [cacheKey, enabled, runFetch, stopProbe, startProbe]);
 
   const fetchNext = useCallback(() => {
     const current = feedCache.get(cacheKey);
@@ -169,51 +250,6 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     feedCache.invalidate(cacheKey);
     void runFetch("replace", null);
   }, [cacheKey, enabled, runFetch]);
-
-  // Head-only probe: new posts collect in newItems without moving the list,
-  // exactly like web. Probes on mount and every 45s; skips while the list is
-  // empty; swallows fetch errors.
-  useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    let cancelled = false;
-    const probe = async () => {
-      try {
-        const apiBase = getApiBaseUrl();
-        const cookie = await authClient.getCookie();
-        const fresh = normalizePostsData(
-          await fetchFeedHead(variant, { apiBase, cookie })
-        );
-        if (cancelled || fresh.length === 0) {
-          return;
-        }
-        const known = new Set(
-          flattenUniquePosts(feedCache.get(cacheKey).pages).map(
-            (post) => post.id
-          )
-        );
-        if (known.size === 0) {
-          return;
-        }
-        const unseen = findUnseenItems(fresh, known);
-        if (!cancelled && unseen.length > 0) {
-          // oxlint-disable-next-line react/set-state-in-effect -- probed posts collect asynchronously; nothing to derive during render
-          setNewItems(unseen);
-        }
-      } catch {
-        // Probe failures are silent by design (web swallows them too).
-      }
-    };
-    void probe();
-    const timer = setInterval(() => {
-      void probe();
-    }, PROBE_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [cacheKey, enabled, variant]);
 
   const clearNewItems = useCallback(() => {
     setNewItems([]);
