@@ -1924,7 +1924,7 @@ export function MessageThread({
                   ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
                   : "Scroll to latest messages"
               }
-              className="apple-panel motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
+              className="icon-btn-3d motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
               onClick={jumpToBottom}
               title="Scroll to latest"
               type="button"
