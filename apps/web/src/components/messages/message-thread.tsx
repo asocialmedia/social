@@ -42,6 +42,7 @@ import {
 } from "@/components/messages/message-conversation-media";
 import { ConversationMediaViewer } from "@/components/messages/message-conversation-viewer";
 import type { MediaNavDirection } from "@/components/messages/message-conversation-viewer";
+import { MessageDeleteDialog } from "@/components/messages/message-delete-dialog";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { ConversationMediaViewerProvider } from "@/components/messages/message-media-viewer-context";
 import type { OpenConversationMedia } from "@/components/messages/message-media-viewer-context";
@@ -77,6 +78,11 @@ import {
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import { messageDecryptor } from "@/lib/messages/decryptor";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
+import {
+  chunkMessageIds,
+  messageDeleteCopy,
+} from "@/lib/messages/message-delete";
+import type { MessageDeleteScope } from "@/lib/messages/message-delete";
 import {
   applySelectionRange,
   dragSelectionMode,
@@ -231,6 +237,25 @@ export function MessageThread({
     () => new Set()
   );
   const [selectionActive, setSelectionActive] = useState(false);
+  // A delete awaiting confirmation. Captured at request time (ids for "for me",
+  // the row for "for everyone") so the confirm acts on exactly what the dialog
+  // disclosed, even if the selection or cache changes while it is open. Kept
+  // after close (not nulled) so the dialog stays mounted through its exit
+  // animation and can restore focus to the invoker.
+  const [pendingDelete, setPendingDelete] = useState<
+    | { messageIds: string[]; scope: Extract<MessageDeleteScope, "for-me"> }
+    | {
+        message: MessageData;
+        scope: Extract<MessageDeleteScope, "for-everyone">;
+      }
+    | null
+  >(null);
+  // Whether the confirmation is visible. Separate from `pendingDelete` so the
+  // node can transition closed instead of unmounting.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  // True while the confirmed delete is in flight, so the dialog can show a busy
+  // state and block a second confirm.
+  const [deleteBusy, setDeleteBusy] = useState(false);
   // The peer's delivery/read watermarks, seeded from the conversation detail and
   // advanced by realtime events. Own-message receipts compare against these.
   const [peerMarks, setPeerMarks] = useState<PeerWatermarks>(EMPTY_WATERMARKS);
@@ -513,11 +538,16 @@ export function MessageThread({
     void copyToClipboard(messagePlainText(messageDecryptor.get(message.id)));
   }, []);
 
-  // "Delete for me": hide the row optimistically, restore the exact prior cache
-  // if the server rejects it. The hide is actor-scoped, so no other client is
-  // affected and no realtime fold is needed.
-  const handleDeleteForMe = useCallback(
-    async (message: MessageData) => {
+  // "Delete for me": hide one or more rows optimistically, restoring the exact
+  // prior cache if the server rejects it. The hide is actor-scoped, so no other
+  // client is affected and no realtime fold is needed. A large batch is chunked
+  // to the route's per-request cap.
+  const deleteForMe = useCallback(
+    async (messageIds: string[]) => {
+      if (messageIds.length === 0) {
+        return;
+      }
+      const idSet = new Set(messageIds);
       const previous = queryClient.getQueryData<
         InfiniteData<MessagePage, string | undefined>
       >(["messages", conversationId]);
@@ -527,72 +557,50 @@ export function MessageThread({
           if (!old) {
             return old;
           }
-          const nextPages = removeMessagesFromPages(
-            old.pages,
-            new Set([message.id])
-          );
+          const nextPages = removeMessagesFromPages(old.pages, idSet);
           return nextPages ? { ...old, pages: nextPages } : old;
         }
       );
-      if (selectedIds.has(message.id)) {
-        const next = new Set(selectedIds);
-        next.delete(message.id);
-        commitSelection(next);
-      }
       try {
-        await hideMessages(conversationId, [message.id]);
+        // The route caps one request at MAX_HIDE_BATCH, so a large selection is
+        // sent in chunks rather than as one oversized batch it would refuse.
+        await Promise.all(
+          chunkMessageIds(messageIds).map((chunk) =>
+            hideMessages(conversationId, chunk)
+          )
+        );
       } catch (error) {
+        // Restore the pre-delete cache rather than refetching, which would race
+        // the optimistic state. Any message the SSE stream folded in during the
+        // request is restored by the stream's own refold on the next event.
         if (previous) {
           queryClient.setQueryData(["messages", conversationId], previous);
         }
         toast({
           description:
-            error instanceof Error ? error.message : "Couldn't hide message",
+            error instanceof Error ? error.message : "Couldn't hide messages",
           title: "Delete for me failed",
           variant: "destructive",
         });
+        return;
+      }
+      // Only drop the hidden rows from the selection once the hide succeeded,
+      // so a failed batch keeps the user's selection for a retry (ending select
+      // mode when the last ticked row goes).
+      if ([...idSet].some((id) => selectedIds.has(id))) {
+        const next = new Set(selectedIds);
+        for (const id of idSet) {
+          next.delete(id);
+        }
+        commitSelection(next);
       }
     },
     [commitSelection, conversationId, queryClient, selectedIds]
   );
 
-  // Bulk "delete for me" for the current selection, one request for the batch.
-  const handleDeleteSelectedForMe = useCallback(async () => {
-    if (selectedIds.size === 0) {
-      return;
-    }
-    const ids = [...selectedIds];
-    const previous = queryClient.getQueryData<
-      InfiniteData<MessagePage, string | undefined>
-    >(["messages", conversationId]);
-    const selected = new Set(ids);
-    queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
-      ["messages", conversationId] as const,
-      (old) => {
-        if (!old) {
-          return old;
-        }
-        const nextPages = removeMessagesFromPages(old.pages, selected);
-        return nextPages ? { ...old, pages: nextPages } : old;
-      }
-    );
-    clearSelection();
-    try {
-      await hideMessages(conversationId, ids);
-    } catch (error) {
-      if (previous) {
-        queryClient.setQueryData(["messages", conversationId], previous);
-      }
-      toast({
-        description:
-          error instanceof Error ? error.message : "Couldn't hide messages",
-        title: "Delete for me failed",
-        variant: "destructive",
-      });
-    }
-  }, [clearSelection, conversationId, queryClient, selectedIds]);
-
-  const handleDeleteForEveryone = useCallback(
+  // "Delete for everyone": globally mark the row deleted (sender-only on the
+  // server), optimistically, and restore on failure.
+  const deleteForEveryone = useCallback(
     async (message: MessageData) => {
       const previous = queryClient.getQueryData<
         InfiniteData<MessagePage, string | undefined>
@@ -627,6 +635,58 @@ export function MessageThread({
     },
     [conversationId, queryClient]
   );
+
+  // Opens the confirmation for a single "delete for me", closing the options
+  // pane first so the two surfaces are never open together.
+  const requestDeleteForMe = useCallback(
+    (message: MessageData) => {
+      closeOptions();
+      setPendingDelete({ messageIds: [message.id], scope: "for-me" });
+      setDeleteOpen(true);
+    },
+    [closeOptions]
+  );
+
+  // Opens the confirmation for the current multi-select batch, capturing the
+  // ticked ids at request time.
+  const requestDeleteSelectedForMe = useCallback(() => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+    closeOptions();
+    setPendingDelete({ messageIds: [...selectedIds], scope: "for-me" });
+    setDeleteOpen(true);
+  }, [closeOptions, selectedIds]);
+
+  const requestDeleteForEveryone = useCallback(
+    (message: MessageData) => {
+      closeOptions();
+      setPendingDelete({ message, scope: "for-everyone" });
+      setDeleteOpen(true);
+    },
+    [closeOptions]
+  );
+
+  // Runs the confirmed delete and dismisses the dialog. The handlers surface
+  // their own failures as toasts, so this only owns the busy/dismiss lifecycle.
+  // `pendingDelete` is intentionally not cleared: the dialog stays mounted with
+  // its last content through the close transition so focus restores.
+  const confirmPendingDelete = useCallback(async () => {
+    const pending = pendingDelete;
+    if (!pending || deleteBusy) {
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await (pending.scope === "for-everyone"
+        ? deleteForEveryone(pending.message)
+        : deleteForMe(pending.messageIds));
+    } catch {
+      // Handlers report their own failures; nothing to add here.
+    }
+    setDeleteBusy(false);
+    setDeleteOpen(false);
+  }, [deleteBusy, deleteForEveryone, deleteForMe, pendingDelete]);
 
   // Enter select mode from the options menu, ticking the target message.
   const handleOptionsSelect = useCallback(
@@ -1954,15 +2014,41 @@ export function MessageThread({
               onClose={closeOptions}
               onCopy={() => handleOptionsCopy(optionsMessage)}
               onDeleteForEveryone={() =>
-                handleDeleteForEveryone(optionsMessage)
+                requestDeleteForEveryone(optionsMessage)
               }
-              onDeleteForMe={() => handleDeleteForMe(optionsMessage)}
+              onDeleteForMe={() => requestDeleteForMe(optionsMessage)}
               onEdit={() => handleEdit(optionsMessage)}
               onReply={() => handleReply(optionsMessage)}
               onSelect={() => handleOptionsSelect(optionsMessage)}
               preferEnd={optionsTarget.preferEnd}
               presentation={coarsePointer ? "sheet" : "popover"}
               receipt={optionsReceipt}
+            />
+          ) : null}
+
+          {pendingDelete ? (
+            <MessageDeleteDialog
+              busy={deleteBusy}
+              copy={messageDeleteCopy({
+                count:
+                  pendingDelete.scope === "for-everyone"
+                    ? 1
+                    : pendingDelete.messageIds.length,
+                scope: pendingDelete.scope,
+              })}
+              onConfirm={() => {
+                void confirmPendingDelete();
+              }}
+              onOpenChange={(open) => {
+                // Ignore a dismissal while the request is in flight so the busy
+                // state cannot be abandoned mid-delete. The node stays mounted
+                // (pendingDelete is retained) so the close can animate and focus
+                // returns to the invoker.
+                if (!open && !deleteBusy) {
+                  setDeleteOpen(false);
+                }
+              }}
+              open={deleteOpen}
             />
           ) : null}
         </div>
@@ -1979,9 +2065,7 @@ export function MessageThread({
               <button
                 className="btn-3d-gray inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
                 disabled={selectedIds.size === 0}
-                onClick={() => {
-                  void handleDeleteSelectedForMe();
-                }}
+                onClick={requestDeleteSelectedForMe}
                 type="button"
               >
                 <Trash2 className="size-3.5" />

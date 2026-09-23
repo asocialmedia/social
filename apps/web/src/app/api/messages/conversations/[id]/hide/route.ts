@@ -1,12 +1,12 @@
 import { prisma, unreadMessageCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { MAX_HIDE_BATCH } from "@/lib/messages/message-delete";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
 
-// Upper bound on one hide request. The bulk bar can select at most this many,
-// and the cap keeps a single request's insert bounded (one createMany) so a
-// malicious or buggy client cannot ask for an unbounded write.
-const MAX_HIDE_BATCH = 100;
+// The cap keeps a single request's insert bounded (one createMany) so a
+// malicious or buggy client cannot ask for an unbounded write. The client
+// chunks a larger selection into batches of this size (see message-delete.ts).
 
 // "Delete for me": hide one or more messages from this user only. The peer's
 // copy is untouched, and because the hide is actor-scoped there is nothing to
