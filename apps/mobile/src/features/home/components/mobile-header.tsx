@@ -9,7 +9,7 @@
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { Bell, Search } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
@@ -70,6 +70,7 @@ export function MobileHeader({
 }: MobileHeaderProps) {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
+  const pathname = usePathname();
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   // The URL that last failed to load. A boolean would stick forever: a new
   // (valid) URL must render normally, which comparing against the failed
@@ -208,7 +209,7 @@ export function MobileHeader({
                   accessibilityLabel="Notifications"
                   accessibilityRole="button"
                   hitSlop={6}
-                  onPress={() => router.push("/")}
+                  onPress={() => router.push("/notifications")}
                 >
                   {({ pressed }) => (
                     <View
@@ -221,7 +222,14 @@ export function MobileHeader({
                         pressed && styles.pressedShift,
                       ]}
                     >
-                      <Bell color={theme.passkeyIcon} size={20} />
+                      <Bell
+                        color={
+                          pathname.startsWith("/notifications")
+                            ? "#ff9500"
+                            : theme.passkeyIcon
+                        }
+                        size={20}
+                      />
                       {unreadCount > 0 ? (
                         <View
                           style={[

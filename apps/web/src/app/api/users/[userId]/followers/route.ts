@@ -2,8 +2,6 @@ import { debugLog } from "@asm/config/debug";
 import {
   applyFlatAward,
   applyWeightedAward,
-  enqueueNotificationCreated,
-  enqueueNotificationDeleted,
   FOLLOW_GAINED_AURA,
   FOLLOW_GIVEN_AURA,
   followerInfoCache,
@@ -15,6 +13,10 @@ import {
 import type { FollowerInfo } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
 export async function POST(
@@ -44,6 +46,7 @@ export async function POST(
       );
     }
 
+    const notificationEvents = newNotificationEvents();
     const result = await prisma.$transaction(async (tx) => {
       // Only reward aura when the follow is actually created, so repeated
       // follow calls (double-clicks, retries) cannot farm aura.
@@ -57,7 +60,7 @@ export async function POST(
       });
 
       if (!existingFollow) {
-        await tx.notification.create({
+        const followNotification = await tx.notification.create({
           data: {
             issuerId: loggedInUser.id,
             recipientId: userId,
@@ -65,8 +68,9 @@ export async function POST(
           },
         });
 
-        enqueueNotificationCreated(userId).catch((error: unknown) => {
-          console.error("Failed to enqueue follow notification event:", error);
+        notificationEvents.created.push({
+          notificationId: followNotification.id,
+          recipientId: userId,
         });
 
         // Gaining a follower is weighted by the FOLLOWER's credibility: a
@@ -124,6 +128,9 @@ export async function POST(
 
       return { userData };
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "follow");
 
     debugLog.api("Follow transaction completed:", result);
 
@@ -241,6 +248,7 @@ export async function DELETE(
       );
     }
 
+    const notificationEvents = newNotificationEvents();
     const result = await prisma.$transaction(async (tx) => {
       // Read the stored open positions before deleting: unfollowing reverses
       // exactly what this follow awarded. Legacy follows carry zeros and
@@ -272,12 +280,7 @@ export async function DELETE(
           },
         });
 
-        enqueueNotificationDeleted(userId).catch((error: unknown) => {
-          console.error(
-            "Failed to enqueue unfollow notification event:",
-            error
-          );
-        });
+        notificationEvents.deleted.push(userId);
 
         if (existingFollow.gainedAura !== 0) {
           await reverseExactAura(tx, {
@@ -312,6 +315,9 @@ export async function DELETE(
 
       return userData;
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "follow");
 
     if (!result) {
       return Response.json({ error: "User not found" }, { status: 404 });

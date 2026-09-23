@@ -11,6 +11,7 @@ export interface FeedMedia {
   aiGenerated?: boolean | null;
   altText?: string | null;
   blurDataUrl?: string | null;
+  generatedAltText?: string | null;
   height?: number | null;
   id: string;
   key?: string | null;

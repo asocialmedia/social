@@ -29,10 +29,22 @@ const fakePrisma = {
     }),
   },
   notification: {
-    create: mock((args: unknown) => {
-      createdNotifications.push(args);
-      return Promise.resolve(args);
-    }),
+    create: mock(
+      (args: {
+        data: {
+          issuerId: string;
+          postId: string | null;
+          recipientId: string;
+          type: string;
+        };
+      }) => {
+        createdNotifications.push(args);
+        return Promise.resolve({
+          id: `notif-${args.data.recipientId}`,
+          ...args.data,
+        });
+      }
+    ),
     findFirst: mock((_args?: unknown) =>
       Promise.resolve(existingNotificationResult)
     ),
@@ -43,10 +55,12 @@ const fakePrisma = {
 };
 
 const SYSTEM_MODERATION_USER_ID = "sys-mod-zeph";
-const enqueueNotificationCreated = mock((recipientId: string) => {
-  enqueuedRecipients.push(recipientId);
-  return Promise.resolve();
-});
+const enqueueNotificationCreated = mock(
+  (recipientId: string, _notificationId?: string) => {
+    enqueuedRecipients.push(recipientId);
+    return Promise.resolve();
+  }
+);
 
 async function runTranscriptionNotification(
   mediaId: string,

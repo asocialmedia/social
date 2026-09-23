@@ -79,11 +79,12 @@ async function createFanoutPost(): Promise<string> {
 async function runFanout(postId: string): Promise<string[]> {
   let fresh: string[] = [];
   await prisma.$transaction(async (tx) => {
-    fresh = await notifyCommunitySubscribers(tx, {
+    const created = await notifyCommunitySubscribers(tx, {
       authorId: OWNER_ID,
       communityId: fanoutCommunityId,
       postId,
     });
+    fresh = created.map((notification) => notification.recipientId);
   });
   return fresh;
 }

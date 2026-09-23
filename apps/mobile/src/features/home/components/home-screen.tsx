@@ -18,6 +18,7 @@ import {
   useHomeTabMemoryReady,
   useTabStore,
 } from "@/features/feed/state/tab-store-native";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
@@ -35,6 +36,9 @@ export default function HomeScreen() {
   const memoryReady = useHomeTabMemoryReady();
   const storedHome = useTabStore((state) => state.home);
   const setHomeTab = useTabStore((state) => state.setHomeTab);
+  // The bell badge polls here (the header is present on every signed-in
+  // surface); the notifications screen reads the same store.
+  const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
   const tab = resolveHomeTab(null, isLoggedIn, storedHome, memoryReady);
   // The floating dock lifts above the guest bar when it is showing, so it
   // never covers the bar's actions.
@@ -77,6 +81,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
+        unreadCount={unreadCount}
         user={
           showUser && user
             ? {

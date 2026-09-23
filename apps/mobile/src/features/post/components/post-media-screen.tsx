@@ -29,7 +29,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -39,6 +38,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import type { ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
@@ -86,6 +86,7 @@ import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import { fetchPostDetail } from "../lib/post-api";
+import { MediaRouteSkeleton } from "./media-route-skeleton";
 
 // Dark 3D chip for the viewer chrome, same recipe as the feed video pills.
 const DARK_CHIP_SHADOWS =
@@ -145,10 +146,12 @@ function ChipButton({
   children,
   label,
   onPress,
+  style,
 }: {
   children: React.ReactNode;
   label: string;
   onPress: () => void;
+  style?: ViewStyle;
 }) {
   return (
     <Pressable
@@ -156,13 +159,13 @@ function ChipButton({
       accessibilityRole="button"
       hitSlop={6}
       onPress={onPress}
-      style={[styles.chip, { boxShadow: DARK_CHIP_SHADOWS }]}
+      style={[styles.chip, { boxShadow: DARK_CHIP_SHADOWS }, style]}
     >
       <LinearGradient
         colors={["#3a3f4a", "#23262e"]}
         end={{ x: 0.5, y: 1 }}
         start={{ x: 0.5, y: 0 }}
-        style={styles.chipFill}
+        style={[styles.chipFill, styles.chipFillFluid]}
       >
         {children}
       </LinearGradient>
@@ -170,22 +173,41 @@ function ChipButton({
   );
 }
 
-// Fullscreen video page: expo-video with the mobile panel's control row
-// (play + clock, mute, speed, captions, transcript, fullscreen). Captions
-// default on like web's video-captions-store; the transcript opens a cue
-// sheet instead of web's drawer/sidebar.
-function FullscreenVideo({
+// Playback handle for the panel's video control row. The surface owns the
+// expo-video player; the bottom panel drives it through this handle, exactly
+// like web's bottom panel driving the video element.
+export interface VideoHandle {
+  cycleSpeed: () => void;
+  enterFullscreen: () => void;
+  toggleMute: () => void;
+  togglePlay: () => void;
+}
+
+export interface VideoSnapshot {
+  currentTime: number;
+  duration: number;
+  playing: boolean;
+  rate: number;
+}
+
+// Fullscreen video surface: the expo-video picture plus the timed caption
+// overlay. Playback chrome lives in the bottom panel (VideoControlsRow),
+// mirroring web's mobile panel where the control rows sit below the actions.
+// Captions default on like web's video-captions-store.
+function VideoSurface({
+  active,
   apiBase,
   captionsEnabled,
   media,
-  onToggleCaptions,
-  onToggleTranscript,
+  onSnapshot,
+  registerHandle,
 }: {
+  active: boolean;
   apiBase: string;
   captionsEnabled: boolean;
   media: FeedMedia;
-  onToggleCaptions: () => void;
-  onToggleTranscript: () => void;
+  onSnapshot: (snapshot: VideoSnapshot) => void;
+  registerHandle: (mediaId: string, handle: VideoHandle | null) => void;
 }) {
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
@@ -207,6 +229,58 @@ function FullscreenVideo({
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API
     player.muted = isMuted;
   }, [isMuted, player]);
+
+  // The panel row mirrors this snapshot (play state, clock, speed).
+  useEffect(() => {
+    onSnapshot({ currentTime, duration, playing, rate });
+  }, [currentTime, duration, onSnapshot, playing, rate]);
+
+  // Paging away pauses, like scrolling a feed video out of the viewport.
+  useEffect(() => {
+    if (!active && player.playing) {
+      player.pause();
+    }
+  }, [active, player]);
+
+  useEffect(() => {
+    const handle: VideoHandle = {
+      cycleSpeed: () => {
+        const speeds = [1, 1.25, 1.5, 2];
+        const next = speeds[(speeds.indexOf(rate) + 1) % speeds.length] ?? 1;
+        setRate(next);
+        try {
+          // oxlint-disable-next-line react/immutability -- expo-video's documented player API
+          player.playbackRate = next;
+        } catch {
+          // Older runtimes ignore playbackRate; the label still updates.
+        }
+      },
+      enterFullscreen: () => {
+        void (async () => {
+          try {
+            await viewRef.current?.enterFullscreen();
+          } catch {
+            // Fullscreen unavailable (e.g. Expo Go); the video already fills
+            // the viewer, so this is a no-op enhancement.
+          }
+        })();
+      },
+      toggleMute: () => {
+        setMuted(!useVideoMuteStore.getState().isMuted);
+      },
+      togglePlay: () => {
+        if (player.playing) {
+          player.pause();
+          return;
+        }
+        player.play();
+      },
+    };
+    registerHandle(media.id, handle);
+    return () => {
+      registerHandle(media.id, null);
+    };
+  }, [media.id, player, rate, registerHandle, setMuted]);
 
   useEffect(() => {
     const subs = [
@@ -271,18 +345,6 @@ function FullscreenVideo({
   const cues = fetchedCues.length > 0 ? fetchedCues : directCues;
   const activeCue = captionsEnabled ? findActiveCue(cues, currentTime) : null;
 
-  const cycleSpeed = () => {
-    const speeds = [1, 1.25, 1.5, 2];
-    const next = speeds[(speeds.indexOf(rate) + 1) % speeds.length] ?? 1;
-    setRate(next);
-    try {
-      // oxlint-disable-next-line react/immutability -- expo-video's documented player API
-      player.playbackRate = next;
-    } catch {
-      // Older runtimes ignore playbackRate; the label still updates.
-    }
-  };
-
   if (failed) {
     return (
       <View style={styles.videoFailed}>
@@ -310,74 +372,83 @@ function FullscreenVideo({
           </View>
         </View>
       ) : null}
-      <View style={styles.videoControls}>
-        <Pressable
-          accessibilityLabel={playing ? "Pause video" : "Play video"}
-          accessibilityRole="button"
-          onPress={() => {
-            if (player.playing) {
-              player.pause();
-              return;
-            }
-            player.play();
-          }}
-          style={[styles.playBtn, { boxShadow: ACCENT_CHIP_SHADOWS }]}
+    </View>
+  );
+}
+
+// Bottom-panel video control row, mirroring web's mobile panel row: the 48px
+// play button + clock on the left; mute, speed, captions, transcript and
+// fullscreen chips on the right (all size-5 icons). Drives the active surface
+// through its handle; every press guards on null (gated or unmounted).
+function VideoControlsRow({
+  captionsEnabled,
+  onToggleCaptions,
+  onToggleTranscript,
+  snapshot,
+  video,
+}: {
+  captionsEnabled: boolean;
+  onToggleCaptions: () => void;
+  onToggleTranscript: () => void;
+  snapshot: VideoSnapshot;
+  video: VideoHandle | null;
+}) {
+  const isMuted = useVideoMuteStore((state) => state.isMuted);
+  return (
+    <View style={styles.videoControls}>
+      <Pressable
+        accessibilityLabel={snapshot.playing ? "Pause video" : "Play video"}
+        accessibilityRole="button"
+        onPress={() => video?.togglePlay()}
+        style={[styles.playBtn, { boxShadow: ACCENT_CHIP_SHADOWS }]}
+      >
+        <LinearGradient
+          colors={["#ff9500", "#e65500"]}
+          end={{ x: 0.5, y: 1 }}
+          start={{ x: 0.5, y: 0 }}
+          style={styles.playFill}
         >
-          <LinearGradient
-            colors={["#ff9500", "#e65500"]}
-            end={{ x: 0.5, y: 1 }}
-            start={{ x: 0.5, y: 0 }}
-            style={styles.playFill}
-          >
-            {playing ? (
-              <Pause color="#ffffff" fill="#ffffff" size={20} />
-            ) : (
-              <Play color="#ffffff" fill="#ffffff" size={20} />
-            )}
-          </LinearGradient>
-        </Pressable>
-        <Text style={styles.videoTime}>
-          {formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}
-        </Text>
-        <View style={styles.videoBtns}>
-          <ChipButton
-            label={isMuted ? "Unmute" : "Mute"}
-            onPress={() => setMuted(!isMuted)}
-          >
-            {isMuted ? (
-              <VolumeX color="#ffffff" size={18} />
-            ) : (
-              <Volume2 color="#ffffff" size={18} />
-            )}
-          </ChipButton>
-          <ChipButton label="Playback speed" onPress={cycleSpeed}>
-            <Text style={styles.speedText}>{rate}x</Text>
-          </ChipButton>
-          <ChipButton label="Toggle captions" onPress={onToggleCaptions}>
-            <Subtitles
-              color={captionsEnabled ? "#ff9500" : "#ffffff"}
-              size={18}
-            />
-          </ChipButton>
-          <ChipButton label="Transcript" onPress={onToggleTranscript}>
-            <Speech color="#ffffff" size={18} />
-          </ChipButton>
-          <ChipButton
-            label="Fullscreen"
-            onPress={() => {
-              void (async () => {
-                try {
-                  await viewRef.current?.enterFullscreen();
-                } catch {
-                  // Fullscreen unavailable (e.g. Expo Go); the video already
-                  // fills the viewer, so this is a no-op enhancement.
-                }
-              })();
-            }}
-          >
-            <Maximize color="#ffffff" size={18} />
-          </ChipButton>
-        </View>
+          {snapshot.playing ? (
+            <Pause color="#ffffff" fill="#ffffff" size={20} />
+          ) : (
+            <Play color="#ffffff" fill="#ffffff" size={20} />
+          )}
+        </LinearGradient>
+      </Pressable>
+      <Text style={styles.videoTime}>
+        {formatPlaybackTime(snapshot.currentTime)} /{" "}
+        {formatPlaybackTime(snapshot.duration)}
+      </Text>
+      <View style={styles.videoBtns}>
+        <ChipButton
+          label={isMuted ? "Unmute" : "Mute"}
+          onPress={() => video?.toggleMute()}
+        >
+          {isMuted ? (
+            <VolumeX color="#ffffff" size={20} />
+          ) : (
+            <Volume2 color="#ffffff" size={20} />
+          )}
+        </ChipButton>
+        <ChipButton
+          label="Playback speed"
+          onPress={() => video?.cycleSpeed()}
+          style={styles.speedChip}
+        >
+          <Text style={styles.speedText}>{snapshot.rate}x</Text>
+        </ChipButton>
+        <ChipButton label="Toggle captions" onPress={onToggleCaptions}>
+          <Subtitles
+            color={captionsEnabled ? "#ff9500" : "#ffffff"}
+            size={20}
+          />
+        </ChipButton>
+        <ChipButton label="Transcript" onPress={onToggleTranscript}>
+          <Speech color="#ffffff" size={20} />
+        </ChipButton>
+        <ChipButton label="Fullscreen" onPress={() => video?.enterFullscreen()}>
+          <Maximize color="#ffffff" size={20} />
+        </ChipButton>
       </View>
     </View>
   );
@@ -409,6 +480,34 @@ export function PostMediaScreen({
   const [shareOpen, setShareOpen] = useState(false);
   const [showEddies, setShowEddies] = useState(false);
   const pagerRef = useRef<FlatList<FeedMedia>>(null);
+  const videoHandles = useRef(new Map<string, VideoHandle>());
+  const activeMediaIdRef = useRef<string | null>(null);
+  const [activeVideoHandle, setActiveVideoHandle] =
+    useState<VideoHandle | null>(null);
+  const [videoSnap, setVideoSnap] = useState<VideoSnapshot>({
+    currentTime: 0,
+    duration: 0,
+    playing: false,
+    rate: 1,
+  });
+  const publishVideoSnap = useCallback((snapshot: VideoSnapshot) => {
+    setVideoSnap(snapshot);
+  }, []);
+  const registerVideoHandle = useCallback(
+    (mediaId: string, handle: VideoHandle | null) => {
+      if (handle) {
+        videoHandles.current.set(mediaId, handle);
+      } else {
+        videoHandles.current.delete(mediaId);
+      }
+      // Surfaces stay mounted across pages; mirror the visible one to state
+      // (registration alone fires only on mount/unmount).
+      if (mediaId === activeMediaIdRef.current) {
+        setActiveVideoHandle(handle);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -518,12 +617,18 @@ export function PostMediaScreen({
     return cuesFromTranscript(currentMedia.transcript);
   }, [currentMedia]);
 
-  if (status === "loading") {
-    return (
-      <View style={styles.loadingRoot}>
-        <ActivityIndicator color="#ff9500" size="large" />
-      </View>
+  // Paging keeps every surface mounted, so re-mirror the visible handle on
+  // index change (registration fires only on mount/unmount).
+  useEffect(() => {
+    activeMediaIdRef.current = currentMedia?.id ?? null;
+    // oxlint-disable-next-line react/set-state-in-effect -- page change re-mirrors the mounted handle; steady state is registration-driven
+    setActiveVideoHandle(
+      currentMedia ? (videoHandles.current.get(currentMedia.id) ?? null) : null
     );
+  }, [currentMedia]);
+
+  if (status === "loading") {
+    return <MediaRouteSkeleton />;
   }
 
   if (status === "unauthorized") {
@@ -593,12 +698,13 @@ export function PostMediaScreen({
           );
         }
         return (
-          <FullscreenVideo
+          <VideoSurface
+            active={active}
             apiBase={apiBase}
             captionsEnabled={captionsEnabled}
             media={item}
-            onToggleCaptions={() => setCaptionsEnabled((value) => !value)}
-            onToggleTranscript={() => setShowTranscript((value) => !value)}
+            onSnapshot={publishVideoSnap}
+            registerHandle={registerVideoHandle}
           />
         );
       }
@@ -656,6 +762,7 @@ export function PostMediaScreen({
         ref={pagerRef}
         renderItem={renderPage}
         showsHorizontalScrollIndicator={false}
+        style={styles.pager}
       />
       {/* Blank-area tap toggles chrome; the pager above stays interactive. */}
       <Pressable
@@ -670,7 +777,10 @@ export function PostMediaScreen({
             accessibilityLabel="Close viewer"
             accessibilityRole="button"
             onPress={handleClose}
-            style={[styles.closeBtn, { boxShadow: DARK_CHIP_SHADOWS }]}
+            style={[
+              styles.closeBtn,
+              { boxShadow: DARK_CHIP_SHADOWS, top: insets.top + 12 },
+            ]}
           >
             <LinearGradient
               colors={["#3a3f4a", "#23262e"]}
@@ -685,7 +795,10 @@ export function PostMediaScreen({
             accessibilityLabel="Share this media"
             accessibilityRole="button"
             onPress={() => setShareOpen(true)}
-            style={[styles.moreBtn, { boxShadow: DARK_CHIP_SHADOWS }]}
+            style={[
+              styles.moreBtn,
+              { boxShadow: DARK_CHIP_SHADOWS, top: insets.top + 12 },
+            ]}
           >
             <LinearGradient
               colors={["#3a3f4a", "#23262e"]}
@@ -714,10 +827,15 @@ export function PostMediaScreen({
               >
                 <ChevronRight color="#ffffff" size={24} />
               </Pressable>
-              <View style={styles.counter}>
-                <Text style={styles.counterText}>
-                  {currentIndex + 1} / {media.length}
-                </Text>
+              <View
+                pointerEvents="none"
+                style={[styles.counterWrap, { top: insets.top + 16 }]}
+              >
+                <View style={styles.counter}>
+                  <Text style={styles.counterText}>
+                    {currentIndex + 1} / {media.length}
+                  </Text>
+                </View>
               </View>
             </>
           ) : null}
@@ -771,15 +889,26 @@ export function PostMediaScreen({
 
             {post.content ? (
               <View style={styles.contentWrap}>
-                <BioContent apiBase={apiBase} bio={post.content} />
+                <BioContent
+                  apiBase={apiBase}
+                  bio={post.content}
+                  textColor="rgba(255, 255, 255, 0.9)"
+                />
               </View>
             ) : null}
 
-            {currentMedia.aiGenerated || currentMedia.altText ? (
+            {currentMedia.aiGenerated ||
+            (currentMedia.altText ?? currentMedia.generatedAltText) ? (
               <View style={styles.badges}>
                 {currentMedia.aiGenerated ? <AiBadge /> : null}
-                {currentMedia.altText ? (
-                  <AltBadge text={currentMedia.altText} />
+                {(currentMedia.altText ?? currentMedia.generatedAltText) ? (
+                  <AltBadge
+                    text={
+                      currentMedia.altText ??
+                      currentMedia.generatedAltText ??
+                      ""
+                    }
+                  />
                 ) : null}
               </View>
             ) : null}
@@ -808,7 +937,7 @@ export function PostMediaScreen({
                       fill={
                         (post._count?.comments ?? 0) > 0 ? "#ffffff" : "none"
                       }
-                      size={16}
+                      size={18}
                     />
                     <Text style={styles.eddiesText}>
                       {post._count?.comments ?? 0}
@@ -840,7 +969,15 @@ export function PostMediaScreen({
                 />
               </View>
             </View>
-            <Text style={styles.views}>{post.viewCount ?? 0} views</Text>
+            {currentMedia && isVideoMedia(currentMedia) && !post.moderated ? (
+              <VideoControlsRow
+                captionsEnabled={captionsEnabled}
+                onToggleCaptions={() => setCaptionsEnabled((value) => !value)}
+                onToggleTranscript={() => setShowTranscript((value) => !value)}
+                snapshot={videoSnap}
+                video={activeVideoHandle}
+              />
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -1018,6 +1155,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 44,
   },
+  chipFillFluid: {
+    height: "100%",
+    width: "100%",
+  },
   chromeFill: {
     alignItems: "center",
     borderRadius: 9999,
@@ -1038,19 +1179,21 @@ const styles = StyleSheet.create({
   counter: {
     backgroundColor: "rgba(0, 0, 0, 0.4)",
     borderRadius: 9999,
-    left: "50%",
     paddingHorizontal: 12,
     paddingVertical: 4,
-    position: "absolute",
-    top: 16,
-    transform: [{ translateX: -30 }],
-    zIndex: 30,
   },
   counterText: {
     color: "#ffffff",
     fontFamily: "SofiaProMed",
     fontSize: 13,
     fontWeight: "normal",
+  },
+  counterWrap: {
+    alignItems: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 30,
   },
   eddiesChip: {
     borderRadius: 9999,
@@ -1068,6 +1211,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontFamily: "SofiaProBold",
     fontSize: 14,
+    fontVariant: ["tabular-nums"],
     fontWeight: "normal",
   },
   handle: {
@@ -1139,12 +1283,20 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 12,
     top: "50%",
+    transform: [{ translateY: -22 }],
     zIndex: 30,
   },
   page: {
     alignItems: "center",
     flex: 1,
     justifyContent: "center",
+  },
+  pager: {
+    // The media stage fills the viewport like web's flex-1 media area, so
+    // pages have a definite height and the image centers dead-on. Without
+    // this the list collapses to content height and percentage-sized media
+    // resolves against an indefinite parent and drifts.
+    flex: 1,
   },
   panel: {
     bottom: 0,
@@ -1176,6 +1328,7 @@ const styles = StyleSheet.create({
     padding: 10,
     position: "absolute",
     top: "50%",
+    transform: [{ translateY: -22 }],
     zIndex: 30,
   },
   root: {
@@ -1208,10 +1361,16 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     marginBottom: 12,
   },
+  speedChip: {
+    height: 44,
+    minWidth: 44,
+    paddingHorizontal: 6,
+    width: "auto",
+  },
   speedText: {
     color: "#ffffff",
     fontFamily: "SofiaProBold",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "normal",
   },
   stateArt: {
@@ -1268,10 +1427,13 @@ const styles = StyleSheet.create({
   },
   videoControls: {
     alignItems: "center",
+    borderTopColor: "rgba(255, 255, 255, 0.1)",
+    borderTopWidth: 1,
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between",
     marginTop: 12,
+    paddingTop: 12,
     width: "100%",
   },
   videoFailed: {
@@ -1289,7 +1451,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     flex: 1,
     fontFamily: "SofiaProMed",
-    fontSize: 13,
+    fontSize: 14,
     fontVariant: ["tabular-nums"],
     fontWeight: "normal",
     minWidth: 0,
@@ -1298,12 +1460,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     width: "100%",
-  },
-  views: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontFamily: "SofiaProReg",
-    fontSize: 12,
-    fontWeight: "normal",
-    marginTop: 8,
   },
 });

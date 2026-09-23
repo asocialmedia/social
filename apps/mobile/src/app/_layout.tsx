@@ -7,9 +7,12 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
+import { Toaster } from "@/components/feedback/toast";
 import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
 import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
+import { ComposerModal } from "@/features/composer/components/composer-modal";
+import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { UpdateGate } from "@/features/update/components/update-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
@@ -82,6 +85,9 @@ export default function RootLayout() {
         <InstallProvider>
           <SessionProvider>
             <UpdateGate />
+            {/* Native push registration + tap routing. Inside the session
+              provider so it can react to sign-in/out. */}
+            <PushRegistrar />
             <Stack
               screenOptions={{
                 animation: "fade",
@@ -91,6 +97,7 @@ export default function RootLayout() {
               }}
             >
               <Stack.Screen name="index" />
+              <Stack.Screen name="notifications" />
               <Stack.Screen name="(auth)" />
             </Stack>
             {/* Shown only when a mutating request needs the install credential
@@ -98,6 +105,10 @@ export default function RootLayout() {
             <InstallVerificationGate
               sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
             />
+            {/* The post composer (opened from the dock's + and Respond) and
+                the app-wide toast stack. */}
+            <ComposerModal />
+            <Toaster />
           </SessionProvider>
         </InstallProvider>
       </ThemeProvider>

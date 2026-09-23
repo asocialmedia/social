@@ -5,6 +5,7 @@ import type {
   NotificationData,
   NotificationType,
 } from "@asm/db";
+import type { NotificationIssuer } from "@asm/notifications/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
@@ -197,7 +198,7 @@ function NotificationAvatars({
 }: {
   badgeClass: string;
   icon: React.ComponentType<{ className?: string }>;
-  issuers: NotificationData["issuer"][];
+  issuers: NotificationIssuer[];
   type: NotificationType;
 }) {
   if (type !== "AMPLIFY" || issuers.length <= 1) {
@@ -268,7 +269,7 @@ function NotificationHeadline({
   batchCount: number;
   communitySuffixText: string;
   isEddie: boolean;
-  issuers: NotificationData["issuer"][];
+  issuers: NotificationIssuer[];
   type: NotificationType;
 }) {
   if (batchCount > 1) {
@@ -416,9 +417,11 @@ export default function Notification({ notification }: NotificationProps) {
         </div>
       </Link>
 
+      {/* Always visible: an opacity-0 affordance is unreachable on touch and
+          invisible at a glance. Hover/focus only deepens it, never reveals it. */}
       <button
         aria-label="Dismiss notification"
-        className="icon-btn-3d mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-0 transition-all duration-150 outline-none group-hover:opacity-100 focus-visible:opacity-100"
+        className="icon-btn-3d text-muted-foreground mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-60 transition-opacity duration-150 outline-none group-hover:opacity-100 focus-visible:opacity-100"
         onClick={handleDismiss}
         type="button"
       >

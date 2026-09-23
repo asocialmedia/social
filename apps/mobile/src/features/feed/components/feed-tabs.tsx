@@ -12,9 +12,9 @@ import { useAppTheme } from "@/theme";
 
 import type { HomeTab } from "../state/tab-store";
 
-export interface FeedTabDef {
+export interface FeedTabDef<T extends string = HomeTab> {
   label: string;
-  value: HomeTab;
+  value: T;
 }
 
 export const HOME_TAB_DEFS: readonly FeedTabDef[] = [
@@ -24,10 +24,13 @@ export const HOME_TAB_DEFS: readonly FeedTabDef[] = [
   { label: "Following", value: "following" },
 ];
 
-interface FeedTabsProps {
-  active: HomeTab;
-  onChange: (tab: HomeTab) => void;
-  tabs?: readonly FeedTabDef[];
+interface FeedTabsProps<T extends string = HomeTab> {
+  active: T;
+  // Two-tab surfaces (notifications) stretch each trigger to half the width,
+  // matching web's flex-1 tab buttons; the feed strip stays content-centered.
+  fill?: boolean;
+  onChange: (tab: T) => void;
+  tabs?: readonly FeedTabDef<T>[];
 }
 
 interface TriggerLayout {
@@ -35,11 +38,12 @@ interface TriggerLayout {
   x: number;
 }
 
-export function FeedTabs({
+export function FeedTabs<T extends string = HomeTab>({
   active,
+  fill = false,
   onChange,
-  tabs = HOME_TAB_DEFS,
-}: FeedTabsProps) {
+  tabs = HOME_TAB_DEFS as unknown as readonly FeedTabDef<T>[],
+}: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
   const indicatorX = useMemo(() => new Animated.Value(0), []);
@@ -67,7 +71,11 @@ export function FeedTabs({
   return (
     <View
       accessibilityRole="tablist"
-      style={[styles.strip, { borderBottomColor: theme.cardBorder }]}
+      style={[
+        styles.strip,
+        fill ? styles.stripFill : null,
+        { borderBottomColor: theme.cardBorder },
+      ]}
     >
       {tabs.map((tab) => {
         const selected = tab.value === active;
@@ -92,7 +100,7 @@ export function FeedTabs({
                 onChange(tab.value);
               }
             }}
-            style={styles.trigger}
+            style={[styles.trigger, fill ? styles.triggerFill : null]}
           >
             <Text
               style={[
@@ -152,10 +160,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     position: "relative",
   },
+  stripFill: {
+    justifyContent: "space-between",
+  },
   trigger: {
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 12,
     paddingVertical: 12,
+  },
+  triggerFill: {
+    flex: 1,
   },
 });

@@ -27,6 +27,8 @@ import {
   signInWithGoogleNative,
 } from "@/features/auth/lib/google-native";
 import { useInstall } from "@/features/auth/state/install";
+import { sleep } from "@/features/media-upload/lib/retry";
+import { unregisterPushNotifications } from "@/features/notifications/lib/push";
 import { supportsPasskeyOrigin } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
@@ -292,6 +294,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [confirmSession, runWithInstallToken]);
 
   const signOut = useCallback(async () => {
+    // Unregister this device's push token while the session still exists:
+    // once signOut clears the cookie the server rejects the DELETE, and the
+    // old account's notifications would keep arriving on this device. Capped
+    // so a slow network never holds up signing out.
+    await Promise.race([unregisterPushNotifications(), sleep(3000)]);
     try {
       await authClient.signOut();
     } catch (error) {

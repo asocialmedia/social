@@ -157,9 +157,11 @@ export function TagChip({ tag }: { tag: string }) {
 
 function BioPiece({
   segment,
+  textColor,
   titles,
 }: {
   segment: BioSegment;
+  textColor?: string;
   titles: Record<string, string>;
 }) {
   const { theme } = useAppTheme();
@@ -175,7 +177,7 @@ function BioPiece({
     }
     default: {
       return (
-        <Text style={[styles.text, { color: theme.inputText }]}>
+        <Text style={[styles.text, { color: textColor ?? theme.inputText }]}>
           {segment.text}
         </Text>
       );
@@ -187,12 +189,16 @@ export function BioContent({
   apiBase,
   bio,
   clampLength,
+  textColor,
 }: {
   apiBase: string;
   bio: string;
   // Long bodies collapse behind Show more/less, mirroring web's ~6-line
   // clamp. Cutting happens at segment boundaries so pills never split.
   clampLength?: number;
+  // Plain-text ink override for dark scrims (the media viewer panel renders
+  // white text on black in both themes). Chips keep their own treatment.
+  textColor?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
@@ -260,6 +266,7 @@ export function BioContent({
           <BioPiece
             key={`${segment.type}-${index}`}
             segment={segment}
+            textColor={textColor}
             titles={titles}
           />
         ))}

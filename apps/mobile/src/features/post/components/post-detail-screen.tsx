@@ -36,6 +36,7 @@ import errorImage from "@/assets/images/error.png";
 import notFoundImage from "@/assets/images/notfound.png";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { FloatingEddieBar } from "@/features/eddies/components/floating-eddie-bar";
 import { PostCard } from "@/features/feed/components/post-card";
 import { PostComments } from "@/features/feed/components/post-comments";
 import { ShareSheet } from "@/features/feed/components/share-sheet";
@@ -345,19 +346,6 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   if (status === "loading") {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <Pressable
-            accessibilityLabel="Go back"
-            accessibilityRole="button"
-            onPress={handleGoBack}
-            style={styles.backBtn}
-          >
-            <ArrowLeft color={theme.inputText} size={20} />
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: theme.inputText }]}>
-            Post
-          </Text>
-        </View>
         <PostDetailSkeleton />
         <MobileBottomNav bottomOffset={showGuestBar ? guestBarHeight : 0} />
       </View>
@@ -492,7 +480,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       >
         {renderThread()}
         {showEddies ? (
-          <PostComments postId={post.id} viewerId={viewerId} />
+          <PostComments postId={post.id} variant="page" viewerId={viewerId} />
         ) : null}
         <View style={styles.moreRow}>
           <Text style={[styles.moreTitle, { color: theme.inputText }]}>
@@ -524,6 +512,8 @@ export function PostDetailScreen({ postId }: { postId: string }) {
           </View>
         ))}
         <View style={styles.endPad} />
+        {/* Room for the floating eddie bar so it never covers the tail. */}
+        {showEddies && viewerId ? <View style={styles.eddieBarPad} /> : null}
       </ScrollView>
       {showGuestBar ? (
         <View
@@ -535,6 +525,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
         </View>
       ) : null}
       <MobileBottomNav bottomOffset={showGuestBar ? guestBarHeight : 0} />
+      {showEddies && viewerId ? <FloatingEddieBar postId={post.id} /> : null}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
     </View>
   );
@@ -580,6 +571,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  eddieBarPad: {
+    height: 72,
   },
   emptyArt: {
     height: 160,

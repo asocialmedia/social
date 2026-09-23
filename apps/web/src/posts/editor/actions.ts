@@ -37,6 +37,10 @@ import { updateTag } from "next/cache";
 import { resolvePostEmbeds } from "@/lib/link-embeds/server";
 import { MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
 import { getModerationSystemUserId } from "@/lib/moderation/system-moderation-user";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 import { getPostUrl } from "@/lib/seo/seo";
 
 type ExtendedCreatePostInput = CreatePostInput & {
@@ -69,6 +73,19 @@ async function enqueueShitposterCheckSafely(userId: string) {
     await enqueueShitposterCheck(userId);
   } catch (error) {
     console.error("Failed to enqueue shitposter check:", error);
+  }
+}
+
+// Same fire-and-forget contract for the notification fan-out: a queue hiccup
+// costs a stale badge/push, never the publish.
+async function enqueueNotificationSafely(
+  recipientId: string,
+  notificationId?: string
+) {
+  try {
+    await enqueueNotificationCreated(recipientId, notificationId);
+  } catch (error) {
+    console.error("Failed to enqueue notification created event:", error);
   }
 }
 
@@ -222,8 +239,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     // Subscribers who received a FRESH community-post notification row inside
     // the transaction. Only these need an unread-counter bump afterward; a row
     // that was folded in place was already unread.
-    let communityNotifyRecipients: string[] = [];
+    let communityNotifyNotifications: {
+      id: string;
+      recipientId: string;
+    }[] = [];
 
+    // Reply and mention notification events wait for the commit (see
+    // lib/notifications/deferred-events.ts).
+    const notificationEvents = newNotificationEvents();
     const newPost = await prisma.$transaction(async (tx) => {
       // Server-side hard stop matching the composer's client cap: a crafted
       // request bypassing the UI must not publish more than the contract
@@ -497,7 +520,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           replyRecipients.add(threadRootAuthorId);
         }
         const replyRecipientIds = [...replyRecipients];
-        await Promise.all(
+        const replyNotifications = await Promise.all(
           replyRecipientIds.map((recipientId) =>
             tx.notification.create({
               data: {
@@ -509,9 +532,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
             })
           )
         );
-        for (const recipientId of replyRecipientIds) {
-          enqueueNotificationCreated(recipientId).catch((error: unknown) => {
-            console.error("Failed to enqueue reply notification event:", error);
+        for (const notification of replyNotifications) {
+          notificationEvents.created.push({
+            notificationId: notification.id,
+            recipientId: notification.recipientId,
           });
         }
       }
@@ -555,7 +579,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // into one rolling row per reader. Runs in the same transaction so a
       // rolled-back publish leaves no notification behind.
       if (communityId) {
-        communityNotifyRecipients = await notifyCommunitySubscribers(tx, {
+        communityNotifyNotifications = await notifyCommunitySubscribers(tx, {
           authorId: sessionData.user.id,
           communityId,
           postId: post.id,
@@ -563,9 +587,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
 
       if (validatedInput.mentions.length > 0) {
-        await Promise.all(
+        const mentionNotifications = await Promise.all(
           validatedInput.mentions.map(async (userId) => {
-            await tx.notification.create({
+            const notification = await tx.notification.create({
               data: {
                 issuerId: sessionData.user.id,
                 postId: post.id,
@@ -586,15 +610,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
               subjectToDailyCap: true,
               type: "MENTION_RECEIVED",
             });
+            return notification;
           })
         );
 
-        for (const userId of validatedInput.mentions) {
-          enqueueNotificationCreated(userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue mention notification event:",
-              error
-            );
+        for (const notification of mentionNotifications) {
+          notificationEvents.created.push({
+            notificationId: notification.id,
+            recipientId: notification.recipientId,
           });
         }
       }
@@ -679,14 +702,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
     }
 
+    // Committed: reply and mention events can reach the worker now.
+    flushNotificationEvents(notificationEvents, "post");
+
     // Bump the unread badge for each subscriber who got a new notification row.
     // Post-commit and best-effort, like the other fan-out events: a queue
     // hiccup costs a stale badge, never the publish.
-    for (const recipientId of communityNotifyRecipients) {
-      // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks
-      void enqueueNotificationCreated(recipientId).catch((error: unknown) => {
-        console.error("Failed to enqueue community notification event:", error);
-      });
+    for (const notification of communityNotifyNotifications) {
+      void enqueueNotificationSafely(notification.recipientId, notification.id);
     }
 
     // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
@@ -867,7 +890,8 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
       throw new Error("Unauthorized");
     }
 
-    return await prisma.$transaction(async (tx) => {
+    const notificationEvents = newNotificationEvents();
+    const updated = await prisma.$transaction(async (tx) => {
       await tx.mention.deleteMany({
         where: { postId },
       });
@@ -880,7 +904,7 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
           })),
         });
 
-        await tx.notification.createMany({
+        const mentionNotifications = await tx.notification.createManyAndReturn({
           data: mentions.map((userId) => ({
             issuerId: sessionData.user.id,
             postId,
@@ -889,12 +913,10 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
           })),
         });
 
-        for (const userId of mentions) {
-          enqueueNotificationCreated(userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue mention notification event:",
-              error
-            );
+        for (const notification of mentionNotifications) {
+          notificationEvents.created.push({
+            notificationId: notification.id,
+            recipientId: notification.recipientId,
           });
         }
       }
@@ -907,6 +929,8 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
         where: { id: postId },
       });
     });
+    flushNotificationEvents(notificationEvents, "mention");
+    return updated;
   } catch (error) {
     console.error("Error updating mentions:", error);
     throw error;

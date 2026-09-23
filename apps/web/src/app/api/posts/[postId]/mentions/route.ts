@@ -1,6 +1,10 @@
-import { enqueueNotificationCreated, NotificationType, prisma } from "@asm/db";
+import { NotificationType, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 
 export async function GET(
   _req: Request,
@@ -50,6 +54,7 @@ export async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 403 });
     }
 
+    const notificationEvents = newNotificationEvents();
     await prisma.$transaction(async (tx) => {
       await tx.mention.deleteMany({
         where: { postId },
@@ -75,14 +80,19 @@ export async function POST(
         })
       );
 
-      await Promise.all([...mentionPromises, ...notificationPromises]);
+      await Promise.all(mentionPromises);
 
-      for (const userId of filteredUserIds) {
-        enqueueNotificationCreated(userId).catch((error: unknown) => {
-          console.error("Failed to enqueue mention notification event:", error);
+      const createdNotifications = await Promise.all(notificationPromises);
+
+      for (const notification of createdNotifications) {
+        notificationEvents.created.push({
+          notificationId: notification.id,
+          recipientId: notification.recipientId,
         });
       }
     });
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "mention");
 
     const updatedMentions = await prisma.mention.findMany({
       include: {

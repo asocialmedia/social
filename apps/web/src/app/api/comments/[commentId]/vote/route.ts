@@ -1,14 +1,13 @@
-import {
-  enqueueNotificationCreated,
-  enqueueNotificationDeleted,
-  invalidateAuraSignals,
-  prisma,
-  settleVoteTransition,
-} from "@asm/db";
+import { invalidateAuraSignals, prisma, settleVoteTransition } from "@asm/db";
 import type { CommentVoteInfo } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/aura/db-transactions";
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+  resetNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
 
@@ -64,7 +63,10 @@ export async function POST(
   try {
     // Serializable + retry so a concurrent vote re-reads committed state
     // instead of double-applying an aura delta.
+    const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
+      // A serializable retry re-runs this callback; start its events clean.
+      resetNotificationEvents(notificationEvents);
       const comment = await tx.comment.findUnique({
         select: { aura: true, id: true, postId: true, userId: true },
         where: { id: commentId },
@@ -148,7 +150,7 @@ export async function POST(
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
           wasAmplified = true;
-          await tx.notification.create({
+          const amplifyNotification = await tx.notification.create({
             data: {
               commentId,
               issuerId: user.id,
@@ -157,11 +159,9 @@ export async function POST(
               type: "AMPLIFY",
             },
           });
-          enqueueNotificationCreated(comment.userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue eddie amplify notification event:",
-              error
-            );
+          notificationEvents.created.push({
+            notificationId: amplifyNotification.id,
+            recipientId: comment.userId,
           });
         } else if (value !== 1 && oldValue === 1) {
           wasAmplifyRemoved = true;
@@ -174,12 +174,7 @@ export async function POST(
               type: "AMPLIFY",
             },
           });
-          enqueueNotificationDeleted(comment.userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue eddie amplify removal notification event:",
-              error
-            );
-          });
+          notificationEvents.deleted.push(comment.userId);
         }
       }
 
@@ -196,6 +191,9 @@ export async function POST(
         wasAmplifyRemoved,
       };
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "comment amplify");
 
     if (!result) {
       return Response.json({ error: "Comment not found" }, { status: 404 });
@@ -235,7 +233,10 @@ export async function DELETE(
   }
 
   try {
+    const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
+      // A serializable retry re-runs this callback; start its events clean.
+      resetNotificationEvents(notificationEvents);
       const comment = await tx.comment.findUnique({
         select: { aura: true, postId: true, userId: true },
         where: { id: commentId },
@@ -304,12 +305,7 @@ export async function DELETE(
             type: "AMPLIFY",
           },
         });
-        enqueueNotificationDeleted(comment.userId).catch((error: unknown) => {
-          console.error(
-            "Failed to enqueue eddie amplify removal notification event:",
-            error
-          );
-        });
+        notificationEvents.deleted.push(comment.userId);
       }
 
       const updated = await tx.comment.findUnique({
@@ -319,6 +315,9 @@ export async function DELETE(
 
       return { aura: updated?.aura ?? comment.aura, userVote: 0 };
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "comment amplify");
 
     if (!result) {
       return Response.json({ error: "Comment not found" }, { status: 404 });

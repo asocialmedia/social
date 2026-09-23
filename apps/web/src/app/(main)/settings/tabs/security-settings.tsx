@@ -32,6 +32,7 @@ import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { PasswordInput } from "@/components/auth/fields/password-input";
+import PushSettingsCard from "@/components/settings/push-settings-card";
 import {
   ORANGE_GRADIENT_CLASS,
   SETTINGS_SUBCARD_CLASS,
@@ -830,6 +831,10 @@ export default function SecuritySettings({
 
         <div className="min-w-0 md:col-span-2 lg:col-span-4">
           <SecuritySessionsCard currentSessionId={currentSessionId} />
+        </div>
+
+        <div className="min-w-0 md:col-span-2 lg:col-span-2">
+          <PushSettingsCard />
         </div>
       </div>
 

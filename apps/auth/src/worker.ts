@@ -124,7 +124,7 @@ if (import.meta.main) {
             return processPostDeleted(job.data, logger);
           }
           case "notification-created": {
-            return processNotificationCreated(job.data);
+            return processNotificationCreated(job.data, logger);
           }
           case "notification-deleted": {
             return processNotificationDeleted(job.data);
