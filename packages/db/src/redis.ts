@@ -212,8 +212,36 @@ function getHubClient(): IoRedis {
         }
       }
     });
+    // A fresh connection starts subscribed to nothing. Any channels still in
+    // hubListeners belong to streams that outlived the old client (a hard
+    // "end", not a reconnect ioredis handles itself), so restore them or those
+    // streams would silently go deaf. Brand-new channels are subscribed by
+    // subscribeToChannel right after this.
+    void restoreHubSubscriptions(hubClient);
   }
   return hubClient;
+}
+
+// Re-establishes every channel that still has listeners on a freshly created
+// shared subscriber connection. A channel whose last listener left while this
+// runs is skipped rather than left as a phantom subscription.
+async function restoreHubSubscriptions(client: IoRedis): Promise<void> {
+  const channels = [...hubListeners.keys()];
+  await Promise.all(
+    channels.map(async (channel) => {
+      if (!hubListeners.has(channel)) {
+        return;
+      }
+      try {
+        await client.subscribe(channel);
+      } catch (error) {
+        console.error(
+          `Failed to restore channel subscription ${channel}:`,
+          error
+        );
+      }
+    })
+  );
 }
 
 // Subscribes `listener` to `channel`. The first stream on a channel triggers
