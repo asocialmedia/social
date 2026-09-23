@@ -132,52 +132,55 @@ export async function GET(request: Request) {
   });
 
   // One grouped query for the whole page instead of a count round-trip per
-  // conversation. The coarse bound is the earliest lastReadAt in the page; the
-  // per-conversation read watermark is applied precisely below so a recent
-  // thread is not credited with messages the user already read elsewhere.
-  const pageIds = visiblePage.map((membership) => membership.conversationId);
-  let earliestReadAt: number | null = null;
+  // conversation. Each member's own read watermark bounds its conversation's
+  // unread set, so the query fetches only genuinely-unread rows rather than
+  // every message since epoch 0 (the old page-wide "earliest" bound meant one
+  // never-read thread pulled all messages across the page).
+  const readAtByConversation = new Map<string, Date>();
   for (const membership of visiblePage) {
     const myMember = membership.conversation.members.find(
       (member) => member.userId === user.id
     );
-    const readAt = myMember?.lastReadAt?.getTime() ?? 0;
-    if (earliestReadAt === null || readAt < earliestReadAt) {
-      earliestReadAt = readAt;
-    }
+    readAtByConversation.set(
+      membership.conversationId,
+      myMember?.lastReadAt ?? new Date(0)
+    );
   }
   const unreadRows =
-    pageIds.length === 0
+    visiblePage.length === 0
       ? []
       : await prisma.message.findMany({
-          select: { conversationId: true, createdAt: true },
+          select: { conversationId: true },
           where: {
-            conversationId: { in: pageIds },
-            createdAt: { gt: new Date(earliestReadAt ?? 0) },
             deletedAt: null,
             senderId: { not: user.id },
             ...visibleToUser(user.id),
+            // Per-conversation bound: each OR branch carries its own watermark.
+            OR: visiblePage.map((membership) => ({
+              conversationId: membership.conversationId,
+              createdAt: {
+                gt:
+                  readAtByConversation.get(membership.conversationId) ??
+                  new Date(0),
+              },
+            })),
           },
         });
+
+  // Bucket the (already watermark-filtered) unread rows in one pass. No further
+  // per-row compare is needed: every row cleared its own conversation's bound.
+  const unreadCountByConversation = new Map<string, number>();
+  for (const row of unreadRows) {
+    unreadCountByConversation.set(
+      row.conversationId,
+      (unreadCountByConversation.get(row.conversationId) ?? 0) + 1
+    );
+  }
 
   const items: ConversationListItem[] = visiblePage.map((membership) => {
     const { conversation } = membership;
     const [lastMessage] = conversation.messages;
-    const myMember = conversation.members.find(
-      (member) => member.userId === user.id
-    );
-    const lastReadAt = myMember?.lastReadAt ?? new Date(0);
-    let unreadCount = 0;
-    if (lastMessage) {
-      for (const row of unreadRows) {
-        if (
-          row.conversationId === conversation.id &&
-          row.createdAt > lastReadAt
-        ) {
-          unreadCount += 1;
-        }
-      }
-    }
+    const unreadCount = unreadCountByConversation.get(conversation.id) ?? 0;
     return toListItem(conversation, lastMessage, unreadCount);
   });
 
