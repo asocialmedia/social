@@ -113,6 +113,19 @@ export function VoteCluster({
     };
   }, [commentId, postId, viewerLoggedIn]);
 
+  // Comment rows skip the server fetch above, so keep them in sync when the
+  // parent supplies fresh server data for the same comment id (refreshes
+  // reuse the row component, and useState alone would hold the old aura).
+  useEffect(() => {
+    if (!commentId) {
+      return;
+    }
+    // oxlint-disable-next-line react/set-state-in-effect -- prop sync for reused comment rows, not derivable during render
+    setAura(initialAura);
+    // oxlint-disable-next-line react/set-state-in-effect -- same prop sync as above
+    setUserVote(initialVote);
+  }, [commentId, initialAura, initialVote]);
+
   const cast = (value: 1 | -1) => {
     if (!viewerLoggedIn) {
       onRequireLogin();

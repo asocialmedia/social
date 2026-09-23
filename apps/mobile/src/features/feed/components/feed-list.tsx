@@ -415,16 +415,15 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
   }, [lastDismissed]);
 
   // A freshly shown tab starts with the header visible; its own scroll
-  // takes over hiding from there. Becoming enabled also publishes the
-  // retained viewable ids so autoplay reflects the newly active tab.
+  // takes over hiding from there. Becoming enabled always publishes the
+  // retained viewable ids (even when empty) so stale ids from the previous
+  // tab cannot keep an off-screen video playing.
   useEffect(() => {
     enabledRef.current = enabled;
     if (enabled) {
       resetHeaderScroll();
       const stored = latestVisibleRef.current;
-      if (stored.size > 0) {
-        setVisiblePostIds(stored);
-      }
+      setVisiblePostIds(stored);
     }
   }, [enabled]);
 
