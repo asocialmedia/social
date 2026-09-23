@@ -454,7 +454,38 @@ function VideoControlsRow({
   );
 }
 
-type MediaStatus = "error" | "loading" | "not-found" | "ready" | "unauthorized";
+type MediaStatus = "error" | "loading" | "not-found" | "ready";
+
+// A pager page that also carries the viewer's tap-to-toggle-chrome gesture.
+//
+// The handler deliberately lives here, inside the horizontal FlatList, rather
+// than on an absolutely positioned overlay above it. RN's ReactViewGroup
+// returns true from onTouchEvent for any view whose pointerEvents allows touch
+// (`canBeTouchTarget` is true for the default AUTO), so a sibling Pressable
+// covering the stage consumed every touch and the FlatList underneath never saw
+// the gesture: horizontal paging broke, and so did the explicit-content reveal
+// button, which sits in this subtree and was unreachable behind the overlay.
+// Nested in the scroll view, a tap still fires while the pager takes over on
+// drag - the same reason the feed's tappable cards can scroll.
+function Page({
+  children,
+  onToggle,
+  width,
+}: {
+  children: React.ReactNode;
+  onToggle: () => void;
+  width: number;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel="Toggle viewer controls"
+      onPress={onToggle}
+      style={[styles.page, { width }]}
+    >
+      {children}
+    </Pressable>
+  );
+}
 
 export function PostMediaScreen({
   initialIndex,
@@ -492,6 +523,11 @@ export function PostMediaScreen({
   });
   const publishVideoSnap = useCallback((snapshot: VideoSnapshot) => {
     setVideoSnap(snapshot);
+  }, []);
+  // Tap anywhere on the stage toggles the chrome; bound to each page, which is
+  // inside the pager, rather than to an overlay above it (see Page).
+  const toggleUi = useCallback(() => {
+    setUiVisible((value) => !value);
   }, []);
   const registerVideoHandle = useCallback(
     (mediaId: string, handle: VideoHandle | null) => {
@@ -549,9 +585,7 @@ export function PostMediaScreen({
           error && typeof error === "object" && "status" in error
             ? Number((error as { status: unknown }).status)
             : 0;
-        if (code === 401) {
-          setStatus("unauthorized");
-        } else if (code === 404) {
+        if (code === 404) {
           setStatus("not-found");
         } else {
           setStatus("error");
@@ -631,24 +665,6 @@ export function PostMediaScreen({
     return <MediaRouteSkeleton />;
   }
 
-  if (status === "unauthorized") {
-    return (
-      <View
-        style={[styles.loadingRoot, { backgroundColor: theme.containerBg }]}
-      >
-        <Text style={[styles.stateTitle, { color: theme.inputText }]}>
-          Log in to see this media
-        </Text>
-        <Pressable
-          onPress={() => router.push("/(auth)/login")}
-          style={styles.loginBtn}
-        >
-          <Text style={styles.loginText}>Log in</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   if (!post || !currentMedia || status !== "ready") {
     const missing = status === "not-found";
     return (
@@ -679,11 +695,11 @@ export function PostMediaScreen({
     const active = index === currentIndex;
     if (post.moderated) {
       return (
-        <View style={[styles.page, { width }]}>
+        <Page onToggle={toggleUi} width={width}>
           <View style={styles.moderatedWrap}>
             <ModeratedNotice />
           </View>
-        </View>
+        </Page>
       );
     }
     const body = (() => {
@@ -726,7 +742,7 @@ export function PostMediaScreen({
     })();
     if (post.explicitContent) {
       return (
-        <View style={[styles.page, { width }]}>
+        <Page onToggle={toggleUi} width={width}>
           <ExplicitGate
             apiBase={apiBase}
             attachments={media}
@@ -734,10 +750,14 @@ export function PostMediaScreen({
           >
             {body}
           </ExplicitGate>
-        </View>
+        </Page>
       );
     }
-    return <View style={[styles.page, { width }]}>{body}</View>;
+    return (
+      <Page onToggle={toggleUi} width={width}>
+        {body}
+      </Page>
+    );
   };
 
   return (
@@ -764,13 +784,6 @@ export function PostMediaScreen({
         showsHorizontalScrollIndicator={false}
         style={styles.pager}
       />
-      {/* Blank-area tap toggles chrome; the pager above stays interactive. */}
-      <Pressable
-        accessibilityLabel="Toggle viewer controls"
-        onPress={() => setUiVisible((value) => !value)}
-        style={styles.toggleLayer}
-      />
-
       {uiVisible ? (
         <>
           <Pressable
@@ -1382,14 +1395,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "normal",
     textAlign: "center",
-  },
-  toggleLayer: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    zIndex: 10,
   },
   transcriptEmpty: {
     color: "rgba(255, 255, 255, 0.6)",

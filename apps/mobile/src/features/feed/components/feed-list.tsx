@@ -37,8 +37,9 @@ import {
   reportFeedScroll,
   resetHeaderScroll,
 } from "../lib/header-visibility";
+import { hasVideoAttachment } from "../lib/media-kind";
 import { viewBatcher } from "../lib/view-batcher";
-import { setVisiblePostIds } from "../lib/visible-posts";
+import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
 import { feedCache } from "../state/feed-store";
 import { useFeedTab } from "../state/use-feed";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
@@ -378,6 +379,10 @@ export function FeedList({
   // read through a ref.
   const enabledRef = useRef(enabled);
   const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
+  // The autoplay owner the last viewability pass nominated, retained for the
+  // same reason as the ids: switching back to this tab restores playback
+  // without waiting for a scroll event that may never come.
+  const latestAutoplayRef = useRef<string | null>(null);
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const [moreTarget, setMoreTarget] = useState<{
     anchor: MenuAnchor;
@@ -499,29 +504,39 @@ export function FeedList({
       resetHeaderScroll();
       const stored = latestVisibleRef.current;
       setVisiblePostIds(stored);
+      setAutoplayPostId(latestAutoplayRef.current);
     }
   }, [enabled]);
 
-  const publishVisibleIds = useCallback((ids: ReadonlySet<string>) => {
-    latestVisibleRef.current = ids;
-    if (!enabledRef.current) {
-      return;
-    }
-    if (ids.size > 0) {
-      const apiBase = getApiBaseUrl();
-      void (async () => {
-        const cookie = await authClient.getCookie();
-        for (const id of ids) {
-          viewBatcher.mark(id, { apiBase, cookie });
-        }
-      })();
-    }
-    // Viewport autoplay: videos play while their post is viewable.
-    setVisiblePostIds(new Set(ids));
-  }, []);
+  const publishVisibleIds = useCallback(
+    (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
+      latestVisibleRef.current = ids;
+      latestAutoplayRef.current = autoplayPostId;
+      if (!enabledRef.current) {
+        return;
+      }
+      if (ids.size > 0) {
+        const apiBase = getApiBaseUrl();
+        void (async () => {
+          const cookie = await authClient.getCookie();
+          for (const id of ids) {
+            viewBatcher.mark(id, { apiBase, cookie });
+          }
+        })();
+      }
+      setVisiblePostIds(new Set(ids));
+      // Exactly one tile autoplays, the topmost visible video of this tab.
+      setAutoplayPostId(autoplayPostId);
+    },
+    []
+  );
 
-  if (variant === "following" && !user) {
-    const copy = EMPTY_COPY.following;
+  // Account-only tabs. For you is ranked from the viewer's own signals and
+  // Following is their people, so neither means anything without an account;
+  // the tab stays tappable (a guest discovers the feature) but the feed is
+  // replaced by a sign-in prompt, matching web's AuthPromptCard.
+  if ((variant === "following" || variant === "personalized") && !user) {
+    const copy = EMPTY_COPY[variant];
     return (
       <View style={styles.centerWrap}>
         <View
@@ -531,7 +546,9 @@ export function FeedList({
           ]}
         >
           <Text style={[styles.promptTitle, { color: theme.inputText }]}>
-            Log in to see your feed
+            {variant === "personalized"
+              ? "Log in for a feed made for you"
+              : "Log in to see your feed"}
           </Text>
           <Text style={[styles.promptBody, { color: theme.dividerText }]}>
             {copy.description}
@@ -703,13 +720,25 @@ export function FeedList({
               }}
               onViewableItemsChanged={({ viewableItems }) => {
                 const ids = new Set<string>();
-                for (const item of viewableItems) {
+                let autoplayPostId: string | null = null;
+                // Sorted so the "topmost visible" pick is deterministic; RN
+                // does not promise an order for viewableItems.
+                const ordered = [...viewableItems].toSorted(
+                  (a, b) => (a.index ?? 0) - (b.index ?? 0)
+                );
+                for (const item of ordered) {
                   const group = item.item as FeedThreadGroup | undefined;
                   for (const post of group?.posts ?? []) {
                     ids.add(post.id);
+                    // The owner is the first visible post that actually has a
+                    // video; a text-only post at the top must not blank out
+                    // playback for the video just below it.
+                    if (!autoplayPostId && hasVideoAttachment(post)) {
+                      autoplayPostId = post.id;
+                    }
                   }
                 }
-                publishVisibleIds(ids);
+                publishVisibleIds(ids, autoplayPostId);
               }}
               ref={listRef}
               scrollEventThrottle={16}
@@ -724,6 +753,7 @@ export function FeedList({
                 >
                   {group.posts.map((post, index) => (
                     <PostCard
+                      active={enabled}
                       hasThreadChild={index < group.posts.length - 1}
                       hasThreadParent={index > 0}
                       key={post.id}

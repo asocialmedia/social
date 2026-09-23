@@ -126,6 +126,10 @@ function ThreadRail({
 }
 
 interface PostCardProps {
+  // Whether the card's feed/list is on screen. Backgrounded home tabs stay
+  // mounted (the swipe pager keeps all four alive), and their lone videos must
+  // not autoplay; defaults to active for every other surface.
+  active?: boolean;
   hasThreadChild: boolean;
   hasThreadParent: boolean;
   onMore: (post: FeedPost, anchor: MenuAnchor) => void;
@@ -139,6 +143,7 @@ interface PostCardProps {
 }
 
 export function PostCard({
+  active = true,
   hasThreadChild,
   hasThreadParent,
   onMore,
@@ -352,6 +357,7 @@ export function PostCard({
                         <View style={styles.mediaColumn}>
                           {attachments.length > 0 ? (
                             <MediaGallery
+                              active={active}
                               apiBase={apiBase}
                               attachments={attachments}
                               postId={post.id}
@@ -367,6 +373,7 @@ export function PostCard({
                       <View style={styles.mediaColumn}>
                         {attachments.length > 0 ? (
                           <MediaGallery
+                            active={active}
                             apiBase={apiBase}
                             attachments={attachments}
                             postId={post.id}

@@ -4,10 +4,11 @@
 // visit record (POST /api/posts/visit). Pure + injectable like feed-api.ts:
 // cookie, apiBase and baseFetch come from the caller.
 //
-// Auth note: GET /api/posts/:id currently 401s for guests (web SSR reads via
-// prisma directly, so guests can view there). Native shows the login gate on
-// 401 until the backend permits guest reads; the related endpoint already
-// allows guests.
+// Auth note: the detail route serves guests, resolving per-user fields (vote,
+// bookmark) against an empty id, so a signed-out viewer sees the post without
+// a login gate. A post inside a private community the viewer cannot read is a
+// 404 rather than a leak. Voting, commenting and the visit record still need a
+// session and stay guarded by the caller.
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { FeedApiError } from "@/features/feed/lib/feed-api";

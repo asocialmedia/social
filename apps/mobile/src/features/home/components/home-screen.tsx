@@ -154,7 +154,11 @@ export default function HomeScreen() {
                 bottomInset={feedBottomPad}
                 enabled={
                   index === activeIndex &&
-                  (def.value === "following" ? isLoggedIn : true)
+                  // For you and Following are account-only; a guest sees the
+                  // sign-in prompt in FeedList instead, and nothing is fetched.
+                  (def.value === "following" || def.value === "personalized"
+                    ? isLoggedIn
+                    : true)
                 }
                 key={def.value}
                 userId={user?.id}

@@ -212,7 +212,18 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
             >
               {isLoggedIn ? <PostEditor /> : null}
               <TabsContent className="mt-0 pb-12" value="personalized">
-                <HomeFeed variant="personalized" />
+                {isLoggedIn ? (
+                  <HomeFeed variant="personalized" />
+                ) : (
+                  <div className="px-4 py-10">
+                    <AuthPromptCard
+                      className="mx-auto w-full max-w-md"
+                      description="Your feed will learn from what you read, amplify, bookmark, and discuss."
+                      imageSize={128}
+                      title="Log in for a feed made for you"
+                    />
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="latest">

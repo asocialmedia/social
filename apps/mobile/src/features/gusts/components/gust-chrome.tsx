@@ -276,28 +276,37 @@ export function PagingSpinner() {
 }
 
 // Web's "No Gusts yet" block (and, native-only, the same block for a load
-// that failed after its retries, with a Try again action).
+// that failed after its retries, with a Try again action, plus the sign-in
+// prompt shown when a guest opens the account-only For you tab).
 export function GustsEmpty({
   mode,
   onAction,
 }: {
-  mode: "empty" | "error";
+  mode: "auth" | "empty" | "error";
   onAction: () => void;
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
-  const copy =
-    mode === "empty"
-      ? {
-          action: "Create the First Gust",
-          body: "Be the first to share a high-energy short-form video clip with the community!",
-          title: "No Gusts yet",
-        }
-      : {
-          action: "Try again",
-          body: "Gusts hit a snag loading. Check your connection and try again.",
-          title: "Gusts hit a snag",
-        };
+  let copy: { action: string; body: string; title: string };
+  if (mode === "empty") {
+    copy = {
+      action: "Create the First Gust",
+      body: "Be the first to share a high-energy short-form video clip with the community!",
+      title: "No Gusts yet",
+    };
+  } else if (mode === "auth") {
+    copy = {
+      action: "Log in",
+      body: "Your Gusts feed learns from what you watch, amplify and bookmark.",
+      title: "Log in for Gusts made for you",
+    };
+  } else {
+    copy = {
+      action: "Try again",
+      body: "Gusts hit a snag loading. Check your connection and try again.",
+      title: "Gusts hit a snag",
+    };
+  }
   return (
     <View style={styles.empty}>
       <Image

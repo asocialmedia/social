@@ -153,8 +153,13 @@ export function GustsScreen() {
     parseGustTab(firstParam(params.tab))
   );
   const tab = tabChoice ?? defaultGustTab(Boolean(viewerId));
+  // For you is ranked from the viewer's own watch/amplify signals, so it is
+  // account-only. A guest who taps the tab (or follows a deep link) gets a
+  // sign-in prompt instead of a feed, and nothing is fetched. A ?id= deep link
+  // is always chronological, so it stays viewable by guests.
+  const gatedPersonalized = tab === "personalized" && !viewerId && !initialId;
   const feed = useGustsFeed({
-    enabled: !isPending,
+    enabled: !isPending && !gatedPersonalized,
     initialId,
     tab,
     userId: viewerId,
@@ -501,7 +506,11 @@ export function GustsScreen() {
   const chromeTop = insets.top + 16;
 
   let body;
-  if (loading) {
+  if (gatedPersonalized) {
+    body = (
+      <GustsEmpty mode="auth" onAction={() => router.push("/(auth)/login")} />
+    );
+  } else if (loading) {
     body = <GustCardSkeleton />;
   } else if (feed.status === "error") {
     body = <GustsEmpty mode="error" onAction={() => feed.retry()} />;
@@ -554,7 +563,9 @@ export function GustsScreen() {
   }
 
   const panelBg = isDark ? "#171717" : "#f3f4f6";
-  const onVideo = posts.length > 0 || loading;
+  // The sign-in prompt is a panel surface, not a video: keeping the reel's
+  // black backdrop would render the themed prompt text invisible.
+  const onVideo = !gatedPersonalized && (posts.length > 0 || loading);
 
   return (
     <View

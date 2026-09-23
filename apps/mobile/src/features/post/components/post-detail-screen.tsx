@@ -63,12 +63,7 @@ import { PostDetailSkeleton } from "./post-detail-skeleton";
 // memoryKey `post:<id>`. Module scope: one entry per post id.
 const detailScrollMemory = new Map<string, number>();
 
-type DetailStatus =
-  | "error"
-  | "loading"
-  | "not-found"
-  | "ready"
-  | "unauthorized";
+type DetailStatus = "error" | "loading" | "not-found" | "ready";
 
 export function PostDetailScreen({ postId }: { postId: string }) {
   const { theme } = useAppTheme();
@@ -201,9 +196,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
           error && typeof error === "object" && "status" in error
             ? Number((error as { status: unknown }).status)
             : 0;
-        if (code === 401) {
-          setStatus("unauthorized");
-        } else if (code === 404) {
+        if (code === 404) {
           setStatus("not-found");
         } else {
           setStatus("error");
@@ -384,63 +377,6 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
         <PostDetailSkeleton />
-        <MobileBottomNav
-          onHeightChange={setDockHeight}
-          onHiddenChange={setDockHidden}
-        />
-      </View>
-    );
-  }
-
-  if (status === "unauthorized") {
-    return (
-      <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <Pressable
-            accessibilityLabel="Go back"
-            accessibilityRole="button"
-            onPress={handleGoBack}
-            style={styles.backBtn}
-          >
-            <ArrowLeft color={theme.inputText} size={20} />
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: theme.inputText }]}>
-            Post
-          </Text>
-        </View>
-        <View style={styles.centerWrap}>
-          <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
-            Log in to see this post
-          </Text>
-          <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-            Post detail needs a signed-in session on mobile for now.
-          </Text>
-          <Pressable
-            onPress={() => router.push("/(auth)/login")}
-            style={styles.loginBtn}
-          >
-            <Text style={styles.loginText}>Log in</Text>
-          </Pressable>
-        </View>
-        {showGuestBar ? (
-          <Animated.View
-            onLayout={(event) => {
-              setBannerHeight(event.nativeEvent.layout.height);
-            }}
-            pointerEvents="box-none"
-            style={{
-              bottom: 0,
-              left: 0,
-              position: "absolute",
-              right: 0,
-              transform: [{ translateY: bannerTranslate }],
-              // Above the dock so it slides out underneath the banner.
-              zIndex: 60,
-            }}
-          >
-            <GuestAuthBar />
-          </Animated.View>
-        ) : null}
         <MobileBottomNav
           onHeightChange={setDockHeight}
           onHiddenChange={setDockHidden}

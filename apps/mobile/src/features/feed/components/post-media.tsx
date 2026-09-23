@@ -64,7 +64,11 @@ import {
   splitTranscriptIntoTimedLines,
 } from "../lib/transcript-cues";
 import type { TranscriptCue } from "../lib/transcript-cues";
-import { isPostVisible, subscribePostVisibility } from "../lib/visible-posts";
+import {
+  isAutoplayPost,
+  subscribeAutoplayPost,
+  subscribePostVisibility,
+} from "../lib/visible-posts";
 import {
   EQ_BAR_COUNT,
   EQ_FALLBACK_HEIGHTS,
@@ -76,6 +80,10 @@ import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { useVideoMuteStore } from "../state/video-mute-store";
 
 interface GalleryProps {
+  // Whether the containing screen/tab is on screen. A backgrounded feed (a
+  // mounted-but-inactive home tab) passes false so its lone-video autoplay
+  // stops; everything else leaves it unset (treated as active).
+  active?: boolean;
   apiBase: string;
   attachments: FeedMedia[];
   // Opens the fullscreen media viewer at the tapped image index. Optional:
@@ -399,31 +407,62 @@ function VideoTile({
   };
 
   // Viewport autoplay, muted by default like web's autoPlay previews.
+  //
+  // Two gates, and both are needed:
+  //   1. Ownership. The enabled feed nominates ONE autoplay post (the topmost
+  //      visible video), so a post mounted in two tabs - or two half-visible
+  //      cards in one tab - cannot play twice at once, which is heard as
+  //      doubled, slightly detuned audio.
+  //   2. Feed activity. `autoPlayEnabled` is three-valued: true (this tab is
+  //      on screen and may autoplay), false (mounted but backgrounded, so stop
+  //      - otherwise swiping away leaves the old tab's video playing), and
+  //      undefined (a tap-to-play grid tile that owns its playback, so this
+  //      lane must never touch it).
   useEffect(() => {
-    if (!autoPlayEnabled) {
+    if (autoPlayEnabled !== true) {
+      if (autoPlayEnabled === false) {
+        player.pause();
+      }
       return;
     }
-    if (isPostVisible(postId)) {
+    if (isAutoplayPost(postId)) {
       player.play();
     }
-    return subscribePostVisibility(postId, (visible) => {
+    // Losing the slot pauses; gaining it resumes, unless the viewer paused by
+    // hand. Leaving the viewport also clears that manual pause, so scrolling
+    // back resumes autoplay like web.
+    const unsubscribeAutoplay = subscribeAutoplayPost(postId, (isOwner) => {
+      if (!isOwner) {
+        manualPausedRef.current = false;
+        player.pause();
+        return;
+      }
+      if (player.status === "error") {
+        return;
+      }
+      if (endedRef.current) {
+        endedRef.current = false;
+        player.replay();
+        return;
+      }
+      player.play();
+    });
+    const unsubscribeVisibility = subscribePostVisibility(postId, (visible) => {
       if (player.status === "error") {
         return;
       }
       if (visible) {
-        if (!manualPausedRef.current) {
-          if (endedRef.current) {
-            endedRef.current = false;
-            player.replay();
-            return;
-          }
-          player.play();
-        }
         return;
       }
       manualPausedRef.current = false;
-      player.pause();
+      if (!isAutoplayPost(postId)) {
+        player.pause();
+      }
     });
+    return () => {
+      unsubscribeAutoplay();
+      unsubscribeVisibility();
+    };
   }, [autoPlayEnabled, player, postId]);
 
   // Web fetches the WebVTT track once the preview is live; an empty track
@@ -1201,6 +1240,7 @@ export function ExplicitGate({
 }
 
 export function MediaGallery({
+  active,
   apiBase,
   attachments,
   onPressMedia,
@@ -1213,6 +1253,7 @@ export function MediaGallery({
   }
   return (
     <SingleOrGrid
+      active={active}
       apiBase={apiBase}
       items={visible}
       onFailed={markFailed}
@@ -1223,12 +1264,14 @@ export function MediaGallery({
 }
 
 function SingleOrGrid({
+  active = true,
   apiBase,
   items,
   onFailed,
   onPressMedia,
   postId,
 }: {
+  active?: boolean;
   apiBase: string;
   items: FeedMedia[];
   onFailed: (id: string) => void;
@@ -1254,7 +1297,7 @@ function SingleOrGrid({
     return (
       <VideoTile
         apiBase={apiBase}
-        autoPlayEnabled
+        autoPlayEnabled={active}
         media={first}
         postId={postId}
       />
