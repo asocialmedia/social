@@ -20,12 +20,13 @@ interface MessageStreamEvent {
   conversationId: string;
   deliveredAt?: string;
   message?: unknown;
+  readAt?: string;
   userId?: string;
 }
 
 // Kept client-side (mirrors the @asm/db helper) so the browser bundle never
 // drags in the server-only DB package.
-function parseMessageEvent(raw: string): MessageStreamEvent | null {
+export function parseMessageEvent(raw: string): MessageStreamEvent | null {
   try {
     const parsed = JSON.parse(raw) as Partial<MessageStreamEvent>;
     if (
@@ -60,11 +61,18 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
     ) {
       return null;
     }
+    if (
+      parsed.kind === "conversation.read" &&
+      (typeof parsed.userId !== "string" || typeof parsed.readAt !== "string")
+    ) {
+      return null;
+    }
     return {
       conversationId: parsed.conversationId,
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
       message: parsed.message,
+      readAt: parsed.readAt,
       userId: parsed.userId,
     };
   } catch {
@@ -165,6 +173,7 @@ export function useMessagesRealtime(
     kind: MessageStreamEvent["kind"];
     deliveredAt?: string;
     message?: MessageData;
+    readAt?: string;
     userId?: string;
   }) => void,
   enabled = true,
@@ -235,6 +244,7 @@ export function useMessagesRealtime(
         deliveredAt: event.deliveredAt,
         kind: event.kind,
         message,
+        readAt: event.readAt,
         userId: event.userId,
       });
       // No invalidation here: the caller folds creates/deletes straight into
