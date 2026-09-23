@@ -55,8 +55,8 @@ describe("push dispatch", () => {
         Promise.resolve([
           {
             platform: "android",
-            provider: "expo",
-            token: "ExponentPushToken[a]",
+            provider: "fcm",
+            token: "fcm-token-a",
           },
         ]),
       listSubscriptions: () =>
@@ -79,7 +79,7 @@ describe("push dispatch", () => {
         Promise.resolve({
           failed: 0,
           sent: 0,
-          unregistered: ["ExponentPushToken[a]"],
+          unregistered: ["fcm-token-a"],
         }),
       sendWeb: () =>
         Promise.resolve({
@@ -92,7 +92,7 @@ describe("push dispatch", () => {
     expect(prunedEndpoints).toEqual([
       "https://fcm.googleapis.com/fcm/send/gone",
     ]);
-    expect(prunedTokens).toEqual(["ExponentPushToken[a]"]);
+    expect(prunedTokens).toEqual(["fcm-token-a"]);
   });
 
   test("never throws when a transport fails", async () => {
@@ -112,8 +112,8 @@ describe("push dispatch", () => {
         Promise.resolve([
           {
             platform: "android",
-            provider: "expo",
-            token: "ExponentPushToken[a]",
+            provider: "fcm",
+            token: "fcm-token-a",
           },
         ]),
       listSubscriptions: () => Promise.resolve([]),
@@ -123,7 +123,7 @@ describe("push dispatch", () => {
         Promise.resolve({
           failed: 0,
           sent: 1,
-          unregistered: ["ExponentPushToken[a]"],
+          unregistered: ["fcm-token-a"],
         }),
       vapid: null,
     });

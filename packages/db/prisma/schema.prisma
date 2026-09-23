@@ -907,7 +907,9 @@ model DevicePushToken {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   token     String   @unique
-  provider  String   @default("expo")
+  // "fcm" today (the only Android transport); the column exists so a future
+  // APNs transport can coexist without a migration.
+  provider  String   @default("fcm")
   platform  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

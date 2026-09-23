@@ -476,6 +476,14 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Firebase app config, gitignored (base64 of google-services.json).
+          # Not a credential - it carries the project's public-facing Firebase
+          # identifiers - but it is per-project and per-package, so it is kept
+          # out of the tree and injected here. The build aborts with a clear
+          # message when it is absent rather than shipping an APK whose native
+          # push is silently dead. The server-side FCM credential
+          # (FCM_SERVICE_ACCOUNT_JSON) is separate and lives only on the worker.
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
           # Metro inlines EXPO_PUBLIC_* into the JS bundle at build time, so
           # everything here is public inside the shipped APK. An unset entry
           # resolves to an empty string, letting the app's own defaults (or its

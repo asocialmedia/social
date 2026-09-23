@@ -1,30 +1,32 @@
-// Native push transport, via Expo's push service.
+// Native push transport, direct to Firebase Cloud Messaging (FCM).
 //
-// The app registers an Expo push token (ExponentPushToken[...]) through
-// expo-notifications and stores it as a DevicePushToken. Expo's HTTP API
-// accepts a batch of messages and reports per-message delivery status, so this
-// sender batches all of a user's devices into one request and parses the
-// receipts for the tokens Expo says are unregistered.
+// There is no third-party relay: this app runs its own worker, which holds a
+// Google service account and authenticates straight to fcm.googleapis.com. No
+// Expo account or EAS project is involved.
 //
-// Raw FCM/APNs would slot in beside this: `provider` on the stored token
-// distinguishes them, and this module is the only place that knows the
-// transport.
+// Android push IS Firebase - there is no alternative transport - so the one
+// non-negotiable piece of setup is Firebase: `google-services.json` in the app
+// build (so the device can mint a registration token) and a service-account
+// key on the server (so the worker can send). See ./fcm.ts for the sender.
 
 import type { NotificationRecord } from "../shared/types";
-import { buildPushPayload } from "./payload";
+import type { FcmAccessTokenCache } from "./fcm";
+import { resolveFcmServiceAccount, sendFcmPush } from "./fcm";
 
-export const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
-
-export interface ExpoPushMessage {
-  body: string;
-  // Android collapses same-tag notifications in the tray; iOS uses it as the
-  // thread identifier so a post's notifications stack together.
-  collapseId?: string;
-  data: Record<string, unknown>;
-  sound: "default";
-  title: string;
-  to: string;
-}
+export {
+  buildFcmMessage,
+  getFcmAccessToken,
+  isFcmToken,
+  parseServiceAccount,
+  resolveFcmServiceAccount,
+  sendFcmPush,
+} from "./fcm";
+export type {
+  FcmAccessTokenCache,
+  FcmPushResult,
+  FcmServiceAccount,
+  FcmTarget,
+} from "./fcm";
 
 export interface DeviceTarget {
   platform: string;
@@ -34,110 +36,57 @@ export interface DeviceTarget {
 
 export interface DevicePushResult {
   failed: number;
-  // Tokens Expo reported as DeviceNotRegistered; the caller prunes these.
-  unregistered: string[];
   sent: number;
-}
-
-interface ExpoTicket {
-  details?: { error?: string };
-  id?: string;
-  status?: "error" | "ok";
-}
-
-interface ExpoResponse {
-  data?: ExpoTicket | ExpoTicket[];
-}
-
-// An Expo token always looks like ExponentPushToken[xxxx] (or the legacy
-// ExponentPushToken). Anything else is a raw FCM/APNs token this transport
-// cannot address, so it is skipped rather than sent to Expo and rejected.
-export function isExpoPushToken(token: string): boolean {
-  return /^(?:ExponentPushToken|ExpoPushToken)\[[^\]]+\]$/.test(token);
-}
-
-// Builds the wire message for one device. The `data.path` is what the app's
-// tap handler reads to deep-link; `tag` collapses repeats.
-export function buildExpoMessage(
-  notification: NotificationRecord,
-  token: string
-): ExpoPushMessage {
-  const payload = buildPushPayload(notification);
-  return {
-    body: payload.body,
-    collapseId: payload.tag,
-    data: { notificationId: notification.id, path: payload.path },
-    sound: "default",
-    title: payload.title,
-    to: token,
-  };
-}
-
-function ticketsFrom(response: ExpoResponse): ExpoTicket[] {
-  if (Array.isArray(response.data)) {
-    return response.data;
-  }
-  return response.data ? [response.data] : [];
+  // Tokens FCM reported as gone; the caller prunes these.
+  unregistered: string[];
 }
 
 export interface SendDevicePushOptions {
-  // Injectable for tests; defaults to global fetch.
+  // Process-wide access-token cache, owned by the caller so it survives
+  // between notifications.
+  cache?: FcmAccessTokenCache | null;
   fetchImpl?: typeof fetch;
+  now?: () => number;
 }
 
-/**
- * Delivers one notification to a user's native devices. Never throws: a
- * transport failure is counted so the worker job cannot be poisoned by a push
- * outage.
- */
+// Delivers one notification to a user's native devices. Never throws: a
+// transport failure is counted so the worker job cannot be poisoned by a push
+// outage.
 export async function sendDevicePush(
   notification: NotificationRecord,
   targets: DeviceTarget[],
   options: SendDevicePushOptions = {}
 ): Promise<DevicePushResult> {
-  const result: DevicePushResult = { failed: 0, sent: 0, unregistered: [] };
-  const deliverable = targets.filter(
-    (target) => target.provider === "expo" && isExpoPushToken(target.token)
-  );
-  if (deliverable.length === 0) {
-    return result;
+  if (targets.length === 0) {
+    return { failed: 0, sent: 0, unregistered: [] };
   }
+  return await sendFcmPush(notification, targets, {
+    cache: options.cache,
+    fetchImpl: options.fetchImpl,
+    now: options.now,
+    serviceAccount: resolveFcmServiceAccountCached(),
+  });
+}
 
-  const messages = deliverable.map((target) =>
-    buildExpoMessage(notification, target.token)
-  );
-  const fetchImpl = options.fetchImpl ?? fetch;
+// Env is read per call rather than at module load so a test (or a late env
+// injection) sees the current value, but the parsed account is memoized by the
+// raw JSON string so repeated sends do not re-parse the PEM.
+let cachedRaw: string | null | undefined;
+let cachedAccount: ReturnType<typeof resolveFcmServiceAccount> | null = null;
 
-  try {
-    const response = await fetchImpl(EXPO_PUSH_ENDPOINT, {
-      body: JSON.stringify(messages),
-      headers: {
-        accept: "application/json",
-        "accept-encoding": "gzip, deflate",
-        "content-type": "application/json",
-      },
-      method: "POST",
-    });
-    if (!response.ok) {
-      result.failed = deliverable.length;
-      return result;
-    }
-    const tickets = ticketsFrom((await response.json()) as ExpoResponse);
-    for (const [index, target] of deliverable.entries()) {
-      const ticket = tickets[index];
-      if (!ticket || ticket.status === "error") {
-        if (ticket?.details?.error === "DeviceNotRegistered") {
-          result.unregistered.push(target.token);
-        } else {
-          result.failed += 1;
-        }
-        continue;
-      }
-      result.sent += 1;
-    }
-  } catch {
-    result.failed = deliverable.length;
+function resolveFcmServiceAccountCached() {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON ?? null;
+  if (cachedRaw !== raw) {
+    cachedRaw = raw;
+    cachedAccount = resolveFcmServiceAccount();
   }
+  return cachedAccount;
+}
 
-  return result;
+// True when native push is configured. The worker checks this to skip the
+// database reads entirely on deployments without a service account.
+export function isDevicePushConfigured(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return Boolean(env.FCM_SERVICE_ACCOUNT_JSON?.trim());
 }

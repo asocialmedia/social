@@ -23,7 +23,7 @@ export interface StoredPushSubscription {
   p256dh: string;
 }
 
-/** Registers (or refreshes) a browser push subscription for a user. */
+// Registers (or refreshes) a browser push subscription for a user.
 export async function savePushSubscription(
   input: PushSubscriptionInput
 ): Promise<void> {
@@ -35,7 +35,7 @@ export async function savePushSubscription(
   });
 }
 
-/** Removes a browser subscription by endpoint. Idempotent. */
+// Removes a browser subscription by endpoint. Idempotent.
 export async function removePushSubscription(
   endpoint: string,
   userId?: string
@@ -45,7 +45,7 @@ export async function removePushSubscription(
   });
 }
 
-/** Every browser subscription registered for a user. */
+// Every browser subscription registered for a user.
 export function listPushSubscriptions(
   userId: string
 ): Promise<StoredPushSubscription[]> {
@@ -56,10 +56,8 @@ export function listPushSubscriptions(
   });
 }
 
-/**
- * Removes subscriptions the push service reported as gone (HTTP 404/410).
- * Called after a delivery pass so a dead browser registration self-heals.
- */
+// Removes subscriptions the push service reported as gone (HTTP 404/410).
+// Called after a delivery pass so a dead browser registration self-heals.
 export async function prunePushSubscriptions(
   endpoints: string[]
 ): Promise<void> {
@@ -85,15 +83,13 @@ export interface StoredDevicePushToken {
   token: string;
 }
 
-/**
- * Registers a native device token. The token is unique globally: upserting it
- * moves it to the current user, so a shared device that switches accounts stops
- * notifying the previous one.
- */
+// Registers a native device token. The token is unique globally: upserting it
+// moves it to the current user, so a shared device that switches accounts stops
+// notifying the previous one.
 export async function saveDevicePushToken(
   input: DevicePushTokenInput
 ): Promise<void> {
-  const { platform, provider = "expo", token, userId } = input;
+  const { platform, provider = "fcm", token, userId } = input;
   await prisma.devicePushToken.upsert({
     create: { platform, provider, token, userId },
     update: { platform, provider, userId },
@@ -101,7 +97,7 @@ export async function saveDevicePushToken(
   });
 }
 
-/** Removes a native device token by value. Idempotent. */
+// Removes a native device token by value. Idempotent.
 export async function removeDevicePushToken(
   token: string,
   userId?: string
@@ -111,7 +107,7 @@ export async function removeDevicePushToken(
   });
 }
 
-/** Every native device token registered for a user. */
+// Every native device token registered for a user.
 export function listDevicePushTokens(
   userId: string
 ): Promise<StoredDevicePushToken[]> {
@@ -122,10 +118,8 @@ export function listDevicePushTokens(
   });
 }
 
-/**
- * Removes device tokens the push service reported as unregistered. Called after
- * a delivery pass so an uninstalled app self-heals.
- */
+// Removes device tokens the push service reported as unregistered. Called after
+// a delivery pass so an uninstalled app self-heals.
 export async function pruneDevicePushTokens(tokens: string[]): Promise<void> {
   if (tokens.length === 0) {
     return;
@@ -135,7 +129,7 @@ export async function pruneDevicePushTokens(tokens: string[]): Promise<void> {
   });
 }
 
-/** Drops every registration for a user (sign-out on every device). */
+// Drops every registration for a user (sign-out on every device).
 export async function clearUserPushRegistrations(
   userId: string
 ): Promise<void> {

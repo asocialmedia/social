@@ -44,3 +44,5 @@ concepts/
 re/
 .tmp-ts/
 .tmp-d/
+google-services.json
+asocialmedia-adminsdk.json

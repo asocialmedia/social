@@ -44,11 +44,9 @@ const NOOP_RESULT: PushDispatchResult = {
   web: { expired: [], failed: 0, sent: 0 },
 };
 
-/**
- * Delivers one notification to every registered endpoint for its recipient.
- * Best-effort by contract: the caller (the unread-count job) must succeed even
- * when push is down, so every failure here is logged and swallowed.
- */
+// Delivers one notification to every registered endpoint for its recipient.
+// Best-effort by contract: the caller (the unread-count job) must succeed even
+// when push is down, so every failure here is logged and swallowed.
 export async function dispatchNotificationPush(
   notification: NotificationRecord,
   deps: DispatchDeps
@@ -103,12 +101,13 @@ export async function dispatchNotificationPush(
   }
 }
 
-/**
- * True when at least one transport is configured. The worker checks this to
- * skip the database reads entirely on deployments without push keys or Expo.
- */
+// True when at least one transport is configured. The worker checks this to
+// skip the database reads entirely on deployments without any push setup.
 export function isPushConfigured(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  return resolveVapidConfig(env) !== null;
+  return (
+    resolveVapidConfig(env) !== null ||
+    Boolean(env.FCM_SERVICE_ACCOUNT_JSON?.trim())
+  );
 }

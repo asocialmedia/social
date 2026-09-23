@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS "device_push_tokens" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "token" TEXT NOT NULL,
-    "provider" TEXT NOT NULL DEFAULT 'expo',
+    "provider" TEXT NOT NULL DEFAULT 'fcm',
     "platform" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

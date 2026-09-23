@@ -4,8 +4,11 @@ import { z } from "zod";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const registerSchema = z.object({
-  platform: z.enum(["android", "ios"]),
-  provider: z.enum(["expo", "fcm", "apns"]).default("expo"),
+  // Android only for now: FCM is the single configured transport, and the
+  // server holds no APNs sender, so accepting an iOS token would store a row
+  // nothing can deliver to. iOS lands alongside an APNs sender.
+  platform: z.literal("android"),
+  provider: z.literal("fcm").default("fcm"),
   token: z.string().min(8).max(512),
 });
 

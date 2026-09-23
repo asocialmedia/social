@@ -198,7 +198,7 @@ function parseNotificationsPage(payload: unknown): NotificationsPage {
   };
 }
 
-/** One cursor page of notifications, filtered by tab. */
+// One cursor page of notifications, filtered by tab.
 export async function fetchNotificationsPage(
   tab: NotificationTab,
   cursor: string | null,
@@ -221,7 +221,7 @@ export async function fetchNotificationsPage(
   return parseNotificationsPage(await readJson(response));
 }
 
-/** Groups the flattened pages exactly as web does. */
+// Groups the flattened pages exactly as web does.
 export function groupFetchedNotifications(
   items: NotificationItem[]
 ): GroupedNotificationItem[] {
@@ -247,7 +247,7 @@ export async function fetchUnreadCount(
   return typeof payload?.unreadCount === "number" ? payload.unreadCount : 0;
 }
 
-/** Marks every notification read. Idempotent. */
+// Marks every notification read. Idempotent.
 export async function markAllNotificationsRead(
   options: ApiCallOptions
 ): Promise<void> {
@@ -266,7 +266,7 @@ export async function markAllNotificationsRead(
   }
 }
 
-/** Deletes one notification (or a grouped set via comma-separated ids). */
+// Deletes one notification (or a grouped set via comma-separated ids).
 export async function dismissNotifications(
   ids: string[],
   options: ApiCallOptions

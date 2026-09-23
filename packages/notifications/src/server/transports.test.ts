@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import type { NotificationRecord } from "../shared/types";
-import { sendDevicePush } from "./device-push";
 import { resolveVapidConfig, sendWebPush } from "./web-push";
 
 // web-push rejects with an object carrying statusCode; a real Error with the
@@ -190,93 +189,5 @@ describe("vapid config resolution", () => {
       publicKey: "abc",
       subject: "mailto:hello@asocialmedia.cc",
     });
-  });
-});
-
-describe("device push sender", () => {
-  test("skips tokens that are not Expo tokens", async () => {
-    let called = false;
-    const result = await sendDevicePush(
-      base(),
-      [{ platform: "android", provider: "expo", token: "raw-fcm-token" }],
-      {
-        fetchImpl: (() => {
-          called = true;
-          return Promise.resolve(new Response("{}"));
-        }) as unknown as typeof fetch,
-      }
-    );
-    expect(called).toBe(false);
-    expect(result).toEqual({ failed: 0, sent: 0, unregistered: [] });
-  });
-
-  test("counts delivered messages from the receipt tickets", async () => {
-    const result = await sendDevicePush(
-      base(),
-      [
-        {
-          platform: "android",
-          provider: "expo",
-          token: "ExponentPushToken[aaa]",
-        },
-      ],
-      {
-        fetchImpl: (() =>
-          Promise.resolve(
-            Response.json({ data: { id: "t1", status: "ok" } })
-          )) as unknown as typeof fetch,
-      }
-    );
-    expect(result.sent).toBe(1);
-  });
-
-  test("collects DeviceNotRegistered tokens for pruning", async () => {
-    const result = await sendDevicePush(
-      base(),
-      [
-        {
-          platform: "android",
-          provider: "expo",
-          token: "ExponentPushToken[aaa]",
-        },
-      ],
-      {
-        fetchImpl: (() =>
-          Promise.resolve(
-            Response.json({
-              data: {
-                details: { error: "DeviceNotRegistered" },
-                status: "error",
-              },
-            })
-          )) as unknown as typeof fetch,
-      }
-    );
-    expect(result.unregistered).toEqual(["ExponentPushToken[aaa]"]);
-    expect(result.sent).toBe(0);
-  });
-
-  test("counts every message as failed when the request itself fails", async () => {
-    const result = await sendDevicePush(
-      base(),
-      [
-        {
-          platform: "android",
-          provider: "expo",
-          token: "ExponentPushToken[aaa]",
-        },
-        {
-          platform: "ios",
-          provider: "expo",
-          token: "ExponentPushToken[bbb]",
-        },
-      ],
-      {
-        fetchImpl: (() =>
-          Promise.reject(new Error("offline"))) as unknown as typeof fetch,
-      }
-    );
-    expect(result.failed).toBe(2);
-    expect(result.sent).toBe(0);
   });
 });

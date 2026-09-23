@@ -51,11 +51,9 @@ export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 let cachedRegistration: ServiceWorkerRegistration | null = null;
 
-/**
- * Registers /sw.js once and resolves with an ACTIVE registration, so
- * PushManager.subscribe always has a worker to live on. A failed registration
- * is not cached, so a later call can retry.
- */
+// Registers /sw.js once and resolves with an ACTIVE registration, so
+// PushManager.subscribe always has a worker to live on. A failed registration
+// is not cached, so a later call can retry.
 export async function ensurePushServiceWorker(): Promise<ServiceWorkerRegistration> {
   if (cachedRegistration?.active) {
     return cachedRegistration;
@@ -99,12 +97,10 @@ async function postSubscription(
   return response.ok;
 }
 
-/**
- * Requests permission, subscribes the browser and registers the subscription
- * with the server. Returns false (never throws) so the settings toggle can
- * revert cleanly on any failure: unsupported browser, denied permission, a
- * missing VAPID key, or a rejected request.
- */
+// Requests permission, subscribes the browser and registers the subscription
+// with the server. Returns false (never throws) so the settings toggle can
+// revert cleanly on any failure: unsupported browser, denied permission, a
+// missing VAPID key, or a rejected request.
 export async function enableWebPush(): Promise<boolean> {
   const support = pushSupported();
   if (!support.supported) {
@@ -133,7 +129,7 @@ export async function enableWebPush(): Promise<boolean> {
   }
 }
 
-/** Unsubscribes the browser and removes the server row. Best-effort. */
+// Unsubscribes the browser and removes the server row. Best-effort.
 export async function disableWebPush(): Promise<boolean> {
   try {
     const registration = await navigator.serviceWorker.getRegistration("/");
@@ -151,7 +147,7 @@ export async function disableWebPush(): Promise<boolean> {
   }
 }
 
-/** Whether this browser currently holds an active push subscription. */
+// Whether this browser currently holds an active push subscription.
 export async function hasActivePushSubscription(): Promise<boolean> {
   if (!pushSupported().supported) {
     return false;

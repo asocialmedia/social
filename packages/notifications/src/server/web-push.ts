@@ -79,11 +79,9 @@ function isGone(error: unknown): boolean {
   return status === 404 || status === 410;
 }
 
-/**
- * Delivers one notification to a set of browser subscriptions. Never throws:
- * a dead endpoint is collected for pruning and any other failure is counted, so
- * one bad subscription cannot abort the rest or the worker job.
- */
+// Delivers one notification to a set of browser subscriptions. Never throws:
+// a dead endpoint is collected for pruning and any other failure is counted, so
+// one bad subscription cannot abort the rest or the worker job.
 const SEND_TIMEOUT_MS = 10_000;
 // A user holds a handful of browsers; the cap keeps one account with a
 // flood of registrations from monopolising the worker.

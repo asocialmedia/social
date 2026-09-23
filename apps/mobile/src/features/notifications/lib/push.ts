@@ -1,21 +1,24 @@
-// Native push registration: obtains an Expo push token and registers it with
-// the API, then keeps it fresh and routes taps.
+// Native push registration: obtains a raw FCM registration token and
+// registers it with the API, then keeps it fresh and routes taps.
+//
+// No Expo relay and no EAS project id: this app runs its own worker, which
+// talks to Firebase directly (see @asm/notifications/server). That also means
+// no third party holds the delivery credentials.
 //
 // Every step is best-effort and gated so the app works unchanged without push
 // configuration:
-// - Expo requires an EAS project id (EXPO_PUBLIC_EAS_PROJECT_ID) and, for
-//   Android, Firebase credentials on the Expo project. Without the project id
-//   the token call cannot run, so registration is skipped rather than throwing.
+// - Android needs google-services.json (Firebase) in the build, so
+//   getDevicePushTokenAsync fails on a build without it; registration is
+//   skipped rather than throwing.
 // - Permission is requested once, lazily, after sign-in; a denial just leaves
 //   the device unregistered.
-// - The endpoint is install-token gated server-side, so a fresh install that
-//   fails that check simply retries on the next foreground.
+// - The endpoint is install-token and session gated server-side, so a fresh
+//   install that fails either check simply retries on the next foreground.
 //
 // Tap routing: a notification carries `data.path` (a web path such as
 // /posts/abcd1234). Post paths map onto the native detail screen; everything
 // else resolves to the notifications list, which always exists.
 
-import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
@@ -42,21 +45,6 @@ Notifications.setNotificationHandler({
       shouldShowList: true,
     }),
 });
-
-function resolveProjectId(): string | null {
-  const explicit = process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim();
-  if (explicit) {
-    return explicit;
-  }
-  // A dev client / EAS build stamps the project id into the manifest; a bare
-  // local build has none.
-  const fromConfig =
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId;
-  return typeof fromConfig === "string" && fromConfig.length > 0
-    ? fromConfig
-    : null;
-}
 
 async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") {
@@ -88,7 +76,7 @@ async function postToken(
 ): Promise<boolean> {
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/push/device`, {
-      body: JSON.stringify({ platform, provider: "expo", token }),
+      body: JSON.stringify({ platform, provider: "fcm", token }),
       headers: await sessionHeaders(),
       method: "POST",
     });
@@ -115,19 +103,19 @@ async function unregisterToken(token: string): Promise<void> {
 
 let lastRegisteredToken: string | null = null;
 
-/**
- * Requests permission and registers this device. Safe to call repeatedly:
- * a token already registered this session is not re-sent. Returns the token,
- * or null when push is unavailable (no project id, no permission, simulator).
- */
+// Requests permission and registers this device. Safe to call repeatedly:
+// a token already registered this session is not re-sent. Returns the token,
+// or null when push is unavailable (no permission, simulator, no Firebase
+// config in the build).
 export async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) {
     // Push tokens are not issued to simulators/emulators.
     return null;
   }
-  const projectId = resolveProjectId();
-  if (!projectId) {
-    logInfo("push.skipped", { reason: "no project id" });
+  if (Platform.OS !== "android") {
+    // Only Android is wired: the server delivers via FCM and holds no APNs
+    // sender, so registering an iOS token would store an undeliverable row.
+    logInfo("push.skipped", { reason: "platform not configured" });
     return null;
   }
 
@@ -144,19 +132,18 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   try {
-    const { data: token } = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
+    // The native FCM registration token. Fails on a build without
+    // google-services.json, which is the signal to skip registration.
+    const deviceToken = await Notifications.getDevicePushTokenAsync();
+    const token =
+      typeof deviceToken.data === "string" ? deviceToken.data : null;
     if (!token) {
       return null;
     }
     if (token === lastRegisteredToken) {
       return token;
     }
-    const ok = await postToken(
-      token,
-      Platform.OS === "ios" ? "ios" : "android"
-    );
+    const ok = await postToken(token, "android");
     if (ok) {
       lastRegisteredToken = token;
       logInfo("push.registered");
@@ -171,12 +158,12 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 }
 
-/** Clears the in-memory dedupe so the next register re-sends the token. */
+// Clears the in-memory dedupe so the next register re-sends the token.
 export function resetPushRegistration(): void {
   lastRegisteredToken = null;
 }
 
-/** Unregisters the last-known token (best-effort, on sign-out). */
+// Unregisters the last-known token (best-effort, on sign-out).
 export async function unregisterPushNotifications(): Promise<void> {
   if (lastRegisteredToken) {
     await unregisterToken(lastRegisteredToken);
@@ -188,13 +175,11 @@ export interface PushTapListener {
   remove: () => void;
 }
 
-/**
- * Routes a notification tap. Subscribes to future taps and also drains the
- * tap that launched the app (cold start), which the runtime stores until read.
- *
- * `navigate` is injected so the caller (which holds the router) decides how a
- * route is pushed; this module stays free of navigation imports.
- */
+// Routes a notification tap. Subscribes to future taps and also drains the
+// tap that launched the app (cold start), which the runtime stores until read.
+//
+// `navigate` is injected so the caller (which holds the router) decides how a
+// route is pushed; this module stays free of navigation imports.
 export function subscribeToPushTaps(
   navigate: (route: string) => void,
   isReady: () => boolean

@@ -46,7 +46,7 @@ class UnreadCountStore {
     }
   }
 
-  /** Overrides the count locally (mark-as-read zeroes the badge instantly). */
+  // Overrides the count locally (mark-as-read zeroes the badge instantly).
   set(count: number): void {
     const next = Math.max(0, Math.trunc(count));
     if (next === this.count) {
@@ -56,7 +56,7 @@ class UnreadCountStore {
     this.emit();
   }
 
-  /** One fetch of the authoritative count. Swallows failures (stale is fine). */
+  // One fetch of the authoritative count. Swallows failures (stale is fine).
   async refresh(): Promise<void> {
     try {
       const apiBase = getApiBaseUrl();
@@ -67,10 +67,8 @@ class UnreadCountStore {
     }
   }
 
-  /**
-   * Starts polling for `identity` (the user id, or "guest" so the loop still
-   * re-keys on sign-in). Idempotent per identity; call `stop` on sign-out.
-   */
+  // Starts polling for `identity` (the user id, or "guest" so the loop still
+  // re-keys on sign-in). Idempotent per identity; call `stop` on sign-out.
   start(identity: string | null): void {
     if (this.started && this.identity === identity) {
       return;
@@ -99,7 +97,7 @@ class UnreadCountStore {
     }
   }
 
-  /** Marks everything read and zeroes the badge in one call. */
+  // Marks everything read and zeroes the badge in one call.
   async markAllRead(): Promise<void> {
     try {
       const apiBase = getApiBaseUrl();
@@ -112,5 +110,5 @@ class UnreadCountStore {
   }
 }
 
-/** Process-wide unread store used by the header and the notifications screen. */
+// Process-wide unread store used by the header and the notifications screen.
 export const unreadCountStore = new UnreadCountStore();
