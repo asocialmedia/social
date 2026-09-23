@@ -3,7 +3,9 @@
 // centered dock: three icon-only 40px tabs a side split by the 52px orange
 // compose circle that breaks the pill's edges, panel-3d surface, active
 // tabs in the sidebar's pill-nav-active treatment (light and dark tokens), unread badge on
-// Messages, and a scroll-down hide that slides the dock below the fold.
+// Messages, and a scroll-down hide that slides the dock below the fold. The
+// dock always sits at the bottom edge; guests see the login banner docked
+// directly above it, like web (the banner measures this dock's height).
 //
 // Wiring notes: active state reads expo-router's pathname (only "/" exists
 // on mobile yet, so Home is the live tab); auth-gated tabs send guests to
@@ -235,14 +237,22 @@ function DockTab({
 export function MobileBottomNav({
   bottomOffset = 0,
   hidden: hiddenOverride,
+  onHeightChange,
+  onHiddenChange,
   unreadCount = 0,
 }: {
-  // Extra lift above the bottom edge (the guest auth bar's height when it
-  // is showing), so the floating dock never covers it.
+  // Extra lift above the bottom edge. Guests keep this at 0: the dock sits
+  // at the bottom edge and the login banner docks above it, like web.
   bottomOffset?: number;
   // A screen with its own scroll container may pass the same hide signal
   // that drives its top bar, like web's hiddenOverride.
   hidden?: boolean;
+  // Reports the dock panel height so a screen can lift the guest banner
+  // above the dock (web docks the banner on top of the bottom nav).
+  onHeightChange?: (height: number) => void;
+  // Reports the scroll-hide state so the guest banner can drop back to the
+  // bottom edge while the dock is hidden instead of floating over a gap.
+  onHiddenChange?: (hidden: boolean) => void;
   unreadCount?: number;
 }) {
   const { isDark } = useAppTheme();
@@ -265,9 +275,20 @@ export function MobileBottomNav({
   const dockPanel = isDark ? DOCK_PANEL_DARK : DOCK_PANEL_LIGHT;
 
   useEffect(() => {
+    onHeightChange?.(dockHeight);
+  }, [dockHeight, onHeightChange]);
+
+  useEffect(() => {
+    onHiddenChange?.(hidden);
+  }, [hidden, onHiddenChange]);
+
+  useEffect(() => {
+    // Same 220ms ease-out-cubic as the top bar (and the guest banner's lift
+    // in HomeScreen / PostDetailScreen), kicked off on the same hide flip,
+    // so the bar, the feed follow, the banner and the dock glide as one.
     const travel = Animated.timing(slide, {
-      duration: 240,
-      easing: Easing.bezier(0.32, 0.72, 0, 1),
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
       toValue: hidden ? 1 : 0,
       useNativeDriver: true,
     });

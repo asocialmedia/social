@@ -336,12 +336,21 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
   };
 
 interface FeedListProps {
+  // Extra tail padding when an overlay (guest banner + floating dock) sits
+  // over the feed's end, so the last post scrolls clear of it. End padding
+  // never moves visible items, so it can jump with overlay visibility.
+  bottomInset?: number;
   enabled: boolean;
   userId: string | undefined;
   variant: FeedVariant;
 }
 
-export function FeedList({ enabled, userId, variant }: FeedListProps) {
+export function FeedList({
+  bottomInset = 0,
+  enabled,
+  userId,
+  variant,
+}: FeedListProps) {
   const { theme } = useAppTheme();
   const router = useRouter();
   const { user } = useSessionContext();
@@ -646,7 +655,9 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
         >
           <GestureDetector gesture={pullGestures.nativeScroll}>
             <FlatList
-              contentContainerStyle={{ paddingBottom: HEADER_BAR_HEIGHT }}
+              contentContainerStyle={{
+                paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
+              }}
               data={groups}
               keyExtractor={(group) => group.id}
               onContentSizeChange={(_, height) => {

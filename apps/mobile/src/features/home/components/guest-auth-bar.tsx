@@ -2,7 +2,11 @@
 // (components/layouts/shell/guest-auth-bar.tsx), mobile arrangement:
 // centered copy stacked above the Log in / Sign up row, orange horizontal
 // gradient, top border + inner bevel, white-gradient Log in pill and gray
-// 3D Sign up pill. UI-only: no scroll-hiding, no routing guards.
+// 3D Sign up pill. UI-only: no scroll-hiding, no routing guards. The parent
+// screen floats the bar over the feed above the bottom dock; the orange
+// always extends through the safe area (web adds pb-safe inside the banner
+// when no nav is present), so showing or hiding the dock never re-lays out
+// the bar itself.
 
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -32,7 +36,6 @@ export function GuestAuthBar() {
         {
           borderTopColor: "rgba(255, 149, 0, 0.25)",
           boxShadow: BANNER_SHADOWS,
-          paddingBottom: insets.bottom,
         },
       ]}
     >
@@ -40,7 +43,7 @@ export function GuestAuthBar() {
         colors={["#ff9500", "#e65500"]}
         end={{ x: 1, y: 0 }}
         start={{ x: 0, y: 0 }}
-        style={styles.banner}
+        style={[styles.banner, { paddingBottom: 12 + insets.bottom }]}
       >
         <View style={styles.copy}>
           <Text style={styles.title}>
