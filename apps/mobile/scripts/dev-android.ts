@@ -54,25 +54,36 @@ async function waitForBoot(serial: string): Promise<void> {
 }
 
 async function applyReverses(serial: string): Promise<void> {
+  let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    // eslint-disable-next-line no-await-in-loop -- reverse apply-verify rounds must run sequentially
-    await Promise.all(
-      DEV_REVERSE_PORTS.map((port) =>
-        $`adb ${buildAdbReverseArgs(serial, port)}`.quiet()
-      )
-    );
-    // eslint-disable-next-line no-await-in-loop -- reverse verification must run after each apply round, sequentially
-    const reverses = await $`adb -s ${serial} reverse --list`.text();
-    console.log(reverses.trim());
-    if (hasAllReverses(reverses, DEV_REVERSE_PORTS)) {
-      return;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- reverse apply-verify rounds must run sequentially
+      await Promise.all(
+        DEV_REVERSE_PORTS.map((port) =>
+          $`adb ${buildAdbReverseArgs(serial, port)}`.quiet()
+        )
+      );
+      // eslint-disable-next-line no-await-in-loop -- reverse verification must run after each apply round, sequentially
+      const reverses = await $`adb -s ${serial} reverse --list`.text();
+      console.log(reverses.trim());
+      if (hasAllReverses(reverses, DEV_REVERSE_PORTS)) {
+        return;
+      }
+      console.log(
+        `Reverse check failed (attempt ${attempt}/3), re-applying...`
+      );
+    } catch (attemptError) {
+      lastError = attemptError;
+      console.log(
+        `Reverse attempt ${attempt}/3 failed (${attemptError instanceof Error ? attemptError.message : String(attemptError)}), re-applying...`
+      );
     }
-    console.log(`Reverse check failed (attempt ${attempt}/3), re-applying...`);
     // eslint-disable-next-line no-await-in-loop -- retry backoff between reverse attempts; each round must follow the last
     await Bun.sleep(2000);
   }
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : "";
   throw new Error(
-    `Ports ${DEV_REVERSE_PORTS.join(", ")} did not stick on ${serial}. ` +
+    `Ports ${DEV_REVERSE_PORTS.join(", ")} did not stick on ${serial}${detail}. ` +
       `The app will fail to reach localhost:3000 until they do - fix adb and retry.`
   );
 }

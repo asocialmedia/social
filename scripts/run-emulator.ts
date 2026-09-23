@@ -108,6 +108,11 @@ console.log(
   `Starting Android emulator: @${targetAvd} with GPU acceleration (host)`
 );
 
+// Baseline before spawn: findNewEmulatorSerial compares before/after, so the
+// snapshot must predate the launch. Capturing after spawn risks including the
+// fresh device in "before" and missing it entirely.
+const baselineSnapshot = await devicesSnapshot().catch(() => "");
+
 const child = spawn(emulatorBin, spawnArgs, {
   stdio: "inherit",
   env: {
@@ -128,6 +133,21 @@ child.on("error", (err) => {
   process.exit(1);
 });
 
+// If the emulator process dies while we poll, stop waiting immediately
+// instead of polling for minutes and timing out.
+let childExitCode: number | null = null;
+child.on("exit", (code) => {
+  childExitCode = code ?? 0;
+});
+
+function throwIfChildExited(stage: string): void {
+  if (childExitCode !== null) {
+    throw new Error(
+      `Emulator process exited with code ${childExitCode} while ${stage}.`
+    );
+  }
+}
+
 // A cold boot wipes the adb reverses the app needs for localhost:3000, so
 // this command waits for the fresh emulator and re-applies them before it
 // returns. Without this, the first launch after every boot fails with
@@ -140,12 +160,14 @@ async function devicesSnapshot(): Promise<string> {
 async function waitForNewEmulator(before: string): Promise<string> {
   const deadline = Date.now() + 240_000;
   for (;;) {
+    throwIfChildExited("waiting for the fresh emulator to come online");
     // eslint-disable-next-line no-await-in-loop -- presence polling is inherently sequential; each probe must follow the last
     const snapshot = await devicesSnapshot().catch(() => "");
     const serial = findNewEmulatorSerial(before, snapshot);
     if (serial) {
       return serial;
     }
+    throwIfChildExited("waiting for the fresh emulator to come online");
     if (Date.now() > deadline) {
       throw new Error(
         "No fresh emulator came online. If it is still booting, apply the reverses by hand: bun run dev:android --reverse-only (from apps/mobile)."
@@ -158,6 +180,7 @@ async function waitForNewEmulator(before: string): Promise<string> {
 async function waitForBoot(serial: string): Promise<void> {
   const deadline = Date.now() + 300_000;
   for (;;) {
+    throwIfChildExited("waiting for the emulator to finish booting");
     // eslint-disable-next-line no-await-in-loop -- boot polling is inherently sequential; each probe must follow the last
     const output = await $`adb ${buildBootCompletedArgs(serial)}`
       .quiet()
@@ -167,6 +190,7 @@ async function waitForBoot(serial: string): Promise<void> {
     if (isBootCompleted(output)) {
       return;
     }
+    throwIfChildExited("waiting for the emulator to finish booting");
     if (Date.now() > deadline) {
       throw new Error(
         `Timed out waiting for ${serial} to finish booting. Apply the reverses by hand once it is up: bun run dev:android --reverse-only (from apps/mobile).`
@@ -202,4 +226,4 @@ async function settleEmulator(before: string): Promise<void> {
   process.exit(0);
 }
 
-void settleEmulator(await devicesSnapshot().catch(() => ""));
+void settleEmulator(baselineSnapshot);

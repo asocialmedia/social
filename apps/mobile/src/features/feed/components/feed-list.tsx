@@ -30,7 +30,11 @@ import { useAppTheme } from "@/theme";
 import type { FeedVariant } from "../lib/feed-api";
 import { groupPostsIntoThreads } from "../lib/feed-types";
 import type { FeedPost, FeedThreadGroup } from "../lib/feed-types";
-import { reportFeedScroll, resetHeaderScroll } from "../lib/header-visibility";
+import {
+  HEADER_BAR_HEIGHT,
+  reportFeedScroll,
+  resetHeaderScroll,
+} from "../lib/header-visibility";
 import { viewBatcher } from "../lib/view-batcher";
 import { setVisiblePostIds } from "../lib/visible-posts";
 import { feedCache } from "../state/feed-store";
@@ -55,12 +59,23 @@ const scrollMemory = new Map<string, number>();
 const PULL_THRESHOLD = 90;
 
 function PullLoader({
-  progress,
   refreshing,
+  registerUpdate,
 }: {
-  progress: number;
   refreshing: boolean;
+  registerUpdate: RefObject<((distance: number) => void) | null>;
 }) {
+  // Progress lives here so pull gestures do not re-render the list: FeedList
+  // only writes pullRef + this setter through the ref.
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    // oxlint-disable-next-line react/immutability -- ref-held setter registration, same as FeedScrollbar below
+    registerUpdate.current = setProgress;
+    return () => {
+      // oxlint-disable-next-line react/immutability -- clearing our registration on unmount
+      registerUpdate.current = null;
+    };
+  }, [registerUpdate]);
   // Android keeps its platform indicator (see refreshControl below) and
   // clamps pull distance at zero, so the overlay is iOS-only: rendering it
   // on Android stacks two spinners.
@@ -307,8 +322,15 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
     offset: 0,
   });
   const scrollbarUpdate = useRef<((offset: number) => void) | null>(null);
-  const [pull, setPull] = useState(0);
   const pullRef = useRef(0);
+  // Pull distance writes here without re-rendering the list; PullLoader owns
+  // the progress state and registers its setter through this ref.
+  const pullUpdateRef = useRef<((distance: number) => void) | null>(null);
+  // Latest viewable ids are retained so the tab can publish them when it
+  // becomes enabled; the FlatList retains the first closure, so enabled is
+  // read through a ref.
+  const enabledRef = useRef(enabled);
+  const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const [morePost, setMorePost] = useState<FeedPost | null>(null);
   const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
@@ -393,12 +415,36 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
   }, [lastDismissed]);
 
   // A freshly shown tab starts with the header visible; its own scroll
-  // takes over hiding from there.
+  // takes over hiding from there. Becoming enabled also publishes the
+  // retained viewable ids so autoplay reflects the newly active tab.
   useEffect(() => {
+    enabledRef.current = enabled;
     if (enabled) {
       resetHeaderScroll();
+      const stored = latestVisibleRef.current;
+      if (stored.size > 0) {
+        setVisiblePostIds(stored);
+      }
     }
   }, [enabled]);
+
+  const publishVisibleIds = useCallback((ids: ReadonlySet<string>) => {
+    latestVisibleRef.current = ids;
+    if (!enabledRef.current) {
+      return;
+    }
+    if (ids.size > 0) {
+      const apiBase = getApiBaseUrl();
+      void (async () => {
+        const cookie = await authClient.getCookie();
+        for (const id of ids) {
+          viewBatcher.mark(id, { apiBase, cookie });
+        }
+      })();
+    }
+    // Viewport autoplay: videos play while their post is viewable.
+    setVisiblePostIds(new Set(ids));
+  }, []);
 
   if (variant === "following" && !user) {
     const copy = EMPTY_COPY.following;
@@ -530,6 +576,7 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
   return (
     <View style={styles.listWrap}>
       <FlatList
+        contentContainerStyle={{ paddingBottom: HEADER_BAR_HEIGHT }}
         data={groups}
         keyExtractor={(group) => group.id}
         onContentSizeChange={(_, height) => {
@@ -548,20 +595,21 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
         onScroll={(event) => {
           const offsetY = event.nativeEvent.contentOffset.y;
           scrollbarUpdate.current?.(offsetY);
-          if (enabled) {
+          if (enabledRef.current) {
             reportFeedScroll(offsetY);
           }
           // Custom pull distance for the logo loader (iOS bounce only;
           // Android clamps at zero and keeps its platform indicator).
+          // Progress stays local to PullLoader via the ref: no list re-render.
           if (!refreshing && offsetY < 0) {
             const distance = -offsetY;
             if (Math.abs(distance - pullRef.current) > 1) {
               pullRef.current = distance;
-              setPull(distance);
+              pullUpdateRef.current?.(distance);
             }
           } else if (pullRef.current > 0) {
             pullRef.current = 0;
-            setPull(0);
+            pullUpdateRef.current?.(0);
           }
         }}
         onScrollEndDrag={() => {
@@ -569,27 +617,17 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
             refresh();
           }
           pullRef.current = 0;
-          setPull(0);
+          pullUpdateRef.current?.(0);
         }}
         onViewableItemsChanged={({ viewableItems }) => {
-          const ids: string[] = [];
+          const ids = new Set<string>();
           for (const item of viewableItems) {
             const group = item.item as FeedThreadGroup | undefined;
             for (const post of group?.posts ?? []) {
-              ids.push(post.id);
+              ids.add(post.id);
             }
           }
-          if (ids.length > 0) {
-            const apiBase = getApiBaseUrl();
-            void (async () => {
-              const cookie = await authClient.getCookie();
-              for (const id of ids) {
-                viewBatcher.mark(id, { apiBase, cookie });
-              }
-            })();
-          }
-          // Viewport autoplay: videos play while their post is viewable.
-          setVisiblePostIds(new Set(ids));
+          publishVisibleIds(ids);
         }}
         ref={listRef}
         refreshControl={
@@ -630,7 +668,7 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
         )}
         ListFooterComponent={footer}
       />
-      <PullLoader progress={pull} refreshing={refreshing} />
+      <PullLoader refreshing={refreshing} registerUpdate={pullUpdateRef} />
       <FeedScrollbar
         listRef={listRef}
         metricsRef={metricsRef}

@@ -92,8 +92,9 @@ export function VoteCluster({
 
   // Reconcile with the server snapshot on mount (web's vote-info query).
   // Guests hold no vote state server-side, so there is nothing to read.
+  // Comment rows carry their vote in props; skip the per-row fetch.
   useEffect(() => {
-    if (!viewerLoggedIn) {
+    if (!viewerLoggedIn || commentId) {
       return;
     }
     let cancelled = false;

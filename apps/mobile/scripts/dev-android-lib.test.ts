@@ -196,16 +196,22 @@ describe("hasAllReverses", () => {
       hasAllReverses("emulator-5556 tcp:8082 tcp:8082\n", DEV_REVERSE_PORTS)
     ).toBe(false);
   });
+
+  test("rejects a longer host port near-miss", () => {
+    expect(hasAllReverses("emulator-5556 tcp:3000 tcp:30001\n", [3000])).toBe(
+      false
+    );
+  });
 });
 
 describe("findNewEmulatorSerial", () => {
-  test("returns the online emulator that was not online before", () => {
+  test("prefers the launched emulator over an existing one coming online", () => {
     const before = "List of devices attached\nemulator-5554\toffline\n";
     const after = `List of devices attached
 emulator-5554\tdevice
 emulator-5556\tdevice
 `;
-    expect(findNewEmulatorSerial(before, after)).toBe("emulator-5554");
+    expect(findNewEmulatorSerial(before, after)).toBe("emulator-5556");
   });
 
   test("ignores already-online emulators and offline rows", () => {

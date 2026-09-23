@@ -101,34 +101,38 @@ export function isBootCompleted(output: string): boolean {
 }
 
 // `adb -s <serial> reverse --list` prints one `tcp:<port> tcp:<port>` pair
-// per mapping; every required port must be present.
+// per mapping; every required port must be present. Fields are matched
+// exactly: a longer host port (tcp:30001) must not satisfy tcp:3000.
 export function hasAllReverses(
   output: string,
   ports: readonly number[]
 ): boolean {
   const lines = output.split("\n").map((line) => line.trim());
-  return ports.every((port) =>
-    lines.some((line) => line.includes(`tcp:${port} tcp:${port}`))
-  );
+  return ports.every((port) => {
+    const expected = `tcp:${port}`;
+    return lines.some((line) => {
+      const fields = line.split(/\s+/);
+      return fields.filter((field) => field === expected).length >= 2;
+    });
+  });
 }
 
 // After booting an emulator, its serial is the online emulator that was not
-// online before (a reboot drops the adb connection first, so a reused serial
-// still counts as new once it disappears and comes back).
+// seen before. Any serial present in the baseline (online or offline) belongs
+// to a pre-existing device: an old offline row flipping to online must not
+// win over the freshly launched emulator.
 export function findNewEmulatorSerial(
   before: string,
   after: string
 ): string | null {
-  const wasOnline = new Set(
-    parseAdbDevices(before)
-      .filter((device) => device.state === "device")
-      .map((device) => device.serial)
+  const wasSeen = new Set(
+    parseAdbDevices(before).map((device) => device.serial)
   );
   const fresh = parseAdbDevices(after).find(
     (device) =>
       device.state === "device" &&
       device.serial.startsWith("emulator-") &&
-      !wasOnline.has(device.serial)
+      !wasSeen.has(device.serial)
   );
   return fresh?.serial ?? null;
 }

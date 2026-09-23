@@ -3,10 +3,10 @@
 // small threshold hides the bar; scrolling up (or hitting the top) brings
 // it back. Notifications only fire on actual show/hide flips.
 //
-// The bar's height is a layout constant (minHeight 56 + 16 vertical
-// padding = 72; its content fits without growing it), so the hide distance
+// The bar's height is a layout constant (border-box minHeight 56, which
+// already includes its 16 vertical padding plus border), so the hide distance
 // needs no measuring.
-export const HEADER_BAR_HEIGHT = 72;
+export const HEADER_BAR_HEIGHT = 56;
 let hidden = false;
 let lastOffset = 0;
 const listeners = new Set<(isHidden: boolean) => void>();

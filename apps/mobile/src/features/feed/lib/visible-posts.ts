@@ -33,7 +33,14 @@ export function subscribePostVisibility(
   postId: string,
   notify: (visible: boolean) => void
 ): () => void {
-  const listener = () => notify(visibleIds.has(postId));
+  let last = visibleIds.has(postId);
+  const listener = () => {
+    const next = visibleIds.has(postId);
+    if (next !== last) {
+      last = next;
+      notify(next);
+    }
+  };
   listeners.add(listener);
   return () => {
     listeners.delete(listener);

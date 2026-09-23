@@ -121,10 +121,8 @@ function CommentRow({
   const name = commentUser?.displayName || username;
   const isDeleted = Boolean(comment.deleted);
   const showDeletedLabel = isDeleted || !commentUser;
-  const replies =
-    depth < MAX_COMMENT_DEPTH && Array.isArray(comment.replies)
-      ? comment.replies
-      : [];
+  const replies = Array.isArray(comment.replies) ? comment.replies : [];
+  const beyondCap = depth > MAX_COMMENT_DEPTH;
   const hasChildren = replies.length > 0;
 
   const openReply = () => {
@@ -136,7 +134,7 @@ function CommentRow({
   };
 
   return (
-    <View style={[depth > 0 && styles.nested]}>
+    <View style={[depth > 0 && !beyondCap && styles.nested]}>
       {depth > 0 ? <CommentRail isLast={isLast} /> : null}
       {/* Stub hanging off a top-level avatar down to its replies. */}
       {depth === 0 && (hasChildren || showReply) ? (
@@ -437,6 +435,7 @@ export function PostComments({
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<"error" | "loading" | "ready">(
     "loading"
   );
@@ -450,6 +449,8 @@ export function PostComments({
     let cancelled = false;
     // oxlint-disable-next-line react/set-state-in-effect -- initial page load on expand; nothing to derive during render
     setStatus("loading");
+    // oxlint-disable-next-line react/set-state-in-effect -- new post resets the preview clamp
+    setExpanded(false);
     void (async () => {
       try {
         const cookie = await authClient.getCookie();
@@ -487,6 +488,7 @@ export function PostComments({
       return;
     }
     setLoadingMore(true);
+    setExpanded(true);
     void (async () => {
       try {
         const cookie = await authClient.getCookie();
@@ -528,8 +530,9 @@ export function PostComments({
 
   // Web's FeedComments caps the inline eddies at 480px behind a fade with
   // a centered "Show more eddies" pill; pagination loads the next page here
-  // (there is no post page to link to on mobile yet).
-  const clamped = hasMore && comments.length > 0;
+  // (there is no post page to link to on mobile yet). The clamp is preview-only:
+  // once the viewer expands, it lifts so paged-in eddies stay reachable.
+  const clamped = !expanded && hasMore && comments.length > 0;
   return (
     <View
       style={[

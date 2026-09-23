@@ -66,6 +66,11 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   // key) must not swallow the second fetch, so the guard is per key rather
   // than a single boolean.
   const inflightKey = useRef<string | null>(null);
+  // The key that currently owns this hook: a stale replace that settles
+  // after disable or a guest-to-user re-key must not start a probe for an
+  // inactive key (it would stop the live probe and leak wrong-feed items
+  // into newItems).
+  const activeKeyRef = useRef<string | null>(null);
 
   // Re-read from the module cache every render: patch() always stores a
   // fresh object identity, so useMemo below recomputes exactly when the
@@ -171,9 +176,11 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
           { dismissedIds: undefined },
           mode === "append"
         );
-        if (mode === "replace") {
-          // First paint landed: the head probe may start now (it never
-          // races the first page on cold start).
+        // First paint landed: the head probe may start now (it never races
+        // the first page on cold start). Only when this replace still owns
+        // the active key; a stale guest fetch settling after a re-key must
+        // not hijack the live probe.
+        if (mode === "replace" && activeKeyRef.current === cacheKey) {
           startProbe(cacheKey);
         }
         if (inflightKey.current === cacheKey) {
@@ -212,9 +219,15 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   // their first page lands (see runFetch).
   useEffect(() => {
     if (!enabled) {
+      activeKeyRef.current = null;
       stopProbe();
       return;
     }
+    activeKeyRef.current = cacheKey;
+    // Key-specific local state must not leak across a guest-to-user re-key:
+    // stale newItems would insert the old feed into the new cache.
+    // oxlint-disable-next-line react/set-state-in-effect -- re-key resets the banner; steady state is cache-driven
+    setNewItems([]);
     const current = feedCache.get(cacheKey);
     if (current.status === "idle" || current.stale) {
       // oxlint-disable-next-line react/set-state-in-effect -- mount-fill: idle/invalidated tabs enter loading here; the fetch below settles it
@@ -225,6 +238,9 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
       startProbe(cacheKey);
     }
     return () => {
+      if (activeKeyRef.current === cacheKey) {
+        activeKeyRef.current = null;
+      }
       stopProbe();
     };
     // Runs on mount/tab-switch/enable; runFetch is stable per cacheKey.

@@ -1,3 +1,4 @@
+import { useEvent } from "expo";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 // Post media gallery: single / 2-grid / 3-5 bento / 6+ overflow layouts,
 // video tap-to-play, audio rows, the explicit-content gate and the moderated
@@ -248,9 +249,12 @@ function VideoTile({
   // the stream buffers (and stalls black forever on a stuck stream).
   const [hasFrames, setHasFrames] = useState(false);
   const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id));
-  // expo-video surfaces load failure on the player status; an errored clip
-  // renders the same nomedia still as a broken poster.
-  const playerErrored = player.status === "error";
+  // expo-video surfaces load failure on the player status; subscribe so an
+  // errored clip re-renders into the nomedia still instead of sticking.
+  const { status: videoStatus } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
+  const playerErrored = videoStatus === "error";
   // Control pills sit inside the tile's play Pressable and their taps bubble,
   // so they raise this flag to swallow the tile tap that follows.
   const suppressTapRef = useRef(false);
