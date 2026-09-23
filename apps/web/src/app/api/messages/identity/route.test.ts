@@ -187,6 +187,22 @@ describe("POST /api/messages/identity", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  test("returns 409 when a concurrent create loses the primary-key race", async () => {
+    // Two tabs can pass the create-only pre-check at once; the loser hits the
+    // primary key and must map to the same conflict as the pre-check.
+    mockCreate.mockImplementationOnce(() => {
+      throw Object.assign(new Error("unique constraint"), { code: "P2002" });
+    });
+    const res = await POST(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    );
+    expect(res.status).toBe(409);
+  });
+
   test("refuses to replace an existing identity with a different public key", async () => {
     mockFindUnique.mockReturnValueOnce({
       publicKey: "a-different-key",

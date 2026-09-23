@@ -1,7 +1,10 @@
 import { prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { parseJsonBody } from "@/lib/messages/server";
+import {
+  isUniqueConstraintViolation,
+  parseJsonBody,
+} from "@/lib/messages/server";
 
 export interface MessageIdentityPayload {
   createdAt: string;
@@ -104,6 +107,15 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true });
   } catch (error) {
+    // Two tabs (or a retried POST) can pass the create-only check above
+    // concurrently; the row's primary key then rejects the loser. Treat that as
+    // the same conflict the pre-check returns, not a 500.
+    if (isUniqueConstraintViolation(error)) {
+      return Response.json(
+        { error: "Identity already exists" },
+        { status: 409 }
+      );
+    }
     console.error("Failed to save message identity:", error);
     return Response.json({ error: "Failed to save identity" }, { status: 500 });
   }
