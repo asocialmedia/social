@@ -5,6 +5,7 @@ import { POST } from "./route";
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockFindMany = mock((_args: unknown): unknown[] => []);
+const mockHiddenFindMany = mock((_args: unknown): unknown[] => []);
 const mockCreateMany = mock((_args: unknown) => ({ count: 0 }));
 const mockDecrement = mock((_userId: string, _count: number) => 0);
 
@@ -37,7 +38,10 @@ mock.module("@/lib/messages/server", () => ({
 mock.module("@asm/db", () => ({
   prisma: {
     message: { findMany: mockFindMany },
-    messageHidden: { createMany: mockCreateMany },
+    messageHidden: {
+      createMany: mockCreateMany,
+      findMany: mockHiddenFindMany,
+    },
   },
   unreadMessageCache: { decrement: mockDecrement },
 }));
@@ -61,6 +65,8 @@ describe("POST /api/messages/conversations/:id/hide", () => {
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockFindMany.mockReset();
     mockFindMany.mockImplementation(() => []);
+    mockHiddenFindMany.mockReset();
+    mockHiddenFindMany.mockImplementation(() => []);
     mockCreateMany.mockReset();
     mockCreateMany.mockImplementation(() => ({ count: 0 }));
     mockDecrement.mockReset();
@@ -159,6 +165,49 @@ describe("POST /api/messages/conversations/:id/hide", () => {
       params
     );
     expect(res.status).toBe(200);
+    expect(mockDecrement).toHaveBeenCalledWith("user1", 1);
+  });
+
+  test("does not re-credit an already-hidden message on a retry", async () => {
+    // The message is still returned by the conversation-scoped lookup, but a
+    // prior request already inserted its hide. The retry must neither insert
+    // again nor decrement the badge, or the counter drifts low.
+    mockFindMany.mockReturnValueOnce([
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m1",
+        senderId: "user2",
+      },
+    ]);
+    mockHiddenFindMany.mockReturnValueOnce([{ messageId: "m1" }]);
+    const res = await POST(hideRequest({ messageIds: ["m1"] }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ hidden: 0 });
+    expect(mockCreateMany).not.toHaveBeenCalled();
+    expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  test("credits only the not-yet-hidden unread messages in a mixed batch", async () => {
+    mockFindMany.mockReturnValueOnce([
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m1",
+        senderId: "user2",
+      },
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m2",
+        senderId: "user2",
+      },
+    ]);
+    mockHiddenFindMany.mockReturnValueOnce([{ messageId: "m1" }]);
+    const res = await POST(hideRequest({ messageIds: ["m1", "m2"] }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ hidden: 1 });
+    expect(mockCreateMany).toHaveBeenCalledTimes(1);
     expect(mockDecrement).toHaveBeenCalledWith("user1", 1);
   });
 

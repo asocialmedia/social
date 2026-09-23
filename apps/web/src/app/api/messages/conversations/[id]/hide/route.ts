@@ -76,6 +76,23 @@ export async function POST(
     return Response.json({ hidden: 0 });
   }
 
+  // A hide is create-only and the badge credit must match the rows actually
+  // inserted. A retried or double-submitted request would otherwise re-credit
+  // the same unread messages and drift the Redis counter low until a reseed, so
+  // drop the ids this user has already hidden before counting and inserting.
+  const alreadyHidden = await prisma.messageHidden.findMany({
+    select: { messageId: true },
+    where: {
+      messageId: { in: rows.map((row) => row.id) },
+      userId: user.id,
+    },
+  });
+  const alreadyHiddenIds = new Set(alreadyHidden.map((row) => row.messageId));
+  const newlyHidden = rows.filter((row) => !alreadyHiddenIds.has(row.id));
+  if (newlyHidden.length === 0) {
+    return Response.json({ hidden: 0 });
+  }
+
   // The badge is seeded from the DB but then lives as a Redis counter. Hiding a
   // message that was still unread must credit the same number the badge query
   // would have counted, or the counter drifts high until the next reseed.
@@ -86,7 +103,7 @@ export async function POST(
     (member) => member.userId === user.id
   );
   const readAt = myMember?.lastReadAt ?? new Date(0);
-  const newlyHiddenUnread = rows.filter(
+  const newlyHiddenUnread = newlyHidden.filter(
     (row) =>
       row.senderId !== user.id &&
       row.deletedAt === null &&
@@ -94,7 +111,7 @@ export async function POST(
   ).length;
 
   await prisma.messageHidden.createMany({
-    data: rows.map((row) => ({ messageId: row.id, userId: user.id })),
+    data: newlyHidden.map((row) => ({ messageId: row.id, userId: user.id })),
     skipDuplicates: true,
   });
 
@@ -108,5 +125,5 @@ export async function POST(
     }
   }
 
-  return Response.json({ hidden: rows.length });
+  return Response.json({ hidden: newlyHidden.length });
 }
