@@ -426,9 +426,15 @@ function EditedMarker({
   }
   const relative = formatRelativeDate(editedAt);
   // formatRelativeDate yields "just now" or a compact "5m"/"2h"/"Jan 5"; only
-  // the compact forms read naturally with a trailing "ago".
-  const label =
-    relative === "just now" ? "Edited just now" : `Edited ${relative} ago`;
+  // the compact forms read naturally with a trailing "ago". An unparseable
+  // editedAt renders as "Invalid date", so fall back to the bare marker rather
+  // than "Edited Invalid date ago".
+  let label = "Edited";
+  if (relative === "just now") {
+    label = "Edited just now";
+  } else if (relative !== "Invalid date") {
+    label = `Edited ${relative} ago`;
+  }
   return (
     <TooltipProvider delayDuration={150}>
       <Tooltip>
