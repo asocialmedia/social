@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.48",
+  "version": "0.0.55",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -37,6 +37,7 @@
     "expo-intent-launcher": "^57.0.1",
     "expo-linear-gradient": "^57.0.2",
     "expo-linking": "~57.0.10",
+    "expo-network": "~57.0.2",
     "expo-router": "~57.0.21",
     "expo-secure-store": "^57.0.4",
     "expo-splash-screen": "~57.0.9",

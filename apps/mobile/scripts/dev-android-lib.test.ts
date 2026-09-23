@@ -3,8 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   DEV_REVERSE_PORTS,
   buildAdbReverseArgs,
+  buildBootCompletedArgs,
   buildExpoArgs,
+  findNewEmulatorSerial,
+  hasAllReverses,
   hasOfflineEmulator,
+  isBootCompleted,
   parseAdbDevices,
   parseDevAndroidArgs,
   pickDeviceSerial,
@@ -156,5 +160,68 @@ describe("buildExpoArgs", () => {
     expect(
       buildExpoArgs({ deviceName: "Pixel_10_Pro", go: true, port: 8082 })
     ).toEqual(["expo", "start", "-p", "8082", "--go"]);
+  });
+});
+
+describe("isBootCompleted", () => {
+  test("accepts exactly 1, ignoring surrounding whitespace", () => {
+    expect(isBootCompleted("1\n")).toBe(true);
+    expect(isBootCompleted("0\n")).toBe(false);
+    expect(isBootCompleted("")).toBe(false);
+  });
+
+  test("builds the getprop args for a serial", () => {
+    expect(buildBootCompletedArgs("emulator-5556")).toEqual([
+      "-s",
+      "emulator-5556",
+      "shell",
+      "getprop",
+      "sys.boot_completed",
+    ]);
+  });
+});
+
+const REVERSE_LIST = `emulator-5556 tcp:3000 tcp:3000
+emulator-5556 tcp:3001 tcp:3001
+emulator-5556 tcp:8082 tcp:8082
+`;
+
+describe("hasAllReverses", () => {
+  test("passes when every port is listed", () => {
+    expect(hasAllReverses(REVERSE_LIST, DEV_REVERSE_PORTS)).toBe(true);
+  });
+
+  test("fails when a port is missing", () => {
+    expect(
+      hasAllReverses("emulator-5556 tcp:8082 tcp:8082\n", DEV_REVERSE_PORTS)
+    ).toBe(false);
+  });
+
+  test("rejects a longer host port near-miss", () => {
+    expect(hasAllReverses("emulator-5556 tcp:3000 tcp:30001\n", [3000])).toBe(
+      false
+    );
+  });
+});
+
+describe("findNewEmulatorSerial", () => {
+  test("prefers the launched emulator over an existing one coming online", () => {
+    const before = "List of devices attached\nemulator-5554\toffline\n";
+    const after = `List of devices attached
+emulator-5554\tdevice
+emulator-5556\tdevice
+`;
+    expect(findNewEmulatorSerial(before, after)).toBe("emulator-5556");
+  });
+
+  test("ignores already-online emulators and offline rows", () => {
+    const snapshot = "List of devices attached\nemulator-5554\tdevice\n";
+    expect(findNewEmulatorSerial(snapshot, snapshot)).toBeNull();
+    expect(
+      findNewEmulatorSerial(
+        snapshot,
+        "List of devices attached\nemulator-5554\tdevice\nemulator-5556\toffline\n"
+      )
+    ).toBeNull();
   });
 });

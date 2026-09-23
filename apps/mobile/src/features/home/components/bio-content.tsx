@@ -175,7 +175,7 @@ function BioPiece({
     }
     default: {
       return (
-        <Text style={[styles.text, { color: theme.dividerText }]}>
+        <Text style={[styles.text, { color: theme.inputText }]}>
           {segment.text}
         </Text>
       );
@@ -282,8 +282,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 6,
-    height: 23,
-    marginVertical: 2,
+    height: 26,
     paddingHorizontal: 10,
   },
   chipText: {
@@ -323,7 +322,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "center",
   },
   wrap: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
     flexWrap: "wrap",
   },

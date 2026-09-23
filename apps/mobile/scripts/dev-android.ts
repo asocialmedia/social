@@ -16,8 +16,11 @@ import {
   DEV_REVERSE_PORTS,
   METRO_PORT,
   buildAdbReverseArgs,
+  buildBootCompletedArgs,
   buildExpoArgs,
+  hasAllReverses,
   hasOfflineEmulator,
+  isBootCompleted,
   parseDevAndroidArgs,
   pickDeviceSerial,
   resolveExpoDeviceName,
@@ -25,6 +28,64 @@ import {
 
 function step(message: string): void {
   console.log(`\n\u001B[1m==> ${message}\u001B[0m`);
+}
+
+// Reverses applied mid-boot silently vanish, so wait for full boot first.
+// adb reports the device "online" long before sys.boot_completed flips.
+async function waitForBoot(serial: string): Promise<void> {
+  const deadline = Date.now() + 180_000;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- boot polling is inherently sequential; each probe must follow the last
+    const output = await $`adb ${buildBootCompletedArgs(serial)}`
+      .quiet()
+      .nothrow()
+      .text();
+    if (isBootCompleted(output)) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Timed out waiting for ${serial} to finish booting. Retry once the emulator is up.`
+      );
+    }
+    // eslint-disable-next-line no-await-in-loop -- boot backoff between probes; each probe must follow the last
+    await Bun.sleep(2000);
+  }
+}
+
+async function applyReverses(serial: string): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop -- reverse apply-verify rounds must run sequentially
+      await Promise.all(
+        DEV_REVERSE_PORTS.map((port) =>
+          $`adb ${buildAdbReverseArgs(serial, port)}`.quiet()
+        )
+      );
+      // eslint-disable-next-line no-await-in-loop -- reverse verification must run after each apply round, sequentially
+      const reverses = await $`adb -s ${serial} reverse --list`.text();
+      console.log(reverses.trim());
+      if (hasAllReverses(reverses, DEV_REVERSE_PORTS)) {
+        return;
+      }
+      console.log(
+        `Reverse check failed (attempt ${attempt}/3), re-applying...`
+      );
+    } catch (attemptError) {
+      lastError = attemptError;
+      console.log(
+        `Reverse attempt ${attempt}/3 failed (${attemptError instanceof Error ? attemptError.message : String(attemptError)}), re-applying...`
+      );
+    }
+    // eslint-disable-next-line no-await-in-loop -- retry backoff between reverse attempts; each round must follow the last
+    await Bun.sleep(2000);
+  }
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : "";
+  throw new Error(
+    `Ports ${DEV_REVERSE_PORTS.join(", ")} did not stick on ${serial}${detail}. ` +
+      `The app will fail to reach localhost:3000 until they do - fix adb and retry.`
+  );
 }
 
 async function main(): Promise<void> {
@@ -53,14 +114,11 @@ async function main(): Promise<void> {
   }
   console.log(`Using ${serial}`);
 
+  step("Waiting for the device to finish booting (reverses vanish mid-boot)");
+  await waitForBoot(serial);
+
   step(`Reversing ports ${DEV_REVERSE_PORTS.join(", ")} to this machine`);
-  await Promise.all(
-    DEV_REVERSE_PORTS.map((port) =>
-      $`adb ${buildAdbReverseArgs(serial, port)}`.quiet()
-    )
-  );
-  const reverses = await $`adb -s ${serial} reverse --list`.text();
-  console.log(reverses.trim());
+  await applyReverses(serial);
 
   if (options.reverseOnly) {
     return;

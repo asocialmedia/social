@@ -89,6 +89,54 @@ export function buildAdbReverseArgs(serial: string, port: number): string[] {
   return ["-s", serial, "reverse", `tcp:${port}`, `tcp:${port}`];
 }
 
+// Reverses applied while the device is still booting silently vanish, so the
+// script waits for full boot first. `adb shell getprop sys.boot_completed`
+// prints exactly "1" once the device finished booting.
+export function buildBootCompletedArgs(serial: string): string[] {
+  return ["-s", serial, "shell", "getprop", "sys.boot_completed"];
+}
+
+export function isBootCompleted(output: string): boolean {
+  return output.trim() === "1";
+}
+
+// `adb -s <serial> reverse --list` prints one `tcp:<port> tcp:<port>` pair
+// per mapping; every required port must be present. Fields are matched
+// exactly: a longer host port (tcp:30001) must not satisfy tcp:3000.
+export function hasAllReverses(
+  output: string,
+  ports: readonly number[]
+): boolean {
+  const lines = output.split("\n").map((line) => line.trim());
+  return ports.every((port) => {
+    const expected = `tcp:${port}`;
+    return lines.some((line) => {
+      const fields = line.split(/\s+/);
+      return fields.filter((field) => field === expected).length >= 2;
+    });
+  });
+}
+
+// After booting an emulator, its serial is the online emulator that was not
+// seen before. Any serial present in the baseline (online or offline) belongs
+// to a pre-existing device: an old offline row flipping to online must not
+// win over the freshly launched emulator.
+export function findNewEmulatorSerial(
+  before: string,
+  after: string
+): string | null {
+  const wasSeen = new Set(
+    parseAdbDevices(before).map((device) => device.serial)
+  );
+  const fresh = parseAdbDevices(after).find(
+    (device) =>
+      device.state === "device" &&
+      device.serial.startsWith("emulator-") &&
+      !wasSeen.has(device.serial)
+  );
+  return fresh?.serial ?? null;
+}
+
 export interface DevAndroidOptions {
   device?: string;
   go: boolean;

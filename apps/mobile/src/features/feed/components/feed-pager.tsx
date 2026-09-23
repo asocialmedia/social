@@ -61,23 +61,30 @@ export function FeedPager({
       Animated.timing(translateX, {
         duration: 220,
         toValue: -next * pageWidth,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start(({ finished }) => {
-        if (finished && next !== activeIndex) {
-          onIndexChange(next);
+        if (finished) {
+          if (next !== activeIndex) {
+            onIndexChange(next);
+          }
+          return;
         }
+        // An interrupted animation must never strand the track between
+        // pages: snap to the committed page (the sync effect below then
+        // animates anywhere it still needs to go).
+        translateX.setValue(-committedIndex.current * pageWidth);
       });
     },
     [activeIndex, onIndexChange, pageCount, pageWidth, translateX]
   );
 
-  // Tab taps drive from the outside: slide to match. Swipe commits flow back
-  // through onIndexChange instead, so this stays a one-way sync.
+  // Tab taps drive from the outside, and width changes (rotation) flow in
+  // through goTo's identity, so this always converges the track to the
+  // clamped page: a mid-gesture measuring change can never leave it
+  // stranded. Swipe commits flow back through onIndexChange instead, so
+  // this stays a one-way sync.
   useEffect(() => {
-    // oxlint-disable-next-line react/refs -- syncing the animation position to prop changes must read the committed index here
-    if (committedIndex.current !== clampedIndex) {
-      goTo(clampedIndex);
-    }
+    goTo(clampedIndex);
   }, [clampedIndex, goTo]);
 
   const shouldSetResponder = useCallback(

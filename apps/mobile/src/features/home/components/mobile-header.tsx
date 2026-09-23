@@ -11,12 +11,26 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Bell, Search } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useEffect, useState } from "react";
+import {
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import {
+  HEADER_BAR_HEIGHT,
+  subscribeHeaderVisibility,
+} from "@/features/feed/lib/header-visibility";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 import {
@@ -30,12 +44,23 @@ import {
 } from "@/theme";
 
 import { resolveProfileImageUrl } from "./profile-utils";
+import { usePopupProfile } from "./use-popup-profile";
 import { UserProfilePopup } from "./user-profile-popup";
+
+// Shared hide-on-scroll progress (0 shown, 1 hidden), driven natively by
+// MobileHeader and followed by the content below in HomeScreen. Module
+// scope: exactly one header instance owns the animation.
+export const headerSlide = new Animated.Value(0);
 
 interface MobileHeaderProps {
   onSearchPress?: () => void;
   unreadCount?: number;
-  user?: { avatarUrl?: string | null; id: string; username: string } | null;
+  user?: {
+    avatarUrl?: string | null;
+    id: string;
+    image?: string | null;
+    username: string;
+  } | null;
 }
 
 export function MobileHeader({
@@ -50,13 +75,50 @@ export function MobileHeader({
   // (valid) URL must render normally, which comparing against the failed
   // one guarantees without key-remount tricks.
   const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
+  // Hide-on-scroll: one shared native-driven value slides the bar away and
+  // the content below follows by the same distance, so the two stay in sync
+  // at 60fps with zero layout work (a single view can only use one driver,
+  // which is why the slide and the follow live on separate nodes sharing
+  // this value). The bar travels its full height plus the status inset so
+  // no sliver stays visible.
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  useEffect(
+    () => subscribeHeaderVisibility((isHidden) => setHeaderHidden(isHidden)),
+    []
+  );
+
+  useEffect(() => {
+    const slide = Animated.timing(headerSlide, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      toValue: headerHidden ? 1 : 0,
+      useNativeDriver: true,
+    });
+    slide.start();
+    return () => {
+      slide.stop();
+    };
+  }, [headerHidden]);
+
+  const translateUp = headerSlide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -(HEADER_BAR_HEIGHT + insets.top)],
+  });
   const iconShadows = isDark
     ? ICON_BUTTON_SHADOWS_DARK
     : ICON_BUTTON_SHADOWS_LIGHT;
-  // Web UserAvatar renders 36px with the avatar-ring bevel over a muted
-  // gradient; the header matches that frame exactly.
-  const avatarUri = user?.avatarUrl
-    ? resolveProfileImageUrl(user.avatarUrl, getApiBaseUrl())
+  // Web MobileTopBar reads user.avatarUrl ?? user.image: custom uploads live
+  // in avatarUrl while the session's image only covers OAuth providers. The
+  // popup profile (cache-first, shared with the popup itself) carries the
+  // DB avatarUrl, so the header resolves the same precedence.
+  const popupState = usePopupProfile(user?.id ?? null).state;
+  const profileAvatar =
+    popupState.status === "ready" ? popupState.profile.avatarUrl : null;
+  const rawAvatar = profileAvatar ?? user?.avatarUrl ?? user?.image ?? null;
+  const avatarUri = rawAvatar
+    ? resolveProfileImageUrl(rawAvatar, getApiBaseUrl())
     : null;
 
   return (
@@ -64,169 +126,175 @@ export function MobileHeader({
       edges={["top"]}
       style={{ backgroundColor: theme.containerBg }}
     >
-      <View
-        style={[
-          styles.bar,
-          {
-            backgroundColor: theme.containerBg,
-            borderBottomColor: theme.cardBorder,
-          },
-        ]}
+      <Animated.View
+        style={{
+          transform: [{ translateY: translateUp }],
+        }}
       >
-        <View style={styles.sideLeft}>
-          {user ? (
-            <Pressable
-              accessibilityLabel={`Open profile menu for ${user.username}`}
-              accessibilityRole="button"
-              hitSlop={6}
-              onPress={() => setProfileUserId(user.id)}
-            >
-              <View style={styles.avatarFrame}>
-                <Image
-                  contentFit="cover"
-                  key={avatarUri ?? "placeholder"}
-                  onError={() => {
-                    logWarn("profile.header_avatar_failed", {});
-                    setFailedAvatarUri(avatarUri);
-                  }}
-                  source={
-                    avatarUri && avatarUri !== failedAvatarUri
-                      ? { uri: avatarUri }
-                      : avatarPlaceholder
-                  }
-                  style={[styles.avatar, { backgroundColor: theme.cardBg }]}
-                />
-                {/* avatar-ring bevel: boxShadow is not part of expo-image's
-                    ImageStyle, so the ring rides an overlay like the web's
-                    box-shadow layer does. */}
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.avatarRing,
-                    {
-                      boxShadow: isDark
-                        ? AVATAR_RING_SHADOWS_DARK
-                        : AVATAR_RING_SHADOWS,
-                    },
-                  ]}
-                />
-              </View>
-            </Pressable>
-          ) : null}
-        </View>
-
-        {/* Full-bar centered overlay: the logo sits on the bar's centerline
-            no matter how wide the side columns are (same as web). Touches
-            pass through everywhere except the logo itself. */}
-        <View pointerEvents="box-none" style={styles.centerOverlay}>
-          <Pressable hitSlop={6} onPress={() => router.push("/")}>
-            <Image
-              accessibilityLabel="asocialmedia"
-              contentFit="contain"
-              source={asmLogo}
-              style={styles.logo}
-            />
-          </Pressable>
-        </View>
-
         <View
           style={[
-            styles.sideRight,
-            user ? styles.sideRightUser : styles.sideRightGuest,
+            styles.bar,
+            {
+              backgroundColor: theme.containerBg,
+              borderBottomColor: theme.cardBorder,
+            },
           ]}
         >
-          {user ? (
-            <>
+          <View style={styles.sideLeft}>
+            {user ? (
               <Pressable
-                accessibilityLabel="Notifications"
+                accessibilityLabel={`Open profile menu for ${user.username}`}
                 accessibilityRole="button"
                 hitSlop={6}
-                onPress={() => router.push("/")}
+                onPress={() => setProfileUserId(user.id)}
               >
-                {({ pressed }) => (
+                <View style={styles.avatarFrame}>
+                  <Image
+                    contentFit="cover"
+                    key={avatarUri ?? "placeholder"}
+                    onError={() => {
+                      logWarn("profile.header_avatar_failed", {});
+                      setFailedAvatarUri(avatarUri);
+                    }}
+                    source={
+                      avatarUri && avatarUri !== failedAvatarUri
+                        ? { uri: avatarUri }
+                        : avatarPlaceholder
+                    }
+                    style={[styles.avatar, { backgroundColor: theme.cardBg }]}
+                  />
+                  {/* avatar-ring bevel: boxShadow is not part of expo-image's
+                    ImageStyle, so the ring rides an overlay like the web's
+                    box-shadow layer does. */}
                   <View
+                    pointerEvents="none"
                     style={[
-                      styles.iconBtn,
+                      styles.avatarRing,
                       {
-                        backgroundColor: theme.passkeyBg,
-                        boxShadow: iconShadows,
+                        boxShadow: isDark
+                          ? AVATAR_RING_SHADOWS_DARK
+                          : AVATAR_RING_SHADOWS,
                       },
-                      pressed && styles.pressedShift,
                     ]}
-                  >
-                    <Bell color={theme.passkeyIcon} size={20} />
-                    {unreadCount > 0 ? (
-                      <View
-                        style={[
-                          styles.badge,
-                          { borderColor: theme.containerBg },
-                        ]}
-                      >
-                        <LinearGradient
-                          colors={["#ff9500", "#e65500"]}
-                          end={{ x: 0.5, y: 1 }}
-                          start={{ x: 0.5, y: 0 }}
-                          style={styles.badgeGradient}
-                        >
-                          <Text style={styles.badgeText}>
-                            {unreadCount > 99 ? "99+" : unreadCount}
-                          </Text>
-                        </LinearGradient>
-                      </View>
-                    ) : null}
-                  </View>
-                )}
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Search"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={onSearchPress}
-              >
-                {({ pressed }) => (
-                  <View
-                    style={[
-                      styles.iconBtn,
-                      {
-                        backgroundColor: theme.passkeyBg,
-                        boxShadow: iconShadows,
-                      },
-                      pressed && styles.pressedShift,
-                    ]}
-                  >
-                    <Search color={theme.passkeyIcon} size={20} />
-                  </View>
-                )}
-              </Pressable>
-            </>
-          ) : (
-            <Pressable onPress={() => router.push("/(auth)/login")}>
-              {({ pressed }) => (
-                <View
-                  style={[
-                    styles.loginPill,
-                    {
-                      boxShadow: pressed
-                        ? LOGIN_BUTTON_PRESSED_SHADOWS
-                        : LOGIN_BUTTON_SHADOWS,
-                    },
-                    pressed && styles.pressedShift,
-                  ]}
-                >
-                  <LinearGradient
-                    colors={["#ff9500", "#e65500"]}
-                    end={{ x: 0.5, y: 1 }}
-                    start={{ x: 0.5, y: 0 }}
-                    style={styles.loginPillGradient}
-                  >
-                    <Text style={styles.loginPillText}>Log in</Text>
-                  </LinearGradient>
+                  />
                 </View>
-              )}
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Full-bar centered overlay: the logo sits on the bar's centerline
+            no matter how wide the side columns are (same as web). Touches
+            pass through everywhere except the logo itself. */}
+          <View pointerEvents="box-none" style={styles.centerOverlay}>
+            <Pressable hitSlop={6} onPress={() => router.push("/")}>
+              <Image
+                accessibilityLabel="asocialmedia"
+                contentFit="contain"
+                source={asmLogo}
+                style={styles.logo}
+              />
             </Pressable>
-          )}
+          </View>
+
+          <View
+            style={[
+              styles.sideRight,
+              user ? styles.sideRightUser : styles.sideRightGuest,
+            ]}
+          >
+            {user ? (
+              <>
+                <Pressable
+                  accessibilityLabel="Notifications"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => router.push("/")}
+                >
+                  {({ pressed }) => (
+                    <View
+                      style={[
+                        styles.iconBtn,
+                        {
+                          backgroundColor: theme.passkeyBg,
+                          boxShadow: iconShadows,
+                        },
+                        pressed && styles.pressedShift,
+                      ]}
+                    >
+                      <Bell color={theme.passkeyIcon} size={20} />
+                      {unreadCount > 0 ? (
+                        <View
+                          style={[
+                            styles.badge,
+                            { borderColor: theme.containerBg },
+                          ]}
+                        >
+                          <LinearGradient
+                            colors={["#ff9500", "#e65500"]}
+                            end={{ x: 0.5, y: 1 }}
+                            start={{ x: 0.5, y: 0 }}
+                            style={styles.badgeGradient}
+                          >
+                            <Text style={styles.badgeText}>
+                              {unreadCount > 99 ? "99+" : unreadCount}
+                            </Text>
+                          </LinearGradient>
+                        </View>
+                      ) : null}
+                    </View>
+                  )}
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Search"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={onSearchPress}
+                >
+                  {({ pressed }) => (
+                    <View
+                      style={[
+                        styles.iconBtn,
+                        {
+                          backgroundColor: theme.passkeyBg,
+                          boxShadow: iconShadows,
+                        },
+                        pressed && styles.pressedShift,
+                      ]}
+                    >
+                      <Search color={theme.passkeyIcon} size={20} />
+                    </View>
+                  )}
+                </Pressable>
+              </>
+            ) : (
+              <Pressable onPress={() => router.push("/(auth)/login")}>
+                {({ pressed }) => (
+                  <View
+                    style={[
+                      styles.loginPill,
+                      {
+                        boxShadow: pressed
+                          ? LOGIN_BUTTON_PRESSED_SHADOWS
+                          : LOGIN_BUTTON_SHADOWS,
+                      },
+                      pressed && styles.pressedShift,
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={["#ff9500", "#e65500"]}
+                      end={{ x: 0.5, y: 1 }}
+                      start={{ x: 0.5, y: 0 }}
+                      style={styles.loginPillGradient}
+                    >
+                      <Text style={styles.loginPillText}>Log in</Text>
+                    </LinearGradient>
+                  </View>
+                )}
+              </Pressable>
+            )}
+          </View>
         </View>
-      </View>
+      </Animated.View>
       <UserProfilePopup
         onClose={() => setProfileUserId(null)}
         userId={profileUserId}
