@@ -69,4 +69,63 @@ describe("getPostAncestors", () => {
       prisma.post.findMany = originalFindMany;
     }
   });
+
+  // A global reply is readable while its parent sits in a PRIVATE community the
+  // viewer cannot read; returning that parent would leak its content through
+  // the reply's own thread. The visibility clause must therefore reach the
+  // query in BOTH the CTE and the fallback path.
+  test("scopes ancestors to community visibility", async () => {
+    const originalQueryRaw = prisma.$queryRaw;
+    const originalFindMany = prisma.post.findMany;
+    const prismaAny = prisma as unknown as {
+      $queryRaw: unknown;
+      post: { findMany: unknown };
+    };
+    const seen: { where?: unknown }[] = [];
+
+    try {
+      prismaAny.$queryRaw = () => [{ id: "private-parent" }];
+      prismaAny.post.findMany = (args: { where?: unknown }) => {
+        seen.push(args);
+        return [{ aura: 0, id: "private-parent", viewCount: 1 }];
+      };
+
+      await getPostAncestors("private-parent", "");
+      expect(seen.length).toBe(1);
+      // Guest visibility: private communities must be excluded.
+      expect(JSON.stringify(seen[0]?.where)).toContain("PRIVATE");
+    } finally {
+      prisma.$queryRaw = originalQueryRaw;
+      prisma.post.findMany = originalFindMany;
+    }
+  });
+
+  test("scopes the fallback path too", async () => {
+    const originalQueryRaw = prisma.$queryRaw;
+    const originalFindUnique = prisma.post.findUnique;
+    const originalFindMany = prisma.post.findMany;
+    const prismaAny = prisma as unknown as {
+      $queryRaw: unknown;
+      post: { findMany: unknown; findUnique: unknown };
+    };
+    const seen: { where?: unknown }[] = [];
+
+    try {
+      prismaAny.$queryRaw = () => {
+        throw new Error("CTE unsupported in test");
+      };
+      prismaAny.post.findUnique = () => ({ parentPostId: null });
+      prismaAny.post.findMany = (args: { where?: unknown }) => {
+        seen.push(args);
+        return [{ aura: 0, id: "parent", viewCount: 1 }];
+      };
+
+      await getPostAncestors("parent", "user-1");
+      expect(JSON.stringify(seen[0]?.where)).toContain("ACTIVE");
+    } finally {
+      prisma.$queryRaw = originalQueryRaw;
+      prisma.post.findUnique = originalFindUnique;
+      prisma.post.findMany = originalFindMany;
+    }
+  });
 });

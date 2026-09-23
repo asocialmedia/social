@@ -1,4 +1,9 @@
-import { invalidateAuraSignals, prisma, settleVoteTransition } from "@asm/db";
+import {
+  findVisibleCommentPost,
+  invalidateAuraSignals,
+  prisma,
+  settleVoteTransition,
+} from "@asm/db";
 import type { CommentVoteInfo } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/aura/db-transactions";
@@ -20,6 +25,13 @@ export async function GET(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // The comment's post must be readable first: this endpoint exposes aura and
+  // the viewer's own vote state, which belong to a thread they cannot see.
+  const visible = await findVisibleCommentPost(commentId, user.id);
+  if (!visible) {
+    return Response.json({ error: "Comment not found" }, { status: 404 });
   }
 
   const comment = await prisma.comment.findUnique({
@@ -57,6 +69,13 @@ export async function POST(
   const { value } = (await request.json()) as { value?: number };
   if (typeof value !== "number" || !VALID_VOTE_VALUES.has(value)) {
     return Response.json({ error: "Invalid vote value" }, { status: 400 });
+  }
+
+  // Voting is a state change on the comment's post (aura plus a notification to
+  // its author), so the post must be readable before anything is written. A
+  // stranger could otherwise move aura inside a community they cannot see.
+  if (!(await findVisibleCommentPost(commentId, user.id))) {
+    return Response.json({ error: "Comment not found" }, { status: 404 });
   }
 
   let affectedAuthorId: string | null = null;

@@ -1,4 +1,9 @@
-import { getCommentDataInclude, invalidateFypProfile, prisma } from "@asm/db";
+import {
+  findVisiblePost,
+  getCommentDataInclude,
+  invalidateFypProfile,
+  prisma,
+} from "@asm/db";
 import type { CommentsPage } from "@asm/db";
 
 import { createComment } from "@/components/comments/data/comment-service";
@@ -92,6 +97,12 @@ export async function GET(
   const userId = session?.user?.id ?? "";
 
   const { postId } = await ctx.params;
+  // A comment list is derived from its post, so the post's visibility gate must
+  // hold first: without it a guessed id read the thread of a post inside a
+  // PRIVATE community.
+  if (!(await findVisiblePost(postId, userId))) {
+    return Response.json({ error: "Post not found" }, { status: 404 });
+  }
   const url = new URL(request.url);
   const cursor = decodeCommentCursor(url.searchParams.get("cursor"));
 

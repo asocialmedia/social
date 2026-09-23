@@ -1,5 +1,6 @@
 import { getPostDataInclude } from "../client";
 import type { PostData } from "../client";
+import { communityVisibilityWhere } from "../communities/visibility";
 import prisma from "../prisma";
 import { hydrateViewCounts } from "../redis";
 
@@ -36,9 +37,13 @@ export async function getPostAncestors(
       return [];
     }
 
+    // Ancestry is a reply's own thread, so it must honor community visibility
+    // like any other read: a global reply can be visible while its parent sits
+    // in a PRIVATE community the viewer cannot read, and returning that parent
+    // would leak its content through a thread the reply is allowed to show.
     const posts = await prisma.post.findMany({
       include: getPostDataInclude(loggedInUserId),
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, ...communityVisibilityWhere(loggedInUserId) },
     });
 
     const postMap = new Map(posts.map((p) => [p.id, p]));
@@ -78,7 +83,10 @@ export async function getPostAncestors(
 
     const posts = await prisma.post.findMany({
       include: getPostDataInclude(loggedInUserId),
-      where: { id: { in: ancestorIds } },
+      where: {
+        id: { in: ancestorIds },
+        ...communityVisibilityWhere(loggedInUserId),
+      },
     });
 
     const postMap = new Map(posts.map((p) => [p.id, p]));

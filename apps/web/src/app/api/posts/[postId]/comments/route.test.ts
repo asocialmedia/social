@@ -7,6 +7,11 @@ mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => mockSessionUser,
 }));
 
+// Whether the viewer may read the post. Flipped per-test to cover the
+// community-visibility gate the route now applies before returning or
+// accepting any comment.
+let postVisible = true;
+
 mock.module("@asm/db", () => ({
   COMMENT_CREATION_AURA: 5,
   COMMENT_RECEIVED_AURA: 10,
@@ -15,6 +20,12 @@ mock.module("@asm/db", () => ({
   cancelMediaCleanup: mock(() => Promise.resolve()),
   enqueueNotificationCreated: mock(() => Promise.resolve()),
   enqueueNotificationDeleted: mock(() => Promise.resolve()),
+  findVisiblePost: (postId: string) =>
+    Promise.resolve(
+      postVisible && postId === "valid-post"
+        ? { id: "valid-post", parentPostId: null, userId: "author-1" }
+        : null
+    ),
   getCommentDataInclude: () => ({}),
   invalidateAuraSignals: mock(() => Promise.resolve()),
   invalidateFypProfile: mock(() => Promise.resolve()),
@@ -56,11 +67,12 @@ mock.module("@asm/db", () => ({
   reverseExactAura: mock(() => Promise.resolve()),
 }));
 
-const { POST } = await import("./route");
+const { GET, POST } = await import("./route");
 
 describe("POST /api/posts/[postId]/comments API enforcement", () => {
   beforeEach(() => {
     mockSessionUser = { user: { id: "user-123" } };
+    postVisible = true;
   });
 
   test("rejects unauthorized callers with 401", async () => {
@@ -135,5 +147,50 @@ describe("POST /api/posts/[postId]/comments API enforcement", () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error?: string };
     expect(json.error).toBeDefined();
+  });
+});
+
+describe("comment reads honor community visibility", () => {
+  // Own reset: the flag above is shared, and suites must not leak state.
+  beforeEach(() => {
+    postVisible = true;
+  });
+
+  // A comment list is derived from its post, so a post the viewer cannot read
+  // must 404 rather than expose the thread; otherwise a guessed id reaches a
+  // PRIVATE community's discussion.
+  test("GET 404s when the post is not visible to the viewer", async () => {
+    postVisible = false;
+    const res = await GET(
+      new Request("http://localhost/api/posts/valid-post/comments"),
+      {
+        params: Promise.resolve({ postId: "valid-post" }),
+      }
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("GET serves comments when the post is visible", async () => {
+    const res = await GET(
+      new Request("http://localhost/api/posts/valid-post/comments"),
+      {
+        params: Promise.resolve({ postId: "valid-post" }),
+      }
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("POST refuses to write into a post the viewer cannot read", async () => {
+    postVisible = false;
+    const req = new Request("http://localhost/api/posts/valid-post/comments", {
+      body: JSON.stringify({ content: "sneaking in" }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const res = await POST(req, {
+      params: Promise.resolve({ postId: "valid-post" }),
+    });
+    // 400 is the route's "Post not found" from createComment.
+    expect([400, 404]).toContain(res.status);
   });
 });

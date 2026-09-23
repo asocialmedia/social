@@ -5,6 +5,7 @@ import {
   cancelMediaCleanup,
   COMMENT_CREATION_AURA,
   COMMENT_RECEIVED_AURA,
+  findVisiblePost,
   getCommentDataInclude,
   invalidateAuraSignals,
   prisma,
@@ -46,10 +47,11 @@ export async function createComment(
     parentId: params.parentId,
   });
 
-  const post = await prisma.post.findUnique({
-    select: { id: true, userId: true },
-    where: { id: params.postId },
-  });
+  // Visibility-gated: a stranger must not be able to comment into a thread
+  // inside a PRIVATE community they cannot read. findVisiblePost answers null
+  // for both "missing" and "not readable", so the error cannot confirm that
+  // the post exists.
+  const post = await findVisiblePost(params.postId, params.userId);
 
   if (!post) {
     throw new Error("Post not found");

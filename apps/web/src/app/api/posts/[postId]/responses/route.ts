@@ -1,4 +1,4 @@
-import { getPostDataInclude, prisma } from "@asm/db";
+import { findVisiblePost, getPostDataInclude, prisma } from "@asm/db";
 import type { ResponsesPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -61,10 +61,14 @@ export async function GET(
   const url = new URL(request.url);
   const cursor = decodeCursor(url.searchParams.get("cursor"));
 
-  const anchor = await prisma.post.findUnique({
-    select: { parentPostId: true },
-    where: { id: postId },
-  });
+  // Responses are derived from their post, so the post's visibility gate must
+  // hold first: without it a guessed id read the thread of a post inside a
+  // PRIVATE community. Returning 404 for both "missing" and "not readable"
+  // avoids confirming that the post exists.
+  const anchor = await findVisiblePost(postId, userId);
+  if (!anchor) {
+    return Response.json({ error: "Post not found" }, { status: 404 });
+  }
 
   // Response anchor (a response permalink): every descendant carries
   // threadTopId = the anchor id, so one query returns the anchor plus its whole
