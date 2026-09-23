@@ -8,9 +8,6 @@ import { cn } from "@/lib/utils";
 
 import type { MessageAttachmentDraft } from "./message-attachment-state";
 
-const STATUS_CHIP =
-  "absolute inset-x-0 bottom-0 flex h-4 items-center justify-center bg-black/60 text-[9px] font-medium text-white tabular-nums";
-
 function AttachmentTile({
   attachment,
   onEdit,
@@ -24,7 +21,7 @@ function AttachmentTile({
 }) {
   const uploading = attachment.status === "uploading";
   const errored = attachment.status === "error";
-  const { label, percent } = getUploadProgressInfo(
+  const { percent } = getUploadProgressInfo(
     uploading ? attachment.stage : undefined,
     attachment.progress
   );
@@ -51,16 +48,22 @@ function AttachmentTile({
       {uploading ? (
         <>
           <span className="pointer-events-none absolute inset-0 bg-black/35" />
-          <span className={STATUS_CHIP}>{label}</span>
+          {/* oxlint-disable jsx-a11y/prefer-tag-over-role -- thin gradient fill bar inside a 64px tile; native <progress> cannot render this shape */}
           <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-4 h-1 bg-black/50"
+            aria-label="Uploading image"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={percent}
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-black/50"
+            role="progressbar"
           >
             <span
               className="block h-full bg-linear-to-r from-[#ff9500] to-[#e65500] transition-[width] duration-200"
               style={{ width: `${percent}%` }}
             />
           </span>
+          {/* oxlint-enable jsx-a11y/prefer-tag-over-role */}
+          <span className="sr-only">Uploading image {percent}%</span>
         </>
       ) : null}
 

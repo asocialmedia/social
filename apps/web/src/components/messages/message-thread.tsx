@@ -690,6 +690,25 @@ export function MessageThread({
     return () => el.removeEventListener("scroll", measure);
   }, [detail]);
 
+  // When the peer starts typing, reveal the in-flow typing row if the viewport
+  // is pinned to the bottom. The row lives after the virtualized list (not as
+  // an overlay), so the scroll height grows — pin to the new bottom so the
+  // bubble is visible instead of covering the last message. Gated on pinned:
+  // a user reading history is never yanked.
+  useEffect(() => {
+    if (!peerTyping || !pinnedRef.current) {
+      return;
+    }
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [peerTyping]);
+
   // Pull older history as the top of the loaded window nears the first
   // virtual row. Stable keys keep the viewport anchored on prepend.
   const { fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage } =
@@ -865,7 +884,15 @@ export function MessageThread({
         })
       : "auto";
     rowVirtualizer.scrollToEnd({ behavior });
-  }, [rowVirtualizer]);
+    // The in-flow typing row (when visible) sits after the virtualized list,
+    // so the virtualizer's end is one row short of the true bottom. Correct
+    // to the element's full height so the typing bubble stays in view.
+    if (peerTyping && el) {
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight });
+      });
+    }
+  }, [peerTyping, rowVirtualizer]);
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
@@ -1061,58 +1088,68 @@ export function MessageThread({
             ref={scrollRef}
           >
             {allMessages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center text-center">
-                <div className="px-6 py-5">
-                  <p className="text-muted-foreground text-sm">
-                    Say hi to {peer?.displayName ?? "them"}
-                  </p>
-                  <p className="text-muted-foreground/70 mt-1 text-xs">
-                    Messages here are encrypted.
-                  </p>
+              <div className="flex min-h-full flex-col">
+                <div className="flex flex-1 flex-col items-center justify-center text-center">
+                  <div className="px-6 py-5">
+                    <p className="text-muted-foreground text-sm">
+                      Say hi to {peer?.displayName ?? "them"}
+                    </p>
+                    <p className="text-muted-foreground/70 mt-1 text-xs">
+                      Messages here are encrypted.
+                    </p>
+                  </div>
                 </div>
+                {peerTyping ? (
+                  <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
+                ) : null}
               </div>
             ) : (
-              <div
-                style={{
-                  height: `${rowVirtualizer.getTotalSize()}px`,
-                  position: "relative",
-                  width: "100%",
-                }}
-              >
-                {virtualItems.map((virtualItem) => {
-                  const message = allMessages[virtualItem.index];
-                  if (!message) {
-                    return null;
-                  }
-                  return (
-                    <div
-                      data-index={virtualItem.index}
-                      key={virtualItem.key}
-                      ref={rowVirtualizer.measureElement}
-                      style={{
-                        left: 0,
-                        position: "absolute",
-                        top: 0,
-                        transform: `translateY(${virtualItem.start}px)`,
-                        width: "100%",
-                      }}
-                    >
-                      <VirtualRow
-                        conversationId={conversationId}
-                        historyVersion={historyVersion}
-                        message={message}
-                        messagesById={messagesById}
-                        myUserId={userId ?? ""}
-                        onReply={handleReply}
-                        onRequest={requestDecrypt}
-                        onRetry={retryDecrypt}
-                        peerName={peer?.displayName ?? "them"}
-                        scrolling={scrolling}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+              <>
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    position: "relative",
+                    width: "100%",
+                  }}
+                >
+                  {virtualItems.map((virtualItem) => {
+                    const message = allMessages[virtualItem.index];
+                    if (!message) {
+                      return null;
+                    }
+                    return (
+                      <div
+                        data-index={virtualItem.index}
+                        key={virtualItem.key}
+                        ref={rowVirtualizer.measureElement}
+                        style={{
+                          left: 0,
+                          position: "absolute",
+                          top: 0,
+                          transform: `translateY(${virtualItem.start}px)`,
+                          width: "100%",
+                        }}
+                      >
+                        <VirtualRow
+                          conversationId={conversationId}
+                          historyVersion={historyVersion}
+                          message={message}
+                          messagesById={messagesById}
+                          myUserId={userId ?? ""}
+                          onReply={handleReply}
+                          onRequest={requestDecrypt}
+                          onRetry={retryDecrypt}
+                          peerName={peer?.displayName ?? "them"}
+                          scrolling={scrolling}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {peerTyping ? (
+                  <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
+                ) : null}
+              </>
             )}
           </div>
 
@@ -1122,14 +1159,6 @@ export function MessageThread({
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Loading older messages
               </span>
-            </div>
-          ) : null}
-
-          {peerTyping ? (
-            <div className="pointer-events-none absolute bottom-2 left-4">
-              <div className="bg-muted/40 rounded-2xl rounded-bl-md px-3.5 py-2.5">
-                <TypingDots />
-              </div>
             </div>
           ) : null}
 
@@ -1588,15 +1617,42 @@ function ThreadHeader({
   );
 }
 
+// In-flow typing row, rendered after the virtualized list (never overlaid),
+// so it pushes the transcript up instead of covering the last message. Kept
+// outside the virtualizer's measured range on purpose: the row count, keys,
+// and decrypt window stay untouched, and the row mounts/unmounts without ever
+// triggering scroll compensation. Same avatar size and bubble shape as a peer
+// message row, so it reads as a real message.
+function TypingRow({ avatarUrl }: { avatarUrl: string | null }) {
+  return (
+    <>
+      {/* oxlint-disable jsx-a11y/prefer-tag-over-role -- live typing presence is a status role; <output> is form output and the wrong semantics here */}
+      <div
+        className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 flex items-end gap-2 px-4 pt-1 pb-2 motion-safe:duration-300"
+        role="status"
+      >
+        <UserAvatar avatarUrl={avatarUrl} size={28} />
+        <div className="border-border/60 rounded-2xl rounded-bl-sm border bg-[hsl(var(--background))] px-4 py-3 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
+          <TypingDots />
+        </div>
+      </div>
+      {/* oxlint-enable jsx-a11y/prefer-tag-over-role */}
+    </>
+  );
+}
+
 // Three-dot typing indicator, matching the chat bubble style.
 function TypingDots() {
   return (
-    <span className="flex items-center gap-1">
+    <span aria-hidden="true" className="flex items-center gap-1.5">
       {[0, 1, 2].map((index) => (
         <span
-          className="bg-muted-foreground h-1.5 w-1.5 animate-bounce rounded-full"
+          className="bg-muted-foreground/70 size-1.5 animate-bounce rounded-full motion-reduce:animate-none"
           key={index}
-          style={{ animationDelay: `${index * 0.15}s` }}
+          style={{
+            animationDelay: `${index * 0.15}s`,
+            animationDuration: "1s",
+          }}
         />
       ))}
     </span>
