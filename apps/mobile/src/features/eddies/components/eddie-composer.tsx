@@ -24,7 +24,7 @@ import {
   UserAvatar,
   useViewerAvatarUrl,
 } from "@/components/avatar/user-avatar";
-import { GifPicker } from "@/components/media/gif-picker";
+import { GifPicker, reelsInput } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   APPLE_PANEL_TOKENS,
@@ -163,6 +163,7 @@ export function EddieComposer({
   parentId,
   placeholder = "Add your Eddie to the flow...",
   postId,
+  reels = false,
   replyingTo,
 }: {
   autoFocus?: boolean;
@@ -171,6 +172,9 @@ export function EddieComposer({
   parentId?: string;
   placeholder?: string;
   postId: string;
+  // The gust drawer's composer: web's `reels-input` field (hairline border,
+  // soft lip, orange 3px focus halo) instead of premium-input.
+  reels?: boolean;
   replyingTo?: { username: string } | null;
 }) {
   const { isDark } = useAppTheme();
@@ -182,6 +186,17 @@ export function EddieComposer({
   const [focused, setFocused] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
   const input = premiumInput(isDark, focused);
+  const reelsField = reelsInput(isDark);
+  const boxSurface = reels
+    ? {
+        backgroundColor: reelsField.background,
+        borderColor: reelsField.border,
+        borderWidth: 1,
+        boxShadow: focused
+          ? `${reelsField.shadows}, 0 0 0 3px rgba(255, 149, 0, 0.18)`
+          : reelsField.shadows,
+      }
+    : { backgroundColor: input.background, boxShadow: input.shadows };
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
 
   if (!user) {
@@ -277,7 +292,7 @@ export function EddieComposer({
           <View
             style={[
               styles.box,
-              { backgroundColor: input.background, boxShadow: input.shadows },
+              boxSurface,
               sender.attachments.length > 0 && styles.boxWithAttachment,
             ]}
           >

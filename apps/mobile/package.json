@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.59",
+  "version": "0.0.60",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -28,6 +28,7 @@
     "expo-application": "^57.0.3",
     "expo-audio": "^57.0.5",
     "expo-build-properties": "~57.0.21",
+    "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.18",
     "expo-crypto": "~57.0.3",
     "expo-dev-client": "~57.0.19",

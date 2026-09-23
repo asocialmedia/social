@@ -1037,10 +1037,18 @@ export function ModeratedNotice() {
 // Continue covers every surface rendering the same post for the session.
 const revealedExplicitIds = new Set<string>();
 
+export function isExplicitRevealed(revealKey: string): boolean {
+  return revealedExplicitIds.has(revealKey);
+}
+
+export function markExplicitRevealed(revealKey: string): void {
+  revealedExplicitIds.add(revealKey);
+}
+
 // expo-image blurRadius renders through RenderEffect, which needs Android 14
 // (API 34+ for the framework path expo-image uses) — older devices show the
 // still sharp. Those fall back to a fully opaque veil so nothing leaks.
-function explicitBlurSupported(): boolean {
+export function explicitBlurSupported(): boolean {
   if (Platform.OS === "ios" || Platform.OS === "web") {
     return true;
   }

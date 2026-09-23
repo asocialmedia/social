@@ -50,7 +50,7 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getShortPostId } from "@/features/post/lib/post-path";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logError, logWarn } from "@/lib/telemetry";
 import { LOGIN_BUTTON_SHADOWS, useAppTheme } from "@/theme";
 
 import { subscribeEddieCreated } from "../lib/eddie-events";
@@ -353,7 +353,10 @@ export interface EddieThreadProps {
   // Threaded cards carry tighter card padding, so the gap above the
   // border matches web's thread rhythm (pb-2) instead of the full pb-4.
   tight?: boolean;
-  variant?: "card" | "page";
+  // "reels" is the gust drawer: composer on top with the reels-input look,
+  // the whole thread unclamped with "Load previous eddies", and web's 8s
+  // refetch while the drawer is open.
+  variant?: "card" | "page" | "reels";
   viewerId: string | undefined;
 }
 
@@ -382,6 +385,9 @@ export function EddieThread({
   const [deleting, setDeleting] = useState(false);
   const apiBase = getApiBaseUrl();
   const isPage = variant === "page";
+  const isReels = variant === "reels";
+  // Page and reels both page backwards in place instead of linking out.
+  const pagesInPlace = isPage || isReels;
 
   const loadHead = async (): Promise<boolean> => {
     try {
@@ -436,9 +442,9 @@ export function EddieThread({
     [postId]
   );
 
-  // Web polls the post page's thread every 8s.
+  // Web polls the post page's thread (and the open gust drawer) every 8s.
   useEffect(() => {
-    if (!isPage) {
+    if (!pagesInPlace) {
       return;
     }
     const timer = setInterval(() => {
@@ -458,7 +464,7 @@ export function EddieThread({
     return () => {
       clearInterval(timer);
     };
-  }, [apiBase, isPage, postId]);
+  }, [apiBase, pagesInPlace, postId]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) {
@@ -522,7 +528,8 @@ export function EddieThread({
       await deleteEddie(deleteTarget);
       setComments((current) => withDeletedEddie(current, deleteTarget));
       setDeleteTarget(null);
-    } catch {
+    } catch (error) {
+      logError("eddies.delete_failed", error);
       toast({
         description: "Couldn't delete that eddie, try again?",
         title: "Delete Failed",
@@ -533,11 +540,11 @@ export function EddieThread({
   };
 
   const tree = buildEddieTree(comments);
-  const clamped = !isPage && hasMore && tree.length > 0;
+  const clamped = !pagesInPlace && hasMore && tree.length > 0;
 
   let moreControl: React.ReactNode = null;
   if (hasMore && status === "ready") {
-    moreControl = isPage ? (
+    moreControl = pagesInPlace ? (
       <Pressable
         accessibilityRole="button"
         disabled={loadingMore}
@@ -580,10 +587,11 @@ export function EddieThread({
       style={[
         styles.section,
         { borderTopColor: theme.cardBorder, marginTop: tight ? 8 : 16 },
+        isReels && styles.sectionReels,
       ]}
     >
-      {isPage ? null : <EddieComposer postId={postId} />}
-      {isPage ? moreControl : null}
+      {isPage ? null : <EddieComposer postId={postId} reels={isReels} />}
+      {pagesInPlace ? moreControl : null}
       {status === "loading" ? (
         <View style={styles.skeletonList}>
           <EddieSkeleton />
@@ -656,7 +664,7 @@ export function EddieThread({
           />
         ) : null}
       </View>
-      {isPage ? null : moreControl}
+      {pagesInPlace ? null : moreControl}
       <MoreMenu
         anchor={menu?.anchor ?? null}
         entries={menu ? DELETE_ENTRY : []}
@@ -842,6 +850,11 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     paddingBottom: 16,
     paddingTop: 2,
+  },
+  sectionReels: {
+    borderTopWidth: 0,
+    marginTop: 0,
+    paddingTop: 0,
   },
   skeletonAvatar: {
     borderRadius: 12,

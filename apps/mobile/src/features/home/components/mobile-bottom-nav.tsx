@@ -79,7 +79,7 @@ const RIGHT_ITEMS: MobileNavItem[] = [
 
 // Routes with a mobile screen behind them. Everything else renders as a
 // disabled stub until its screen lands - no dead-feeling fake navigation.
-const LIVE_ROUTES = new Set(["/"]);
+const LIVE_ROUTES = new Set(["/", "/gusts"]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
 // primary border and the inner lip, never a saturated fill. Light keys off

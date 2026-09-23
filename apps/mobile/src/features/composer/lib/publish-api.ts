@@ -17,6 +17,8 @@ import { HttpError, sleep, withRetry } from "@/features/media-upload/lib/retry";
 import { apiJson } from "@/features/media-upload/lib/upload-api";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
 
+import { runPublishFlow } from "./publish-flow";
+
 export interface CreatePostPayload {
   communityId?: string;
   content: string;
@@ -36,76 +38,47 @@ export function newIdempotencyKey(): string {
   return randomUUID();
 }
 
-function duplicateOf(error: unknown): string | null {
-  if (!(error instanceof HttpError) || error.status !== 409) {
-    return null;
-  }
-  const body = error.body as { error?: unknown; postId?: unknown } | null;
-  return body?.error === "duplicate" && typeof body.postId === "string"
-    ? body.postId
-    : null;
-}
-
-function isInFlight(error: unknown): boolean {
-  if (!(error instanceof HttpError) || error.status !== 409) {
-    return false;
-  }
-  const body = error.body as { error?: unknown } | null;
-  return body?.error === "in-flight";
-}
-
 export async function publishPost(
   payload: CreatePostPayload,
   idempotencyKey: string,
   signal?: AbortSignal
 ): Promise<PublishResult> {
   const startedAt = Date.now();
-  // In-flight answers mean the first attempt is still being processed:
-  // wait for it rather than counting it against the retry budget.
-  for (let inFlightWaits = 0; ; inFlightWaits += 1) {
-    try {
-      // eslint-disable-next-line no-await-in-loop -- sequential by design: wait out an in-flight twin before retrying
-      const post = await withRetry(
-        () =>
-          apiJson<FeedPost>("/api/posts", {
-            body: payload,
-            headers: { "idempotency-key": idempotencyKey },
-            method: "POST",
-            signal,
-          }),
-        {
-          attempts: 4,
-          onRetry: (error, attempt, delayMs) =>
-            logWarn("publish.retry", {
-              attempt,
-              delayMs,
-              status: error instanceof HttpError ? error.status : 0,
-            }),
+  try {
+    const outcome = await runPublishFlow(
+      () =>
+        apiJson<FeedPost>("/api/posts", {
+          body: payload,
+          headers: { "idempotency-key": idempotencyKey },
+          method: "POST",
           signal,
-        }
-      );
+        }),
+      {
+        onRetry: (error, attempt, delayMs) =>
+          logWarn("publish.retry", {
+            attempt,
+            delayMs,
+            status: error instanceof HttpError ? error.status : 0,
+          }),
+        signal,
+        wait: sleep,
+      }
+    );
+    if (outcome.kind === "duplicate") {
+      logInfo("publish.deduplicated", {});
+    } else {
       logInfo("publish.done", {
         attachments: payload.mediaIds.length,
         ms: Date.now() - startedAt,
         response: Boolean(payload.parentPostId),
       });
-      return { kind: "created", post };
-    } catch (error) {
-      const duplicate = duplicateOf(error);
-      if (duplicate) {
-        logInfo("publish.deduplicated", {});
-        return { kind: "duplicate", postId: duplicate };
-      }
-      if (isInFlight(error) && inFlightWaits < 10) {
-        // eslint-disable-next-line no-await-in-loop -- the twin needs time to finish before we ask again
-        await sleep(2000, signal);
-        continue;
-      }
-      logError("publish.failed", error, {
-        status: error instanceof HttpError ? error.status : 0,
-      });
-      throw error;
     }
+    return outcome;
+  } catch (error) {
+    logError("publish.failed", error, {
+      status: error instanceof HttpError ? error.status : 0,
+    });
+    throw error;
   }
 }
 

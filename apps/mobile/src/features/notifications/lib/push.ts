@@ -24,6 +24,10 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
+import { pathToNativeRoute } from "./push-path";
+
+export { pathToNativeRoute } from "./push-path";
+
 const ANDROID_CHANNEL_ID = "default";
 
 // Foreground presentation: show the banner even while the app is open, so a
@@ -178,19 +182,6 @@ export async function unregisterPushNotifications(): Promise<void> {
     await unregisterToken(lastRegisteredToken);
     lastRegisteredToken = null;
   }
-}
-
-// Maps a push payload's web path onto a native route. Post paths carry the
-// short id (or full id) after /posts/, either at the root (/posts/<id>) or
-// nested in a community (/a/<slug>/posts/<id>); the detail screen accepts
-// either id form and has no community-aware route yet, so the community
-// segment is dropped and the post itself opens.
-export function pathToNativeRoute(path: string): string {
-  const postMatch =
-    /^\/posts\/(?<id>[^/?#]+)/.exec(path) ??
-    /^\/a\/[^/]+\/posts\/(?<id>[^/?#]+)/.exec(path);
-  const id = postMatch?.groups?.id;
-  return id ? `/posts/${id}` : "/notifications";
 }
 
 export interface PushTapListener {

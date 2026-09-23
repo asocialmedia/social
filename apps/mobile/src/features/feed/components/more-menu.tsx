@@ -39,7 +39,8 @@ export type MoreAction =
   | { type: "delete" }
   | { type: "hide" }
   | { type: "toggle-alt" }
-  | { type: "toggle-captions" };
+  | { type: "toggle-captions" }
+  | { type: "toggle-transcript" };
 
 // Trigger rect in window coordinates (measureInWindow).
 export interface MenuAnchor {

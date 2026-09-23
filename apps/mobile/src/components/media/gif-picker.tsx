@@ -39,7 +39,7 @@ export function reelsPanel(isDark: boolean) {
       };
 }
 
-function reelsInput(isDark: boolean) {
+export function reelsInput(isDark: boolean) {
   return isDark
     ? {
         background: "#232323",

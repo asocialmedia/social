@@ -98,6 +98,10 @@ export default function RootLayout() {
             >
               <Stack.Screen name="index" />
               <Stack.Screen name="notifications" />
+              <Stack.Screen
+                name="gusts"
+                options={{ contentStyle: { backgroundColor: "#000000" } }}
+              />
               <Stack.Screen name="(auth)" />
             </Stack>
             {/* Shown only when a mutating request needs the install credential

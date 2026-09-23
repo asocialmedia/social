@@ -422,28 +422,5 @@ export function getScopeAttachments(scope: string): DraftAttachment[] {
   return useAttachmentState.getState().scopes[scope] ?? EMPTY;
 }
 
-// Web's publish gate: nothing uploading, nothing errored. Processing tiles
-// (attached before READY) do not block posts; eddies wait for READY.
-export function scopeReadiness(items: readonly DraftAttachment[]): {
-  hasError: boolean;
-  isBusy: boolean;
-  mediaIds: string[];
-} {
-  const hasError = items.some((item) => item.stage === "error");
-  const isBusy = items.some((item) => {
-    if (item.stage === "error") {
-      return false;
-    }
-    if (item.waitForProcessing) {
-      return item.stage !== "ready";
-    }
-    return !item.isProcessing && item.stage !== "ready";
-  });
-  return {
-    hasError,
-    isBusy,
-    mediaIds: items
-      .map((item) => item.mediaId)
-      .filter((id): id is string => typeof id === "string"),
-  };
-}
+// Web's publish gate lives in lib/readiness.ts (pure, unit-tested).
+export { scopeReadiness } from "../lib/readiness";

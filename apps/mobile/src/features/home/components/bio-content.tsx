@@ -158,10 +158,12 @@ export function TagChip({ tag }: { tag: string }) {
 function BioPiece({
   segment,
   textColor,
+  textSize,
   titles,
 }: {
   segment: BioSegment;
   textColor?: string;
+  textSize?: { fontSize: number; lineHeight: number };
   titles: Record<string, string>;
 }) {
   const { theme } = useAppTheme();
@@ -177,7 +179,13 @@ function BioPiece({
     }
     default: {
       return (
-        <Text style={[styles.text, { color: textColor ?? theme.inputText }]}>
+        <Text
+          style={[
+            styles.text,
+            textSize,
+            { color: textColor ?? theme.inputText },
+          ]}
+        >
           {segment.text}
         </Text>
       );
@@ -190,6 +198,7 @@ export function BioContent({
   bio,
   clampLength,
   textColor,
+  textSize,
 }: {
   apiBase: string;
   bio: string;
@@ -199,6 +208,8 @@ export function BioContent({
   // Plain-text ink override for dark scrims (the media viewer panel renders
   // white text on black in both themes). Chips keep their own treatment.
   textColor?: string;
+  // Body type override (the gust caption is web's text-xs leading-relaxed).
+  textSize?: { fontSize: number; lineHeight: number };
 }) {
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
@@ -267,6 +278,7 @@ export function BioContent({
             key={`${segment.type}-${index}`}
             segment={segment}
             textColor={textColor}
+            textSize={textSize}
             titles={titles}
           />
         ))}

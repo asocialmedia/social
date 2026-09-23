@@ -25,11 +25,22 @@ export function getSharePostUrl(post: FeedPost): string {
 }
 
 interface ShareSheetProps {
+  // Web's dialogTitle / dialogDescription / shareUrl overrides; gusts share
+  // "Share Gust" and /gusts?id=<full id> instead of the post path.
+  description?: string;
   onClose: () => void;
   post: FeedPost | null;
+  shareUrl?: (post: FeedPost) => string;
+  title?: string;
 }
 
-export function ShareSheet({ onClose, post }: ShareSheetProps) {
+export function ShareSheet({
+  description = "Share this post with your network",
+  onClose,
+  post,
+  shareUrl = getSharePostUrl,
+  title = "Share Post",
+}: ShareSheetProps) {
   const { isDark, theme } = useAppTheme();
   const [stats, setStats] = useState<ShareStats[]>([]);
   const [shared, setShared] = useState(false);
@@ -69,7 +80,7 @@ export function ShareSheet({ onClose, post }: ShareSheetProps) {
       return;
     }
     void (async () => {
-      const url = getSharePostUrl(post);
+      const url = shareUrl(post);
       try {
         const apiBase = getApiBaseUrl();
         const cookie = await authClient.getCookie();
@@ -111,10 +122,10 @@ export function ShareSheet({ onClose, post }: ShareSheetProps) {
         >
           <View style={styles.handle} />
           <Text style={[styles.title, { color: theme.inputText }]}>
-            Share Post
+            {title}
           </Text>
           <Text style={[styles.description, { color: theme.dividerText }]}>
-            Share this post with your network
+            {description}
           </Text>
           {totalShares > 0 || totalClicks > 0 ? (
             <Text style={[styles.stats, { color: theme.dividerText }]}>

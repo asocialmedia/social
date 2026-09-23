@@ -1,19 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-// push.ts imports expo-notifications, which bun cannot parse on Node. The path
-// mapping is the part worth unit-testing, and it is kept as a plain function;
-// this file exercises the same regex the module uses so the contract (root or
-// community post id -> native detail route) is pinned without the native
-// import.
-//
-// Kept in sync with pathToNativeRoute in push.ts.
-function pathToNativeRoute(path: string): string {
-  const postMatch =
-    /^\/posts\/(?<id>[^/?#]+)/.exec(path) ??
-    /^\/a\/[^/]+\/posts\/(?<id>[^/?#]+)/.exec(path);
-  const id = postMatch?.groups?.id;
-  return id ? `/posts/${id}` : "/notifications";
-}
+import { pathToNativeRoute } from "./push-path";
 
 describe("push path routing", () => {
   test("maps a post path to the native detail route", () => {
@@ -42,5 +29,11 @@ describe("push path routing", () => {
     expect(pathToNativeRoute("/users/alice")).toBe("/notifications");
     expect(pathToNativeRoute("/a/anime")).toBe("/notifications");
     expect(pathToNativeRoute("/notifications")).toBe("/notifications");
+  });
+
+  test("opens gust links in the native reel", () => {
+    expect(pathToNativeRoute("/gusts?id=abc-123")).toBe("/gusts?id=abc-123");
+    expect(pathToNativeRoute("/gusts?tab=latest&id=abc")).toBe("/gusts?id=abc");
+    expect(pathToNativeRoute("/gusts")).toBe("/notifications");
   });
 });
