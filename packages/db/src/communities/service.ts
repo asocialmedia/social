@@ -544,43 +544,10 @@ export async function canViewCommunityById(
   return await canViewCommunity(community, userId);
 }
 
-// The row-level companion to canViewCommunity, for post reads that are NOT
-// already scoped to one community (global feeds, search, profiles, sitemaps).
-// A post inside a PRIVATE community must not surface there except to that
-// community's ACTIVE members: global posts and PUBLIC/RESTRICTED community
-// posts stay visible to everyone. A reshare is judged by the community it
-// carries, so resurfacing a private post onto the global feed cannot route
-// around the rule. Merge into a query as `{ AND: [where, visibility] }` so an
-// existing OR is preserved.
-export function communityVisibilityWhere(
-  userId: string
-): Prisma.PostWhereInput {
-  // A community the viewer may read: any non-private community, or a private
-  // one they hold an ACTIVE membership in.
-  const readableCommunity: Prisma.CommunityWhereInput = userId
-    ? {
-        OR: [
-          { type: { not: "PRIVATE" } },
-          { members: { some: { status: "ACTIVE", userId } } },
-        ],
-      }
-    : { type: { not: "PRIVATE" } };
-
-  return {
-    OR: [
-      // Plain global post (no community, no reshare source).
-      { communityId: null, communityShare: null },
-      // Native community post.
-      { community: readableCommunity },
-      // Global reshare of a community post.
-      {
-        communityShare: {
-          is: { community: readableCommunity },
-        },
-      },
-    ],
-  };
-}
+// Re-exported so existing consumers keep importing it from the
+// communities service; the implementation lives in ./visibility so low-level
+// readers can use it without cycle risk.
+export { communityVisibilityWhere } from "./visibility";
 
 // Public communities join instantly. Restricted and Private communities open a
 // PENDING request that an owner/moderator approves; the creator is always
@@ -823,12 +790,13 @@ export async function getCommunitySubscriberIds(
 // (recipient, community) is folded in place: an unread COMMUNITY_POST row
 // already waiting is incremented and re-pointed at the newest post, and only
 // recipients without one get a fresh row. Returns the recipients who received a
-// NEW row, so the caller enqueues unread-counter bumps only for those (an
-// in-place increment on an already-unread row does not change the count).
+// NEW row (with the row's id, so the caller can enqueue the unread-counter bump
+// and push delivery for exactly those); an in-place increment on an
+// already-unread row does not change the count.
 export async function notifyCommunitySubscribers(
   tx: Prisma.TransactionClient,
   input: { authorId: string; communityId: string; postId: string }
-): Promise<string[]> {
+): Promise<{ id: string; recipientId: string }[]> {
   // Serialize fan-outs per community for the rest of this transaction. Two
   // posts published at once would otherwise both read "no unread row" and each
   // insert one, breaking the one-row-per-reader batching contract and
@@ -875,20 +843,21 @@ export async function notifyCommunitySubscribers(
     });
   }
 
-  if (fresh.length > 0) {
-    await tx.notification.createMany({
-      data: fresh.map((recipientId) => ({
-        communityId: input.communityId,
-        count: 1,
-        issuerId: input.authorId,
-        postId: input.postId,
-        recipientId,
-        type: "COMMUNITY_POST" as const,
-      })),
-    });
+  if (fresh.length === 0) {
+    return [];
   }
 
-  return fresh;
+  return await tx.notification.createManyAndReturn({
+    data: fresh.map((recipientId) => ({
+      communityId: input.communityId,
+      count: 1,
+      issuerId: input.authorId,
+      postId: input.postId,
+      recipientId,
+      type: "COMMUNITY_POST" as const,
+    })),
+    select: { id: true, recipientId: true },
+  });
 }
 
 // The communities the viewer follows AND may currently read. A subscription is

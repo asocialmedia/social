@@ -5,6 +5,9 @@
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
 import type { FeedPost, PostsPage } from "./feed-types";
+import { mediaCaptionsPath, mediaWavePeaksPath } from "./media-url";
+import { parseWavePeaks } from "./waveform";
+import type { WavePeaks } from "./waveform";
 
 export interface ApiCallOptions {
   apiBase: string;
@@ -307,9 +310,22 @@ export async function fetchResponsesPage(
       response.status
     );
   }
-  const payload = (await readJson(response)) as unknown;
-  const page = parsePostsPage(payload);
-  return { previousCursor: page.nextCursor, responses: page.posts };
+  // The route answers { responses, previousCursor } (not the feed's
+  // { posts, nextCursor }); parsing it as a feed page left every response
+  // list empty.
+  const page = ((await readJson(response)) ?? {}) as {
+    previousCursor?: unknown;
+    responses?: unknown;
+  };
+  return {
+    previousCursor:
+      typeof page.previousCursor === "string" ? page.previousCursor : null,
+    responses: Array.isArray(page.responses)
+      ? (page.responses as FeedPost[]).filter(
+          (post) => post && typeof post.id === "string"
+        )
+      : [],
+  };
 }
 
 /** Batched view increments (800ms debounce lives in the caller, like web). */
@@ -397,4 +413,29 @@ export async function submitShare(
       response.status
     );
   }
+}
+
+/** The audio row's waveform; null when the derivative is missing or bad. */
+export async function fetchWavePeaks(
+  mediaId: string,
+  options: ApiCallOptions
+): Promise<WavePeaks | null> {
+  const response = await callFeedApi(mediaWavePeaksPath(mediaId), options);
+  if (!response.ok) {
+    return null;
+  }
+  return parseWavePeaks(await readJson(response));
+}
+
+/** A video's WebVTT captions; null when there is no track. */
+export async function fetchCaptionsVtt(
+  mediaId: string,
+  options: ApiCallOptions
+): Promise<string | null> {
+  const response = await callFeedApi(mediaCaptionsPath(mediaId), options);
+  if (!response.ok) {
+    return null;
+  }
+  const text = await response.text();
+  return text || null;
 }

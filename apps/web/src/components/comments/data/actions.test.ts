@@ -301,6 +301,14 @@ mock.module("@asm/db", () => ({
   cancelMediaCleanup: mockPublish,
   enqueueNotificationCreated: mockPublish,
   enqueueNotificationDeleted: mockPublish,
+  // createComment now resolves the post through the visibility gate, so the
+  // mock must model that lookup (it replaced a raw post.findUnique). Returns
+  // null for an unknown id, which is what the gate does for "missing OR not
+  // readable".
+  findVisiblePost: (postId: string) =>
+    postId === POST_ID
+      ? Promise.resolve({ id: POST_ID, parentPostId: null, userId: AUTHOR_ID })
+      : Promise.resolve(null),
   getCommentDataInclude: () => ({ user: true }),
   invalidateAuraSignals: () => Promise.resolve(),
   invalidateFypProfile: () => Promise.resolve(),

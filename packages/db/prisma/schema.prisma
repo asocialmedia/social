@@ -64,6 +64,8 @@ model User {
   commentVotes           CommentVote[]
   receivedNotifications  Notification[]              @relation("Recipient")
   issuedNotifications    Notification[]              @relation("Issuer")
+  pushSubscriptions      PushSubscription[]
+  devicePushTokens       DevicePushToken[]
   hnbookmark             HNBookmark[]
   postVisits             PostVisit[]
   auraReceived           AuraLog[]                   @relation("AuraReceived")
@@ -883,6 +885,37 @@ model ShareStats {
 
   @@unique([postId, platform])
   @@map("share_stats")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model DevicePushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  // "fcm" today (the only Android transport); the column exists so a future
+  // APNs transport can coexist without a migration.
+  provider  String   @default("fcm")
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("device_push_tokens")
 }
 
 model jwks {

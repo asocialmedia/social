@@ -1,0 +1,9 @@
+{
+  "extends": "@asm/config/nextjs.config.json",
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "types": ["bun-types"]
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}

@@ -5,8 +5,7 @@ import {
   cancelMediaCleanup,
   COMMENT_CREATION_AURA,
   COMMENT_RECEIVED_AURA,
-  enqueueNotificationCreated,
-  enqueueNotificationDeleted,
+  findVisiblePost,
   getCommentDataInclude,
   invalidateAuraSignals,
   prisma,
@@ -17,6 +16,11 @@ import {
 import type { CommentData } from "@asm/db";
 import { CLAIMABLE_STATUSES } from "@asm/media";
 import { updateTag } from "next/cache";
+
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 
 // Deleting a comment with replies would orphan the tree, so deletes are soft:
 // the row stays (so the thread structure survives) but the content is blanked
@@ -43,10 +47,11 @@ export async function createComment(
     parentId: params.parentId,
   });
 
-  const post = await prisma.post.findUnique({
-    select: { id: true, userId: true },
-    where: { id: params.postId },
-  });
+  // Visibility-gated: a stranger must not be able to comment into a thread
+  // inside a PRIVATE community they cannot read. findVisiblePost answers null
+  // for both "missing" and "not readable", so the error cannot confirm that
+  // the post exists.
+  const post = await findVisiblePost(params.postId, params.userId);
 
   if (!post) {
     throw new Error("Post not found");
@@ -106,6 +111,7 @@ export async function createComment(
   let receivedAmount = 0;
   let postReceivedAmount = 0;
 
+  const notificationEvents = newNotificationEvents();
   const comment = await prisma.$transaction(async (tx) => {
     // Eddies carry images and GIFs only, uploaded by the commenter. A crafted
     // request could attach another user's media, a video, or a stale id, so
@@ -248,7 +254,7 @@ export async function createComment(
     if (notificationRecipientIds.size > 0) {
       await Promise.all(
         [...notificationRecipientIds].map(async (recipientId) => {
-          await tx.notification.create({
+          const commentNotification = await tx.notification.create({
             data: {
               commentId: created.id,
               issuerId: params.userId,
@@ -258,11 +264,9 @@ export async function createComment(
             },
           });
 
-          enqueueNotificationCreated(recipientId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue notification created event:",
-              error
-            );
+          notificationEvents.created.push({
+            notificationId: commentNotification.id,
+            recipientId,
           });
         })
       );
@@ -270,6 +274,8 @@ export async function createComment(
 
     return created;
   });
+  // Committed: now the worker can see the rows it is told about.
+  flushNotificationEvents(notificationEvents, "eddie");
 
   // Fire-and-forget signal refresh; TTL is the correctness backstop. The
   // thread-cumulative award moves the post author's signals too.
@@ -360,6 +366,7 @@ export async function softDeleteComment(
     affectedAuthorIds = [comment.userId];
   }
 
+  const deleteEvents = newNotificationEvents();
   const deletedComment = await prisma.$transaction(async (tx) => {
     const softDeleted = await tx.comment.update({
       data: { content: "", deleted: true },
@@ -438,16 +445,11 @@ export async function softDeleteComment(
     const notificationRecipientIds = [
       ...new Set(commentNotifications.map((n) => n.recipientId)),
     ];
-    await Promise.allSettled(
-      notificationRecipientIds.map((recipientId) =>
-        enqueueNotificationDeleted(recipientId).catch((error: unknown) => {
-          console.error("Failed to enqueue notification deleted event:", error);
-        })
-      )
-    );
+    deleteEvents.deleted.push(...notificationRecipientIds);
 
     return softDeleted;
   });
+  flushNotificationEvents(deleteEvents, "eddie");
 
   if (affectedAuthorIds.length > 0) {
     try {

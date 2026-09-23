@@ -23,10 +23,13 @@ import {
 } from "@/features/auth/lib/auth-errors";
 import type { AuthErrorKind } from "@/features/auth/lib/auth-errors";
 import {
+  GOOGLE_UNAVAILABLE_ERROR,
   hasNativeGoogle,
   signInWithGoogleNative,
 } from "@/features/auth/lib/google-native";
 import { useInstall } from "@/features/auth/state/install";
+import { sleep } from "@/features/media-upload/lib/retry";
+import { unregisterPushNotifications } from "@/features/notifications/lib/push";
 import { supportsPasskeyOrigin } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
@@ -204,6 +207,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return CANCELLED;
     }
     if ("error" in native) {
+      // GOOGLE_UNAVAILABLE_ERROR means the native path cannot run at all -
+      // almost always a missing or mismatched Android OAuth client for this
+      // build's package + signing SHA-1 (DEVELOPER_ERROR). Fall back to the
+      // browser flow instead of dead-ending, so a half-configured native path
+      // never costs the user Google sign-in.
+      if (native.error === GOOGLE_UNAVAILABLE_ERROR) {
+        logWarn("auth.google_native_fallback", { reason: "config" });
+        return await browserSocial("google");
+      }
       return { error: native.error, kind: "unknown", ok: false };
     }
     const result = await authClient.signIn.social({
@@ -214,7 +226,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return failure(result.error);
     }
     return confirmSession();
-  }, [confirmSession]);
+  }, [browserSocial, confirmSession]);
 
   const signInSocial = useCallback(
     async (provider: SocialProvider): Promise<SocialResult> => {
@@ -292,6 +304,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [confirmSession, runWithInstallToken]);
 
   const signOut = useCallback(async () => {
+    // Unregister this device's push token while the session still exists:
+    // once signOut clears the cookie the server rejects the DELETE, and the
+    // old account's notifications would keep arriving on this device. Capped
+    // so a slow network never holds up signing out.
+    await Promise.race([unregisterPushNotifications(), sleep(3000)]);
     try {
       await authClient.signOut();
     } catch (error) {

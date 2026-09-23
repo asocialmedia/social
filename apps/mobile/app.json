@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.0.55",
+    "version": "0.0.64",
     "description": "The open social platform you'll ever need. Open source, cozy, and slightly unhinged.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -45,6 +45,21 @@
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
           }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow asocialmedia to use your camera to capture photos and videos for your posts.",
+          "microphonePermission": "Allow asocialmedia to record audio when you capture videos for your posts.",
+          "photosPermission": "Allow asocialmedia to access your photos and videos so you can attach them to posts."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#ff9500",
+          "defaultChannel": "default"
         }
       ]
     ],

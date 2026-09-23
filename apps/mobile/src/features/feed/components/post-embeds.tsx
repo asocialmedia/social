@@ -224,7 +224,11 @@ export function HNStoryCard({ post }: { post: FeedPost }) {
               <Link2 color={accent} size={12} />
               <Text
                 numberOfLines={1}
-                style={[styles.hnChipText, { color: accent }]}
+                style={[
+                  styles.hnChipText,
+                  styles.hnChipTruncate,
+                  { color: accent },
+                ]}
               >
                 {domain}
               </Text>
@@ -248,7 +252,12 @@ export function HNStoryCard({ post }: { post: FeedPost }) {
               <User color={accent} size={12} />
               <Text
                 numberOfLines={1}
-                style={[styles.hnChipText, styles.hnBy, { color: accent }]}
+                style={[
+                  styles.hnChipText,
+                  styles.hnChipTruncate,
+                  styles.hnBy,
+                  { color: accent },
+                ]}
               >
                 {story.by}
               </Text>
@@ -374,7 +383,7 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
   },
   hnBy: {
-    maxWidth: 80,
+    maxWidth: 70,
   },
   hnCard: {
     borderRadius: 16,
@@ -395,6 +404,12 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProMed",
     fontSize: 12,
     fontWeight: "normal",
+  },
+  // Web's `truncate` span: the label shrinks inside its capped chip and
+  // ellipsizes instead of rendering past the chip's edge.
+  hnChipTruncate: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   hnChips: {
     flexDirection: "row",

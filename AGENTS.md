@@ -12,7 +12,7 @@
 - write unit, integration, and end-to-end tests as appropriate for the functionality you are implementing
 - use descriptive variable and function names to improve code readability and maintainability
 - import shared modules using workspace names: `@asm/shared` instead of relative paths like `../../../shared`
-- don't use `/* */` comments, instead use `//` for single-line and multi-line comments
+- every comment must be single-line `//` comments only. NEVER use `/* */`, `/** */` (JSDoc), or any block comment, anywhere, in any file, for any reason. A multi-line explanation is just several `//` lines stacked. The only exception is the `{/* ... */}` expression form required inside JSX children, which is a syntax requirement, not a comment style choice.
 - use git for version control, and commit your changes with descriptive commit messages in the format of `feat`: New feature, `fix`: Bug fix, `docs`: Documentation, `style`: Formatting, `refactor`: Code change, `test`: Adding tests, `chore`: Maintenance, `perf`: Performance, `ci`: Continuous integration, `build`: Build system, `revert`: Revert changes, `wip`: Work in progress example: `feat[MODULE]: Add new module`
 
 # UI:

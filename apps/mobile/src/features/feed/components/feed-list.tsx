@@ -8,16 +8,18 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
+  Animated,
+  Easing,
   FlatList,
   PanResponder,
   Platform,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import type { PanResponderInstance } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
@@ -35,69 +37,98 @@ import {
   reportFeedScroll,
   resetHeaderScroll,
 } from "../lib/header-visibility";
+import { hasVideoAttachment } from "../lib/media-kind";
 import { viewBatcher } from "../lib/view-batcher";
-import { setVisiblePostIds } from "../lib/visible-posts";
+import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
 import { feedCache } from "../state/feed-store";
 import { useFeedTab } from "../state/use-feed";
+import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { FeedSkeleton, FeedSkeletonCard } from "./feed-skeleton";
-import { MoreMenu } from "./more-menu";
-import type { MoreAction } from "./more-menu";
+import { buildMoreEntries, MoreMenu } from "./more-menu";
+import type { MenuAnchor, MoreAction } from "./more-menu";
 import { NewContentPill } from "./new-content-pill";
 import type { PillAuthor } from "./new-content-pill";
 import { PostCard } from "./post-card";
+import { PULL_THRESHOLD, PullLoader } from "./pull-loader";
 import { ShareSheet } from "./share-sheet";
-import { Spinner3D } from "./spinner-3d";
 
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
 const scrollMemory = new Map<string, number>();
 
-// Custom pull-to-refresh: web's 3D spinner grows in with the pull distance
-// and spins while refreshing. iOS bounces natively so the pull distance
-// reads straight off content offset; Android clamps at zero, so it keeps
-// the platform indicator, tinted brand orange.
-const PULL_THRESHOLD = 90;
+// Custom pull-to-refresh on both platforms (the indicator is PullLoader). iOS
+// bounces natively, so the distance reads straight off the negative content
+// offset. Android clamps the offset at zero, so a vertical pan captured at
+// the top of the list measures the pull instead (with rubber-band
+// resistance), replacing the Material RefreshControl indicator.
+const PULL_RESISTANCE = 0.55;
+const PULL_CAPTURE_SLOP = 8;
+// Where the Android list parks while refreshing: the 44px loader chip at
+// top 12 plus breathing room.
+const PULL_PARK = 64;
 
-function PullLoader({
-  refreshing,
-  registerUpdate,
-}: {
-  refreshing: boolean;
-  registerUpdate: RefObject<((distance: number) => void) | null>;
+// Android pull, on native gestures: a JS responder loses the drag to the
+// native scroll view the moment it starts, so the pull is a gesture-handler
+// Pan running simultaneously with the list's own native scroll gesture. It
+// measures only the part of the drag made while the list sits at the very
+// top (baseline taken when the offset first reaches zero), so scrolling back
+// up and continuing into a pull works like iOS. Horizontal drags fail it and
+// stay with the tab pager. Built once per list; the handlers only read refs.
+function createPullGestures(refs: {
+  // The list's slide: follows the pull, parks under the spinner while
+  // refreshing, springs home otherwise.
+  pullShift: Animated.Value;
+  pullRef: RefObject<number>;
+  pullUpdateRef: RefObject<((distance: number) => void) | null>;
+  refreshRef: RefObject<() => void>;
+  refreshingRef: RefObject<boolean>;
+  scrollOffsetRef: RefObject<number>;
 }) {
-  // Progress lives here so pull gestures do not re-render the list: FeedList
-  // only writes pullRef + this setter through the ref.
-  const [progress, setProgress] = useState(0);
-  useEffect(() => {
-    // oxlint-disable-next-line react/immutability -- ref-held setter registration, same as FeedScrollbar below
-    registerUpdate.current = setProgress;
-    return () => {
-      // oxlint-disable-next-line react/immutability -- clearing our registration on unmount
-      registerUpdate.current = null;
-    };
-  }, [registerUpdate]);
-  // Android keeps its platform indicator (see refreshControl below) and
-  // clamps pull distance at zero, so the overlay is iOS-only: rendering it
-  // on Android stacks two spinners.
-  if (Platform.OS !== "ios") {
-    return null;
-  }
-  if (!refreshing && progress <= 0) {
-    return null;
-  }
-  const shown = refreshing ? 1 : Math.min(1, progress / PULL_THRESHOLD);
-  return (
-    <View pointerEvents="none" style={styles.pullWrap}>
-      <View
-        style={{
-          opacity: shown,
-          transform: [{ scale: 0.5 + 0.5 * shown }],
-        }}
-      >
-        <Spinner3D size={32} />
-      </View>
-    </View>
-  );
+  let baseline: number | null = null;
+  const resetPull = () => {
+    baseline = null;
+    refs.pullRef.current = 0;
+    refs.pullUpdateRef.current?.(0);
+  };
+  const nativeScroll = Gesture.Native();
+  const pull = Gesture.Pan()
+    .enabled(Platform.OS === "android")
+    .runOnJS(true)
+    .activeOffsetY(PULL_CAPTURE_SLOP)
+    .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
+    .simultaneousWithExternalGesture(nativeScroll)
+    .onUpdate((event) => {
+      if (refs.refreshingRef.current || refs.scrollOffsetRef.current > 0) {
+        if (refs.pullRef.current > 0) {
+          resetPull();
+        }
+        return;
+      }
+      if (baseline === null) {
+        baseline = event.translationY;
+      }
+      const distance =
+        Math.max(0, event.translationY - baseline) * PULL_RESISTANCE;
+      if (Math.abs(distance - refs.pullRef.current) > 1) {
+        refs.pullRef.current = distance;
+        refs.pullUpdateRef.current?.(distance);
+        refs.pullShift.setValue(distance);
+      }
+    })
+    .onFinalize(() => {
+      const trigger =
+        !refs.refreshingRef.current && refs.pullRef.current > PULL_THRESHOLD;
+      if (trigger) {
+        refs.refreshRef.current();
+      }
+      Animated.spring(refs.pullShift, {
+        bounciness: 0,
+        toValue: trigger ? PULL_PARK : 0,
+        useNativeDriver: true,
+      }).start();
+      resetPull();
+    });
+  return { nativeScroll, pull };
 }
 
 // Floating feed scrollbar: native port of web's FeedScrollbar. The system
@@ -306,12 +337,21 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
   };
 
 interface FeedListProps {
+  // Extra tail padding when an overlay (guest banner + floating dock) sits
+  // over the feed's end, so the last post scrolls clear of it. End padding
+  // never moves visible items, so it can jump with overlay visibility.
+  bottomInset?: number;
   enabled: boolean;
   userId: string | undefined;
   variant: FeedVariant;
 }
 
-export function FeedList({ enabled, userId, variant }: FeedListProps) {
+export function FeedList({
+  bottomInset = 0,
+  enabled,
+  userId,
+  variant,
+}: FeedListProps) {
   const { theme } = useAppTheme();
   const router = useRouter();
   const { user } = useSessionContext();
@@ -326,13 +366,30 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
   // Pull distance writes here without re-rendering the list; PullLoader owns
   // the progress state and registers its setter through this ref.
   const pullUpdateRef = useRef<((distance: number) => void) | null>(null);
+  // Android pull: the list's scroll offset and the latest refresh state are
+  // read through refs, since the responder is built once.
+  const scrollOffsetRef = useRef(0);
+  const refreshingRef = useRef(false);
+  const refreshRef = useRef<() => void>(() => {
+    /* empty */
+  });
+
   // Latest viewable ids are retained so the tab can publish them when it
   // becomes enabled; the FlatList retains the first closure, so enabled is
   // read through a ref.
   const enabledRef = useRef(enabled);
   const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
+  // The autoplay owner the last viewability pass nominated, retained for the
+  // same reason as the ids: switching back to this tab restores playback
+  // without waiting for a scroll event that may never come.
+  const latestAutoplayRef = useRef<string | null>(null);
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
-  const [morePost, setMorePost] = useState<FeedPost | null>(null);
+  const [moreTarget, setMoreTarget] = useState<{
+    anchor: MenuAnchor;
+    post: FeedPost;
+  } | null>(null);
+  const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
   const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
@@ -368,15 +425,16 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
   }, []);
 
   const handleMoreAction = (action: MoreAction) => {
+    const morePost = moreTarget?.post;
     if (!morePost) {
       return;
     }
-    if (action.type === "share") {
-      setSharePost(morePost);
-    } else if (action.type === "hide") {
+    if (action.type === "hide") {
       dismissPost(morePost.id);
       setLastDismissed(morePost.id);
-    } else {
+    } else if (action.type === "toggle-captions") {
+      toggleCaptions();
+    } else if (action.type === "toggle-alt") {
       setAltVisibleIds((current) => {
         const next = new Set(current);
         if (next.has(morePost.id)) {
@@ -388,6 +446,28 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
       });
     }
   };
+
+  useEffect(() => {
+    refreshingRef.current = status === "refreshing";
+    refreshRef.current = refresh;
+  }, [refresh, status]);
+
+  // Android pull on native gestures; see createPullGestures. The ref objects
+  // are handed over, never read, during render: only the gesture callbacks
+  // touch `.current`, on touch events.
+  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
+  const [pullShift] = useState(() => new Animated.Value(0));
+  // oxlint-disable-next-line react/hook-use-state, react/refs -- single stable gesture pair created once; no setter is ever needed and no ref value is read here
+  const [pullGestures] = useState(() =>
+    createPullGestures({
+      pullRef,
+      pullShift,
+      pullUpdateRef,
+      refreshRef,
+      refreshingRef,
+      scrollOffsetRef,
+    })
+  );
 
   // Restore this tab's scroll position when it (re)mounts with content.
   const memoryKey = `home:${variant}`;
@@ -424,29 +504,39 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
       resetHeaderScroll();
       const stored = latestVisibleRef.current;
       setVisiblePostIds(stored);
+      setAutoplayPostId(latestAutoplayRef.current);
     }
   }, [enabled]);
 
-  const publishVisibleIds = useCallback((ids: ReadonlySet<string>) => {
-    latestVisibleRef.current = ids;
-    if (!enabledRef.current) {
-      return;
-    }
-    if (ids.size > 0) {
-      const apiBase = getApiBaseUrl();
-      void (async () => {
-        const cookie = await authClient.getCookie();
-        for (const id of ids) {
-          viewBatcher.mark(id, { apiBase, cookie });
-        }
-      })();
-    }
-    // Viewport autoplay: videos play while their post is viewable.
-    setVisiblePostIds(new Set(ids));
-  }, []);
+  const publishVisibleIds = useCallback(
+    (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
+      latestVisibleRef.current = ids;
+      latestAutoplayRef.current = autoplayPostId;
+      if (!enabledRef.current) {
+        return;
+      }
+      if (ids.size > 0) {
+        const apiBase = getApiBaseUrl();
+        void (async () => {
+          const cookie = await authClient.getCookie();
+          for (const id of ids) {
+            viewBatcher.mark(id, { apiBase, cookie });
+          }
+        })();
+      }
+      setVisiblePostIds(new Set(ids));
+      // Exactly one tile autoplays, the topmost visible video of this tab.
+      setAutoplayPostId(autoplayPostId);
+    },
+    []
+  );
 
-  if (variant === "following" && !user) {
-    const copy = EMPTY_COPY.following;
+  // Account-only tabs. For you is ranked from the viewer's own signals and
+  // Following is their people, so neither means anything without an account;
+  // the tab stays tappable (a guest discovers the feature) but the feed is
+  // replaced by a sign-in prompt, matching web's AuthPromptCard.
+  if ((variant === "following" || variant === "personalized") && !user) {
+    const copy = EMPTY_COPY[variant];
     return (
       <View style={styles.centerWrap}>
         <View
@@ -456,7 +546,9 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
           ]}
         >
           <Text style={[styles.promptTitle, { color: theme.inputText }]}>
-            Log in to see your feed
+            {variant === "personalized"
+              ? "Log in for a feed made for you"
+              : "Log in to see your feed"}
           </Text>
           <Text style={[styles.promptBody, { color: theme.dividerText }]}>
             {copy.description}
@@ -573,154 +665,193 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
   }
 
   return (
-    <View style={styles.listWrap}>
-      <FlatList
-        contentContainerStyle={{ paddingBottom: HEADER_BAR_HEIGHT }}
-        data={groups}
-        keyExtractor={(group) => group.id}
-        onContentSizeChange={(_, height) => {
-          metricsRef.current.content = height;
-          scrollbarUpdate.current?.(metricsRef.current.offset);
-        }}
-        onEndReached={fetchNext}
-        onEndReachedThreshold={0.5}
-        onLayout={(event) => {
-          metricsRef.current.container = event.nativeEvent.layout.height;
-          scrollbarUpdate.current?.(metricsRef.current.offset);
-        }}
-        onMomentumScrollEnd={(event) => {
-          scrollMemory.set(memoryKey, event.nativeEvent.contentOffset.y);
-        }}
-        onScroll={(event) => {
-          const offsetY = event.nativeEvent.contentOffset.y;
-          scrollbarUpdate.current?.(offsetY);
-          if (enabledRef.current) {
-            reportFeedScroll(offsetY);
-          }
-          // Custom pull distance for the logo loader (iOS bounce only;
-          // Android clamps at zero and keeps its platform indicator).
-          // Progress stays local to PullLoader via the ref: no list re-render.
-          if (!refreshing && offsetY < 0) {
-            const distance = -offsetY;
-            if (Math.abs(distance - pullRef.current) > 1) {
-              pullRef.current = distance;
-              pullUpdateRef.current?.(distance);
-            }
-          } else if (pullRef.current > 0) {
-            pullRef.current = 0;
-            pullUpdateRef.current?.(0);
-          }
-        }}
-        onScrollEndDrag={() => {
-          if (!refreshing && pullRef.current > PULL_THRESHOLD) {
-            refresh();
-          }
-          pullRef.current = 0;
-          pullUpdateRef.current?.(0);
-        }}
-        onViewableItemsChanged={({ viewableItems }) => {
-          const ids = new Set<string>();
-          for (const item of viewableItems) {
-            const group = item.item as FeedThreadGroup | undefined;
-            for (const post of group?.posts ?? []) {
-              ids.add(post.id);
-            }
-          }
-          publishVisibleIds(ids);
-        }}
-        ref={listRef}
-        refreshControl={
-          // iOS uses the custom logo pull above; Android keeps the
-          // platform indicator, tinted brand orange (custom views are
-          // not hostable in RefreshControl).
-          Platform.OS === "ios" ? undefined : (
-            <RefreshControl
-              colors={["#ff9500"]}
-              onRefresh={refresh}
-              progressBackgroundColor={theme.cardBg}
-              refreshing={refreshing}
-              tintColor="#ff9500"
-            />
-          )
-        }
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-        viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
-        renderItem={({ item: group }) => (
-          <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
-            {group.posts.map((post, index) => (
-              <PostCard
-                hasThreadChild={index < group.posts.length - 1}
-                hasThreadParent={index > 0}
-                key={post.id}
-                onMore={setMorePost}
-                onShare={setSharePost}
-                post={post}
-                showAlt={altVisibleIds.has(post.id)}
-                showCommunityReason={
-                  variant === "trending" || variant === "personalized"
-                }
-                viewerId={userId}
-              />
-            ))}
-          </View>
-        )}
-        ListFooterComponent={footer}
-      />
-      <PullLoader refreshing={refreshing} registerUpdate={pullUpdateRef} />
-      <FeedScrollbar
-        listRef={listRef}
-        metricsRef={metricsRef}
-        registerRef={scrollbarUpdate}
-      />
-      {newItems.length > 0 ? (
-        <NewContentPill
-          authors={authors}
-          count={newItems.length}
-          onPress={() => {
-            showNewPosts();
-            listRef.current?.scrollToOffset({ animated: true, offset: 0 });
-          }}
-        />
-      ) : null}
-      {lastDismissed ? (
-        <View style={styles.undoWrap} pointerEvents="box-none">
-          <View
-            style={[
-              styles.undoBar,
-              {
-                backgroundColor: theme.cardBg,
-                borderColor: theme.cardBorder,
-              },
-            ]}
-          >
-            <Text style={[styles.undoText, { color: theme.dividerText }]}>
-              Post hidden
-            </Text>
-            <Pressable
-              hitSlop={8}
-              onPress={() => {
-                if (lastDismissed) {
-                  undoDismiss(lastDismissed);
-                }
-                setLastDismissed(null);
+    <GestureDetector gesture={pullGestures.pull}>
+      <View style={styles.listWrap}>
+        <Animated.View
+          style={[styles.listShift, { transform: [{ translateY: pullShift }] }]}
+        >
+          <GestureDetector gesture={pullGestures.nativeScroll}>
+            <FlatList
+              contentContainerStyle={{
+                paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
               }}
+              data={groups}
+              keyExtractor={(group) => group.id}
+              onContentSizeChange={(_, height) => {
+                metricsRef.current.content = height;
+                scrollbarUpdate.current?.(metricsRef.current.offset);
+              }}
+              onEndReached={fetchNext}
+              onEndReachedThreshold={0.5}
+              onLayout={(event) => {
+                metricsRef.current.container = event.nativeEvent.layout.height;
+                scrollbarUpdate.current?.(metricsRef.current.offset);
+              }}
+              onMomentumScrollEnd={(event) => {
+                scrollMemory.set(memoryKey, event.nativeEvent.contentOffset.y);
+              }}
+              onScroll={(event) => {
+                const offsetY = event.nativeEvent.contentOffset.y;
+                scrollOffsetRef.current = offsetY;
+                scrollbarUpdate.current?.(offsetY);
+                if (enabledRef.current) {
+                  reportFeedScroll(offsetY);
+                }
+                // iOS pull distance off the bounce (Android's comes from the pull
+                // responder). Progress stays local to PullLoader via the ref: no
+                // list re-render.
+                if (!refreshing && offsetY < 0) {
+                  const distance = -offsetY;
+                  if (Math.abs(distance - pullRef.current) > 1) {
+                    pullRef.current = distance;
+                    pullUpdateRef.current?.(distance);
+                  }
+                } else if (pullRef.current > 0) {
+                  pullRef.current = 0;
+                  pullUpdateRef.current?.(0);
+                }
+              }}
+              onScrollEndDrag={() => {
+                if (!refreshing && pullRef.current > PULL_THRESHOLD) {
+                  refresh();
+                }
+                pullRef.current = 0;
+                pullUpdateRef.current?.(0);
+              }}
+              onViewableItemsChanged={({ viewableItems }) => {
+                const ids = new Set<string>();
+                let autoplayPostId: string | null = null;
+                // Sorted so the "topmost visible" pick is deterministic; RN
+                // does not promise an order for viewableItems.
+                const ordered = [...viewableItems].toSorted(
+                  (a, b) => (a.index ?? 0) - (b.index ?? 0)
+                );
+                for (const item of ordered) {
+                  const group = item.item as FeedThreadGroup | undefined;
+                  for (const post of group?.posts ?? []) {
+                    ids.add(post.id);
+                    // The owner is the first visible post that actually has a
+                    // video; a text-only post at the top must not blank out
+                    // playback for the video just below it.
+                    if (!autoplayPostId && hasVideoAttachment(post)) {
+                      autoplayPostId = post.id;
+                    }
+                  }
+                }
+                publishVisibleIds(ids, autoplayPostId);
+              }}
+              ref={listRef}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
+              renderItem={({ item: group }) => (
+                <View
+                  style={[
+                    styles.group,
+                    { borderBottomColor: theme.cardBorder },
+                  ]}
+                >
+                  {group.posts.map((post, index) => (
+                    <PostCard
+                      active={enabled}
+                      hasThreadChild={index < group.posts.length - 1}
+                      hasThreadParent={index > 0}
+                      key={post.id}
+                      onMore={(target, anchor) => {
+                        setMoreTarget({ anchor, post: target });
+                      }}
+                      onShare={setSharePost}
+                      post={post}
+                      showAlt={altVisibleIds.has(post.id)}
+                      showCommunityReason={
+                        variant === "trending" || variant === "personalized"
+                      }
+                      viewerId={userId}
+                    />
+                  ))}
+                </View>
+              )}
+              ListFooterComponent={footer}
+            />
+          </GestureDetector>
+        </Animated.View>
+        <PullLoader
+          failed={status === "error"}
+          onSettle={() => {
+            // The parked Android list glides home with the chip.
+            Animated.timing(pullShift, {
+              duration: 240,
+              easing: Easing.bezier(0.32, 0.72, 0, 1),
+              toValue: 0,
+              useNativeDriver: true,
+            }).start();
+          }}
+          refreshing={refreshing}
+          registerUpdate={pullUpdateRef}
+        />
+        <FeedScrollbar
+          listRef={listRef}
+          metricsRef={metricsRef}
+          registerRef={scrollbarUpdate}
+        />
+        {newItems.length > 0 ? (
+          <NewContentPill
+            authors={authors}
+            count={newItems.length}
+            onPress={() => {
+              showNewPosts();
+              listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+            }}
+          />
+        ) : null}
+        {lastDismissed ? (
+          <View style={styles.undoWrap} pointerEvents="box-none">
+            <View
+              style={[
+                styles.undoBar,
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
             >
-              <Text style={[styles.undoAction, { color: theme.auxLink }]}>
-                Undo
+              <Text style={[styles.undoText, { color: theme.dividerText }]}>
+                Post hidden
               </Text>
-            </Pressable>
+              <Pressable
+                hitSlop={8}
+                onPress={() => {
+                  if (lastDismissed) {
+                    undoDismiss(lastDismissed);
+                  }
+                  setLastDismissed(null);
+                }}
+              >
+                <Text style={[styles.undoAction, { color: theme.auxLink }]}>
+                  Undo
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-      ) : null}
-      <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
-      <MoreMenu
-        onAction={handleMoreAction}
-        onClose={() => setMorePost(null)}
-        post={morePost}
-        showingAlt={morePost ? altVisibleIds.has(morePost.id) : false}
-      />
-    </View>
+        ) : null}
+        <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
+        <MoreMenu
+          anchor={moreTarget?.anchor ?? null}
+          entries={
+            moreTarget
+              ? buildMoreEntries({
+                  post: moreTarget.post,
+                  showCaptions,
+                  showingAlt: altVisibleIds.has(moreTarget.post.id),
+                  viewerId: user?.id,
+                })
+              : []
+          }
+          onAction={handleMoreAction}
+          onClose={() => setMoreTarget(null)}
+        />
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -789,6 +920,9 @@ const styles = StyleSheet.create({
   group: {
     borderBottomWidth: 1,
   },
+  listShift: {
+    flex: 1,
+  },
   listWrap: {
     flex: 1,
     position: "relative",
@@ -825,14 +959,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "normal",
     textAlign: "center",
-  },
-  pullWrap: {
-    alignItems: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 12,
-    zIndex: 20,
   },
   retryRow: {
     marginTop: 12,

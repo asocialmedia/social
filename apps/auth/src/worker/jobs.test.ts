@@ -67,6 +67,12 @@ describe("worker job processors", () => {
     },
   };
 
+  // Push delivery is out of scope here; the processors only need it to
+  // resolve without touching a transport.
+  mock.module("@asm/notifications/server", () => ({
+    dispatchNotificationPush: mock(() => Promise.resolve()),
+  }));
+
   mock.module("@asm/db", () => ({
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
@@ -79,7 +85,12 @@ describe("worker job processors", () => {
     deleteObject: mockDeleteObject,
     getTrendingUserIds: mock(() => Promise.resolve(["user-1"])),
     grantShitposterBadgeIfQualified: mockGrantShitposter,
+    listDevicePushTokens: mock(() => Promise.resolve([])),
+    listPushSubscriptions: mock(() => Promise.resolve([])),
+    notificationsInclude: {},
     prisma: mockPrisma,
+    pruneDevicePushTokens: mock(() => Promise.resolve(0)),
+    prunePushSubscriptions: mock(() => Promise.resolve(0)),
     redis: mockRedis,
     sweepEarlyBadges: mock(() => Promise.resolve(0)),
     syncTrendingBadges: mock(() => Promise.resolve({ granted: 0, revoked: 0 })),

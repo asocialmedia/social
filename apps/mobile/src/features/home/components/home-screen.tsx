@@ -4,8 +4,9 @@
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
 // keeps its own cached pages and scroll position.
-import { useCallback, useState } from "react";
-import { Animated, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { Animated, Easing, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import { FeedList } from "@/features/feed/components/feed-list";
@@ -18,6 +19,7 @@ import {
   useHomeTabMemoryReady,
   useTabStore,
 } from "@/features/feed/state/tab-store-native";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
@@ -35,11 +37,48 @@ export default function HomeScreen() {
   const memoryReady = useHomeTabMemoryReady();
   const storedHome = useTabStore((state) => state.home);
   const setHomeTab = useTabStore((state) => state.setHomeTab);
+  // The bell badge polls here (the header is present on every signed-in
+  // surface); the notifications screen reads the same store.
+  const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
   const tab = resolveHomeTab(null, isLoggedIn, storedHome, memoryReady);
-  // The floating dock lifts above the guest bar when it is showing, so it
-  // never covers the bar's actions.
-  const [guestBarHeight, setGuestBarHeight] = useState(0);
+  // Web fixes both the guest banner and the bottom nav over the feed (the
+  // feed pads its tail instead), so the dock floats over content on a
+  // transparent backdrop rather than sitting in a solid band. Same here:
+  // the banner sits at the bottom edge and rides a transform up above the
+  // dock while it shows, dropping back down while the dock hides on scroll.
+  const insets = useSafeAreaInsets();
+  const [dockHeight, setDockHeight] = useState(56);
+  const [dockHidden, setDockHidden] = useState(false);
+  const [bannerHeight, setBannerHeight] = useState(0);
   const showGuestBar = !isPending && !user;
+  const dockLift = dockHeight + insets.bottom + 20;
+  // A transform, never a layout prop: tweening `bottom` or a margin runs on
+  // the JS thread and re-lays out every frame, while translate runs natively
+  // at 60fps. Same 220ms ease-out-cubic as the top bar and the dock, kicked
+  // off on the same hide flip, so all three glide as one with zero layout
+  // work. Tail padding never moves visible items, so it stays constant.
+  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; driven by the effect below
+  const [bannerLift] = useState(() => new Animated.Value(1));
+  useEffect(() => {
+    if (!showGuestBar) {
+      return;
+    }
+    const anim = Animated.timing(bannerLift, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      toValue: dockHidden ? 0 : 1,
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => {
+      anim.stop();
+    };
+  }, [bannerLift, dockHidden, showGuestBar]);
+  const bannerTranslate = bannerLift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -dockLift],
+  });
+  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : 0;
   const activeIndex = Math.max(
     0,
     HOME_TAB_DEFS.findIndex((entry) => entry.value === tab)
@@ -65,7 +104,10 @@ export default function HomeScreen() {
   // Hide-on-scroll follow: tabs + feed translate by the bar height on the
   // same shared native value as the bar itself, so everything stays in
   // sync at 60fps with zero layout work. The content extends by the bar
-  // height so translating up does not leave a blank strip below the feed.
+  // height below the fold so translating up does not leave a blank strip
+  // below the feed. No matching paddingBottom here: that would pull the
+  // feed's bottom edge back up and bring the strip right back. FeedList's
+  // own content padding keeps the last post reachable while the bar shows.
   const followUp = headerSlide.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -HEADER_BAR_HEIGHT],
@@ -74,6 +116,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
+        unreadCount={unreadCount}
         user={
           showUser && user
             ? {
@@ -90,7 +133,6 @@ export default function HomeScreen() {
           styles.content,
           {
             marginBottom: -HEADER_BAR_HEIGHT,
-            paddingBottom: HEADER_BAR_HEIGHT,
             transform: [{ translateY: followUp }],
           },
         ]}
@@ -109,9 +151,14 @@ export default function HomeScreen() {
               // the session: first paint wins, and the session upgrade
               // re-keys (guest to user) and refetches with identity.
               <FeedList
+                bottomInset={feedBottomPad}
                 enabled={
                   index === activeIndex &&
-                  (def.value === "following" ? isLoggedIn : true)
+                  // For you and Following are account-only; a guest sees the
+                  // sign-in prompt in FeedList instead, and nothing is fetched.
+                  (def.value === "following" || def.value === "personalized"
+                    ? isLoggedIn
+                    : true)
                 }
                 key={def.value}
                 userId={user?.id}
@@ -122,15 +169,28 @@ export default function HomeScreen() {
         </View>
       </Animated.View>
       {showGuestBar ? (
-        <View
+        <Animated.View
           onLayout={(event) => {
-            setGuestBarHeight(event.nativeEvent.layout.height);
+            setBannerHeight(event.nativeEvent.layout.height);
+          }}
+          pointerEvents="box-none"
+          style={{
+            bottom: 0,
+            left: 0,
+            position: "absolute",
+            right: 0,
+            transform: [{ translateY: bannerTranslate }],
+            // Above the dock so it slides out underneath the banner.
+            zIndex: 60,
           }}
         >
           <GuestAuthBar />
-        </View>
+        </Animated.View>
       ) : null}
-      <MobileBottomNav bottomOffset={showGuestBar ? guestBarHeight : 0} />
+      <MobileBottomNav
+        onHeightChange={setDockHeight}
+        onHiddenChange={setDockHidden}
+      />
     </View>
   );
 }

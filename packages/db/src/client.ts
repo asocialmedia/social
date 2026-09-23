@@ -1,4 +1,5 @@
 import type { Prisma } from "../prisma/generated/prisma/client";
+import { communityVisibilityWhere } from "./communities/visibility";
 
 // The badged community roles a user holds, for the role banners on their name.
 // Shared so every user payload in the app carries the same shape. Participants
@@ -167,6 +168,13 @@ export function getPostDataInclude(loggedInUserId: string) {
     // Compact embedded parent for responses: enough to render the quoted card
     // (or a tombstone when `parentPost` is null but `parentPostId` is set)
     // without dragging the parent's full include into every feed row.
+    //
+    // Scoped by the same community visibility as every other read. A reply's
+    // `communityId` is the REPLIER's choice, not inherited from the parent, so
+    // a member can reply to a post inside a PRIVATE community and publish that
+    // reply globally. Without this filter the embedded parent would ship the
+    // private post's content to every reader of the reply, including guests -
+    // the reply would be a backdoor around communityVisibilityWhere.
     parentPost: {
       select: {
         attachments: {
@@ -200,6 +208,7 @@ export function getPostDataInclude(loggedInUserId: string) {
         },
         userId: true,
       },
+      where: communityVisibilityWhere(loggedInUserId),
     },
     tags: true,
     user: {

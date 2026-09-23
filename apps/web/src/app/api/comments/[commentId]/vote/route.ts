@@ -1,6 +1,5 @@
 import {
-  enqueueNotificationCreated,
-  enqueueNotificationDeleted,
+  findVisibleCommentPost,
   invalidateAuraSignals,
   prisma,
   settleVoteTransition,
@@ -9,6 +8,11 @@ import type { CommentVoteInfo } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/aura/db-transactions";
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+  resetNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
 
@@ -21,6 +25,13 @@ export async function GET(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // The comment's post must be readable first: this endpoint exposes aura and
+  // the viewer's own vote state, which belong to a thread they cannot see.
+  const visible = await findVisibleCommentPost(commentId, user.id);
+  if (!visible) {
+    return Response.json({ error: "Comment not found" }, { status: 404 });
   }
 
   const comment = await prisma.comment.findUnique({
@@ -60,11 +71,21 @@ export async function POST(
     return Response.json({ error: "Invalid vote value" }, { status: 400 });
   }
 
+  // Voting is a state change on the comment's post (aura plus a notification to
+  // its author), so the post must be readable before anything is written. A
+  // stranger could otherwise move aura inside a community they cannot see.
+  if (!(await findVisibleCommentPost(commentId, user.id))) {
+    return Response.json({ error: "Comment not found" }, { status: 404 });
+  }
+
   let affectedAuthorId: string | null = null;
   try {
     // Serializable + retry so a concurrent vote re-reads committed state
     // instead of double-applying an aura delta.
+    const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
+      // A serializable retry re-runs this callback; start its events clean.
+      resetNotificationEvents(notificationEvents);
       const comment = await tx.comment.findUnique({
         select: { aura: true, id: true, postId: true, userId: true },
         where: { id: commentId },
@@ -148,7 +169,7 @@ export async function POST(
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
           wasAmplified = true;
-          await tx.notification.create({
+          const amplifyNotification = await tx.notification.create({
             data: {
               commentId,
               issuerId: user.id,
@@ -157,11 +178,9 @@ export async function POST(
               type: "AMPLIFY",
             },
           });
-          enqueueNotificationCreated(comment.userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue eddie amplify notification event:",
-              error
-            );
+          notificationEvents.created.push({
+            notificationId: amplifyNotification.id,
+            recipientId: comment.userId,
           });
         } else if (value !== 1 && oldValue === 1) {
           wasAmplifyRemoved = true;
@@ -174,12 +193,7 @@ export async function POST(
               type: "AMPLIFY",
             },
           });
-          enqueueNotificationDeleted(comment.userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue eddie amplify removal notification event:",
-              error
-            );
-          });
+          notificationEvents.deleted.push(comment.userId);
         }
       }
 
@@ -196,6 +210,9 @@ export async function POST(
         wasAmplifyRemoved,
       };
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "comment amplify");
 
     if (!result) {
       return Response.json({ error: "Comment not found" }, { status: 404 });
@@ -235,7 +252,10 @@ export async function DELETE(
   }
 
   try {
+    const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
+      // A serializable retry re-runs this callback; start its events clean.
+      resetNotificationEvents(notificationEvents);
       const comment = await tx.comment.findUnique({
         select: { aura: true, postId: true, userId: true },
         where: { id: commentId },
@@ -304,12 +324,7 @@ export async function DELETE(
             type: "AMPLIFY",
           },
         });
-        enqueueNotificationDeleted(comment.userId).catch((error: unknown) => {
-          console.error(
-            "Failed to enqueue eddie amplify removal notification event:",
-            error
-          );
-        });
+        notificationEvents.deleted.push(comment.userId);
       }
 
       const updated = await tx.comment.findUnique({
@@ -319,6 +334,9 @@ export async function DELETE(
 
       return { aura: updated?.aura ?? comment.aura, userVote: 0 };
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "comment amplify");
 
     if (!result) {
       return Response.json({ error: "Comment not found" }, { status: 404 });

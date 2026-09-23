@@ -85,7 +85,13 @@ export const config: NextConfig = {
   poweredByHeader: false,
   reactCompiler: true,
   reactStrictMode: true,
-  transpilePackages: ["@asm/auth", "@asm/db", "@asm/config", "@asm/logger"],
+  transpilePackages: [
+    "@asm/auth",
+    "@asm/db",
+    "@asm/config",
+    "@asm/logger",
+    "@asm/notifications",
+  ],
 };
 
 export const withStreamConfig = (sourceConfig: NextConfig): NextConfig => ({

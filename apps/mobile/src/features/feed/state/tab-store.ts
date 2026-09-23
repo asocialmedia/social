@@ -277,8 +277,9 @@ function parseParam<T extends string>(
 }
 
 // Explicit tab wins (deep links), then the remembered tab, then the surface
-// default. Home shows every tab to guests (Following renders a login prompt),
-// so no auth gating here - only the default differs.
+// default. Account-only tabs (For you, Following) are NOT filtered here: the
+// tab must stay tappable so its screen can show the sign-in prompt, matching
+// how Following has always behaved. Only the guest default differs.
 export function resolveHomeTab(
   tabParam: string | null,
   isLoggedIn: boolean,

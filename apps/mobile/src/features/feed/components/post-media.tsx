@@ -1,9 +1,12 @@
-import { useEvent } from "expo";
+import { useEvent, useEventListener } from "expo";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 // Post media gallery: single / 2-grid / 3-5 bento / 6+ overflow layouts,
 // video tap-to-play, audio rows, the explicit-content gate and the moderated
-// notice. Mirrors web's MediaPreviews + ExplicitContentGate arrangement;
-// detail-only behaviors (autoplay, viewer routes, captions) stay out.
+// notice. Mirrors web's MediaPreviews + ExplicitContentGate arrangement.
+// Image tiles open the fullscreen viewer when onPressMedia is set (the post
+// detail screen passes it; the feed passes none, so feed tiles stay put).
+// Videos keep tap-to-play (the tap drives playback, never navigation) and
+// detail-only autoplay/captions stay out.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -30,13 +33,19 @@ import type { ViewStyle } from "react-native";
 
 import noMediaImage from "@/assets/images/nomedia.png";
 import nosearchImage from "@/assets/images/nosearch.png";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import { authClient } from "@/features/auth/lib/auth-client";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
+  LOGIN_BUTTON_PRESSED_SHADOWS,
+  LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,
   LOGIN_BUTTON_SHADOWS,
+  LOGIN_BUTTON_SHADOWS_LIGHT,
   useAppTheme,
 } from "@/theme";
 
+import { fetchCaptionsVtt, fetchWavePeaks } from "../lib/feed-api";
 import type { FeedMedia } from "../lib/feed-types";
 import {
   formatFileName,
@@ -48,11 +57,39 @@ import {
   mediaPosterUrl,
   mediaVideoUrl,
 } from "../lib/media-url";
-import { isPostVisible, subscribePostVisibility } from "../lib/visible-posts";
+import {
+  cuesFromTranscript,
+  findActiveCue,
+  parseWebVttCues,
+  splitTranscriptIntoTimedLines,
+} from "../lib/transcript-cues";
+import type { TranscriptCue } from "../lib/transcript-cues";
+import {
+  isAutoplayPost,
+  subscribeAutoplayPost,
+  subscribePostVisibility,
+} from "../lib/visible-posts";
+import {
+  EQ_BAR_COUNT,
+  EQ_FALLBACK_HEIGHTS,
+  EQ_PERIOD_MS,
+  eqBarInterpolation,
+  shapeWaveform,
+} from "../lib/waveform";
+import { useVideoCaptionsStore } from "../state/video-captions-store";
+import { useVideoMuteStore } from "../state/video-mute-store";
 
 interface GalleryProps {
+  // Whether the containing screen/tab is on screen. A backgrounded feed (a
+  // mounted-but-inactive home tab) passes false so its lone-video autoplay
+  // stops; everything else leaves it unset (treated as active).
+  active?: boolean;
   apiBase: string;
   attachments: FeedMedia[];
+  // Opens the fullscreen media viewer at the tapped image index. Optional:
+  // surfaces without a viewer route (the home feed) leave it unset and
+  // image tiles render static, exactly as before.
+  onPressMedia?: (index: number) => void;
   postId: string;
 }
 
@@ -72,12 +109,16 @@ function useFailedImages() {
 
 function SingleImage({
   apiBase,
+  index = 0,
   media,
   onFailed,
+  onPressMedia,
 }: {
   apiBase: string;
+  index?: number;
   media: FeedMedia;
   onFailed: (id: string) => void;
+  onPressMedia?: (index: number) => void;
 }) {
   const stored =
     media.width && media.height && media.height > 0
@@ -94,7 +135,7 @@ function SingleImage({
   // frame is transparent: it hugs the picture, so there is no surround fill.
   const portrait = ratio <= 1;
   const { isDark } = useAppTheme();
-  return (
+  const frame = (
     <View
       style={[
         styles.singleWrap,
@@ -122,25 +163,40 @@ function SingleImage({
       {media.aiGenerated ? <AiBadge /> : null}
     </View>
   );
+  if (!onPressMedia) {
+    return frame;
+  }
+  return (
+    <Pressable
+      accessibilityLabel={media.altText ?? "Open post media"}
+      accessibilityRole="link"
+      onPress={() => onPressMedia(index)}
+    >
+      {frame}
+    </Pressable>
+  );
 }
 
 function GridImage({
   apiBase,
+  index = 0,
   media,
   onFailed,
+  onPressMedia,
 }: {
   apiBase: string;
+  index?: number;
   media: FeedMedia;
   onFailed: (id: string) => void;
+  onPressMedia?: (index: number) => void;
 }) {
   const { isDark } = useAppTheme();
-  return (
-    <View
-      style={[
-        styles.gridTileWrap,
-        { boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS },
-      ]}
-    >
+  const frameStyle = [
+    styles.gridTileWrap,
+    { boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS },
+  ];
+  const content = (
+    <>
       <Image
         accessibilityLabel={media.altText ?? "Post image"}
         contentFit="cover"
@@ -149,7 +205,20 @@ function GridImage({
         style={styles.gridTileImage}
       />
       {media.aiGenerated ? <AiBadge /> : null}
-    </View>
+    </>
+  );
+  if (!onPressMedia) {
+    return <View style={frameStyle}>{content}</View>;
+  }
+  return (
+    <Pressable
+      accessibilityLabel={media.altText ?? "Open post media"}
+      accessibilityRole="link"
+      onPress={() => onPressMedia(index)}
+      style={frameStyle}
+    >
+      {content}
+    </Pressable>
   );
 }
 
@@ -162,20 +231,15 @@ function formatMediaTime(totalSeconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-// Static waveform profile (native has no Web Audio decode like web's
-// AudioPreview). Same deterministic 80-bar fallback web renders while its
-// real waveform decodes.
-const EQ_BAR_COUNT = 80;
-const EQ_BAR_HEIGHTS: number[] = [];
-for (let index = 0; index < EQ_BAR_COUNT; index += 1) {
-  EQ_BAR_HEIGHTS.push((30 + ((index * 37) % 55)) / 100);
-}
-
+// Web VideoPreview's pills: the dark 3D mute/time surfaces, the orange
+// top-right play badge (with the dark-orange ring) and the bottom-right
+// play/pause toggle (no ring, deeper drop).
 const DARK_PILL_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.35)";
-
-const ORANGE_PILL_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
+const PLAY_BADGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+const PLAY_TOGGLE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
 
 // Web's `shadow-xs` on single/grid media frames.
 const FRAME_SHADOWS = "0 1px 2px rgba(0, 0, 0, 0.05)";
@@ -187,6 +251,11 @@ const AI_BADGE_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
 const AI_BADGE_SHADOWS_DARK = AI_BADGE_SHADOWS;
 
+// Web's poster reveal: opacity over 500ms on cubic-bezier(0.16, 1, 0.3, 1);
+// the top-right badge follows the CSS default `ease` over 300ms.
+const POSTER_FADE = Easing.bezier(0.16, 1, 0.3, 1);
+const CSS_EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
+
 // AI-generated marker over media surfaces, ported from web's
 // AiGeneratedBadge: violet 3D pill, bottom-left of the frame (lifted above
 // the mute pill on video tiles). The flag arrives on Media.aiGenerated.
@@ -196,6 +265,7 @@ function AiBadge({ bottom = 8 }: { bottom?: number }) {
     <View
       accessibilityLabel="AI-generated content"
       accessibilityRole="text"
+      pointerEvents="none"
       style={[
         styles.aiBadge,
         {
@@ -217,6 +287,34 @@ function AiBadge({ bottom = 8 }: { bottom?: number }) {
   );
 }
 
+// Animates one value toward 1 while `on`, back to 0 when not.
+function useFade(on: boolean, duration: number, easing: (t: number) => number) {
+  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
+  const [value] = useState(() => new Animated.Value(on ? 1 : 0));
+  useEffect(() => {
+    const fade = Animated.timing(value, {
+      duration,
+      easing,
+      toValue: on ? 1 : 0,
+      useNativeDriver: true,
+    });
+    fade.start();
+    return () => {
+      fade.stop();
+    };
+  }, [duration, easing, on, value]);
+  return value;
+}
+
+// 1:1 port of web's feed VideoPreview (media-previews.tsx). The native
+// player chrome is off: the tile is the poster that cross-fades into the
+// playing video, the orange play badge top-right until playback shows, the
+// dark 3D mute pill bottom-left, the orange play/pause toggle bottom-right
+// with the time pill above it, the AI badge above the mute pill, timed
+// captions, and the soft bottom scrim. Mute is the shared session
+// preference. Web's tile opens the post page on tap and plays on hover;
+// native has neither, so a lone video autoplays muted in the viewport (web's
+// autoPlay arrangement, all pills visible) and a tap toggles playback.
 function VideoTile({
   apiBase,
   autoPlayEnabled,
@@ -234,92 +332,215 @@ function VideoTile({
   // natural aspect and the larger feed radius, like web's single preview.
   tile?: boolean;
 }) {
-  const [playing, setPlaying] = useState(
-    () => autoPlayEnabled === true && isPostVisible(postId)
-  );
-  const [muted, setMuted] = useState(
-    () => autoPlayEnabled === true && isPostVisible(postId)
-  );
-  const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
-  // A broken poster shows web's nomedia still instead of an empty tile.
-  const [posterFailed, setPosterFailed] = useState(false);
-  // Web keeps the poster mounted until the video is visibly playing;
-  // unmounting it the instant playback starts flashes a black frame while
-  // the stream buffers (and stalls black forever on a stuck stream).
-  const [hasFrames, setHasFrames] = useState(false);
-  const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id));
-  // expo-video surfaces load failure on the player status; subscribe so an
-  // errored clip re-renders into the nomedia still instead of sticking.
+  const { isDark } = useAppTheme();
+  const isMuted = useVideoMuteStore((state) => state.isMuted);
+  // Shared captions preference, toggled from the post's More menu.
+  const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
+  const setMuted = useVideoMuteStore((state) => state.setMuted);
+  const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id), (created) => {
+    // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
+    created.muted = useVideoMuteStore.getState().isMuted;
+    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+    created.timeUpdateEventInterval = 0.25;
+  });
+  const { isPlaying } = useEvent(player, "playingChange", {
+    isPlaying: player.playing,
+  });
   const { status: videoStatus } = useEvent(player, "statusChange", {
     status: player.status,
   });
-  const playerErrored = videoStatus === "error";
-  // Control pills sit inside the tile's play Pressable and their taps bubble,
-  // so they raise this flag to swallow the tile tap that follows.
-  const suppressTapRef = useRef(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  // Web's isFailed: a broken poster or clip shows the nomedia still.
+  const [posterFailed, setPosterFailed] = useState(false);
+  // Web's isVideoActive: set once frames are actually on screen while
+  // playing, and kept through a pause so the paused frame stays visible.
+  const [firstFrame, setFirstFrame] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
+  // Web shows the pills on hover; a grid tile shows them once started.
+  const [engaged, setEngaged] = useState(false);
+  const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
   // A manual pause holds while the post stays in the viewport; leaving the
   // viewport clears it, so scrolling back resumes autoplay.
   const manualPausedRef = useRef(false);
+  const endedRef = useRef(false);
 
-  // The native mute flag mirrors state for tiles that mount already visible;
-  // later changes go through the subscription and the mute controls.
-  useEffect(() => {
-    if (autoPlayEnabled && isPostVisible(postId)) {
-      // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
-      player.muted = true;
+  const isFailed = posterFailed || videoStatus === "error";
+  const isVideoActive = firstFrame && hasPlayed;
+  const controlsVisible = autoPlayEnabled === true || engaged;
+
+  useEventListener(player, "timeUpdate", (payload) => {
+    setCurrentTime(payload.currentTime);
+    const next = player.duration;
+    if (Number.isFinite(next) && next > 0) {
+      setDuration((previous) => (previous === next ? previous : next));
     }
-  }, [autoPlayEnabled, player, postId]);
+  });
+  useEventListener(player, "sourceLoad", (payload) => {
+    if (Number.isFinite(payload.duration) && payload.duration > 0) {
+      setDuration(payload.duration);
+    }
+  });
+  useEventListener(player, "playToEnd", () => {
+    endedRef.current = true;
+  });
+  useEventListener(player, "playingChange", (payload) => {
+    if (payload.isPlaying) {
+      endedRef.current = false;
+      setHasPlayed(true);
+    }
+  });
 
-  // Viewport autoplay, muted like web's feed previews. State only changes
-  // inside the subscription callback, never synchronously in the effect.
+  // Every tile follows the shared mute preference.
   useEffect(() => {
-    if (!autoPlayEnabled) {
+    // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
+    player.muted = isMuted;
+  }, [isMuted, player]);
+
+  const startPlayback = () => {
+    if (endedRef.current) {
+      endedRef.current = false;
+      player.replay();
       return;
     }
-    return subscribePostVisibility(postId, (visible) => {
+    player.play();
+  };
+
+  // Viewport autoplay, muted by default like web's autoPlay previews.
+  //
+  // Two gates, and both are needed:
+  //   1. Ownership. The enabled feed nominates ONE autoplay post (the topmost
+  //      visible video), so a post mounted in two tabs - or two half-visible
+  //      cards in one tab - cannot play twice at once, which is heard as
+  //      doubled, slightly detuned audio.
+  //   2. Feed activity. `autoPlayEnabled` is three-valued: true (this tab is
+  //      on screen and may autoplay), false (mounted but backgrounded, so stop
+  //      - otherwise swiping away leaves the old tab's video playing), and
+  //      undefined (a tap-to-play grid tile that owns its playback, so this
+  //      lane must never touch it).
+  useEffect(() => {
+    if (autoPlayEnabled !== true) {
+      if (autoPlayEnabled === false) {
+        player.pause();
+      }
+      return;
+    }
+    if (isAutoplayPost(postId)) {
+      player.play();
+    }
+    // Losing the slot pauses; gaining it resumes, unless the viewer paused by
+    // hand. Leaving the viewport also clears that manual pause, so scrolling
+    // back resumes autoplay like web.
+    const unsubscribeAutoplay = subscribeAutoplayPost(postId, (isOwner) => {
+      if (!isOwner) {
+        manualPausedRef.current = false;
+        player.pause();
+        return;
+      }
+      if (player.status === "error") {
+        return;
+      }
+      if (endedRef.current) {
+        endedRef.current = false;
+        player.replay();
+        return;
+      }
+      player.play();
+    });
+    const unsubscribeVisibility = subscribePostVisibility(postId, (visible) => {
       if (player.status === "error") {
         return;
       }
       if (visible) {
-        if (!manualPausedRef.current) {
-          // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
-          player.muted = true;
-          setMuted(true);
-          setPlaying(true);
-        }
         return;
       }
       manualPausedRef.current = false;
-      setPlaying(false);
+      if (!isAutoplayPost(postId)) {
+        player.pause();
+      }
     });
-  }, [autoPlayEnabled, manualPausedRef, player, postId]);
+    return () => {
+      unsubscribeAutoplay();
+      unsubscribeVisibility();
+    };
+  }, [autoPlayEnabled, player, postId]);
 
+  // Web fetches the WebVTT track once the preview is live; an empty track
+  // falls back to spreading the transcript across the clip.
+  const wantsCaptions = showCaptions && (autoPlayEnabled === true || engaged);
   useEffect(() => {
-    if (!playing) {
+    if (!wantsCaptions || fetchedCues.length > 0) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const vtt = await fetchCaptionsVtt(media.id, {
+          apiBase,
+          cookie: await authClient.getCookie(),
+        });
+        if (cancelled || !vtt) {
+          return;
+        }
+        const parsed = parseWebVttCues(vtt);
+        if (parsed.length > 0) {
+          setFetchedCues(parsed);
+        } else if (media.transcript) {
+          setFetchedCues(
+            splitTranscriptIntoTimedLines(
+              media.transcript,
+              player.duration || null
+            )
+          );
+        }
+      } catch {
+        // Network errors leave the direct-transcript cues in place.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    apiBase,
+    fetchedCues.length,
+    media.id,
+    media.transcript,
+    player,
+    wantsCaptions,
+  ]);
+
+  const directCues = useMemo(
+    () => cuesFromTranscript(media.transcript),
+    [media.transcript]
+  );
+  const cues = fetchedCues.length > 0 ? fetchedCues : directCues;
+  const activeCue =
+    showCaptions && (isVideoActive || isPlaying || engaged)
+      ? findActiveCue(cues, currentTime)
+      : null;
+
+  const posterOpacity = useFade(!isVideoActive, 500, POSTER_FADE);
+  const badgeOpacity = useFade(!isVideoActive, 300, CSS_EASE);
+  const controlsOpacity = useFade(controlsVisible, 200, CSS_EASE);
+
+  const togglePlayback = () => {
+    setEngaged(true);
+    if (player.playing) {
+      manualPausedRef.current = true;
       player.pause();
       return;
     }
-    player.play();
-    const timer = setInterval(() => {
-      try {
-        const { currentTime } = player;
-        setPosition(currentTime);
-        setDuration(player.duration);
-        if (currentTime > 0.25) {
-          // Same value bails out of re-rendering; runs once per tile.
-          setHasFrames(true);
-        }
-      } catch {
-        // Player teardown races the poll; the tile unmounts anyway.
-      }
-    }, 500);
-    return () => clearInterval(timer);
-  }, [player, playing]);
+    manualPausedRef.current = false;
+    startPlayback();
+  };
+
+  const toggleMute = () => {
+    setEngaged(true);
+    setMuted(!isMuted);
+  };
 
   // Lone videos keep their stored aspect (web's natural preview frame);
   // grid cells force the frame instead. Lone radius is the feed rounded-xl.
-  const { isDark } = useAppTheme();
   const videoRadius = tile ? 8 : 12;
   const videoRatio =
     media.width && media.height && media.height > 0
@@ -328,7 +549,6 @@ function VideoTile({
   // Lone portrait videos hug their width at the 380 cap and pin left, like
   // web's h-[380px] w-auto portrait frame; squares count as portrait, like
   // web's h >= w rule. Landscapes fill the column width.
-  // Grid tiles fill their cell instead.
   const singlePortrait = !tile && videoRatio <= 1;
   let videoFrameStyle: ViewStyle;
   if (tile) {
@@ -347,291 +567,293 @@ function VideoTile({
       width: "100%",
     };
   }
+  const frameStyle = [
+    styles.videoFrame,
+    {
+      borderRadius: videoRadius,
+      boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS,
+    },
+    videoFrameStyle,
+  ];
 
-  const toggleMute = () => {
-    suppressTapRef.current = true;
-    const next = !muted;
-    // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
-    player.muted = next;
-    setMuted(next);
-  };
-
-  // Dark 3D mute pill with its Sound/Muted label, bottom-left on both the
-  // poster and the playing tile - web shows the label, not an icon alone.
-  const mutePill = (
-    <View style={[styles.mutePill, { boxShadow: DARK_PILL_SHADOWS }]}>
-      <LinearGradient
-        colors={["#3a3f4a", "#23262e"]}
-        end={{ x: 0.5, y: 1 }}
-        start={{ x: 0.5, y: 0 }}
-        style={styles.muteGradient}
-      >
-        <Pressable
-          accessibilityLabel={muted ? "Unmute" : "Mute"}
-          accessibilityRole="button"
-          hitSlop={6}
-          onPress={toggleMute}
-          style={styles.mutePress}
-        >
-          {muted ? (
-            <VolumeX color="#ffffff" size={14} />
-          ) : (
-            <Volume2 color="#ffffff" size={14} />
-          )}
-          <Text style={styles.muteLabel}>{muted ? "Muted" : "Sound"}</Text>
-        </Pressable>
-      </LinearGradient>
-    </View>
-  );
-
-  const manualPlay = () => {
-    manualPausedRef.current = false;
-    // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
-    player.muted = false;
-    setMuted(false);
-    setPlaying(true);
-  };
-
-  const manualPause = () => {
-    manualPausedRef.current = true;
-    setPlaying(false);
-  };
-
-  if (!playing) {
-    // Poster: natural-aspect still with the bottom legibility scrim, the
-    // orange 3D play badge pinned top-right, and the dark 3D mute pill with
-    // its Sound/Muted label bottom-left - web's feed preview arrangement.
-    // A broken poster falls back to the nomedia still, like web.
-    if (posterFailed) {
-      return (
-        <View
-          style={[
-            styles.videoPosterWrap,
-            {
-              borderRadius: videoRadius,
-              boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS,
-            },
-            videoFrameStyle,
-          ]}
-        >
-          <Image
-            accessibilityLabel="Video unavailable"
-            contentFit="cover"
-            source={noMediaImage}
-            style={[
-              styles.posterImage,
-              { borderRadius: videoRadius, opacity: 0.6 },
-            ]}
-          />
-        </View>
-      );
-    }
+  if (isFailed) {
     return (
-      <Pressable
-        accessibilityLabel={media.altText ?? "Play video"}
-        accessibilityRole="button"
-        onPress={() => {
-          if (suppressTapRef.current) {
-            suppressTapRef.current = false;
-            return;
-          }
-          manualPlay();
-        }}
-        style={[
-          styles.videoPosterWrap,
-          {
-            borderRadius: videoRadius,
-            boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS,
-          },
-          videoFrameStyle,
-        ]}
-      >
-        <Image
-          accessibilityLabel=""
-          contentFit="cover"
-          onError={() => setPosterFailed(true)}
-          source={{ uri: mediaPosterUrl(apiBase, media.id) }}
-          style={[styles.posterImage, { borderRadius: videoRadius }]}
-        />
-        <LinearGradient
-          colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.5)"]}
-          end={{ x: 0.5, y: 1 }}
-          start={{ x: 0.5, y: 0 }}
-          style={styles.posterScrim}
-        />
-        <View style={[styles.posterPlay, { boxShadow: ORANGE_PILL_SHADOWS }]}>
-          <LinearGradient
-            colors={["#ff9500", "#e65500"]}
-            end={{ x: 0.5, y: 1 }}
-            start={{ x: 0.5, y: 0 }}
-            style={styles.posterPlayGradient}
-          >
-            <Play
-              color="#ffffff"
-              fill="#ffffff"
-              size={14}
-              style={styles.playNudge}
-            />
-          </LinearGradient>
-        </View>
-        {mutePill}
-        {media.aiGenerated ? <AiBadge bottom={44} /> : null}
-      </Pressable>
-    );
-  }
-  if (playerErrored) {
-    return (
-      <View
-        style={[
-          styles.videoActive,
-          {
-            borderRadius: videoRadius,
-            boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS,
-            overflow: "hidden",
-          },
-          videoFrameStyle,
-        ]}
-      >
+      <View style={[frameStyle, styles.videoFailed]}>
         <Image
           accessibilityLabel="Video unavailable"
           contentFit="cover"
           source={noMediaImage}
-          style={[styles.videoPlayer, { opacity: 0.6 }]}
+          style={[styles.fill, { opacity: 0.6 }]}
         />
       </View>
     );
   }
+
   return (
-    <View
-      style={[
-        styles.videoActive,
-        {
-          borderRadius: videoRadius,
-          boxShadow: isDark ? FRAME_SHADOWS_DARK : FRAME_SHADOWS,
-          overflow: "hidden",
-        },
-        videoFrameStyle,
-      ]}
-    >
+    <View style={frameStyle}>
       <VideoView
         contentFit="cover"
+        nativeControls={false}
+        onFirstFrameRender={() => setFirstFrame(true)}
         player={player}
-        style={styles.videoPlayer}
+        pointerEvents="none"
+        style={styles.fill}
+        surfaceType="textureView"
       />
-      {!hasFrames && !posterFailed ? (
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.fill, { opacity: posterOpacity }]}
+      >
         <Image
           accessibilityLabel=""
           contentFit="cover"
           onError={() => setPosterFailed(true)}
-          pointerEvents="none"
           source={{ uri: mediaPosterUrl(apiBase, media.id) }}
-          style={[styles.posterCover, { borderRadius: videoRadius }]}
+          style={styles.fill}
         />
-      ) : null}
+      </Animated.View>
       <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.5)"]}
+        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.2)"]}
         end={{ x: 0.5, y: 1 }}
+        locations={[0, 0.5, 1]}
         pointerEvents="none"
         start={{ x: 0.5, y: 0 }}
-        style={styles.posterScrim}
+        style={styles.fill}
       />
-      {mutePill}
-      {media.aiGenerated ? <AiBadge bottom={44} /> : null}
-      <View style={[styles.timePill, { boxShadow: DARK_PILL_SHADOWS }]}>
-        <LinearGradient
-          colors={["#3a3f4a", "#23262e"]}
-          end={{ x: 0.5, y: 1 }}
-          start={{ x: 0.5, y: 0 }}
-          style={styles.timeGradient}
-        >
-          <Text style={styles.timeText}>
-            {formatMediaTime(position)} / {formatMediaTime(duration)}
-          </Text>
-        </LinearGradient>
-      </View>
       <Pressable
-        accessibilityLabel="Pause video"
+        accessibilityLabel={
+          media.altText ?? (isPlaying ? "Pause video" : "Play video")
+        }
         accessibilityRole="button"
-        hitSlop={6}
-        onPress={manualPause}
-        style={[styles.playToggle, { boxShadow: ORANGE_PILL_SHADOWS }]}
+        onPress={togglePlayback}
+        style={styles.fill}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.playBadge, { opacity: badgeOpacity }]}
       >
-        <LinearGradient
+        <Gradient3D
           colors={["#ff9500", "#e65500"]}
-          end={{ x: 0.5, y: 1 }}
-          start={{ x: 0.5, y: 0 }}
-          style={styles.playGradient}
+          shadows={PLAY_BADGE_SHADOWS}
+          style={styles.pillCircle}
         >
-          <Pause color="#ffffff" fill="#ffffff" size={14} />
-        </LinearGradient>
-      </Pressable>
-      {media.transcript ? (
-        <View style={styles.captionBox}>
-          <Text numberOfLines={2} style={styles.captionText}>
-            {media.transcript}
-          </Text>
+          <Play
+            color="#ffffff"
+            fill="#ffffff"
+            size={14}
+            style={styles.playNudge}
+          />
+        </Gradient3D>
+      </Animated.View>
+      <Animated.View
+        pointerEvents={controlsVisible ? "box-none" : "none"}
+        style={[styles.fill, { opacity: controlsOpacity }]}
+      >
+        <Pressable
+          accessibilityLabel={isMuted ? "Unmute" : "Mute"}
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={toggleMute}
+          style={({ pressed }) => [
+            styles.mutePill,
+            pressed && styles.pressedNudge,
+          ]}
+        >
+          <Gradient3D
+            colors={["#3a3f4a", "#23262e"]}
+            shadows={DARK_PILL_SHADOWS}
+            style={styles.muteGradient}
+          >
+            {isMuted ? (
+              <VolumeX color="#ffffff" size={14} />
+            ) : (
+              <Volume2 color="#ffffff" size={14} />
+            )}
+            <Text style={styles.muteLabel}>{isMuted ? "Muted" : "Sound"}</Text>
+          </Gradient3D>
+        </Pressable>
+        <Pressable
+          accessibilityLabel={isPlaying ? "Pause" : "Play"}
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={togglePlayback}
+          style={({ pressed }) => [
+            styles.playToggle,
+            pressed && styles.pressedNudge,
+          ]}
+        >
+          <Gradient3D
+            colors={["#ff9500", "#e65500"]}
+            shadows={PLAY_TOGGLE_SHADOWS}
+            style={styles.pillCircle}
+          >
+            {isPlaying ? (
+              <Pause color="#ffffff" size={14} />
+            ) : (
+              <Play color="#ffffff" size={14} style={styles.playNudge} />
+            )}
+          </Gradient3D>
+        </Pressable>
+        <View pointerEvents="none" style={styles.timePill}>
+          <Gradient3D
+            colors={["#3a3f4a", "#23262e"]}
+            radius={6}
+            shadows={DARK_PILL_SHADOWS}
+            style={styles.timeGradient}
+          >
+            <Text style={styles.timeText}>
+              {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
+            </Text>
+          </Gradient3D>
+        </View>
+      </Animated.View>
+      {media.aiGenerated ? <AiBadge bottom={44} /> : null}
+      {activeCue ? (
+        <View pointerEvents="none" style={styles.captionRow}>
+          <View style={styles.captionBox}>
+            <Text numberOfLines={2} style={styles.captionText}>
+              {activeCue.text}
+            </Text>
+          </View>
         </View>
       ) : null}
     </View>
   );
 }
 
-function AudioRow({ apiBase, media }: { apiBase: string; media: FeedMedia }) {
+// Web's `apple-panel` on hsl(var(--background-alt)): the audio row and the
+// explicit-media gate panel.
+const APPLE_PANEL_LIGHT = {
+  background: "#f3f4f6",
+  border: "rgba(0, 0, 0, 0.12)",
+  shadows: APPLE_PANEL_SHADOWS,
+} as const;
+const APPLE_PANEL_DARK = {
+  background: "#171717",
+  border: "rgba(255, 255, 255, 0.12)",
+  shadows: APPLE_PANEL_SHADOWS_DARK,
+} as const;
+
+// The audio play button's inline web shadow (dark-orange ring, soft drop).
+const AUDIO_PLAY_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+const WAVE_PLAYED = ["#ff9500", "#e65500"] as const;
+// `brightness-125` on the bar under the playhead.
+const WAVE_CURRENT = ["#ffba00", "#ff6a00"] as const;
+const WAVE_UNPLAYED = "rgba(113, 113, 122, 0.3)";
+
+// Peaks shaped once per media id for the session, like web's waveformCache.
+const waveformCache = new Map<string, number[]>();
+const waveDurationCache = new Map<string, number>();
+
+// Per-bar keyframe tables are the same for every row, so build them once.
+const EQ_TABLES = Array.from({ length: EQ_BAR_COUNT }, (_, index) =>
+  eqBarInterpolation(index)
+);
+
+// 1:1 port of web's AudioPreview: orange 3D play button, file name with the
+// elapsed / total clock, and the 80-bar waveform that doubles as the seek
+// bar. While the waveform loads every bar is orange and bouncing; once it
+// lands, played bars are orange and bounce only while playing, the bar under
+// the playhead brightens, unplayed bars sit grey. Tapping the waveform seeks
+// (and starts a paused track); the finished track resets to 0:00.
+export function AudioRow({
+  apiBase,
+  media,
+}: {
+  apiBase: string;
+  media: FeedMedia;
+}) {
   const { isDark, theme } = useAppTheme();
   const player = useAudioPlayer(mediaAudioUrl(apiBase, media.id), {
-    updateInterval: 500,
+    updateInterval: 250,
   });
   // Real-time status must come from useAudioPlayerStatus: reading the player
-  // fields directly never re-renders, which froze the button, the clock and
-  // the visualizer.
+  // fields directly never re-renders.
   const status = useAudioPlayerStatus(player);
   const [trackWidth, setTrackWidth] = useState(0);
+  const [waveform, setWaveform] = useState<number[] | null>(
+    () => waveformCache.get(media.id) ?? null
+  );
+  const [peaksDuration, setPeaksDuration] = useState(
+    () => waveDurationCache.get(media.id) ?? 0
+  );
+
+  // Web decodes the file for its bars; native reads the pipeline's peaks.
+  // A missing or broken derivative settles on the fallback profile.
+  useEffect(() => {
+    if (waveformCache.has(media.id)) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      let shaped: number[] = EQ_FALLBACK_HEIGHTS;
+      try {
+        const peaks = await fetchWavePeaks(media.id, {
+          apiBase,
+          cookie: await authClient.getCookie(),
+        });
+        if (peaks) {
+          shaped = shapeWaveform(peaks.peaks);
+          if (peaks.durationMs) {
+            waveDurationCache.set(media.id, peaks.durationMs / 1000);
+            if (!cancelled) {
+              setPeaksDuration(peaks.durationMs / 1000);
+            }
+          }
+        }
+      } catch {
+        // Fall through to the fallback profile.
+      }
+      waveformCache.set(media.id, shaped);
+      if (!cancelled) {
+        setWaveform(shaped);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, media.id]);
 
   const { playing } = status;
-  const { duration } = status;
+  const duration = status.duration > 0 ? status.duration : peaksDuration;
   // Web resets the clock to 0:00 onEnded; the latched finish flag drives
   // the same display until the next play.
   const finished =
     status.didJustFinish ||
     (duration > 0 && !playing && status.currentTime >= duration - 0.25);
-  const position = finished ? 0 : status.currentTime;
+  const currentTime = finished ? 0 : status.currentTime;
 
-  // Equalizer motion, ported from web's asm-eq-bar keyframes (scaleY
-  // 0.4 <-> 1.15, 0.8s bounce, per-bar phase offsets). One looping value
-  // drives every bar: each bar peaks as the value sweeps past its index,
-  // so a single native animation reads as a traveling wave.
+  const isWaveformLoading = waveform === null;
+  const animating = isWaveformLoading || playing;
+
+  // asm-eq: one looping 0..1 driver over the 0.8s period; every bar maps it
+  // through its own phase-shifted keyframe table (web's -index * 0.04s
+  // delays), so the row runs as 80 independent bounces on one native loop.
   // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
-  const [eqPhase] = useState(() => new Animated.Value(0));
-
+  const [eqCycle] = useState(() => new Animated.Value(0));
   useEffect(() => {
-    if (!playing) {
+    if (!animating) {
       return;
     }
-    const wave = Animated.loop(
-      Animated.timing(eqPhase, {
-        duration: EQ_BAR_COUNT * 40,
+    const loop = Animated.loop(
+      Animated.timing(eqCycle, {
+        duration: EQ_PERIOD_MS,
         easing: Easing.linear,
-        toValue: EQ_BAR_COUNT,
+        toValue: 1,
         useNativeDriver: true,
       })
     );
-    wave.start();
+    loop.start();
     return () => {
-      wave.stop();
-      eqPhase.setValue(0);
+      loop.stop();
+      eqCycle.setValue(0);
     };
-  }, [eqPhase, playing]);
-
+  }, [animating, eqCycle]);
   const barScales = useMemo(
-    () =>
-      EQ_BAR_HEIGHTS.map((_, index) =>
-        eqPhase.interpolate({
-          extrapolate: "clamp",
-          inputRange: [index - 1.2, index, index + 1.2],
-          outputRange: [0.4, 1.15, 0.4],
-        })
-      ),
-    [eqPhase]
+    () => EQ_TABLES.map((table) => eqCycle.interpolate(table)),
+    [eqCycle]
   );
 
   const toggle = () => {
@@ -640,42 +862,52 @@ function AudioRow({ apiBase, media }: { apiBase: string; media: FeedMedia }) {
       return;
     }
     // Restart finished tracks like web's onEnded reset.
-    if (duration > 0 && player.currentTime >= duration - 0.25) {
-      player.seekTo(0);
+    if (finished) {
+      void player.seekTo(0);
     }
     player.play();
   };
 
-  const seekToClientX = (x: number) => {
+  const seekTo = (seconds: number, startIfPaused: boolean) => {
     const effective =
       Number.isFinite(player.duration) && player.duration > 0
         ? player.duration
         : duration;
-    if (effective <= 0 || trackWidth <= 0) {
+    if (effective <= 0) {
       return;
     }
-    const ratio = Math.min(1, Math.max(0, x / trackWidth));
-    player.seekTo(ratio * effective);
+    void player.seekTo(Math.min(effective, Math.max(0, seconds)));
     // Seeking a paused track starts it, like web's waveform seek.
-    if (!player.playing) {
+    if (startIfPaused && !player.playing) {
       player.play();
     }
   };
 
-  const fraction =
-    duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
-  const playedUntilBar = Math.floor(fraction * EQ_BAR_COUNT);
+  const seekToX = (x: number) => {
+    if (trackWidth <= 0) {
+      return;
+    }
+    const effective =
+      Number.isFinite(player.duration) && player.duration > 0
+        ? player.duration
+        : duration;
+    seekTo(Math.min(1, Math.max(0, x / trackWidth)) * effective, true);
+  };
+
+  const progressFraction =
+    duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0;
+  const bars = waveform ?? EQ_FALLBACK_HEIGHTS;
+  const playedUntilBar = Math.floor(progressFraction * bars.length);
+  const panel = isDark ? APPLE_PANEL_DARK : APPLE_PANEL_LIGHT;
 
   return (
     <View
       style={[
         styles.audioPanel,
         {
-          backgroundColor: theme.cardBg,
-          borderColor: isDark
-            ? "rgba(255, 255, 255, 0.12)"
-            : "rgba(0, 0, 0, 0.12)",
-          boxShadow: isDark ? APPLE_PANEL_SHADOWS_DARK : APPLE_PANEL_SHADOWS,
+          backgroundColor: panel.background,
+          borderColor: panel.border,
+          boxShadow: panel.shadows,
         },
       ]}
     >
@@ -686,15 +918,10 @@ function AudioRow({ apiBase, media }: { apiBase: string; media: FeedMedia }) {
           onPress={toggle}
         >
           {({ pressed }) => (
-            <LinearGradient
+            <Gradient3D
               colors={["#ff9500", "#e65500"]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={[
-                styles.audioPlay,
-                { boxShadow: LOGIN_BUTTON_SHADOWS },
-                pressed && styles.pressedShift,
-              ]}
+              shadows={AUDIO_PLAY_SHADOWS}
+              style={[styles.audioPlay, pressed && styles.pressedNudge]}
             >
               {playing ? (
                 <Pause color="#ffffff" fill="#ffffff" size={20} />
@@ -706,7 +933,7 @@ function AudioRow({ apiBase, media }: { apiBase: string; media: FeedMedia }) {
                   style={styles.playNudge}
                 />
               )}
-            </LinearGradient>
+            </Gradient3D>
           )}
         </Pressable>
         <View style={styles.audioMeta}>
@@ -718,55 +945,77 @@ function AudioRow({ apiBase, media }: { apiBase: string; media: FeedMedia }) {
               {formatFileName(media.key)}
             </Text>
             <Text style={[styles.audioTime, { color: theme.dividerText }]}>
-              {formatMediaTime(position)} / {formatMediaTime(duration)}
+              {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
             </Text>
           </View>
           <Pressable
+            accessibilityActions={[
+              { name: "increment" },
+              { name: "decrement" },
+            ]}
             accessibilityLabel="Audio seek bar"
             accessibilityRole="adjustable"
-            onPress={(event) => {
-              seekToClientX(event.nativeEvent.locationX);
+            accessibilityValue={{
+              max: 100,
+              min: 0,
+              now: Math.round(progressFraction * 100),
+            }}
+            onAccessibilityAction={(event) => {
+              // Web's ArrowLeft / ArrowRight: 5s steps, no auto-start.
+              const delta =
+                event.nativeEvent.actionName === "increment" ? 5 : -5;
+              seekTo(player.currentTime + delta, false);
             }}
             onLayout={(event) => {
               setTrackWidth(event.nativeEvent.layout.width);
             }}
+            onPress={(event) => {
+              seekToX(event.nativeEvent.locationX);
+            }}
             style={styles.waveform}
           >
-            {EQ_BAR_HEIGHTS.map((height, index) => {
-              const played = index <= playedUntilBar;
-              return (
-                <View key={index} style={styles.waveBar}>
-                  <Animated.View
+            {/* Bars never take the touch, so locationX is always measured
+                against the whole row rather than whichever bar was hit. */}
+            <View pointerEvents="none" style={styles.waveBars}>
+              {bars.map((height, index) => {
+                const isPlayed = isWaveformLoading || index <= playedUntilBar;
+                const isCurrent = playing && index === playedUntilBar;
+                const bouncing = isWaveformLoading || (playing && isPlayed);
+                let fill: ReactNode = (
+                  <View
                     style={[
-                      styles.waveBox,
-                      { height: `${Math.max(12, height * 100)}%` },
-                      playing &&
-                        played && {
-                          transform: [{ scaleY: barScales[index] }],
-                        },
+                      styles.waveFill,
+                      { backgroundColor: WAVE_UNPLAYED },
                     ]}
-                  >
-                    {played ? (
-                      <LinearGradient
-                        colors={["#ff9500", "#e65500"]}
-                        end={{ x: 0.5, y: 1 }}
-                        start={{ x: 0.5, y: 0 }}
-                        style={styles.waveFill}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.waveFill,
-                          {
-                            backgroundColor: "rgba(113, 113, 122, 0.3)",
-                          },
-                        ]}
-                      />
-                    )}
-                  </Animated.View>
-                </View>
-              );
-            })}
+                  />
+                );
+                if (isPlayed) {
+                  fill = (
+                    <LinearGradient
+                      colors={isCurrent ? WAVE_CURRENT : WAVE_PLAYED}
+                      end={{ x: 0.5, y: 1 }}
+                      start={{ x: 0.5, y: 0 }}
+                      style={styles.waveFill}
+                    />
+                  );
+                }
+                return (
+                  <View key={index} style={styles.waveBar}>
+                    <Animated.View
+                      style={[
+                        styles.waveBox,
+                        { height: `${Math.max(0.12, height) * 100}%` },
+                        bouncing && {
+                          transform: [{ scaleY: barScales[index] ?? 1 }],
+                        },
+                      ]}
+                    >
+                      {fill}
+                    </Animated.View>
+                  </View>
+                );
+              })}
+            </View>
           </Pressable>
         </View>
       </View>
@@ -827,10 +1076,18 @@ export function ModeratedNotice() {
 // Continue covers every surface rendering the same post for the session.
 const revealedExplicitIds = new Set<string>();
 
+export function isExplicitRevealed(revealKey: string): boolean {
+  return revealedExplicitIds.has(revealKey);
+}
+
+export function markExplicitRevealed(revealKey: string): void {
+  revealedExplicitIds.add(revealKey);
+}
+
 // expo-image blurRadius renders through RenderEffect, which needs Android 14
 // (API 34+ for the framework path expo-image uses) — older devices show the
 // still sharp. Those fall back to a fully opaque veil so nothing leaks.
-function explicitBlurSupported(): boolean {
+export function explicitBlurSupported(): boolean {
   if (Platform.OS === "ios" || Platform.OS === "web") {
     return true;
   }
@@ -874,6 +1131,8 @@ export function ExplicitGate({
       ? cover.width / cover.height
       : 16 / 10;
   const blurSupported = explicitBlurSupported();
+  // The gate panel is web's `apple-panel` on hsl(var(--background-alt)).
+  const panel = isDark ? APPLE_PANEL_DARK : APPLE_PANEL_LIGHT;
 
   const handleContinue = () => {
     if (revealKey) {
@@ -919,11 +1178,9 @@ export function ExplicitGate({
           style={[
             styles.gatePanel,
             {
-              backgroundColor: theme.cardBg,
-              borderColor: theme.cardBorder,
-              boxShadow: isDark
-                ? APPLE_PANEL_SHADOWS_DARK
-                : APPLE_PANEL_SHADOWS,
+              backgroundColor: panel.background,
+              borderColor: panel.border,
+              boxShadow: panel.shadows,
             },
           ]}
         >
@@ -944,21 +1201,37 @@ export function ExplicitGate({
             </View>
           </View>
           <View style={styles.gateAction}>
-            <LinearGradient
-              colors={["#ff9500", "#e65500"]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={[styles.gateBtn, { boxShadow: LOGIN_BUTTON_SHADOWS }]}
+            {/* Web's `<Button variant="premium" className="rounded-full
+                px-6">`: btn-3d on a 36px pill, text-sm semibold with the
+                recipe's text shadow, and the :active press (deeper
+                gradient, recessed lip, 1px drop). */}
+            <Pressable
+              accessibilityLabel="Show explicit media"
+              accessibilityRole="button"
+              onPress={handleContinue}
             >
-              <Pressable
-                accessibilityLabel="Show explicit media"
-                accessibilityRole="button"
-                onPress={handleContinue}
-                style={styles.gatePress}
-              >
-                <Text style={styles.gateBtnText}>Continue</Text>
-              </Pressable>
-            </LinearGradient>
+              {({ pressed }) => {
+                let shadows = isDark
+                  ? LOGIN_BUTTON_SHADOWS
+                  : LOGIN_BUTTON_SHADOWS_LIGHT;
+                if (pressed) {
+                  shadows = isDark
+                    ? LOGIN_BUTTON_PRESSED_SHADOWS
+                    : LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT;
+                }
+                return (
+                  <Gradient3D
+                    colors={
+                      pressed ? ["#e65500", "#d44a00"] : ["#ff9500", "#e65500"]
+                    }
+                    shadows={shadows}
+                    style={[styles.gateBtnFill, pressed && styles.pressedNudge]}
+                  >
+                    <Text style={styles.gateBtnText}>Continue</Text>
+                  </Gradient3D>
+                );
+              }}
+            </Pressable>
           </View>
         </View>
       </View>
@@ -966,7 +1239,13 @@ export function ExplicitGate({
   );
 }
 
-export function MediaGallery({ apiBase, attachments, postId }: GalleryProps) {
+export function MediaGallery({
+  active,
+  apiBase,
+  attachments,
+  onPressMedia,
+  postId,
+}: GalleryProps) {
   const { failed, markFailed } = useFailedImages();
   const visible = attachments.filter((media) => media && !failed.has(media.id));
   if (visible.length === 0) {
@@ -974,23 +1253,29 @@ export function MediaGallery({ apiBase, attachments, postId }: GalleryProps) {
   }
   return (
     <SingleOrGrid
+      active={active}
       apiBase={apiBase}
       items={visible}
       onFailed={markFailed}
+      onPressMedia={onPressMedia}
       postId={postId}
     />
   );
 }
 
 function SingleOrGrid({
+  active = true,
   apiBase,
   items,
   onFailed,
+  onPressMedia,
   postId,
 }: {
+  active?: boolean;
   apiBase: string;
   items: FeedMedia[];
   onFailed: (id: string) => void;
+  onPressMedia?: (index: number) => void;
   postId: string;
 }) {
   const [first, ...rest] = items;
@@ -1003,6 +1288,7 @@ function SingleOrGrid({
         apiBase={apiBase}
         items={items}
         onFailed={onFailed}
+        onPressMedia={onPressMedia}
         postId={postId}
       />
     );
@@ -1011,7 +1297,7 @@ function SingleOrGrid({
     return (
       <VideoTile
         apiBase={apiBase}
-        autoPlayEnabled
+        autoPlayEnabled={active}
         media={first}
         postId={postId}
       />
@@ -1020,18 +1306,28 @@ function SingleOrGrid({
   if (isAudioMedia(first)) {
     return <AudioRow apiBase={apiBase} media={first} />;
   }
-  return <SingleImage apiBase={apiBase} media={first} onFailed={onFailed} />;
+  return (
+    <SingleImage
+      apiBase={apiBase}
+      index={0}
+      media={first}
+      onFailed={onFailed}
+      onPressMedia={onPressMedia}
+    />
+  );
 }
 
 function MediaGrid({
   apiBase,
   items,
   onFailed,
+  onPressMedia,
   postId,
 }: {
   apiBase: string;
   items: FeedMedia[];
   onFailed: (id: string) => void;
+  onPressMedia?: (index: number) => void;
   postId: string;
 }) {
   // Web FEED_BENTO_LAYOUTS: 2 = uniform squares; 3 = 2 cols with the first
@@ -1041,9 +1337,9 @@ function MediaGrid({
   if (items.length === 2) {
     return (
       <View style={styles.grid2}>
-        {items.map((media) => (
+        {items.map((media, i) => (
           <View key={media.id} style={styles.gridCell}>
-            {mediaCell(apiBase, media, onFailed, postId)}
+            {mediaCell(apiBase, media, onFailed, postId, i, onPressMedia)}
           </View>
         ))}
       </View>
@@ -1054,17 +1350,19 @@ function MediaGrid({
     return (
       <View style={[styles.bentoRow, { aspectRatio: 1 }]}>
         <View style={styles.bentoTall}>
-          {first ? mediaCell(apiBase, first, onFailed, postId) : null}
+          {first
+            ? mediaCell(apiBase, first, onFailed, postId, 0, onPressMedia)
+            : null}
         </View>
         <View style={styles.bentoSide}>
           {second ? (
             <View style={styles.bentoCell}>
-              {mediaCell(apiBase, second, onFailed, postId)}
+              {mediaCell(apiBase, second, onFailed, postId, 1, onPressMedia)}
             </View>
           ) : null}
           {rest[0] ? (
             <View style={styles.bentoCell}>
-              {mediaCell(apiBase, rest[0], onFailed, postId)}
+              {mediaCell(apiBase, rest[0], onFailed, postId, 2, onPressMedia)}
             </View>
           ) : null}
         </View>
@@ -1079,18 +1377,27 @@ function MediaGrid({
       <View style={styles.bento}>
         <View style={[styles.bentoRow, { aspectRatio: 3 / 2 }]}>
           <View style={styles.bentoTall}>
-            {first ? mediaCell(apiBase, first, onFailed, postId) : null}
+            {first
+              ? mediaCell(apiBase, first, onFailed, postId, 0, onPressMedia)
+              : null}
           </View>
           <View style={styles.bentoRightWide}>
             {wide ? (
               <View style={styles.bentoWide}>
-                {mediaCell(apiBase, wide, onFailed, postId)}
+                {mediaCell(apiBase, wide, onFailed, postId, 1, onPressMedia)}
               </View>
             ) : null}
             <View style={styles.bentoSideRow}>
-              {pair.slice(0, 2).map((media) => (
+              {pair.slice(0, 2).map((media, i) => (
                 <View key={media.id} style={styles.bentoCell}>
-                  {mediaCell(apiBase, media, onFailed, postId)}
+                  {mediaCell(
+                    apiBase,
+                    media,
+                    onFailed,
+                    postId,
+                    2 + i,
+                    onPressMedia
+                  )}
                 </View>
               ))}
             </View>
@@ -1107,20 +1414,36 @@ function MediaGrid({
     <View style={styles.bento}>
       <View style={[styles.bentoRow, { aspectRatio: 3 / 2 }]}>
         <View style={styles.bentoTall}>
-          {first ? mediaCell(apiBase, first, onFailed, postId) : null}
+          {first
+            ? mediaCell(apiBase, first, onFailed, postId, 0, onPressMedia)
+            : null}
         </View>
         <View style={styles.bentoRightWide}>
           <View style={styles.bentoSideRow}>
-            {right.slice(0, 2).map((media) => (
+            {right.slice(0, 2).map((media, i) => (
               <View key={media.id} style={styles.bentoCell}>
-                {mediaCell(apiBase, media, onFailed, postId)}
+                {mediaCell(
+                  apiBase,
+                  media,
+                  onFailed,
+                  postId,
+                  1 + i,
+                  onPressMedia
+                )}
               </View>
             ))}
           </View>
           <View style={styles.bentoSideRow}>
-            {right.slice(2, 4).map((media) => (
+            {right.slice(2, 4).map((media, i) => (
               <View key={media.id} style={styles.bentoCell}>
-                {mediaCell(apiBase, media, onFailed, postId)}
+                {mediaCell(
+                  apiBase,
+                  media,
+                  onFailed,
+                  postId,
+                  3 + i,
+                  onPressMedia
+                )}
               </View>
             ))}
           </View>
@@ -1128,13 +1451,16 @@ function MediaGrid({
       </View>
       {overflow.length > 0 ? (
         <View style={styles.bentoRest}>
-          {overflow.slice(0, 3).map((media) => (
+          {overflow.slice(0, 3).map((media, i) => (
             <View key={media.id} style={styles.bentoRestCell}>
-              {mediaCell(apiBase, media, onFailed, postId)}
+              {mediaCell(apiBase, media, onFailed, postId, 5 + i, onPressMedia)}
             </View>
           ))}
           {overflow.length > 3 ? (
-            <OverflowTile count={overflow.length - 3} />
+            <OverflowTile
+              count={overflow.length - 3}
+              onPress={() => onPressMedia?.(5 + Math.min(3, overflow.length))}
+            />
           ) : null}
         </View>
       ) : null}
@@ -1146,15 +1472,28 @@ function mediaCell(
   apiBase: string,
   media: FeedMedia,
   onFailed: (id: string) => void,
-  postId: string
+  postId: string,
+  index: number,
+  onPressMedia?: (index: number) => void
 ) {
   if (isVideoMedia(media)) {
+    // Video tiles keep tap-to-play (the tap drives playback); the viewer
+    // route is reached from the detail card's single-image tiles and the
+    // overflow tile instead.
     return <VideoTile apiBase={apiBase} media={media} postId={postId} tile />;
   }
   if (isAudioMedia(media)) {
     return <AudioRow apiBase={apiBase} media={media} />;
   }
-  return <GridImage apiBase={apiBase} media={media} onFailed={onFailed} />;
+  return (
+    <GridImage
+      apiBase={apiBase}
+      index={index}
+      media={media}
+      onFailed={onFailed}
+      onPressMedia={onPressMedia}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1213,6 +1552,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     fontFamily: "SofiaProMed",
     fontSize: 12,
+    fontVariant: ["tabular-nums"],
     fontWeight: "normal",
   },
   audioTop: {
@@ -1257,14 +1597,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   captionBox: {
-    alignItems: "center",
     backgroundColor: "rgba(0, 0, 0, 0.85)",
     borderRadius: 8,
-    bottom: 48,
-    justifyContent: "center",
-    left: 12,
+    boxShadow:
+      "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)",
     paddingHorizontal: 10,
     paddingVertical: 4,
+  },
+  captionRow: {
+    alignItems: "center",
+    bottom: 48,
+    left: 12,
+    paddingHorizontal: 8,
     position: "absolute",
     right: 12,
   },
@@ -1275,6 +1619,15 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     lineHeight: 15,
     textAlign: "center",
+  },
+  fill: {
+    bottom: 0,
+    height: "100%",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: "100%",
   },
   gateAction: {
     alignItems: "center",
@@ -1299,7 +1652,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 2,
   },
-  gateBtn: {
+  gateBtnFill: {
     alignItems: "center",
     borderRadius: 9999,
     height: 36,
@@ -1308,9 +1661,13 @@ const styles = StyleSheet.create({
   },
   gateBtnText: {
     color: "#ffffff",
-    fontFamily: "SofiaProMed",
+    fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
+    letterSpacing: -0.35,
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { height: 1, width: 0 },
+    textShadowRadius: 1,
   },
   gateCopy: {
     flex: 1,
@@ -1340,11 +1697,6 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     padding: 16,
     width: "100%",
-  },
-  gatePress: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
   },
   gateRow: {
     alignItems: "center",
@@ -1426,12 +1778,6 @@ const styles = StyleSheet.create({
     left: 8,
     position: "absolute",
   },
-  mutePress: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    height: 28,
-  },
   overflowScrim: {
     bottom: 0,
     left: 0,
@@ -1452,20 +1798,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
-  playBadge: {
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.55)",
-    borderRadius: 9999,
-    height: 48,
-    justifyContent: "center",
-    position: "absolute",
-    width: 48,
-  },
-  playGradient: {
+  pillCircle: {
     alignItems: "center",
     borderRadius: 9999,
     height: 28,
     justifyContent: "center",
+    width: 28,
+  },
+  playBadge: {
+    borderRadius: 9999,
+    height: 28,
+    position: "absolute",
+    right: 8,
+    top: 8,
     width: 28,
   },
   playNudge: {
@@ -1479,44 +1824,7 @@ const styles = StyleSheet.create({
     right: 8,
     width: 28,
   },
-  posterCover: {
-    bottom: 0,
-    height: "100%",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: "100%",
-  },
-  posterImage: {
-    height: "100%",
-    overflow: "hidden",
-    width: "100%",
-  },
-  posterPlay: {
-    borderRadius: 9999,
-    height: 28,
-    position: "absolute",
-    right: 8,
-    top: 8,
-    width: 28,
-  },
-  posterPlayGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
-  },
-  posterScrim: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
-  pressedShift: {
-    opacity: 0.88,
+  pressedNudge: {
     transform: [{ translateY: 1 }],
   },
   single: {
@@ -1550,6 +1858,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   timePill: {
+    borderRadius: 6,
     bottom: 44,
     height: 20,
     position: "absolute",
@@ -1559,21 +1868,25 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontFamily: "SofiaProMed",
     fontSize: 10,
+    fontVariant: ["tabular-nums"],
     fontWeight: "normal",
   },
-  videoActive: {
-    position: "relative",
+  videoFailed: {
+    backgroundColor: "rgba(128, 128, 128, 0.08)",
   },
-  videoPlayer: {
-    height: "100%",
-    width: "100%",
-  },
-  videoPosterWrap: {
+  videoFrame: {
     overflow: "hidden",
+    position: "relative",
   },
   waveBar: {
     flex: 1,
     justifyContent: "center",
+  },
+  waveBars: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 1,
   },
   waveBox: {
     width: "100%",
@@ -1584,9 +1897,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   waveform: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 1,
     height: 40,
     marginTop: 8,
   },

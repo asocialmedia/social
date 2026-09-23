@@ -476,6 +476,14 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Firebase app config, gitignored (base64 of google-services.json).
+          # Not a credential - it carries the project's public-facing Firebase
+          # identifiers - but it is per-project and per-package, so it is kept
+          # out of the tree and injected here. The build aborts with a clear
+          # message when it is absent rather than shipping an APK whose native
+          # push is silently dead. The server-side FCM credential
+          # (FCM_SERVICE_ACCOUNT_JSON) is separate and lives only on the worker.
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
           # Metro inlines EXPO_PUBLIC_* into the JS bundle at build time, so
           # everything here is public inside the shipped APK. An unset entry
           # resolves to an empty string, letting the app's own defaults (or its
@@ -490,6 +498,13 @@ jobs:
           # backend before reintroducing a credential here.
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
           EXPO_PUBLIC_OTEL_ENDPOINT: ${{ vars.EXPO_PUBLIC_OTEL_ENDPOINT }}
+          # Public OAuth client id of the production auth service. Must match
+          # its GOOGLE_CLIENT_ID (the ID token audience). Turning this on makes
+          # release builds use the native Google account picker instead of a
+          # browser; without the matching Android OAuth client in Google Cloud
+          # the SDK fails with DEVELOPER_ERROR and the app falls back to the
+          # browser flow, so an unset or wrong value is never fatal.
+          EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
           # Public by design (it ships in the app and is served to every browser
           # on the web signup page); the matching secret stays server-side. The
           # app needs it to run the Turnstile challenge that gates signup and

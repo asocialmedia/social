@@ -354,15 +354,19 @@ export function processMediaAnalyze(
                   : null;
 
                 if (!existingNotification) {
-                  await prisma.notification.create({
-                    data: {
-                      issuerId: SYSTEM_MODERATION_USER_ID,
-                      postId: mediaWithOwner.postId ?? null,
-                      recipientId,
-                      type: "TRANSCRIPTION",
-                    },
-                  });
-                  await enqueueNotificationCreated(recipientId);
+                  const transcriptionNotification =
+                    await prisma.notification.create({
+                      data: {
+                        issuerId: SYSTEM_MODERATION_USER_ID,
+                        postId: mediaWithOwner.postId ?? null,
+                        recipientId,
+                        type: "TRANSCRIPTION",
+                      },
+                    });
+                  await enqueueNotificationCreated(
+                    recipientId,
+                    transcriptionNotification.id
+                  );
                   mediaLogger.info(
                     { mediaId: jobData.mediaId, recipientId },
                     "transcription completion notification dispatched"

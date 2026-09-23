@@ -61,6 +61,17 @@ describe("resolveHomeTab", () => {
       )
     ).toBe("personalized");
   });
+
+  test("keeps the account-only tabs resolvable so their prompt can be shown", () => {
+    // The content is gated (FeedList renders a sign-in prompt), not the tab:
+    // returning Latest here would make tapping "For you"/"Following" a no-op
+    // the guest cannot explain. A fresh guest still defaults to Latest.
+    expect(resolveHomeTab("personalized", false, null, true)).toBe(
+      "personalized"
+    );
+    expect(resolveHomeTab("following", false, null, true)).toBe("following");
+    expect(resolveHomeTab(null, false, null, true)).toBe("latest");
+  });
 });
 
 describe("resolveExploreTab", () => {

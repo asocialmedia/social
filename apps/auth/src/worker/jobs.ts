@@ -5,14 +5,20 @@ import {
   deleteObject,
   getTrendingUserIds,
   grantShitposterBadgeIfQualified,
+  listDevicePushTokens,
+  listPushSubscriptions,
+  notificationsInclude,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
+  pruneDevicePushTokens,
+  prunePushSubscriptions,
   redis,
   sweepEarlyBadges,
   syncTrendingBadges,
   unreadNotificationCache,
 } from "@asm/db";
+import { dispatchNotificationPush } from "@asm/notifications/server";
 
 import { resolveLogger, withSpan } from "./log";
 import type { WorkerLogger } from "./log";
@@ -104,18 +110,66 @@ export async function processPostDeleted(
   );
 }
 
-export async function processNotificationCreated({
-  recipientId,
-}: {
-  recipientId: string;
-}) {
+export async function processNotificationCreated(
+  {
+    notificationId,
+    recipientId,
+  }: {
+    notificationId?: string;
+    recipientId: string;
+  },
+  logger?: WorkerLogger
+) {
+  const log = resolveLogger(logger);
   await withSpan(
     "job.notification-created",
     async () => {
       await unreadNotificationCache.increment(recipientId);
+      // Push fan-out is best-effort and additive: the unread counter above is
+      // the durable part, so a push outage must never fail the job. The row is
+      // only re-read when the producer captured its id.
+      if (!notificationId) {
+        return;
+      }
+      await deliverNotificationPush(notificationId, log);
     },
     { "user.id": recipientId }
   );
+}
+
+// Loads a freshly created notification and fans it out to every registered
+// endpoint. Isolated so the job body above stays a two-liner and the push
+// failure path has one place to live.
+async function deliverNotificationPush(
+  notificationId: string,
+  log: WorkerLogger
+): Promise<void> {
+  const notification = await prisma.notification.findUnique({
+    include: notificationsInclude,
+    where: { id: notificationId },
+  });
+  if (!notification) {
+    // Deleted (or already cleaned up) between creation and delivery.
+    return;
+  }
+  await dispatchNotificationPush(notification, {
+    listDeviceTokens: (userId) =>
+      listDevicePushTokens(userId).then((rows) =>
+        rows.map((row) => ({
+          platform: row.platform,
+          provider: row.provider,
+          token: row.token,
+        }))
+      ),
+    listSubscriptions: (userId) => listPushSubscriptions(userId),
+    logger: {
+      error: (message, meta) => log.error(meta ?? {}, message),
+      info: (message, meta) => log.info(meta ?? {}, message),
+      warn: (message, meta) => log.warn(meta ?? {}, message),
+    },
+    pruneDeviceTokens: (tokens) => pruneDevicePushTokens(tokens),
+    pruneSubscriptions: (endpoints) => prunePushSubscriptions(endpoints),
+  });
 }
 
 export async function processNotificationDeleted({

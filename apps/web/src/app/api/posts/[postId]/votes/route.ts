@@ -1,6 +1,4 @@
 import {
-  enqueueNotificationCreated,
-  enqueueNotificationDeleted,
   getPostDataInclude,
   invalidateAuraSignals,
   invalidateFypProfile,
@@ -11,6 +9,11 @@ import type { PostData } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/aura/db-transactions";
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+  resetNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 import { recordRecommendationInteraction } from "@/lib/recommendations/record-event";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
@@ -82,7 +85,10 @@ export async function POST(
     // Serializable + retry: a concurrent vote must re-read the committed
     // state instead of double-applying the aura delta (READ COMMITTED lets
     // both writers observe the same pre-race value).
+    const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
+      // A serializable retry re-runs this callback; start its events clean.
+      resetNotificationEvents(notificationEvents);
       const post = await tx.post.findUnique({
         select: { id: true, userId: true },
         where: { id: postId },
@@ -162,7 +168,7 @@ export async function POST(
       const isSelfVote = post.userId === user.id;
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
-          await tx.notification.create({
+          const amplifyNotification = await tx.notification.create({
             data: {
               issuerId: user.id,
               postId,
@@ -170,11 +176,9 @@ export async function POST(
               type: "AMPLIFY",
             },
           });
-          enqueueNotificationCreated(post.userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue amplify notification event:",
-              error
-            );
+          notificationEvents.created.push({
+            notificationId: amplifyNotification.id,
+            recipientId: post.userId,
           });
         } else if (value !== 1 && oldValue === 1) {
           await tx.notification.deleteMany({
@@ -185,12 +189,7 @@ export async function POST(
               type: "AMPLIFY",
             },
           });
-          enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
-            console.error(
-              "Failed to enqueue amplify removal notification event:",
-              error
-            );
-          });
+          notificationEvents.deleted.push(post.userId);
         }
       }
 
@@ -199,6 +198,9 @@ export async function POST(
         where: { id: postId },
       });
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "amplify");
 
     if (!result) {
       return Response.json({ error: "Post not found" }, { status: 404 });
@@ -251,7 +253,10 @@ export async function DELETE(
 
   let auraChanged = false;
   try {
+    const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
+      // A serializable retry re-runs this callback; start its events clean.
+      resetNotificationEvents(notificationEvents);
       const post = await tx.post.findUnique({
         select: { id: true, userId: true },
         where: { id: postId },
@@ -319,12 +324,7 @@ export async function DELETE(
             type: "AMPLIFY",
           },
         });
-        enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
-          console.error(
-            "Failed to enqueue amplify removal notification event:",
-            error
-          );
-        });
+        notificationEvents.deleted.push(post.userId);
       }
 
       return await tx.post.findUnique({
@@ -332,6 +332,9 @@ export async function DELETE(
         where: { id: postId },
       });
     });
+
+    // Committed: now the worker can see the rows it is told about.
+    flushNotificationEvents(notificationEvents, "amplify");
 
     if (!result) {
       return Response.json({ error: "Post not found" }, { status: 404 });

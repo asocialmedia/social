@@ -33,7 +33,14 @@ export interface PostDeletedJobData {
 
 export type ContentEvent =
   | { type: "post-deleted"; postId: string }
-  | { type: "notification-created"; recipientId: string }
+  | {
+      type: "notification-created";
+      recipientId: string;
+      // The created row, when the caller could capture it. The unread badge
+      // only needs recipientId; push delivery needs the row, so jobs without
+      // an id bump the counter and skip the fan-out.
+      notificationId?: string;
+    }
   | { type: "notification-deleted"; recipientId: string };
 
 // Queues are created lazily and memoized so importing this module from the
@@ -194,9 +201,11 @@ export async function enqueuePostDeleted(
 }
 
 export async function enqueueNotificationCreated(
-  recipientId: string
+  recipientId: string,
+  notificationId?: string
 ): Promise<void> {
   await getQueue(CONTENT_EVENTS_QUEUE).add("notification-created", {
+    notificationId,
     recipientId,
   });
 }

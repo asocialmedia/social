@@ -30,6 +30,12 @@ import { fileURLToPath } from "node:url";
 
 import { $ } from "bun";
 
+import {
+  googleServicesCandidates,
+  pickFirstExisting,
+  validateGoogleServices,
+} from "./google-services-lib";
+
 const repoRoot = path.resolve(
   fileURLToPath(new URL("../../..", import.meta.url))
 );
@@ -38,6 +44,15 @@ const MOBILE_DIR = path.join(repoRoot, "apps", "mobile");
 const ANDROID_DIR = path.join(MOBILE_DIR, "android");
 const APP_DIR = path.join(ANDROID_DIR, "app");
 const ARTIFACT_DIR = path.join(repoRoot, "build-artifacts");
+
+// Where app.json's android.googleServicesFile points (relative to apps/mobile),
+// and therefore where the file must sit before `expo prebuild` runs: the Google
+// Services config plugin copies it into android/app/ and reads it during the
+// same prebuild pass.
+const GOOGLE_SERVICES_FILE = path.join(MOBILE_DIR, "google-services.json");
+// Local dev convenience: the file may live at the repo root instead (gitignored
+// either way). CI supplies it as a base64 secret, so neither is committed.
+const ROOT_GOOGLE_SERVICES_FILE = path.join(repoRoot, "google-services.json");
 
 // shipping APKs carry arm64-v8a; the other ABIs are emulator-only (x86/x86_64)
 // or 32-bit legacy, and together account for ~62 MB nobody downloads.
@@ -60,22 +75,80 @@ async function readCredentialFile(name: string): Promise<string | null> {
   }
 }
 
+interface ResolvedGoogleServices {
+  content: string;
+  // Where the config came from, for the build log.
+  source: string;
+}
+
+// Resolves google-services.json for the build. Resolution order, first match
+// wins:
+//   1. GOOGLE_SERVICES_JSON_BASE64 - the CI secret (the file is gitignored).
+//   2. GOOGLE_SERVICES_JSON        - explicit path override.
+//   3. apps/mobile/google-services.json - already provisioned by a past build.
+//   4. <repo>/google-services.json - local dev convenience.
+//
+// Unlike the keystore this is not a credential - it holds public-facing
+// Firebase identifiers - so the copy written into apps/mobile is left in place
+// for the next prebuild rather than cleaned up like the signing key.
+async function resolveGoogleServices(): Promise<ResolvedGoogleServices> {
+  const base64 = process.env.GOOGLE_SERVICES_JSON_BASE64?.trim();
+  if (base64) {
+    return {
+      content: Buffer.from(base64, "base64").toString("utf-8"),
+      source: "GOOGLE_SERVICES_JSON_BASE64",
+    };
+  }
+
+  const candidates = googleServicesCandidates({
+    explicitPath: process.env.GOOGLE_SERVICES_JSON?.trim() || null,
+    mobileFile: GOOGLE_SERVICES_FILE,
+    rootFile: ROOT_GOOGLE_SERVICES_FILE,
+  });
+  // Read every candidate up front (concurrently), then pick the first that
+  // existed, preserving the documented precedence.
+  const contents = await Promise.all(
+    candidates.map(async (candidate) => {
+      try {
+        return await readFile(candidate.path, "utf-8");
+      } catch {
+        return null;
+      }
+    })
+  );
+  const resolved = pickFirstExisting(candidates, contents);
+  if (!resolved) {
+    fail(
+      "Missing google-services.json. Set GOOGLE_SERVICES_JSON_BASE64 (CI), set GOOGLE_SERVICES_JSON to a path, or place the file at the repo root."
+    );
+  }
+  return resolved;
+}
+
+// Rejects a config that would register the wrong application. Firebase mints no
+// token for a package it does not know, so a mismatch ships an APK whose push
+// is silently dead - fail the build instead.
+function assertGoogleServices(content: string, source: string): void {
+  const verdict = validateGoogleServices(content);
+  if (!verdict.ok) {
+    fail(`google-services.json from ${source} ${verdict.error}.`);
+  }
+}
+
 interface ResolvedKeystore {
   cleanup: () => Promise<void>;
   keyAlias: string;
   keyPassword: string;
-  /** Where the keystore lives now; copied into android/app/ after prebuild. */
+  // Where the keystore lives now; copied into android/app/ after prebuild.
   sourcePath: string;
   storePassword: string;
 }
 
-/**
- * Resolves the keystore to a file outside the native project.
- *
- * It deliberately does NOT write into android/app/ yet: `expo prebuild --clean`
- * deletes and regenerates that whole directory, so anything placed there before
- * prebuild is wiped. `provisionKeystore` copies it in afterwards.
- */
+// Resolves the keystore to a file outside the native project.
+//
+// It deliberately does NOT write into android/app/ yet: `expo prebuild --clean`
+// deletes and regenerates that whole directory, so anything placed there before
+// prebuild is wiped. `provisionKeystore` copies it in afterwards.
 async function resolveKeystorePath(): Promise<{
   cleanup: () => Promise<void>;
   path: string;
@@ -123,15 +196,13 @@ async function keystoreType(
   return match[1];
 }
 
-/**
- * Proves a JKS key can actually be decrypted with the given key password.
- *
- * Only meaningful for JKS: `keytool` ignores `-srckeypass` for PKCS12 (it warns
- * and falls back to the store password), so a PKCS12 probe always succeeds.
- * Gradle otherwise only reports a bad key password as
- * `KeytoolException: ... Given final block not properly padded` after a full
- * ~3 minute build, so fail fast here instead.
- */
+// Proves a JKS key can actually be decrypted with the given key password.
+//
+// Only meaningful for JKS: `keytool` ignores `-srckeypass` for PKCS12 (it warns
+// and falls back to the store password), so a PKCS12 probe always succeeds.
+// Gradle otherwise only reports a bad key password as
+// `KeytoolException: ... Given final block not properly padded` after a full
+// ~3 minute build, so fail fast here instead.
 async function assertKeyReadable(
   keystorePath: string,
   storePassword: string,
@@ -262,6 +333,16 @@ async function main(): Promise<void> {
   const abi = process.env.ASM_ANDROID_ABI ?? DEFAULT_ABI;
 
   try {
+    // Must run BEFORE prebuild: the Google Services config plugin copies the
+    // file into android/app/ and wires the Gradle plugin during the same
+    // prebuild pass, and app.config.ts only declares googleServicesFile when
+    // the file is present.
+    step("Provisioning google-services.json");
+    const googleServices = await resolveGoogleServices();
+    assertGoogleServices(googleServices.content, googleServices.source);
+    await writeFile(GOOGLE_SERVICES_FILE, googleServices.content);
+    console.log(`Source: ${googleServices.source}`);
+
     step("Generating native Android project");
     await $`bunx expo prebuild --platform android --no-install --clean`.cwd(
       MOBILE_DIR

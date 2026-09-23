@@ -25,6 +25,7 @@ import React, {
 import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
@@ -111,6 +112,11 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       ? requestedTab
       : defaultTab;
   const isPersonalized = gustTab === "personalized" && !initialPostId;
+  // For you is ranked from the viewer's own watch/amplify signals, so it is
+  // account-only. A guest who opens it gets a sign-in prompt instead of a
+  // feed, and nothing is fetched; a ?id= deep link is chronological and stays
+  // viewable.
+  const gatedPersonalized = isPersonalized && !isLoggedIn;
 
   const handleTabChange = useCallback(
     (value: "latest" | "personalized") => {
@@ -207,6 +213,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     refetch,
     status,
   } = useInfiniteQuery({
+    enabled: !gatedPersonalized,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) => {
@@ -543,6 +550,21 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   }, [autoOpenCreate, openComposer, user]);
 
   const renderContent = () => {
+    // Checked before the loading branches: a disabled (gated) query stays
+    // "pending" forever, which would otherwise render the skeleton.
+    if (gatedPersonalized) {
+      return (
+        <div className="flex h-full w-full items-center justify-center p-6">
+          <AuthPromptCard
+            className="w-full max-w-md"
+            description="Your Gusts feed learns from what you watch, amplify and bookmark."
+            imageSize={128}
+            title="Log in for Gusts made for you"
+          />
+        </div>
+      );
+    }
+
     if (status === "pending") {
       return (
         <div className="flex h-full w-full items-center justify-center">

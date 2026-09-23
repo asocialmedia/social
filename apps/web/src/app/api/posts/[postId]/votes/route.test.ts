@@ -65,6 +65,8 @@ const mockTx = {
   notification: {
     create: (args: { data: Record<string, unknown> }) => {
       state.notifications.push(args.data);
+      // The route hands the created row's id to the notification queue.
+      return { id: `notif-${state.notifications.length}`, ...args.data };
     },
     deleteMany: (args: {
       where: {
