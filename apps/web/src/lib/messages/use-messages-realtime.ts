@@ -12,10 +12,13 @@ interface MessageStreamEvent {
   kind:
     | "message.created"
     | "message.deleted"
+    | "message.edited"
     | "conversation.read"
+    | "conversation.delivered"
     | "typing.started"
     | "keys.rotated";
   conversationId: string;
+  deliveredAt?: string;
   message?: unknown;
   userId?: string;
 }
@@ -28,7 +31,9 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
+      parsed.kind !== "message.edited" &&
       parsed.kind !== "conversation.read" &&
+      parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
       parsed.kind !== "keys.rotated"
     ) {
@@ -39,7 +44,8 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
     }
     if (
       (parsed.kind === "message.created" ||
-        parsed.kind === "message.deleted") &&
+        parsed.kind === "message.deleted" ||
+        parsed.kind === "message.edited") &&
       parsed.message === undefined
     ) {
       return null;
@@ -47,8 +53,16 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (parsed.kind === "typing.started" && typeof parsed.userId !== "string") {
       return null;
     }
+    if (
+      parsed.kind === "conversation.delivered" &&
+      (typeof parsed.userId !== "string" ||
+        typeof parsed.deliveredAt !== "string")
+    ) {
+      return null;
+    }
     return {
       conversationId: parsed.conversationId,
+      deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
       message: parsed.message,
       userId: parsed.userId,
@@ -149,6 +163,7 @@ export function useMessagesRealtime(
   onEvent: (event: {
     conversationId: string;
     kind: MessageStreamEvent["kind"];
+    deliveredAt?: string;
     message?: MessageData;
     userId?: string;
   }) => void,
@@ -217,6 +232,7 @@ export function useMessagesRealtime(
 
       onEventRef.current({
         conversationId: event.conversationId,
+        deliveredAt: event.deliveredAt,
         kind: event.kind,
         message,
         userId: event.userId,

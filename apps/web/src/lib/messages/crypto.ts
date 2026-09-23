@@ -374,6 +374,18 @@ export function getMediaImages(
   return [{ height: content.height, url: content.url, width: content.width }];
 }
 
+// Returns a copy of a payload with its text rewritten. An edit only ever
+// changes the human-visible body (the text of a text message, the caption of a
+// media album or post share); every structural field — type, images, postId,
+// reply linkage — is preserved so the message keeps its shape. The ratchet
+// index lives on the row, not the payload, so it is untouched by design.
+export function editMessagePayload(
+  payload: MessagePayload,
+  content: string
+): MessagePayload {
+  return { ...payload, content };
+}
+
 export interface EncryptedMessage {
   ciphertext: string;
   iv: string;

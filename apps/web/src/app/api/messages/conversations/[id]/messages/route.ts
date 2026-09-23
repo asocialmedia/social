@@ -9,6 +9,7 @@ import {
   messageSenderSelect,
   nextRatchetIndex,
   parseJsonBody,
+  visibleToUser,
 } from "@/lib/messages/server";
 
 const PAGE_SIZE = 30;
@@ -41,7 +42,13 @@ export async function GET(
     include: messageSenderSelect(),
     orderBy: [{ id: "desc" }],
     take: PAGE_SIZE + 1,
-    where: { conversationId: id, ...(cursor ? { id: { lt: cursor } } : {}) },
+    where: {
+      conversationId: id,
+      ...(cursor ? { id: { lt: cursor } } : {}),
+      // "Delete for me": a hidden message never appears in this user's thread,
+      // even on a cursor page that predates the hide.
+      ...visibleToUser(user.id),
+    },
   });
 
   const hasMore = messages.length > PAGE_SIZE;

@@ -7,7 +7,10 @@ const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockCount = mock(() => 4);
 const mockDecrement = mock(() => 0);
 const mockUpdate = mock(() => ({}));
-const mockPublishRead = mock(() => Promise.resolve());
+const mockPublishRead = mock(
+  (_conversationId: string, _userId: string, _readAt: string) =>
+    Promise.resolve()
+);
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
@@ -90,7 +93,7 @@ describe("POST /api/messages/conversations/:id/read", () => {
     );
     expect(mockDecrement).toHaveBeenCalledWith("user1", 4);
     const updateArgs = mockUpdate.mock.calls[0]?.[0] as {
-      data: { lastReadAt: Date };
+      data: { lastDeliveredAt: Date; lastReadAt: Date };
       where: {
         conversationId_userId: { conversationId: string; userId: string };
       };
@@ -100,7 +103,16 @@ describe("POST /api/messages/conversations/:id/read", () => {
       userId: "user1",
     });
     expect(updateArgs.data.lastReadAt).toBeInstanceOf(Date);
-    expect(mockPublishRead).toHaveBeenCalledWith("convo-1", "user1");
+    // Reading implies delivery, so both watermarks advance in one write.
+    expect(updateArgs.data.lastDeliveredAt).toBeInstanceOf(Date);
+    // The read event carries the read timestamp so senders can patch their
+    // watermark without refetching the conversation detail.
+    expect(mockPublishRead).toHaveBeenCalledTimes(1);
+    expect(mockPublishRead).toHaveBeenCalledWith(
+      "convo-1",
+      "user1",
+      expect.any(String)
+    );
   });
 
   test("skips the decrement when there is nothing unread", async () => {

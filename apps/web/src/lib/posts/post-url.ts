@@ -164,3 +164,71 @@ export function buildPostMediaRequestPath(params: {
     : `/posts/${params.postId}`;
   return `${base}/media/${params.index}`;
 }
+
+// Recognizes an asocialmedia post URL and extracts its (possibly short) post id,
+// or null for anything else. Covers every canonical shape the app emits:
+// /posts/<id>[/slug], /a/<slug>/posts/<id>[/slug], /gusts?id=<id>. The
+// extracted id may be the 8-char short prefix; /api/posts/<id> accepts a unique
+// prefix, so the embed fetch still resolves it. Used to render an internal post
+// link as a rich post card instead of a generic external-link preview.
+//
+// Host-gated: a foreign site's /posts/123 is NOT an internal post, so only our
+// own origin (or a relative path, which can only be ours) qualifies. `origin`
+// is injectable so the browser passes window.location.origin and tests can pin
+// it; when omitted, siteConfig.url's host is used.
+const PLACEHOLDER_ORIGIN = "https://internal.invalid";
+
+export function postIdFromUrl(
+  rawUrl: string,
+  origin: string = siteConfig.url
+): string | null {
+  let parsed: URL;
+  const isRelative = rawUrl.startsWith("/");
+  try {
+    // Relative inputs resolve against a sentinel base so a copied path (e.g.
+    // from a link preview) still parses; only path/query are read.
+    parsed = new URL(rawUrl, isRelative ? PLACEHOLDER_ORIGIN : origin);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+  if (!isRelative) {
+    // An absolute URL must point at our own origin; compare hosts only, so
+    // http/https and any port difference still match the same site.
+    let expectedHost: string;
+    try {
+      expectedHost = new URL(origin).host;
+    } catch {
+      return null;
+    }
+    if (parsed.host !== expectedHost) {
+      return null;
+    }
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+
+  // /gusts?id=<id>
+  if (segments[0] === "gusts") {
+    const id = parsed.searchParams.get("id");
+    return id && id.length >= 8 ? id : null;
+  }
+
+  // /posts/<id>[/slug]
+  if (segments[0] === "posts" && segments[1]) {
+    return segments[1];
+  }
+
+  // /a/<slug>/posts/<id>[/slug]
+  if (
+    segments[0] === "a" &&
+    segments[1] &&
+    segments[2] === "posts" &&
+    segments[3]
+  ) {
+    return segments[3];
+  }
+
+  return null;
+}

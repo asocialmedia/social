@@ -97,8 +97,9 @@ export function messageSenderSelect() {
 
 // The where clause shared by every unread-message count: the current user's
 // own sent messages never accrue a badge (the writer only increments the
-// peer), and soft-deleted messages are not counted. Kept in one place so the
-// read, list, and badge-seed routes cannot drift.
+// peer), soft-deleted messages are not counted, and messages the user hid with
+// "delete for me" drop out too. Kept in one place so the read, list, and
+// badge-seed routes cannot drift.
 export function unreadMessageWhere(params: {
   conversationId: string;
   lastReadAt: Date | null;
@@ -107,14 +108,26 @@ export function unreadMessageWhere(params: {
   conversationId: string;
   createdAt: { gt: Date };
   deletedAt: null;
+  hiddenFor: { none: { userId: string } };
   senderId: { not: string };
 } {
   return {
     conversationId: params.conversationId,
     createdAt: { gt: params.lastReadAt ?? new Date(0) },
     deletedAt: null,
+    hiddenFor: { none: { userId: params.userId } },
     senderId: { not: params.userId },
   };
+}
+
+// The per-user visibility filter for "delete for me": a message is visible to
+// `userId` unless a MessageHidden row names them. Spread into any message
+// `where` (thread pages, list previews) so a hidden message can never leak back
+// through a query that forgot the join.
+export function visibleToUser(userId: string): {
+  hiddenFor: { none: { userId: string } };
+} {
+  return { hiddenFor: { none: { userId } } };
 }
 
 // The sender's current ratchet index. The authoritative source is the message

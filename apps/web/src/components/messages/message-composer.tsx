@@ -5,10 +5,12 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUp,
+  Check,
   Clapperboard,
   ImagePlus,
   Loader2,
   MessageSquareQuote,
+  Pencil,
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -42,6 +44,13 @@ const MessageImageEditDialog = dynamic(
 
 interface MessageComposerProps {
   conversation: ConversationDetailResponse;
+  editTarget: {
+    content: string;
+    id: string;
+    payloadType: MessagePayload["type"];
+  } | null;
+  onEditCancel: () => void;
+  onEditSave: (content: string) => Promise<boolean>;
   onReplyCancel: () => void;
   onSent: () => void;
   replyTarget: {
@@ -91,6 +100,9 @@ async function sendWithRatchetRetry(
 
 export function MessageComposer({
   conversation,
+  editTarget,
+  onEditCancel,
+  onEditSave,
   onReplyCancel,
   onSent,
   replyTarget,
@@ -99,6 +111,7 @@ export function MessageComposer({
   const { privateKey } = useMessagesIdentity();
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -106,8 +119,32 @@ export function MessageComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastTypingRef = useRef(0);
+  // The message id whose text the textarea currently holds. When it changes,
+  // the composer replaces its draft with that message's body; comparing the id
+  // (not the string) means typing in an active edit is never clobbered by a
+  // re-render.
+  const seededEditIdRef = useRef<string | null>(null);
 
   const conversationId = conversation.conversation.id;
+  const editing = editTarget !== null;
+
+  // Seed the textarea when entering edit mode (or switching between messages).
+  // Deferred through a microtask so the effect body never sets state
+  // synchronously, matching the repo's pattern for derived-state sync.
+  useEffect(() => {
+    const target = editTarget;
+    if (!target) {
+      seededEditIdRef.current = null;
+      return;
+    }
+    if (seededEditIdRef.current === target.id) {
+      return;
+    }
+    seededEditIdRef.current = target.id;
+    queueMicrotask(() => {
+      setText(target.content);
+    });
+  }, [editTarget]);
 
   const {
     addFiles,
@@ -266,7 +303,32 @@ export function MessageComposer({
     ]
   );
 
+  const handleEditSave = useCallback(async () => {
+    const content = text.trim();
+    if (savingEdit || !editing) {
+      return;
+    }
+    // A text message must keep a body; a media/post caption may be cleared.
+    if (editTarget?.payloadType === "text" && content.length === 0) {
+      return;
+    }
+    setSavingEdit(true);
+    const ok = await onEditSave(content);
+    setSavingEdit(false);
+    if (ok) {
+      setText("");
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus({ preventScroll: true });
+      });
+    }
+  }, [editing, editTarget?.payloadType, onEditSave, savingEdit, text]);
+
   const handleSend = useCallback(async () => {
+    // Edit mode repurposes the send button into "save changes".
+    if (editing) {
+      await handleEditSave();
+      return;
+    }
     const content = text.trim();
     if (sending) {
       return;
@@ -349,6 +411,8 @@ export function MessageComposer({
   }, [
     attachments.length,
     canSend,
+    editing,
+    handleEditSave,
     peer,
     privateKey,
     readyGroups,
@@ -447,8 +511,20 @@ export function MessageComposer({
     setEditingId(id);
   }, []);
 
+  // Leaving edit mode must not leave the edited body sitting in the composer as
+  // the next draft; clear it back to empty.
+  const handleCancelEdit = useCallback(() => {
+    setText("");
+    onEditCancel();
+  }, [onEditCancel]);
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Escape" && editing) {
+        event.preventDefault();
+        handleCancelEdit();
+        return;
+      }
       // While an IME composition is in flight the Enter key confirms the
       // candidate, not the message; only send on a bare Enter.
       if (
@@ -460,16 +536,32 @@ export function MessageComposer({
         void handleSend();
       }
     },
-    [handleSend]
+    [editing, handleCancelEdit, handleSend]
   );
 
-  const busy = sending;
-  // Send is allowed with a caption, an album, or both; an album must be fully
-  // uploaded (and error-free) before it goes out.
-  const sendDisabled =
-    busy ||
-    isUploading ||
-    (attachments.length > 0 ? !canSend : text.trim().length === 0);
+  const busy = sending || savingEdit;
+  // In edit mode only the text matters: attachments are hidden, so the button
+  // is enabled purely by a non-empty body. A media/post caption may be cleared
+  // to remove it, so an empty body is allowed for those types.
+  const emptyBodyBlocksSave =
+    editTarget?.payloadType === "text" && text.trim().length === 0;
+  const sendDisabled = editing
+    ? busy || emptyBodyBlocksSave
+    : busy ||
+      isUploading ||
+      (attachments.length > 0 ? !canSend : text.trim().length === 0);
+
+  // The send button doubles as a save button in edit mode; a spinner wins while
+  // either request is in flight.
+  function renderSendIcon() {
+    if (busy) {
+      return <Loader2 className="h-4 w-4 animate-spin" />;
+    }
+    if (editing) {
+      return <Check className="h-4 w-4" />;
+    }
+    return <ArrowUp className="h-4 w-4" />;
+  }
 
   return (
     <div
@@ -481,7 +573,29 @@ export function MessageComposer({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {replyTarget ? (
+      {editing ? (
+        <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
+          <Pencil className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <span className="text-muted-foreground">Editing message</span>
+            {editTarget.content ? (
+              <span className="text-muted-foreground block truncate">
+                {editTarget.content}
+              </span>
+            ) : null}
+          </div>
+          <button
+            aria-label="Cancel edit"
+            className="icon-btn-3d ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+            onClick={handleCancelEdit}
+            type="button"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      {replyTarget && !editing ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <MessageSquareQuote className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
           <div className="min-w-0">
@@ -509,7 +623,7 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      {gifPickerOpen ? (
+      {gifPickerOpen && !editing ? (
         <div className="panel-3d mb-2 w-full rounded-2xl p-2">
           <KlipyGifPicker
             disabled={busy}
@@ -520,12 +634,14 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      <MessageAttachmentStrip
-        attachments={attachments}
-        onEdit={handleEditAttachment}
-        onRemove={removeAttachment}
-        onRetry={retryAttachment}
-      />
+      {editing ? null : (
+        <MessageAttachmentStrip
+          attachments={attachments}
+          onEdit={handleEditAttachment}
+          onRemove={removeAttachment}
+          onRetry={retryAttachment}
+        />
+      )}
 
       <div className="reels-input relative flex items-center gap-2 rounded-2xl! px-3 py-2">
         {dragActive ? (
@@ -548,7 +664,9 @@ export function MessageComposer({
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
-            if (value.trim().length > 0) {
+            // Typing heartbeats are meaningless while editing an existing
+            // message; skip them so an edit never pings the peer.
+            if (!editing && value.trim().length > 0) {
               // Typing indicators are throttled to one heartbeat per 3s; the
               // peer's client auto-clears after a timeout.
               const now = Date.now();
@@ -560,7 +678,11 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={`Message ${peer?.user.displayName ?? "them"}…`}
+          placeholder={
+            editing
+              ? "Edit message…"
+              : `Message ${peer?.user.displayName ?? "them"}…`
+          }
           ref={textareaRef}
           rows={1}
           value={text}
@@ -570,9 +692,9 @@ export function MessageComposer({
           className={cn(
             "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
             "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            busy && "opacity-50"
+            (busy || editing) && "opacity-50"
           )}
-          disabled={busy}
+          disabled={busy || editing}
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
@@ -585,16 +707,16 @@ export function MessageComposer({
             gifPickerOpen
               ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
               : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            busy && "opacity-50"
+            (busy || editing) && "opacity-50"
           )}
-          disabled={busy}
+          disabled={busy || editing}
           onClick={() => setGifPickerOpen((prev) => !prev)}
           type="button"
         >
           <Clapperboard className="size-4" />
         </button>
         <button
-          aria-label="Send message"
+          aria-label={editing ? "Save edit" : "Send message"}
           className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
           disabled={sendDisabled}
           onClick={() => {
@@ -606,11 +728,7 @@ export function MessageComposer({
           onMouseDown={(event) => event.preventDefault()}
           type="button"
         >
-          {sending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ArrowUp className="h-4 w-4" />
-          )}
+          {renderSendIcon()}
         </button>
       </div>
 

@@ -8,13 +8,14 @@ import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 
 import {
+  decryptMessage,
   encryptMessage,
   generateRootKey,
   publicKeyBase64ToJwk,
   unwrapRootKey,
   wrapRootKey,
 } from "./crypto";
-import type { EncryptedBlob, MessagePayload } from "./crypto";
+import type { EncryptedBlob, EncryptedMessage, MessagePayload } from "./crypto";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -367,6 +368,46 @@ async function readImageDimensions(
   return null;
 }
 
+// Re-encrypts an existing message under the exact root-key epoch it was
+// originally written with, so an edit stays readable to the peer. The message
+// row stores only the ratchet index, not the epoch, so the epoch is discovered
+// by trial-decrypting the current ciphertext against each candidate root (the
+// wrong epoch fails its AES-GCM tag cleanly). Returns null when none of the
+// available roots can read the message — the caller then refuses the edit
+// instead of writing ciphertext nobody, including the peer, could decrypt.
+export async function reencryptMessageForEdit(params: {
+  conversationId: string;
+  current: EncryptedMessage;
+  editedPayload: MessagePayload;
+  rootKeys: Uint8Array[];
+  senderId: string;
+}): Promise<EncryptedMessage | null> {
+  const { conversationId, current, editedPayload, rootKeys, senderId } = params;
+  // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
+  for (const rootKey of rootKeys) {
+    try {
+      // Prove this epoch owns the message before re-encrypting under it; the
+      // wrong epoch fails the AES-GCM tag and falls through to the next.
+      await decryptMessage(rootKey, senderId, conversationId, {
+        ciphertext: current.ciphertext,
+        iv: current.iv,
+        ratchetIndex: current.ratchetIndex,
+      });
+    } catch {
+      continue;
+    }
+    return await encryptMessage(
+      rootKey,
+      senderId,
+      current.ratchetIndex,
+      conversationId,
+      editedPayload
+    );
+  }
+  // oxlint-enable no-await-in-loop
+  return null;
+}
+
 export async function sendEncryptedMessage(
   conversationId: string,
   rootKey: Uint8Array,
@@ -436,6 +477,76 @@ export async function deleteMessage(messageId: string): Promise<void> {
   }
 }
 
+// "Delete for me": hide one or more messages from this account only. Batched so
+// selecting a run of messages is one request. Returns how many were hidden
+// (ids outside the conversation are ignored by the server).
+export async function hideMessages(
+  conversationId: string,
+  messageIds: string[]
+): Promise<number> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/hide`,
+    {
+      body: JSON.stringify({ messageIds }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const json = (await response.json()) as { hidden?: number };
+  return json.hidden ?? 0;
+}
+
+// Reports that this browser received a peer message, moving the member's
+// delivery watermark forward so the sender can show Delivered. Best-effort at
+// the call site: a dropped ack is reconciled from the conversation detail.
+export async function ackMessageDelivered(
+  conversationId: string,
+  messageId: string
+): Promise<void> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/delivered`,
+    {
+      body: JSON.stringify({ messageId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+}
+
+// Rewrites a message's ciphertext in place (the server keeps the ratchet index,
+// so the receiver re-decrypts the row instead of appending one). Returns the
+// updated row so the caller can fold it into the transcript cache.
+export async function editMessage(
+  messageId: string,
+  encrypted: Pick<EncryptedMessage, "ciphertext" | "iv">
+): Promise<MessageData> {
+  const response = await fetch(`/api/messages/messages/${messageId}`, {
+    body: JSON.stringify({
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+    }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const json = (await response.json()) as { message?: MessageData };
+  if (!json.message) {
+    throw new Error("Edit succeeded but no message was returned");
+  }
+  return json.message;
+}
+
 export async function searchMessageUsers(
   query: string
 ): Promise<SearchUserResult[]> {
@@ -502,6 +613,71 @@ export function appendMessageToLastPage<
     messages: [...lastPage.messages, message],
   };
   return pagesCopy;
+}
+
+// Replaces an existing message row in place across an infinite-query page list,
+// matching by id. Returns null when no page holds the id (an edit for a message
+// this session has not loaded), so callers can skip a needless cache write.
+// The edit never changes the row's position: the same id stays in the same
+// slot, so virtualizer keys, order, and scroll anchoring are unaffected.
+export function updateMessageInPages<
+  T extends { id: string },
+  P extends { messages: T[] },
+>(pages: P[], message: T): P[] | null {
+  let changed = false;
+  const nextPages = pages.map((page) => {
+    if (!page.messages.some((m) => m.id === message.id)) {
+      return page;
+    }
+    changed = true;
+    return {
+      ...page,
+      messages: page.messages.map((m) => (m.id === message.id ? message : m)),
+    };
+  });
+  return changed ? nextPages : null;
+}
+
+// Removes one or more message rows across an infinite-query page list. Used by
+// "delete for me", where the rows must disappear from the transcript entirely
+// (not just be marked deleted). Returns null when nothing was present so
+// callers can skip a needless cache write.
+export function removeMessagesFromPages<
+  T extends { id: string },
+  P extends { messages: T[] },
+>(pages: P[], ids: ReadonlySet<string>): P[] | null {
+  let changed = false;
+  const nextPages = pages.map((page) => {
+    const messages = page.messages.filter((message) => !ids.has(message.id));
+    if (messages.length === page.messages.length) {
+      return page;
+    }
+    changed = true;
+    return { ...page, messages };
+  });
+  return changed ? nextPages : null;
+}
+
+// Marks rows as globally deleted in place (the "delete for everyone" optimistic
+// fold), keeping the same slot so virtualizer keys and scroll anchoring hold.
+export function markMessagesDeletedInPages<
+  T extends { deletedAt: Date | string | null; id: string },
+  P extends { messages: T[] },
+>(pages: P[], ids: ReadonlySet<string>, deletedAt: Date): P[] | null {
+  let changed = false;
+  const nextPages = pages.map((page) => {
+    if (!page.messages.some((message) => ids.has(message.id))) {
+      return page;
+    }
+    changed = true;
+    return {
+      ...page,
+      messages: page.messages.map((message) =>
+        ids.has(message.id) ? { ...message, deletedAt } : message
+      ),
+    };
+  });
+  return changed ? nextPages : null;
 }
 
 // Unwraps the root key of a conversation using the current user's private key

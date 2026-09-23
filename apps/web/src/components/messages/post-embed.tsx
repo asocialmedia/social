@@ -36,6 +36,9 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
     },
     queryKey: ["message-post-embed", postId],
     retry: 1,
+    // A virtualized transcript mounts and unmounts the same post card as rows
+    // recycle; a short stale window keeps a fling from refetching each time.
+    staleTime: 5 * 60 * 1000,
   });
 
   if (isError) {

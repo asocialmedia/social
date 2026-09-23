@@ -43,14 +43,19 @@ export async function POST(
     await unreadMessageCache.decrement(user.id, unread);
   }
 
+  const readAt = new Date();
+
   await prisma.messageConversationMember.update({
-    data: { lastReadAt: new Date() },
+    // Reading implies delivery, so advance both watermarks in one write: a
+    // sender that only learns the read watermark still counts every earlier own
+    // message as delivered.
+    data: { lastDeliveredAt: readAt, lastReadAt: readAt },
     where: {
       conversationId_userId: { conversationId: id, userId: user.id },
     },
   });
 
-  await publishConversationRead(id, user.id);
+  await publishConversationRead(id, user.id, readAt.toISOString());
 
   return Response.json({ ok: true });
 }

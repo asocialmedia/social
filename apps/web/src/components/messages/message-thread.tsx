@@ -11,10 +11,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
   ArrowLeft,
+  Check,
   KeyRound,
   Loader2,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -43,17 +45,28 @@ import type { MediaNavDirection } from "@/components/messages/message-conversati
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { ConversationMediaViewerProvider } from "@/components/messages/message-media-viewer-context";
 import type { OpenConversationMedia } from "@/components/messages/message-media-viewer-context";
+import { MessageOptionsMenu } from "@/components/messages/message-options-menu";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
+import { toast } from "@/lib/gooey-toast";
 import {
+  ackMessageDelivered,
   appendMessageToLastPage,
+  deleteMessage,
+  editMessage,
   fetchConversationDetail,
   fetchMessages,
+  hideMessages,
   linkMessageMedia,
   markConversationRead,
+  markMessagesDeletedInPages,
+  reencryptMessageForEdit,
+  removeMessagesFromPages,
+  updateMessageInPages,
 } from "@/lib/messages/client";
 import type { ConversationDetailResponse } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import {
+  editMessagePayload,
   exportPublicKeyJwk,
   generateFingerprint,
   getMediaImages,
@@ -63,6 +76,21 @@ import {
 } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import { messageDecryptor } from "@/lib/messages/decryptor";
+import { isWithinEditWindow } from "@/lib/messages/edit-window";
+import {
+  applySelectionRange,
+  dragSelectionMode,
+  exceededSlop,
+  selectionRange,
+} from "@/lib/messages/message-gestures";
+import type { PaneRect } from "@/lib/messages/message-gestures";
+import type { PeerWatermarks } from "@/lib/messages/message-receipts";
+import {
+  advanceWatermark,
+  EMPTY_WATERMARKS,
+  getMessageReceipt,
+  peerWatermarks,
+} from "@/lib/messages/message-receipts";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -86,6 +114,9 @@ import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
 import { cn } from "@/lib/utils";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
+import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
+import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
+import type { MessageGroupMeta } from "./message-grouping";
 import {
   pagesToDropForViewerHistory,
   trimOldestPages,
@@ -133,6 +164,16 @@ export function MessageThread({
     senderId: string;
     senderName?: string;
   } | null>(null);
+  // The message currently being edited, or null. Editing and replying are
+  // mutually exclusive modes in the composer: entering one clears the other.
+  const [editTarget, setEditTarget] = useState<{
+    content: string;
+    id: string;
+    // Payload type drives whether an empty body is a valid edit: clearing a
+    // text message would leave an empty bubble, but clearing a media/post
+    // caption is a legitimate removal.
+    payloadType: MessagePayload["type"];
+  } | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
   // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
   // is anchored on, or null when closed. Stored as a key, not an index, so
@@ -172,6 +213,58 @@ export function MessageThread({
   // loaded history. Only updates while the viewer is open and navigating, so it
   // never causes transcript re-renders during normal scrolling.
   const [viewerPosition, setViewerPosition] = useState({ index: 0, total: 0 });
+
+  // Desktop options pane: the message it targets plus that message's bubble rect
+  // in viewport coordinates. `preferEnd` puts own messages' pane on the left.
+  const [optionsTarget, setOptionsTarget] = useState<{
+    messageId: string;
+    preferEnd: boolean;
+    rect: PaneRect;
+  } | null>(null);
+  // Coarse-pointer devices (touch) get a bottom sheet instead of a side popover.
+  // State (not just a ref) because it changes what is rendered; set in an effect
+  // to avoid an SSR/client hydration mismatch.
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  // Multi-select: the ticked message ids. `selectionActive` is explicit so an
+  // empty selection can still be in select mode (the bulk bar stays mounted).
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [selectionActive, setSelectionActive] = useState(false);
+  // The peer's delivery/read watermarks, seeded from the conversation detail and
+  // advanced by realtime events. Own-message receipts compare against these.
+  const [peerMarks, setPeerMarks] = useState<PeerWatermarks>(EMPTY_WATERMARKS);
+  // Gesture bookkeeping lives in refs so pointer moves never re-render the
+  // window. `suppressClickRef` carries the drag verdict from pointerup to the
+  // click that follows it.
+  const pointerRef = useRef<{
+    base: ReadonlySet<string>;
+    index: number;
+    messageId: string;
+    mode: "add" | "remove";
+    startX: number;
+    startY: number;
+    touch: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  // Highest peer message id already acked as delivered this session, so the
+  // debounced effect does not re-POST the same watermark.
+  const lastAckedIdRef = useRef<string | null>(null);
+  // Desktop gestures are for fine pointers only. Touch devices keep the
+  // in-bubble "..." menu and native scrolling; every gesture handler bails when
+  // this is false.
+  const finePointerRef = useRef(false);
+  useEffect(() => {
+    const query = window.matchMedia("(pointer: fine)");
+    finePointerRef.current = query.matches;
+    setCoarsePointer(!query.matches);
+    const onChange = (event: MediaQueryListEvent) => {
+      finePointerRef.current = event.matches;
+      setCoarsePointer(!event.matches);
+    };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -250,10 +343,61 @@ export function MessageThread({
 
   const userId = user?.id;
 
+  // Seed the peer watermarks from the conversation detail. Merged, never
+  // lowered, so a detail refetch cannot retract a receipt the realtime stream
+  // already advanced.
+  useEffect(() => {
+    if (!detail) {
+      return;
+    }
+    const marks = peerWatermarks(detail.conversation.members, userId);
+    setPeerMarks((current) => ({
+      deliveredAt: advanceWatermark(current.deliveredAt, marks.deliveredAt),
+      readAt: advanceWatermark(current.readAt, marks.readAt),
+    }));
+  }, [detail, userId]);
+
+  // The newest peer message currently loaded. Advancing the delivery watermark
+  // to it is enough to cover every older peer message, so we ack one id per
+  // burst rather than a request per row.
+  const lastPeerMessageId = useMemo(() => {
+    for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+      const candidate = allMessages[index];
+      if (candidate && candidate.senderId !== userId) {
+        return candidate.id;
+      }
+    }
+    return null;
+  }, [allMessages, userId]);
+
+  // Tell the server we received the newest peer message, so the sender can flip
+  // its own bubble to Delivered. Debounced so a burst folds into one request,
+  // and deduped per id so a re-render or catch-up refetch does not re-POST.
+  useEffect(() => {
+    if (!lastPeerMessageId || lastPeerMessageId === lastAckedIdRef.current) {
+      return;
+    }
+    const ack = async () => {
+      lastAckedIdRef.current = lastPeerMessageId;
+      try {
+        await ackMessageDelivered(conversationId, lastPeerMessageId);
+      } catch {
+        // Best-effort: clear the dedupe marker so a later message (or reconnect
+        // catch-up) retries the ack.
+        lastAckedIdRef.current = null;
+      }
+    };
+    const timer = setTimeout(() => {
+      void ack();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [conversationId, lastPeerMessageId]);
+
   const handleReply = useCallback(
     (message: MessageData) => {
       // Read at click time so the quote always reflects the latest payload.
       const payload = messageDecryptor.get(message.id);
+      setEditTarget(null);
       setReplyTarget({
         content: replyPreview(payload),
         id: message.id,
@@ -265,6 +409,513 @@ export function MessageThread({
       });
     },
     [peer?.displayName, userId]
+  );
+
+  // Enter edit mode for one of my own messages, seeding the composer with its
+  // current text. Replying and editing cannot both be active, so the reply bar
+  // is cleared.
+  const handleEdit = useCallback((message: MessageData) => {
+    const payload = messageDecryptor.get(message.id);
+    if (!payload || payload === "error" || payload === "pending") {
+      return;
+    }
+    setReplyTarget(null);
+    setEditTarget({
+      content: payload.content ?? "",
+      id: message.id,
+      payloadType: payload.type,
+    });
+  }, []);
+
+  // ---- options menu + selection --------------------------------------------
+
+  const closeOptions = useCallback(() => setOptionsTarget(null), []);
+
+  // Applies a new selection set. Dropping the last ticked message quits select
+  // mode entirely, so the bulk bar never lingers over an empty selection.
+  const commitSelection = useCallback((next: ReadonlySet<string>) => {
+    setSelectedIds(next);
+    if (next.size === 0) {
+      setSelectionActive(false);
+    }
+  }, []);
+
+  const toggleSelected = useCallback(
+    (messageId: string) => {
+      const next = new Set(selectedIds);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      commitSelection(next);
+    },
+    [commitSelection, selectedIds]
+  );
+
+  const startSelectionWith = useCallback((messageId: string) => {
+    setSelectionActive(true);
+    setSelectedIds(new Set([messageId]));
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectionActive(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const openOptionsFor = useCallback(
+    (message: MessageData, row: HTMLElement) => {
+      // Anchor the pane to the SIDE of the message, never the pointer, so it
+      // always opens in the same place beside that message. Own (sender)
+      // messages open theirs to the left of the bubble, received (receiver)
+      // messages to the right, so both lean toward the middle of the thread.
+      // The virtual row spans the full width, so the bubble element (not the
+      // row) is the anchor.
+      const bubble =
+        row.querySelector<HTMLElement>("[data-message-bubble]") ?? row;
+      const rect = bubble.getBoundingClientRect();
+      const mine = message.senderId === userId;
+      setOptionsTarget({
+        messageId: message.id,
+        preferEnd: mine,
+        rect: {
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+        },
+      });
+    },
+    [userId]
+  );
+
+  // Resolves the transcript row under an event target. Every row wrapper carries
+  // `data-message-id`, so this is one closest() walk — no per-row listeners.
+  const resolveMessageFromEvent = useCallback(
+    (
+      target: EventTarget | null
+    ): { message: MessageData; row: HTMLElement } | null => {
+      if (!(target instanceof Element)) {
+        return null;
+      }
+      const row = target.closest<HTMLElement>("[data-message-id]");
+      const id = row?.dataset.messageId;
+      if (!row || !id) {
+        return null;
+      }
+      const message = messagesById.get(id);
+      return message ? { message, row } : null;
+    },
+    [messagesById]
+  );
+
+  const handleOptionsCopy = useCallback((message: MessageData) => {
+    void copyToClipboard(messagePlainText(messageDecryptor.get(message.id)));
+  }, []);
+
+  // "Delete for me": hide the row optimistically, restore the exact prior cache
+  // if the server rejects it. The hide is actor-scoped, so no other client is
+  // affected and no realtime fold is needed.
+  const handleDeleteForMe = useCallback(
+    async (message: MessageData) => {
+      const previous = queryClient.getQueryData<
+        InfiniteData<MessagePage, string | undefined>
+      >(["messages", conversationId]);
+      queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+        ["messages", conversationId] as const,
+        (old) => {
+          if (!old) {
+            return old;
+          }
+          const nextPages = removeMessagesFromPages(
+            old.pages,
+            new Set([message.id])
+          );
+          return nextPages ? { ...old, pages: nextPages } : old;
+        }
+      );
+      if (selectedIds.has(message.id)) {
+        const next = new Set(selectedIds);
+        next.delete(message.id);
+        commitSelection(next);
+      }
+      try {
+        await hideMessages(conversationId, [message.id]);
+      } catch (error) {
+        if (previous) {
+          queryClient.setQueryData(["messages", conversationId], previous);
+        }
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't hide message",
+          title: "Delete for me failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [commitSelection, conversationId, queryClient, selectedIds]
+  );
+
+  // Bulk "delete for me" for the current selection, one request for the batch.
+  const handleDeleteSelectedForMe = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      return;
+    }
+    const ids = [...selectedIds];
+    const previous = queryClient.getQueryData<
+      InfiniteData<MessagePage, string | undefined>
+    >(["messages", conversationId]);
+    const selected = new Set(ids);
+    queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+      ["messages", conversationId] as const,
+      (old) => {
+        if (!old) {
+          return old;
+        }
+        const nextPages = removeMessagesFromPages(old.pages, selected);
+        return nextPages ? { ...old, pages: nextPages } : old;
+      }
+    );
+    clearSelection();
+    try {
+      await hideMessages(conversationId, ids);
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(["messages", conversationId], previous);
+      }
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't hide messages",
+        title: "Delete for me failed",
+        variant: "destructive",
+      });
+    }
+  }, [clearSelection, conversationId, queryClient, selectedIds]);
+
+  const handleDeleteForEveryone = useCallback(
+    async (message: MessageData) => {
+      const previous = queryClient.getQueryData<
+        InfiniteData<MessagePage, string | undefined>
+      >(["messages", conversationId]);
+      queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+        ["messages", conversationId] as const,
+        (old) => {
+          if (!old) {
+            return old;
+          }
+          const nextPages = markMessagesDeletedInPages(
+            old.pages,
+            new Set([message.id]),
+            new Date()
+          );
+          return nextPages ? { ...old, pages: nextPages } : old;
+        }
+      );
+      try {
+        await deleteMessage(message.id);
+      } catch (error) {
+        if (previous) {
+          queryClient.setQueryData(["messages", conversationId], previous);
+        }
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't delete message",
+          title: "Delete failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [conversationId, queryClient]
+  );
+
+  // Enter select mode from the options menu, ticking the target message.
+  const handleOptionsSelect = useCallback(
+    (message: MessageData) => startSelectionWith(message.id),
+    [startSelectionWith]
+  );
+
+  // ---- transcript gesture handlers (delegated at the container) ------------
+
+  // Desktop: a plain left click does nothing (so text selection works). It only
+  // toggles a row while select mode is active, or opens the pane from the
+  // dedicated trigger button. Touch: a tap opens the pane for that message.
+  const handleTranscriptClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // A click that ends a drag-select is not a click on a message.
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
+      const hit = resolveMessageFromEvent(event.target);
+      if (!hit) {
+        return;
+      }
+      const onOptionsTrigger =
+        event.target instanceof Element &&
+        event.target.closest("[data-open-options]") !== null;
+      if (onOptionsTrigger) {
+        openOptionsFor(hit.message, hit.row);
+        return;
+      }
+      // Never hijack a click meant for a link, button, embed, or media viewer.
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (selectionActive) {
+        toggleSelected(hit.message.id);
+        return;
+      }
+      // Touch has exactly one message gesture: tap to open the options pane.
+      if (!finePointerRef.current) {
+        openOptionsFor(hit.message, hit.row);
+      }
+    },
+    [openOptionsFor, resolveMessageFromEvent, selectionActive, toggleSelected]
+  );
+
+  // Desktop only: double click replies.
+  const handleTranscriptDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!finePointerRef.current || selectionActive) {
+        return;
+      }
+      const hit = resolveMessageFromEvent(event.target);
+      if (!hit || isInteractiveTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      handleReply(hit.message);
+    },
+    [handleReply, resolveMessageFromEvent, selectionActive]
+  );
+
+  // Desktop only: right click opens the pane beside the message and suppresses
+  // the browser's own menu. This is the sole pointer trigger for the pane.
+  const handleTranscriptContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!finePointerRef.current || selectionActive) {
+        return;
+      }
+      const hit = resolveMessageFromEvent(event.target);
+      if (!hit) {
+        // Not on a message: leave the browser's own menu alone.
+        return;
+      }
+      event.preventDefault();
+      openOptionsFor(hit.message, hit.row);
+    },
+    [openOptionsFor, resolveMessageFromEvent, selectionActive]
+  );
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      // Track the press so a subsequent move can tell a tap from a scroll/drag.
+      // Only the primary button and message rows count.
+      if (event.button !== 0) {
+        return;
+      }
+      const hit = resolveMessageFromEvent(event.target);
+      if (!hit || isInteractiveTarget(event.target)) {
+        return;
+      }
+      const index = messageIndexById.get(hit.message.id);
+      if (index === undefined) {
+        return;
+      }
+      const touch = event.pointerType === "touch";
+      pointerRef.current = {
+        base: selectedIds,
+        index,
+        messageId: hit.message.id,
+        mode: dragSelectionMode(selectedIds, hit.message.id),
+        startX: event.clientX,
+        startY: event.clientY,
+        touch,
+      };
+      suppressClickRef.current = false;
+    },
+    [messageIndexById, resolveMessageFromEvent, selectedIds]
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const pointer = pointerRef.current;
+      if (!pointer) {
+        return;
+      }
+      if (
+        !exceededSlop(
+          { x: pointer.startX, y: pointer.startY },
+          { x: event.clientX, y: event.clientY }
+        )
+      ) {
+        return;
+      }
+      // Past the slop this is a drag (or a touch scroll), never a click.
+      suppressClickRef.current = true;
+      if (pointer.touch) {
+        // Touch has no drag-select: let the browser scroll freely.
+        pointerRef.current = null;
+        return;
+      }
+      if (event.buttons !== 1) {
+        pointerRef.current = null;
+        return;
+      }
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const row =
+        element instanceof Element
+          ? element.closest<HTMLElement>("[data-message-id]")
+          : null;
+      const rawIndex = row?.dataset.index;
+      const currentIndex =
+        rawIndex === undefined ? pointer.index : Number(rawIndex);
+      if (Number.isNaN(currentIndex)) {
+        return;
+      }
+      // A drag is an explicit selection gesture: keep select mode on while it
+      // is under way (even if the range momentarily clears every tick), so
+      // continuing the drag does not fight an exit. A discrete click that drops
+      // the last tick does exit, in commitSelection.
+      if (!selectionActive) {
+        setSelectionActive(true);
+      }
+      const ids = selectionRange(pointer.index, currentIndex)
+        .map((index) => allMessages[index]?.id)
+        .filter((id): id is string => typeof id === "string");
+      // Rebuild from the drag-start snapshot: adding selects the range, and a
+      // drag that began on a selected row clears it.
+      setSelectedIds(applySelectionRange(pointer.base, ids, pointer.mode));
+    },
+    [allMessages, selectionActive]
+  );
+
+  const handlePointerEnd = useCallback(() => {
+    pointerRef.current = null;
+  }, []);
+
+  // Escape clears select mode; the options menu handles its own Escape.
+  useEffect(() => {
+    if (!selectionActive) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clearSelection, selectionActive]);
+
+  // Rewrites the message being edited: re-encrypt under its original epoch,
+  // PATCH the row, fold the updated row into the cache, and evict the stale
+  // plaintext so the bubble re-decrypts. The composer owns the text state and
+  // calls this with the trimmed body.
+  const handleEditSave = useCallback(
+    async (content: string): Promise<boolean> => {
+      if (!user || !privateKey || !editTarget || !detail) {
+        return false;
+      }
+      // A text message must keep a body; a media/post caption may be cleared.
+      if (editTarget.payloadType === "text" && content.length === 0) {
+        return false;
+      }
+      const message = messagesById.get(editTarget.id);
+      const payload = messageDecryptor.get(editTarget.id);
+      if (
+        !message ||
+        !payload ||
+        payload === "error" ||
+        payload === "pending"
+      ) {
+        toast({
+          description: "This message isn't ready to edit yet",
+          title: "Can't edit",
+          variant: "destructive",
+        });
+        return false;
+      }
+      try {
+        const wrappedKeys = findMyWrappedKeys(detail.keys, user.id);
+        const peerPublicKey = findPeerPublicKey(detail.conversation, user.id);
+        if (!rootKeyStore || wrappedKeys.length === 0 || !peerPublicKey) {
+          toast({
+            description: "Message keys aren't ready yet",
+            title: "Can't edit",
+            variant: "destructive",
+          });
+          return false;
+        }
+        // Reuse the thread's cached root store: it already resolved this
+        // conversation's epochs for decrypting, so an edit pays no extra ECDH.
+        // It rejects when nothing unwraps, which the catch below reports.
+        let rootKeys: Uint8Array[] = [];
+        try {
+          rootKeys = await rootKeyStore.getRootKeys(
+            conversationId,
+            wrappedKeys,
+            peerPublicKey
+          );
+        } catch {
+          rootKeys = [];
+        }
+        const encrypted = await reencryptMessageForEdit({
+          conversationId,
+          current: {
+            ciphertext: message.ciphertext,
+            iv: message.iv,
+            ratchetIndex: message.ratchetIndex,
+          },
+          editedPayload: editMessagePayload(payload, content),
+          rootKeys,
+          senderId: user.id,
+        });
+        if (!encrypted) {
+          toast({
+            description: "Couldn't re-encrypt this message",
+            title: "Can't edit",
+            variant: "destructive",
+          });
+          return false;
+        }
+        const updated = await editMessage(editTarget.id, encrypted);
+        // Patch the row in place and drop the stale plaintext so the row
+        // re-decrypts to the new text. The SSE echo of our own edit is deduped
+        // by id, so this fold and the echo converge on the same row.
+        queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+          ["messages", conversationId] as const,
+          (old) => {
+            if (!old) {
+              return old;
+            }
+            const nextPages = updateMessageInPages(old.pages, updated);
+            return nextPages ? { ...old, pages: nextPages } : old;
+          }
+        );
+        messageDecryptor.invalidate(editTarget.id);
+        setEditTarget(null);
+        return true;
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't edit message",
+          title: "Edit failed",
+          variant: "destructive",
+        });
+        return false;
+      }
+    },
+    [
+      conversationId,
+      detail,
+      editTarget,
+      messagesById,
+      privateKey,
+      queryClient,
+      rootKeyStore,
+      user,
+    ]
   );
 
   // The decryptor cache is scoped to this identity so a logout/login never
@@ -935,10 +1586,14 @@ export function MessageThread({
       kind:
         | "message.created"
         | "message.deleted"
+        | "message.edited"
         | "conversation.read"
+        | "conversation.delivered"
         | "typing.started"
         | "keys.rotated";
+      deliveredAt?: string;
       message?: MessageData;
+      readAt?: string;
       userId?: string;
     }) => {
       // The peer is typing: show it briefly. The sender's own echo is ignored.
@@ -951,6 +1606,36 @@ export function MessageThread({
           typingTimerRef.current = setTimeout(() => {
             setPeerTyping(false);
           }, 4000);
+        }
+        return;
+      }
+
+      // The peer confirmed receipt: advance the delivery watermark so our own
+      // bubbles flip to Delivered. Our own stream already dropped the echo.
+      if (event.kind === "conversation.delivered") {
+        if (event.userId && event.userId !== user?.id && event.deliveredAt) {
+          const deliveredAt = new Date(event.deliveredAt).getTime();
+          if (!Number.isNaN(deliveredAt)) {
+            setPeerMarks((current) => ({
+              ...current,
+              deliveredAt: advanceWatermark(current.deliveredAt, deliveredAt),
+            }));
+          }
+        }
+        return;
+      }
+
+      // The peer read the conversation: reading implies delivery, so advance
+      // both watermarks. This is what flips our own bubbles to Read.
+      if (event.kind === "conversation.read") {
+        if (event.userId && event.userId !== user?.id && event.readAt) {
+          const readAt = new Date(event.readAt).getTime();
+          if (!Number.isNaN(readAt)) {
+            setPeerMarks((current) => ({
+              deliveredAt: advanceWatermark(current.deliveredAt, readAt),
+              readAt: advanceWatermark(current.readAt, readAt),
+            }));
+          }
         }
         return;
       }
@@ -1013,6 +1698,36 @@ export function MessageThread({
             return { ...old, pages };
           }
         );
+      } else if (event.kind === "message.edited") {
+        // Replace the row in place so the bubble re-renders with the new
+        // ciphertext. Track whether the ciphertext actually changed: the
+        // sender's own PATCH fold already patched this row, so the SSE echo of
+        // that same edit must not trigger a second, redundant re-decrypt.
+        let ciphertextChanged = false;
+        queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+          ["messages", conversationId] as const,
+          (old) => {
+            if (!old) {
+              return old;
+            }
+            const nextPages = updateMessageInPages(old.pages, message);
+            if (!nextPages) {
+              return old;
+            }
+            const previous = old.pages
+              .flatMap((page) => page.messages)
+              .find((m) => m.id === message.id);
+            ciphertextChanged = previous?.ciphertext !== message.ciphertext;
+            return { ...old, pages: nextPages };
+          }
+        );
+        // Only evict the cached plaintext when the row was in view AND its
+        // ciphertext actually changed. The eviction makes the row's self-heal
+        // effect re-request it, which decrypts the rewritten bytes with the
+        // same ratchet index.
+        if (ciphertextChanged) {
+          messageDecryptor.invalidate(message.id);
+        }
       }
     },
     [conversationId, queryClient, scheduleRead, user?.id]
@@ -1064,6 +1779,19 @@ export function MessageThread({
     return <MessageThreadSkeleton />;
   }
 
+  // The message the options menu targets, if it is still loaded (it disappears
+  // if the row was hidden or trimmed while the menu was open).
+  const optionsMessage = optionsTarget
+    ? messagesById.get(optionsTarget.messageId)
+    : undefined;
+  const optionsReceipt = optionsMessage
+    ? getMessageReceipt({
+        createdAt: optionsMessage.createdAt,
+        mine: optionsMessage.senderId === userId,
+        watermarks: peerMarks,
+      })
+    : null;
+
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
       <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -1078,13 +1806,31 @@ export function MessageThread({
         />
 
         <div className="relative min-h-0 flex-1">
+          {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
           <div
             // `overflow-anchor: none` disables the browser's own scroll
             // anchoring, which otherwise competes with the virtualizer's
             // scrollTop compensation when rows above the viewport re-measure
             // (decrypt, image load) — the two corrections fight and the
             // viewport jitters while scrolling up.
-            className="hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]"
+            //
+            // The desktop gestures are delegated here (one listener set for the
+            // whole transcript, not per row): right click opens the options
+            // pane beside the message, double click replies, and a drag slides
+            // to toggle multi-select. Touch has a single gesture, a tap that
+            // opens the same pane. `select-none` during select mode keeps a drag
+            // from starting a native text selection.
+            className={cn(
+              "hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]",
+              selectionActive && "select-none"
+            )}
+            onClick={handleTranscriptClick}
+            onContextMenu={handleTranscriptContextMenu}
+            onDoubleClick={handleTranscriptDoubleClick}
+            onPointerCancel={handlePointerEnd}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerEnd}
             ref={scrollRef}
           >
             {allMessages.length === 0 ? (
@@ -1117,9 +1863,14 @@ export function MessageThread({
                     if (!message) {
                       return null;
                     }
+                    const groupMeta = getMessageGroupMeta(
+                      allMessages,
+                      virtualItem.index
+                    );
                     return (
                       <div
                         data-index={virtualItem.index}
+                        data-message-id={message.id}
                         key={virtualItem.key}
                         ref={rowVirtualizer.measureElement}
                         style={{
@@ -1132,15 +1883,19 @@ export function MessageThread({
                       >
                         <VirtualRow
                           conversationId={conversationId}
+                          groupMeta={groupMeta}
                           historyVersion={historyVersion}
                           message={message}
                           messagesById={messagesById}
                           myUserId={userId ?? ""}
+                          onEdit={handleEdit}
                           onReply={handleReply}
                           onRequest={requestDecrypt}
                           onRetry={retryDecrypt}
                           peerName={peer?.displayName ?? "them"}
                           scrolling={scrolling}
+                          selected={selectedIds.has(message.id)}
+                          selectionActive={selectionActive}
                         />
                       </div>
                     );
@@ -1182,11 +1937,74 @@ export function MessageThread({
               ) : null}
             </button>
           ) : null}
+
+          {optionsMessage && optionsTarget ? (
+            <MessageOptionsMenu
+              anchorRect={optionsTarget.rect}
+              canDeleteForEveryone={
+                optionsMessage.senderId === userId && !optionsMessage.deletedAt
+              }
+              canEdit={
+                !optionsMessage.deletedAt &&
+                optionsMessage.senderId === userId &&
+                isWithinEditWindow(optionsMessage.createdAt)
+              }
+              createdAt={optionsMessage.createdAt}
+              editedAt={optionsMessage.editedAt}
+              onClose={closeOptions}
+              onCopy={() => handleOptionsCopy(optionsMessage)}
+              onDeleteForEveryone={() =>
+                handleDeleteForEveryone(optionsMessage)
+              }
+              onDeleteForMe={() => handleDeleteForMe(optionsMessage)}
+              onEdit={() => handleEdit(optionsMessage)}
+              onReply={() => handleReply(optionsMessage)}
+              onSelect={() => handleOptionsSelect(optionsMessage)}
+              preferEnd={optionsTarget.preferEnd}
+              presentation={coarsePointer ? "sheet" : "popover"}
+              receipt={optionsReceipt}
+            />
+          ) : null}
         </div>
+
+        {selectionActive ? (
+          <div className="panel-3d mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2">
+            <span
+              aria-live="polite"
+              className="text-sm font-medium tabular-nums"
+            >
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-3d-gray inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                disabled={selectedIds.size === 0}
+                onClick={() => {
+                  void handleDeleteSelectedForMe();
+                }}
+                type="button"
+              >
+                <Trash2 className="size-3.5" />
+                Delete for me
+              </button>
+              <button
+                aria-label="Cancel selection"
+                className="icon-btn-3d text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full"
+                onClick={clearSelection}
+                type="button"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <MessageComposer
           conversation={detail}
+          editTarget={editTarget}
           replyTarget={replyTarget}
+          onEditCancel={() => setEditTarget(null)}
+          onEditSave={handleEditSave}
           onReplyCancel={() => setReplyTarget(null)}
           onSent={() => {
             scheduleRead();
@@ -1215,15 +2033,19 @@ export function MessageThread({
 
 interface VirtualRowProps {
   conversationId: string;
+  groupMeta: MessageGroupMeta;
   historyVersion: number;
   message: MessageData;
   messagesById: Map<string, MessageData>;
   myUserId: string;
+  onEdit: (message: MessageData) => void;
   onReply: (message: MessageData) => void;
   onRequest: (message: MessageData | undefined) => void;
   onRetry: (message: MessageData) => void;
   peerName: string;
   scrolling: boolean;
+  selected: boolean;
+  selectionActive: boolean;
 }
 
 // Media ids whose message-conversation link this session has already asserted,
@@ -1247,19 +2069,68 @@ async function ensureMessageMediaLinked(
   }
 }
 
+// The shared outer frame for every row variant (deleted, decrypting, error,
+// rendered). In select mode it reserves a left gutter for the tick and tints
+// the selected row; otherwise it is the plain padded wrapper. One frame keeps
+// the selection affordance identical across variants.
+function MessageRowFrame({
+  children,
+  divider,
+  selected,
+  selectionActive,
+  spacingClass,
+}: {
+  children: React.ReactNode;
+  divider: React.ReactNode;
+  selected: boolean;
+  selectionActive: boolean;
+  spacingClass: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "relative",
+        selectionActive ? "pr-4 pl-9" : "px-4",
+        spacingClass,
+        selected && "bg-[hsl(var(--primary))]/10"
+      )}
+    >
+      {divider}
+      {selectionActive ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute top-1/2 left-3 flex size-5 -translate-y-1/2 items-center justify-center rounded-full border transition-colors",
+            selected
+              ? "border-transparent bg-[hsl(var(--primary))] text-white"
+              : "border-border bg-[hsl(var(--background))]"
+          )}
+        >
+          {selected ? <Check className="size-3" /> : null}
+        </span>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 // One virtualized transcript row. Subscribes to its own decrypt entry (and,
 // when it quotes a reply, the parent's) so a completion batch re-renders only
 // the rows whose payloads landed, never the whole visible window.
 function VirtualRowInner({
   conversationId,
+  groupMeta,
   message,
   messagesById,
   myUserId,
+  onEdit,
   onReply,
   onRequest,
   onRetry,
   peerName,
   scrolling,
+  selected,
+  selectionActive,
 }: VirtualRowProps) {
   const mine = message.senderId === myUserId;
   const payload = useDecryptEntry(message.id);
@@ -1342,21 +2213,59 @@ function VirtualRowInner({
     Boolean(replyToId && parent) &&
     (!parentPayload || parentPayload === "pending");
 
+  // Grouping drives spacing and the optional time divider for every row variant
+  // (deleted, decrypting, error, and rendered), so spacing never goes
+  // inconsistent between them. Tighter inside a group, a slight gap between
+  // groups, and a centered time pill above a paused break.
+  const spacingClass = groupMeta.isLastInGroup ? "pb-3" : "pb-0.5";
+  const divider = groupMeta.showTimeDivider ? (
+    <TimeDivider at={message.createdAt} />
+  ) : null;
+  // Where this message sits in its sender-run, for the shared corner shaping.
+  const position = bubblePosition(
+    groupMeta.isFirstInGroup,
+    groupMeta.isLastInGroup
+  );
+  const rounding = bubbleRoundingClasses(position, mine);
+  // The peer avatar marks the end of a run (solo or bottom); earlier rows show a
+  // same-width spacer so the column stays aligned. A single ternary here is
+  // fine; nesting one in JSX is what the repo bans.
+  const showPeerAvatar =
+    !mine && (position === "solo" || position === "bottom");
+  let peerAvatar: React.ReactNode = null;
+  if (showPeerAvatar) {
+    peerAvatar = (
+      <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
+    );
+  } else {
+    peerAvatar = mine ? null : <span aria-hidden className="w-7 shrink-0" />;
+  }
+
   if (message.deletedAt) {
     return (
-      <div
-        className={cn(
-          "flex items-end gap-2 px-4 pb-1",
-          mine ? "justify-end" : "justify-start"
-        )}
+      <MessageRowFrame
+        divider={divider}
+        selected={selected}
+        selectionActive={selectionActive}
+        spacingClass={spacingClass}
       >
-        {mine ? null : (
-          <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
-        )}
-        <div className="text-muted-foreground/60 border-border/40 my-0.5 max-w-[85%] min-w-0 rounded-2xl border border-dashed px-3.5 py-2 text-xs italic sm:max-w-[75%]">
-          This message was deleted
+        <div
+          className={cn(
+            "flex items-end gap-2",
+            mine ? "justify-end" : "justify-start"
+          )}
+        >
+          {peerAvatar}
+          <div
+            className={cn(
+              "text-muted-foreground/60 border-border/40 my-0.5 max-w-[85%] min-w-0 border border-dashed px-3.5 py-2 text-xs italic sm:max-w-[75%]",
+              rounding
+            )}
+          >
+            This message was deleted
+          </div>
         </div>
-      </div>
+      </MessageRowFrame>
     );
   }
 
@@ -1366,69 +2275,103 @@ function VirtualRowInner({
     // virtualizer's scroll compensation). Mid-scroll the pulse is dropped: a
     // compositor animation per mounted row is pure cost while flinging.
     const pulse = scrolling ? null : "animate-pulse";
+    // Pending rows pulse their avatar placeholder instead of loading an image.
+    let peerAvatarSkeleton: React.ReactNode = null;
+    if (showPeerAvatar) {
+      peerAvatarSkeleton = (
+        <div
+          className={cn("bg-muted/40 h-7 w-7 shrink-0 rounded-full", pulse)}
+        />
+      );
+    } else {
+      peerAvatarSkeleton = mine ? null : (
+        <span aria-hidden className="w-7 shrink-0" />
+      );
+    }
     return (
-      <div
-        className={cn(
-          "flex items-end gap-2 px-4 pb-1",
-          mine ? "justify-end" : "justify-start"
-        )}
-        style={{ height: ESTIMATED_ROW_SIZE }}
+      <MessageRowFrame
+        divider={divider}
+        selected={selected}
+        selectionActive={selectionActive}
+        spacingClass={spacingClass}
       >
-        {mine ? null : (
-          <div
-            className={cn("bg-muted/40 h-7 w-7 shrink-0 rounded-full", pulse)}
-          />
-        )}
         <div
           className={cn(
-            "h-9 w-48 rounded-2xl",
-            mine
-              ? "rounded-br-sm bg-current opacity-10"
-              : "bg-muted/40 rounded-bl-sm",
-            pulse
+            "flex items-end gap-2",
+            mine ? "justify-end" : "justify-start"
           )}
-        />
-      </div>
+          style={{ height: ESTIMATED_ROW_SIZE }}
+        >
+          {peerAvatarSkeleton}
+          <div
+            className={cn(
+              "h-9 w-48",
+              mine ? "bg-current opacity-10" : "bg-muted/40",
+              rounding,
+              pulse
+            )}
+          />
+        </div>
+      </MessageRowFrame>
     );
   }
 
   if (payload === "error") {
     return (
-      <div
-        className={cn(
-          "flex items-end gap-2 px-4 pb-1",
-          mine ? "justify-end" : "justify-start"
-        )}
+      <MessageRowFrame
+        divider={divider}
+        selected={selected}
+        selectionActive={selectionActive}
+        spacingClass={spacingClass}
       >
-        <div className="border-border/60 bg-muted/30 flex max-w-[85%] items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs sm:max-w-[75%]">
-          <span className="text-muted-foreground italic">
-            Couldn&apos;t decrypt this message
-          </span>
-          <button
-            className="text-primary font-medium hover:underline"
-            onClick={() => onRetry(message)}
-            type="button"
+        <div
+          className={cn(
+            "flex items-end gap-2",
+            mine ? "justify-end" : "justify-start"
+          )}
+        >
+          <div
+            className={cn(
+              "border-border/60 bg-muted/30 flex max-w-[85%] items-center gap-2 border px-3.5 py-2 text-xs sm:max-w-[75%]",
+              rounding
+            )}
           >
-            Retry
-          </button>
+            <span className="text-muted-foreground italic">
+              Couldn&apos;t decrypt this message
+            </span>
+            <button
+              className="text-primary font-medium hover:underline"
+              onClick={() => onRetry(message)}
+              type="button"
+            >
+              Retry
+            </button>
+          </div>
         </div>
-      </div>
+      </MessageRowFrame>
     );
   }
 
   return (
-    <div className="px-4 pb-1">
+    <MessageRowFrame
+      divider={divider}
+      selected={selected}
+      selectionActive={selectionActive}
+      spacingClass={spacingClass}
+    >
       <MessageBubble
         content={payload}
         isDecrypting={false}
         message={message}
         myUserId={myUserId}
+        onEdit={() => onEdit(message)}
         onReply={() => onReply(message)}
-        peerName={peerName}
+        position={position}
         quote={quote}
         quotePending={quotePending}
+        selectionActive={selectionActive}
       />
-    </div>
+    </MessageRowFrame>
   );
 }
 
@@ -1443,10 +2386,21 @@ const VirtualRow = memo(
   (prev, next) =>
     prev.conversationId === next.conversationId &&
     prev.message === next.message &&
+    // Grouping depends on neighbours, so an appended message can flip the
+    // previous last row's isLastInGroup — and a prepend/append can flip a row's
+    // isFirstInGroup — without changing its identity. Compare both flags (and
+    // the divider), since the corner shaping and spacing render from them, or
+    // the boundary row would keep a stale shape.
+    prev.groupMeta.isFirstInGroup === next.groupMeta.isFirstInGroup &&
+    prev.groupMeta.isLastInGroup === next.groupMeta.isLastInGroup &&
+    prev.groupMeta.showTimeDivider === next.groupMeta.showTimeDivider &&
     prev.historyVersion === next.historyVersion &&
     prev.myUserId === next.myUserId &&
     prev.peerName === next.peerName &&
     prev.scrolling === next.scrolling &&
+    prev.selected === next.selected &&
+    prev.selectionActive === next.selectionActive &&
+    prev.onEdit === next.onEdit &&
     prev.onReply === next.onReply &&
     prev.onRequest === next.onRequest &&
     prev.onRetry === next.onRetry
@@ -1623,6 +2577,24 @@ function ThreadHeader({
 // and decrypt window stay untouched, and the row mounts/unmounts without ever
 // triggering scroll compensation. Same avatar size and bubble shape as a peer
 // message row, so it reads as a real message.
+// Centered time pill shown above a message when the conversation pauses past
+// the divider window. It lives inside the message's own virtual row, so the
+// virtualizer's item count stays equal to the message count and scroll
+// anchoring is untouched; measureElement already absorbs the extra height.
+function TimeDivider({ at }: { at: Date | string }) {
+  const label = formatTimeDivider(at);
+  if (!label) {
+    return null;
+  }
+  return (
+    <div className="flex justify-center pt-0.5 pb-2">
+      <span className="bg-muted/70 text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function TypingRow({ avatarUrl }: { avatarUrl: string | null }) {
   return (
     <>
@@ -1698,6 +2670,41 @@ function replyPreview(payload: DecryptEntry | undefined): string | undefined {
     return truncateQuote(payload.content, 60);
   }
   return mediaLabel(payload);
+}
+
+// Plain-text body of a decrypted payload for the options menu's copy action.
+// Media and post messages may carry a caption; text messages carry their
+// content. An undecrypted or failed row copies nothing rather than a
+// placeholder.
+function messagePlainText(payload: DecryptEntry | undefined): string {
+  if (!payload || payload === "error" || payload === "pending") {
+    return "";
+  }
+  return payload.content ?? "";
+}
+
+// Best-effort clipboard write. The API can be denied or unavailable (insecure
+// context); there is nothing actionable to surface, so failures are swallowed.
+async function copyToClipboard(text: string): Promise<void> {
+  if (!text) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Best-effort.
+  }
+}
+
+// Elements that keep their own click semantics. A bubbling click from one of
+// these must never open the message pane or start a drag-select.
+const INTERACTIVE_SELECTOR =
+  "a,button,input,textarea,select,[role='menu'],[role='menuitem'],[data-no-gesture]";
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element && target.closest(INTERACTIVE_SELECTOR) !== null
+  );
 }
 
 function presenceLabel(

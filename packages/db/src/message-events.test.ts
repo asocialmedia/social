@@ -20,8 +20,11 @@ mock.module("ioredis", () => ({
 const {
   messageChannel,
   parseMessageEvent,
+  publishConversationDelivered,
+  publishConversationRead,
   publishMessageCreated,
   publishMessageDeleted,
+  publishMessageEdited,
   publishMessageKeysRotated,
   serializeMessageEvent,
 } = await import("@asm/db");
@@ -59,6 +62,26 @@ describe("publishMessageCreated / publishMessageDeleted", () => {
     expect(JSON.parse(payload).kind).toBe("message.deleted");
   });
 
+  test("edited events carry the updated row and the kind", async () => {
+    await publishMessageEdited("convo-1", {
+      ciphertext: "new",
+      editedAt: "2026-01-01T00:00:00.000Z",
+      id: "m1",
+    });
+    const [channel, payload] = published.mock.calls.at(-1) as [string, string];
+    expect(channel).toBe("messages:convo-1");
+    const parsed = JSON.parse(payload) as {
+      kind: string;
+      message: { ciphertext: string; editedAt: string; id: string };
+    };
+    expect(parsed.kind).toBe("message.edited");
+    expect(parsed.message).toEqual({
+      ciphertext: "new",
+      editedAt: "2026-01-01T00:00:00.000Z",
+      id: "m1",
+    });
+  });
+
   test("survives redis failures without throwing", async () => {
     published.mockImplementationOnce(() => {
       throw new Error("connection lost");
@@ -87,6 +110,33 @@ describe("publishMessageCreated / publishMessageDeleted", () => {
     // The event only tells the peer to refetch; it must never carry a wrap.
     expect(parsed.message).toBeUndefined();
   });
+
+  test("publishes a conversation.read event with its timestamp", async () => {
+    await publishConversationRead("convo-1", "u1", "2026-01-01T00:00:00.000Z");
+    const [channel, payload] = published.mock.calls.at(-1) as [string, string];
+    expect(channel).toBe("messages:convo-1");
+    const parsed = JSON.parse(payload) as { kind: string; readAt: string };
+    expect(parsed.kind).toBe("conversation.read");
+    expect(parsed.readAt).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  test("publishes a conversation.delivered watermark event", async () => {
+    await publishConversationDelivered(
+      "convo-1",
+      "u1",
+      "2026-01-01T00:00:05.000Z"
+    );
+    const [channel, payload] = published.mock.calls.at(-1) as [string, string];
+    expect(channel).toBe("messages:convo-1");
+    const parsed = JSON.parse(payload) as {
+      deliveredAt: string;
+      kind: string;
+      userId: string;
+    };
+    expect(parsed.kind).toBe("conversation.delivered");
+    expect(parsed.userId).toBe("u1");
+    expect(parsed.deliveredAt).toBe("2026-01-01T00:00:05.000Z");
+  });
 });
 
 describe("message event (de)serialization", () => {
@@ -109,12 +159,31 @@ describe("message event (de)serialization", () => {
     const raw = serializeMessageEvent({
       conversationId: "convo-1",
       kind: "conversation.read",
+      readAt: "2026-01-01T00:00:00.000Z",
       userId: "u1",
     });
     expect(parseMessageEvent(raw)).toEqual({
       conversation: undefined,
       conversationId: "convo-1",
       kind: "conversation.read",
+      message: undefined,
+      readAt: "2026-01-01T00:00:00.000Z",
+      userId: "u1",
+    });
+  });
+
+  test("round-trips a conversation.delivered event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      deliveredAt: "2026-01-01T00:00:05.000Z",
+      kind: "conversation.delivered",
+      userId: "u1",
+    });
+    expect(parseMessageEvent(raw)).toEqual({
+      conversation: undefined,
+      conversationId: "convo-1",
+      deliveredAt: "2026-01-01T00:00:05.000Z",
+      kind: "conversation.delivered",
       message: undefined,
       userId: "u1",
     });
@@ -132,6 +201,21 @@ describe("message event (de)serialization", () => {
       kind: "typing.started",
       message: undefined,
       userId: "u1",
+    });
+  });
+
+  test("round-trips a message.edited event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "message.edited",
+      message: { ciphertext: "new", id: "m1" },
+    });
+    expect(parseMessageEvent(raw)).toEqual({
+      conversation: undefined,
+      conversationId: "convo-1",
+      kind: "message.edited",
+      message: { ciphertext: "new", id: "m1" },
+      userId: undefined,
     });
   });
 
@@ -160,9 +244,25 @@ describe("message event (de)serialization", () => {
     expect(
       parseMessageEvent('{"kind":"message.created","conversationId":"c"}')
     ).toBeNull();
+    // edited events require the updated message payload too
+    expect(
+      parseMessageEvent('{"kind":"message.edited","conversationId":"c"}')
+    ).toBeNull();
     // typing events require the sender id
     expect(
       parseMessageEvent('{"kind":"typing.started","conversationId":"c"}')
+    ).toBeNull();
+    // read events require the read timestamp
+    expect(
+      parseMessageEvent(
+        '{"kind":"conversation.read","conversationId":"c","userId":"u1"}'
+      )
+    ).toBeNull();
+    // delivered events require the delivered timestamp and the acker id
+    expect(
+      parseMessageEvent(
+        '{"kind":"conversation.delivered","conversationId":"c","userId":"u1"}'
+      )
     ).toBeNull();
   });
 });

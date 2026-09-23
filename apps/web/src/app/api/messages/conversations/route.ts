@@ -8,6 +8,7 @@ import {
   hasMessageIdentity,
   isUniqueConstraintViolation,
   parseJsonBody,
+  visibleToUser,
 } from "@/lib/messages/server";
 
 const PAGE_SIZE = 20;
@@ -86,6 +87,10 @@ export async function GET(request: Request) {
           messages: {
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             take: 1,
+            // The preview is this user's most recent VISIBLE message: a
+            // "delete for me" must not resurrect a hidden row as the thread's
+            // headline.
+            where: visibleToUser(user.id),
           },
         },
       },
@@ -151,6 +156,7 @@ export async function GET(request: Request) {
             createdAt: { gt: new Date(earliestReadAt ?? 0) },
             deletedAt: null,
             senderId: { not: user.id },
+            ...visibleToUser(user.id),
           },
         });
 

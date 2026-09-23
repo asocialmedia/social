@@ -527,8 +527,16 @@ export interface MessageStreamEvent {
   kind:
     | "message.created"
     | "message.deleted"
+    // The sender rewrote an existing message's ciphertext in place (same
+    // ratchet index, fresh IV). Carries the updated row so an open thread can
+    // patch its cache and re-decrypt just that message instead of refetching.
+    | "message.edited"
     | "conversation.created"
     | "conversation.read"
+    // A member confirmed receipt (not necessarily read) of messages up to a
+    // watermark. Carries the acker's id and the new watermark; a sender uses it
+    // to flip its own bubbles to Delivered live. No plaintext, safe to broadcast.
+    | "conversation.delivered"
     | "typing.started"
     // A member posted new wrapped root keys (a first send in a new
     // conversation, a heal, or an identity reset that rotated the epoch). The
@@ -541,6 +549,13 @@ export interface MessageStreamEvent {
   message?: unknown;
   conversation?: unknown;
   userId?: string;
+  // ISO timestamp of the newest message a member has acked as delivered. Present
+  // only on `conversation.delivered`.
+  deliveredAt?: string;
+  // ISO timestamp at which a member read the conversation. Present only on
+  // `conversation.read`, so the sender patches its read watermark in place
+  // instead of refetching the conversation detail.
+  readAt?: string;
 }
 
 export function serializeMessageEvent(event: MessageStreamEvent): string {
@@ -553,8 +568,10 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
+      parsed.kind !== "message.edited" &&
       parsed.kind !== "conversation.created" &&
       parsed.kind !== "conversation.read" &&
+      parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
       parsed.kind !== "keys.rotated"
     ) {
@@ -565,7 +582,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     }
     if (
       (parsed.kind === "message.created" ||
-        parsed.kind === "message.deleted") &&
+        parsed.kind === "message.deleted" ||
+        parsed.kind === "message.edited") &&
       parsed.message === undefined
     ) {
       return null;
@@ -579,11 +597,26 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (parsed.kind === "typing.started" && typeof parsed.userId !== "string") {
       return null;
     }
+    if (
+      parsed.kind === "conversation.delivered" &&
+      (typeof parsed.userId !== "string" ||
+        typeof parsed.deliveredAt !== "string")
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "conversation.read" &&
+      (typeof parsed.userId !== "string" || typeof parsed.readAt !== "string")
+    ) {
+      return null;
+    }
     return {
       conversation: parsed.conversation,
       conversationId: parsed.conversationId,
+      deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
       message: parsed.message,
+      readAt: parsed.readAt,
       userId: parsed.userId,
     };
   } catch {
@@ -626,13 +659,45 @@ export async function publishMessageDeleted(
   });
 }
 
+// An in-place rewrite: the same message id with a new ciphertext/IV (and
+// `editedAt`). No key material rides along, so it is safe to broadcast; the
+// receiver re-decrypts the row with the ratchet index it already had.
+export async function publishMessageEdited(
+  conversationId: string,
+  message: unknown
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.edited",
+    message,
+  });
+}
+
 export async function publishConversationRead(
   conversationId: string,
-  userId: string
+  userId: string,
+  readAt: string
 ): Promise<void> {
   await publishMessageEvent({
     conversationId,
     kind: "conversation.read",
+    readAt,
+    userId,
+  });
+}
+
+// A member confirmed receipt of messages up to `deliveredAt` (an ISO string).
+// The sender folds this to flip its own bubbles to Delivered without refetching
+// the transcript.
+export async function publishConversationDelivered(
+  conversationId: string,
+  userId: string,
+  deliveredAt: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    deliveredAt,
+    kind: "conversation.delivered",
     userId,
   });
 }

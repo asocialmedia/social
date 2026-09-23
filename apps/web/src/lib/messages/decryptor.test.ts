@@ -38,6 +38,7 @@ function deferred<T = MessagePayload>() {
 }
 
 const TEXT: MessagePayload = { content: "hi", type: "text" };
+const EDITED: MessagePayload = { content: "hi edited", type: "text" };
 
 // Drains pending microtasks so scheduled flushes and promise chains settle.
 async function settle(rounds = 10): Promise<void> {
@@ -417,6 +418,87 @@ describe("message decryptor", () => {
     decryptor.request([item("c")], keys);
     await settle();
     expect(keyCalls).toBe(2);
+  });
+
+  test("invalidate drops a settled entry so the next request re-decrypts", async () => {
+    // Message edits rewrite ciphertext at the same id; the cached plaintext is
+    // stale until invalidated.
+    let calls = 0;
+    const decryptor = createDecryptor({
+      decrypt: () => {
+        calls += 1;
+        return Promise.resolve(calls === 1 ? TEXT : EDITED);
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toEqual(TEXT);
+
+    decryptor.invalidate("a");
+    expect(decryptor.get("a")).toBeUndefined();
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(calls).toBe(2);
+    expect(decryptor.get("a")).toEqual(EDITED);
+  });
+
+  test("invalidate during an in-flight run drops the stale result", async () => {
+    const gates: ReturnType<typeof deferred<MessagePayload>>[] = [];
+    let calls = 0;
+    const decryptor = createDecryptor({
+      decrypt: () => {
+        calls += 1;
+        const gate = deferred<MessagePayload>();
+        gates.push(gate);
+        return gate.promise;
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a")], keys);
+    await settle(2);
+    expect(calls).toBe(1);
+
+    // The edit lands while the first decrypt is still running.
+    decryptor.invalidate("a");
+    // A re-request while the stale run is in flight must not start a second
+    // concurrent decrypt (request() sees the entry still "pending").
+    decryptor.request([item("a")], keys);
+    await settle(2);
+    expect(calls).toBe(1);
+
+    // The stale run resolves; its result is dropped and the entry re-opens.
+    gates[0]?.resolve(TEXT);
+    await settle();
+    expect(decryptor.get("a")).toBeUndefined();
+
+    // The row's self-heal re-requests and decrypts the rewritten bytes.
+    decryptor.request([item("a")], keys);
+    await settle(2);
+    expect(calls).toBe(2);
+    gates[1]?.resolve(EDITED);
+    await settle();
+    expect(decryptor.get("a")).toEqual(EDITED);
+  });
+
+  test("invalidate clears a stale error so the edit can succeed", async () => {
+    let fail = true;
+    const decryptor = createDecryptor({
+      decrypt: () =>
+        fail ? Promise.reject(new Error("bad")) : Promise.resolve(TEXT),
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toBe("error");
+    expect(decryptor.getErroredIds(CONVO_ID).has("a")).toBe(true);
+
+    fail = false;
+    decryptor.invalidate("a");
+    expect(decryptor.getErroredIds(CONVO_ID).has("a")).toBe(false);
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toEqual(TEXT);
   });
 
   test("end-to-end with real crypto through the default path", async () => {

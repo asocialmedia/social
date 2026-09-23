@@ -77,6 +77,7 @@ export async function GET(
         if (
           (event.kind === "typing.started" ||
             event.kind === "conversation.read" ||
+            event.kind === "conversation.delivered" ||
             event.kind === "keys.rotated") &&
           event.userId === user.id
         ) {

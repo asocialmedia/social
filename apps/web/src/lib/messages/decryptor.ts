@@ -91,6 +91,12 @@ export interface MessageDecryptor {
   // refetch here. Returns a live set, so callers must not mutate it.
   getErroredIds: (conversationId: string) => ReadonlySet<string>;
   getVersion: () => number;
+  // Drops an id's terminal entry so the next request re-decrypts it from the
+  // (possibly rewritten) row. Used by message edits: the ciphertext changed but
+  // the id and ratchet index did not, so the cached plaintext is stale. Unlike
+  // retry(), an in-flight run is left alone — a second concurrent decrypt of
+  // the same id would only race the first's write.
+  invalidate: (id: string) => void;
   request: (items: DecryptItem[], keys: DecryptorKeySource) => void;
   retry: (id: string) => void;
   subscribe: (listener: () => void) => () => void;
@@ -121,6 +127,11 @@ export function createDecryptor(
   // id is removed here when it leaves `entries`.
   const conversationById = new Map<string, string>();
   const inFlight = new Set<string>();
+  // Ids whose in-flight decrypt predates an edit (invalidate called while the
+  // run was still going). The run's result is stale by definition, so when it
+  // lands it is dropped and the entry returns to unrequested — the row's
+  // self-heal then re-requests and decrypts the rewritten bytes.
+  const staleInFlight = new Set<string>();
   const queued = new Set<string>();
   const queue: DecryptItem[] = [];
   // Imported HKDF base keys, one per conversation: skips the importKey
@@ -263,6 +274,20 @@ export function createDecryptor(
     if (runGeneration !== generation) {
       return;
     }
+    // An edit landed while this run was decrypting: its plaintext is stale.
+    // Drop the result and release the entry to unrequested so the row re-queues
+    // and decrypts the rewritten ciphertext. Bookkeeping still runs, so the
+    // slot is freed and the pump keeps going.
+    if (staleInFlight.delete(id)) {
+      inFlight.delete(id);
+      entries.delete(id);
+      clearErrored(id);
+      active -= 1;
+      evictIfNeeded();
+      scheduleNotify();
+      pump();
+      return;
+    }
     entries.set(id, payload ?? "error");
     if (payload) {
       clearErrored(id);
@@ -372,6 +397,7 @@ export function createDecryptor(
       // of waiting on (and being throttled by) the previous identity's work.
       inFlight.clear();
       active = 0;
+      staleInFlight.clear();
       notify();
     },
 
@@ -385,6 +411,23 @@ export function createDecryptor(
 
     getVersion(): number {
       return version;
+    },
+
+    invalidate(id: string): void {
+      // A run that is still in flight will write its (now stale) result when it
+      // lands. Mark it so run() drops that result and re-opens the entry,
+      // instead of writing plaintext that predates the edit. A second
+      // concurrent decrypt of the same id would only race the first.
+      if (inFlight.has(id)) {
+        staleInFlight.add(id);
+        return;
+      }
+      const existed = entries.delete(id);
+      clearErrored(id);
+      queued.delete(id);
+      if (existed) {
+        notify();
+      }
     },
 
     request(items: DecryptItem[], keys: DecryptorKeySource): void {

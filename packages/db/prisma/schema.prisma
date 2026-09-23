@@ -9,78 +9,79 @@ datasource db {
 }
 
 model User {
-  id                        String                      @id @default(cuid())
-  aura                      Int                         @default(0)
-  username                  String                      @unique
-  displayName               String
-  displayUsername           String?
-  email                     String?                     @unique
-  passwordHash              String?
-  googleId                  String?                     @unique
-  githubId                  String?                     @unique
-  discordId                 String?                     @unique
-  twitterId                 String?                     @unique
-  redditId                  String?                     @unique
-  avatarUrl                 String?
-  avatarKey                 String?
-  avatarMediaId             String?                     @unique
-  avatarMedia               Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
-  bannerUrl                 String?
-  bannerKey                 String?
-  bannerMediaId             String?                     @unique
-  bannerMedia               Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
-  bio                       String?
-  githubUsername            String?
-  linkedinUsername          String?
-  twitterUsername           String?
-  redditUsername            String?
-  customDomain              String?
-  emailVerified             Boolean                     @default(false)
-  emailVerifiedAt           DateTime?
-  twoFactorEnabled          Boolean                     @default(false)
-  lastLoginMethod           String?
-  image                     String?
-  name                      String?
-  role                      String                      @default("user")
-  badge                     String?
-  badges                    String[]                    @default([])
-  banned                    Boolean                     @default(false)
-  banReason                 String?
-  banExpires                DateTime?
-  sessions                  Session[]
-  accounts                  Account[]
-  twoFactor                 TwoFactor?
-  passkeys                  Passkey[]
-  usernameAliases           UsernameAlias[]
-  verifications             Verification[]
-  passwordResetTokens       PasswordResetToken[]
-  mentions                  Mention[]
-  posts                     Post[]
-  following                 Follow[]                    @relation("Following")
-  followers                 Follow[]                    @relation("Followers")
-  bookmarks                 Bookmark[]
-  comments                  Comment[]
-  vote                      Vote[]
-  commentVotes              CommentVote[]
-  receivedNotifications     Notification[]              @relation("Recipient")
-  issuedNotifications       Notification[]              @relation("Issuer")
-  hnbookmark                HNBookmark[]
-  postVisits                PostVisit[]
-  auraReceived              AuraLog[]                   @relation("AuraReceived")
-  auraIssued                AuraLog[]                   @relation("AuraIssued")
-  impersonatedSessions      Session[]                   @relation("ImpersonatedSessions")
-  messageIdentity           MessageIdentity?
-  messageMemberships        MessageConversationMember[]
-  messageKeys               MessageConversationKey[]
-  messagesSent              Message[]
-  blocksIssued              Block[]                     @relation("BlocksIssued")
-  blocksReceived            Block[]                     @relation("BlocksReceived")
-  recommendationEvents      RecommendationEvent[]
-  ownedCommunities          Community[]                 @relation("CommunityOwner")
-  communityMemberships      CommunityMember[]
-  communityVisits           CommunityVisit[]
-  communityJoinBonuses      CommunityJoinBonus[]
-  communitySubscriptions    CommunitySubscription[]
+  id                     String                      @id @default(cuid())
+  aura                   Int                         @default(0)
+  username               String                      @unique
+  displayName            String
+  displayUsername        String?
+  email                  String?                     @unique
+  passwordHash           String?
+  googleId               String?                     @unique
+  githubId               String?                     @unique
+  discordId              String?                     @unique
+  twitterId              String?                     @unique
+  redditId               String?                     @unique
+  avatarUrl              String?
+  avatarKey              String?
+  avatarMediaId          String?                     @unique
+  avatarMedia            Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerUrl              String?
+  bannerKey              String?
+  bannerMediaId          String?                     @unique
+  bannerMedia            Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  bio                    String?
+  githubUsername         String?
+  linkedinUsername       String?
+  twitterUsername        String?
+  redditUsername         String?
+  customDomain           String?
+  emailVerified          Boolean                     @default(false)
+  emailVerifiedAt        DateTime?
+  twoFactorEnabled       Boolean                     @default(false)
+  lastLoginMethod        String?
+  image                  String?
+  name                   String?
+  role                   String                      @default("user")
+  badge                  String?
+  badges                 String[]                    @default([])
+  banned                 Boolean                     @default(false)
+  banReason              String?
+  banExpires             DateTime?
+  sessions               Session[]
+  accounts               Account[]
+  twoFactor              TwoFactor?
+  passkeys               Passkey[]
+  usernameAliases        UsernameAlias[]
+  verifications          Verification[]
+  passwordResetTokens    PasswordResetToken[]
+  mentions               Mention[]
+  posts                  Post[]
+  following              Follow[]                    @relation("Following")
+  followers              Follow[]                    @relation("Followers")
+  bookmarks              Bookmark[]
+  comments               Comment[]
+  vote                   Vote[]
+  commentVotes           CommentVote[]
+  receivedNotifications  Notification[]              @relation("Recipient")
+  issuedNotifications    Notification[]              @relation("Issuer")
+  hnbookmark             HNBookmark[]
+  postVisits             PostVisit[]
+  auraReceived           AuraLog[]                   @relation("AuraReceived")
+  auraIssued             AuraLog[]                   @relation("AuraIssued")
+  impersonatedSessions   Session[]                   @relation("ImpersonatedSessions")
+  messageIdentity        MessageIdentity?
+  messageMemberships     MessageConversationMember[]
+  messageKeys            MessageConversationKey[]
+  messagesSent           Message[]
+  hiddenMessages         MessageHidden[]
+  blocksIssued           Block[]                     @relation("BlocksIssued")
+  blocksReceived         Block[]                     @relation("BlocksReceived")
+  recommendationEvents   RecommendationEvent[]
+  ownedCommunities       Community[]                 @relation("CommunityOwner")
+  communityMemberships   CommunityMember[]
+  communityVisits        CommunityVisit[]
+  communityJoinBonuses   CommunityJoinBonus[]
+  communitySubscriptions CommunitySubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -141,12 +142,18 @@ model MessageConversation {
 }
 
 model MessageConversationMember {
-  conversationId String
-  conversation   MessageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lastReadAt     DateTime?
-  createdAt      DateTime            @default(now())
+  conversationId  String
+  conversation    MessageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt      DateTime?
+  // Watermark: the createdAt of the newest message this member has confirmed
+  // receipt of. A sender reads their peer's watermark to label each own message
+  // Delivered (peer watermark >= createdAt) without a per-message receipt row.
+  // Null means the peer has never acked (pre-feature history included), so those
+  // messages show no delivery claim rather than a fabricated one.
+  lastDeliveredAt DateTime?
+  createdAt       DateTime            @default(now())
 
   @@id([conversationId, userId])
   @@index([userId])
@@ -186,11 +193,36 @@ model Message {
   ratchetIndex   Int                 @default(0)
   createdAt      DateTime            @default(now())
   deletedAt      DateTime?
+  // Set when the sender rewrites this message's ciphertext in place. The
+  // ratchet index never changes (the edit re-encrypts under the same derived
+  // key with a fresh IV), so receivers re-decrypt the row instead of appending
+  // a new one. Null means never edited.
+  editedAt       DateTime?
+  hiddenFor      MessageHidden[]
 
   @@unique([conversationId, senderId, ratchetIndex])
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@map("messages")
+}
+
+// "Delete for me": a per-user hide that leaves the peer's copy intact. Kept as
+// a separate join table (not a column on Message) because the same row is
+// visible to one member and hidden from the other; the sender's own global
+// delete keeps using Message.deletedAt. Composite primary key gives the natural
+// "one hide per (message, user)" guarantee and an index for the hot list/thread
+// filter (`hidden: { none: { userId } }`). Cascade on both FKs so a purged
+// message or account cannot strand rows.
+model MessageHidden {
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([messageId, userId])
+  @@index([userId])
+  @@map("message_hidden")
 }
 
 model Block {

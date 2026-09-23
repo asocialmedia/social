@@ -8,6 +8,7 @@ import {
   decryptWithMasterKey,
   deriveMasterKey,
   deriveMessageKey,
+  editMessagePayload,
   encryptMessage,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -581,6 +582,50 @@ describe("message ratchet", () => {
     expect(getMediaImages({ images, kind: "image", type: "media" })).toEqual(
       images
     );
+  });
+
+  test("editMessagePayload rewrites text and preserves reply linkage", () => {
+    const edited = editMessagePayload(
+      {
+        content: "before",
+        replyToId: "p1",
+        replyToSenderId: "u2",
+        type: "text",
+      },
+      "after"
+    );
+    expect(edited).toEqual({
+      content: "after",
+      replyToId: "p1",
+      replyToSenderId: "u2",
+      type: "text",
+    });
+  });
+
+  test("editMessagePayload rewrites a media caption without touching the album", () => {
+    const images = [{ url: "/api/media/a" }];
+    const edited = editMessagePayload(
+      { content: "old caption", images, kind: "image", type: "media" },
+      "new caption"
+    );
+    expect(edited).toEqual({
+      content: "new caption",
+      images,
+      kind: "image",
+      type: "media",
+    });
+  });
+
+  test("editMessagePayload rewrites a post share caption and keeps the post id", () => {
+    const edited = editMessagePayload(
+      { postId: "post-1", type: "post" },
+      "look at this"
+    );
+    expect(edited).toEqual({
+      content: "look at this",
+      postId: "post-1",
+      type: "post",
+    });
   });
 
   // Built at runtime so the no-script-url lint rule cannot flag the literal.

@@ -4,11 +4,16 @@ import {
   appendMessageToLastPage,
   createRootKeyStore,
   ensureConversationKeys,
+  markMessagesDeletedInPages,
+  reencryptMessageForEdit,
+  removeMessagesFromPages,
+  updateMessageInPages,
 } from "./client";
 import {
   exportPublicKeyJwk,
   generateIdentityKeyPair,
   generateRootKey,
+  encryptMessage,
   publicKeyBase64ToJwk,
   publicKeyJwkToBase64,
   wrapRootKey,
@@ -536,5 +541,277 @@ describe("appendMessageToLastPage", () => {
 
   test("handles an empty page list", () => {
     expect(appendMessageToLastPage([], { id: "m1" })).toBeNull();
+  });
+});
+
+describe("updateMessageInPages", () => {
+  test("replaces the matching row in place, preserving order", () => {
+    const next = updateMessageInPages(pages([{ id: "m1" }, { id: "m2" }]), {
+      id: "m1",
+    });
+    expect(next).not.toBeNull();
+    expect(next?.[1].messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+
+  test("finds the row in an earlier page", () => {
+    const next = updateMessageInPages(pages([{ id: "m2" }]), { id: "older-1" });
+    expect(next).not.toBeNull();
+    expect(next?.[0].messages.map((m) => m.id)).toEqual(["older-1"]);
+  });
+
+  test("returns null when no page holds the id", () => {
+    expect(
+      updateMessageInPages(pages([{ id: "m1" }]), { id: "missing" })
+    ).toBeNull();
+  });
+
+  test("handles an empty page list", () => {
+    expect(updateMessageInPages([], { id: "m1" })).toBeNull();
+  });
+
+  test("does not mutate the input pages", () => {
+    const input = pages([{ id: "m1" }]);
+    const next = updateMessageInPages(input, { edited: true, id: "m1" } as {
+      id: string;
+    });
+    expect(next).not.toBeNull();
+    expect(input[1].messages[0]).toEqual({ id: "m1" });
+  });
+});
+
+describe("removeMessagesFromPages", () => {
+  test("removes rows across pages and keeps the rest", () => {
+    const next = removeMessagesFromPages(
+      pages([{ id: "m1" }, { id: "m2" }]),
+      new Set(["m1"])
+    );
+    expect(next).not.toBeNull();
+    expect(next?.[0]?.messages.map((m) => m.id)).toEqual(["older-1"]);
+    expect(next?.[1]?.messages.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  test("returns null when nothing matched", () => {
+    expect(
+      removeMessagesFromPages(pages([{ id: "m1" }]), new Set(["ghost"]))
+    ).toBeNull();
+  });
+
+  test("drops rows from every page", () => {
+    const next = removeMessagesFromPages(
+      pages([{ id: "m1" }]),
+      new Set(["older-1", "m1"])
+    );
+    expect(next?.[0]?.messages).toEqual([]);
+    expect(next?.[1]?.messages).toEqual([]);
+  });
+});
+
+function pagesWithDeletedAt() {
+  return [
+    { messages: [{ deletedAt: null, id: "older-1" }] },
+    {
+      messages: [
+        { deletedAt: null, id: "m1" },
+        { deletedAt: null, id: "m2" },
+      ],
+    },
+  ];
+}
+
+describe("markMessagesDeletedInPages", () => {
+  test("marks matching rows deleted in place, preserving order", () => {
+    const deletedAt = new Date("2026-01-01T00:00:00.000Z");
+    const next = markMessagesDeletedInPages(
+      pagesWithDeletedAt(),
+      new Set(["m2"]),
+      deletedAt
+    );
+    expect(next?.[0]?.messages[0]).toEqual({ deletedAt: null, id: "older-1" });
+    expect(next?.[1]?.messages[0]).toEqual({ deletedAt: null, id: "m1" });
+    expect(next?.[1]?.messages[1]).toEqual({ deletedAt, id: "m2" });
+  });
+
+  test("returns null when no row matched", () => {
+    expect(
+      markMessagesDeletedInPages(
+        pagesWithDeletedAt(),
+        new Set(["ghost"]),
+        new Date()
+      )
+    ).toBeNull();
+  });
+});
+
+describe("reencryptMessageForEdit", () => {
+  const conversationId = "convo-edit";
+
+  test("re-encrypts under the epoch that owns the message", async () => {
+    const rootKey = generateRootKey();
+    const current = await encryptMessage(rootKey, "alice", 3, conversationId, {
+      content: "before",
+      type: "text",
+    });
+    const edited = await reencryptMessageForEdit({
+      conversationId,
+      current,
+      editedPayload: { content: "after", type: "text" },
+      rootKeys: [rootKey],
+      senderId: "alice",
+    });
+    expect(edited).not.toBeNull();
+    // Same ratchet index: the row's key derivation must not shift.
+    expect(edited?.ratchetIndex).toBe(3);
+    // A fresh IV is generated for the rewrite.
+    expect(edited?.iv).not.toBe(current.iv);
+  });
+
+  test("picks the right epoch among several and keeps it readable", async () => {
+    const oldRoot = generateRootKey();
+    const newRoot = generateRootKey();
+    // The message was sent under the OLD epoch.
+    const current = await encryptMessage(oldRoot, "alice", 0, conversationId, {
+      content: "before",
+      type: "text",
+    });
+    const edited = await reencryptMessageForEdit({
+      conversationId,
+      current,
+      editedPayload: { content: "after", type: "text" },
+      // Newest epoch first, exactly what the root store returns.
+      rootKeys: [newRoot, oldRoot],
+      senderId: "alice",
+    });
+    expect(edited).not.toBeNull();
+    const { decryptMessage } = await import("./crypto");
+    const roundTripped = await decryptMessage(
+      oldRoot,
+      "alice",
+      conversationId,
+      edited ?? current
+    );
+    expect(roundTripped).toEqual({ content: "after", type: "text" });
+  });
+
+  test("returns null when no available epoch can read the message", async () => {
+    const ownerRoot = generateRootKey();
+    const strangerRoot = generateRootKey();
+    const current = await encryptMessage(
+      ownerRoot,
+      "alice",
+      0,
+      conversationId,
+      { content: "before", type: "text" }
+    );
+    const edited = await reencryptMessageForEdit({
+      conversationId,
+      current,
+      editedPayload: { content: "after", type: "text" },
+      rootKeys: [strangerRoot],
+      senderId: "alice",
+    });
+    expect(edited).toBeNull();
+  });
+
+  test("preserves a media payload's album when only the caption changes", async () => {
+    const rootKey = generateRootKey();
+    const images = [{ url: "/api/media/cm1" }];
+    const current = await encryptMessage(rootKey, "alice", 0, conversationId, {
+      content: "old",
+      images,
+      kind: "image",
+      type: "media",
+    });
+    const edited = await reencryptMessageForEdit({
+      conversationId,
+      current,
+      editedPayload: { content: "new", images, kind: "image", type: "media" },
+      rootKeys: [rootKey],
+      senderId: "alice",
+    });
+    const { decryptMessage } = await import("./crypto");
+    const roundTripped = await decryptMessage(
+      rootKey,
+      "alice",
+      conversationId,
+      edited ?? current
+    );
+    expect(roundTripped).toEqual({
+      content: "new",
+      images,
+      kind: "image",
+      type: "media",
+    });
+  });
+});
+
+describe("createRootKeyStore for the edit path", () => {
+  test("unwraps every readable epoch and drops stale wraps", async () => {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const oldAlice = await makeIdentity();
+    const oldRoot = generateRootKey();
+    const newRoot = generateRootKey();
+
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const stale = await wrapRootKey(
+      oldAlice.pair.privateKey,
+      bobKey,
+      "convo-roots",
+      oldRoot
+    );
+    const current = await wrapRootKey(
+      alice.pair.privateKey,
+      bobKey,
+      "convo-roots",
+      newRoot
+    );
+
+    const store = createRootKeyStore(alice.pair.privateKey);
+    const roots = await store.getRootKeys(
+      "convo-roots",
+      [
+        { encryptedKey: stale, version: 1 },
+        { encryptedKey: current, version: 2 },
+      ],
+      bob.publicKeyBase64
+    );
+    // Newest first; the stale v1 (superseded identity) is dropped.
+    expect(roots).toHaveLength(1);
+    expect(Buffer.from(roots[0]).equals(Buffer.from(newRoot))).toBe(true);
+  });
+
+  test("rejects when nothing unwraps so the caller can refuse the edit", async () => {
+    const alice = await makeIdentity();
+    const oldAlice = await makeIdentity();
+    const bob = await makeIdentity();
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const stale = await wrapRootKey(
+      oldAlice.pair.privateKey,
+      bobKey,
+      "convo-bad",
+      generateRootKey()
+    );
+    const store = createRootKeyStore(alice.pair.privateKey);
+    await expect(
+      store.getRootKeys(
+        "convo-bad",
+        [{ encryptedKey: stale, version: 1 }],
+        bob.publicKeyBase64
+      )
+    ).rejects.toThrow();
   });
 });
