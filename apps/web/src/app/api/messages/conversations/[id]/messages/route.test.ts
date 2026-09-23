@@ -109,6 +109,24 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     expect(res.status).toBe(400);
   });
 
+  test("rejects an oversized ciphertext with 413", async () => {
+    const res = await POST(
+      new Request(convoUrl("messages"), {
+        body: JSON.stringify({
+          ciphertext: "x".repeat(100_001),
+          iv: "def",
+          ratchetIndex: 0,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "convo-1" }) }
+    );
+    expect(res.status).toBe(413);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
   test("rejects a stale ratchet index with 409 and the expected value", async () => {
     mockNextRatchetIndex.mockReturnValueOnce(4);
     const res = await POST(validPostRequest(), {

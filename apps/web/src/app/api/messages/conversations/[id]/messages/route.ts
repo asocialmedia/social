@@ -2,6 +2,7 @@ import type { MessageData, MessagePage } from "@asm/db";
 import { prisma, publishMessageCreated, unreadMessageCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
 import {
   areBlocked,
   getConversationForUser,
@@ -99,6 +100,12 @@ export async function POST(
     typeof body.ratchetIndex !== "number"
   ) {
     return Response.json({ error: "Invalid message payload" }, { status: 400 });
+  }
+  // Bound the row size on create too, not just on edit. Without it an
+  // authenticated sender can insert arbitrarily large ciphertext and bloat
+  // every thread/list fetch that carries the row.
+  if (body.ciphertext.length > MAX_MESSAGE_CIPHERTEXT_LENGTH) {
+    return Response.json({ error: "Message is too large" }, { status: 413 });
   }
   // Narrowed consts so the transaction closure below sees definite types
   // (property narrowing does not survive into the arrow function).
