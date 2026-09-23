@@ -407,7 +407,7 @@ export function PostCard({
                 count={commentCount}
                 onPress={() => setShowComments((value) => !value)}
               />
-              <RespondButton count={responseCount} />
+              <RespondButton count={responseCount} post={post} />
               <ViewsBadge count={post.viewCount ?? 0} />
               <View style={styles.actionCluster}>
                 <ShareButton onPress={() => onShare(post)} />

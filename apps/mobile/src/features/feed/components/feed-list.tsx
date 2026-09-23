@@ -420,7 +420,7 @@ export function FeedList({ enabled, userId, variant }: FeedListProps) {
       setLastDismissed(morePost.id);
     } else if (action.type === "toggle-captions") {
       toggleCaptions();
-    } else {
+    } else if (action.type === "toggle-alt") {
       setAltVisibleIds((current) => {
         const next = new Set(current);
         if (next.has(morePost.id)) {

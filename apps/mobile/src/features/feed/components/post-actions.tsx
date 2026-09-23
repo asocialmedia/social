@@ -1,4 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 // Post action bar pieces, ported from web's posts/actions cluster
 // (aura-vote-button, bookmark-button) plus the presentational buttons
 // (comment/respond/views/share/more). Vote and bookmark mutate optimistically
@@ -22,6 +23,11 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
+import {
+  replyTargetFromPost,
+  useComposerStore,
+} from "@/features/composer/state/composer-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -36,6 +42,7 @@ import {
   submitBookmark,
   submitVote,
 } from "../lib/feed-api";
+import type { FeedPost } from "../lib/feed-types";
 import type { MenuAnchor } from "./more-menu";
 
 interface MutationContext {
@@ -393,15 +400,36 @@ export function CommentButton({
   );
 }
 
-export function RespondButton({ count }: { count: number }) {
+// Web's RespondButton: the direct response count, and a tap that opens the
+// composer as a Respond (a threaded post reply) to this post. Guests go to
+// login first, like every other gated action.
+export function RespondButton({
+  count,
+  post,
+}: {
+  count: number;
+  post?: FeedPost;
+}) {
   const { theme } = useAppTheme();
-  // Static until the composer lands: shows the response count like web, but
-  // tapping has nowhere to go yet.
+  const router = useRouter();
+  const { user } = useSessionContext();
+  const openComposer = useComposerStore((state) => state.open);
   return (
     <CountButton
       count={count}
       icon={<CornerDownRight color={theme.dividerText} size={16} />}
-      label="Responses (composer coming soon)"
+      label="Respond to this post"
+      onPress={
+        post
+          ? () => {
+              if (!user) {
+                router.push("/(auth)/login");
+                return;
+              }
+              openComposer("post", replyTargetFromPost(post));
+            }
+          : undefined
+      }
     />
   );
 }

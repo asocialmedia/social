@@ -455,7 +455,7 @@ function DetailBody({
           viewerLoggedIn={viewerLoggedIn}
         />
         <CommentButton count={commentCount} onPress={onToggleEddies} />
-        <RespondButton count={responseCount} />
+        <RespondButton count={responseCount} post={post} />
         <ViewsBadge count={post.viewCount ?? 0} />
         <View style={styles.actionCluster}>
           <ShareButton onPress={() => onShare(post)} />

@@ -36,6 +36,7 @@ import {
 import type { FeedPost } from "../lib/feed-types";
 
 export type MoreAction =
+  | { type: "delete" }
   | { type: "hide" }
   | { type: "toggle-alt" }
   | { type: "toggle-captions" };
@@ -50,6 +51,8 @@ export interface MenuAnchor {
 
 export interface MoreMenuEntry {
   action: MoreAction;
+  // Web's `text-destructive` item (the eddie row's Delete).
+  destructive?: boolean;
   icon: ComponentType<{ color?: string; size?: number }>;
   label: string;
 }
@@ -140,7 +143,10 @@ function MenuItem({
   onSelect: () => void;
 }) {
   const pressedTone = isDark ? ITEM_PRESSED_DARK : ITEM_PRESSED_LIGHT;
-  const restingText = isDark ? ITEM_TEXT_DARK : ITEM_TEXT_LIGHT;
+  let restingText: string = isDark ? ITEM_TEXT_DARK : ITEM_TEXT_LIGHT;
+  if (entry.destructive) {
+    restingText = isDark ? "#ff6b6b" : "#dc2626";
+  }
   const Icon = entry.icon;
   return (
     <Pressable

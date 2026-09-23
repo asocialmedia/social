@@ -8,9 +8,8 @@
 // Wiring notes: active state reads expo-router's pathname (only "/" exists
 // on mobile yet, so Home is the live tab); auth-gated tabs send guests to
 // login like web's goToLogin; destinations with no mobile screen yet render
-// as disabled stubs, and the composer is stubbed until the composer lands
-// (same "coming soon" language as the feed's Respond button). The hide
-// signal is the shared feed scroll store, so the dock moves in lockstep
+// as disabled stubs, and the centre action opens the post composer. The
+// hide signal is the shared feed scroll store, so the dock moves in lockstep
 // with the top bar. The pending-navigation spinner has no expo-router
 // equivalent (navigation is instant), so tabs always show their icon.
 import { LinearGradient } from "expo-linear-gradient";
@@ -38,6 +37,7 @@ import { Path, Svg } from "react-native-svg";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
+import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
 import {
   APPLE_PANEL_SHADOWS,
@@ -325,12 +325,13 @@ export function MobileBottomNav({
     );
   };
 
+  const openComposer = useComposerStore((state) => state.open);
   const handleCompose = () => {
     if (!isLoggedIn) {
       goToLogin();
+      return;
     }
-    // Signed-in compose is stubbed until the composer lands (same
-    // "coming soon" language as the feed's Respond button).
+    openComposer("post");
   };
 
   return (
