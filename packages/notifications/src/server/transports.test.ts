@@ -43,6 +43,29 @@ function base(): NotificationRecord {
   };
 }
 
+function recordingLogger(): {
+  lines: { level: string; message: string; meta?: Record<string, unknown> }[];
+  logger: {
+    error: (message: string, meta?: Record<string, unknown>) => void;
+    info: (message: string, meta?: Record<string, unknown>) => void;
+    warn: (message: string, meta?: Record<string, unknown>) => void;
+  };
+} {
+  const lines: {
+    level: string;
+    message: string;
+    meta?: Record<string, unknown>;
+  }[] = [];
+  const push =
+    (level: string) => (message: string, meta?: Record<string, unknown>) => {
+      lines.push({ level, message, meta });
+    };
+  return {
+    lines,
+    logger: { error: push("error"), info: push("info"), warn: push("warn") },
+  };
+}
+
 describe("web push sender", () => {
   test("is a no-op without VAPID config", async () => {
     const result = await sendWebPush(
@@ -189,5 +212,65 @@ describe("vapid config resolution", () => {
       publicKey: "abc",
       subject: "mailto:hello@asocialmedia.cc",
     });
+  });
+});
+
+describe("web push logging", () => {
+  const vapid = { privateKey: "k", publicKey: "v", subject: "mailto:a@b.c" };
+
+  test("logs a failure with host and status but never the endpoint", async () => {
+    const { lines, logger } = recordingLogger();
+    await sendWebPush(
+      base(),
+      [
+        {
+          auth: "a",
+          endpoint:
+            "https://fcm.googleapis.com/fcm/send/SECRET-SUBSCRIPTION-ID",
+          p256dh: "p",
+        },
+      ],
+      {
+        logger,
+        sendNotification: () => Promise.reject(pushError(500)),
+        vapid,
+      }
+    );
+
+    const failure = lines.find((l) => l.message === "push.web_send_failed");
+    expect(failure?.level).toBe("warn");
+    expect(failure?.meta?.host).toBe("fcm.googleapis.com");
+    expect(failure?.meta?.status).toBe(500);
+    expect(JSON.stringify(lines)).not.toContain("SECRET-SUBSCRIPTION-ID");
+  });
+
+  test("does not log a gone endpoint as a failure (it is pruned)", async () => {
+    const { lines, logger } = recordingLogger();
+    await sendWebPush(
+      base(),
+      [
+        {
+          auth: "a",
+          endpoint: "https://fcm.googleapis.com/send/x",
+          p256dh: "p",
+        },
+      ],
+      { logger, sendNotification: () => Promise.reject(pushError(410)), vapid }
+    );
+    expect(lines.length).toBe(0);
+  });
+
+  test("logs a rejected non-push-service endpoint by host only", async () => {
+    const { lines, logger } = recordingLogger();
+    await sendWebPush(
+      base(),
+      [{ auth: "a", endpoint: "https://169.254.169.254/SECRET", p256dh: "p" }],
+      { logger, sendNotification: () => Promise.resolve({}), vapid }
+    );
+    const rejected = lines.find(
+      (l) => l.message === "push.web_endpoint_rejected"
+    );
+    expect(rejected).toBeDefined();
+    expect(JSON.stringify(lines)).not.toContain("169.254.169.254/SECRET");
   });
 });

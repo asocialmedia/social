@@ -8,6 +8,7 @@
 import type { NotificationRecord } from "../shared/types";
 import { sendDevicePush } from "./device-push";
 import type { DevicePushResult, DeviceTarget } from "./device-push";
+import type { PushLogger } from "./log";
 import { resolveVapidConfig, sendWebPush } from "./web-push";
 import type {
   StoredSubscription,
@@ -15,11 +16,7 @@ import type {
   WebPushResult,
 } from "./web-push";
 
-export interface PushLogger {
-  error: (message: string, meta?: Record<string, unknown>) => void;
-  info: (message: string, meta?: Record<string, unknown>) => void;
-  warn: (message: string, meta?: Record<string, unknown>) => void;
-}
+export type { PushLogger } from "./log";
 
 export interface PushDispatchResult {
   device: DevicePushResult;
@@ -44,6 +41,12 @@ const NOOP_RESULT: PushDispatchResult = {
   web: { expired: [], failed: 0, sent: 0 },
 };
 
+// A deployment with no FCM credential and no VAPID pair delivers nothing, but
+// the per-call summary is indistinguishable from "this user has no devices".
+// Warn once per process so a missing secret is immediately visible in the logs
+// instead of looking like healthy zero-work.
+let warnedUnconfigured = false;
+
 // Delivers one notification to every registered endpoint for its recipient.
 // Best-effort by contract: the caller (the unread-count job) must succeed even
 // when push is down, so every failure here is logged and swallowed.
@@ -61,13 +64,22 @@ export async function dispatchNotificationPush(
       return NOOP_RESULT;
     }
 
-    const vapid = deps.vapid ?? resolveVapidConfig();
+    // `undefined` (omitted) means "resolve from env"; an explicit null means
+    // the caller has already decided VAPID is unavailable. Using `??` here
+    // would collapse both cases into "consult env", so an explicit null would
+    // silently pick up a configured pair - and hide the unconfigured warning.
+    const vapid = deps.vapid === undefined ? resolveVapidConfig() : deps.vapid;
+    if (!vapid) {
+      // Web push is off because VAPID is unset; a user with only browser
+      // subscriptions silently receives nothing. Surface it once.
+      logUnconfiguredOnce(log, "vapid");
+    }
     const sendWeb = deps.sendWeb ?? sendWebPush;
     const sendDevice = deps.sendDevice ?? sendDevicePush;
 
     const [web, device] = await Promise.all([
-      sendWeb(notification, subscriptions, { vapid }),
-      sendDevice(notification, deviceTokens),
+      sendWeb(notification, subscriptions, { logger: log, vapid }),
+      sendDevice(notification, deviceTokens, { logger: log }),
     ]);
 
     // Prune dead registrations so the next fan-out is smaller. Best-effort:
@@ -110,4 +122,25 @@ export function isPushConfigured(
     resolveVapidConfig(env) !== null ||
     Boolean(env.FCM_SERVICE_ACCOUNT_JSON?.trim())
   );
+}
+
+// Emits the unconfigured warning at most once per process.
+function logUnconfiguredOnce(
+  log: PushLogger | undefined,
+  missing: string
+): void {
+  if (warnedUnconfigured) {
+    return;
+  }
+  warnedUnconfigured = true;
+  log?.warn("push.transport_unconfigured", {
+    missing,
+    note: "push is disabled for this deployment; see .env.example",
+  });
+}
+
+// Test-only: clears the once-per-process flag so a test can assert the warning
+// deterministically rather than depending on execution order.
+export function resetUnconfiguredWarningForTests(): void {
+  warnedUnconfigured = false;
 }

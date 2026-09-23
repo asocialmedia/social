@@ -12,6 +12,8 @@ import webpush from "web-push";
 
 import { isAllowedPushEndpoint } from "../shared/push-endpoint";
 import type { NotificationRecord } from "../shared/types";
+import { describePushError, endpointHost } from "./log";
+import type { PushLogger } from "./log";
 import { buildPushPayload } from "./payload";
 import type { PushPayload } from "./payload";
 
@@ -55,6 +57,7 @@ export interface WebPushResult {
 }
 
 export interface SendWebPushOptions {
+  logger?: PushLogger;
   // Injectable for tests; defaults to web-push.
   sendNotification?: (
     subscription: PushSubscription,
@@ -118,6 +121,11 @@ export async function sendWebPush(
     // written some other way) is never contacted and gets pruned.
     if (!isAllowedPushEndpoint(subscription.endpoint)) {
       result.expired.push(subscription.endpoint);
+      // A non-push-service endpoint is never contacted; log the host so a bad
+      // row is traceable without writing the endpoint itself.
+      options.logger?.warn("push.web_endpoint_rejected", {
+        host: endpointHost(subscription.endpoint),
+      });
       continue;
     }
     try {
@@ -132,6 +140,13 @@ export async function sendWebPush(
         result.expired.push(subscription.endpoint);
       } else {
         result.failed += 1;
+        const detail = describePushError(error);
+        // Host only: the full endpoint is a capability to push to that device.
+        options.logger?.warn("push.web_send_failed", {
+          host: endpointHost(subscription.endpoint),
+          reason: detail.reason,
+          status: detail.status,
+        });
       }
     }
   }

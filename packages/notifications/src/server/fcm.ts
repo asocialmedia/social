@@ -17,6 +17,8 @@
 import { SignJWT, importPKCS8 } from "jose";
 
 import type { NotificationRecord } from "../shared/types";
+import { describePushError } from "./log";
+import type { PushLogger } from "./log";
 import { buildPushPayload } from "./payload";
 
 export const FCM_OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -231,12 +233,15 @@ function isUnregistered(status: number, body: FcmErrorResponse): boolean {
 export interface SendFcmOptions {
   cache?: FcmAccessTokenCache | null;
   fetchImpl?: typeof fetch;
+  logger?: PushLogger;
   now?: () => number;
   serviceAccount: FcmServiceAccount | null;
 }
 
+// `detail` carries the status/reason so the caller can log WHY a send failed;
+// the counts alone cannot distinguish an expired credential from a rate limit.
 type FcmSendOutcome =
-  | { kind: "failed" }
+  | { kind: "failed"; detail: { reason: string; status: number | null } }
   | { kind: "sent" }
   | { kind: "unregistered" };
 
@@ -262,11 +267,19 @@ async function sendFcmMessage(
       return { kind: "sent" };
     }
     const body = (await response.json().catch(() => ({}))) as FcmErrorResponse;
-    return isUnregistered(response.status, body)
-      ? { kind: "unregistered" }
-      : { kind: "failed" };
-  } catch {
-    return { kind: "failed" };
+    if (isUnregistered(response.status, body)) {
+      return { kind: "unregistered" };
+    }
+    const codes = body.error?.details?.map((entry) => entry.errorCode) ?? [];
+    return {
+      detail: {
+        reason: body.error?.status ?? codes.join(",") ?? "unknown",
+        status: response.status,
+      },
+      kind: "failed",
+    };
+  } catch (error) {
+    return { detail: describePushError(error), kind: "failed" };
   }
 }
 
@@ -293,7 +306,13 @@ export async function sendFcmPush(
     now: options.now,
   });
   if (!auth) {
+    // The credential is unusable (bad PEM, revoked key, Google unreachable).
+    // Every device fails identically, so log once rather than per device.
     result.failed = deliverable.length;
+    options.logger?.error("push.fcm_auth_failed", {
+      devices: deliverable.length,
+      projectId: options.serviceAccount.projectId,
+    });
     return result;
   }
 
@@ -315,6 +334,12 @@ export async function sendFcmPush(
       result.unregistered.push(target.token);
     } else {
       result.failed += 1;
+      // No token in the log: it is a capability to push to that device.
+      options.logger?.warn("push.fcm_send_failed", {
+        platform: target.platform,
+        reason: outcome.detail.reason,
+        status: outcome.detail.status,
+      });
     }
   }
 

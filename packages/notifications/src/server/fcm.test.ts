@@ -77,6 +77,29 @@ const TEST_SERVICE_ACCOUNT = {
   project_id: "test-project",
 };
 
+function recordingLogger(): {
+  lines: { level: string; message: string; meta?: Record<string, unknown> }[];
+  logger: {
+    error: (message: string, meta?: Record<string, unknown>) => void;
+    info: (message: string, meta?: Record<string, unknown>) => void;
+    warn: (message: string, meta?: Record<string, unknown>) => void;
+  };
+} {
+  const lines: {
+    level: string;
+    message: string;
+    meta?: Record<string, unknown>;
+  }[] = [];
+  const push =
+    (level: string) => (message: string, meta?: Record<string, unknown>) => {
+      lines.push({ level, message, meta });
+    };
+  return {
+    lines,
+    logger: { error: push("error"), info: push("info"), warn: push("warn") },
+  };
+}
+
 describe("FCM token detection", () => {
   test("accepts an opaque FCM registration token", () => {
     expect(isFcmToken("dGhpc2lzYW5mY210b2tlbjpleGFtcGxl")).toBe(true);
@@ -355,5 +378,80 @@ describe("getFcmAccessToken", () => {
         )) as unknown as typeof fetch,
     });
     expect(result).toBeNull();
+  });
+});
+
+describe("FCM send logging", () => {
+  const account = {
+    clientEmail: "push@test.iam.gserviceaccount.com",
+    privateKey: TEST_PRIVATE_KEY,
+    projectId: "test-project",
+  };
+
+  test("logs a send failure with status and reason but never the token", async () => {
+    const { lines, logger } = recordingLogger();
+    const fetchImpl = ((input: RequestInfo | URL) => {
+      if (String(input).includes("oauth2.googleapis.com")) {
+        return Promise.resolve(
+          Response.json({ access_token: "ya29.test", expires_in: 3600 })
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 500 }));
+    }) as unknown as typeof fetch;
+
+    await sendFcmPush(
+      base(),
+      [{ platform: "android", provider: "fcm", token: "SECRET-DEVICE-TOKEN" }],
+      { fetchImpl, logger, serviceAccount: account }
+    );
+
+    const failure = lines.find((l) => l.message === "push.fcm_send_failed");
+    expect(failure?.level).toBe("warn");
+    expect(failure?.meta?.status).toBe(500);
+    expect(failure?.meta?.platform).toBe("android");
+    // The token is a capability to push to that device: never logged.
+    expect(JSON.stringify(lines)).not.toContain("SECRET-DEVICE-TOKEN");
+  });
+
+  test("logs an auth failure once for the whole batch", async () => {
+    const { lines, logger } = recordingLogger();
+    const fetchImpl = (() =>
+      Promise.resolve(
+        new Response("{}", { status: 401 })
+      )) as unknown as typeof fetch;
+
+    await sendFcmPush(
+      base(),
+      [
+        { platform: "android", provider: "fcm", token: "a" },
+        { platform: "android", provider: "fcm", token: "b" },
+      ],
+      { fetchImpl, logger, serviceAccount: account }
+    );
+
+    const authFailures = lines.filter(
+      (l) => l.message === "push.fcm_auth_failed"
+    );
+    expect(authFailures.length).toBe(1);
+    expect(authFailures[0]?.meta?.devices).toBe(2);
+  });
+
+  test("does not log when every send succeeds", async () => {
+    const { lines, logger } = recordingLogger();
+    const fetchImpl = ((input: RequestInfo | URL) => {
+      if (String(input).includes("oauth2.googleapis.com")) {
+        return Promise.resolve(
+          Response.json({ access_token: "ya29.test", expires_in: 3600 })
+        );
+      }
+      return Promise.resolve(Response.json({ name: "projects/x/messages/1" }));
+    }) as unknown as typeof fetch;
+
+    await sendFcmPush(
+      base(),
+      [{ platform: "android", provider: "fcm", token: "token-1" }],
+      { fetchImpl, logger, serviceAccount: account }
+    );
+    expect(lines.length).toBe(0);
   });
 });

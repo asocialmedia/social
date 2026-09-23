@@ -356,7 +356,7 @@
     },
     "packages/notifications": {
       "name": "@asm/notifications",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "dependencies": {
         "jose": "^6.2.12",
         "web-push": "^3.6.7",

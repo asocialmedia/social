@@ -12,6 +12,7 @@
 import type { NotificationRecord } from "../shared/types";
 import type { FcmAccessTokenCache } from "./fcm";
 import { resolveFcmServiceAccount, sendFcmPush } from "./fcm";
+import type { PushLogger } from "./log";
 
 export {
   buildFcmMessage,
@@ -46,6 +47,7 @@ export interface SendDevicePushOptions {
   // between notifications.
   cache?: FcmAccessTokenCache | null;
   fetchImpl?: typeof fetch;
+  logger?: PushLogger;
   now?: () => number;
 }
 
@@ -63,6 +65,7 @@ export async function sendDevicePush(
   return await sendFcmPush(notification, targets, {
     cache: options.cache,
     fetchImpl: options.fetchImpl,
+    logger: options.logger,
     now: options.now,
     serviceAccount: resolveFcmServiceAccountCached(),
   });
