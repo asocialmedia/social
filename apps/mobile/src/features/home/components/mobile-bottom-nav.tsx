@@ -2,7 +2,7 @@
 // (components/layouts/navigation/mobile/mobile-bottom-nav). Floating
 // centered dock: three icon-only 40px tabs a side split by the 52px orange
 // compose circle that breaks the pill's edges, panel-3d surface, active
-// tabs in the sidebar's pill-nav-active treatment, unread badge on
+// tabs in the sidebar's pill-nav-active treatment (light and dark tokens), unread badge on
 // Messages, and a scroll-down hide that slides the dock below the fold.
 //
 // Wiring notes: active state reads expo-router's pathname (only "/" exists
@@ -36,9 +36,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Path, Svg } from "react-native-svg";
 
+import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
-import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
+import {
+  APPLE_PANEL_SHADOWS,
+  APPLE_PANEL_SHADOWS_DARK,
+  useAppTheme,
+} from "@/theme";
 
 interface MobileNavItem {
   href: string;
@@ -77,14 +82,52 @@ const RIGHT_ITEMS: MobileNavItem[] = [
 const LIVE_ROUTES = new Set(["/"]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
-// primary border and the inner lip, never a saturated fill. Primary is
-// hsl(22.93 92.59% 52.35%) ~= #f66b15.
-const NAV_ACTIVE = "#f66b15";
-const NAV_ACTIVE_TINT = "rgba(246, 107, 21, 0.14)";
-const NAV_ACTIVE_TINT_DEEP = "rgba(246, 107, 21, 0.08)";
-const NAV_ACTIVE_BORDER = "rgba(246, 107, 21, 0.25)";
-const NAV_ACTIVE_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)";
+// primary border and the inner lip, never a saturated fill. Light keys off
+// primary hsl(22.93 92.59% 52.35%) ~= #f66b15; `.dark .pill-nav-active`
+// swaps to the warmer #ffb054 glyph on an accent-orange tint.
+const NAV_ACTIVE_LIGHT = {
+  border: "rgba(246, 107, 21, 0.25)",
+  color: "#f66b15",
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)",
+  tint: ["rgba(246, 107, 21, 0.14)", "rgba(246, 107, 21, 0.08)"],
+} as const;
+const NAV_ACTIVE_DARK = {
+  border: "rgba(255, 149, 0, 0.3)",
+  color: "#ffb054",
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2)",
+  tint: ["rgba(255, 149, 0, 0.18)", "rgba(230, 85, 0, 0.1)"],
+} as const;
+
+// `.pill-3d-hover:hover`, shown while an inactive tab is pressed (touch has
+// no hover, so the press is the moment web's hover treatment reads as).
+const NAV_PRESSED_LIGHT = {
+  color: "#1c1f26",
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1.5px 2px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.06)",
+  tint: ["#e4e7ec", "#c6ccd5"],
+} as const;
+const NAV_PRESSED_DARK = {
+  color: "#ffffff",
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(45, 50, 60, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)",
+  tint: ["#8f96a3", "#5c6370"],
+} as const;
+
+// `.panel-3d`: the dock floats, so it takes the floating-surface recipe on
+// hsl(var(--background-alt)) (light 220 14% 96%, dark 0 0% 9%), not the
+// in-page card. The recipe's shadows match `.apple-panel` exactly.
+const DOCK_PANEL_LIGHT = {
+  background: "#f3f4f6",
+  border: "rgba(0, 0, 0, 0.12)",
+  shadows: APPLE_PANEL_SHADOWS,
+} as const;
+const DOCK_PANEL_DARK = {
+  background: "#171717",
+  border: "rgba(255, 255, 255, 0.12)",
+  shadows: APPLE_PANEL_SHADOWS_DARK,
+} as const;
 
 // Centre compose action: web's `.follow-btn-3d`, light + dark.
 const FOLLOW_BTN_SHADOWS =
@@ -120,7 +163,10 @@ function DockTab({
   label: string;
   onPress?: () => void;
 }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
+  const activeTone = isDark ? NAV_ACTIVE_DARK : NAV_ACTIVE_LIGHT;
+  const pressedTone = isDark ? NAV_PRESSED_DARK : NAV_PRESSED_LIGHT;
+  const panel = isDark ? DOCK_PANEL_DARK : DOCK_PANEL_LIGHT;
   return (
     <Pressable
       accessibilityLabel={label}
@@ -131,48 +177,57 @@ function DockTab({
       onPress={onPress}
       style={styles.tab}
     >
-      {({ pressed }) => (
-        <View
-          style={[
-            styles.tabInner,
-            active
-              ? {
-                  borderColor: NAV_ACTIVE_BORDER,
-                  borderWidth: 1,
-                  boxShadow: NAV_ACTIVE_SHADOWS,
-                }
-              : undefined,
-            !active && pressed && !disabled
-              ? { backgroundColor: theme.containerBg }
-              : undefined,
-            disabled && styles.tabDisabled,
-          ]}
-        >
-          {active ? (
-            <LinearGradient
-              colors={[NAV_ACTIVE_TINT, NAV_ACTIVE_TINT_DEEP]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={styles.tabTint}
-            />
-          ) : null}
-          <Icon color={active ? NAV_ACTIVE : theme.dividerText} size={20} />
-          {badge !== undefined && badge > 0 ? (
-            <View style={[styles.badge, { borderColor: theme.containerBg }]}>
-              <LinearGradient
-                colors={["#ff9500", "#e65500"]}
-                end={{ x: 0.5, y: 1 }}
-                start={{ x: 0.5, y: 0 }}
-                style={[styles.badgeGradient, { boxShadow: UNREAD_SHADOWS }]}
-              >
-                <Text style={styles.badgeText}>
-                  {badge > 99 ? "99+" : badge}
-                </Text>
-              </LinearGradient>
-            </View>
-          ) : null}
-        </View>
-      )}
+      {({ pressed }) => {
+        const showPressed = !active && pressed && !disabled;
+        let tone: typeof activeTone | typeof pressedTone | null = null;
+        if (active) {
+          tone = activeTone;
+        } else if (showPressed) {
+          tone = pressedTone;
+        }
+        // Inactive tabs read `text-muted-foreground`.
+        const iconColor = tone ? tone.color : theme.dividerText;
+        return (
+          <View
+            style={[
+              styles.tabInner,
+              active
+                ? { borderColor: activeTone.border, borderWidth: 1 }
+                : undefined,
+              disabled && styles.tabDisabled,
+            ]}
+          >
+            {/* Gradient3D keeps the recipe's inset lip above the tint (web
+                paints inset shadows over the background), and mounting it
+                with the tone gives Android a rounded shadow: a shadow added
+                to an existing view draws square. Inside the active border
+                the radius steps in by the border width. */}
+            {tone ? (
+              <Gradient3D
+                colors={tone.tint}
+                radius={active ? 11 : 12}
+                shadows={tone.shadows}
+                style={styles.tabTint}
+              />
+            ) : null}
+            <Icon color={iconColor} size={20} />
+            {badge !== undefined && badge > 0 ? (
+              <View style={[styles.badge, { borderColor: panel.background }]}>
+                <LinearGradient
+                  colors={["#ff9500", "#e65500"]}
+                  end={{ x: 0.5, y: 1 }}
+                  start={{ x: 0.5, y: 0 }}
+                  style={[styles.badgeGradient, { boxShadow: UNREAD_SHADOWS }]}
+                >
+                  <Text style={styles.badgeText}>
+                    {badge > 99 ? "99+" : badge}
+                  </Text>
+                </LinearGradient>
+              </View>
+            ) : null}
+          </View>
+        );
+      }}
     </Pressable>
   );
 }
@@ -190,7 +245,7 @@ export function MobileBottomNav({
   hidden?: boolean;
   unreadCount?: number;
 }) {
-  const { isDark, theme } = useAppTheme();
+  const { isDark } = useAppTheme();
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
@@ -207,6 +262,7 @@ export function MobileBottomNav({
   );
 
   const hidden = hiddenOverride ?? scrollHidden;
+  const dockPanel = isDark ? DOCK_PANEL_DARK : DOCK_PANEL_LIGHT;
 
   useEffect(() => {
     const travel = Animated.timing(slide, {
@@ -305,9 +361,9 @@ export function MobileBottomNav({
           style={[
             styles.panel,
             {
-              backgroundColor: theme.cardBg,
-              borderColor: theme.cardBorder,
-              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
+              backgroundColor: dockPanel.background,
+              borderColor: dockPanel.border,
+              boxShadow: dockPanel.shadows,
             },
           ]}
         >
@@ -320,22 +376,15 @@ export function MobileBottomNav({
             style={styles.composeWrap}
           >
             {({ pressed }) => (
-              <LinearGradient
+              // Gradient3D keeps follow-btn-3d's dual border: the white inner
+              // lip over the gradient plus the dark-orange outer ring.
+              <Gradient3D
                 colors={["#ff9500", "#e65500"]}
-                end={{ x: 0.5, y: 1 }}
-                start={{ x: 0.5, y: 0 }}
-                style={[
-                  styles.compose,
-                  {
-                    boxShadow: isDark
-                      ? FOLLOW_BTN_SHADOWS_DARK
-                      : FOLLOW_BTN_SHADOWS,
-                  },
-                  pressed && styles.pressedShift,
-                ]}
+                shadows={isDark ? FOLLOW_BTN_SHADOWS_DARK : FOLLOW_BTN_SHADOWS}
+                style={[styles.compose, pressed && styles.pressedShift]}
               >
                 <FilledPlus />
-              </LinearGradient>
+              </Gradient3D>
             )}
           </Pressable>
           <View style={styles.side}>{RIGHT_ITEMS.map(renderTab)}</View>
@@ -393,8 +442,8 @@ const styles = StyleSheet.create({
     gap: 6,
     padding: 4,
   },
+  // follow-btn-3d:active: a 1px press, no dimming.
   pressedShift: {
-    opacity: 0.88,
     transform: [{ translateY: 1 }],
   },
   side: {

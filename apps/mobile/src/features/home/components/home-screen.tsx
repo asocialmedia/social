@@ -65,7 +65,10 @@ export default function HomeScreen() {
   // Hide-on-scroll follow: tabs + feed translate by the bar height on the
   // same shared native value as the bar itself, so everything stays in
   // sync at 60fps with zero layout work. The content extends by the bar
-  // height so translating up does not leave a blank strip below the feed.
+  // height below the fold so translating up does not leave a blank strip
+  // below the feed. No matching paddingBottom here: that would pull the
+  // feed's bottom edge back up and bring the strip right back. FeedList's
+  // own content padding keeps the last post reachable while the bar shows.
   const followUp = headerSlide.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -HEADER_BAR_HEIGHT],
@@ -90,7 +93,6 @@ export default function HomeScreen() {
           styles.content,
           {
             marginBottom: -HEADER_BAR_HEIGHT,
-            paddingBottom: HEADER_BAR_HEIGHT,
             transform: [{ translateY: followUp }],
           },
         ]}

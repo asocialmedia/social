@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
@@ -35,6 +36,7 @@ import {
   submitBookmark,
   submitVote,
 } from "../lib/feed-api";
+import type { MenuAnchor } from "./more-menu";
 
 interface MutationContext {
   apiBase: string;
@@ -431,20 +433,66 @@ export function ShareButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-export function MoreButton({ onPress }: { onPress: () => void }) {
-  const { theme } = useAppTheme();
+// Web's `...` trigger: a 28px round pill-3d-hover button in muted
+// foreground that nudges down while pressed. It reports its own window rect
+// so the dropdown can anchor under it.
+export function MoreButton({
+  onPress,
+}: {
+  onPress: (anchor: MenuAnchor) => void;
+}) {
+  const { isDark, theme } = useAppTheme();
+  const triggerRef = useRef<View>(null);
+  const pressedTone = isDark ? TRIGGER_PRESSED_DARK : TRIGGER_PRESSED_LIGHT;
   return (
     <Pressable
-      accessibilityLabel="More options"
+      accessibilityLabel="Post options"
       accessibilityRole="button"
       hitSlop={6}
-      onPress={onPress}
+      onPress={() => {
+        triggerRef.current?.measureInWindow((x, y, width, height) => {
+          onPress({ height, width, x, y });
+        });
+      }}
+      ref={triggerRef}
       style={styles.iconHit}
     >
-      <MoreHorizontal color={theme.dividerText} size={16} />
+      {({ pressed }) => (
+        <View
+          style={[styles.moreTrigger, pressed && styles.moreTriggerPressed]}
+        >
+          {/* Mounted fresh on press: a shadow added to an existing view
+              ignores its radius on Android and draws square. */}
+          {pressed ? (
+            <Gradient3D
+              colors={pressedTone.gradient}
+              shadows={pressedTone.shadows}
+              style={styles.moreTriggerFill}
+            />
+          ) : null}
+          <MoreHorizontal
+            color={pressed ? pressedTone.color : theme.dividerText}
+            size={16}
+          />
+        </View>
+      )}
     </Pressable>
   );
 }
+
+// `.pill-3d-hover:hover`, light + dark.
+const TRIGGER_PRESSED_LIGHT = {
+  color: "#1c1f26",
+  gradient: ["#e4e7ec", "#c6ccd5"],
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1.5px 2px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.06)",
+} as const;
+const TRIGGER_PRESSED_DARK = {
+  color: "#ffffff",
+  gradient: ["#8f96a3", "#5c6370"],
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(45, 50, 60, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)",
+} as const;
 
 const styles = StyleSheet.create({
   bookmarkActive: {
@@ -469,6 +517,24 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProMed",
     fontSize: 12,
     fontWeight: "normal",
+  },
+  moreTrigger: {
+    alignItems: "center",
+    borderRadius: 9999,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  moreTriggerFill: {
+    borderRadius: 9999,
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  moreTriggerPressed: {
+    transform: [{ translateY: 1 }],
   },
   voteBtn: {
     alignItems: "center",

@@ -5,6 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
 import { InstallProvider } from "@/features/auth/state/install";
@@ -70,32 +71,36 @@ export default function RootLayout() {
     return null;
   }
 
+  // Gesture-handler root: native gestures (the feed's Android pull) need it
+  // above every screen.
   return (
-    <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-      <StatusBar style={isDark ? "light" : "dark"} />
-      {/* Install credential first: the session provider wraps every mutating
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        {/* Install credential first: the session provider wraps every mutating
           auth call in it, so a fresh install is verified before signing in. */}
-      <InstallProvider>
-        <SessionProvider>
-          <UpdateGate />
-          <Stack
-            screenOptions={{
-              animation: "fade",
-              animationDuration: 200,
-              contentStyle: { backgroundColor: theme.containerBg },
-              headerShown: false,
-            }}
-          >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="(auth)" />
-          </Stack>
-          {/* Shown only when a mutating request needs the install credential
+        <InstallProvider>
+          <SessionProvider>
+            <UpdateGate />
+            <Stack
+              screenOptions={{
+                animation: "fade",
+                animationDuration: 200,
+                contentStyle: { backgroundColor: theme.containerBg },
+                headerShown: false,
+              }}
+            >
+              <Stack.Screen name="index" />
+              <Stack.Screen name="(auth)" />
+            </Stack>
+            {/* Shown only when a mutating request needs the install credential
               and none is stored yet, so browsing never pays the cost. */}
-          <InstallVerificationGate
-            sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
-          />
-        </SessionProvider>
-      </InstallProvider>
-    </ThemeProvider>
+            <InstallVerificationGate
+              sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
+            />
+          </SessionProvider>
+        </InstallProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

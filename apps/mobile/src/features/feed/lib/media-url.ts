@@ -41,6 +41,16 @@ export function mediaAudioUrl(apiBase: string, mediaId: string): string {
   return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}`;
 }
 
+// Pipeline waveform (200 peaks + durationMs) for the audio row's bars.
+export function mediaWavePeaksPath(mediaId: string): string {
+  return `/api/media/${mediaId}/v/wave-peaks.json`;
+}
+
+// WebVTT captions (stored track, or cues generated from the transcript).
+export function mediaCaptionsPath(mediaId: string): string {
+  return `/api/media/${mediaId}?captions=1`;
+}
+
 const CLEAN_NAME_PATTERN = /^(?<prefix>\d+[-_])?[a-f0-9-]+[-_]?/;
 
 // Display filename for the audio row, mirroring web formatFileName. The

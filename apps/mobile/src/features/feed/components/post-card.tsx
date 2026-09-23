@@ -5,13 +5,14 @@
 // meta chips for non-inline tags/mentions, media gallery, and the mobile
 // action bar (vote | eddies | respond | views | share + bookmark).
 //
-// Deliberate deltas: the whole card is not tappable (no post detail screen
-// exists on mobile yet), profile links are static text, and Respond shows
-// its count without opening the skipped composer.
+// Card taps open the post detail screen (/posts/[postId]), mirroring web's
+// card-wide navigation (interactive controls, the composer and eddies opt
+// out by sitting outside the tap region). Profile links stay static text
+// and Respond shows its count without opening the skipped composer.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -36,6 +37,7 @@ import {
   getUserVote,
 } from "../lib/feed-types";
 import { parseStoredEmbeds } from "../lib/link-embeds";
+import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
   CommentButton,
@@ -126,7 +128,8 @@ function ThreadRail({
 interface PostCardProps {
   hasThreadChild: boolean;
   hasThreadParent: boolean;
-  onMore: (post: FeedPost) => void;
+  onMore: (post: FeedPost, anchor: MenuAnchor) => void;
+  onOpenDetail?: (post: FeedPost) => void;
   onShare: (post: FeedPost) => void;
   post: FeedPost;
   showAlt?: boolean;
@@ -139,6 +142,7 @@ export function PostCard({
   hasThreadChild,
   hasThreadParent,
   onMore,
+  onOpenDetail,
   onShare,
   post,
   showAlt = false,
@@ -162,6 +166,17 @@ export function PostCard({
 
   const requireLogin = () => {
     router.push("/(auth)/login");
+  };
+
+  // Card-wide navigation, mirroring web's handleCardClick (interactive
+  // targets opt out by living outside the Pressable below).
+  const openDetail = () => {
+    if (onOpenDetail) {
+      onOpenDetail(post);
+      return;
+    }
+    const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
+    router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
   };
 
   const inline = useMemo(
@@ -198,133 +213,157 @@ export function PostCard({
         },
       ]}
     >
-      {post.community && showCommunity ? (
-        <CommunityAttribution
-          accentColor={post.community.accentColor}
-          reason={showCommunityReason}
-          slug={post.community.slug}
-        />
-      ) : null}
-
-      {!hasThreadParent && post.parentPostId ? (
-        <ResponseParentRow post={post} />
-      ) : null}
-
-      <View style={styles.mainRow}>
-        <View style={styles.rail}>
-          <ThreadRail
-            hasThreadChild={hasThreadChild}
-            hasThreadParent={hasThreadParent}
+      <Pressable
+        accessibilityLabel={`Open post by ${username}`}
+        accessibilityRole="link"
+        onPress={openDetail}
+      >
+        {post.community && showCommunity ? (
+          <CommunityAttribution
+            accentColor={post.community.accentColor}
+            reason={showCommunityReason}
+            slug={post.community.slug}
           />
-          <Image
-            contentFit="cover"
-            onError={() => setAvatarFailed(true)}
-            source={
-              avatarUri && !avatarFailed
-                ? { uri: avatarUri }
-                : avatarPlaceholder
-            }
-            style={[styles.avatar, { backgroundColor: theme.cardBg }]}
-          />
-          <View
-            pointerEvents="none"
-            style={[
-              styles.avatarRing,
-              {
-                boxShadow: isDark
-                  ? AVATAR_RING_SHADOWS_DARK
-                  : AVATAR_RING_SHADOWS,
-              },
-            ]}
-          />
-        </View>
+        ) : null}
 
-        <View style={styles.content}>
-          <View style={styles.headerRow}>
-            <View style={styles.headerLeft}>
-              <Text
-                numberOfLines={1}
-                style={[styles.name, { color: theme.inputText }]}
-              >
-                {displayName}
-              </Text>
-              <UserBadge
-                badge={author?.badge}
-                badges={author?.badges}
-                communityRoles={author?.communityMemberships}
-              />
-              <Text
-                numberOfLines={1}
-                style={[styles.handle, { color: theme.dividerText }]}
-              >
-                @{username}
-              </Text>
-              <Text style={[styles.dot, { color: theme.dividerText }]}>·</Text>
-              <Text style={[styles.date, { color: theme.dividerText }]}>
-                {formatRelativeDate(post.createdAt)}
-              </Text>
-            </View>
-            {/* Web's header buttons carry -my-1 so the text row sets the row
-                height and the name stays top-aligned with the avatar. */}
-            <View style={styles.moreFix}>
-              <MoreButton onPress={() => onMore(post)} />
-            </View>
+        {!hasThreadParent && post.parentPostId ? (
+          <ResponseParentRow post={post} />
+        ) : null}
+
+        <View style={styles.mainRow}>
+          <View style={styles.rail}>
+            <ThreadRail
+              hasThreadChild={hasThreadChild}
+              hasThreadParent={hasThreadParent}
+            />
+            <Image
+              contentFit="cover"
+              onError={() => setAvatarFailed(true)}
+              source={
+                avatarUri && !avatarFailed
+                  ? { uri: avatarUri }
+                  : avatarPlaceholder
+              }
+              style={[styles.avatar, { backgroundColor: theme.cardBg }]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.avatarRing,
+                {
+                  boxShadow: isDark
+                    ? AVATAR_RING_SHADOWS_DARK
+                    : AVATAR_RING_SHADOWS,
+                },
+              ]}
+            />
           </View>
 
-          {post.moderated ? (
-            <ModeratedNotice />
-          ) : (
-            <>
-              {post.content ? (
-                <View style={styles.body}>
-                  <BioContent
-                    apiBase={apiBase}
-                    bio={post.content}
-                    clampLength={CONTENT_CLAMP_LENGTH}
-                  />
-                </View>
-              ) : null}
-
-              {hasMeta ? (
-                <View style={styles.meta}>
-                  {extraTags.map((tag) => (
-                    <TagChip key={tag.id} tag={tag.name} />
-                  ))}
-                  {extraMentions.map((mention, index) => (
-                    <MentionChip
-                      avatarUrl={
-                        mention.user?.avatarUrl
-                          ? resolveProfileImageUrl(
-                              mention.user.avatarUrl,
-                              apiBase
-                            )
-                          : null
-                      }
-                      key={mention.user?.id ?? index}
-                      username={mention.user?.username ?? "unknown"}
-                    />
-                  ))}
-                </View>
-              ) : null}
-
-              {post.hnStoryShare ? <HNStoryCard post={post} /> : null}
-              {post.communityShare ? <CommunityShareCard post={post} /> : null}
-
-              {hasMediaOrEmbeds ? (
-                <View
-                  style={[
-                    styles.media,
-                    // Web's media rule: a roomier top gap only when the post
-                    // opens straight into attachment media.
-                    { marginTop: post.content?.trim() ? 10 : 14 },
-                  ]}
+          <View style={styles.content}>
+            <View style={styles.headerRow}>
+              <View style={styles.headerLeft}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.name, { color: theme.inputText }]}
                 >
-                  {post.explicitContent ? (
-                    <ExplicitGate
+                  {displayName}
+                </Text>
+                <UserBadge
+                  badge={author?.badge}
+                  badges={author?.badges}
+                  communityRoles={author?.communityMemberships}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[styles.handle, { color: theme.dividerText }]}
+                >
+                  @{username}
+                </Text>
+                <Text style={[styles.dot, { color: theme.dividerText }]}>
+                  ·
+                </Text>
+                <Text style={[styles.date, { color: theme.dividerText }]}>
+                  {formatRelativeDate(post.createdAt)}
+                </Text>
+              </View>
+              {/* Web's header buttons carry -my-1 so the text row sets the row
+                height and the name stays top-aligned with the avatar. */}
+              <View style={styles.moreFix}>
+                <MoreButton onPress={(anchor) => onMore(post, anchor)} />
+              </View>
+            </View>
+
+            {post.moderated ? (
+              <ModeratedNotice />
+            ) : (
+              <>
+                {post.content ? (
+                  <View style={styles.body}>
+                    <BioContent
                       apiBase={apiBase}
-                      attachments={attachments}
-                      revealKey={post.id}
-                    >
+                      bio={post.content}
+                      clampLength={CONTENT_CLAMP_LENGTH}
+                    />
+                  </View>
+                ) : null}
+
+                {hasMeta ? (
+                  <View style={styles.meta}>
+                    {extraTags.map((tag) => (
+                      <TagChip key={tag.id} tag={tag.name} />
+                    ))}
+                    {extraMentions.map((mention, index) => (
+                      <MentionChip
+                        avatarUrl={
+                          mention.user?.avatarUrl
+                            ? resolveProfileImageUrl(
+                                mention.user.avatarUrl,
+                                apiBase
+                              )
+                            : null
+                        }
+                        key={mention.user?.id ?? index}
+                        username={mention.user?.username ?? "unknown"}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                {post.hnStoryShare ? <HNStoryCard post={post} /> : null}
+                {post.communityShare ? (
+                  <CommunityShareCard post={post} />
+                ) : null}
+
+                {hasMediaOrEmbeds ? (
+                  <View
+                    style={[
+                      styles.media,
+                      // Web's media rule: a roomier top gap only when the post
+                      // opens straight into attachment media.
+                      { marginTop: post.content?.trim() ? 10 : 14 },
+                    ]}
+                  >
+                    {post.explicitContent ? (
+                      <ExplicitGate
+                        apiBase={apiBase}
+                        attachments={attachments}
+                        revealKey={post.id}
+                      >
+                        <View style={styles.mediaColumn}>
+                          {attachments.length > 0 ? (
+                            <MediaGallery
+                              apiBase={apiBase}
+                              attachments={attachments}
+                              postId={post.id}
+                            />
+                          ) : null}
+                          <PostLinkEmbeds
+                            apiBase={apiBase}
+                            embeds={linkEmbeds}
+                          />
+                        </View>
+                      </ExplicitGate>
+                    ) : (
                       <View style={styles.mediaColumn}>
                         {attachments.length > 0 ? (
                           <MediaGallery
@@ -335,65 +374,54 @@ export function PostCard({
                         ) : null}
                         <PostLinkEmbeds apiBase={apiBase} embeds={linkEmbeds} />
                       </View>
-                    </ExplicitGate>
-                  ) : (
-                    <View style={styles.mediaColumn}>
-                      {attachments.length > 0 ? (
-                        <MediaGallery
-                          apiBase={apiBase}
-                          attachments={attachments}
-                          postId={post.id}
-                        />
-                      ) : null}
-                      <PostLinkEmbeds apiBase={apiBase} embeds={linkEmbeds} />
-                    </View>
-                  )}
-                  {showAlt
-                    ? attachments
-                        .filter((media) => media.altText)
-                        .map((media) => (
-                          <Text
-                            key={media.id}
-                            style={[
-                              styles.altText,
-                              { color: theme.dividerText },
-                            ]}
-                          >
-                            ALT: {media.altText}
-                          </Text>
-                        ))
-                    : null}
-                </View>
-              ) : null}
-            </>
-          )}
+                    )}
+                    {showAlt
+                      ? attachments
+                          .filter((media) => media.altText)
+                          .map((media) => (
+                            <Text
+                              key={media.id}
+                              style={[
+                                styles.altText,
+                                { color: theme.dividerText },
+                              ]}
+                            >
+                              ALT: {media.altText}
+                            </Text>
+                          ))
+                      : null}
+                  </View>
+                ) : null}
+              </>
+            )}
 
-          <View style={styles.actions}>
-            <VoteCluster
-              aura={post.aura ?? 0}
-              onRequireLogin={requireLogin}
-              postId={post.id}
-              userVote={getUserVote(post)}
-              viewerLoggedIn={viewerLoggedIn}
-            />
-            <CommentButton
-              count={commentCount}
-              onPress={() => setShowComments((value) => !value)}
-            />
-            <RespondButton count={responseCount} />
-            <ViewsBadge count={post.viewCount ?? 0} />
-            <View style={styles.actionCluster}>
-              <ShareButton onPress={() => onShare(post)} />
-              <BookmarkToggle
-                initialBookmarked={isBookmarkedByUser(post, viewerId)}
+            <View style={styles.actions}>
+              <VoteCluster
+                aura={post.aura ?? 0}
                 onRequireLogin={requireLogin}
                 postId={post.id}
+                userVote={getUserVote(post)}
                 viewerLoggedIn={viewerLoggedIn}
               />
+              <CommentButton
+                count={commentCount}
+                onPress={() => setShowComments((value) => !value)}
+              />
+              <RespondButton count={responseCount} />
+              <ViewsBadge count={post.viewCount ?? 0} />
+              <View style={styles.actionCluster}>
+                <ShareButton onPress={() => onShare(post)} />
+                <BookmarkToggle
+                  initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                  onRequireLogin={requireLogin}
+                  postId={post.id}
+                  viewerLoggedIn={viewerLoggedIn}
+                />
+              </View>
             </View>
           </View>
         </View>
-      </View>
+      </Pressable>
 
       {/* Eddies own the full card width below the body (web's FeedComments
           sits outside the padded content column, not indented by the rail). */}

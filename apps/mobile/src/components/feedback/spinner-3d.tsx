@@ -1,17 +1,18 @@
 // Native port of apps/web's Spinner3D
 // (components/layouts/feedback/spinner-3d.tsx).
 //
-// A bespoke 3D spinner with a solid material: a single self-colored raised ring
-// (bright top lip, darker outer hairline) with an orange arc sweeping around
-// it. No gradients on the base and no glow bloom - the depth comes from the
-// layered strokes, not from a shadow, so it reads as one physical object.
+// A solid 3D ring: a #3a3f4a track masked to the outer ~23% of a 56px disc
+// (radial mask, transparent to 76-78%), lit by its inset shadows - a 1px
+// white hairline on the outer edge, a bright top lip and a dark bottom
+// recess - with an orange conic arc sweeping over it on a 1.1s linear loop.
 //
-// The web version builds the ring from a CSS conic-gradient plus a radial mask.
-// React Native has neither, so the same material is composed from SVG strokes:
-// the arc is a stroked circle with a gradient and rounded caps, rotated by
-// Reanimated. The 1.1s linear sweep matches the web exactly.
+// The arc is web's conic-gradient(transparent 0-72deg, #ff9500 at 140deg,
+// #e65500 at 300deg, transparent at 360deg): a comet that fades in, runs
+// solid, and fades out. SVG has no conic gradient, so the arc is drawn as
+// thin annular slices, each filled with the conic color at its angle. The
+// geometry is authored on web's 56px box and scaled to `size`.
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 import { View } from "react-native";
 import {
@@ -23,9 +24,15 @@ import {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
+import Svg, {
+  Circle,
+  Defs,
+  LinearGradient,
+  Path,
+  Stop,
+} from "react-native-svg";
 
-import { useAppTheme } from "@/theme";
+import { buildConicArc } from "./spinner-arc";
 
 interface Spinner3DProps {
   className?: string;
@@ -33,22 +40,36 @@ interface Spinner3DProps {
   style?: StyleProp<ViewStyle>;
 }
 
-// Matches the web track (#3a3f4a) in dark mode. Light mode needs a mid tone so
-// the ring stays visible against the pale card without turning into a hairline.
-const TRACK_DARK = "#3a3f4a";
-const TRACK_LIGHT = "#c9ced8";
-
+const BOX = 56;
+const CENTER = BOX / 2;
+const OUTER_RADIUS = 28;
+// Mask edge: transparent to 76%, opaque from 78% of the closest side.
+const INNER_RADIUS = OUTER_RADIUS * 0.77;
 const SWEEP_MS = 1100;
 
-// Share of the ring the arc covers. The web's conic gradient fades in over the
-// first ~20% and out over the last ~20% of a ~80% sweep.
-const ARC_FRACTION = 0.8;
+// Built once: the slices never change, only the layer rotates.
+const ARC_SLICES = buildConicArc({
+  center: CENTER,
+  innerRadius: INNER_RADIUS,
+  outerRadius: OUTER_RADIUS,
+});
+
+// Even-odd annulus for the track.
+const TRACK_PATH = [
+  `M ${CENTER - OUTER_RADIUS} ${CENTER}`,
+  `a ${OUTER_RADIUS} ${OUTER_RADIUS} 0 1 0 ${OUTER_RADIUS * 2} 0`,
+  `a ${OUTER_RADIUS} ${OUTER_RADIUS} 0 1 0 ${-OUTER_RADIUS * 2} 0`,
+  `M ${CENTER - INNER_RADIUS} ${CENTER}`,
+  `a ${INNER_RADIUS} ${INNER_RADIUS} 0 1 0 ${INNER_RADIUS * 2} 0`,
+  `a ${INNER_RADIUS} ${INNER_RADIUS} 0 1 0 ${-INNER_RADIUS * 2} 0`,
+  "Z",
+].join(" ");
 
 const AnimatedView = createAnimatedComponent(View);
 
-export function Spinner3D({ className, size = 56, style }: Spinner3DProps) {
-  const { isDark } = useAppTheme();
+export function Spinner3D({ className, size = BOX, style }: Spinner3DProps) {
   const reduceMotion = useReducedMotion();
+  const gradientId = useId().replaceAll(":", "");
 
   const rotation = useSharedValue(0);
   useEffect(() => {
@@ -67,14 +88,8 @@ export function Spinner3D({ className, size = 56, style }: Spinner3DProps) {
     transform: [{ rotate: `${rotation.value}deg` }],
   }));
 
-  // Ring geometry: the stroke sits inside the box so the outer edge lands on
-  // `size`, matching the web's side-14 (56px) box.
-  const stroke = Math.max(2, size * 0.11);
-  const radius = (size - stroke) / 2;
-  const center = size / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  const trackColor = isDark ? TRACK_DARK : TRACK_LIGHT;
+  const lipId = `${gradientId}lip`;
+  const recessId = `${gradientId}recess`;
 
   return (
     <View
@@ -84,44 +99,51 @@ export function Spinner3D({ className, size = 56, style }: Spinner3DProps) {
       className={className}
       style={[{ height: size, width: size }, style]}
     >
-      {/* Static material: outer hairline, track, and the top lip that catches
-          light. Drawn as separate circles so each edge reads on its own. */}
-      <Svg height={size} width={size}>
+      {/* Solid track with its inset lighting, clipped to the ring. */}
+      <Svg height={size} viewBox={`0 0 ${BOX} ${BOX}`} width={size}>
+        <Defs>
+          {/* inset 0 1.5px 2px rgba(255,255,255,0.28): the top lip. */}
+          <LinearGradient id={lipId} x1="0" x2="0" y1="0" y2="1">
+            <Stop offset="0" stopColor="#ffffff" stopOpacity="0.28" />
+            <Stop offset="0.28" stopColor="#ffffff" stopOpacity="0" />
+            <Stop offset="1" stopColor="#ffffff" stopOpacity="0" />
+          </LinearGradient>
+          {/* inset 0 -2px 4px rgba(0,0,0,0.4): the bottom recess. */}
+          <LinearGradient id={recessId} x1="0" x2="0" y1="0" y2="1">
+            <Stop offset="0" stopColor="#000000" stopOpacity="0" />
+            <Stop offset="0.62" stopColor="#000000" stopOpacity="0" />
+            <Stop offset="1" stopColor="#000000" stopOpacity="0.4" />
+          </LinearGradient>
+        </Defs>
+        <Path d={TRACK_PATH} fill="#3a3f4a" fillRule="evenodd" />
         <Circle
-          cx={center}
-          cy={center}
+          cx={CENTER}
+          cy={CENTER}
           fill="none"
-          r={radius}
-          stroke={isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.14)"}
+          r={OUTER_RADIUS - 1.25}
+          stroke={`url(#${lipId})`}
+          strokeWidth={2.5}
+        />
+        <Circle
+          cx={CENTER}
+          cy={CENTER}
+          fill="none"
+          r={OUTER_RADIUS - 1.5}
+          stroke={`url(#${recessId})`}
+          strokeWidth={3}
+        />
+        {/* inset 0 0 0 1px rgba(255,255,255,0.18): the outer hairline. */}
+        <Circle
+          cx={CENTER}
+          cy={CENTER}
+          fill="none"
+          r={OUTER_RADIUS - 0.5}
+          stroke="rgba(255, 255, 255, 0.18)"
           strokeWidth={1}
-        />
-        <Circle
-          cx={center}
-          cy={center}
-          fill="none"
-          r={radius - 0.5}
-          stroke={trackColor}
-          strokeWidth={stroke}
-        />
-        {/* Top lip: a short arc at 12 o'clock, the highlight that gives the
-            ring its raised feel. */}
-        <Circle
-          cx={center}
-          cy={center}
-          fill="none"
-          origin={`${center}, ${center}`}
-          r={radius - 0.5}
-          rotation={-90}
-          stroke={
-            isDark ? "rgba(255, 255, 255, 0.20)" : "rgba(255, 255, 255, 0.85)"
-          }
-          strokeDasharray={`${circumference * 0.28} ${circumference * 0.72}`}
-          strokeLinecap="round"
-          strokeWidth={stroke * 0.32}
         />
       </Svg>
 
-      {/* Sweeping arc, on its own rotating layer. */}
+      {/* The conic arc on its own rotating layer. */}
       <AnimatedView
         pointerEvents="none"
         style={[
@@ -129,27 +151,15 @@ export function Spinner3D({ className, size = 56, style }: Spinner3DProps) {
           animatedStyle,
         ]}
       >
-        <Svg height={size} width={size}>
-          <Defs>
-            <LinearGradient id="asmSpinnerArc" x1="0" x2="1" y1="0" y2="1">
-              <Stop offset="0" stopColor="#ff9500" stopOpacity="0" />
-              <Stop offset="0.2" stopColor="#ff9500" stopOpacity="1" />
-              <Stop offset="0.8" stopColor="#e65500" stopOpacity="1" />
-              <Stop offset="1" stopColor="#e65500" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          <Circle
-            cx={center}
-            cy={center}
-            fill="none"
-            r={radius - 0.5}
-            stroke="url(#asmSpinnerArc)"
-            strokeDasharray={`${circumference * ARC_FRACTION} ${
-              circumference * (1 - ARC_FRACTION)
-            }`}
-            strokeLinecap="round"
-            strokeWidth={stroke}
-          />
+        <Svg height={size} viewBox={`0 0 ${BOX} ${BOX}`} width={size}>
+          {ARC_SLICES.map((slice) => (
+            <Path
+              d={slice.path}
+              fill={slice.color}
+              fillOpacity={slice.opacity}
+              key={slice.key}
+            />
+          ))}
         </Svg>
       </AnimatedView>
     </View>
