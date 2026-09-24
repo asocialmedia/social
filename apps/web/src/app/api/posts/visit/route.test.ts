@@ -17,14 +17,10 @@ const mockPrisma = {
   orm: {
     public: {
       PostVisits: {
-        create: () => {
+        upsert: () => {
           upserted = true;
           return {};
         },
-        select: () => ({
-          where: () => ({ first: () => Promise.resolve(null) }),
-        }),
-        where: () => ({ update: () => Promise.resolve({}) }),
       },
       Posts: {
         select: () => ({

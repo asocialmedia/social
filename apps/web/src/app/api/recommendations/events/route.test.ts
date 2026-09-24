@@ -110,6 +110,21 @@ describe("POST /api/recommendations/events", () => {
     });
   });
 
+  test("accepts duplicate impression retries idempotently", async () => {
+    createEvent.mockRejectedValueOnce({
+      constraint: "recommendation_events_dedupeKey_key",
+      sqlState: "23505",
+    });
+
+    const response = await POST(
+      request({ events: [{ eventType: "IMPRESSION", postId: "post-1" }] })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ accepted: 1 });
+    expect(createEvent).toHaveBeenCalledTimes(1);
+  });
+
   test("drops events for a deleted post but still records the rest", async () => {
     // Only post-2 exists now; the post-1 event is stale telemetry.
     existingPosts = [{ id: "post-2" }];

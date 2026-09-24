@@ -12,6 +12,38 @@ import { getSessionFromApi } from "@/lib/auth/session";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
+async function queryChronologicalGusts(
+  userId: string,
+  excludeModerated: boolean,
+  cursor: string | undefined,
+  limit: number
+) {
+  let query = getPostDataQuery(prisma.orm, userId)
+    .where((post) => {
+      const filters = [
+        post.postMedias.some((media) => media._type.eq("VIDEO")),
+        post.isGust.eq(true),
+        post.rootPostId.isNull(),
+      ];
+      if (excludeModerated) {
+        filters.push(post.moderated.eq(false));
+      }
+      return and(...filters);
+    })
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
+  if (cursor) {
+    const anchor = await prisma.orm.public.Posts.select("createdAt")
+      .where({ id: cursor })
+      .first();
+    if (!anchor) {
+      return null;
+    }
+    query = query.cursor({ createdAt: anchor.createdAt, id: cursor }).offset(1);
+  }
+  const postRows = await query.limit(limit).all();
+  return postRows.map(mapPostData);
+}
+
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
@@ -115,24 +147,20 @@ export async function GET(request: Request) {
     ? cursor.slice(4) || undefined
     : cursor;
 
-  let query = getPostDataQuery(prisma.orm, userId)
-    .where((post) => {
-      const filters = [
-        post.postMedias.some((media) => media._type.eq("VIDEO")),
-        post.isGust.eq(true),
-        post.rootPostId.isNull(),
-      ];
-      if (excludeModerated) {
-        filters.push(post.moderated.eq(false));
-      }
-      return and(...filters);
-    })
-    .orderBy((post) => post.createdAt.desc());
-  if (chronologicalCursor) {
-    query = query.cursor({ id: chronologicalCursor }).offset(1);
-  }
-  const postRows = await query.limit(pageSize + 1).all();
-  const posts = postRows.map(mapPostData);
+  const posts =
+    (await queryChronologicalGusts(
+      userId,
+      excludeModerated,
+      chronologicalCursor,
+      pageSize + 1
+    )) ??
+    (await queryChronologicalGusts(
+      userId,
+      excludeModerated,
+      undefined,
+      pageSize + 1
+    )) ??
+    [];
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;

@@ -79,7 +79,7 @@ const mockFindUnique = mock(
 
 interface PostQuery {
   all: () => ReturnType<typeof mockFindMany>;
-  cursor: (cursor: { id: string }) => PostQuery;
+  cursor: (cursor: { createdAt: Date; id: string }) => PostQuery;
   first: () => ReturnType<typeof mockFindUnique>;
   limit: (limit: number) => PostQuery;
   offset: (offset: number) => PostQuery;
@@ -184,7 +184,11 @@ mock.module("@asm/db", () => ({
     orm: {
       public: {
         Posts: {
-          select: () => ({ where: () => ({ first: mockFindUnique }) }),
+          select: () => ({
+            where: (where: { id: string }) => ({
+              first: () => mockFindUnique({ where }),
+            }),
+          }),
         },
       },
     },
@@ -200,6 +204,7 @@ describe("GET /api/gusts", () => {
     mockPostList = [...sampleGusts];
     lastFindManyArgs = null;
     mockFindMany.mockClear();
+    mockFindUnique.mockClear();
     mockHydrateViewCounts.mockClear();
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
@@ -278,6 +283,19 @@ describe("GET /api/gusts", () => {
     const callArgs = lastFindManyArgs as { take?: number };
     // take + 1 for pagination lookahead
     expect(callArgs?.take).toBe(6);
+  });
+
+  test("restarts gust pagination when the cursor anchor is gone", async () => {
+    const res = await GET(
+      new Request("http://localhost:3000/api/gusts?cursor=exp.missing")
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { posts: { id: string }[] };
+    expect(body.posts[0]?.id).toBe("gust1");
+    expect(
+      (lastFindManyArgs as { cursor?: { id: string } }).cursor
+    ).toBeUndefined();
   });
 
   test("prepends requested initialId gust to the first page", async () => {

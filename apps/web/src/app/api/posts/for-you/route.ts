@@ -46,7 +46,13 @@ async function queryArchivePosts(
     })
     .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
   if (cursor) {
-    query = query.cursor({ id: cursor }).offset(1);
+    const anchor = await prisma.orm.public.Posts.select("createdAt")
+      .where({ id: cursor })
+      .first();
+    if (!anchor) {
+      return null;
+    }
+    query = query.cursor({ createdAt: anchor.createdAt, id: cursor }).offset(1);
   }
   const rows = await query.limit(limit).all();
   return rows.map(mapPostData);
@@ -97,12 +103,20 @@ export async function GET(request: Request) {
       ) {
         const chronologicalCursor =
           personalized.nextCursor.slice(4) || undefined;
-        const fallbackPosts = await queryArchivePosts(
-          userId,
-          excludeModerated,
-          chronologicalCursor,
-          pageSize - posts.length + 1
-        );
+        const fallbackPosts =
+          (await queryArchivePosts(
+            userId,
+            excludeModerated,
+            chronologicalCursor,
+            pageSize - posts.length + 1
+          )) ??
+          (await queryArchivePosts(
+            userId,
+            excludeModerated,
+            undefined,
+            pageSize - posts.length + 1
+          )) ??
+          [];
         const seenPostIds = new Set(posts.map((post) => post.id));
         const fillPosts = fallbackPosts.filter(
           (post) => !seenPostIds.has(post.id)
@@ -129,7 +143,7 @@ export async function GET(request: Request) {
         ? cursor.slice(4) || undefined
         : cursor;
 
-    let posts;
+    let posts: Awaited<ReturnType<typeof queryArchivePosts>>;
     try {
       posts = await queryArchivePosts(
         userId,
@@ -149,6 +163,16 @@ export async function GET(request: Request) {
         undefined,
         pageSize + 1
       );
+    }
+
+    if (posts === null) {
+      posts =
+        (await queryArchivePosts(
+          userId,
+          excludeModerated,
+          undefined,
+          pageSize + 1
+        )) ?? [];
     }
 
     const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));

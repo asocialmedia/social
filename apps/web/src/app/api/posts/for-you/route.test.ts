@@ -28,6 +28,9 @@ let lastLegacyArgs: {
   where?: unknown;
 } | null = null;
 let pgPosts: PostRow[] = [];
+let mockArchiveAnchor: { createdAt: Date } | null = {
+  createdAt: new Date(),
+};
 
 const mockFindPosts = mock(
   (args?: {
@@ -41,6 +44,8 @@ const mockFindPosts = mock(
   }
 );
 
+const mockArchiveAnchorFirst = mock(() => mockArchiveAnchor);
+
 const mockHydrate = mock((posts: unknown[]) => posts);
 const mockGetPersonalizedFeedPage = mock(
   (_args: unknown) => mockPersonalizedPage
@@ -48,7 +53,7 @@ const mockGetPersonalizedFeedPage = mock(
 
 interface PostQuery {
   all: () => ReturnType<typeof mockFindPosts>;
-  cursor: (cursor: { id: string }) => PostQuery;
+  cursor: (cursor: { createdAt: Date; id: string }) => PostQuery;
   limit: (limit: number) => PostQuery;
   offset: (offset: number) => PostQuery;
   orderBy: (order: unknown) => PostQuery;
@@ -109,7 +114,17 @@ mock.module("@asm/db", () => ({
   getPersonalizedFeedPage: mockGetPersonalizedFeedPage,
   getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrate,
-  prisma: {},
+  prisma: {
+    orm: {
+      public: {
+        Posts: {
+          select: () => ({
+            where: () => ({ first: mockArchiveAnchorFirst }),
+          }),
+        },
+      },
+    },
+  },
 }));
 
 mock.module("@asm/db/recommendation/trending-snapshot", () => ({
@@ -132,9 +147,11 @@ describe("GET /api/posts/for-you", () => {
       posts: [],
     };
     pgPosts = [];
+    mockArchiveAnchor = { createdAt: new Date() };
     lastLegacyArgs = null;
     mockGetPersonalizedFeedPage.mockClear();
     mockFindPosts.mockClear();
+    mockArchiveAnchorFirst.mockClear();
   });
 
   test("serves personalized feed for signed-in user without cursor", async () => {
@@ -215,6 +232,21 @@ describe("GET /api/posts/for-you", () => {
     expect(body.posts[0].id).toBe("exp-1");
     expect(lastLegacyArgs?.cursor).toEqual({ id: "p-anchor" });
     expect(lastLegacyArgs?.skip).toBe(1);
+  });
+
+  test("restarts the archive when its cursor anchor is gone", async () => {
+    const { GET } = await import("./route");
+    mockArchiveAnchor = null;
+    pgPosts = [{ content: "fresh", createdAt: new Date(), id: "fresh-1" }];
+
+    const res = await GET(
+      new Request("http://localhost/api/posts/for-you?cursor=exp.missing")
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.posts[0].id).toBe("fresh-1");
+    expect(lastLegacyArgs?.cursor).toBeUndefined();
   });
 
   test("allows guests to browse chronological recency", async () => {

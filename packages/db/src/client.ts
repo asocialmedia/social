@@ -145,7 +145,11 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
     .include("comments", (comments) =>
       comments.where((comment) => comment.deleted.eq(false)).count()
     )
-    .include("mentions")
+    .include("mentions", (mentions) =>
+      mentions.include("user", (user) =>
+        user.select("avatarUrl", "displayName", "id", "username")
+      )
+    )
     .include("postMedias", (media) =>
       media.select("id", "_type", "thumbnailKey").limit(1)
     )

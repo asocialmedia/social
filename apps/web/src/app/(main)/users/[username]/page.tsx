@@ -10,6 +10,7 @@ import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
 import { notFound, permanentRedirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
 import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
@@ -143,6 +144,7 @@ export default function Page(props: PageProps) {
 }
 
 async function ProfileContent({ params }: PageProps) {
+  await connection();
   const { username } = await params;
   const session = await getSessionFromApi();
 

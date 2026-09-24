@@ -25,6 +25,7 @@ test-timings.json
 docs/
 .next/
 out/
+tmp/
 build
 dist
 .init-complete

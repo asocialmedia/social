@@ -6,6 +6,7 @@ import {
 } from "@asm/db";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
@@ -52,6 +53,7 @@ export default function Page(props: PageProps) {
 }
 
 async function FollowersContent({ params }: PageProps) {
+  await connection();
   const { username } = await params;
   const session = await getSessionFromApi();
 

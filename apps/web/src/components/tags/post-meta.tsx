@@ -9,13 +9,15 @@ import { extractInlineMeta } from "@/lib/posts/inline-meta";
 
 // Accept the payload shapes produced by getPostDataInclude (post.mentions[*].
 // user and post.tags) directly, so callers don't need unchecked casts.
+interface PostMetaMention {
+  avatarUrl: string | null;
+  displayName: string | null;
+  id: string;
+  username: string;
+}
+
 interface PostMetaProps {
-  mentions: {
-    avatarUrl: string | null;
-    displayName: string | null;
-    id: string;
-    username: string;
-  }[];
+  mentions: (PostMetaMention | null | undefined)[];
   tags: Pick<TagWithCount, "name">[];
   // When provided, mentions/tags that already appear inline in the content
   // are dropped: they render in the post text itself, so showing them again
@@ -26,11 +28,14 @@ interface PostMetaProps {
 
 export const PostMeta = ({ mentions, tags, content }: PostMetaProps) => {
   const inline = content ? extractInlineMeta(content) : null;
+  const validMentions = mentions.filter((user): user is PostMetaMention =>
+    Boolean(user?.id && user.username)
+  );
   const visibleMentions = inline
-    ? mentions.filter(
-        (user) => !inline.usernames.has((user.username ?? "").toLowerCase())
+    ? validMentions.filter(
+        (user) => !inline.usernames.has(user.username.toLowerCase())
       )
-    : mentions;
+    : validMentions;
   const visibleTags = inline
     ? tags.filter((tag) => !inline.tags.has(tag.name.toLowerCase()))
     : tags;

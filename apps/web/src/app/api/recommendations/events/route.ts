@@ -31,6 +31,15 @@ function isForeignKeyError(error: unknown): boolean {
   return isRecord(error) && error.code === "P2003";
 }
 
+function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    isRecord(error) &&
+    (error.code === "P2002" ||
+      error.sqlState === "23505" ||
+      error.constraint === "recommendation_events_dedupeKey_key")
+  );
+}
+
 function parseEvent(value: unknown): RecommendationEventInput | null {
   if (!isRecord(value)) {
     return null;
@@ -121,9 +130,9 @@ export async function POST(request: Request) {
   }
 
   const insertEvents = async (eventList: RecommendationEventInput[]) => {
-    await Promise.all(
-      eventList.map((event) =>
-        prisma.orm.public.RecommendationEvents.create({
+    const insertEvent = async (event: RecommendationEventInput) => {
+      try {
+        await prisma.orm.public.RecommendationEvents.create({
           dedupeKey:
             event.eventType === "IMPRESSION"
               ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
@@ -134,9 +143,15 @@ export async function POST(request: Request) {
           sessionId: session.session?.id ?? null,
           userId,
           value: event.value ?? null,
-        })
-      )
-    );
+        });
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) {
+          throw error;
+        }
+      }
+    };
+
+    await Promise.all(eventList.map(insertEvent));
   };
 
   try {

@@ -1,4 +1,4 @@
-import { and, prisma, toPrismaDateTime } from "@asm/db";
+import { prisma, toPrismaDateTime } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -26,19 +26,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
 
-  // Upsert keeps one row per user+post, bumping visitedAt so the history
-  // card reflects "most recently viewed" order.
-  const existingVisit = await prisma.orm.public.PostVisits.select("id")
-    .where((visit) => and(visit.postId.eq(postId), visit.userId.eq(userId)))
-    .first();
-  await (existingVisit
-    ? prisma.orm.public.PostVisits.where({ id: existingVisit.id }).update({
-        visitedAt: toPrismaDateTime(new Date()),
-      })
-    : prisma.orm.public.PostVisits.create({
-        postId,
-        userId,
-      }));
+  await prisma.orm.public.PostVisits.upsert({
+    conflictOn: { postId, userId },
+    create: { postId, userId },
+    update: { visitedAt: toPrismaDateTime(new Date()) },
+  });
 
   return Response.json({ success: true });
 }

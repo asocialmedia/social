@@ -42,7 +42,7 @@ const checkStates = new Map<PreflightCheckKey, PreflightCheckState>(
   PREFLIGHT_CHECK_ORDER.map((item) => [item.key, "pending"])
 );
 
-let activeCheck: PreflightCheckKey | null = null;
+const activeChecks = new Set<PreflightCheckKey>();
 const progressSpinner = process.stdout.isTTY ? spinner() : null;
 let progressSpinnerStarted = false;
 
@@ -76,8 +76,8 @@ function finishProgressLine() {
 }
 
 function fatal(message: string): never {
-  if (activeCheck) {
-    setCheckState(activeCheck, "failed");
+  for (const key of activeChecks) {
+    setCheckState(key, "failed");
   }
   finishProgressLine();
   log.error(message);
@@ -152,6 +152,22 @@ async function withCache(
     timestamp: Date.now(),
   };
   return "ok" as const;
+}
+
+async function runCheck(
+  cache: CacheShape,
+  key: PreflightCheckKey,
+  checkInput: string,
+  fn: () => Promise<void>
+) {
+  activeChecks.add(key);
+  setCheckState(key, "running");
+  try {
+    const status = await withCache(cache, key, checkInput, fn);
+    setCheckState(key, status);
+  } finally {
+    activeChecks.delete(key);
+  }
 }
 
 async function getServiceSnapshot() {
@@ -410,16 +426,19 @@ async function run() {
   renderProgress();
 
   let snapshots: ServiceSnapshot[] = [];
+  let cache: CacheShape;
   let composeFingerprint = "";
   let runtimeFingerprint = "";
 
-  activeCheck = "services";
+  activeChecks.add("services");
   setCheckState("services", "running");
-  snapshots = await getServiceSnapshot();
-  composeFingerprint = await getComposeFileFingerprint();
+  [snapshots, composeFingerprint, cache] = await Promise.all([
+    getServiceSnapshot(),
+    getComposeFileFingerprint(),
+    getCache(),
+  ]);
   runtimeFingerprint = buildRuntimeFingerprint(snapshots);
 
-  const cache = await getCache();
   if (cache.version !== CACHE_VERSION) {
     cache.version = CACHE_VERSION;
     cache.checks = {};
@@ -435,71 +454,49 @@ async function run() {
     }
   );
   setCheckState("services", servicesStatus);
-  activeCheck = null;
+  activeChecks.delete("services");
 
-  activeCheck = "postgres";
-  setCheckState("postgres", "running");
-  const postgresStatus = await withCache(
-    cache,
-    "postgres",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    async () => {
-      await assertHostPortReady(5433, "Postgres");
-      await assertPostgresSchemaReady();
-    }
-  );
-  setCheckState("postgres", postgresStatus);
-  activeCheck = null;
-
-  activeCheck = "redis";
-  setCheckState("redis", "running");
-  const redisStatus = await withCache(
-    cache,
-    "redis",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    async () => {
-      await assertHostPortReady(6379, "Redis");
-      await assertRedisReady();
-    }
-  );
-  setCheckState("redis", redisStatus);
-  activeCheck = null;
-
-  activeCheck = "asmob";
-  setCheckState("asmob", "running");
-  const asmobStatus = await withCache(
-    cache,
-    "asmob",
-    `${composeFingerprint}:${runtimeFingerprint}:${ASMOB_ACCESS_KEY}:${ASMOB_REGION}`,
-    async () => {
-      await assertHostPortReady(9090, "Object storage");
-      await assertBucketsReady();
-    }
-  );
-  setCheckState("asmob", asmobStatus);
-  activeCheck = null;
-
-  activeCheck = "openobserve";
-  setCheckState("openobserve", "running");
-  const openobserveStatus = await withCache(
-    cache,
-    "openobserve",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    () => assertOpenObserveReady()
-  );
-  setCheckState("openobserve", openobserveStatus);
-  activeCheck = null;
-
-  activeCheck = "clamav";
-  setCheckState("clamav", "running");
-  const clamAvStatus = await withCache(
-    cache,
-    "clamav",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    () => assertClamAvReady()
-  );
-  setCheckState("clamav", clamAvStatus);
-  activeCheck = null;
+  await Promise.all([
+    runCheck(
+      cache,
+      "postgres",
+      `${composeFingerprint}:${runtimeFingerprint}`,
+      async () => {
+        await assertHostPortReady(5433, "Postgres");
+        await assertPostgresSchemaReady();
+      }
+    ),
+    runCheck(
+      cache,
+      "redis",
+      `${composeFingerprint}:${runtimeFingerprint}`,
+      async () => {
+        await assertHostPortReady(6379, "Redis");
+        await assertRedisReady();
+      }
+    ),
+    runCheck(
+      cache,
+      "asmob",
+      `${composeFingerprint}:${runtimeFingerprint}:${ASMOB_ACCESS_KEY}:${ASMOB_REGION}`,
+      async () => {
+        await assertHostPortReady(9090, "Object storage");
+        await assertBucketsReady();
+      }
+    ),
+    runCheck(
+      cache,
+      "openobserve",
+      `${composeFingerprint}:${runtimeFingerprint}`,
+      () => assertOpenObserveReady()
+    ),
+    runCheck(
+      cache,
+      "clamav",
+      `${composeFingerprint}:${runtimeFingerprint}`,
+      () => assertClamAvReady()
+    ),
+  ]);
 
   await setCache(cache);
   finishProgressLine();
