@@ -1,15 +1,17 @@
 import {
   and,
   communityVisibilityWhere,
-  encodeTrendingCursor,
-  fetchTrendingSnapshotPage,
   getPostDataQuery,
   hydrateViewCounts,
-  isTrendingSnapshotCursor,
   mapPostData,
   prisma,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import {
+  encodeTrendingCursor,
+  fetchTrendingSnapshotPage,
+  isTrendingSnapshotCursor,
+} from "@asm/db/recommendation/trending-snapshot";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 

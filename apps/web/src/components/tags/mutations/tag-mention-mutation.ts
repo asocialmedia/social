@@ -1,5 +1,5 @@
-import { toPrismaDateTime } from "@asm/db";
 import type { PostData, TagWithCount, UserData } from "@asm/db";
+import { toPrismaDateTime } from "@asm/db/dates";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useSession } from "@/app/(main)/session-provider";

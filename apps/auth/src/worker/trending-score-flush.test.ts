@@ -91,11 +91,14 @@ describe("flushTrendingScores", () => {
     computeTrendingScore: fakeComputeTrendingScore,
     fromPrismaDateTime: (value: Date) => value,
     prisma: mockPrisma,
-    publishTrendingSnapshot: mockPublishSnapshot,
     toPrismaDateTime: (value: Date) => {
       dateConversions.push(value);
       return value;
     },
+  }));
+
+  mock.module("@asm/db/recommendation/trending-snapshot", () => ({
+    publishTrendingSnapshot: mockPublishSnapshot,
   }));
 
   beforeEach(() => {

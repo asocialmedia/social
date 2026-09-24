@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.1.64",
+  "version": "1.1.65",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -14,6 +14,14 @@
     "./communities": {
       "types": "./src/communities/shared.ts",
       "default": "./src/communities/shared.ts"
+    },
+    "./dates": {
+      "types": "./src/dates.ts",
+      "default": "./src/dates.ts"
+    },
+    "./recommendation/trending-snapshot": {
+      "types": "./src/recommendation/trending-snapshot.ts",
+      "default": "./src/recommendation/trending-snapshot.ts"
     }
   },
   "scripts": {

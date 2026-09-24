@@ -12,6 +12,7 @@ import {
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
 import { createLogger } from "@asm/logger";
+import { connection } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
@@ -59,6 +60,7 @@ function isRefreshRequest(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  await connection();
   const startedAt = Date.now();
   try {
     const session = await getSessionFromApi();

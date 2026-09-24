@@ -106,14 +106,17 @@ function createPostQuery(): PostQuery {
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   communityVisibilityWhere: () => () => ({}),
-  encodeTrendingCursor: () => "tz1.mock",
-  fetchTrendingSnapshotPage: () => null,
   getPersonalizedFeedPage: mockGetPersonalizedFeedPage,
   getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrate,
+  prisma: {},
+}));
+
+mock.module("@asm/db/recommendation/trending-snapshot", () => ({
+  encodeTrendingCursor: () => "tz1.mock",
+  fetchTrendingSnapshotPage: () => null,
   isTrendingSnapshotCursor: (raw: string | undefined | null) =>
     Boolean(raw && raw.startsWith("tz1.")),
-  prisma: {},
 }));
 
 mock.module("@/lib/auth/session", () => ({

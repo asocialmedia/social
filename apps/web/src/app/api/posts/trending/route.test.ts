@@ -213,14 +213,17 @@ const mockPrisma = {
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   communityVisibilityWhere: () => () => ({}),
-  encodeTrendingCursor: mockEncodeCursor,
-  fetchTrendingSnapshotPage: mockFetchSnapshotPage,
   getPersonalizedFeedPage: () => ({ anchorCursor: null, posts: [] }),
   getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrate,
+  prisma: mockPrisma,
+}));
+
+mock.module("@asm/db/recommendation/trending-snapshot", () => ({
+  encodeTrendingCursor: mockEncodeCursor,
+  fetchTrendingSnapshotPage: mockFetchSnapshotPage,
   isTrendingSnapshotCursor: (raw: string | undefined | null) =>
     Boolean(raw && raw.startsWith("tz1.")),
-  prisma: mockPrisma,
 }));
 
 mock.module("@/lib/auth/session", () => ({

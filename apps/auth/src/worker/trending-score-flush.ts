@@ -3,9 +3,9 @@ import {
   computeTrendingScore,
   fromPrismaDateTime,
   prisma,
-  publishTrendingSnapshot,
   toPrismaDateTime,
 } from "@asm/db";
+import { publishTrendingSnapshot } from "@asm/db/recommendation/trending-snapshot";
 
 import { resolveLogger, withSpan } from "./log";
 import type { WorkerLogger } from "./log";
