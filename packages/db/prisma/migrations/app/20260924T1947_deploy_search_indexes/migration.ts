@@ -11,8 +11,8 @@ import type { Migration as MigrationType } from "@prisma/orm-postgres/migration"
 
 import type { Contract as Start } from "../../snapshots/095080b42c0e4a508cceacaabdb5fbcf86fe474ec8c63318070ecc8eadf375de/contract";
 import startContract from "../../snapshots/095080b42c0e4a508cceacaabdb5fbcf86fe474ec8c63318070ecc8eadf375de/contract.json" with { type: "json" };
-import type { Contract as End } from "../../snapshots/fbd2f5a86f5c7d0ae0d719e14d2ceb11835dbdb29b7a4e57e39f6e0873bd853c/contract";
-import endContract from "../../snapshots/fbd2f5a86f5c7d0ae0d719e14d2ceb11835dbdb29b7a4e57e39f6e0873bd853c/contract.json" with { type: "json" };
+import type { Contract as End } from "../../snapshots/55385198205e5385016cb220c36901098fb22f12cdcf911754fd072a104ab362/contract";
+import endContract from "../../snapshots/55385198205e5385016cb220c36901098fb22f12cdcf911754fd072a104ab362/contract.json" with { type: "json" };
 
 export default class M extends Migration<Start, End> {
   override readonly startContractJson = startContract;
@@ -644,15 +644,83 @@ export default class M extends Migration<Start, End> {
       }),
       this.createIndex({
         schema: "public",
+        table: "communities",
+        index: "communities_description_trgm_idx_a7d2a019",
+        expression: "description gin_trgm_ops",
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "communities",
+        index: "communities_name_trgm_idx_0595b3e0",
+        expression: "name gin_trgm_ops",
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "communities",
+        index: "communities_slug_trgm_idx_65e3b563",
+        expression: "slug gin_trgm_ops",
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
         table: "device_push_tokens",
         index: "device_push_tokens_userId_idx",
         columns: ["userId"],
       }),
       this.createIndex({
         schema: "public",
+        table: "posts",
+        index: "posts_content_trgm_idx_08ad1c7c",
+        expression: "content gin_trgm_ops",
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
         table: "push_subscriptions",
         index: "push_subscriptions_userId_idx",
         columns: ["userId"],
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "username_aliases",
+        index: "username_aliases_username_trgm_idx_c97ac12d",
+        expression: "username gin_trgm_ops",
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "users",
+        index: "users_display_name_trgm_idx_c493f926",
+        expression: '"displayName" gin_trgm_ops',
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "users",
+        index: "users_display_username_trgm_idx_ce7120c2",
+        expression: '"displayUsername" gin_trgm_ops',
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "users",
+        index: "users_username_trgm_idx_c97ac12d",
+        expression: "username gin_trgm_ops",
+        extras: { type: "gin" },
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "verification",
+        index: "verification_expiresAt_idx",
+        columns: ["expiresAt"],
+      }),
+      this.createIndex({
+        schema: "public",
+        table: "verification",
+        index: "verification_identifier_idx",
+        columns: ["identifier"],
       }),
       this.addForeignKey({
         schema: "public",

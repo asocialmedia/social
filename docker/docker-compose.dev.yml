@@ -41,6 +41,7 @@ services:
         psql -h postgres-dev -U postgres -d asocialmedia -c "
           CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
           CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";
+          CREATE EXTENSION IF NOT EXISTS \"pg_trgm\";
           CREATE EXTENSION IF NOT EXISTS \"pg_stat_statements\";
           ALTER DATABASE asocialmedia SET timezone TO '\''UTC'\'';
         " &&

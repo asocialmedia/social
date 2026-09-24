@@ -62,18 +62,91 @@ const redisMock = {
 };
 
 const prismaCalls: { args: unknown; model: string; op: string }[] = [];
-let liveCodes: {
+interface VerificationRecord {
   expiresAt: Date;
   id: string;
   identifier: string;
   value: string;
-}[] = [];
+}
+type VerificationField = "expiresAt" | "identifier";
+type VerificationExpression =
+  | { expressions: VerificationExpression[]; operator: "and" }
+  | {
+      field: VerificationField;
+      operator: "eq" | "gte" | "ilike" | "lt";
+      value: Date | string;
+    };
+let liveCodes: VerificationRecord[] = [];
+let verificationWhere: VerificationExpression | null = null;
 let existingSignupUser: {
   email: string | null;
   id: string;
   passwordHash: string | null;
   username: string;
 } | null = null;
+
+function matchesLike(value: string, pattern: string): boolean {
+  let expression = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === "\\") {
+      index += 1;
+      expression +=
+        pattern[index]?.replaceAll(/[\\^$.|?*+()[\]{}]/g, "\\$&") ?? "";
+    } else if (character === "%") {
+      expression += ".*";
+    } else if (character === "_") {
+      expression += ".";
+    } else {
+      expression += character.replaceAll(/[\\^$.|?*+()[\]{}]/g, "\\$&");
+    }
+  }
+  return new RegExp(`${expression}$`, "i").test(value);
+}
+
+function matchesVerificationExpression(
+  record: VerificationRecord,
+  expression: VerificationExpression | null
+): boolean {
+  if (!expression) {
+    return true;
+  }
+  if (expression.operator === "and") {
+    return expression.expressions.every((entry) =>
+      matchesVerificationExpression(record, entry)
+    );
+  }
+  if (expression.field === "expiresAt") {
+    const actual = record.expiresAt.getTime();
+    const expected =
+      expression.value instanceof Date ? expression.value.getTime() : 0;
+    if (expression.operator === "gte") {
+      return actual >= expected;
+    }
+    if (expression.operator === "lt") {
+      return actual < expected;
+    }
+  }
+  if (expression.operator === "eq") {
+    return record.identifier === expression.value;
+  }
+  return matchesLike(record.identifier, String(expression.value));
+}
+
+function expressionHasField(
+  expression: VerificationExpression | null,
+  field: VerificationField
+): boolean {
+  if (!expression) {
+    return false;
+  }
+  if (expression.operator === "and") {
+    return expression.expressions.some((entry) =>
+      expressionHasField(entry, field)
+    );
+  }
+  return expression.field === field;
+}
 
 const mockAccountCreate = (data: Record<string, unknown>) => {
   prismaCalls.push({
@@ -83,40 +156,61 @@ const mockAccountCreate = (data: Record<string, unknown>) => {
   });
   return Promise.resolve({});
 };
-const mockUserCreate = () => Promise.resolve({ id: "user-1" });
+const mockUserCreate = () => {
+  prismaCalls.push({
+    args: {},
+    model: "user",
+    op: "create",
+  });
+  return Promise.resolve({ id: "user-1" });
+};
 const mockUserFirst = () => Promise.resolve(existingSignupUser);
-let verificationDeleteKind: "cleanup" | "consume" = "consume";
 const mockVerificationDelete = () => {
   prismaCalls.push({
-    args: { where: {} },
+    args: verificationWhere,
     model: "verification",
-    op: verificationDeleteKind,
+    op: expressionHasField(verificationWhere, "expiresAt")
+      ? "cleanup"
+      : "consume",
   });
-  return Promise.resolve(1);
+  const matchedIds = new Set(
+    liveCodes
+      .filter((record) =>
+        matchesVerificationExpression(record, verificationWhere)
+      )
+      .map((record) => record.id)
+  );
+  liveCodes = liveCodes.filter((record) => !matchedIds.has(record.id));
+  return Promise.resolve(matchedIds.size);
 };
-const mockVerificationAll = () => Promise.resolve(liveCodes);
+const mockVerificationAll = () =>
+  Promise.resolve(
+    liveCodes.filter((record) =>
+      matchesVerificationExpression(record, verificationWhere)
+    )
+  );
 const verificationQuery = {
   all: mockVerificationAll,
   deleteAndCount: mockVerificationDelete,
   where: (predicate: (accessor: object) => unknown) => {
-    const fields = new Set<string>();
     const accessor = new Proxy(
       {},
       {
         get: (_target, property) => {
-          if (typeof property === "string") {
-            fields.add(property);
+          if (typeof property !== "string") {
+            return;
           }
+          const field = property as VerificationField;
           return {
-            gte: () => ({}),
-            ilike: () => ({}),
-            lt: () => ({}),
+            eq: (value: Date | string) => ({ field, operator: "eq", value }),
+            gte: (value: Date | string) => ({ field, operator: "gte", value }),
+            ilike: (value: string) => ({ field, operator: "ilike", value }),
+            lt: (value: Date | string) => ({ field, operator: "lt", value }),
           };
         },
       }
     );
-    predicate(accessor);
-    verificationDeleteKind = fields.has("expiresAt") ? "cleanup" : "consume";
+    verificationWhere = predicate(accessor) as VerificationExpression;
     return verificationQuery;
   },
 };
@@ -140,7 +234,10 @@ const prismaMock = {
 
 // The signup router only uses prisma/redis/isReservedUsername from @asm/db.
 mock.module("@asm/db", () => ({
-  and: (...expressions: unknown[]) => expressions,
+  and: (...expressions: VerificationExpression[]) => ({
+    expressions,
+    operator: "and",
+  }),
   fromPrismaDateTime: (value: Date) => value,
   isReservedUsername: () => false,
   prisma: prismaMock,
@@ -258,6 +355,65 @@ describe("pendingSignupVerify OTP security contract", () => {
 
     expect(result).toEqual({ error: "invalid-otp", success: false });
     expect(redisStore.has(FAIL_KEY)).toBe(false);
+  });
+
+  test("does not read an OTP from a lookalike address when the requested email contains an underscore", async () => {
+    const email = "first_last@example.com";
+    const lookalikeEmail = "firstXlast@example.com";
+    liveCodes = [
+      {
+        expiresAt: FUTURE,
+        id: "lookalike-code",
+        identifier: `email-verification-otp-${lookalikeEmail}`,
+        value: "123456:0",
+      },
+    ];
+    redisStore.set(`pending-signup:email:${email}`, "tok-1");
+    redisStore.set(
+      "pending-signup:tok-1",
+      JSON.stringify({ ...pendingPayload, email })
+    );
+
+    const result = await createCaller().pendingSignupVerify({
+      email,
+      otp: "123456",
+      otpVerified: true,
+    });
+
+    expect(result).toEqual({ error: "invalid-otp", success: false });
+    expect(
+      prismaCalls.some((call) => call.model === "user" && call.op === "create")
+    ).toBe(false);
+  });
+
+  test("consuming an underscored email does not delete a lookalike address's code", async () => {
+    const email = "first_last@example.com";
+    const lookalikeEmail = "firstXlast@example.com";
+    const failKey = `rate:signup:verifyfail:${email}`;
+    redisStore.set(failKey, "4");
+    liveCodes = [
+      {
+        expiresAt: FUTURE,
+        id: "requested-code",
+        identifier: `email-verification-otp-${email}`,
+        value: "123456:0",
+      },
+      {
+        expiresAt: FUTURE,
+        id: "lookalike-code",
+        identifier: `email-verification-otp-${lookalikeEmail}`,
+        value: "654321:0",
+      },
+    ];
+
+    const result = await createCaller().pendingSignupVerify({
+      email,
+      otp: "000000",
+      otpVerified: true,
+    });
+
+    expect(result).toEqual({ error: "invalid-otp", success: false });
+    expect(liveCodes.map((record) => record.id)).toEqual(["lookalike-code"]);
   });
 
   test("reaching the failure threshold consumes the verification code in the same request", async () => {

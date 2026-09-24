@@ -108,10 +108,10 @@ async function consumeVerificationCodes(emailLower: string): Promise<void> {
     const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
     await Promise.all([
       prisma.orm.public.Verification.where((verification) =>
-        verification.identifier.ilike(betterAuthIdentifier)
+        verification.identifier.eq(betterAuthIdentifier)
       ).deleteAndCount(),
       prisma.orm.public.Verification.where((verification) =>
-        verification.identifier.ilike(emailLower)
+        verification.identifier.eq(emailLower)
       ).deleteAndCount(),
     ]);
     debugLog.api("verifyEmailOtp:codes-consumed", {
@@ -185,7 +185,7 @@ async function verifyEmailOtp(
     await prisma.orm.public.Verification.where((verification) =>
       and(
         verification.expiresAt.lt(toPrismaDateTime(new Date())),
-        verification.identifier.ilike(betterAuthIdentifier)
+        verification.identifier.eq(betterAuthIdentifier)
       )
     ).deleteAndCount();
   } catch (cleanupError) {
@@ -201,7 +201,7 @@ async function verifyEmailOtp(
     .where((verification) =>
       and(
         verification.expiresAt.gte(toPrismaDateTime(new Date())),
-        verification.identifier.ilike(betterAuthIdentifier)
+        verification.identifier.eq(betterAuthIdentifier)
       )
     )
     .all();
@@ -891,10 +891,10 @@ export const signupRouter = router({
             const betterAuthIdentifier = `email-verification-otp-${pendingEmailLower}`;
             const cleanupCounts = await Promise.all([
               prisma.orm.public.Verification.where((verification) =>
-                verification.identifier.ilike(betterAuthIdentifier)
+                verification.identifier.eq(betterAuthIdentifier)
               ).deleteAndCount(),
               prisma.orm.public.Verification.where((verification) =>
-                verification.identifier.ilike(pendingEmailLower)
+                verification.identifier.eq(pendingEmailLower)
               ).deleteAndCount(),
             ]);
             const deletedCount = cleanupCounts.reduce(
@@ -1071,10 +1071,10 @@ export const signupRouter = router({
         const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
         const cleanupCounts = await Promise.all([
           prisma.orm.public.Verification.where((verification) =>
-            verification.identifier.ilike(betterAuthIdentifier)
+            verification.identifier.eq(betterAuthIdentifier)
           ).deleteAndCount(),
           prisma.orm.public.Verification.where((verification) =>
-            verification.identifier.ilike(emailLower)
+            verification.identifier.eq(emailLower)
           ).deleteAndCount(),
         ]);
         const deletedCount = cleanupCounts.reduce(

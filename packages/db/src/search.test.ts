@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import path from "node:path";
 
 interface SearchQuery {
   all: () => Promise<Record<string, unknown>[]>;
@@ -163,5 +164,24 @@ describe("search", () => {
     expect(await searchCommunitiesForSearch("design", 1)).toEqual([
       expect.objectContaining({ id: "c2", memberCount: 5 }),
     ]);
+  });
+
+  test("declares trigram indexes for every substring search column", async () => {
+    const contract = await Bun.file(
+      path.join(import.meta.dirname, "../prisma/contract.prisma")
+    ).text();
+    const indexedColumns = [
+      "username gin_trgm_ops",
+      '\\"displayName\\" gin_trgm_ops',
+      '\\"displayUsername\\" gin_trgm_ops',
+      "content gin_trgm_ops",
+      "description gin_trgm_ops",
+      "name gin_trgm_ops",
+      "slug gin_trgm_ops",
+    ];
+
+    for (const expression of indexedColumns) {
+      expect(contract).toContain(expression);
+    }
   });
 });

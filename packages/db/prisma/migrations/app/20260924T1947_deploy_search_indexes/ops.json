@@ -3682,6 +3682,111 @@
     ]
   },
   {
+    "id": "index.communities.communities_description_trgm_idx_a7d2a019",
+    "label": "Create index \"communities_description_trgm_idx_a7d2a019\" on \"communities\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "communities_description_trgm_idx_a7d2a019",
+        "table": "communities"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"communities_description_trgm_idx_a7d2a019\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"communities_description_trgm_idx_a7d2a019\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"communities_description_trgm_idx_a7d2a019\"",
+        "sql": "CREATE INDEX \"communities_description_trgm_idx_a7d2a019\" ON \"public\".\"communities\" USING \"gin\" (description gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"communities_description_trgm_idx_a7d2a019\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"communities_description_trgm_idx_a7d2a019\""]
+      }
+    ]
+  },
+  {
+    "id": "index.communities.communities_name_trgm_idx_0595b3e0",
+    "label": "Create index \"communities_name_trgm_idx_0595b3e0\" on \"communities\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "communities_name_trgm_idx_0595b3e0",
+        "table": "communities"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"communities_name_trgm_idx_0595b3e0\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"communities_name_trgm_idx_0595b3e0\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"communities_name_trgm_idx_0595b3e0\"",
+        "sql": "CREATE INDEX \"communities_name_trgm_idx_0595b3e0\" ON \"public\".\"communities\" USING \"gin\" (name gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"communities_name_trgm_idx_0595b3e0\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"communities_name_trgm_idx_0595b3e0\""]
+      }
+    ]
+  },
+  {
+    "id": "index.communities.communities_slug_trgm_idx_65e3b563",
+    "label": "Create index \"communities_slug_trgm_idx_65e3b563\" on \"communities\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "communities_slug_trgm_idx_65e3b563",
+        "table": "communities"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"communities_slug_trgm_idx_65e3b563\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"communities_slug_trgm_idx_65e3b563\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"communities_slug_trgm_idx_65e3b563\"",
+        "sql": "CREATE INDEX \"communities_slug_trgm_idx_65e3b563\" ON \"public\".\"communities\" USING \"gin\" (slug gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"communities_slug_trgm_idx_65e3b563\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"communities_slug_trgm_idx_65e3b563\""]
+      }
+    ]
+  },
+  {
     "id": "index.device_push_tokens.device_push_tokens_userId_idx",
     "label": "Create index \"device_push_tokens_userId_idx\" on \"device_push_tokens\"",
     "operationClass": "additive",
@@ -3717,6 +3822,41 @@
     ]
   },
   {
+    "id": "index.posts.posts_content_trgm_idx_08ad1c7c",
+    "label": "Create index \"posts_content_trgm_idx_08ad1c7c\" on \"posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "posts_content_trgm_idx_08ad1c7c",
+        "table": "posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"posts_content_trgm_idx_08ad1c7c\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"posts_content_trgm_idx_08ad1c7c\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"posts_content_trgm_idx_08ad1c7c\"",
+        "sql": "CREATE INDEX \"posts_content_trgm_idx_08ad1c7c\" ON \"public\".\"posts\" USING \"gin\" (content gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"posts_content_trgm_idx_08ad1c7c\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"posts_content_trgm_idx_08ad1c7c\""]
+      }
+    ]
+  },
+  {
     "id": "index.push_subscriptions.push_subscriptions_userId_idx",
     "label": "Create index \"push_subscriptions_userId_idx\" on \"push_subscriptions\"",
     "operationClass": "additive",
@@ -3748,6 +3888,216 @@
         "description": "verify index \"push_subscriptions_userId_idx\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
         "params": ["\"public\".\"push_subscriptions_userId_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.username_aliases.username_aliases_username_trgm_idx_c97ac12d",
+    "label": "Create index \"username_aliases_username_trgm_idx_c97ac12d\" on \"username_aliases\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "username_aliases_username_trgm_idx_c97ac12d",
+        "table": "username_aliases"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"username_aliases_username_trgm_idx_c97ac12d\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"username_aliases_username_trgm_idx_c97ac12d\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"username_aliases_username_trgm_idx_c97ac12d\"",
+        "sql": "CREATE INDEX \"username_aliases_username_trgm_idx_c97ac12d\" ON \"public\".\"username_aliases\" USING \"gin\" (username gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"username_aliases_username_trgm_idx_c97ac12d\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"username_aliases_username_trgm_idx_c97ac12d\""]
+      }
+    ]
+  },
+  {
+    "id": "index.users.users_display_name_trgm_idx_c493f926",
+    "label": "Create index \"users_display_name_trgm_idx_c493f926\" on \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "users_display_name_trgm_idx_c493f926",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"users_display_name_trgm_idx_c493f926\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"users_display_name_trgm_idx_c493f926\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"users_display_name_trgm_idx_c493f926\"",
+        "sql": "CREATE INDEX \"users_display_name_trgm_idx_c493f926\" ON \"public\".\"users\" USING \"gin\" (\"displayName\" gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"users_display_name_trgm_idx_c493f926\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"users_display_name_trgm_idx_c493f926\""]
+      }
+    ]
+  },
+  {
+    "id": "index.users.users_display_username_trgm_idx_ce7120c2",
+    "label": "Create index \"users_display_username_trgm_idx_ce7120c2\" on \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "users_display_username_trgm_idx_ce7120c2",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"users_display_username_trgm_idx_ce7120c2\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"users_display_username_trgm_idx_ce7120c2\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"users_display_username_trgm_idx_ce7120c2\"",
+        "sql": "CREATE INDEX \"users_display_username_trgm_idx_ce7120c2\" ON \"public\".\"users\" USING \"gin\" (\"displayUsername\" gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"users_display_username_trgm_idx_ce7120c2\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"users_display_username_trgm_idx_ce7120c2\""]
+      }
+    ]
+  },
+  {
+    "id": "index.users.users_username_trgm_idx_c97ac12d",
+    "label": "Create index \"users_username_trgm_idx_c97ac12d\" on \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "users_username_trgm_idx_c97ac12d",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"users_username_trgm_idx_c97ac12d\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"users_username_trgm_idx_c97ac12d\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"users_username_trgm_idx_c97ac12d\"",
+        "sql": "CREATE INDEX \"users_username_trgm_idx_c97ac12d\" ON \"public\".\"users\" USING \"gin\" (username gin_trgm_ops)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"users_username_trgm_idx_c97ac12d\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"users_username_trgm_idx_c97ac12d\""]
+      }
+    ]
+  },
+  {
+    "id": "index.verification.verification_expiresAt_idx",
+    "label": "Create index \"verification_expiresAt_idx\" on \"verification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "verification_expiresAt_idx",
+        "table": "verification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"verification_expiresAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"verification_expiresAt_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"verification_expiresAt_idx\"",
+        "sql": "CREATE INDEX \"verification_expiresAt_idx\" ON \"public\".\"verification\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"verification_expiresAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"verification_expiresAt_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.verification.verification_identifier_idx",
+    "label": "Create index \"verification_identifier_idx\" on \"verification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "verification_identifier_idx",
+        "table": "verification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"verification_identifier_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"verification_identifier_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"verification_identifier_idx\"",
+        "sql": "CREATE INDEX \"verification_identifier_idx\" ON \"public\".\"verification\" (\"identifier\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"verification_identifier_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"verification_identifier_idx\""]
       }
     ]
   },

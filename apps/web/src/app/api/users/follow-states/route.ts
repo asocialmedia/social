@@ -49,24 +49,29 @@ export async function POST(req: Request) {
       return Response.json({ error: "Invalid userIds" }, { status: 400 });
     }
 
-    const follows = await prisma.orm.public.Follows.select("followingId")
-      .where((follow) =>
-        and(
-          follow.followerId.eq(loggedInUser.id),
-          follow.followingId.in(userIds)
-        )
-      )
-      .all();
-
-    const followerRows = await prisma.orm.public.Follows.select("followingId")
-      .where((follow) => follow.followingId.in(userIds))
-      .all();
-
-    const followerCounts: Record<string, number> = {};
-    for (const follow of followerRows) {
-      followerCounts[follow.followingId] =
-        (followerCounts[follow.followingId] ?? 0) + 1;
+    if (userIds.length === 0) {
+      return Response.json({});
     }
+
+    const [follows, followerCountRows] = await Promise.all([
+      prisma.orm.public.Follows.select("followingId")
+        .where((follow) =>
+          and(
+            follow.followerId.eq(loggedInUser.id),
+            follow.followingId.in(userIds)
+          )
+        )
+        .all(),
+      prisma.orm.public.Follows.where((follow) =>
+        follow.followingId.in(userIds)
+      )
+        .groupBy("followingId")
+        .aggregate((aggregate) => ({ count: aggregate.count() })),
+    ]);
+
+    const followerCounts = new Map(
+      followerCountRows.map((row) => [row.followingId, row.count])
+    );
 
     const followedUserIds = new Set(
       follows.map((follow) => follow.followingId)
@@ -74,7 +79,7 @@ export async function POST(req: Request) {
     const followStates = new Map<string, FollowState>();
     for (const userId of userIds) {
       followStates.set(userId, {
-        followers: followerCounts[userId] ?? 0,
+        followers: followerCounts.get(userId) ?? 0,
         isFollowedByUser: followedUserIds.has(userId),
       });
     }

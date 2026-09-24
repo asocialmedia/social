@@ -32,7 +32,10 @@ namespace public {
     @@unique([avatarMediaId], map: "communities_avatarMediaId_key")
     @@unique([bannerMediaId], map: "communities_bannerMediaId_key")
     @@index([createdAt], map: "communities_createdAt_idx")
+    @@index(expression: "description gin_trgm_ops", name: "communities_description_trgm_idx", type: "gin")
+    @@index(expression: "name gin_trgm_ops", name: "communities_name_trgm_idx", type: "gin")
     @@index([ownerId], map: "communities_ownerId_idx")
+    @@index(expression: "slug gin_trgm_ops", name: "communities_slug_trgm_idx", type: "gin")
     @@unique([slug], map: "communities_slug_key")
     @@index([topics], map: "communities_topics_idx", type: "gin")
     @@index([_type], map: "communities_type_idx")
@@ -80,6 +83,7 @@ namespace public {
 
     @@index([communityId, aura], map: "posts_communityId_aura_idx")
     @@index([communityId, createdAt], map: "posts_communityId_createdAt_idx")
+    @@index(expression: "content gin_trgm_ops", name: "posts_content_trgm_idx", type: "gin")
     @@index([isGust, aura, id], map: "posts_isGust_aura_id_idx")
     @@index([isGust, createdAt], map: "posts_isGust_createdAt_idx")
     @@index([isGust, trendingScore, id], map: "posts_isGust_trendingScore_id_idx")
@@ -303,12 +307,15 @@ namespace public {
     @@index([banned], map: "users_banned_idx")
     @@unique([bannerMediaId], map: "users_bannerMediaId_key")
     @@unique([discordId], map: "users_discordId_key")
+    @@index(expression: "\"displayName\" gin_trgm_ops", name: "users_display_name_trgm_idx", type: "gin")
+    @@index(expression: "\"displayUsername\" gin_trgm_ops", name: "users_display_username_trgm_idx", type: "gin")
     @@unique([email], map: "users_email_key")
     @@unique([githubId], map: "users_githubId_key")
     @@unique([googleId], map: "users_googleId_key")
     @@unique([redditId], map: "users_redditId_key")
     @@unique([twitterId], map: "users_twitterId_key")
     @@unique([username], map: "users_username_key")
+    @@index(expression: "username gin_trgm_ops", name: "users_username_trgm_idx", type: "gin")
     @@index(expression: "lower(username)", name: "users_username_lower_unique", unique: true)
     @@map("users")
   }
@@ -828,6 +835,7 @@ namespace public {
     @@index([expiresAt], map: "username_aliases_expiresAt_idx")
     @@index([userId, createdAt], map: "username_aliases_userId_createdAt_idx")
     @@unique([username], map: "username_aliases_username_key")
+    @@index(expression: "username gin_trgm_ops", name: "username_aliases_username_trgm_idx", type: "gin")
     @@map("username_aliases")
   }
 
@@ -841,6 +849,8 @@ namespace public {
     updatedAt  Timestamp(3) @default(now())
     user       Users?       @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "verification_userId_fkey", index: false)
 
+    @@index([expiresAt], map: "verification_expiresAt_idx")
+    @@index([identifier], map: "verification_identifier_idx")
     @@map("verification")
   }
 

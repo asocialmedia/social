@@ -33,7 +33,7 @@ import type {
 } from "@prisma/orm-postgres/target/codec-types";
 
 export type StorageHash =
-  StorageHashBase<"fbd2f5a86f5c7d0ae0d719e14d2ceb11835dbdb29b7a4e57e39f6e0873bd853c">;
+  StorageHashBase<"55385198205e5385016cb220c36901098fb22f12cdcf911754fd072a104ab362">;
 export type ExecutionHash =
   ExecutionHashBase<"498fa4b0ce62deb69f5e1ed6ba40e78aa522fd7a5ac2e7a87f1a5f5d515d1977">;
 export type ProfileHash =
@@ -4394,9 +4394,30 @@ type ContractBase = Omit<
                   readonly unique: false;
                 },
                 {
+                  readonly name: "communities_description_trgm_idx_a7d2a019";
+                  readonly prefix: "communities_description_trgm_idx";
+                  readonly expression: "description gin_trgm_ops";
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
+                {
+                  readonly name: "communities_name_trgm_idx_0595b3e0";
+                  readonly prefix: "communities_name_trgm_idx";
+                  readonly expression: "name gin_trgm_ops";
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
+                {
                   readonly name: "communities_ownerId_idx";
                   readonly columns: readonly ["ownerId"];
                   readonly unique: false;
+                },
+                {
+                  readonly name: "communities_slug_trgm_idx_65e3b563";
+                  readonly prefix: "communities_slug_trgm_idx";
+                  readonly expression: "slug gin_trgm_ops";
+                  readonly unique: false;
+                  readonly type: "gin";
                 },
                 {
                   readonly name: "communities_topics_idx";
@@ -6871,6 +6892,13 @@ type ContractBase = Omit<
                   readonly unique: false;
                 },
                 {
+                  readonly name: "posts_content_trgm_idx_08ad1c7c";
+                  readonly prefix: "posts_content_trgm_idx";
+                  readonly expression: "content gin_trgm_ops";
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
+                {
                   readonly name: "posts_isGust_aura_id_idx";
                   readonly columns: readonly ["isGust", "aura", "id"];
                   readonly unique: false;
@@ -7539,6 +7567,13 @@ type ContractBase = Omit<
                   readonly columns: readonly ["userId", "createdAt"];
                   readonly unique: false;
                 },
+                {
+                  readonly name: "username_aliases_username_trgm_idx_c97ac12d";
+                  readonly prefix: "username_aliases_username_trgm_idx";
+                  readonly expression: "username gin_trgm_ops";
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
               ];
               foreignKeys: readonly [
                 {
@@ -7866,6 +7901,27 @@ type ContractBase = Omit<
                   readonly unique: false;
                 },
                 {
+                  readonly name: "users_display_name_trgm_idx_c493f926";
+                  readonly prefix: "users_display_name_trgm_idx";
+                  readonly expression: '"displayName" gin_trgm_ops';
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
+                {
+                  readonly name: "users_display_username_trgm_idx_ce7120c2";
+                  readonly prefix: "users_display_username_trgm_idx";
+                  readonly expression: '"displayUsername" gin_trgm_ops';
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
+                {
+                  readonly name: "users_username_trgm_idx_c97ac12d";
+                  readonly prefix: "users_username_trgm_idx";
+                  readonly expression: "username gin_trgm_ops";
+                  readonly unique: false;
+                  readonly type: "gin";
+                },
+                {
                   readonly name: "users_username_lower_unique_4babe768";
                   readonly prefix: "users_username_lower_unique";
                   readonly expression: "lower(username)";
@@ -7955,7 +8011,18 @@ type ContractBase = Omit<
                 readonly name: "verification_pkey";
               };
               uniques: readonly [];
-              indexes: readonly [];
+              indexes: readonly [
+                {
+                  readonly name: "verification_expiresAt_idx";
+                  readonly columns: readonly ["expiresAt"];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: "verification_identifier_idx";
+                  readonly columns: readonly ["identifier"];
+                  readonly unique: false;
+                },
+              ];
               foreignKeys: readonly [
                 {
                   readonly source: {

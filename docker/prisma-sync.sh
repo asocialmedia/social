@@ -32,4 +32,5 @@ fi
 bunx prisma db migrate --show
 bunx prisma db migrate --advance-ref db
 bunx prisma db verify
-echo "PRISMA_SYNC_OK: Prisma schema migration complete."
+bun /app/sync-scores.js
+echo "PRISMA_SYNC_OK: Prisma schema migration and trending-score sync complete."

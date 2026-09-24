@@ -5064,8 +5064,29 @@
                   "unique": false
                 },
                 {
+                  "expression": "description gin_trgm_ops",
+                  "name": "communities_description_trgm_idx_a7d2a019",
+                  "prefix": "communities_description_trgm_idx",
+                  "type": "gin",
+                  "unique": false
+                },
+                {
+                  "expression": "name gin_trgm_ops",
+                  "name": "communities_name_trgm_idx_0595b3e0",
+                  "prefix": "communities_name_trgm_idx",
+                  "type": "gin",
+                  "unique": false
+                },
+                {
                   "columns": ["ownerId"],
                   "name": "communities_ownerId_idx",
+                  "unique": false
+                },
+                {
+                  "expression": "slug gin_trgm_ops",
+                  "name": "communities_slug_trgm_idx_65e3b563",
+                  "prefix": "communities_slug_trgm_idx",
+                  "type": "gin",
                   "unique": false
                 },
                 {
@@ -7414,6 +7435,13 @@
                   "unique": false
                 },
                 {
+                  "expression": "content gin_trgm_ops",
+                  "name": "posts_content_trgm_idx_08ad1c7c",
+                  "prefix": "posts_content_trgm_idx",
+                  "type": "gin",
+                  "unique": false
+                },
+                {
                   "columns": ["isGust", "aura", "id"],
                   "name": "posts_isGust_aura_id_idx",
                   "unique": false
@@ -7952,6 +7980,13 @@
                   "columns": ["userId", "createdAt"],
                   "name": "username_aliases_userId_createdAt_idx",
                   "unique": false
+                },
+                {
+                  "expression": "username gin_trgm_ops",
+                  "name": "username_aliases_username_trgm_idx_c97ac12d",
+                  "prefix": "username_aliases_username_trgm_idx",
+                  "type": "gin",
+                  "unique": false
                 }
               ],
               "primaryKey": {
@@ -8252,10 +8287,31 @@
                   "unique": false
                 },
                 {
+                  "expression": "\"displayName\" gin_trgm_ops",
+                  "name": "users_display_name_trgm_idx_c493f926",
+                  "prefix": "users_display_name_trgm_idx",
+                  "type": "gin",
+                  "unique": false
+                },
+                {
+                  "expression": "\"displayUsername\" gin_trgm_ops",
+                  "name": "users_display_username_trgm_idx_ce7120c2",
+                  "prefix": "users_display_username_trgm_idx",
+                  "type": "gin",
+                  "unique": false
+                },
+                {
                   "expression": "lower(username)",
                   "name": "users_username_lower_unique_4babe768",
                   "prefix": "users_username_lower_unique",
                   "unique": true
+                },
+                {
+                  "expression": "username gin_trgm_ops",
+                  "name": "users_username_trgm_idx_c97ac12d",
+                  "prefix": "users_username_trgm_idx",
+                  "type": "gin",
+                  "unique": false
                 }
               ],
               "primaryKey": { "columns": ["id"], "name": "users_pkey" },
@@ -8337,7 +8393,18 @@
                   }
                 }
               ],
-              "indexes": [],
+              "indexes": [
+                {
+                  "columns": ["expiresAt"],
+                  "name": "verification_expiresAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": ["identifier"],
+                  "name": "verification_identifier_idx",
+                  "unique": false
+                }
+              ],
               "primaryKey": { "columns": ["id"], "name": "verification_pkey" },
               "uniques": []
             },
@@ -8522,7 +8589,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "fbd2f5a86f5c7d0ae0d719e14d2ceb11835dbdb29b7a4e57e39f6e0873bd853c"
+    "storageHash": "55385198205e5385016cb220c36901098fb22f12cdcf911754fd072a104ab362"
   },
   "target": "postgres",
   "targetFamily": "sql"

@@ -8,7 +8,7 @@ const PRISMA_PATHS = new Set([
   "docker/prisma-sync.dockerfile",
   "docker/prisma-sync.sh",
   "scripts/ci/prisma-sync-deploy.sh",
-  "scripts/sync-trending-scores.ts",
+  "scripts/maintenance/sync-trending-scores.ts",
 ]);
 
 const PRISMA_PREFIXES = ["packages/db/"];

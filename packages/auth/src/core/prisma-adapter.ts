@@ -1,5 +1,6 @@
 import type { PrismaClient, PrismaOrm } from "@asm/db";
 import { and, fromPrismaDateTime, prisma, toPrismaDateTime } from "@asm/db";
+import { or } from "@prisma/orm-postgres/orm-client";
 import type { BetterAuthOptions } from "better-auth";
 import type {
   CleanedWhere,
@@ -256,10 +257,10 @@ function includeJoin(
   if (model === "session" && accountJoin) {
     query = query.include("user", (user) =>
       user.include("accounts", (accounts) => {
-        const accountQuery = accounts;
-        return accountJoin[1].limit
-          ? accountQuery.limit(accountJoin[1].limit)
-          : accountQuery;
+        if (accountJoin[1].limit === undefined) {
+          return accounts;
+        }
+        return accounts.limit(accountJoin[1].limit);
       })
     );
   }
@@ -270,7 +271,7 @@ function includeJoin(
     const relation = relationName(model, joinedModel);
     query = query.include(relation, (related) => {
       const limited =
-        config.relation === "one-to-many" && config.limit
+        config.relation === "one-to-many" && config.limit !== undefined
           ? related.limit(config.limit)
           : related;
       return limited;
@@ -308,60 +309,46 @@ async function readRows(
   } = {}
 ): Promise<AuthRecord[]> {
   const branches = whereBranches(where);
-  const branchRows = await Promise.all(
-    branches.map(async (branch) => {
-      let query = modelCollection(context.orm, model);
-      if (options.select) {
-        query = query.select(...options.select);
+  let query = modelCollection(context.orm, model);
+  if (options.select) {
+    query = query.select(...options.select);
+  }
+  if (options.join) {
+    query = includeJoin(query, model, options.join);
+  }
+  if (branches.length > 1) {
+    query = query.where((accessor) =>
+      or(...branches.map((branch) => whereExpression(accessor, branch)))
+    );
+  } else {
+    const [branch] = branches;
+    if (branch && branch.length > 0) {
+      query = query.where((accessor) => whereExpression(accessor, branch));
+    }
+  }
+  if (options.sortBy) {
+    const { direction, field } = options.sortBy;
+    query = query.orderBy((accessor) => {
+      const orderField = Reflect.get(accessor, field);
+      if (
+        typeof orderField !== "object" ||
+        orderField === null ||
+        !("asc" in orderField) ||
+        typeof orderField.asc !== "function"
+      ) {
+        throw new Error(`Unknown Better Auth sort field: ${field}`);
       }
-      if (options.join) {
-        query = includeJoin(query, model, options.join);
-      }
-      if (branch.length > 0) {
-        query = query.where((accessor) => whereExpression(accessor, branch));
-      }
-      if (options.sortBy) {
-        const { direction, field } = options.sortBy;
-        query = query.orderBy((accessor) => {
-          const orderField = Reflect.get(accessor, field);
-          if (
-            typeof orderField !== "object" ||
-            orderField === null ||
-            !("asc" in orderField) ||
-            typeof orderField.asc !== "function"
-          ) {
-            throw new Error(`Unknown Better Auth sort field: ${field}`);
-          }
-          return direction === "desc" ? orderField.desc() : orderField.asc();
-        });
-      }
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-      const rows = await query.all();
-      return rows.map((row) => normalizeJoinedRecord(row, model, options.join));
-    })
-  );
-  const rows = branchRows.flat();
-  const uniqueRows = [
-    ...new Map(rows.map((row) => [String(row.id), row])).values(),
-  ];
-  const orderedRows = options.sortBy
-    ? uniqueRows.toSorted((left, right) => {
-        const leftValue = left[options.sortBy?.field ?? ""];
-        const rightValue = right[options.sortBy?.field ?? ""];
-        if (leftValue === rightValue) {
-          return 0;
-        }
-        const comparison = (leftValue ?? 0) > (rightValue ?? 0) ? 1 : -1;
-        return options.sortBy?.direction === "desc" ? -comparison : comparison;
-      })
-    : uniqueRows;
-  const offset = options.offset ?? 0;
-  return orderedRows.slice(
-    offset,
-    options.limit ? offset + options.limit : undefined
-  );
+      return direction === "desc" ? orderField.desc() : orderField.asc();
+    });
+  }
+  if (options.offset !== undefined) {
+    query = query.offset(options.offset);
+  }
+  if (options.limit !== undefined) {
+    query = query.limit(options.limit);
+  }
+  const rows = await query.all();
+  return rows.map((row) => normalizeJoinedRecord(row, model, options.join));
 }
 
 async function matchingIds(
@@ -470,7 +457,7 @@ function createCustomAdapter(context: AdapterContext): CustomAdapter {
     }): Promise<T[]> {
       const rows = await readRows(context, authModel(model), where, {
         join,
-        limit: limit || 100,
+        limit: limit ?? 100,
         offset,
         select,
         sortBy,

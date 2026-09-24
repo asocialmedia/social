@@ -21,7 +21,7 @@ COPY scripts ./scripts
 COPY packages ./packages
 RUN cd packages/db && bunx prisma contract emit
 
-RUN bun build scripts/sync-trending-scores.ts \
+RUN bun build scripts/maintenance/sync-trending-scores.ts \
       --target=bun \
       --outfile /app/dist/sync-scores.js \
       --external msgpackr-extract
@@ -36,7 +36,7 @@ COPY docker/prisma-package.json ./package.json
 RUN bun install
 
 COPY packages/db/prisma ./packages/db/prisma
-COPY packages/db/generated/prisma ./packages/db/generated/prisma
+COPY --from=build /app/packages/db/generated/prisma ./packages/db/generated/prisma
 COPY packages/db/prisma.config.ts ./packages/db/prisma.config.ts
 COPY --from=build /app/dist/sync-scores.js /app/sync-scores.js
 COPY docker/prisma-sync.sh /usr/local/bin/prisma-sync.sh

@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.1.64",
+      "version": "1.1.65",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -154,7 +154,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.9",
+      "version": "1.5.10",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -248,12 +248,13 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.1.63",
+      "version": "1.1.64",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
         "@better-auth/expo": "^1.7.5",
         "@better-auth/passkey": "^1.7.3",
+        "@prisma/orm-postgres": "8.0.0-rc.11",
         "@simplewebauthn/server": "^13.3.1",
         "@t3-oss/env-core": "^0.13.11",
         "better-auth": "^1.7.3",
@@ -278,7 +279,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.1.70",
+      "version": "1.1.71",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
