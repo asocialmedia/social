@@ -1,9 +1,12 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  and,
   consumeRateLimit,
   getClientIpFromRequest,
-  getUserDataSelect,
+  fromPrismaDateTime,
+  getUserDataQuery,
+  mapUserData,
   prisma,
   redis,
   SYSTEM_MODERATION_USER_ID,
@@ -91,12 +94,17 @@ export async function GET(req: Request) {
     }
 
     if (!user) {
-      const guestUsers = await prisma.user.findMany({
-        orderBy: { aura: "desc" },
-        select: { ...getUserDataSelect(""), aura: true },
-        take: limit,
-        where: { banned: false, id: { not: SYSTEM_MODERATION_USER_ID } },
-      });
+      const guestUsers = await getUserDataQuery(prisma.orm, "")
+        .where((candidate) =>
+          and(
+            candidate.banned.eq(false),
+            candidate.id.notIn([SYSTEM_MODERATION_USER_ID])
+          )
+        )
+        .orderBy((candidate) => candidate.aura.desc())
+        .limit(limit)
+        .all()
+        .then((rows) => rows.map(mapUserData));
       logger.info(
         { count: guestUsers.length, ip, limit, ms: Date.now() - startedAt },
         "guest suggestions served"
@@ -145,10 +153,16 @@ export async function GET(req: Request) {
         // Filter out users the viewer has since followed (stale cache)
         const cachedIds = visible.map((c) => c.id);
         if (cachedIds.length > 0) {
-          const stillNotFollowing = await prisma.follow.findMany({
-            select: { followingId: true },
-            where: { followerId: user.id, followingId: { in: cachedIds } },
-          });
+          const stillNotFollowing = await prisma.orm.public.Follows.select(
+            "followingId"
+          )
+            .where((follow) =>
+              and(
+                follow.followerId.eq(user.id),
+                follow.followingId.in(cachedIds)
+              )
+            )
+            .all();
           const followedSet = new Set(
             stillNotFollowing.map((f) => f.followingId)
           );
@@ -257,131 +271,151 @@ async function refreshSuggestions(userId: string, limit: number) {
   );
 }
 
+async function loadSuggestedCandidates(
+  userId: string,
+  recentlyShown: string[]
+) {
+  return await getUserDataQuery(prisma.orm, userId)
+    .where((candidate) =>
+      and(
+        candidate.id.notIn([userId, SYSTEM_MODERATION_USER_ID]),
+        candidate.banned.eq(false),
+        candidate.followsFollows.none((follow) => follow.followerId.eq(userId)),
+        ...(recentlyShown.length > 0 && recentlyShown.length < 900
+          ? [candidate.id.notIn(recentlyShown)]
+          : [])
+      )
+    )
+    .include("posts", (posts) =>
+      posts
+        .where((post) => post.moderated.eq(false))
+        .orderBy((post) => post.createdAt.desc())
+        .limit(5)
+        .select("createdAt", "semanticTags")
+        .include("postToTags", (postTag) =>
+          postTag.include("tag", (tag) => tag.select("name"))
+        )
+    )
+    .limit(30)
+    .all();
+}
+
 async function computePersonalizedSuggestions(userId: string, limit: number) {
   const recentlyShownKey = RECENTLY_SHOWN_CACHE_KEY(userId);
   const recentlyShown = (await redis.smembers(recentlyShownKey)) || [];
 
   // Fetch viewer's interests in parallel
   const [following, ownPosts, votedPosts] = await Promise.all([
-    prisma.follow.findMany({
-      select: { followingId: true },
-      where: { followerId: userId },
-    }),
-    prisma.post.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { tags: { select: { name: true } } },
-      take: 20,
-      where: { moderated: false, rootPostId: null, userId },
-    }),
-    prisma.vote.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { post: { select: { tags: { select: { name: true } } } } },
-      take: 20,
-      where: { userId, value: 1 },
-    }),
+    prisma.orm.public.Follows.select("followingId")
+      .where({ followerId: userId })
+      .all(),
+    prisma.orm.public.Posts.select("id")
+      .include("postToTags", (postTag) =>
+        postTag.include("tag", (tag) => tag.select("name"))
+      )
+      .where((post) =>
+        and(
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          post.userId.eq(userId)
+        )
+      )
+      .orderBy((post) => post.createdAt.desc())
+      .limit(20)
+      .all(),
+    prisma.orm.public.Votes.where((vote) =>
+      and(vote.userId.eq(userId), vote.value.eq(1))
+    )
+      .include("post", (post) =>
+        post.include("postToTags", (postTag) =>
+          postTag.include("tag", (tag) => tag.select("name"))
+        )
+      )
+      .orderBy((vote) => vote.createdAt.desc())
+      .limit(20)
+      .all(),
   ]);
 
   const followedIds = following.map((f) => f.followingId);
-  const ownTags = ownPosts.flatMap((p) => p.tags.map((t) => t.name));
-  const likedTags = votedPosts.flatMap(
-    (v) => v.post?.tags?.map((t: { name: string }) => t.name) ?? []
+  const ownTags = ownPosts.flatMap((post) =>
+    post.postToTags.flatMap((postTag) =>
+      postTag.tag ? [postTag.tag.name] : []
+    )
+  );
+  const likedTags = votedPosts.flatMap((vote) =>
+    vote.post
+      ? vote.post.postToTags.flatMap((postTag) =>
+          postTag.tag ? [postTag.tag.name] : []
+        )
+      : []
   );
   const interests = buildViewerInterests(followedIds, ownTags, likedTags);
 
   // Candidate pool: exclusion filters, include needed relations for scoring
-  const whereAnd: Record<string, unknown>[] = [
-    { id: { not: userId } },
-    { id: { not: SYSTEM_MODERATION_USER_ID } },
-    { banned: false },
-    { followers: { none: { followerId: userId } } },
-  ];
-  if (recentlyShown.length > 0 && recentlyShown.length < 900) {
-    // Avoid huge NOT IN lists that blow up query planner
-    whereAnd.push({ id: { notIn: recentlyShown } });
-  }
-
-  let candidates = await prisma.user.findMany({
-    select: {
-      ...getUserDataSelect(userId),
-      _count: { select: { followers: true, posts: true } },
-      aura: true,
-      createdAt: true,
-      followers: {
-        select: {
-          follower: {
-            select: { avatarUrl: true, displayName: true, username: true },
-          },
-        },
-        where: {
-          follower: { followers: { some: { followerId: userId } } },
-        },
-      },
-      posts: {
-        orderBy: { createdAt: "desc" },
-        select: {
-          createdAt: true,
-          semanticTags: true,
-          tags: { select: { name: true } },
-        },
-        take: 5,
-        where: { moderated: false },
-      },
-    },
-    take: 30,
-    where: { AND: whereAnd },
-  });
+  let candidates = await loadSuggestedCandidates(userId, recentlyShown);
 
   // If pool exhausted, relax recentlyShown filter
   if (candidates.length === 0 && recentlyShown.length > 0) {
-    candidates = await prisma.user.findMany({
-      select: {
-        ...getUserDataSelect(userId),
-        _count: { select: { followers: true, posts: true } },
-        aura: true,
-        createdAt: true,
-        followers: {
-          select: {
-            follower: {
-              select: { avatarUrl: true, displayName: true, username: true },
-            },
-          },
-          where: {
-            follower: { followers: { some: { followerId: userId } } },
-          },
-        },
-        posts: {
-          orderBy: { createdAt: "desc" },
-          select: {
-            createdAt: true,
-            semanticTags: true,
-            tags: { select: { name: true } },
-          },
-          take: 5,
-          where: { moderated: false },
-        },
-      },
-      take: 30,
-      where: {
-        AND: [
-          { id: { not: userId } },
-          { id: { not: SYSTEM_MODERATION_USER_ID } },
-          { banned: false },
-          { followers: { none: { followerId: userId } } },
-        ],
-      },
-    });
+    candidates = await loadSuggestedCandidates(userId, []);
   }
 
   if (candidates.length === 0) {
     return [];
   }
 
+  const candidateIds = candidates.map((candidate) => candidate.id);
+  const followingIds = following.map((follow) => follow.followingId);
+  const [followerRows, postCountRows] = await Promise.all([
+    prisma.orm.public.Follows.where((follow) =>
+      and(
+        follow.followingId.in(candidateIds),
+        follow.followerId.in(followingIds)
+      )
+    )
+      .include("follower", (follower) =>
+        follower.select("avatarUrl", "displayName", "username")
+      )
+      .all(),
+    prisma.orm.public.Posts.where((post) =>
+      and(post.userId.in(candidateIds), post.moderated.eq(false))
+    )
+      .groupBy("userId")
+      .aggregate((aggregate) => ({ count: aggregate.count() })),
+  ]);
+  const followerCounts = new Map<string, number>();
+  const mutualFollowers = new Map<
+    string,
+    { avatarUrl: string | null; displayName: string; username: string }[]
+  >();
+  for (const follow of followerRows) {
+    followerCounts.set(
+      follow.followingId,
+      (followerCounts.get(follow.followingId) ?? 0) + 1
+    );
+    const followers = mutualFollowers.get(follow.followingId) ?? [];
+    if (follow.follower) {
+      followers.push({
+        avatarUrl: follow.follower.avatarUrl,
+        displayName: follow.follower.displayName,
+        username: follow.follower.username,
+      });
+    }
+    mutualFollowers.set(follow.followingId, followers);
+  }
+  const postCounts = new Map(
+    postCountRows.map((row) => [row.userId, row.count])
+  );
+
   // Build scoring candidates
   const scoringCandidates: SuggestionCandidate[] = candidates.map((c) => {
     const candidateTags = [
       ...new Set([
-        ...c.posts.flatMap((p) => p.tags.map((t) => t.name)),
-        ...c.posts.flatMap((p) => p.semanticTags ?? []),
+        ...c.posts.flatMap((post) =>
+          post.postToTags.flatMap((postTag) =>
+            postTag.tag ? [postTag.tag.name] : []
+          )
+        ),
+        ...c.posts.flatMap((post) => post.semanticTags ?? []),
       ]),
     ].filter(Boolean);
 
@@ -405,16 +439,19 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
         }
       }
     }
-    const recentPostAt = c.posts[0]?.createdAt ?? null;
+    const recentPostAt = c.posts[0]?.createdAt
+      ? fromPrismaDateTime(c.posts[0].createdAt)
+      : null;
+    const candidateMutualFollowers = mutualFollowers.get(c.id) ?? [];
     return {
       aura: c.aura,
-      createdAt: c.createdAt,
-      followerCount: c._count.followers,
+      createdAt: fromPrismaDateTime(c.createdAt),
+      followerCount: followerCounts.get(c.id) ?? 0,
       id: c.id,
       matchedTopic,
-      mutualCount: c.followers.length,
-      mutualFollowers: c.followers.map((f) => f.follower),
-      postCount: c._count.posts,
+      mutualCount: candidateMutualFollowers.length,
+      mutualFollowers: candidateMutualFollowers,
+      postCount: postCounts.get(c.id) ?? 0,
       recentPostAt,
       tagOverlap: overlap,
     };
@@ -424,21 +461,28 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
   const diversified = diversifyRanked(ranked, 12);
 
   // Map back to full user objects for response, preserving rank order
-  const idToUser = new Map(candidates.map((c) => [c.id, c]));
+  const idToUser = new Map(
+    candidates.map((candidate) => [candidate.id, candidate])
+  );
   const ordered = diversified
     .map((scored) => {
       const full = idToUser.get(scored.id);
       if (!full) {
         return null;
       }
+      const { posts: _posts, ...userWithoutPosts } = full;
       return {
-        ...full,
+        ...mapUserData(userWithoutPosts),
+        _count: {
+          followers: scored.followerCount,
+          posts: scored.postCount,
+        },
         _reasons: scored.reasons,
         _score: scored.score,
         mutualFollowers: scored.mutualFollowers,
       };
     })
-    .filter(Boolean)
+    .filter((item): item is NonNullable<typeof item> => item !== null)
     .slice(0, 12);
 
   // Persist recently shown
@@ -450,21 +494,7 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
     await redis.expire(recentlyShownKey, RECENTLY_SHOWN_TTL);
   }
 
-  const transformed = ordered.map((u) => {
-    const user = u as (typeof candidates)[number] & {
-      _score?: number;
-      _reasons?: string[];
-      mutualFollowers: unknown[];
-    };
-    const { followers: _followers, ...rest } = user as unknown as Record<
-      string,
-      unknown
-    >;
-    return {
-      ...rest,
-      mutualFollowers: (user as { mutualFollowers: unknown[] }).mutualFollowers,
-    };
-  });
+  const transformed = ordered;
 
   // Wrap with timestamp for stale-while-revalidate
   const payload = { _cachedAt: Date.now(), _data: transformed };

@@ -1,4 +1,10 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  and,
+  getPostDataQuery,
+  hydrateViewCounts,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -41,20 +47,15 @@ export async function GET(
   // 1. Fetch origin post semantic features. Moderated origin posts follow
   // the not-found path: their content is hidden everywhere else, so ranking
   // recommendations against them would leak semantic features.
-  const originPost = await prisma.post.findUnique({
-    select: {
-      attachments: {
-        select: {
-          semanticTags: true,
-        },
-      },
-      embedding: true,
-      id: true,
-      isGust: true,
-      semanticTags: true,
-    },
-    where: { id: postId, moderated: false },
-  });
+  const originPost = await prisma.orm.public.Posts.select(
+    "embedding",
+    "id",
+    "isGust",
+    "semanticTags"
+  )
+    .include("postMedias", (media) => media.select("semanticTags"))
+    .where((post) => and(post.id.eq(postId), post.moderated.eq(false)))
+    .first();
 
   if (!originPost) {
     return NextResponse.json({ error: "Post not found" }, { status: 404 });
@@ -62,53 +63,58 @@ export async function GET(
 
   // Aggregate tags from post and its attachments
   const allTags = new Set<string>([
-    ...originPost.semanticTags,
-    ...originPost.attachments.flatMap((a) => a.semanticTags),
+    ...(originPost.semanticTags ?? []),
+    ...originPost.postMedias.flatMap((a) => a.semanticTags ?? []),
   ]);
   const tagList = [...allTags];
 
   const take = 10;
 
   // 2. Fetch candidates matching semantic tags or recent relevant posts
-  let candidates = await prisma.post.findMany({
-    include: getPostDataInclude(userId),
-    orderBy: { createdAt: "desc" },
-    take: 30,
-    where: {
-      id: { not: postId },
-      moderated: false,
-      rootPostId: null,
-      ...(tagList.length > 0
-        ? {
-            OR: [
-              { semanticTags: { hasSome: tagList } },
-              {
-                attachments: {
-                  some: {
-                    semanticTags: { hasSome: tagList },
-                  },
-                },
-              },
-            ],
-          }
-        : {}),
-    },
-  });
+  let candidates = await prisma.orm.public.Posts.select(
+    "embedding",
+    "id",
+    "semanticTags"
+  )
+    .include("postMedias", (media) => media.select("semanticTags"))
+    .where((post) =>
+      and(
+        post.id.neq(postId),
+        post.moderated.eq(false),
+        post.rootPostId.isNull()
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(30)
+    .all();
+  if (tagList.length > 0) {
+    candidates = candidates.filter((candidate) => {
+      const candidateTags = new Set([
+        ...(candidate.semanticTags ?? []),
+        ...candidate.postMedias.flatMap((media) => media.semanticTags ?? []),
+      ]);
+      return tagList.some((tag) => candidateTags.has(tag));
+    });
+  }
 
   // If not enough tagged candidates, fill with recent active posts
   if (candidates.length < take) {
-    const fallbackPosts = await prisma.post.findMany({
-      include: getPostDataInclude(userId),
-      orderBy: { createdAt: "desc" },
-      take: take - candidates.length,
-      where: {
-        id: {
-          notIn: [postId, ...candidates.map((c) => c.id)],
-        },
-        moderated: false,
-        rootPostId: null,
-      },
-    });
+    const fallbackPosts = await prisma.orm.public.Posts.select(
+      "embedding",
+      "id",
+      "semanticTags"
+    )
+      .include("postMedias", (media) => media.select("semanticTags"))
+      .where((post) =>
+        and(
+          post.id.notIn([postId, ...candidates.map((c) => c.id)]),
+          post.moderated.eq(false),
+          post.rootPostId.isNull()
+        )
+      )
+      .orderBy((post) => post.createdAt.desc())
+      .limit(take - candidates.length)
+      .all();
     candidates = [...candidates, ...fallbackPosts];
   }
 
@@ -137,8 +143,8 @@ export async function GET(
     // Tag overlap bonus
     if (tagList.length > 0) {
       const candidateTags = new Set([
-        ...candidate.semanticTags,
-        ...candidate.attachments.flatMap((a) => a.semanticTags),
+        ...(candidate.semanticTags ?? []),
+        ...candidate.postMedias.flatMap((media) => media.semanticTags ?? []),
       ]);
       let overlapCount = 0;
       for (const t of tagList) {
@@ -155,7 +161,16 @@ export async function GET(
   // Sort descending by relevance score
   scored.sort((a, b) => b.score - a.score);
 
-  const topPosts = scored.slice(0, take).map((s) => s.candidate);
+  const rankedIds = scored.slice(0, take).map((entry) => entry.candidate.id);
+  const rankedRows = await getPostDataQuery(prisma.orm, userId)
+    .where((post) => post.id.in(rankedIds))
+    .all();
+  const rankedById = new Map(
+    rankedRows.map((row) => [row.id, mapPostData(row)])
+  );
+  const topPosts = rankedIds
+    .map((id) => rankedById.get(id))
+    .filter((post) => post !== undefined);
   const hydratedPosts = await hydrateViewCounts(topPosts);
 
   return NextResponse.json({

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Media } from "@asm/db";
+import type { Media } from "@/lib/types";
 
 import { formatTime, mediaAspectRatio } from "./media-previews";
 

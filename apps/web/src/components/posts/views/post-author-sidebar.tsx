@@ -25,6 +25,7 @@ import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { getPostPath } from "@/lib/seo/seo";
+import { getUserCount, getUserPostCount } from "@/lib/types";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -222,7 +223,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
   const isOwnProfile = author.id === currentUser?.id;
   const isFollowedByUser = Boolean(author.followers?.length);
   const followerInfo = {
-    followers: author._count.followers,
+    followers: getUserCount(author, "followers"),
     isFollowedByUser,
   };
 
@@ -341,7 +342,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             <div className="text-muted-foreground flex items-center gap-3 text-xs">
               <span>
                 <span className="text-foreground font-semibold">
-                  {formatNumber(author._count.posts)}
+                  {formatNumber(getUserPostCount(author))}
                 </span>{" "}
                 Posts
               </span>

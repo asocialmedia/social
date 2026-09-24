@@ -1,6 +1,6 @@
 import { hybridSessionStore } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { prisma } from "@asm/db";
+import { and, prisma, toPrismaDateTime } from "@asm/db";
 import { z } from "zod";
 
 import { procedure, protectedProcedure, router } from "../../trpc";
@@ -94,14 +94,19 @@ export const authRouter = router({
         }
 
         // 2. VALIDATE USER SESSION INTEGRITY
-        const currentSession = await prisma.session.findFirst({
-          orderBy: { createdAt: "desc" },
-          select: { expiresAt: true, id: true, token: true },
-          where: {
-            expiresAt: { gt: new Date() },
-            userId,
-          },
-        });
+        const currentSession = await prisma.orm.public.Sessions.select(
+          "expiresAt",
+          "id",
+          "token"
+        )
+          .where((session) =>
+            and(
+              session.expiresAt.gt(toPrismaDateTime(new Date())),
+              session.userId.eq(userId)
+            )
+          )
+          .orderBy((session) => session.createdAt.desc())
+          .first();
 
         if (!currentSession) {
           await auditLogout({
@@ -138,12 +143,18 @@ export const authRouter = router({
           debugLog.api("logout:selective-sessions", { ip, userId });
         }
 
-        const deleteResult = await prisma.session.deleteMany({
-          where: deleteConditions,
-        });
+        const deletedCount = await prisma.orm.public.Sessions.where(
+          (session) =>
+            deleteConditions.ipAddress
+              ? and(
+                  session.userId.eq(deleteConditions.userId),
+                  session.ipAddress.eq(deleteConditions.ipAddress)
+                )
+              : session.userId.eq(deleteConditions.userId)
+        ).deleteAndCount();
 
         debugLog.api("logout:db-sessions-deleted", {
-          deletedCount: deleteResult.count,
+          deletedCount,
           force: input.force,
           ip,
           userId,
@@ -153,15 +164,13 @@ export const authRouter = router({
         if (input.reason === "security-concern") {
           debugLog.api("logout:invalidating-accounts", { userId });
 
-          await prisma.account.updateMany({
-            data: {
-              accessToken: null,
-              accessTokenExpiresAt: new Date(),
-              refreshToken: null,
-              refreshTokenExpiresAt: new Date(),
-              updatedAt: new Date(),
-            },
-            where: { userId },
+          const now = toPrismaDateTime(new Date());
+          await prisma.orm.public.Accounts.where({ userId }).updateAndCount({
+            accessToken: null,
+            accessTokenExpiresAt: now,
+            refreshToken: null,
+            refreshTokenExpiresAt: now,
+            updatedAt: now,
           });
         }
 
@@ -172,7 +181,7 @@ export const authRouter = router({
             clientMetadata: input.clientMetadata,
             duration: Date.now() - startTime,
             force: input.force,
-            sessionsDeleted: deleteResult.count,
+            sessionsDeleted: deletedCount,
           },
           reason: input.reason,
           userAgent,
@@ -189,7 +198,7 @@ export const authRouter = router({
           duration,
           force: input.force,
           reason: input.reason,
-          sessionsDeleted: deleteResult.count,
+          sessionsDeleted: deletedCount,
           userId,
         });
 
@@ -200,7 +209,7 @@ export const authRouter = router({
             ? "Logged out from all devices"
             : "Logged out successfully",
           redisCleared: true,
-          sessionsCleared: deleteResult.count,
+          sessionsCleared: deletedCount,
           success: true,
         } as const;
       } catch (error) {

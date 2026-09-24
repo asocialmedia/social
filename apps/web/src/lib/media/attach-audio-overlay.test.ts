@@ -19,6 +19,47 @@ interface PrismaQuery {
   where?: { id?: string };
 }
 
+function createAudioOrm() {
+  return {
+    PostMedia: {
+      select: () => ({
+        where: (where: { id: string } | ((value: unknown) => unknown)) => {
+          let id = "";
+          if (typeof where === "function") {
+            where({
+              id: { eq: (value: string) => (id = value) },
+              userId: { eq: () => ({}) },
+            });
+          } else {
+            const { id: whereId } = where;
+            id = whereId;
+          }
+          return { first: () => mediaFindFirstImpl({ where: { id } }) };
+        },
+      }),
+      where: (where: { id: string }) => ({
+        update: (data: Record<string, unknown>) => {
+          mediaUpdateArgs = { data, where };
+          return mediaUpdateImpl({ data, where });
+        },
+      }),
+    },
+    PostMediaDerivatives: {
+      select: () => ({
+        where: (where: { mediaId: string }) => ({
+          all: () => derivativeFindManyImpl({ where }),
+        }),
+      }),
+      where: (where: { mediaId: string }) => ({
+        delete: () => {
+          derivativeDeleteManyArgs = { where };
+          return { count: 2 };
+        },
+      }),
+    },
+  };
+}
+
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   Prisma: { DbNull: null },
@@ -33,20 +74,7 @@ mock.module("@asm/db", () => ({
     }
   ),
   prisma: {
-    media: {
-      findFirst: (args: unknown) => mediaFindFirstImpl(args),
-      update: (args: unknown) => {
-        mediaUpdateArgs = args;
-        return mediaUpdateImpl(args);
-      },
-    },
-    mediaDerivative: {
-      deleteMany: (args: unknown) => {
-        derivativeDeleteManyArgs = args;
-        return { count: 2 };
-      },
-      findMany: (args: unknown) => derivativeFindManyImpl(args),
-    },
+    orm: { public: createAudioOrm() },
   },
   redis: {
     decrby: mock(() => 1),
@@ -59,11 +87,11 @@ mock.module("@asm/db", () => ({
 const { attachAudioOverlay } = await import("./media-pipeline");
 
 const USER_ID = "user-1";
-const videoRow = { id: "video-1", status: "READY", type: "VIDEO" };
+const videoRow = { _type: "VIDEO", id: "video-1", status: "READY" };
 const audioRow = {
+  _type: "AUDIO",
   id: "audio-1",
   status: "READY",
-  type: "AUDIO",
   userId: USER_ID,
 };
 
@@ -149,7 +177,7 @@ describe("attachAudioOverlay", () => {
     ).rejects.toMatchObject({ name: "UploadPolicyError", status: 404 });
 
     mediaFindFirstImpl = (args: unknown) =>
-      videoArgs(args) ? { ...videoRow, type: "IMAGE" } : audioRow;
+      videoArgs(args) ? { ...videoRow, _type: "IMAGE" } : audioRow;
     await expect(
       attachAudioOverlay({
         audioOverlayId: "audio-1",
@@ -186,7 +214,7 @@ describe("attachAudioOverlay", () => {
     ).rejects.toMatchObject({ name: "UploadPolicyError", status: 404 });
 
     mediaFindFirstImpl = (args: unknown) =>
-      videoArgs(args) ? videoRow : { ...audioRow, type: "VIDEO" };
+      videoArgs(args) ? videoRow : { ...audioRow, _type: "VIDEO" };
     await expect(
       attachAudioOverlay({
         audioOverlayId: "audio-1",

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const USER_ID = "user1";
@@ -15,19 +17,36 @@ const posts = [
   { content: "two", id: "post2", user: { id: "author2" }, viewCount: 10 },
 ];
 
+let voteRows = [...votes];
+
+interface VoteQuery {
+  all: () => Promise<(typeof votes)[number][]>;
+  orderBy: () => VoteQuery;
+  where: (
+    predicate: (vote: {
+      userId: { eq: (id: string) => unknown };
+      value: { eq: (value: number) => unknown };
+    }) => unknown
+  ) => VoteQuery;
+}
+
+function createVoteQuery(): VoteQuery {
+  return {
+    all: () => Promise.resolve([...voteRows]),
+    orderBy: () => createVoteQuery(),
+    where: () => createVoteQuery(),
+  };
+}
+
 const mockPrisma = {
-  post: {
-    findMany: () => [...posts],
-  },
-  vote: {
-    findMany: () => [...votes],
-  },
+  orm: { public: { Votes: { select: () => createVoteQuery() } } },
 };
 
 const mockHydrate = mock((items: unknown[]) => items);
 
 mock.module("@asm/db", () => ({
-  getPostDataInclude: () => ({ user: true }),
+  ...asmDbMockBase,
+  getPostDataQuery: () => ({ where: () => ({ all: () => [...posts] }) }),
   hydrateViewCounts: mockHydrate,
   prisma: mockPrisma,
 }));
@@ -40,6 +59,7 @@ describe("GET /api/posts/liked", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     mockHydrate.mockClear();
+    voteRows = [...votes];
   });
 
   test("rejects unauthenticated requests", async () => {
@@ -63,7 +83,7 @@ describe("GET /api/posts/liked", () => {
   });
 
   test("returns an empty list when there are no likes", async () => {
-    mockPrisma.vote.findMany = () => [];
+    voteRows = [];
 
     const res = await GET();
 

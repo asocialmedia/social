@@ -1,6 +1,5 @@
 "use client";
 
-import type { MessageData, MessagePage } from "@asm/db";
 import {
   useInfiniteQuery,
   useQuery,
@@ -58,6 +57,7 @@ import {
   nextArrivalCount,
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
+import type { MessageData, MessagePage } from "@/lib/messages/types";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
   findMyWrappedKey,

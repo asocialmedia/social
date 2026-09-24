@@ -1,5 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 // Mock the DB/session layers BEFORE importing the route: the real @asm/db
 // entry validates env vars at import time, which a unit test does not have.
 // The route's scorer is then imported and asserted directly so the ranking
@@ -10,14 +12,48 @@ const mockPostFindUnique = mock((args: unknown) => {
   return Promise.resolve(null);
 });
 
+interface PostQuery {
+  all: () => Promise<unknown[]>;
+  first: () => Promise<null>;
+  include: (relation: string, query: unknown) => PostQuery;
+  limit: (limit: number) => PostQuery;
+  orderBy: (order: unknown) => PostQuery;
+  where: (
+    predicate: (post: {
+      id: { eq: (id: string) => unknown };
+      moderated: { eq: (value: boolean) => unknown };
+      rootPostId: { isNull: () => unknown };
+    }) => unknown
+  ) => PostQuery;
+}
+
+function createPostQuery(): PostQuery {
+  const state = { where: {} as Record<string, unknown> };
+  const query: PostQuery = {
+    all: () => Promise.resolve([]),
+    first: () => mockPostFindUnique({ where: state.where }) as Promise<null>,
+    include: () => query,
+    limit: () => query,
+    orderBy: () => query,
+    where: (predicate) => {
+      predicate({
+        id: { eq: (id) => (state.where.id = id) },
+        moderated: { eq: (value) => (state.where.moderated = value) },
+        rootPostId: { isNull: () => ({}) },
+      });
+      return query;
+    },
+  };
+  return query;
+}
+
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   getPostDataInclude: () => ({ user: true }),
+  getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: (posts: unknown[]) => Promise.resolve(posts),
   prisma: {
-    post: {
-      findMany: () => Promise.resolve([]),
-      findUnique: mockPostFindUnique,
-    },
+    orm: { public: { Posts: { select: () => createPostQuery() } } },
   },
 }));
 mock.module("@/lib/auth/session", () => ({

@@ -1,9 +1,10 @@
 import {
+  and,
   consumeRateLimit,
   cancelMediaCleanup,
-  Prisma,
   prisma,
   redis,
+  toPrismaDateTime,
 } from "@asm/db";
 import {
   maxBytesForType,
@@ -173,20 +174,23 @@ export async function createInitiatedUpload(input: {
         400
       );
     }
-    const overlay = await prisma.media.findFirst({
-      select: { id: true, status: true, type: true, userId: true },
-      where: { id: audioOverlayId },
-    });
-    if (!overlay || overlay.userId !== userId || overlay.type !== "AUDIO") {
+    const overlay = await prisma.orm.public.PostMedia.select(
+      "id",
+      "status",
+      "_type",
+      "userId"
+    )
+      .where({ id: audioOverlayId })
+      .first();
+    if (!overlay || overlay.userId !== userId || overlay._type !== "AUDIO") {
       throw new UploadPolicyError("Sound track not found", 404);
     }
     if (overlay.status !== "READY") {
       throw new UploadPolicyError("Sound track is not ready yet", 409);
     }
-    const alreadyAttached = await prisma.media.findFirst({
-      select: { id: true },
-      where: { audioOverlayId },
-    });
+    const alreadyAttached = await prisma.orm.public.PostMedia.select("id")
+      .where({ audioOverlayId })
+      .first();
     if (alreadyAttached) {
       throw new UploadPolicyError(
         "That sound is already attached to another gust",
@@ -219,10 +223,10 @@ export async function createInitiatedUpload(input: {
 
   // One account may not occupy every processing slot; drafts that were never
   // finalized are excluded because they hold no worker resources.
-  const activeJobs = await prisma.media.count({
-    where: { status: { in: ["SCANNING", "PROCESSING"] }, userId },
-  });
-  if (activeJobs >= MEDIA_LIMITS.maxConcurrentProcessingPerUser) {
+  const activeJobs = await prisma.orm.public.PostMedia.where((media) =>
+    and(media.status.in(["SCANNING", "PROCESSING"]), media.userId.eq(userId))
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  if (activeJobs.count >= MEDIA_LIMITS.maxConcurrentProcessingPerUser) {
     throw new UploadPolicyError(
       "Too many uploads are still processing. Try again shortly.",
       429
@@ -255,30 +259,37 @@ export async function createInitiatedUpload(input: {
   // reuse the existing media row and storage artifacts to skip redundant uploads
   // and transcoding.
   if (sha256) {
-    const existing = await prisma.media.findFirst({
-      include: {
-        avatarOf: { select: { id: true } },
-        bannerOf: { select: { id: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      where: {
-        sha256,
-        size: fileSize,
-        status: {
-          in: ["READY", "PROCESSING", "SCANNING", "QUARANTINED", "DELETED"],
-        },
-        type: mediaType,
-        userId,
-      },
-    });
+    const existing = await prisma.orm.public.PostMedia.where((media) =>
+      and(
+        media.sha256.eq(sha256),
+        media.size.eq(fileSize),
+        media.status.in([
+          "READY",
+          "PROCESSING",
+          "SCANNING",
+          "QUARANTINED",
+          "DELETED",
+        ]),
+        media._type.eq(mediaType),
+        media.userId.eq(userId)
+      )
+    )
+      .include("users", (user) => user.select("id"))
+      .include("usersUsers", (user) => user.select("id"))
+      .include("communities", (community) => community.select("id"))
+      .include("communitiesCommunities", (community) => community.select("id"))
+      .orderBy((media) => media.createdAt.desc())
+      .first();
 
     if (existing) {
       const isUnattached =
         !existing.postId &&
         !existing.commentId &&
         !existing.messageConversationId &&
-        !existing.avatarOf &&
-        !existing.bannerOf;
+        existing.users.length === 0 &&
+        existing.usersUsers.length === 0 &&
+        existing.communities.length === 0 &&
+        existing.communitiesCommunities.length === 0;
       // A different audio overlay means the row's stored (or in-flight) bytes
       // were baked with another track; reusing them would serve the wrong
       // audio. Computed once here and required by EVERY reuse path below - the
@@ -300,12 +311,11 @@ export async function createInitiatedUpload(input: {
         ) {
           if (width ?? height) {
             try {
-              await prisma.media.update({
-                data: {
-                  ...(width ? { width } : {}),
-                  ...(height ? { height } : {}),
-                },
-                where: { id: existing.id },
+              await prisma.orm.public.PostMedia.where({
+                id: existing.id,
+              }).update({
+                ...(width ? { width } : {}),
+                ...(height ? { height } : {}),
               });
             } catch (error) {
               console.error("Failed to refresh media dimensions:", error);
@@ -330,26 +340,31 @@ export async function createInitiatedUpload(input: {
           if (messageConversationId) {
             let claimed = false;
             try {
-              const result = await prisma.media.updateMany({
-                data: {
+              let result = await prisma.orm.public.PostMedia.where((media) =>
+                and(
+                  media.id.eq(existing.id),
+                  media.messageConversationId.isNull(),
+                  media.status.eq("READY")
+                )
+              ).updateAndCount({
+                messageConversationId,
+                ...(width ? { width } : {}),
+                ...(height ? { height } : {}),
+              });
+              if (result === 0) {
+                result = await prisma.orm.public.PostMedia.where((media) =>
+                  and(
+                    media.id.eq(existing.id),
+                    media.messageConversationId.eq(messageConversationId),
+                    media.status.eq("READY")
+                  )
+                ).updateAndCount({
                   messageConversationId,
                   ...(width ? { width } : {}),
                   ...(height ? { height } : {}),
-                },
-                where: {
-                  OR: [
-                    { messageConversationId: null },
-                    { messageConversationId },
-                  ],
-                  id: existing.id,
-                  // Re-check READY at claim time: an orphan-cleanup sweep may
-                  // have flipped the row to DELETED between our read and this
-                  // write. Claiming a dead row would hand back an id whose
-                  // status poll can never reach READY.
-                  status: "READY",
-                },
-              });
-              claimed = result.count > 0;
+                });
+              }
+              claimed = result > 0;
             } catch (error) {
               console.error("Failed to link deduplicated media:", error);
             }
@@ -388,49 +403,45 @@ export async function createInitiatedUpload(input: {
         // atomically: a failure between the two writes would otherwise leave
         // a READY clone with no playable variants.
         if (overlayMatches) {
-          const cloned = await prisma.$transaction(async (tx) => {
-            let created;
+          const cloned = await prisma.transaction(async (tx) => {
+            let created: { id: string };
             try {
-              created = await tx.media.create({
-                data: {
-                  aiGenerated: existing.aiGenerated,
-                  aiProvenance: (existing.aiProvenance ??
-                    Prisma.DbNull) as Prisma.InputJsonValue,
-                  blurDataUrl: existing.blurDataUrl,
-                  captionsKey: existing.captionsKey,
-                  claimedMime: existing.claimedMime,
-                  customThumbnailKey: null,
-                  detectedMime: existing.detectedMime,
-                  encoderVersion: existing.encoderVersion,
-                  exifStripped: existing.exifStripped,
-                  hasHls: existing.hasHls,
-                  height: height ?? existing.height ?? null,
-                  key: existing.key,
-                  messageConversationId: messageConversationId ?? null,
-                  mimeType: existing.mimeType,
-                  originalName: sanitizeDisplayName(fileName),
-                  pipelineVersion: existing.pipelineVersion,
-                  platform: existing.platform,
-                  processedAt: new Date(),
-                  publishedKey: existing.publishedKey,
-                  semanticTags: existing.semanticTags,
-                  sha256: existing.sha256,
-                  size: existing.size,
-                  status: "READY",
-                  techMetadata: (existing.techMetadata ??
-                    Prisma.DbNull) as Prisma.InputJsonValue,
-                  thumbnailHeight: existing.thumbnailHeight,
-                  thumbnailKey: existing.thumbnailKey,
-                  thumbnailWidth: existing.thumbnailWidth,
-                  transcript: existing.transcript,
-                  type: existing.type,
-                  uploaderDisplayName: existing.uploaderDisplayName,
-                  uploaderUsername: existing.uploaderUsername,
-                  url: existing.url,
-                  userId,
-                  width: width ?? existing.width ?? null,
-                  ...(audioOverlayId ? { audioOverlayId } : {}),
-                },
+              created = await tx.orm.public.PostMedia.select("id").create({
+                _type: existing._type,
+                aiGenerated: existing.aiGenerated,
+                aiProvenance: existing.aiProvenance ?? null,
+                blurDataUrl: existing.blurDataUrl,
+                captionsKey: existing.captionsKey,
+                claimedMime: existing.claimedMime,
+                customThumbnailKey: null,
+                detectedMime: existing.detectedMime,
+                encoderVersion: existing.encoderVersion,
+                exifStripped: existing.exifStripped,
+                hasHls: existing.hasHls,
+                height: height ?? existing.height ?? null,
+                key: existing.key,
+                messageConversationId: messageConversationId ?? null,
+                mimeType: existing.mimeType,
+                originalName: sanitizeDisplayName(fileName),
+                pipelineVersion: existing.pipelineVersion,
+                platform: existing.platform,
+                processedAt: toPrismaDateTime(new Date()),
+                publishedKey: existing.publishedKey,
+                semanticTags: existing.semanticTags,
+                sha256: existing.sha256,
+                size: existing.size,
+                status: "READY",
+                techMetadata: existing.techMetadata ?? null,
+                thumbnailHeight: existing.thumbnailHeight,
+                thumbnailKey: existing.thumbnailKey,
+                thumbnailWidth: existing.thumbnailWidth,
+                transcript: existing.transcript,
+                uploaderDisplayName: existing.uploaderDisplayName,
+                uploaderUsername: existing.uploaderUsername,
+                url: existing.url,
+                userId,
+                width: width ?? existing.width ?? null,
+                ...(audioOverlayId ? { audioOverlayId } : {}),
               });
             } catch (error: unknown) {
               if ((error as { code?: string }).code === "P2002") {
@@ -443,24 +454,27 @@ export async function createInitiatedUpload(input: {
             }
 
             // Mirror any pre-computed derivative variants
-            const existingDerivatives = await tx.mediaDerivative.findMany({
-              where: { mediaId: existing.id },
-            });
+            const existingDerivatives =
+              await tx.orm.public.PostMediaDerivatives.where((derivative) =>
+                derivative.mediaId.eq(existing.id)
+              ).all();
             if (existingDerivatives.length > 0) {
-              await tx.mediaDerivative.createMany({
-                data: existingDerivatives.map((d) => ({
-                  durationMs: d.durationMs,
-                  height: d.height,
-                  key: d.key,
-                  kind: d.kind,
-                  mediaId: created.id,
-                  mimeType: d.mimeType,
-                  pipelineVersion: d.pipelineVersion,
-                  sizeBytes: d.sizeBytes,
-                  variant: d.variant,
-                  width: d.width,
-                })),
-              });
+              await Promise.all(
+                existingDerivatives.map((derivative) =>
+                  tx.orm.public.PostMediaDerivatives.create({
+                    durationMs: derivative.durationMs,
+                    height: derivative.height,
+                    key: derivative.key,
+                    kind: derivative.kind,
+                    mediaId: created.id,
+                    mimeType: derivative.mimeType,
+                    pipelineVersion: derivative.pipelineVersion,
+                    sizeBytes: derivative.sizeBytes,
+                    variant: derivative.variant,
+                    width: derivative.width,
+                  })
+                )
+              );
             }
 
             return created;
@@ -506,19 +520,16 @@ export async function createInitiatedUpload(input: {
         } catch (error) {
           console.error("Failed to cancel pending media cleanup:", error);
         }
-        await prisma.media.update({
-          data: {
-            failureCode: null,
-            failureDetail: Prisma.DbNull,
-            originalName: sanitizeDisplayName(fileName),
-            rejectedReason: null,
-            status: "READY",
-            ...(audioOverlayId ? { audioOverlayId } : {}),
-            ...(messageConversationId ? { messageConversationId } : {}),
-            ...(width ? { width } : {}),
-            ...(height ? { height } : {}),
-          },
-          where: { id: existing.id },
+        await prisma.orm.public.PostMedia.where({ id: existing.id }).update({
+          failureCode: null,
+          failureDetail: null,
+          originalName: sanitizeDisplayName(fileName),
+          rejectedReason: null,
+          status: "READY",
+          ...(audioOverlayId ? { audioOverlayId } : {}),
+          ...(messageConversationId ? { messageConversationId } : {}),
+          ...(width ? { width } : {}),
+          ...(height ? { height } : {}),
         });
         if (purpose !== "message") {
           try {
@@ -566,21 +577,29 @@ export async function createInitiatedUpload(input: {
         let claimed = !messageConversationId;
         if (messageConversationId) {
           try {
-            const result = await prisma.media.updateMany({
-              data: {
+            let result = await prisma.orm.public.PostMedia.where((media) =>
+              and(
+                media.id.eq(existing.id),
+                media.messageConversationId.isNull()
+              )
+            ).updateAndCount({
+              messageConversationId,
+              ...(width ? { width } : {}),
+              ...(height ? { height } : {}),
+            });
+            if (result === 0) {
+              result = await prisma.orm.public.PostMedia.where((media) =>
+                and(
+                  media.id.eq(existing.id),
+                  media.messageConversationId.eq(messageConversationId)
+                )
+              ).updateAndCount({
                 messageConversationId,
                 ...(width ? { width } : {}),
                 ...(height ? { height } : {}),
-              },
-              where: {
-                OR: [
-                  { messageConversationId: null },
-                  { messageConversationId },
-                ],
-                id: existing.id,
-              },
-            });
-            claimed = result.count > 0;
+              });
+            }
+            claimed = result > 0;
           } catch (error) {
             console.error("Failed to link in-flight media:", error);
             claimed = false;
@@ -608,25 +627,21 @@ export async function createInitiatedUpload(input: {
 
   let media;
   try {
-    media = await prisma.media.create({
-      data: {
-        // New-flow rows carry no legacy URL/key; serving falls back to the
-        // pipeline's publishedKey + derivatives instead.
-        claimedMime: declaredMime.toLowerCase(),
-        key: "",
-        mimeType: declaredMime.toLowerCase(),
-        originalName: sanitizeDisplayName(fileName),
-        sha256: sha256 ?? null,
-        size: fileSize,
-        status: "UPLOADING",
-        type: mediaType,
-        url: "",
-        userId,
-        ...(audioOverlayId ? { audioOverlayId } : {}),
-        ...(messageConversationId ? { messageConversationId } : {}),
-        ...(width ? { width } : {}),
-        ...(height ? { height } : {}),
-      },
+    media = await prisma.orm.public.PostMedia.select("id").create({
+      _type: mediaType,
+      claimedMime: declaredMime.toLowerCase(),
+      key: "",
+      mimeType: declaredMime.toLowerCase(),
+      originalName: sanitizeDisplayName(fileName),
+      sha256: sha256 ?? null,
+      size: fileSize,
+      status: "UPLOADING",
+      url: "",
+      userId,
+      ...(audioOverlayId ? { audioOverlayId } : {}),
+      ...(messageConversationId ? { messageConversationId } : {}),
+      ...(width ? { width } : {}),
+      ...(height ? { height } : {}),
     });
   } catch (error: unknown) {
     if ((error as { code?: string }).code === "P2002") {
@@ -641,9 +656,8 @@ export async function createInitiatedUpload(input: {
   // The quarantine key embeds the generated id, so patch the row once with
   // its final key. Keys stay deterministic and content-free.
   const originalKey = quarantineKey(media.id, extensionGuess);
-  await prisma.media.update({
-    data: { originalKey },
-    where: { id: media.id },
+  await prisma.orm.public.PostMedia.where({ id: media.id }).update({
+    originalKey,
   });
 
   // Message attachments are end-to-end encrypted payloads; the server can
@@ -790,13 +804,16 @@ export async function attachAudioOverlay(input: {
   const { deleteObject, enqueueMediaProcess } = await import("@asm/db");
   const { isTerminalStatus } = await import("@asm/media");
 
-  const video = await prisma.media.findFirst({
-    select: { id: true, status: true, type: true },
-    where: { id: mediaId, userId },
-  });
+  const video = await prisma.orm.public.PostMedia.select(
+    "id",
+    "status",
+    "_type"
+  )
+    .where((media) => and(media.id.eq(mediaId), media.userId.eq(userId)))
+    .first();
   if (
     !video ||
-    video.type !== "VIDEO" ||
+    video._type !== "VIDEO" ||
     isTerminalStatus(video.status) ||
     video.status === "FAILED"
   ) {
@@ -804,11 +821,15 @@ export async function attachAudioOverlay(input: {
   }
 
   if (audioOverlayId) {
-    const overlay = await prisma.media.findFirst({
-      select: { id: true, status: true, type: true, userId: true },
-      where: { id: audioOverlayId },
-    });
-    if (!overlay || overlay.userId !== userId || overlay.type !== "AUDIO") {
+    const overlay = await prisma.orm.public.PostMedia.select(
+      "id",
+      "status",
+      "_type",
+      "userId"
+    )
+      .where({ id: audioOverlayId })
+      .first();
+    if (!overlay || overlay.userId !== userId || overlay._type !== "AUDIO") {
       throw new UploadPolicyError("Sound track not found", 404);
     }
     // The process stage streams the track's published bytes; a row that is
@@ -819,9 +840,8 @@ export async function attachAudioOverlay(input: {
   }
 
   try {
-    await prisma.media.update({
-      data: { audioOverlayId },
-      where: { id: video.id },
+    await prisma.orm.public.PostMedia.where({ id: video.id }).update({
+      audioOverlayId,
     });
   } catch (error: unknown) {
     // audioOverlayId is @unique: one sound can back exactly one video.
@@ -834,10 +854,9 @@ export async function attachAudioOverlay(input: {
     throw error;
   }
 
-  const derivatives = await prisma.mediaDerivative.findMany({
-    select: { key: true },
-    where: { mediaId: video.id },
-  });
+  const derivatives = await prisma.orm.public.PostMediaDerivatives.select("key")
+    .where({ mediaId: video.id })
+    .all();
   if (derivatives.length === 0) {
     return { mediaId: video.id, reprocessing: false };
   }
@@ -847,7 +866,9 @@ export async function attachAudioOverlay(input: {
   await Promise.allSettled(
     derivatives.map((derivative) => deleteObject(derivative.key))
   );
-  await prisma.mediaDerivative.deleteMany({ where: { mediaId: video.id } });
+  await prisma.orm.public.PostMediaDerivatives.where({
+    mediaId: video.id,
+  }).delete();
   await enqueueMediaProcess(video.id, {
     jobIdSuffix: `overlay-${Date.now()}`,
   });
@@ -870,18 +891,17 @@ export async function attachCustomThumbnail(input: {
   const { isTerminalStatus } = await import("@asm/media");
   const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
 
-  const video = await prisma.media.findFirst({
-    select: {
-      customThumbnailKey: true,
-      id: true,
-      status: true,
-      type: true,
-    },
-    where: { id: mediaId, userId },
-  });
+  const video = await prisma.orm.public.PostMedia.select(
+    "customThumbnailKey",
+    "id",
+    "status",
+    "_type"
+  )
+    .where((media) => and(media.id.eq(mediaId), media.userId.eq(userId)))
+    .first();
   if (
     !video ||
-    video.type !== "VIDEO" ||
+    video._type !== "VIDEO" ||
     isTerminalStatus(video.status) ||
     video.status === "FAILED"
   ) {
@@ -894,25 +914,23 @@ export async function attachCustomThumbnail(input: {
     if (video.customThumbnailKey) {
       await deleteObject(video.customThumbnailKey).catch(() => null);
     }
-    await prisma.media.update({
-      data: { customThumbnailKey: null },
-      where: { id: video.id },
+    await prisma.orm.public.PostMedia.where({ id: video.id }).update({
+      customThumbnailKey: null,
     });
     return { attached: false, mediaId: video.id };
   }
 
-  const image = await prisma.media.findFirst({
-    select: {
-      id: true,
-      mimeType: true,
-      publishedKey: true,
-      status: true,
-      type: true,
-      userId: true,
-    },
-    where: { id: thumbnailMediaId },
-  });
-  if (!image || image.userId !== userId || image.type !== "IMAGE") {
+  const image = await prisma.orm.public.PostMedia.select(
+    "id",
+    "mimeType",
+    "publishedKey",
+    "status",
+    "_type",
+    "userId"
+  )
+    .where({ id: thumbnailMediaId })
+    .first();
+  if (!image || image.userId !== userId || image._type !== "IMAGE") {
     throw new UploadPolicyError("Thumbnail image not found", 404);
   }
   // Serving streams these bytes for the video's lifetime; only verified,
@@ -939,9 +957,8 @@ export async function attachCustomThumbnail(input: {
   if (video.customThumbnailKey && video.customThumbnailKey !== thumbnailKey) {
     await deleteObject(video.customThumbnailKey).catch(() => null);
   }
-  await prisma.media.update({
-    data: { customThumbnailKey: thumbnailKey },
-    where: { id: video.id },
+  await prisma.orm.public.PostMedia.where({ id: video.id }).update({
+    customThumbnailKey: thumbnailKey,
   });
   return { attached: true, mediaId: video.id };
 }

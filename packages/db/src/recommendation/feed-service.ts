@@ -3,13 +3,14 @@
 // media features, and returns diverse pages with continuous pagination.
 
 import { createLogger } from "@asm/logger";
+import { and } from "@prisma/orm-postgres/orm-client";
 
 import { searchCache } from "../../cache/search-cache";
 import { getAuraSignalsForUsers } from "../aura/signals";
-import type { PostData, Prisma } from "../client";
-import { getPostDataInclude } from "../client";
+import { getPostDataQuery, mapPostData } from "../client";
+import type { PostData } from "../client";
 import { communityVisibilityWhere } from "../communities/service";
-import prisma from "../prisma";
+import prisma, { toPrismaDateTime, fromPrismaDateTime } from "../prisma";
 import { redis } from "../redis";
 import { buildUserProfile } from "./profile";
 import type { ProfileSignal, UserProfile } from "./profile";
@@ -24,7 +25,6 @@ const logger = createLogger({ serviceName: "fyp-feed" });
 // There is no arbitrary age cutoff, so a small community or new account can
 // still reach the complete archive while freshness remains a score feature.
 const CANDIDATE_POOL_SIZE = 500;
-const CANDIDATE_POOL_TAKE = { take: CANDIDATE_POOL_SIZE };
 
 // 15 minutes cache TTL for user taste profiles.
 const PROFILE_CACHE_TTL_SECONDS = 900;
@@ -62,25 +62,42 @@ interface CachedProfile extends UserProfile {
   followedAuthorIds: string[];
 }
 
-const AUTHOR_TAGS_SELECT = {
-  select: {
-    attachments: { select: { type: true } },
-    embedding: true,
-    isGust: true,
-    semanticTags: true,
-    tags: { select: { name: true } },
-    user: {
-      select: {
-        sessions: {
-          orderBy: { updatedAt: "desc" },
-          select: { country: true },
-          take: 1,
-        },
-      },
-    },
-    userId: true,
-  },
-} as const;
+function getAuthorTagsQuery() {
+  return prisma.orm.public.Posts.select(
+    "createdAt",
+    "embedding",
+    "isGust",
+    "semanticTags",
+    "userId"
+  )
+    .include("postMedias", (media) => media.select("_type"))
+    .include("postToTags", (postTags) =>
+      postTags.include("tag", (tag) => tag.select("name"))
+    )
+    .include("user", (user) =>
+      user.include("sessions", (sessions) =>
+        sessions
+          .select("country")
+          .orderBy((session) => session.updatedAt.desc())
+          .limit(1)
+      )
+    );
+}
+
+type AuthorTagsPost = Awaited<
+  ReturnType<ReturnType<typeof getAuthorTagsQuery>["all"]>
+>[number];
+
+function toAuthorSignalPost(post: AuthorTagsPost) {
+  return {
+    ...post,
+    attachments: post.postMedias.map((media) => ({ type: media._type })),
+    embedding: post.embedding ?? [],
+    tags: post.postToTags.flatMap((postTag) =>
+      postTag.tag ? [postTag.tag] : []
+    ),
+  };
+}
 
 export interface PersonalizedFeedPage {
   anchorCursor: string | null;
@@ -102,10 +119,9 @@ function fypProfileKey(userId: string): string {
 }
 
 async function fetchFollowedAuthorIds(userId: string): Promise<string[]> {
-  const follows = await prisma.follow.findMany({
-    select: { followingId: true },
-    where: { followerId: userId },
-  });
+  const follows = await prisma.orm.public.Follows.select("followingId")
+    .where({ followerId: userId })
+    .all();
   return follows.map((follow) => follow.followingId);
 }
 
@@ -120,12 +136,13 @@ export async function getNotInterestedPostIds(
   if (!userId) {
     return [];
   }
-  const events = await prisma.recommendationEvent.findMany({
-    orderBy: { createdAt: "desc" },
-    select: { postId: true },
-    take: NOT_INTERESTED_EXCLUSION_LIMIT,
-    where: { eventType: "NOT_INTERESTED", userId },
-  });
+  const events = await prisma.orm.public.RecommendationEvents.select("postId")
+    .where((event) =>
+      and(event.eventType.eq("NOT_INTERESTED"), event.userId.eq(userId))
+    )
+    .orderBy((event) => event.createdAt.desc())
+    .limit(NOT_INTERESTED_EXCLUSION_LIMIT)
+    .all();
   // One event per (user, post) is the steady state (hide upserts), but a
   // concurrent double-tap could leave two, so dedupe before the NOT IN.
   return [...new Set(events.map((event) => event.postId))];
@@ -139,29 +156,35 @@ async function getCollaborativePostWeights(
     return new Map();
   }
 
-  const ownSignals = await prisma.recommendationEvent.findMany({
-    orderBy: { createdAt: "desc" },
-    select: { postId: true },
-    take: COLLABORATIVE_SOURCE_TAKE,
-    where: {
-      eventType: { in: [...POSITIVE_RECOMMENDATION_EVENTS] },
-      userId,
-    },
-  });
+  const ownSignals = await prisma.orm.public.RecommendationEvents.select(
+    "postId"
+  )
+    .where((event) =>
+      and(
+        event.eventType.in([...POSITIVE_RECOMMENDATION_EVENTS]),
+        event.userId.eq(userId)
+      )
+    )
+    .orderBy((event) => event.createdAt.desc())
+    .limit(COLLABORATIVE_SOURCE_TAKE)
+    .all();
   const sourcePostIds = [...new Set(ownSignals.map((signal) => signal.postId))];
   if (sourcePostIds.length === 0) {
     return new Map();
   }
 
-  const peerSignals = await prisma.recommendationEvent.findMany({
-    select: { userId: true },
-    take: COLLABORATIVE_PEER_EVENT_TAKE,
-    where: {
-      eventType: { in: [...POSITIVE_RECOMMENDATION_EVENTS] },
-      postId: { in: sourcePostIds },
-      userId: { not: userId },
-    },
-  });
+  const peerSignals = await prisma.orm.public.RecommendationEvents.select(
+    "userId"
+  )
+    .where((event) =>
+      and(
+        event.eventType.in([...POSITIVE_RECOMMENDATION_EVENTS]),
+        event.postId.in(sourcePostIds),
+        event.userId.neq(userId)
+      )
+    )
+    .limit(COLLABORATIVE_PEER_EVENT_TAKE)
+    .all();
   const peerCounts = new Map<string, number>();
   for (const signal of peerSignals) {
     peerCounts.set(signal.userId, (peerCounts.get(signal.userId) ?? 0) + 1);
@@ -174,15 +197,19 @@ async function getCollaborativePostWeights(
     return new Map();
   }
 
-  const candidateSignals = await prisma.recommendationEvent.findMany({
-    select: { postId: true, userId: true },
-    take: COLLABORATIVE_CANDIDATE_EVENT_TAKE,
-    where: {
-      eventType: { in: [...POSITIVE_RECOMMENDATION_EVENTS] },
-      postId: { in: candidatePostIds },
-      userId: { in: peerIds },
-    },
-  });
+  const candidateSignals = await prisma.orm.public.RecommendationEvents.select(
+    "postId",
+    "userId"
+  )
+    .where((event) =>
+      and(
+        event.eventType.in([...POSITIVE_RECOMMENDATION_EVENTS]),
+        event.postId.in(candidatePostIds),
+        event.userId.in(peerIds)
+      )
+    )
+    .limit(COLLABORATIVE_CANDIDATE_EVENT_TAKE)
+    .all();
   const weights = new Map<string, number>();
   for (const signal of candidateSignals) {
     const peerWeight = peerCounts.get(signal.userId) ?? 1;
@@ -220,28 +247,34 @@ export async function getSocialProofPostWeights(
 
   const since = new Date(now.getTime() - SOCIAL_PROOF_WINDOW_MS);
   const [amplifications, comments] = await Promise.all([
-    prisma.vote.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, postId: true, userId: true },
-      take: SOCIAL_PROOF_EVENT_TAKE,
-      where: {
-        createdAt: { gte: since },
-        postId: { in: candidatePostIds },
-        user: { followers: { some: { followerId: viewerId } } },
-        value: 1,
-      },
-    }),
-    prisma.comment.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, postId: true, userId: true },
-      take: SOCIAL_PROOF_EVENT_TAKE,
-      where: {
-        createdAt: { gte: since },
-        deleted: false,
-        postId: { in: candidatePostIds },
-        user: { followers: { some: { followerId: viewerId } } },
-      },
-    }),
+    prisma.orm.public.Votes.select("createdAt", "postId", "userId")
+      .where((vote) =>
+        and(
+          vote.createdAt.gte(toPrismaDateTime(since)),
+          vote.postId.in(candidatePostIds),
+          vote.user.some((user) =>
+            user.followsFollows.some((follow) => follow.followerId.eq(viewerId))
+          ),
+          vote.value.eq(1)
+        )
+      )
+      .orderBy((vote) => vote.createdAt.desc())
+      .limit(SOCIAL_PROOF_EVENT_TAKE)
+      .all(),
+    prisma.orm.public.Comments.select("createdAt", "postId", "userId")
+      .where((comment) =>
+        and(
+          comment.createdAt.gte(toPrismaDateTime(since)),
+          comment.deleted.eq(false),
+          comment.postId.in(candidatePostIds),
+          comment.user.some((user) =>
+            user.followsFollows.some((follow) => follow.followerId.eq(viewerId))
+          )
+        )
+      )
+      .orderBy((comment) => comment.createdAt.desc())
+      .limit(SOCIAL_PROOF_EVENT_TAKE)
+      .all(),
   ]);
 
   // Count at most one action per followed person per post so a single active
@@ -264,11 +297,16 @@ export async function getSocialProofPostWeights(
       amplification.postId,
       amplification.userId,
       1,
-      amplification.createdAt
+      fromPrismaDateTime(amplification.createdAt)
     );
   }
   for (const comment of comments) {
-    addContribution(comment.postId, comment.userId, 0.8, comment.createdAt);
+    addContribution(
+      comment.postId,
+      comment.userId,
+      0.8,
+      fromPrismaDateTime(comment.createdAt)
+    );
   }
 
   const weights = new Map<string, number>();
@@ -281,10 +319,10 @@ export async function getSocialProofPostWeights(
 
 function toSignal(
   post: {
-    attachments?: { type: string }[];
-    embedding?: number[];
-    semanticTags?: string[] | null;
-    tags: { name: string }[];
+    attachments?: readonly { type: string }[];
+    embedding?: readonly number[];
+    semanticTags?: readonly string[] | null;
+    tags: readonly { name: string }[];
     userId: string;
   },
   kind: ProfileSignal["kind"],
@@ -293,7 +331,7 @@ function toSignal(
   return {
     authorId: post.userId,
     createdAt,
-    embedding: post.embedding,
+    embedding: post.embedding ? [...post.embedding] : undefined,
     hasAudio: post.attachments?.some((a) => a.type === "AUDIO"),
     hasImage: post.attachments?.some((a) => a.type === "IMAGE"),
     hasVideo: post.attachments?.some((a) => a.type === "VIDEO"),
@@ -308,15 +346,17 @@ function toSignal(
 function buildExplorationAffinities(
   pool: {
     id: string;
-    semanticTags?: string[] | null;
-    tags: { name: string }[];
+    postToTags: readonly { tag: { name: string } | null }[];
+    semanticTags?: readonly string[] | null;
   }[],
   profile: UserProfile
 ): Map<string, number> {
   const tagFrequency = new Map<string, number>();
   for (const post of pool) {
     const tags = new Set([
-      ...post.tags.map((tag) => tag.name.toLowerCase()),
+      ...post.postToTags.flatMap((postTag) =>
+        postTag.tag ? [postTag.tag.name.toLowerCase()] : []
+      ),
       ...(post.semanticTags ?? []).map((tag) => tag.toLowerCase()),
     ]);
     for (const tag of tags) {
@@ -330,7 +370,9 @@ function buildExplorationAffinities(
   for (const post of pool) {
     const tags = [
       ...new Set([
-        ...post.tags.map((tag) => tag.name.toLowerCase()),
+        ...post.postToTags.flatMap((postTag) =>
+          postTag.tag ? [postTag.tag.name.toLowerCase()] : []
+        ),
         ...(post.semanticTags ?? []).map((tag) => tag.toLowerCase()),
       ]),
     ];
@@ -398,56 +440,84 @@ export async function buildAndCacheProfile(
     searches,
     followedAuthorIds,
   ] = await Promise.all([
-    prisma.vote.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, userId, value: { gt: 0 } },
-    }),
-    prisma.vote.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, userId, value: { lt: 0 } },
-    }),
-    prisma.bookmark.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, userId },
-    }),
-    prisma.comment.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, deleted: false, userId },
-    }),
-    prisma.commentVote.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        comment: { select: { post: AUTHOR_TAGS_SELECT } },
-        createdAt: true,
-        value: true,
-      },
-      take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, userId },
-    }),
-    prisma.post.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { ...AUTHOR_TAGS_SELECT.select, createdAt: true },
-      take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, userId },
-    }),
-    prisma.recommendationEvent.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        createdAt: true,
-        eventType: true,
-        post: { select: AUTHOR_TAGS_SELECT.select },
-      },
-      take: RECOMMENDATION_EVENT_TAKE,
-      where: { createdAt: { gte: since }, userId },
-    }),
+    prisma.orm.public.Votes.select("createdAt")
+      .include("post", (_post) => getAuthorTagsQuery())
+      .where((vote) =>
+        and(
+          vote.createdAt.gte(toPrismaDateTime(since)),
+          vote.userId.eq(userId),
+          vote.value.gt(0)
+        )
+      )
+      .orderBy((vote) => vote.createdAt.desc())
+      .limit(PROFILE_EMBEDDING_TAKE)
+      .all(),
+    prisma.orm.public.Votes.select("createdAt")
+      .include("post", (_post) => getAuthorTagsQuery())
+      .where((vote) =>
+        and(
+          vote.createdAt.gte(toPrismaDateTime(since)),
+          vote.userId.eq(userId),
+          vote.value.lt(0)
+        )
+      )
+      .orderBy((vote) => vote.createdAt.desc())
+      .limit(PROFILE_EMBEDDING_TAKE)
+      .all(),
+    prisma.orm.public.Bookmarks.select("createdAt")
+      .include("post", (_post) => getAuthorTagsQuery())
+      .where((bookmark) =>
+        and(
+          bookmark.createdAt.gte(toPrismaDateTime(since)),
+          bookmark.userId.eq(userId)
+        )
+      )
+      .orderBy((bookmark) => bookmark.createdAt.desc())
+      .limit(PROFILE_EMBEDDING_TAKE)
+      .all(),
+    prisma.orm.public.Comments.select("createdAt")
+      .include("post", (_post) => getAuthorTagsQuery())
+      .where((comment) =>
+        and(
+          comment.createdAt.gte(toPrismaDateTime(since)),
+          comment.deleted.eq(false),
+          comment.userId.eq(userId)
+        )
+      )
+      .orderBy((comment) => comment.createdAt.desc())
+      .limit(PROFILE_EMBEDDING_TAKE)
+      .all(),
+    prisma.orm.public.CommentVotes.select("createdAt", "value")
+      .include("comment", (comment) =>
+        comment.include("post", (_post) => getAuthorTagsQuery())
+      )
+      .where((commentVote) =>
+        and(
+          commentVote.createdAt.gte(toPrismaDateTime(since)),
+          commentVote.userId.eq(userId)
+        )
+      )
+      .orderBy((commentVote) => commentVote.createdAt.desc())
+      .limit(PROFILE_EMBEDDING_TAKE)
+      .all(),
+    getAuthorTagsQuery()
+      .where((post) =>
+        and(post.createdAt.gte(toPrismaDateTime(since)), post.userId.eq(userId))
+      )
+      .orderBy((post) => post.createdAt.desc())
+      .limit(PROFILE_EMBEDDING_TAKE)
+      .all(),
+    prisma.orm.public.RecommendationEvents.select("createdAt", "eventType")
+      .include("post", (_post) => getAuthorTagsQuery())
+      .where((event) =>
+        and(
+          event.createdAt.gte(toPrismaDateTime(since)),
+          event.userId.eq(userId)
+        )
+      )
+      .orderBy((event) => event.createdAt.desc())
+      .limit(RECOMMENDATION_EVENT_TAKE)
+      .all(),
     searchCache.getHistory(userId),
     fetchFollowedAuthorIds(userId),
   ]);
@@ -455,31 +525,55 @@ export async function buildAndCacheProfile(
   const signals: ProfileSignal[] = [];
   for (const vote of votes) {
     if (vote.post) {
-      signals.push(toSignal(vote.post, "amplify", vote.createdAt));
+      signals.push(
+        toSignal(
+          toAuthorSignalPost(vote.post),
+          "amplify",
+          fromPrismaDateTime(vote.createdAt)
+        )
+      );
     }
   }
   for (const downvote of downvotes) {
     if (downvote.post) {
-      signals.push(toSignal(downvote.post, "downvote", downvote.createdAt));
+      signals.push(
+        toSignal(
+          toAuthorSignalPost(downvote.post),
+          "downvote",
+          fromPrismaDateTime(downvote.createdAt)
+        )
+      );
     }
   }
   for (const bookmark of bookmarks) {
     if (bookmark.post) {
-      signals.push(toSignal(bookmark.post, "bookmark", bookmark.createdAt));
+      signals.push(
+        toSignal(
+          toAuthorSignalPost(bookmark.post),
+          "bookmark",
+          fromPrismaDateTime(bookmark.createdAt)
+        )
+      );
     }
   }
   for (const comment of comments) {
     if (comment.post) {
-      signals.push(toSignal(comment.post, "comment", comment.createdAt));
+      signals.push(
+        toSignal(
+          toAuthorSignalPost(comment.post),
+          "comment",
+          fromPrismaDateTime(comment.createdAt)
+        )
+      );
     }
   }
   for (const commentVote of commentVotes) {
     if (commentVote.comment?.post) {
       signals.push(
         toSignal(
-          commentVote.comment.post,
+          toAuthorSignalPost(commentVote.comment.post),
           commentVote.value > 0 ? "commentVote" : "downvote",
-          commentVote.createdAt
+          fromPrismaDateTime(commentVote.createdAt)
         )
       );
     }
@@ -487,15 +581,21 @@ export async function buildAndCacheProfile(
   for (const event of recommendationEvents) {
     const eventKind = getRecommendationEventKind(event.eventType);
     if (eventKind && event.post) {
-      signals.push(toSignal(event.post, eventKind, event.createdAt));
+      signals.push(
+        toSignal(
+          toAuthorSignalPost(event.post),
+          eventKind,
+          fromPrismaDateTime(event.createdAt)
+        )
+      );
     }
   }
   for (const ownPost of ownPosts) {
     signals.push(
       toSignal(
-        ownPost,
+        toAuthorSignalPost(ownPost),
         ownPost.isGust ? "ownGust" : "ownPost",
-        ownPost.createdAt
+        fromPrismaDateTime(ownPost.createdAt)
       )
     );
   }
@@ -631,62 +731,74 @@ export async function getPersonalizedFeedPage(
   const notInterestedPostIds = await getNotInterestedPostIds(userId);
 
   const contentKind = options.contentKind ?? "post";
-  const whereClause: Prisma.PostWhereInput = {
-    createdAt: { lte: now },
-    isGust: contentKind === "gust",
-    moderated: excludeModerated ? false : undefined,
-    userId: { not: userId },
-    // Never rank a PRIVATE community's post into a viewer who cannot read it.
-    ...communityVisibilityWhere(userId),
-  };
-  if (contentKind === "gust") {
-    whereClause.attachments = { some: { type: "VIDEO" } };
-  }
-
-  if (!includeVisited) {
-    whereClause.visits = { none: { userId } };
-  }
-
-  if (notInterestedPostIds.length > 0) {
-    whereClause.id = { notIn: notInterestedPostIds };
-  }
-
+  const visibilityPredicate = communityVisibilityWhere(userId);
   const [pool, profile, viewerSession] = await Promise.all([
-    prisma.post.findMany({
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      select: {
-        _count: { select: { bookmarks: true, comments: true } },
-        attachments: {
-          select: { ocrText: true, transcript: true, type: true },
-        },
-        aura: true,
-        createdAt: true,
-        embedding: true,
-        id: true,
-        semanticTags: true,
-        tags: { select: { name: true } },
-        user: {
-          select: {
-            sessions: {
-              orderBy: { updatedAt: "desc" },
-              select: { country: true },
-              take: 1,
-            },
-          },
-        },
-        userId: true,
-        viewCount: true,
-        visits: { select: { id: true }, take: 1, where: { userId } },
-      },
-      where: whereClause,
-      ...CANDIDATE_POOL_TAKE,
-    }),
+    prisma.orm.public.Posts.select(
+      "aura",
+      "createdAt",
+      "embedding",
+      "id",
+      "semanticTags",
+      "userId",
+      "viewCount"
+    )
+      .include("bookmarks", (bookmarks) =>
+        bookmarks.combine({ total: bookmarks.count() })
+      )
+      .include("comments", (comments) => comments.count())
+      .include("postMedias", (media) =>
+        media.select("_type", "ocrText", "transcript")
+      )
+      .include("postToTags", (postTags) =>
+        postTags.include("tag", (tag) => tag.select("name"))
+      )
+      .include("user", (user) =>
+        user.include("sessions", (sessions) =>
+          sessions
+            .select("country")
+            .orderBy((session) => session.updatedAt.desc())
+            .limit(1)
+        )
+      )
+      .include("postVisits", (visits) =>
+        visits
+          .select("id")
+          .where((visit) => visit.userId.eq(userId))
+          .limit(1)
+      )
+      .where((post) => {
+        const predicates = [
+          post.createdAt.lte(toPrismaDateTime(now)),
+          post.isGust.eq(contentKind === "gust"),
+          post.userId.neq(userId),
+          visibilityPredicate(post),
+        ];
+        if (excludeModerated) {
+          predicates.push(post.moderated.eq(false));
+        }
+        if (contentKind === "gust") {
+          predicates.push(
+            post.postMedias.some((media) => media._type.eq("VIDEO"))
+          );
+        }
+        if (!includeVisited) {
+          predicates.push(
+            post.postVisits.none((visit) => visit.userId.eq(userId))
+          );
+        }
+        if (notInterestedPostIds.length > 0) {
+          predicates.push(post.id.notIn(notInterestedPostIds));
+        }
+        return and(...predicates);
+      })
+      .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()])
+      .limit(CANDIDATE_POOL_SIZE)
+      .all(),
     getProfile(userId),
-    prisma.session.findFirst({
-      orderBy: { updatedAt: "desc" },
-      select: { country: true },
-      where: { userId },
-    }),
+    prisma.orm.public.Sessions.select("country")
+      .where({ userId })
+      .orderBy((session) => session.updatedAt.desc())
+      .first(),
   ]);
 
   if (pool.length === 0) {
@@ -710,7 +822,7 @@ export async function getPersonalizedFeedPage(
   const explorationAffinities = buildExplorationAffinities(pool, profile);
 
   const scored: ScoredCandidate<CandidatePost>[] = pool.map((post) => {
-    const attachments = post.attachments ?? [];
+    const attachments = post.postMedias;
     const authorCountry = post.user?.sessions[0]?.country;
     const geographicAffinity =
       viewerSession?.country &&
@@ -722,19 +834,25 @@ export async function getPersonalizedFeedPage(
       aura: post.aura,
       authorCountry,
       authorId: post.userId,
-      bookmarkCount: post._count.bookmarks,
-      commentCount: post._count.comments,
-      createdAt: post.createdAt,
-      embedding: post.embedding ?? [],
-      hasAudio: attachments.some((a) => a.type === "AUDIO"),
-      hasImage: attachments.some((a) => a.type === "IMAGE"),
-      hasOcr: attachments.some((a) => Boolean(a.ocrText?.length)),
-      hasTranscript: attachments.some((a) => Boolean(a.transcript?.length)),
-      hasVideo: attachments.some((a) => a.type === "VIDEO"),
+      bookmarkCount: post.bookmarks.total,
+      commentCount: post.comments,
+      createdAt: fromPrismaDateTime(post.createdAt),
+      embedding: post.embedding ? [...post.embedding] : [],
+      hasAudio: attachments.some((attachment) => attachment._type === "AUDIO"),
+      hasImage: attachments.some((attachment) => attachment._type === "IMAGE"),
+      hasOcr: attachments.some((attachment) =>
+        Boolean(attachment.ocrText?.length)
+      ),
+      hasTranscript: attachments.some((attachment) =>
+        Boolean(attachment.transcript?.length)
+      ),
+      hasVideo: attachments.some((attachment) => attachment._type === "VIDEO"),
       id: post.id,
-      isVisited: Boolean(post.visits && post.visits.length > 0),
-      semanticTags: post.semanticTags,
-      tags: post.tags.map((tag) => tag.name),
+      isVisited: post.postVisits.length > 0,
+      semanticTags: post.semanticTags ? [...post.semanticTags] : undefined,
+      tags: post.postToTags.flatMap((postTag) =>
+        postTag.tag ? [postTag.tag.name] : []
+      ),
     };
     return {
       post: candidate,
@@ -765,11 +883,12 @@ export async function getPersonalizedFeedPage(
   }
 
   const rankedIds = pageRanked.map((post) => post.id);
-  const fullPosts = await prisma.post.findMany({
-    include: getPostDataInclude(userId),
-    where: { id: { in: rankedIds } },
-  });
-  const byId = new Map(fullPosts.map((post) => [post.id, post]));
+  const fullPosts = await getPostDataQuery(prisma.orm, userId)
+    .where((post) => post.id.in(rankedIds))
+    .all();
+  const byId = new Map(
+    fullPosts.map((post) => [post.id, mapPostData(post)] as const)
+  );
   const orderedPosts = rankedIds
     .map((id) => byId.get(id))
     .filter((post): post is PostData => post !== undefined);

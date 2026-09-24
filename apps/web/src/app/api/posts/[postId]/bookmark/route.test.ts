@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { DELETE, GET, POST } from "./route";
 
 const POST_ID = "post1";
@@ -25,6 +27,35 @@ function resetState() {
   state.auraLogs = [];
   state.isBookmarked = false;
   state.bookmarkRow = null;
+}
+
+function createBookmarkOrm() {
+  const find = () =>
+    state.isBookmarked
+      ? {
+          authorAura: state.bookmarkRow?.authorAura ?? 0,
+          bookmarkerAura: state.bookmarkRow?.bookmarkerAura ?? 0,
+          id: "b1",
+        }
+      : null;
+  return {
+    Bookmarks: {
+      create: (data: Record<string, unknown>) =>
+        mockTx.bookmark.create({
+          data: data as { authorAura?: number; bookmarkerAura?: number },
+        }),
+      select: () => ({ where: () => ({ first: find }) }),
+      where: () => ({
+        deleteAndCount: () => {
+          const existed = state.isBookmarked;
+          state.isBookmarked = false;
+          return Promise.resolve(existed ? 1 : 0);
+        },
+        first: find,
+        select: () => ({ where: () => ({ first: find }) }),
+      }),
+    },
+  };
 }
 
 const mockTx = {
@@ -58,6 +89,21 @@ const mockTx = {
           }
         : null,
   },
+  orm: {
+    public: {
+      ...createBookmarkOrm(),
+      Users: {
+        select: () => ({
+          where: () => ({
+            first: () =>
+              mockTx.user.findUnique({
+                select: { aura: true, createdAt: true },
+              }),
+          }),
+        }),
+      },
+    },
+  },
   user: {
     findUnique: () =>
       // Actor snapshot for credibility weighting; amount is mocked below.
@@ -87,6 +133,7 @@ const mockTx = {
 let nextWeightedAmount = 2;
 
 const mockDb = () => ({
+  ...asmDbMockBase,
   BOOKMARK_GIVEN_AURA: 1,
   BOOKMARK_RECEIVED_AURA: 4,
   applyFlatAward: (
@@ -180,6 +227,21 @@ const mockPrisma = {
   bookmark: {
     findUnique: mockTx.bookmark.findUnique,
   },
+  orm: {
+    public: {
+      ...createBookmarkOrm(),
+      Posts: {
+        select: () => ({
+          where: (where: { id: string }) => ({
+            first: () =>
+              Promise.resolve(
+                where.id === POST_ID ? { id: POST_ID, userId: AUTHOR_ID } : null
+              ),
+          }),
+        }),
+      },
+    },
+  },
   post: {
     findUnique: (
       args: { where: { id: string } } & {
@@ -192,6 +254,7 @@ const mockPrisma = {
       return { id: POST_ID, userId: AUTHOR_ID };
     },
   },
+  transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
 };
 
 mock.module("@asm/db", () => mockDb());

@@ -4,6 +4,25 @@ import type { NextRequest } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
+async function createPostTags(
+  postId: string,
+  tags: string[],
+  index = 0
+): Promise<void> {
+  const tagName = tags[index];
+  if (tagName === undefined) {
+    return;
+  }
+  let tag = await prisma.orm.public.Tag.select("id")
+    .where({ name: tagName })
+    .first();
+  if (!tag) {
+    tag = await prisma.orm.public.Tag.create({ name: tagName });
+  }
+  await prisma.orm.public.PostToTag.create({ a: postId, b: tag.id });
+  return createPostTags(postId, tags, index + 1);
+}
+
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ postId: string }> }
@@ -30,61 +49,57 @@ export async function POST(
     const body = await req.json();
     const { tags } = body;
 
-    const post = await prisma.post.findUnique({
-      include: {
-        tags: true,
-        user: true,
-      },
-      where: { id: postId },
-    });
+    const post = await prisma.orm.public.Posts.select("id", "userId")
+      .include("postToTags", (postTag) =>
+        postTag.include("tag", (tag) => tag.select("id", "name"))
+      )
+      .where({ id: postId })
+      .first();
 
     if (!post) {
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
 
-    if (post.user.id !== user.id) {
+    if (post.userId !== user.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await prisma.post.update({
-      data: {
-        tags: {
-          disconnect: post.tags.map((tag) => ({ id: tag.id })),
-        },
-      },
-      where: { id: postId },
-    });
+    await prisma.orm.public.PostToTag.where({ a: postId }).delete();
 
     const normalizedTags = tags.map((tag: string) => tag.toLowerCase());
 
-    const updatedPost = await prisma.post.update({
-      data: {
-        tags: {
-          connectOrCreate: normalizedTags.map((tag: string) => ({
-            create: { name: tag },
-            where: { name: tag },
-          })),
-        },
-      },
-      include: {
-        tags: {
-          include: {
-            _count: {
-              select: {
-                posts: true,
+    await createPostTags(postId, normalizedTags);
+
+    const updatedPost = await prisma.orm.public.Posts.select("id")
+      .include("postToTags", (postTag) =>
+        postTag.include("tag", (tag) =>
+          tag
+            .select("id", "name")
+            .include("postToTags", (postTags) =>
+              postTags.combine({ total: postTags.count() })
+            )
+        )
+      )
+      .where({ id: postId })
+      .first();
+    const updatedTags =
+      updatedPost?.postToTags.flatMap((postTag) =>
+        postTag.tag
+          ? [
+              {
+                _count: { posts: postTag.tag.postToTags.total },
+                id: postTag.tag.id,
+                name: postTag.tag.name,
               },
-            },
-          },
-        },
-      },
-      where: { id: postId },
-    });
+            ]
+          : []
+      ) ?? [];
 
     await Promise.all(
       normalizedTags.map((tag: string) => tagCache.incrementTagCount(tag))
     );
 
-    return NextResponse.json({ tags: updatedPost.tags });
+    return NextResponse.json({ tags: updatedTags });
   } catch (error) {
     console.error("Error updating post tags:", error);
     return NextResponse.json(

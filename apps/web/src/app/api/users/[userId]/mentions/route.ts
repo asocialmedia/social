@@ -12,8 +12,6 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { userId } = await ctx.params;
-  const mentions = await prisma.mention.findMany({
-    where: { userId },
-  });
+  const mentions = await prisma.orm.public.Mentions.where({ userId }).all();
   return Response.json(mentions);
 }

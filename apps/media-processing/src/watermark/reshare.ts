@@ -2,7 +2,7 @@
 // Called from process-* stages after phash is computed, and must be
 // idempotent (guarded by reShareChecked) and single-hop.
 
-import { prisma } from "@asm/db";
+import { and, prisma, toPrismaDateTime } from "@asm/db";
 import {
   AUDIO_FPRINT_LENGTH,
   AUDIO_FPRINT_MATCH_DISTANCE,
@@ -29,35 +29,35 @@ export async function attributeReshare(
 
   // Claim: exactly-one attribution scan per row, via conditional update.
   // Prevents every retry / backfill re-run from re-doing the O(400) scan.
-  const claimed = await prisma.media.updateMany({
-    data: { reShareChecked: true },
-    where: { id: mediaId, reShareChecked: false },
-  });
-  if (claimed.count === 0) {
+  const claimed = await prisma.orm.public.PostMedia.where((media) =>
+    and(media.id.eq(mediaId), media.reShareChecked.eq(false))
+  ).updateAndCount({ reShareChecked: true });
+  if (claimed === 0) {
     return;
   }
 
   const scanStart = performance.now();
-  const since = new Date(Date.now() - LOOKBACK_MS);
+  const since = toPrismaDateTime(new Date(Date.now() - LOOKBACK_MS));
 
-  const candidates = await prisma.media.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      createdAt: true,
-      duplicateOf: true,
-      id: true,
-      originalProvenanceId: true,
-      phash: true,
-      uploaderDisplayName: true,
-      userId: true,
-    },
-    take: CANDIDATE_TAKE,
-    where: {
-      createdAt: { gte: since },
-      id: { not: mediaId },
-      phash: { not: null },
-    },
-  });
+  const candidates = await prisma.orm.public.PostMedia.select(
+    "createdAt",
+    "duplicateOf",
+    "id",
+    "originalProvenanceId",
+    "phash",
+    "uploaderDisplayName",
+    "userId"
+  )
+    .where((candidate) =>
+      and(
+        candidate.createdAt.gte(since),
+        candidate.id.neq(mediaId),
+        candidate.phash.isNotNull()
+      )
+    )
+    .orderBy((candidate) => candidate.createdAt.desc())
+    .limit(CANDIDATE_TAKE)
+    .all();
 
   if (candidates.length === 0) {
     return;
@@ -107,18 +107,16 @@ export async function attributeReshare(
   }
 
   const [fresh, root] = await Promise.all([
-    prisma.media.findUnique({
-      select: {
-        generatedAltText: true,
-        uploaderDisplayName: true,
-        userId: true,
-      },
-      where: { id: mediaId },
-    }),
-    prisma.media.findUnique({
-      select: { uploaderDisplayName: true },
-      where: { id: rootId },
-    }),
+    prisma.orm.public.PostMedia.select(
+      "generatedAltText",
+      "uploaderDisplayName",
+      "userId"
+    )
+      .where({ id: mediaId })
+      .first(),
+    prisma.orm.public.PostMedia.select("uploaderDisplayName")
+      .where({ id: rootId })
+      .first(),
   ]);
 
   if (!fresh || !root?.uploaderDisplayName) {
@@ -133,13 +131,10 @@ export async function attributeReshare(
 
   const alt = `originally from @${root.uploaderDisplayName} reshared via @${fresh.uploaderDisplayName}`;
 
-  await prisma.media.update({
-    data: {
-      duplicateOf: best.id,
-      generatedAltText: alt,
-      originalProvenanceId: rootId,
-    },
-    where: { id: mediaId },
+  await prisma.orm.public.PostMedia.where({ id: mediaId }).update({
+    duplicateOf: best.id,
+    generatedAltText: alt,
+    originalProvenanceId: rootId,
   });
 
   const scanMs = Math.round(performance.now() - scanStart);

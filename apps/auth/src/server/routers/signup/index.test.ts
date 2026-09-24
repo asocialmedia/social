@@ -75,31 +75,77 @@ let existingSignupUser: {
   username: string;
 } | null = null;
 
+const mockAccountCreate = (data: Record<string, unknown>) => {
+  prismaCalls.push({
+    args: { data },
+    model: "account",
+    op: "create",
+  });
+  return Promise.resolve({});
+};
+const mockUserCreate = () => Promise.resolve({ id: "user-1" });
+const mockUserFirst = () => Promise.resolve(existingSignupUser);
+let verificationDeleteKind: "cleanup" | "consume" = "consume";
+const mockVerificationDelete = () => {
+  prismaCalls.push({
+    args: { where: {} },
+    model: "verification",
+    op: verificationDeleteKind,
+  });
+  return Promise.resolve(1);
+};
+const mockVerificationAll = () => Promise.resolve(liveCodes);
+const verificationQuery = {
+  all: mockVerificationAll,
+  deleteAndCount: mockVerificationDelete,
+  where: (predicate: (accessor: object) => unknown) => {
+    const fields = new Set<string>();
+    const accessor = new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          if (typeof property === "string") {
+            fields.add(property);
+          }
+          return {
+            gte: () => ({}),
+            ilike: () => ({}),
+            lt: () => ({}),
+          };
+        },
+      }
+    );
+    predicate(accessor);
+    verificationDeleteKind = fields.has("expiresAt") ? "cleanup" : "consume";
+    return verificationQuery;
+  },
+};
+const userQuery = {
+  create: mockUserCreate,
+  first: mockUserFirst,
+  where: () => userQuery,
+};
 const prismaMock = {
-  account: {
-    create: (args: { data: Record<string, unknown> }) => {
-      prismaCalls.push({ args, model: "account", op: "create" });
-      return {};
+  orm: {
+    public: {
+      Accounts: { create: mockAccountCreate },
+      Users: { select: () => userQuery },
+      Verification: {
+        select: () => verificationQuery,
+        where: verificationQuery.where,
+      },
     },
-  },
-  user: {
-    create: () => ({ id: "user-1" }),
-    findFirst: () => existingSignupUser,
-  },
-  verification: {
-    deleteMany: (args: unknown) => {
-      prismaCalls.push({ args, model: "verification", op: "deleteMany" });
-      return { count: 1 };
-    },
-    findMany: () => liveCodes,
   },
 };
 
 // The signup router only uses prisma/redis/isReservedUsername from @asm/db.
 mock.module("@asm/db", () => ({
+  and: (...expressions: unknown[]) => expressions,
+  fromPrismaDateTime: (value: Date) => value,
   isReservedUsername: () => false,
   prisma: prismaMock,
   redis: redisMock,
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 mock.module("@/auth/config", () => ({
@@ -164,23 +210,11 @@ function createCaller() {
 }
 
 function consumeCalls(): number {
-  return prismaCalls.filter((call) => {
-    if (call.op !== "deleteMany") {
-      return false;
-    }
-    const { where } = call.args as { where?: { OR?: unknown } };
-    return Boolean(where?.OR);
-  }).length;
+  return prismaCalls.filter((call) => call.op === "consume").length;
 }
 
 function cleanupCalls(): number {
-  return prismaCalls.filter((call) => {
-    if (call.op !== "deleteMany") {
-      return false;
-    }
-    const { where } = call.args as { where?: { expiresAt?: unknown } };
-    return Boolean(where?.expiresAt);
-  }).length;
+  return prismaCalls.filter((call) => call.op === "cleanup").length;
 }
 
 describe("pendingSignupVerify OTP security contract", () => {
@@ -246,7 +280,7 @@ describe("pendingSignupVerify OTP security contract", () => {
 
     expect(result).toEqual({ error: "invalid-otp", success: false });
     expect(redisStore.get(FAIL_KEY)).toBe("5");
-    expect(consumeCalls()).toBe(1);
+    expect(consumeCalls()).toBe(2);
   });
 
   test("a locked budget rejects without a database lookup and consumes the code", async () => {
@@ -268,7 +302,7 @@ describe("pendingSignupVerify OTP security contract", () => {
     });
 
     expect(result).toEqual({ error: "invalid-otp", success: false });
-    expect(consumeCalls()).toBe(1);
+    expect(consumeCalls()).toBe(2);
     expect(prismaCalls.filter((call) => call.op === "findMany").length).toBe(0);
   });
 

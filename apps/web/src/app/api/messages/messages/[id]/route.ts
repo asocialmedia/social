@@ -1,4 +1,4 @@
-import { prisma, publishMessageDeleted } from "@asm/db";
+import { prisma, publishMessageDeleted, toPrismaDateTime } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { areBlocked } from "@/lib/messages/server";
@@ -14,35 +14,37 @@ export async function DELETE(
   }
 
   const { id } = await ctx.params;
-  const message = await prisma.message.findUnique({
-    include: { conversation: { include: { members: true } } },
-    where: { id },
-  });
+  const message = await prisma.orm.public.Messages.where({ id })
+    .include("conversation", (conversation) =>
+      conversation.include("messageConversationMembers")
+    )
+    .first();
   if (!message) {
     return Response.json({ error: "Message not found" }, { status: 404 });
+  }
+  if (!message.conversation) {
+    return Response.json({ error: "Conversation not found" }, { status: 404 });
   }
 
   // Either member of a 1:1 conversation may delete any message in it —
   // unless a block exists between the pair: a blocked user must not be able
   // to reach into the conversation at all.
-  const callerIsMember = message.conversation.members.some(
+  const callerIsMember = message.conversation.messageConversationMembers.some(
     (member) => member.userId === user.id
   );
   if (!callerIsMember) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const otherMember = message.conversation.members.find(
+  const otherMember = message.conversation.messageConversationMembers.find(
     (member) => member.userId !== user.id
   );
   if (otherMember && (await areBlocked(user.id, otherMember.userId))) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const deleted = await prisma.message.update({
-    data: { deletedAt: new Date() },
-    include: { sender: { select: { id: true } } },
-    where: { id },
+  const deleted = await prisma.orm.public.Messages.where({ id }).update({
+    deletedAt: toPrismaDateTime(new Date()),
   });
 
   await publishMessageDeleted(message.conversationId, deleted);

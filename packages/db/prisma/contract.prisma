@@ -1,0 +1,951 @@
+// use prisma-8
+namespace public {
+  model Communities {
+    id                     String                   @id(map: "communities_pkey") @default(uuid())
+    slug                   String
+    name                   String
+    description            String
+    topics                 String[]?
+    _type                  pg.enum(CommunityType)   @default("PUBLIC") @map("type")
+    mature                 Boolean                  @default(false)
+    accentColor            String                   @default("slate")
+    ownerId                String
+    avatarUrl              String?
+    avatarKey              String?
+    avatarMediaId          String?
+    bannerUrl              String?
+    bannerKey              String?
+    bannerMediaId          String?
+    createdAt              Timestamp(3)             @default(now())
+    updatedAt              Timestamp(3)             @default(now())
+    communityJoinBonuses   CommunityJoinBonuses[]
+    communityMembers       CommunityMembers[]
+    communityPostShares    CommunityPostShares[]
+    communitySubscriptions CommunitySubscriptions[]
+    communityVisits        CommunityVisits[]
+    notifications          Notifications[]
+    posts                  Posts[]
+    avatarMedia            PostMedia?               @relation(name: "communities_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "communities_avatarMediaId_fkey")
+    bannerMedia            PostMedia?               @relation(name: "communities_bannerMediaId_fkey", fields:[bannerMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "communities_bannerMediaId_fkey")
+    owner                  Users                    @relation(fields:[ownerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "communities_ownerId_fkey")
+
+    @@unique([avatarMediaId], map: "communities_avatarMediaId_key")
+    @@unique([bannerMediaId], map: "communities_bannerMediaId_key")
+    @@index([createdAt], map: "communities_createdAt_idx")
+    @@index([ownerId], map: "communities_ownerId_idx")
+    @@unique([slug], map: "communities_slug_key")
+    @@index([topics], map: "communities_topics_idx", type: "gin")
+    @@index([_type], map: "communities_type_idx")
+    @@map("communities")
+  }
+
+  model Posts {
+    id                                     String                 @id(map: "posts_pkey") @default(uuid())
+    content                                String
+    userId                                 String
+    aura                                   Int                    @default(0)
+    viewCount                              Int                    @default(0)
+    lastAwardedViewCount                   Int                    @default(0)
+    lastAwardedShareCount                  Int                    @default(0)
+    trendingScore                          Float                  @default(0)
+    isGust                                 Boolean                @default(false)
+    moderated                              Boolean                @default(false)
+    explicitContent                        Boolean                @default(false)
+    embeds                                 Jsonb?
+    createdAt                              Timestamp(3)           @default(now())
+    embedding                              Float[]?
+    semanticTags                           String[]?
+    parentPostId                           String?
+    rootPostId                             String?
+    threadTopId                            String?
+    communityId                            String?
+    postToTags                             PostToTag[]
+    auraLogs                               AuraLogs[]
+    bookmarks                              Bookmarks[]
+    comments                               Comments[]
+    hnStoryShares                          HnStoryShares[]
+    mentions                               Mentions[]
+    notifications                          Notifications[]
+    postMedias                             PostMedia[]
+    postVisits                             PostVisits[]
+    recommendationEvents                   RecommendationEvents[]
+    shareStats                             ShareStats[]
+    votes                                  Votes[]
+    communityPostShares                    CommunityPostShares[]  @relation(name: "community_post_shares_postId_fkey")
+    communityPostSharesCommunityPostShares CommunityPostShares[]  @relation(name: "community_post_shares_sourcePostId_fkey")
+    community                              Communities?           @relation(fields:[communityId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "posts_communityId_fkey", index: false)
+    parentPost                             Posts?                 @relation(name: "posts_parentPostId_fkey", fields:[parentPostId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "posts_parentPostId_fkey", index: false)
+    posts                                  Posts[]                @relation(name: "posts_parentPostId_fkey")
+    user                                   Users                  @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "posts_userId_fkey", index: false)
+
+    @@index([communityId, aura], map: "posts_communityId_aura_idx")
+    @@index([communityId, createdAt], map: "posts_communityId_createdAt_idx")
+    @@index([isGust, aura, id], map: "posts_isGust_aura_id_idx")
+    @@index([isGust, createdAt], map: "posts_isGust_createdAt_idx")
+    @@index([isGust, trendingScore, id], map: "posts_isGust_trendingScore_id_idx")
+    @@index([parentPostId, createdAt], map: "posts_parentPostId_createdAt_idx")
+    @@index([rootPostId, createdAt], map: "posts_rootPostId_createdAt_idx")
+    @@index([threadTopId, createdAt], map: "posts_threadTopId_createdAt_idx")
+    @@index([userId, isGust, createdAt], map: "posts_userId_isGust_createdAt_idx")
+    @@map("posts")
+  }
+
+  model Comments {
+    id               String          @id(map: "comments_pkey") @default(uuid())
+    content          String
+    userId           String
+    postId           String
+    parentId         String?
+    rootId           String?
+    aura             Int             @default(0)
+    creationAura     Int             @default(0)
+    receivedAura     Int             @default(0)
+    postReceivedAura Int             @default(0)
+    deleted          Boolean         @default(false)
+    createdAt        Timestamp(3)    @default(now())
+    auraLogs         AuraLogs[]
+    commentVotes     CommentVotes[]
+    notifications    Notifications[]
+    postMedias       PostMedia[]
+    parent           Comments?       @relation(name: "comments_parentId_fkey", fields:[parentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comments_parentId_fkey", index: false)
+    comments         Comments[]      @relation(name: "comments_parentId_fkey")
+    post             Posts           @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comments_postId_fkey", index: false)
+    root             Comments?       @relation(name: "comments_rootId_fkey", fields:[rootId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "comments_rootId_fkey", index: false)
+    commentsComments Comments[]      @relation(name: "comments_rootId_fkey")
+    user             Users           @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comments_userId_fkey", index: false)
+
+    @@index([postId, createdAt], map: "comments_postId_createdAt_idx")
+    @@index([postId, parentId], map: "comments_postId_parentId_idx")
+    @@index([postId, rootId, createdAt], map: "comments_postId_rootId_createdAt_idx")
+    @@map("comments")
+  }
+
+  model MessageConversations {
+    id                         String                       @id(map: "message_conversations_pkey") @default(uuid())
+    pairKey                    String?
+    createdAt                  Timestamp(3)                 @default(now())
+    updatedAt                  Timestamp(3)                 @default(now())
+    messageConversationKeys    MessageConversationKeys[]
+    messageConversationMembers MessageConversationMembers[]
+    messages                   Messages[]
+    postMedias                 PostMedia[]
+
+    @@unique([pairKey], map: "message_conversations_pairKey_key")
+    @@map("message_conversations")
+  }
+
+  model PostMedia {
+    id                     String                    @id(map: "post_media_pkey") @default(uuid())
+    postId                 String?
+    commentId              String?
+    userId                 String?
+    url                    String
+    key                    String                    @default("")
+    mimeType               String                    @default("application/octet-stream")
+    _type                  pg.enum(MediaType)        @default("IMAGE") @map("type")
+    size                   Int                       @default(0)
+    width                  Int?
+    height                 Int?
+    thumbnailKey           String?
+    thumbnailWidth         Int?
+    thumbnailHeight        Int?
+    customThumbnailKey     String?
+    hasHls                 Boolean                   @default(false)
+    createdAt              Timestamp(3)              @default(now())
+    status                 pg.enum(MediaStatus)      @default("UPLOADING")
+    visibility             pg.enum(MediaVisibility)  @default("PUBLIC")
+    originalKey            String?
+    publishedKey           String?
+    claimedMime            String?
+    detectedMime           String?
+    originalName           String?
+    sha256                 String?
+    phash                  String?
+    rejectedReason         pg.enum(RejectionReason)?
+    failureCode            String?
+    failureDetail          Jsonb?
+    attempts               Int                       @default(0)
+    techMetadata           Jsonb?
+    exifStripped           Boolean                   @default(false)
+    altText                String?
+    generatedAltText       String?
+    ocrText                String?
+    safety                 Jsonb?
+    semantics              Jsonb?
+    aiGenerated            Boolean?
+    aiProvenance           Jsonb?
+    pipelineVersion        String?
+    processedAt            Timestamp(3)?
+    audioOverlayId         String?
+    updatedAt              Timestamp(3)              @default(now())
+    blurDataUrl            String?
+    platform               String                    @default("asocialmedia.cc")
+    uploaderDisplayName    String?
+    uploaderUsername       String?
+    encoderVersion         String?
+    duplicateOf            String?
+    originalProvenanceId   String?
+    reShareChecked         Boolean                   @default(false)
+    captionsKey            String?
+    semanticTags           String[]?
+    transcript             String?
+    messageConversationId  String?
+    postMediaDerivatives   PostMediaDerivatives[]
+    communities            Communities[]             @relation(name: "communities_avatarMediaId_fkey")
+    communitiesCommunities Communities[]             @relation(name: "communities_bannerMediaId_fkey")
+    audioOverlay           PostMedia?                @relation(name: "post_media_audioOverlayId_fkey", fields:[audioOverlayId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_audioOverlayId_fkey")
+    postMedia              PostMedia[]               @relation(name: "post_media_audioOverlayId_fkey")
+    comment                Comments?                 @relation(fields:[commentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_commentId_fkey")
+    messageConversation    MessageConversations?     @relation(fields:[messageConversationId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_messageConversationId_fkey")
+    post                   Posts?                    @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_postId_fkey")
+    users                  Users[]                   @relation(name: "users_avatarMediaId_fkey")
+    usersUsers             Users[]                   @relation(name: "users_bannerMediaId_fkey")
+
+    @@unique([audioOverlayId], map: "post_media_audioOverlayId_key")
+    @@index([commentId], map: "post_media_commentId_idx")
+    @@index([duplicateOf], map: "post_media_duplicateOf_idx")
+    @@index([messageConversationId], map: "post_media_messageConversationId_idx")
+    @@index([originalProvenanceId], map: "post_media_originalProvenanceId_idx")
+    @@index([phash], map: "post_media_phash_idx")
+    @@index([postId], map: "post_media_postId_idx")
+    @@index([reShareChecked], map: "post_media_reShareChecked_idx")
+    @@index([sha256], map: "post_media_sha256_idx")
+    @@index([status], map: "post_media_status_idx")
+    @@index([userId, createdAt], map: "post_media_userId_createdAt_idx")
+    @@map("post_media")
+  }
+
+  model Users {
+    id                         String                       @id(map: "users_pkey") @default(uuid())
+    aura                       Int                          @default(0)
+    username                   String
+    displayName                String
+    displayUsername            String?
+    email                      String?
+    passwordHash               String?
+    googleId                   String?
+    githubId                   String?
+    discordId                  String?
+    twitterId                  String?
+    redditId                   String?
+    avatarUrl                  String?
+    avatarKey                  String?
+    avatarMediaId              String?
+    bannerUrl                  String?
+    bannerKey                  String?
+    bannerMediaId              String?
+    bio                        String?
+    githubUsername             String?
+    linkedinUsername           String?
+    twitterUsername            String?
+    redditUsername             String?
+    customDomain               String?
+    emailVerified              Boolean                      @default(false)
+    emailVerifiedAt            Timestamp(3)?
+    image                      String?
+    name                       String?
+    role                       String                       @default("user")
+    badge                      String?
+    badges                     String[]?
+    banned                     Boolean                      @default(false)
+    banReason                  String?
+    banExpires                 Timestamp(3)?
+    createdAt                  Timestamp(3)                 @default(now())
+    updatedAt                  Timestamp(3)                 @default(now())
+    lastLoginMethod            String?
+    twoFactorEnabled           Boolean                      @default(false)
+    hNBookmarks                HNBookmark[]
+    accounts                   Accounts[]
+    bookmarks                  Bookmarks[]
+    commentVotes               CommentVotes[]
+    comments                   Comments[]
+    communities                Communities[]
+    communityJoinBonuses       CommunityJoinBonuses[]
+    communityMembers           CommunityMembers[]
+    communitySubscriptions     CommunitySubscriptions[]
+    communityVisits            CommunityVisits[]
+    devicePushTokens           DevicePushTokens[]
+    mentions                   Mentions[]
+    messageConversationKeys    MessageConversationKeys[]
+    messageConversationMembers MessageConversationMembers[]
+    messageIdentities          MessageIdentities?
+    messages                   Messages[]
+    passkeys                   Passkey[]
+    passwordResetTokens        PasswordResetTokens[]
+    postVisits                 PostVisits[]
+    posts                      Posts[]
+    pushSubscriptions          PushSubscriptions[]
+    recommendationEvents       RecommendationEvents[]
+    twoFactor                  TwoFactor[]
+    usernameAliases            UsernameAliases[]
+    verifications              Verification[]
+    votes                      Votes[]
+    auraLogs                   AuraLogs[]                   @relation(name: "aura_logs_issuerId_fkey")
+    auraLogsAuraLogs           AuraLogs[]                   @relation(name: "aura_logs_userId_fkey")
+    blocks                     Blocks[]                     @relation(name: "blocks_blockedId_fkey")
+    blocksBlocks               Blocks[]                     @relation(name: "blocks_blockerId_fkey")
+    follows                    Follows[]                    @relation(name: "follows_followerId_fkey")
+    followsFollows             Follows[]                    @relation(name: "follows_followingId_fkey")
+    notifications              Notifications[]              @relation(name: "notifications_issuerId_fkey")
+    notificationsNotifications Notifications[]              @relation(name: "notifications_recipientId_fkey")
+    sessions                   Sessions[]                   @relation(name: "sessions_impersonatedBy_fkey")
+    sessionsSessions           Sessions[]                   @relation(name: "sessions_userId_fkey")
+    avatarMedia                PostMedia?                   @relation(name: "users_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "users_avatarMediaId_fkey")
+    bannerMedia                PostMedia?                   @relation(name: "users_bannerMediaId_fkey", fields:[bannerMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "users_bannerMediaId_fkey")
+
+    @@index([role], name: "users_admin_role_unique", where: "(role = 'admin'::text)", unique: true)
+    @@index([aura], map: "users_aura_idx")
+    @@index(expression: "(\nCASE\n    WHEN 'author'::text = ANY (badges) THEN 'author'::text\n    ELSE NULL::text\nEND)", name: "users_author_array_unique", unique: true)
+    @@index([badge], name: "users_author_badge_unique", where: "(badge = 'author'::text)", unique: true)
+    @@unique([avatarMediaId], map: "users_avatarMediaId_key")
+    @@index([badges], map: "users_badges_idx", type: "gin")
+    @@index([banExpires], map: "users_banExpires_idx")
+    @@index([banned], map: "users_banned_idx")
+    @@unique([bannerMediaId], map: "users_bannerMediaId_key")
+    @@unique([discordId], map: "users_discordId_key")
+    @@unique([email], map: "users_email_key")
+    @@unique([githubId], map: "users_githubId_key")
+    @@unique([googleId], map: "users_googleId_key")
+    @@unique([redditId], map: "users_redditId_key")
+    @@unique([twitterId], map: "users_twitterId_key")
+    @@unique([username], map: "users_username_key")
+    @@index(expression: "lower(username)", name: "users_username_lower_unique", unique: true)
+    @@map("users")
+  }
+
+  model Accounts {
+    id                    String        @id(map: "accounts_pkey") @default(uuid())
+    userId                String
+    accountId             String
+    providerId            String
+    issuer                String        @default("")
+    accessToken           String?
+    refreshToken          String?
+    accessTokenExpiresAt  Timestamp(3)?
+    refreshTokenExpiresAt Timestamp(3)?
+    scope                 String?
+    idToken               String?
+    password              String?
+    createdAt             Timestamp(3)  @default(now())
+    updatedAt             Timestamp(3)  @default(now())
+    user                  Users         @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "accounts_userId_fkey", index: false)
+
+    @@index([issuer, accountId], map: "accounts_issuer_accountId_idx")
+    @@unique([providerId, accountId], map: "accounts_providerId_accountId_key")
+    @@map("accounts")
+  }
+
+  model AuraLogs {
+    id           String            @id(map: "aura_logs_pkey") @default(uuid())
+    userId       String
+    issuerId     String
+    amount       Int
+    _type        pg.enum(AuraType) @map("type")
+    postId       String?
+    commentId    String?
+    targetUserId String?
+    createdAt    Timestamp(3)      @default(now())
+    comment      Comments?         @relation(fields:[commentId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_commentId_fkey", index: false)
+    issuer       Users             @relation(name: "aura_logs_issuerId_fkey", fields:[issuerId], references:[id], onDelete: Restrict, onUpdate: Cascade, map: "aura_logs_issuerId_fkey", index: false)
+    post         Posts?            @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_postId_fkey", index: false)
+    user         Users             @relation(name: "aura_logs_userId_fkey", fields:[userId], references:[id], onDelete: Restrict, onUpdate: Cascade, map: "aura_logs_userId_fkey", index: false)
+
+    @@index([issuerId, targetUserId, createdAt], map: "aura_logs_issuerId_targetUserId_createdAt_idx")
+    @@index([userId, createdAt], map: "aura_logs_userId_createdAt_idx")
+    @@map("aura_logs")
+  }
+
+  model Blocks {
+    blockerId String
+    blockedId String
+    createdAt Timestamp(3) @default(now())
+    blocked   Users        @relation(name: "blocks_blockedId_fkey", fields:[blockedId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockedId_fkey")
+    blocker   Users        @relation(name: "blocks_blockerId_fkey", fields:[blockerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockerId_fkey", index: false)
+
+    @@id([blockerId, blockedId], map: "blocks_pkey")
+    @@index([blockedId], map: "blocks_blockedId_idx")
+    @@map("blocks")
+  }
+
+  model Bookmarks {
+    id             String       @id(map: "bookmarks_pkey") @default(uuid())
+    userId         String
+    postId         String
+    bookmarkerAura Int          @default(0)
+    authorAura     Int          @default(0)
+    createdAt      Timestamp(3) @default(now())
+    post           Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_postId_fkey")
+    user           Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_userId_fkey", index: false)
+
+    @@index([postId], map: "bookmarks_postId_idx")
+    @@index([userId, createdAt], map: "bookmarks_userId_createdAt_idx")
+    @@unique([userId, postId], map: "bookmarks_userId_postId_key")
+    @@map("bookmarks")
+  }
+
+  model CommentVotes {
+    userId         String
+    commentId      String
+    value          Int
+    awardedAura    Int          @default(0)
+    mutingCostAura Int          @default(0)
+    createdAt      Timestamp(3) @default(now())
+    comment        Comments     @relation(fields:[commentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_commentId_fkey", index: false)
+    user           Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_userId_fkey", index: false)
+
+    @@index([commentId, value], map: "comment_votes_commentId_value_idx")
+    @@id([userId, commentId], map: "comment_votes_pkey")
+    @@map("comment_votes")
+  }
+
+  model CommunityJoinBonuses {
+    id          String       @id(map: "community_join_bonuses_pkey") @default(uuid())
+    communityId String
+    userId      String
+    joinerAura  Int
+    ownerAura   Int
+    createdAt   Timestamp(3) @default(now())
+    community   Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_communityId_fkey", index: false)
+    user        Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_userId_fkey", index: false)
+
+    @@unique([communityId, userId], map: "community_join_bonuses_communityId_userId_key")
+    @@index([userId, createdAt], map: "community_join_bonuses_userId_createdAt_idx")
+    @@map("community_join_bonuses")
+  }
+
+  model CommunityMembers {
+    id          String                         @id(map: "community_members_pkey") @default(uuid())
+    communityId String
+    userId      String
+    role        pg.enum(CommunityRole)         @default("PARTICIPANT")
+    status      pg.enum(CommunityMemberStatus) @default("ACTIVE")
+    createdAt   Timestamp(3)                   @default(now())
+    community   Communities                    @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_communityId_fkey", index: false)
+    user        Users                          @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_userId_fkey")
+
+    @@index([communityId, role], map: "community_members_communityId_role_idx")
+    @@index([communityId, status], map: "community_members_communityId_status_idx")
+    @@unique([communityId, userId], map: "community_members_communityId_userId_key")
+    @@index([userId], map: "community_members_userId_idx")
+    @@index([userId, status, createdAt], map: "community_members_userId_status_createdAt_idx")
+    @@map("community_members")
+  }
+
+  model CommunityPostShares {
+    id           String       @id(map: "community_post_shares_pkey") @default(uuid())
+    postId       String
+    sourcePostId String
+    communityId  String
+    createdAt    Timestamp(3) @default(now())
+    community    Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_communityId_fkey")
+    post         Posts        @relation(name: "community_post_shares_postId_fkey", fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_postId_fkey")
+    sourcePost   Posts        @relation(name: "community_post_shares_sourcePostId_fkey", fields:[sourcePostId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_sourcePostId_fkey")
+
+    @@index([communityId], map: "community_post_shares_communityId_idx")
+    @@unique([postId], map: "community_post_shares_postId_key")
+    @@index([sourcePostId], map: "community_post_shares_sourcePostId_idx")
+    @@map("community_post_shares")
+  }
+
+  model CommunitySubscriptions {
+    id          String       @id(map: "community_subscriptions_pkey") @default(uuid())
+    communityId String
+    userId      String
+    createdAt   Timestamp(3) @default(now())
+    community   Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_communityId_fkey")
+    user        Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_userId_fkey", index: false)
+
+    @@index([communityId], map: "community_subscriptions_communityId_idx")
+    @@unique([communityId, userId], map: "community_subscriptions_communityId_userId_key")
+    @@index([userId, createdAt], map: "community_subscriptions_userId_createdAt_idx")
+    @@map("community_subscriptions")
+  }
+
+  model CommunityVisits {
+    id          String       @id(map: "community_visits_pkey") @default(uuid())
+    communityId String
+    userId      String
+    visitedAt   Timestamp(3) @default(now())
+    community   Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_communityId_fkey", index: false)
+    user        Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_userId_fkey", index: false)
+
+    @@unique([communityId, userId], map: "community_visits_communityId_userId_key")
+    @@index([communityId, visitedAt], map: "community_visits_communityId_visitedAt_idx")
+    @@index([userId, visitedAt], map: "community_visits_userId_visitedAt_idx")
+    @@map("community_visits")
+  }
+
+  model DevicePushTokens {
+    id        String       @id(map: "device_push_tokens_pkey") @default(uuid())
+    userId    String
+    token     String
+    provider  String       @default("fcm")
+    platform  String
+    createdAt Timestamp(3) @default(now())
+    updatedAt Timestamp(3) @default(now())
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "device_push_tokens_userId_fkey")
+
+    @@unique([token], map: "device_push_tokens_token_key")
+    @@index([userId], map: "device_push_tokens_userId_idx")
+    @@map("device_push_tokens")
+  }
+
+  model Follows {
+    followerId  String
+    followingId String
+    gainedAura  Int    @default(0)
+    givenAura   Int    @default(0)
+    follower    Users  @relation(name: "follows_followerId_fkey", fields:[followerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "follows_followerId_fkey", index: false)
+    following   Users  @relation(name: "follows_followingId_fkey", fields:[followingId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "follows_followingId_fkey")
+
+    @@id([followerId, followingId], map: "follows_pkey")
+    @@index([followingId], map: "follows_followingId_idx")
+    @@map("follows")
+  }
+
+  model HNBookmark {
+    id        String       @id(map: "HNBookmark_pkey") @default(uuid())
+    userId    String
+    storyId   Int
+    createdAt Timestamp(3) @default(now())
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Restrict, onUpdate: Cascade, map: "HNBookmark_userId_fkey")
+
+    @@index([userId, createdAt], map: "HNBookmark_userId_createdAt_idx")
+    @@index([userId], map: "HNBookmark_userId_idx")
+    @@unique([userId, storyId], map: "HNBookmark_userId_storyId_key")
+    @@map("HNBookmark")
+  }
+
+  model HnStoryShares {
+    id          String       @id(map: "hn_story_shares_pkey") @default(uuid())
+    postId      String
+    storyId     Int
+    title       String
+    url         String?
+    by          String
+    time        Int
+    score       Int
+    descendants Int
+    createdAt   Timestamp(3) @default(now())
+    post        Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "hn_story_shares_postId_fkey")
+
+    @@unique([postId], map: "hn_story_shares_postId_key")
+    @@map("hn_story_shares")
+  }
+
+  model Jwks {
+    id         String        @id(map: "jwks_pkey") @default(uuid())
+    publicKey  String
+    privateKey String
+    createdAt  Timestamp(3)  @default(now())
+    updatedAt  Timestamp(3)  @default(now())
+    alg        String?
+    crv        String?
+    expiresAt  Timestamp(3)?
+
+    @@map("jwks")
+  }
+
+  model Mentions {
+    id        String       @id(map: "mentions_pkey") @default(uuid())
+    postId    String
+    userId    String
+    createdAt Timestamp(3) @default(now())
+    post      Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_postId_fkey", index: false)
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_userId_fkey")
+
+    @@unique([postId, userId], map: "mentions_postId_userId_key")
+    @@index([userId], map: "mentions_userId_idx")
+    @@map("mentions")
+  }
+
+  model MessageConversationKeys {
+    id             String               @id(map: "message_conversation_keys_pkey") @default(uuid())
+    conversationId String
+    ownerUserId    String
+    encryptedKey   String
+    iv             String
+    ratchetCounter Int                  @default(0)
+    createdAt      Timestamp(3)         @default(now())
+    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_conversationId_fkey", index: false)
+    ownerUser      Users                @relation(fields:[ownerUserId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_ownerUserId_fkey", index: false)
+
+    @@unique([conversationId, ownerUserId], map: "message_conversation_keys_conversationId_ownerUserId_key")
+    @@map("message_conversation_keys")
+  }
+
+  model MessageConversationMembers {
+    conversationId String
+    userId         String
+    lastReadAt     Timestamp(3)?
+    createdAt      Timestamp(3)         @default(now())
+    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
+    user           Users                @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
+
+    @@id([conversationId, userId], map: "message_conversation_members_pkey")
+    @@index([userId], map: "message_conversation_members_userId_idx")
+    @@map("message_conversation_members")
+  }
+
+  model MessageIdentities {
+    userId              String       @id(map: "message_identities_pkey")
+    publicKey           String
+    encryptedPrivateKey String
+    masterKeyHash       String?
+    salt                String
+    kdfIterations       Int
+    createdAt           Timestamp(3) @default(now())
+    updatedAt           Timestamp(3) @default(now())
+    user                Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_identities_userId_fkey")
+
+    @@map("message_identities")
+  }
+
+  model Messages {
+    id             String               @id(map: "messages_pkey") @default(uuid())
+    conversationId String
+    senderId       String
+    ciphertext     String
+    iv             String
+    ratchetIndex   Int                  @default(0)
+    createdAt      Timestamp(3)         @default(now())
+    deletedAt      Timestamp(3)?
+    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
+    sender         Users                @relation(fields:[senderId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
+
+    @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
+    @@unique([conversationId, senderId, ratchetIndex], map: "messages_conversationId_senderId_ratchetIndex_key")
+    @@index([senderId], map: "messages_senderId_idx")
+    @@map("messages")
+  }
+
+  model Notifications {
+    id          String                    @id(map: "notifications_pkey") @default(uuid())
+    recipientId String
+    issuerId    String
+    postId      String?
+    commentId   String?
+    _type       pg.enum(NotificationType) @map("type")
+    read        Boolean                   @default(false)
+    createdAt   Timestamp(3)              @default(now())
+    communityId String?
+    count       Int                       @default(1)
+    comment     Comments?                 @relation(fields:[commentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_commentId_fkey")
+    community   Communities?              @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_communityId_fkey", index: false)
+    issuer      Users                     @relation(name: "notifications_issuerId_fkey", fields:[issuerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_issuerId_fkey", index: false)
+    post        Posts?                    @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_postId_fkey", index: false)
+    recipient   Users                     @relation(name: "notifications_recipientId_fkey", fields:[recipientId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_recipientId_fkey", index: false)
+
+    @@index([commentId], map: "notifications_commentId_idx")
+    @@index([issuerId, _type, createdAt], map: "notifications_issuerId_type_createdAt_idx")
+    @@index([recipientId, communityId, _type, read], map: "notifications_recipientId_communityId_type_read_idx")
+    @@index([recipientId, createdAt], map: "notifications_recipientId_createdAt_idx")
+    @@index([recipientId, read], map: "notifications_recipientId_read_idx")
+    @@map("notifications")
+  }
+
+  model Passkey {
+    id           String       @id(map: "passkey_pkey") @default(uuid())
+    name         String?
+    publicKey    String
+    userId       String
+    credentialID String
+    counter      Int
+    deviceType   String
+    backedUp     Boolean
+    transports   String?
+    createdAt    Timestamp(3) @default(now())
+    aaguid       String?
+    user         Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "passkey_userId_fkey")
+
+    @@unique([credentialID], map: "passkey_credentialID_key")
+    @@index([userId], map: "passkey_userId_idx")
+    @@map("passkey")
+  }
+
+  model PasswordResetTokens {
+    id        String       @id(map: "password_reset_tokens_pkey") @default(uuid())
+    token     String
+    userId    String
+    createdAt Timestamp(3) @default(now())
+    expiresAt Timestamp(3)
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "password_reset_tokens_userId_fkey", index: false)
+
+    @@index([token], map: "password_reset_tokens_token_idx")
+    @@unique([token], map: "password_reset_tokens_token_key")
+    @@map("password_reset_tokens")
+  }
+
+  model PostMediaDerivatives {
+    id              String       @id(map: "post_media_derivatives_pkey") @default(uuid())
+    mediaId         String
+    kind            String
+    variant         String       @default("default")
+    key             String
+    mimeType        String
+    width           Int?
+    height          Int?
+    sizeBytes       Int?
+    durationMs      Int?
+    pipelineVersion String
+    createdAt       Timestamp(3) @default(now())
+    media           PostMedia    @relation(fields:[mediaId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_derivatives_mediaId_fkey", index: false)
+
+    @@index([key], map: "post_media_derivatives_key_idx")
+    @@unique([mediaId, kind, variant], map: "post_media_derivatives_mediaId_kind_variant_key")
+    @@map("post_media_derivatives")
+  }
+
+  model Tag {
+    id         String       @id(map: "Tag_pkey")
+    name       String
+    createdAt  Timestamp(3) @default(now())
+    updatedAt  Timestamp(3) @default(now())
+    postToTags PostToTag[]
+
+    @@unique([name], map: "Tag_name_key")
+    @@map("Tag")
+  }
+
+  model PostToTag {
+    a     String @map("A")
+    b     String @map("B")
+    posts Posts  @relation(fields:[a], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "_PostToTag_A_fkey", index: false)
+    tag   Tag    @relation(fields:[b], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "_PostToTag_B_fkey")
+
+    @@id([a, b], map: "_PostToTag_AB_pkey")
+    @@index([b], map: "_PostToTag_B_index")
+    @@map("_PostToTag")
+  }
+
+  model PostVisits {
+    id        String       @id(map: "post_visits_pkey") @default(uuid())
+    userId    String
+    postId    String
+    visitedAt Timestamp(3) @default(now())
+    post      Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_postId_fkey")
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_userId_fkey", index: false)
+
+    @@index([postId], map: "post_visits_postId_idx")
+    @@unique([userId, postId], map: "post_visits_userId_postId_key")
+    @@index([userId, visitedAt], map: "post_visits_userId_visitedAt_idx")
+    @@map("post_visits")
+  }
+
+  model PushSubscriptions {
+    id        String       @id(map: "push_subscriptions_pkey") @default(uuid())
+    userId    String
+    endpoint  String
+    p256dh    String
+    auth      String
+    userAgent String?
+    createdAt Timestamp(3) @default(now())
+    updatedAt Timestamp(3) @default(now())
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "push_subscriptions_userId_fkey")
+
+    @@unique([endpoint], map: "push_subscriptions_endpoint_key")
+    @@index([userId], map: "push_subscriptions_userId_idx")
+    @@map("push_subscriptions")
+  }
+
+  model RecommendationEvents {
+    id         String       @id(map: "recommendation_events_pkey") @default(uuid())
+    userId     String
+    postId     String
+    eventType  String
+    durationMs Int?
+    value      Float?
+    sessionId  String?
+    createdAt  Timestamp(3) @default(now())
+    dedupeKey  String?
+    post       Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_postId_fkey", index: false)
+    user       Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_userId_fkey", index: false)
+
+    @@unique([dedupeKey], map: "recommendation_events_dedupeKey_key")
+    @@index([postId, eventType, createdAt], map: "recommendation_events_postId_eventType_createdAt_idx")
+    @@index([userId, eventType, createdAt], map: "recommendation_events_userId_eventType_createdAt_idx")
+    @@index([userId, postId, createdAt], map: "recommendation_events_userId_postId_createdAt_idx")
+    @@map("recommendation_events")
+  }
+
+  model Sessions {
+    id             String       @id(map: "sessions_pkey") @default(uuid())
+    userId         String
+    token          String
+    expiresAt      Timestamp(3)
+    ipAddress      String?
+    userAgent      String?
+    impersonatedBy String?
+    createdAt      Timestamp(3) @default(now())
+    updatedAt      Timestamp(3) @default(now())
+    country        String?
+    users          Users?       @relation(name: "sessions_impersonatedBy_fkey", fields:[impersonatedBy], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "sessions_impersonatedBy_fkey", index: false)
+    user           Users        @relation(name: "sessions_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "sessions_userId_fkey", index: false)
+
+    @@unique([token], map: "sessions_token_key")
+    @@map("sessions")
+  }
+
+  model ShareStats {
+    id        String       @id(map: "share_stats_pkey") @default(uuid())
+    postId    String
+    platform  String
+    shares    Int          @default(0)
+    clicks    Int          @default(0)
+    createdAt Timestamp(3) @default(now())
+    updatedAt Timestamp(3) @default(now())
+    post      Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "share_stats_postId_fkey", index: false)
+
+    @@unique([postId, platform], map: "share_stats_postId_platform_key")
+    @@map("share_stats")
+  }
+
+  model TwoFactor {
+    id                      String        @id(map: "twoFactor_pkey") @default(uuid())
+    secret                  String
+    backupCodes             String
+    userId                  String
+    verified                Boolean       @default(true)
+    failedVerificationCount Int           @default(0)
+    lockedUntil             Timestamp(3)?
+    createdAt               Timestamp(3)  @default(now())
+    updatedAt               Timestamp(3)  @default(now())
+    user                    Users         @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "twoFactor_userId_fkey")
+
+    @@index([secret], map: "twoFactor_secret_idx")
+    @@unique([userId], map: "twoFactor_userId_key")
+    @@map("twoFactor")
+  }
+
+  model UsernameAliases {
+    id        String       @id(map: "username_aliases_pkey") @default(uuid())
+    username  String
+    userId    String
+    expiresAt Timestamp(3)
+    createdAt Timestamp(3) @default(now())
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "username_aliases_userId_fkey", index: false)
+
+    @@index([expiresAt], map: "username_aliases_expiresAt_idx")
+    @@index([userId, createdAt], map: "username_aliases_userId_createdAt_idx")
+    @@unique([username], map: "username_aliases_username_key")
+    @@map("username_aliases")
+  }
+
+  model Verification {
+    id         String       @id(map: "verification_pkey") @default(uuid())
+    identifier String
+    value      String
+    expiresAt  Timestamp(3)
+    userId     String?
+    createdAt  Timestamp(3) @default(now())
+    updatedAt  Timestamp(3) @default(now())
+    user       Users?       @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "verification_userId_fkey", index: false)
+
+    @@map("verification")
+  }
+
+  model Votes {
+    userId         String
+    postId         String
+    value          Int
+    awardedAura    Int          @default(0)
+    mutingCostAura Int          @default(0)
+    createdAt      Timestamp(3) @default(now())
+    post           Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "votes_postId_fkey")
+    user           Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "votes_userId_fkey", index: false)
+
+    @@index([postId], map: "votes_postId_idx")
+    @@id([userId, postId], map: "votes_pkey")
+    @@index([userId, value, createdAt], map: "votes_userId_value_createdAt_idx")
+    @@map("votes")
+  }
+
+  native_enum AuraType {
+    POST_CREATION = "POST_CREATION"
+    POST_ATTACHMENT_BONUS = "POST_ATTACHMENT_BONUS"
+    POST_VOTE = "POST_VOTE"
+    POST_VOTE_REMOVED = "POST_VOTE_REMOVED"
+    POST_VIEWS_MILESTONE = "POST_VIEWS_MILESTONE"
+    COMMENT_CREATION = "COMMENT_CREATION"
+    COMMENT_RECEIVED = "COMMENT_RECEIVED"
+    COMMENT_VOTE = "COMMENT_VOTE"
+    COMMENT_VOTE_REMOVED = "COMMENT_VOTE_REMOVED"
+    FOLLOW_GAINED = "FOLLOW_GAINED"
+    FOLLOW_GIVEN = "FOLLOW_GIVEN"
+    POST_BOOKMARKED = "POST_BOOKMARKED"
+    POST_BOOKMARK_RECEIVED = "POST_BOOKMARK_RECEIVED"
+    MODERATION_PENALTY = "MODERATION_PENALTY"
+    MUTING_COST = "MUTING_COST"
+    SHARE_MILESTONE = "SHARE_MILESTONE"
+    HN_SHARE_BONUS = "HN_SHARE_BONUS"
+    MENTION_RECEIVED = "MENTION_RECEIVED"
+    TRENDING_APPEARANCE = "TRENDING_APPEARANCE"
+    COMMUNITY_CREATED = "COMMUNITY_CREATED"
+    COMMUNITY_JOIN = "COMMUNITY_JOIN"
+    COMMUNITY_JOIN_OWNER = "COMMUNITY_JOIN_OWNER"
+  }
+
+  native_enum CommunityMemberStatus {
+    ACTIVE = "ACTIVE"
+    PENDING = "PENDING"
+  }
+
+  native_enum CommunityRole {
+    OWNER = "OWNER"
+    MODERATOR = "MODERATOR"
+    MEMBER = "MEMBER"
+    PARTICIPANT = "PARTICIPANT"
+  }
+
+  native_enum CommunityType {
+    PUBLIC = "PUBLIC"
+    RESTRICTED = "RESTRICTED"
+    PRIVATE = "PRIVATE"
+  }
+
+  native_enum MediaStatus {
+    UPLOADING = "UPLOADING"
+    QUARANTINED = "QUARANTINED"
+    SCANNING = "SCANNING"
+    PROCESSING = "PROCESSING"
+    READY = "READY"
+    FAILED = "FAILED"
+    REJECTED = "REJECTED"
+    DELETED = "DELETED"
+  }
+
+  native_enum MediaType {
+    IMAGE = "IMAGE"
+    VIDEO = "VIDEO"
+    AUDIO = "AUDIO"
+    DOCUMENT = "DOCUMENT"
+  }
+
+  native_enum MediaVisibility {
+    PUBLIC = "PUBLIC"
+    UNLISTED = "UNLISTED"
+    PRIVATE = "PRIVATE"
+  }
+
+  native_enum NotificationType {
+    AMPLIFY = "AMPLIFY"
+    FOLLOW = "FOLLOW"
+    COMMENT = "COMMENT"
+    MENTION = "MENTION"
+    MODERATION = "MODERATION"
+    PUBLISHED = "PUBLISHED"
+    TRANSCRIPTION = "TRANSCRIPTION"
+    REPLY = "REPLY"
+    COMMUNITY_POST = "COMMUNITY_POST"
+  }
+
+  native_enum RejectionReason {
+    MALWARE = "MALWARE"
+    MIME_MISMATCH = "MIME_MISMATCH"
+    UNSUPPORTED_TYPE = "UNSUPPORTED_TYPE"
+    TOO_LARGE = "TOO_LARGE"
+    TOO_LONG = "TOO_LONG"
+    CORRUPT = "CORRUPT"
+    POLICY = "POLICY"
+  }
+}

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET, POST } from "./route";
 
 type Session = { user: { id: string } } | null;
@@ -23,10 +25,16 @@ mock.module("@/lib/auth/session", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    messageIdentity: {
-      create: mockCreate,
-      findUnique: mockFindUnique,
+    orm: {
+      public: {
+        MessageIdentities: {
+          create: mockCreate,
+          select: () => ({ where: () => ({ first: mockFindUnique }) }),
+          where: () => ({ first: mockFindUnique }),
+        },
+      },
     },
   },
 }));
@@ -154,11 +162,13 @@ describe("POST /api/messages/identity", () => {
     expect(res.status).toBe(200);
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const args = mockCreate.mock.calls[0]?.[0] as {
-      data: { masterKeyHash: string; publicKey: string; userId: string };
+      masterKeyHash: string;
+      publicKey: string;
+      userId: string;
     };
-    expect(args.data.userId).toBe("user1");
-    expect(args.data.publicKey).toBe("pub-key");
-    expect(args.data.masterKeyHash).toBe(validBody.masterKeyHash);
+    expect(args.userId).toBe("user1");
+    expect(args.publicKey).toBe("pub-key");
+    expect(args.masterKeyHash).toBe(validBody.masterKeyHash);
   });
 
   test("is a no-op when re-provisioning with the same public key", async () => {

@@ -1,5 +1,5 @@
 // oxlint-disable next/no-img-element -- Satori image generation requires native img elements
-import { getUserBadges, prisma } from "@asm/db";
+import { fromPrismaDateTime, getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
@@ -20,33 +20,35 @@ async function getUserForCard(username: string) {
   cacheLife("hours");
   cacheTag("og-user-profile");
 
-  return await prisma.user.findFirst({
-    select: {
-      _count: {
-        select: {
-          followers: true,
-          following: true,
-          posts: true,
-        },
-      },
-      aura: true,
-      avatarUrl: true,
-      badge: true,
-      badges: true,
-      bannerUrl: true,
-      bio: true,
-      createdAt: true,
-      displayName: true,
-      id: true,
-      username: true,
+  const user = await prisma.orm.public.Users.select(
+    "aura",
+    "avatarUrl",
+    "badge",
+    "badges",
+    "bannerUrl",
+    "bio",
+    "createdAt",
+    "displayName",
+    "id",
+    "username"
+  )
+    .include("follows", (follows) => follows.count())
+    .include("followsFollows", (follows) => follows.count())
+    .include("posts", (posts) => posts.count())
+    .where((candidate) => candidate.username.ilike(username))
+    .first();
+  if (!user) {
+    return null;
+  }
+  return {
+    ...user,
+    _count: {
+      followers: user.follows,
+      following: user.followsFollows,
+      posts: user.posts,
     },
-    where: {
-      username: {
-        equals: username,
-        mode: "insensitive",
-      },
-    },
-  });
+    createdAt: fromPrismaDateTime(user.createdAt),
+  };
 }
 
 function formatDate(date: Date): string {

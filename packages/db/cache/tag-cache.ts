@@ -1,10 +1,12 @@
+import { and } from "@prisma/orm-postgres/orm-client";
+
 import prisma from "../src/prisma";
 import { redis } from "../src/redis";
 
 const TAG_COUNTS_KEY = "tags:counts";
 const TAG_LIST_KEY = "tags:list";
 const TAG_SUGGESTIONS_KEY = "tags:suggestions";
-const TAG_TTL = 3600; // 1 hour
+const TAG_TTL = 3600;
 
 export interface TagCount {
   count: number;
@@ -23,12 +25,9 @@ export const tagCache = {
         pipeline.zrem(TAG_SUGGESTIONS_KEY, tagName);
         await pipeline.exec();
 
-        await prisma.tag.deleteMany({
-          where: {
-            name: tagName,
-            posts: { none: {} },
-          },
-        });
+        await prisma.orm.public.Tag.where((tag) =>
+          and(tag.name.eq(tagName), tag.postToTags.none())
+        ).deleteAndCount();
       }
 
       return Math.max(0, count);
@@ -68,10 +67,13 @@ export const tagCache = {
       pipeline.sadd(TAG_LIST_KEY, tagName);
       pipeline.zadd(TAG_SUGGESTIONS_KEY, Date.now(), tagName);
 
-      await prisma.tag.upsert({
-        create: { name: tagName },
+      await prisma.orm.public.Tag.upsert({
+        conflictOn: { name: tagName },
+        create: {
+          id: crypto.randomUUID(),
+          name: tagName,
+        },
         update: {},
-        where: { name: tagName },
       });
 
       const results = await pipeline.exec();
@@ -99,25 +101,17 @@ export const tagCache = {
         tags = await redis.smembers(TAG_LIST_KEY);
 
         if (!tags || tags.length === 0) {
-          const dbTags = await prisma.tag.findMany({
-            orderBy: {
-              posts: {
-                _count: "desc",
-              },
-            },
-            take: limit,
-            where: {
-              name: {
-                contains: query.toLowerCase(),
-                mode: "insensitive",
-              },
-              posts: {
-                some: {},
-              },
-            },
-          });
+          const pattern = query.toLowerCase().replaceAll(/[\\%_]/g, "\\$&");
+          const dbTags = await prisma.orm.public.Tag.select("name")
+            .include("postToTags", (postTags) => postTags.count())
+            .where((tag) =>
+              and(tag.name.ilike(`%${pattern}%`), tag.postToTags.some())
+            )
+            .all();
 
-          tags = dbTags.map((t) => t.name);
+          tags = dbTags
+            .toSorted((a, b) => b.postToTags - a.postToTags)
+            .map((tag) => tag.name);
 
           if (tags.length > 0) {
             await redis.sadd(TAG_LIST_KEY, ...tags);
@@ -137,14 +131,9 @@ export const tagCache = {
 
   async syncTagCounts(): Promise<void> {
     try {
-      const tags = await prisma.tag.findMany({
-        select: {
-          _count: {
-            select: { posts: true },
-          },
-          name: true,
-        },
-      });
+      const tags = await prisma.orm.public.Tag.select("name")
+        .include("postToTags", (postTags) => postTags.count())
+        .all();
 
       const pipeline = redis.pipeline();
 
@@ -152,10 +141,10 @@ export const tagCache = {
       pipeline.del(TAG_LIST_KEY);
 
       for (const tag of tags) {
-        if (tag._count.posts > 0) {
-          pipeline.hset(TAG_COUNTS_KEY, tag.name, tag._count.posts.toString());
+        if (tag.postToTags > 0) {
+          pipeline.hset(TAG_COUNTS_KEY, tag.name, tag.postToTags.toString());
           pipeline.sadd(TAG_LIST_KEY, tag.name);
-          pipeline.zadd(TAG_SUGGESTIONS_KEY, tag._count.posts, tag.name);
+          pipeline.zadd(TAG_SUGGESTIONS_KEY, tag.postToTags, tag.name);
         }
       }
 

@@ -1,10 +1,10 @@
 "use client";
 
-import type { Media } from "@asm/db";
 import noMediaImage from "@assets/general/nomedia.png";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
+import type { Media } from "@/lib/types";
 import { cn, isGifUrl, supportsTransparency } from "@/lib/utils";
 import {
   getDefaultAvatar,
@@ -48,7 +48,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
     );
   }
 
-  if (media.type === "VIDEO" || media.mimeType.startsWith("video/")) {
+  if (media.type === "VIDEO" || media.mimeType?.startsWith("video/")) {
     // Legacy videos attached before the images-only rule still render inline.
     return (
       <div className="mt-2 max-w-sm">

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const USER_ID = "user1";
@@ -21,19 +23,59 @@ const posts = [
 
 let lastWhere: unknown;
 let lastTake: number;
+let voteRows = [...votes];
+
+interface VoteQuery {
+  all: () => Promise<(typeof votes)[number][]>;
+  cursor: (cursor: { postId: string }) => VoteQuery;
+  limit: (take: number) => VoteQuery;
+  offset: (offset: number) => VoteQuery;
+  orderBy: (order: unknown[]) => VoteQuery;
+  where: (
+    where: (vote: {
+      userId: { eq: (id: string) => unknown };
+      value: { eq: (value: number) => unknown };
+    }) => unknown
+  ) => VoteQuery;
+}
+
+function createVoteQuery(): VoteQuery {
+  return {
+    all: () => Promise.resolve([...voteRows]),
+    cursor: () => createVoteQuery(),
+    limit: (take) => {
+      lastTake = take;
+      return createVoteQuery();
+    },
+    offset: () => createVoteQuery(),
+    orderBy: () => createVoteQuery(),
+    where: (predicate) => {
+      let userId = "";
+      let value = 0;
+      predicate({
+        userId: {
+          eq: (id) => {
+            userId = id;
+            return {};
+          },
+        },
+        value: {
+          eq: (nextValue) => {
+            value = nextValue;
+            return {};
+          },
+        },
+      });
+      lastWhere = { userId, value };
+      return createVoteQuery();
+    },
+  };
+}
 
 const mockPrisma = {
-  post: {
-    findMany: () => [...posts],
-  },
-  vote: {
-    findMany: (args: {
-      take: number;
-      where: { userId: string; value: number };
-    }) => {
-      lastWhere = args.where;
-      lastTake = args.take;
-      return [...votes];
+  orm: {
+    public: {
+      Votes: { select: () => createVoteQuery() },
     },
   },
 };
@@ -41,7 +83,8 @@ const mockPrisma = {
 const mockHydrate = mock((items: unknown[]) => items);
 
 mock.module("@asm/db", () => ({
-  getPostDataInclude: () => ({ user: true }),
+  ...asmDbMockBase,
+  getPostDataQuery: () => ({ where: () => ({ all: () => [...posts] }) }),
   hydrateViewCounts: mockHydrate,
   prisma: mockPrisma,
 }));
@@ -56,6 +99,9 @@ describe("GET /api/users/[userId]/amplified", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     mockHydrate.mockClear();
+    lastWhere = null;
+    lastTake = 0;
+    voteRows = [...votes];
   });
 
   test("rejects unauthenticated requests", async () => {
@@ -88,7 +134,7 @@ describe("GET /api/users/[userId]/amplified", () => {
   });
 
   test("returns an empty list when the user has no amplified posts", async () => {
-    mockPrisma.vote.findMany = () => [];
+    voteRows = [];
 
     const res = await GET(
       new Request("http://localhost/api/users/x/amplified"),

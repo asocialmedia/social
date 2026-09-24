@@ -1,4 +1,5 @@
 import {
+  and,
   getBlockingRedisClient,
   prisma,
   redis,
@@ -24,6 +25,50 @@ interface ShareDelta {
   shares: number;
 }
 
+interface ShareAward {
+  amount: number;
+  postId: string;
+  userId: string;
+}
+
+class ConcurrentShareUpdateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConcurrentShareUpdateError";
+  }
+}
+
+function isRetryableTransactionConflict(error: unknown): boolean {
+  if (error instanceof ConcurrentShareUpdateError) {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if ("sqlState" in error) {
+    return (
+      error.sqlState === "23505" ||
+      error.sqlState === "40001" ||
+      error.sqlState === "40P01"
+    );
+  }
+  return error.message.includes("could not serialize");
+}
+
+async function runTransactionWithRetry<T>(
+  operation: () => Promise<T>,
+  attemptsRemaining = 4
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isRetryableTransactionConflict(error) || attemptsRemaining <= 1) {
+      throw error;
+    }
+    return await runTransactionWithRetry(operation, attemptsRemaining - 1);
+  }
+}
+
 // Awards view-style attention milestones when a post's TOTAL share count
 // crosses a tier. Shares carry no per-user actor (they are aggregated per
 // platform), so like view milestones these are attributed to aggregate
@@ -36,73 +81,101 @@ async function awardShareMilestones(
     return;
   }
 
-  // Everything happens inside one transaction: reads, the compare-and-set on
-  // lastAwardedShareCount, and the payouts. A concurrent flush either wins
-  // the CAS (and pays) or sees stale counts and skips - never both.
-  await prisma.$transaction(async (tx) => {
-    const posts = await tx.post.findMany({
-      select: { id: true, lastAwardedShareCount: true, userId: true },
-      where: { id: { in: postIds } },
-    });
+  const awardedPosts = await runTransactionWithRetry(() =>
+    prisma.transaction(async (tx) => {
+      const posts = await tx.orm.public.Posts.select(
+        "id",
+        "lastAwardedShareCount",
+        "userId"
+      )
+        .where((post) => post.id.in(postIds))
+        .all();
 
-    const totals = await tx.shareStats.groupBy({
-      _sum: { shares: true },
-      by: ["postId"],
-      where: { postId: { in: postIds } },
-    });
-    const totalByPost = new Map(
-      totals.map((row) => [row.postId, row._sum.shares ?? 0])
-    );
-
-    let claimed = 0;
-    for (const post of posts) {
-      const totalShares = totalByPost.get(post.id) ?? 0;
-      const { aura } = computeShareMilestoneAura(
-        post.lastAwardedShareCount,
-        totalShares
+      const totals = await tx.orm.public.ShareStats.where((stats) =>
+        stats.postId.in(postIds)
+      )
+        .groupBy("postId")
+        .aggregate((aggregate) => ({ shares: aggregate.sum("shares") }));
+      const totalByPost = new Map(
+        totals.map((row) => [row.postId, row.shares ?? 0])
       );
-      if (aura <= 0) {
-        continue;
+      let awardsPromise = Promise.resolve<ShareAward[]>([]);
+
+      for (const post of posts) {
+        awardsPromise = awardsPromise.then(async (awards) => {
+          const totalShares = totalByPost.get(post.id) ?? 0;
+          const { aura } = computeShareMilestoneAura(
+            post.lastAwardedShareCount,
+            totalShares
+          );
+          if (aura <= 0) {
+            return awards;
+          }
+          const claimed = await tx.orm.public.Posts.where((candidate) =>
+            and(
+              candidate.id.eq(post.id),
+              candidate.lastAwardedShareCount.eq(post.lastAwardedShareCount)
+            )
+          ).updateAndCount({ lastAwardedShareCount: totalShares });
+          if (claimed === 1) {
+            awards.push({
+              amount: aura,
+              postId: post.id,
+              userId: post.userId,
+            });
+          }
+          return awards;
+        });
+      }
+      const awards = await awardsPromise;
+
+      const auraByUser = new Map<string, number>();
+      for (const award of awards) {
+        auraByUser.set(
+          award.userId,
+          (auraByUser.get(award.userId) ?? 0) + award.amount
+        );
       }
 
-      // Compare-and-set: only the flush that transitions THIS previously
-      // awarded count may pay for it. Losers skip without double-paying.
-      // oxlint-disable-next-line no-await-in-loop -- each claim must settle before evaluating the next post's award against committed state
-      const claimedRow = await tx.post.updateMany({
-        data: { lastAwardedShareCount: totalShares },
-        where: {
-          id: post.id,
-          lastAwardedShareCount: post.lastAwardedShareCount,
-        },
-      });
-      if (claimedRow.count !== 1) {
-        continue;
+      let userUpdates = Promise.resolve();
+      for (const [userId, auraDelta] of auraByUser) {
+        userUpdates = userUpdates.then(async () => {
+          const user = await tx.orm.public.Users.select("aura")
+            .where({ id: userId })
+            .first();
+          if (!user) {
+            throw new ConcurrentShareUpdateError(
+              "share milestone user missing"
+            );
+          }
+          const claimed = await tx.orm.public.Users.where((candidate) =>
+            and(candidate.id.eq(userId), candidate.aura.eq(user.aura))
+          ).updateAndCount({ aura: user.aura + auraDelta });
+          if (claimed !== 1) {
+            throw new ConcurrentShareUpdateError("user aura changed");
+          }
+        });
+      }
+      await userUpdates;
+
+      if (awards.length > 0) {
+        await tx.orm.public.AuraLogs.createAll(
+          awards.map((award) => ({
+            _type: "SHARE_MILESTONE" as const,
+            amount: award.amount,
+            issuerId: award.userId,
+            postId: award.postId,
+            targetUserId: award.userId,
+            userId: award.userId,
+          }))
+        );
       }
 
-      // Attention milestones are the only positive awards allowed to bypass
-      // the daily income cap, so they increment directly here (mirroring
-      // view-flush's batched raw-SQL path).
-      // oxlint-disable-next-line no-await-in-loop -- sequential within the claiming transaction by design
-      await tx.user.update({
-        data: { aura: { increment: aura } },
-        where: { id: post.userId },
-      });
-      // oxlint-disable-next-line no-await-in-loop -- ledger row pairs with the payout above
-      await tx.auraLog.create({
-        data: {
-          amount: aura,
-          issuerId: post.userId,
-          postId: post.id,
-          targetUserId: post.userId,
-          type: "SHARE_MILESTONE",
-          userId: post.userId,
-        },
-      });
-      claimed += 1;
-    }
+      return awards.length;
+    })
+  );
 
-    log.info({ awardedPosts: claimed }, "share milestones awarded");
-  });
+  log.info({ awardedPosts }, "share milestones awarded");
 }
 
 // Reads and clears the buffered share/click counters for a post+platform and
@@ -142,17 +215,56 @@ export async function flushShareDeltas(
         return 0;
       }
 
-      await prisma.$transaction(
-        deltas.map(({ postId, platform, shares, clicks }) =>
-          prisma.shareStats.upsert({
-            create: { clicks, platform, postId, shares },
-            update: {
-              clicks: { increment: clicks },
-              shares: { increment: shares },
-            },
-            where: { postId_platform: { platform, postId } },
-          })
-        )
+      const shareRowsByKey = new Map<string, ShareDelta>();
+      for (const delta of deltas) {
+        const key = `${delta.postId}\u0000${delta.platform}`;
+        const existing = shareRowsByKey.get(key);
+        shareRowsByKey.set(key, {
+          clicks: delta.clicks + (existing?.clicks ?? 0),
+          platform: delta.platform,
+          postId: delta.postId,
+          shares: delta.shares + (existing?.shares ?? 0),
+        });
+      }
+
+      await runTransactionWithRetry(() =>
+        prisma.transaction(async (tx) => {
+          let statUpdates = Promise.resolve();
+          for (const row of shareRowsByKey.values()) {
+            statUpdates = statUpdates.then(async () => {
+              const existing = await tx.orm.public.ShareStats.select(
+                "clicks",
+                "shares"
+              )
+                .where({ platform: row.platform, postId: row.postId })
+                .first();
+              if (!existing) {
+                await tx.orm.public.ShareStats.create({
+                  clicks: row.clicks,
+                  platform: row.platform,
+                  postId: row.postId,
+                  shares: row.shares,
+                });
+                return;
+              }
+              const claimed = await tx.orm.public.ShareStats.where((stats) =>
+                and(
+                  stats.postId.eq(row.postId),
+                  stats.platform.eq(row.platform),
+                  stats.shares.eq(existing.shares),
+                  stats.clicks.eq(existing.clicks)
+                )
+              ).updateAndCount({
+                clicks: existing.clicks + row.clicks,
+                shares: existing.shares + row.shares,
+              });
+              if (claimed !== 1) {
+                throw new ConcurrentShareUpdateError("share stats changed");
+              }
+            });
+          }
+          await statUpdates;
+        })
       );
 
       await awardShareMilestones(

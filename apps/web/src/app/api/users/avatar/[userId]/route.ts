@@ -23,13 +23,9 @@ export async function GET(
       });
     }
 
-    const user = await prisma.user.findUnique({
-      select: {
-        avatarKey: true,
-        avatarUrl: true,
-      },
-      where: { id: userId },
-    });
+    const user = await prisma.orm.public.Users.select("avatarKey", "avatarUrl")
+      .where({ id: userId })
+      .first();
 
     if (!user?.avatarUrl || !user.avatarKey) {
       return NextResponse.json({ error: "Avatar not found" }, { status: 404 });

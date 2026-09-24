@@ -1,4 +1,5 @@
 import {
+  and,
   getBlockingRedisClient,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
@@ -36,6 +37,48 @@ interface FlushResult {
   auraAwarded: number;
   deletedKeys: number;
   flushedPosts: number;
+}
+
+interface ViewUpdate {
+  auraDelta: number;
+  id: string;
+  lastAwardedViewCount: number;
+  userId: string;
+  viewCount: number;
+}
+
+class ConcurrentUpdateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConcurrentUpdateError";
+  }
+}
+
+function isRetryableTransactionConflict(error: unknown): boolean {
+  if (error instanceof ConcurrentUpdateError) {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if ("sqlState" in error) {
+    return error.sqlState === "40001" || error.sqlState === "40P01";
+  }
+  return error.message.includes("could not serialize");
+}
+
+async function runTransactionWithRetry<T>(
+  operation: () => Promise<T>,
+  attemptsRemaining = 4
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isRetryableTransactionConflict(error) || attemptsRemaining <= 1) {
+      throw error;
+    }
+    return await runTransactionWithRetry(operation, attemptsRemaining - 1);
+  }
 }
 
 // Reads the buffered view counters for the given post ids (GETDEL) and applies
@@ -79,98 +122,116 @@ export async function flushViewDeltas(
         return result;
       }
 
-      const posts = await prisma.post.findMany({
-        select: {
-          id: true,
-          lastAwardedViewCount: true,
-          userId: true,
-          viewCount: true,
-        },
-        where: { id: { in: deltas.map((d) => d.postId) } },
-      });
+      const updates = await runTransactionWithRetry(() =>
+        prisma.transaction(async (tx) => {
+          const posts = await tx.orm.public.Posts.select(
+            "aura",
+            "id",
+            "lastAwardedViewCount",
+            "userId",
+            "viewCount"
+          )
+            .where((post) => post.id.in(deltas.map((delta) => delta.postId)))
+            .all();
+          const postMap = new Map(posts.map((post) => [post.id, post]));
+          const auraByUser = new Map<string, number>();
+          const auraAwards: {
+            amount: number;
+            postId: string;
+            userId: string;
+          }[] = [];
+          let nextUpdatesPromise = Promise.resolve<ViewUpdate[]>([]);
 
-      const postMap = new Map(posts.map((post) => [post.id, post]));
+          for (const { postId, delta } of deltas) {
+            nextUpdatesPromise = nextUpdatesPromise.then(
+              async (nextUpdates) => {
+                const post = postMap.get(postId);
+                if (!post) {
+                  return nextUpdates;
+                }
+                const newTotal = post.viewCount + delta;
+                const { aura, lastAwardedViewCount } = computeViewAura(
+                  post.lastAwardedViewCount,
+                  newTotal
+                );
+                const claimed = await tx.orm.public.Posts.where((candidate) =>
+                  and(
+                    candidate.id.eq(post.id),
+                    candidate.aura.eq(post.aura),
+                    candidate.viewCount.eq(post.viewCount),
+                    candidate.lastAwardedViewCount.eq(post.lastAwardedViewCount)
+                  )
+                ).updateAndCount({
+                  aura: post.aura + aura,
+                  lastAwardedViewCount,
+                  viewCount: newTotal,
+                });
+                if (claimed !== 1) {
+                  throw new ConcurrentUpdateError("post view state changed");
+                }
+                nextUpdates.push({
+                  auraDelta: aura,
+                  id: postId,
+                  lastAwardedViewCount,
+                  userId: post.userId,
+                  viewCount: newTotal,
+                });
+                if (aura > 0) {
+                  auraByUser.set(
+                    post.userId,
+                    (auraByUser.get(post.userId) ?? 0) + aura
+                  );
+                  auraAwards.push({
+                    amount: aura,
+                    postId,
+                    userId: post.userId,
+                  });
+                }
+                return nextUpdates;
+              }
+            );
+          }
+          const nextUpdates = await nextUpdatesPromise;
 
-      const updates: {
-        id: string;
-        userId: string;
-        viewCount: number;
-        lastAwardedViewCount: number;
-        auraDelta: number;
-      }[] = [];
+          let userUpdates = Promise.resolve();
+          for (const [userId, auraDelta] of auraByUser) {
+            userUpdates = userUpdates.then(async () => {
+              const user = await tx.orm.public.Users.select("aura")
+                .where({ id: userId })
+                .first();
+              if (!user) {
+                throw new ConcurrentUpdateError("view milestone user missing");
+              }
+              const claimed = await tx.orm.public.Users.where((candidate) =>
+                and(candidate.id.eq(userId), candidate.aura.eq(user.aura))
+              ).updateAndCount({ aura: user.aura + auraDelta });
+              if (claimed !== 1) {
+                throw new ConcurrentUpdateError("user aura changed");
+              }
+            });
+          }
+          await userUpdates;
 
-      for (const { postId, delta } of deltas) {
-        const post = postMap.get(postId);
-        if (!post) {
-          continue;
-        }
-        const newTotal = post.viewCount + delta;
-        const { aura, lastAwardedViewCount } = computeViewAura(
-          post.lastAwardedViewCount,
-          newTotal
-        );
-        updates.push({
-          auraDelta: aura,
-          id: postId,
-          lastAwardedViewCount,
-          userId: post.userId,
-          viewCount: newTotal,
-        });
-      }
+          if (auraAwards.length > 0) {
+            await tx.orm.public.AuraLogs.createAll(
+              auraAwards.map((award) => ({
+                _type: "POST_VIEWS_MILESTONE" as const,
+                amount: award.amount,
+                issuerId: award.userId,
+                postId: award.postId,
+                targetUserId: award.userId,
+                userId: award.userId,
+              }))
+            );
+          }
+
+          return nextUpdates;
+        })
+      );
 
       if (updates.length === 0) {
         return result;
       }
-
-      await prisma.$transaction(async (tx) => {
-        const postIdsParam = updates.map((u) => u.id);
-        const deltasParam = updates.map((u) => u.viewCount);
-        const lastAwardedParam = updates.map((u) => u.lastAwardedViewCount);
-        const auraDeltaParam = updates.map((u) => u.auraDelta);
-
-        await tx.$executeRaw`
-          UPDATE posts AS p
-          SET "viewCount" = v.view_count,
-              "lastAwardedViewCount" = v.last_awarded_view_count,
-              aura = p.aura + v.aura_delta
-          FROM unnest(
-            ${postIdsParam}::text[],
-            ${deltasParam}::int[],
-            ${lastAwardedParam}::int[],
-            ${auraDeltaParam}::int[]
-          ) AS v(id, view_count, last_awarded_view_count, aura_delta)
-          WHERE p.id = v.id
-        `;
-
-        const auraUsers = updates
-          .filter((u) => u.auraDelta > 0)
-          .map((u) => ({ auraDelta: u.auraDelta, userId: u.userId }));
-
-        if (auraUsers.length > 0) {
-          const userIdsParam = auraUsers.map((u) => u.userId);
-          const auraDeltasParam = auraUsers.map((u) => u.auraDelta);
-          await tx.$executeRaw`
-            UPDATE users AS u
-            SET aura = u.aura + v.aura_delta
-            FROM unnest(${userIdsParam}::text[], ${auraDeltasParam}::int[])
-            AS v(id, aura_delta)
-            WHERE u.id = v.id
-          `;
-
-          await tx.auraLog.createMany({
-            data: updates
-              .filter((u) => u.auraDelta > 0)
-              .map((u) => ({
-                amount: u.auraDelta,
-                issuerId: u.userId,
-                postId: u.id,
-                targetUserId: u.userId,
-                type: "POST_VIEWS_MILESTONE",
-                userId: u.userId,
-              })),
-          });
-        }
-      });
 
       result.flushedPosts = updates.length;
       result.auraAwarded = updates.reduce((sum, u) => sum + u.auraDelta, 0);

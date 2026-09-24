@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, TagWithCount, UserData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import { CornerDownRight, ImageOff } from "lucide-react";
 import Link from "next/link";
 
@@ -241,10 +241,11 @@ export default function ResponseItem({
                 <PostMeta
                   content={post.content}
                   mentions={
-                    post.mentions?.map((m) => m.user as unknown as UserData) ??
-                    []
+                    post.mentions?.map(
+                      (m) => (m as unknown as { user: UserData }).user
+                    ) ?? []
                   }
-                  tags={(post.tags ?? []) as TagWithCount[]}
+                  tags={post.tags ?? []}
                 />
               ) : null}
             </>

@@ -1,4 +1,9 @@
-import { communityVisibilityWhere, prisma } from "@asm/db";
+import {
+  and,
+  communityVisibilityWhere,
+  fromPrismaDateTime,
+  prisma,
+} from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { excerpt, getPostUrl } from "@/lib/seo/seo";
@@ -17,25 +22,27 @@ function toRfc822(date: Date): string {
 }
 
 export async function GET(): Promise<Response> {
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      content: true,
-      createdAt: true,
-      id: true,
-      tags: { select: { name: true } },
-      user: { select: { displayName: true, username: true } },
-    },
-    take: 50,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      user: { banned: false },
-      // The public feed is anonymous: private-community posts stay out.
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("postToTags", (postTags) =>
+      postTags.include("tag", (tag) => tag.select("name"))
+    )
+    .include("user", (user) => user.select("displayName", "username"))
+    .orderBy((post) => post.createdAt.desc())
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .limit(50)
+    .all();
 
   const items = posts
     .map((post) => {
@@ -45,7 +52,9 @@ export async function GET(): Promise<Response> {
       const title = `${authorDisplayName} (@${authorUsername}): ${excerpt(post.content, 72)}`;
       const description = excerpt(post.content, 220);
       const link = getPostUrl(post);
-      const categories = post.tags.map((tag) => tag.name);
+      const categories = post.postToTags.flatMap((postTag) =>
+        postTag.tag ? [postTag.tag.name] : []
+      );
 
       return [
         "    <item>",
@@ -56,7 +65,7 @@ export async function GET(): Promise<Response> {
         ...categories.map(
           (cat) => `      <category>${escapeXml(cat)}</category>`
         ),
-        `      <pubDate>${escapeXml(toRfc822(post.createdAt))}</pubDate>`,
+        `      <pubDate>${escapeXml(toRfc822(fromPrismaDateTime(post.createdAt)))}</pubDate>`,
         `      <author>${escapeXml(`${authorUsername}@asocialmedia.cc (${authorDisplayName})`)}</author>`,
         "    </item>",
       ].join("\n");

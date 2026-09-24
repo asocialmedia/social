@@ -1,4 +1,4 @@
-import { canViewCommunity, prisma } from "@asm/db";
+import { and, canViewCommunity, prisma } from "@asm/db";
 import { hlsBaseFromMasterKey } from "@asm/media";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
@@ -76,52 +76,77 @@ export async function GET(
 
   // Ownership/visibility is read fresh (never cached), mirroring the main
   // serving route.
-  const ownership = await prisma.media.findUnique({
-    select: {
-      // For comment-linked media the owning community is on the comment's parent
-      // post; resolveOwningCommunity walks to it below.
-      comment: {
-        select: {
-          post: {
-            select: {
-              community: { select: { id: true, type: true } },
-            },
-          },
-        },
-      },
-      commentId: true,
-      detectedMime: true,
-      key: true,
-      messageConversationId: true,
-      mimeType: true,
-      post: {
-        select: {
-          community: {
-            select: {
-              id: true,
-              type: true,
-            },
-          },
-          communityId: true,
-        },
-      },
-      postId: true,
-      publishedKey: true,
-      status: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
-  if (!ownership || ownership.status !== "READY") {
+  const ownership = await prisma.orm.public.PostMedia.select(
+    "commentId",
+    "detectedMime",
+    "key",
+    "messageConversationId",
+    "mimeType",
+    "postId",
+    "publishedKey",
+    "status",
+    "userId"
+  )
+    .include("comment", (comment) =>
+      comment
+        .select("postId")
+        .include("post", (post) =>
+          post
+            .select("communityId")
+            .include("community", (community) =>
+              community.select("id", "_type")
+            )
+        )
+    )
+    .include("post", (post) =>
+      post
+        .select("communityId")
+        .include("community", (community) => community.select("id", "_type"))
+    )
+    .where({ id: mediaId })
+    .first();
+  const mappedOwnership = ownership
+    ? {
+        ...ownership,
+        comment: ownership.comment
+          ? {
+              ...ownership.comment,
+              post: ownership.comment.post
+                ? {
+                    ...ownership.comment.post,
+                    community: ownership.comment.post.community
+                      ? {
+                          ...ownership.comment.post.community,
+                          type: ownership.comment.post.community._type,
+                        }
+                      : null,
+                  }
+                : null,
+            }
+          : null,
+        post: ownership.post
+          ? {
+              ...ownership.post,
+              community: ownership.post.community
+                ? {
+                    ...ownership.post.community,
+                    type: ownership.post.community._type,
+                  }
+                : null,
+            }
+          : null,
+      }
+    : null;
+  if (!mappedOwnership || mappedOwnership.status !== "READY") {
     return mediaError("Media not found", 404);
   }
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
   const isConversationMember = await resolveMessageMediaMembership(
-    ownership.messageConversationId,
+    mappedOwnership.messageConversationId,
     viewer?.id
   );
-  const owningCommunity = resolveOwningCommunity(ownership);
+  const owningCommunity = resolveOwningCommunity(mappedOwnership);
   const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
   const isCommunityMember =
     isPrivateCommunityPost && owningCommunity
@@ -129,11 +154,11 @@ export async function GET(
       : false;
   const decision = decideMediaAccess(
     {
-      commentId: ownership.commentId,
+      commentId: mappedOwnership.commentId,
       isPrivateCommunityPost,
-      messageConversationId: ownership.messageConversationId,
-      postId: ownership.postId,
-      userId: ownership.userId,
+      messageConversationId: mappedOwnership.messageConversationId,
+      postId: mappedOwnership.postId,
+      userId: mappedOwnership.userId,
     },
     viewer,
     {
@@ -154,25 +179,31 @@ export async function GET(
     let objectKey: string | null = null;
 
     if ("hlsFile" in parsed) {
-      const master = await prisma.mediaDerivative.findFirst({
-        select: { key: true },
-        where: { kind: "hls", mediaId, variant: "master" },
-      });
+      const master = await prisma.orm.public.PostMediaDerivatives.select("key")
+        .where((derivative) =>
+          and(
+            derivative.kind.eq("hls"),
+            derivative.mediaId.eq(mediaId),
+            derivative.variant.eq("master")
+          )
+        )
+        .first();
       if (!master) {
         return mediaError("Not found", 404);
       }
       objectKey = `${hlsBaseFromMasterKey(master.key)}/${parsed.hlsFile}`;
     } else {
-      const derivative = await prisma.mediaDerivative.findUnique({
-        select: { key: true },
-        where: {
-          mediaId_kind_variant: {
-            kind: parsed.kind,
-            mediaId,
-            variant: parsed.variant,
-          },
-        },
-      });
+      const derivative = await prisma.orm.public.PostMediaDerivatives.select(
+        "key"
+      )
+        .where((candidate) =>
+          and(
+            candidate.kind.eq(parsed.kind),
+            candidate.mediaId.eq(mediaId),
+            candidate.variant.eq(parsed.variant)
+          )
+        )
+        .first();
       objectKey = derivative?.key ?? null;
     }
 
@@ -185,16 +216,16 @@ export async function GET(
       // Graceful fallback: READY media without the requested derivative
       // (legacy rows, GIFs, exotic formats) serves its published original
       // instead of 404ing, so callers can always point at a variant URL.
-      if (ownership.status !== "READY") {
+      if (mappedOwnership.status !== "READY") {
         return mediaError("Not found", 404);
       }
-      objectKey = ownership.publishedKey ?? (ownership.key || null);
+      objectKey = mappedOwnership.publishedKey ?? (mappedOwnership.key || null);
       if (!objectKey) {
         return mediaError("Not found", 404);
       }
       mimeType =
-        ownership.detectedMime ??
-        ownership.mimeType ??
+        mappedOwnership.detectedMime ??
+        mappedOwnership.mimeType ??
         "application/octet-stream";
     }
 
@@ -211,7 +242,7 @@ export async function GET(
     // after a block, unfriend, deletion, or membership revocation. This mirrors
     // the main serving route's policy so the two cannot drift.
     const cacheControl =
-      ownership.postId && !isPrivateCommunityPost
+      mappedOwnership.postId && !isPrivateCommunityPost
         ? "public, max-age=31536000, immutable, stale-while-revalidate=86400"
         : "private, no-store";
     headers.set("Cache-Control", cacheControl);
@@ -220,7 +251,7 @@ export async function GET(
     // public (post-linked) media may use the shared cache.
     if (
       objectKey.endsWith(".m3u8") &&
-      ownership.postId &&
+      mappedOwnership.postId &&
       !isPrivateCommunityPost
     ) {
       headers.set("Cache-Control", "public, max-age=60");

@@ -1,21 +1,7 @@
-// Community standing: the credential community founding is gated on.
-//
-// Aura is the reward currency and is uncapped for viral reach on purpose - a
-// breakout post should pay off fully. Standing is a SEPARATE, derived number so
-// that same virality cannot buy a permanent credential outright. It is:
-//
-//   standing = (earned aura excluding attention milestones and founding
-//               bonuses)
-//            + min(attention-milestone aura, COMMUNITY_REACH_ALLOWANCE)
-//
-// Reach counts, but saturates. See COMMUNITY_REACH_ALLOWANCE in ./config for
-// the full rationale.
-//
-// Derived on read from aura_logs (never stored as a balance), so it cannot
-// drift from the ledger. Both aggregates ride the existing
-// @@index([userId, createdAt]).
+import { and } from "@prisma/orm-postgres/orm-client";
 
 import prisma from "../prisma";
+import type { PrismaOrm } from "../prisma";
 import {
   ATTENTION_MILESTONE_TYPES,
   COMMUNITY_REACH_ALLOWANCE,
@@ -23,39 +9,15 @@ import {
 } from "./config";
 
 export interface CommunityStanding {
-  // Earned aura that counts toward the credential (milestones capped).
   standing: number;
-  // The account's raw aura balance, for display alongside standing.
   aura: number;
-  // How much attention-milestone aura the account has earned in total.
   reachAura: number;
-  // The portion of reachAura actually counted (<= the allowance).
   reachCounted: number;
 }
 
 const MILESTONE_TYPES = [...ATTENTION_MILESTONE_TYPES];
 const EXCLUDED_TYPES = [...STANDING_EXCLUDED_TYPES];
 
-// The subset of the Prisma client standing reads. Structural so the global
-// client and a transaction client both satisfy it without casts.
-// oxlint-disable typescript/method-signature-style -- method syntax keeps bivariant assignment from the generated Prisma client's overloaded methods
-export interface StandingClient {
-  auraLog: {
-    aggregate(args: {
-      _sum: { amount: true };
-      where: Record<string, unknown>;
-    }): Promise<{ _sum: { amount: number | null } }>;
-  };
-  user: {
-    findUnique(args: {
-      select: { aura: true };
-      where: { id: string };
-    }): Promise<{ aura: number } | null>;
-  };
-}
-// oxlint-enable typescript/method-signature-style
-
-// Pure standing math, split out so it is unit-testable without a database.
 export function computeStanding(input: {
   aura: number;
   milestoneAura: number;
@@ -71,11 +33,8 @@ export function computeStanding(input: {
   };
 }
 
-// Reads the ledger aggregates and folds them into standing. `aura` comes from
-// the user row rather than the ledger sum so it matches the number every other
-// surface displays (legacy rows predate some ledger types).
 export async function computeStandingForUser(
-  client: StandingClient,
+  orm: PrismaOrm,
   userId: string
 ): Promise<CommunityStanding> {
   if (!userId) {
@@ -83,40 +42,32 @@ export async function computeStandingForUser(
   }
 
   const [user, milestoneAgg, creditableAgg] = await Promise.all([
-    client.user.findUnique({ select: { aura: true }, where: { id: userId } }),
-    client.auraLog.aggregate({
-      _sum: { amount: true },
-      where: {
-        amount: { gt: 0 },
-        type: { in: MILESTONE_TYPES },
-        userId,
-      },
-    }),
-    client.auraLog.aggregate({
-      _sum: { amount: true },
-      where: {
-        amount: { gt: 0 },
-        type: { notIn: EXCLUDED_TYPES },
-        userId,
-      },
-    }),
+    orm.public.Users.select("aura").where({ id: userId }).first(),
+    orm.public.AuraLogs.where((log) =>
+      and(
+        log.amount.gt(0),
+        log._type.in(MILESTONE_TYPES),
+        log.userId.eq(userId)
+      )
+    ).aggregate((aggregate) => ({ total: aggregate.sum("amount") })),
+    orm.public.AuraLogs.where((log) =>
+      and(log.amount.gt(0), log._type.in(EXCLUDED_TYPES), log.userId.eq(userId))
+    ).aggregate((aggregate) => ({ total: aggregate.sum("amount") })),
   ]);
 
   return computeStanding({
     aura: user?.aura ?? 0,
-    milestoneAura: milestoneAgg._sum.amount ?? 0,
-    nonMilestoneAura: creditableAgg._sum.amount ?? 0,
+    milestoneAura: milestoneAgg.total ?? 0,
+    nonMilestoneAura: creditableAgg.total ?? 0,
   });
 }
 
 export function getCommunityStanding(
   userId: string
 ): Promise<CommunityStanding> {
-  return computeStandingForUser(prisma, userId);
+  return computeStandingForUser(prisma.orm, userId);
 }
 
-// Batched variant for callers that need many accounts at once (a leaderboard,
-// a moderation queue). One grouped query per aggregate instead of two per user.
 export async function getCommunityStandingForUsers(
   userIds: string[]
 ): Promise<Record<string, CommunityStanding>> {
@@ -126,36 +77,27 @@ export async function getCommunityStandingForUsers(
   }
 
   const [users, milestoneRows, creditableRows] = await Promise.all([
-    prisma.user.findMany({
-      select: { aura: true, id: true },
-      where: { id: { in: ids } },
-    }),
-    prisma.auraLog.groupBy({
-      _sum: { amount: true },
-      by: ["userId"],
-      where: {
-        amount: { gt: 0 },
-        type: { in: MILESTONE_TYPES },
-        userId: { in: ids },
-      },
-    }),
-    prisma.auraLog.groupBy({
-      _sum: { amount: true },
-      by: ["userId"],
-      where: {
-        amount: { gt: 0 },
-        type: { notIn: EXCLUDED_TYPES },
-        userId: { in: ids },
-      },
-    }),
+    prisma.orm.public.Users.select("aura", "id")
+      .where((user) => user.id.in(ids))
+      .all(),
+    prisma.orm.public.AuraLogs.where((log) =>
+      and(log.amount.gt(0), log._type.in(MILESTONE_TYPES), log.userId.in(ids))
+    )
+      .groupBy("userId")
+      .aggregate((aggregate) => ({ total: aggregate.sum("amount") })),
+    prisma.orm.public.AuraLogs.where((log) =>
+      and(log.amount.gt(0), log._type.in(EXCLUDED_TYPES), log.userId.in(ids))
+    )
+      .groupBy("userId")
+      .aggregate((aggregate) => ({ total: aggregate.sum("amount") })),
   ]);
 
   const auraById = new Map(users.map((user) => [user.id, user.aura]));
   const milestoneById = new Map(
-    milestoneRows.map((row) => [row.userId, row._sum.amount ?? 0])
+    milestoneRows.map((row) => [row.userId, row.total ?? 0])
   );
   const creditableById = new Map(
-    creditableRows.map((row) => [row.userId, row._sum.amount ?? 0])
+    creditableRows.map((row) => [row.userId, row.total ?? 0])
   );
 
   const result: Record<string, CommunityStanding> = {};

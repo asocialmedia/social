@@ -1,4 +1,10 @@
-import { prisma, publishSessionRevocation } from "@asm/db";
+import {
+  and,
+  fromPrismaDateTime,
+  prisma,
+  publishSessionRevocation,
+  toPrismaDateTime,
+} from "@asm/db";
 import { z } from "zod";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
@@ -20,16 +26,6 @@ const sessionActionSchema = z
     }
   });
 
-const sessionSummarySelect = {
-  country: true,
-  createdAt: true,
-  expiresAt: true,
-  id: true,
-  ipAddress: true,
-  updatedAt: true,
-  userAgent: true,
-} as const;
-
 function noStoreJson(data: unknown, status = 200): Response {
   return Response.json(data, {
     headers: { "cache-control": "no-store, private, max-age=0" },
@@ -48,14 +44,31 @@ export async function GET(): Promise<Response> {
   }
 
   try {
-    const sessions = await prisma.session.findMany({
-      orderBy: { updatedAt: "desc" },
-      select: sessionSummarySelect,
-      where: {
-        expiresAt: { gt: new Date() },
-        userId: currentSession.user.id,
-      },
-    });
+    const sessions = await prisma.orm.public.Sessions.select(
+      "country",
+      "createdAt",
+      "expiresAt",
+      "id",
+      "ipAddress",
+      "updatedAt",
+      "userAgent"
+    )
+      .where((session) =>
+        and(
+          session.expiresAt.gt(toPrismaDateTime(new Date())),
+          session.userId.eq(currentSession.user.id)
+        )
+      )
+      .orderBy((session) => session.updatedAt.desc())
+      .all()
+      .then((rows) =>
+        rows.map((session) => ({
+          ...session,
+          createdAt: fromPrismaDateTime(session.createdAt),
+          expiresAt: fromPrismaDateTime(session.expiresAt),
+          updatedAt: fromPrismaDateTime(session.updatedAt),
+        }))
+      );
     return noStoreJson(sessions);
   } catch (error) {
     console.error("Failed to list active sessions", error);
@@ -84,14 +97,15 @@ export async function DELETE(request: Request): Promise<Response> {
     endpoint = "/api/auth/revoke-other-sessions";
     event = { retainedSessionId: currentSession.session.id };
   } else if (input.data.action === "single") {
-    const target = await prisma.session.findFirst({
-      select: { id: true, token: true },
-      where: {
-        expiresAt: { gt: new Date() },
-        id: input.data.sessionId,
-        userId: currentSession.user.id,
-      },
-    });
+    const target = await prisma.orm.public.Sessions.select("id", "token")
+      .where((session) =>
+        and(
+          session.expiresAt.gt(toPrismaDateTime(new Date())),
+          session.id.eq(input.data.sessionId ?? ""),
+          session.userId.eq(currentSession.user.id)
+        )
+      )
+      .first();
     if (!target) {
       return noStoreJson({ error: "Session not found" }, 404);
     }

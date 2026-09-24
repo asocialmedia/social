@@ -1,44 +1,16 @@
-// Shared lifecycle helpers for media linked to a user profile (avatar /
-// banner). Two operations:
-//
-//  - purgeSupersededProfileMedia: a replacement upload nukes the old one —
-//    objects (original + derivatives), quota refund, then the row. Skips rows
-//    that got linked to a post/comment/profile surface in the meantime, which
-//    closes the re-link race documented in the link routes.
-//
-//  - promoteProfileDerivative: profile images are linked while serving the
-//    published original (GIF-safe, works before derivatives exist). Once the
-//    process stage commits derivatives, static images swap their serving key
-//    to the best derivative and the original is deleted — long-term storage
-//    keeps only the optimized bytes. Animated GIFs skip the swap: motion
-//    lives only in the original (derivatives are static frames).
-//
-// Storage quota follows the single-refund invariant: media.size is refunded
-// exactly once, at purge/reap — never at promotion.
+import { and } from "@prisma/orm-postgres/orm-client";
 
-import prisma from "../prisma";
+import prisma, { toPrismaDateTime } from "../prisma";
 import { deleteObject } from "../storage";
 
-// Profile proxy URLs (/api/users/{avatar|banner}/{userId}/image) are constant
-// per user while the object behind them changes on every upload and again at
-// promotion. They are served with a 1-year Cache-Control, so the URL carries
-// a short hash of the current serving key as a cache buster: a new key always
-// produces a new URL, and the old cached entry is never consulted again.
 export function profileSurfaceVersion(key: string): string {
-  /* oxlint-disable no-bitwise -- FNV-1a hash math, not mistyped booleans */
-  // The hash only needs to change when the key changes, so exact
-  // distribution hardly matters; bitwise operators are the fastest way to
-  // get it.
-  let hash = 0x81_1c_9d_c5;
-  for (let i = 0; i < key.length; i += 1) {
-    // i is within the string, so the code point is always defined; the
-    // fallback only satisfies strictNullChecks.
-    hash ^= key.codePointAt(i) ?? 0;
-    hash = Math.imul(hash, 0x01_00_01_93);
+  const modulus = 4_294_967_296n;
+  let hash = 2_166_136_261n;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash + BigInt(key.codePointAt(index) ?? 0)) % modulus;
+    hash = (hash * 16_777_216n) % modulus;
   }
-  const truncated = hash >>> 0;
-  /* oxlint-enable no-bitwise */
-  return truncated.toString(16).padStart(8, "0");
+  return hash.toString(16).padStart(8, "0");
 }
 
 export function profileProxyUrl(
@@ -49,38 +21,31 @@ export function profileProxyUrl(
   return `/api/users/${kind}/${userId}/image?v=${profileSurfaceVersion(servingKey)}`;
 }
 
-// Purges a superseded profile media row: objects (original + derivatives),
-// quota refund, then the row itself. Skips rows that got linked to a post,
-// comment, or profile surface in the meantime — those belong to the pipeline
-// lifecycle now. The user's link was already cleared/moved before this runs,
-// so a re-link in between would have set a different mediaId; purge only
-// proceeds when the media is still owned by this user.
 export async function purgeSupersededProfileMedia(
   mediaId: string,
   userId: string
 ): Promise<void> {
-  const media = await prisma.media.findUnique({
-    select: {
-      avatarOf: { select: { id: true } },
-      bannerOf: { select: { id: true } },
-      commentId: true,
-      key: true,
-      originalKey: true,
-      postId: true,
-      publishedKey: true,
-      size: true,
-      status: true,
-      thumbnailKey: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "commentId",
+    "key",
+    "originalKey",
+    "postId",
+    "publishedKey",
+    "size",
+    "status",
+    "thumbnailKey",
+    "userId"
+  )
+    .include("users", (user) => user.select("id"))
+    .include("usersUsers", (user) => user.select("id"))
+    .where({ id: mediaId })
+    .first();
   if (
     !media ||
     media.postId ||
     media.commentId ||
-    media.avatarOf ||
-    media.bannerOf ||
+    media.users ||
+    media.usersUsers ||
     media.userId !== userId
   ) {
     return;
@@ -99,14 +64,12 @@ export async function purgeSupersededProfileMedia(
       )
   );
 
-  // Derivatives live under their own keys; collect them before deleting the
-  // row. Best-effort: a missed derivative gets caught by the maintenance
-  // sweep eventually or simply orphans harmlessly.
   try {
-    const derivatives = await prisma.mediaDerivative.findMany({
-      select: { key: true },
-      where: { mediaId },
-    });
+    const derivatives = await prisma.orm.public.PostMediaDerivatives.select(
+      "key"
+    )
+      .where({ mediaId })
+      .all();
     await Promise.allSettled(
       derivatives.map((derivative) =>
         deleteObject(derivative.key).catch((error: unknown) => {
@@ -131,85 +94,71 @@ export async function purgeSupersededProfileMedia(
     console.error("Failed to refund storage quota:", error);
   }
 
-  await prisma.media.delete({ where: { id: mediaId } });
+  await prisma.orm.public.PostMedia.where({ id: mediaId }).delete();
 }
 
 export interface PromotionResult {
-  /** Serving key now backing the profile surface (or still the original). */
   servingKey: string | null;
 }
 
-// Swaps a linked, static profile image from its published original to the
-// best committed derivative and deletes the original. Call sites:
-//  - the image process stage, right after derivative commit
-//  - the link routes, right after linking (covers the race where derivatives
-//    committed before the user linked the media)
-//
-// Safety properties:
-//  - only acts when the media is still the linked avatar/banner of its owner
-//    (conditional updateMany — never clobbers a newer upload's pointer)
-//  - animated sources are skipped (the original is the animated artifact)
-//  - no derivatives → no-op (codec-failure fallback keeps the original)
-//  - every delete is best-effort; failure leaves consistent serving state
 export async function promoteProfileDerivative(
   mediaId: string,
   kind: "avatar" | "banner"
 ): Promise<PromotionResult> {
-  const media = await prisma.media.findUnique({
-    select: {
-      avatarOf: { select: { id: true } },
-      bannerOf: { select: { id: true } },
-      derivatives: {
-        select: { key: true, kind: true, mimeType: true, width: true },
-      },
-      publishedKey: true,
-      type: true,
-    },
-    where: { id: mediaId },
-  });
-  if (!media || media.type !== "IMAGE" || !media.publishedKey) {
+  const media = await prisma.orm.public.PostMedia.select(
+    "publishedKey",
+    "_type"
+  )
+    .include("users", (user) => user.select("id"))
+    .include("usersUsers", (user) => user.select("id"))
+    .include("postMediaDerivatives", (derivative) =>
+      derivative.select("key", "kind", "mimeType", "width")
+    )
+    .where({ id: mediaId })
+    .first();
+  if (!media || media._type !== "IMAGE" || !media.publishedKey) {
     return { servingKey: null };
   }
 
-  const owner = kind === "avatar" ? media.avatarOf?.id : media.bannerOf?.id;
+  const owner =
+    kind === "avatar" ? media.users[0]?.id : media.usersUsers[0]?.id;
   if (!owner) {
     return { servingKey: null };
   }
 
-  // Preferred rung: avatar renders at 640px (sm), banner at 1200px (lg).
-  // Fall back to the widest webp rung, then any committed derivative — small
-  // sources produce fewer rungs, and any derivative beats the raw original.
-  const webpDerivatives = media.derivatives.filter(
-    (d) => d.mimeType === "image/webp"
+  const webpDerivatives = media.postMediaDerivatives.filter(
+    (derivative) => derivative.mimeType === "image/webp"
   );
   const preferredKind = kind === "avatar" ? "sm" : "lg";
   const chosen =
-    webpDerivatives.find((d) => d.kind === preferredKind) ??
+    webpDerivatives.find((derivative) => derivative.kind === preferredKind) ??
     [...webpDerivatives].toSorted(
       (a, b) => (b.width ?? 0) - (a.width ?? 0)
     )[0] ??
-    media.derivatives[0] ??
+    media.postMediaDerivatives[0] ??
     null;
   if (!chosen || chosen.key === media.publishedKey) {
     return { servingKey: media.publishedKey };
   }
 
-  // Conditional pointer swap: if the user has since linked different media,
-  // updateMany matches nothing and promotion aborts. The proxy URL is bumped
-  // in the same write so the 1-year-cached old URL is never reused for the
-  // new derivative bytes.
   const promotedUrl = profileProxyUrl(kind, owner, chosen.key);
   const swap =
     kind === "avatar"
-      ? await prisma.user.updateMany({
-          data: { avatarKey: chosen.key, avatarUrl: promotedUrl },
-          where: { avatarMediaId: mediaId, id: owner },
+      ? await prisma.orm.public.Users.where((user) =>
+          and(user.avatarMediaId.eq(mediaId), user.id.eq(owner))
+        ).updateAndCount({
+          avatarKey: chosen.key,
+          avatarUrl: promotedUrl,
+          updatedAt: toPrismaDateTime(new Date()),
         })
-      : await prisma.user.updateMany({
-          data: { bannerKey: chosen.key, bannerUrl: promotedUrl },
-          where: { bannerMediaId: mediaId, id: owner },
+      : await prisma.orm.public.Users.where((user) =>
+          and(user.bannerMediaId.eq(mediaId), user.id.eq(owner))
+        ).updateAndCount({
+          bannerKey: chosen.key,
+          bannerUrl: promotedUrl,
+          updatedAt: toPrismaDateTime(new Date()),
         });
-  if (swap.count === 0) {
+  if (swap === 0) {
     return { servingKey: null };
   }
 
@@ -222,14 +171,13 @@ export async function promoteProfileDerivative(
         url: profileProxyUrl("avatar", owner, chosen.key),
       });
     } catch (error) {
-      // Cache self-heals via TTL (1h) if this fails.
       console.error("Failed to refresh avatar cache after promotion:", error);
     }
   }
 
-  // Delete the non-chosen derivatives (objects + rows) — only the optimized
-  // serving derivative stays.
-  const stale = media.derivatives.filter((d) => d.key !== chosen.key);
+  const stale = media.postMediaDerivatives.filter(
+    (derivative) => derivative.key !== chosen.key
+  );
   await Promise.allSettled(
     stale.map((derivative) =>
       deleteObject(derivative.key).catch((error: unknown) => {
@@ -238,13 +186,11 @@ export async function promoteProfileDerivative(
     )
   );
   if (stale.length > 0) {
-    await prisma.mediaDerivative.deleteMany({
-      where: { key: { in: stale.map((d) => d.key) } },
-    });
+    await prisma.orm.public.PostMediaDerivatives.where((derivative) =>
+      derivative.key.in(stale.map((entry) => entry.key))
+    ).deleteAndCount();
   }
 
-  // Delete the published original. The row keeps its publishedKey column:
-  // the retention/GC sweeps key off it, and purge uses it as a delete hint.
   try {
     await deleteObject(media.publishedKey);
   } catch (error) {

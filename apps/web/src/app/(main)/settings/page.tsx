@@ -1,19 +1,14 @@
-import { getPrivateUserSelect, prisma } from "@asm/db";
+import { and, fromPrismaDateTime, prisma } from "@asm/db";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import type { SecurityPasskey } from "@/app/(main)/settings/tabs/security-settings";
 import SettingsPageSkeleton from "@/components/layouts/skeletons/settings-page-skeleton";
 import type { SocialProvider } from "@/components/settings/linked-accounts";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import ClientSettings from "./client-settings";
-
-const credentialAccountWhere = (userId: string) => ({
-  password: { not: null },
-  providerId: "credential",
-  userId,
-});
 
 function isSocialProvider(providerId: string): providerId is SocialProvider {
   return providerId === "google" || providerId === "reddit";
@@ -36,42 +31,48 @@ async function SettingsContent() {
 
   const [user, passwordAccount, socialAccounts, twoFactor, passkeys] =
     await Promise.all([
-      prisma.user.findUnique({
-        select: getPrivateUserSelect(session.user.id),
-        where: { id: session.user.id },
-      }),
-      prisma.account.findFirst({
-        select: { id: true },
-        where: credentialAccountWhere(session.user.id),
-      }),
-      prisma.account.findMany({
-        select: { providerId: true },
-        where: {
-          providerId: { in: ["google", "reddit"] },
-          userId: session.user.id,
-        },
-      }),
-      prisma.twoFactor.findUnique({
-        select: { verified: true },
-        where: { userId: session.user.id },
-      }),
-      prisma.passkey.findMany({
-        orderBy: { createdAt: "desc" },
-        select: {
-          aaguid: true,
-          backedUp: true,
-          createdAt: true,
-          deviceType: true,
-          id: true,
-          name: true,
-        },
-        where: { userId: session.user.id },
-      }),
+      getUserData(session.user.id),
+      prisma.orm.public.Accounts.select("id")
+        .where((account) =>
+          and(
+            account.password.isNotNull(),
+            account.providerId.eq("credential"),
+            account.userId.eq(session.user.id)
+          )
+        )
+        .first(),
+      prisma.orm.public.Accounts.select("providerId")
+        .where((account) =>
+          and(
+            account.providerId.in(["google", "reddit"]),
+            account.userId.eq(session.user.id)
+          )
+        )
+        .all(),
+      prisma.orm.public.TwoFactor.select("verified")
+        .where({ userId: session.user.id })
+        .first(),
+      prisma.orm.public.Passkey.select(
+        "aaguid",
+        "backedUp",
+        "createdAt",
+        "deviceType",
+        "id",
+        "name"
+      )
+        .where({ userId: session.user.id })
+        .orderBy((passkey) => passkey.createdAt.desc())
+        .all(),
     ]);
 
   if (!user) {
     redirect("/login");
   }
+
+  const initialPasskeys = passkeys.map((passkey) => ({
+    ...passkey,
+    createdAt: fromPrismaDateTime(passkey.createdAt),
+  }));
 
   return (
     <ClientSettings
@@ -83,7 +84,7 @@ async function SettingsContent() {
           .filter(isSocialProvider),
       }}
       currentSessionId={session.session.id}
-      initialPasskeys={passkeys satisfies SecurityPasskey[]}
+      initialPasskeys={initialPasskeys satisfies SecurityPasskey[]}
       securityState={{
         hasAuthenticatorApp: Boolean(twoFactor?.verified),
         twoFactorEnabled: user.twoFactorEnabled,

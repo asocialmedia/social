@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.1.61",
+  "version": "1.1.63",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -18,20 +18,18 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:studio": "prisma studio",
-    "generate": "cross-env NODE_ENV=development prisma generate",
-    "push": "cross-env NODE_ENV=development prisma db push",
-    "studio": "cross-env NODE_ENV=development prisma studio"
+    "db:gen": "prisma contract emit",
+    "db:migrate": "prisma db migrate --advance-ref db",
+    "db:status": "prisma migration status",
+    "db:sign": "prisma db sign --no-advance-ref",
+    "db:verify": "prisma db verify"
   },
   "dependencies": {
     "@asm/config": "workspace:*",
     "@asm/logger": "workspace:*",
     "@asm/notifications": "workspace:*",
     "@aws-sdk/client-s3": "^3.1109.0",
-    "@prisma/adapter-pg": "7.9.1",
-    "@prisma/client": "7.9.1",
+    "@prisma/orm-postgres": "8.0.0-rc.11",
     "@smithy/node-http-handler": "^4.10.0",
     "@t3-oss/env-nextjs": "^0.13.11",
     "bullmq": "^6.1.0",
@@ -46,7 +44,7 @@
     "@types/bun": "^1.4.0",
     "@types/pg": "^8.21.0",
     "bun-types": "^1.4.0",
-    "prisma": "7.9.1",
+    "prisma": "8.0.0-rc.15",
     "typescript": "^7.0.2"
   }
 }

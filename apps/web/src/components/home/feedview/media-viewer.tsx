@@ -1,7 +1,7 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-import type { Media, PostData } from "@asm/db";
+import type { PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import { Slider } from "@asm/ui/shadui/slider";
@@ -49,10 +49,15 @@ import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
-import { isBookmarkedByUser } from "@/lib/posts/post-normalize";
+import {
+  getPostAttachments,
+  isBookmarkedByUser,
+} from "@/lib/posts/post-normalize";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
+import type { Media } from "@/lib/types";
+import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -140,8 +145,8 @@ function getShareThumbnail(
     }
     return getMediaVariantUrl(currentMedia.id, "lg-webp.webp");
   }
-  if (post?.attachments?.[0]) {
-    return getMediaProxyUrl(post.attachments[0]);
+  if (post && getPostAttachments(post)[0]) {
+    return getMediaProxyUrl(getPostAttachments(post)[0]);
   }
   if (post) {
     return `/posts/${post.id}/opengraph-image`;
@@ -1001,7 +1006,7 @@ const MediaViewer = ({
                 {isSelf || !post.user?.id ? null : (
                   <FollowButton
                     initialState={{
-                      followers: post.user._count?.followers ?? 0,
+                      followers: getUserCount(post.user, "followers"),
                       isFollowedByUser: (post.user.followers || []).length > 0,
                     }}
                     userId={post.user.id}
@@ -1483,7 +1488,9 @@ const MediaViewer = ({
                   <div className="mt-3">
                     <PostMeta
                       content={post.content}
-                      mentions={post.mentions.map((m) => m.user)}
+                      mentions={post.mentions.map(
+                        (m) => (m as unknown as { user: PostData["user"] }).user
+                      )}
                       tags={post.tags}
                     />
                   </div>

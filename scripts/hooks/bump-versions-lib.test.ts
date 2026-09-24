@@ -62,7 +62,7 @@ describe("determineChangedPackages", () => {
     const stagedFiles = [
       "packages/ui/src/button.tsx",
       "packages/ui/package.json",
-      "packages/db/prisma/schema.prisma",
+      "packages/db/prisma/contract.prisma",
       "apps/web/src/app/page.tsx",
       "apps/auth/src/index.ts",
       "docker/docker-compose.dev.yml",

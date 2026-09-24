@@ -15,6 +15,7 @@ import type { MediaLimits, PlannedImageDerivative } from "@asm/media";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
 import { computePerceptualHash, withTimeout } from "../transcode/ffmpeg";
+import { persistMediaDerivatives } from "./derivatives";
 
 interface DecodedInfo {
   width: number;
@@ -201,18 +202,19 @@ export async function processMediaImage(input: {
           }
         }
 
-        await prisma.mediaDerivative.createMany({
-          data: derivativesToInsert.map((item) => ({
-            ...item,
-            mediaId: input.mediaId,
-          })),
-          skipDuplicates: true,
-        });
+        await prisma.transaction((transaction) =>
+          persistMediaDerivatives(
+            transaction,
+            input.mediaId,
+            derivativesToInsert
+          )
+        );
 
-        const existing = await prisma.media.findUnique({
-          select: { techMetadata: true },
-          where: { id: input.mediaId },
-        });
+        const existing = await prisma.orm.public.PostMedia.select(
+          "techMetadata"
+        )
+          .where({ id: input.mediaId })
+          .first();
         const baseTech =
           existing?.techMetadata &&
           typeof existing.techMetadata === "object" &&
@@ -235,37 +237,34 @@ export async function processMediaImage(input: {
             input.limits.scanTimeoutMs
           ).catch(() => null)) || null;
 
-        await prisma.media.update({
-          data: {
-            blurDataUrl,
-            phash: computedPhash,
-            techMetadata: {
-              ...baseTech,
-              animated,
-              aspectRatio,
-              bitDepth: meta.format === "png" ? 8 : undefined,
-              colorEntropy: Number(entropy.toFixed(3)),
-              colorSpace: meta.format === "png" ? "sRGB" : undefined,
-              format: meta.format,
-              frameCount: animated ? countFrames(bytes) : 1,
-              hasAlpha: alpha,
-              hasIccProfile,
-              height: meta.height,
-              orientation:
-                orientation && orientation > 1 ? orientation : undefined,
-              width: meta.width,
-            } as object,
+        await prisma.orm.public.PostMedia.where({ id: input.mediaId }).update({
+          blurDataUrl,
+          phash: computedPhash,
+          techMetadata: {
+            ...baseTech,
+            animated,
+            aspectRatio,
+            ...(meta.format === "png" ? { bitDepth: 8 } : {}),
+            colorEntropy: Number(entropy.toFixed(3)),
+            ...(meta.format === "png" ? { colorSpace: "sRGB" } : {}),
+            format: meta.format,
+            frameCount: animated ? countFrames(bytes) : 1,
+            hasAlpha: alpha,
+            hasIccProfile,
+            height: meta.height,
+            ...(orientation && orientation > 1 ? { orientation } : {}),
+            width: meta.width,
           },
-          where: { id: input.mediaId },
         });
 
         // Re-share attribution — bounded phash scan, single-hop, idempotent via reShareChecked.
         if (computedPhash) {
           try {
-            const mediaOwner = await prisma.media.findUnique({
-              select: { userId: true },
-              where: { id: input.mediaId },
-            });
+            const mediaOwner = await prisma.orm.public.PostMedia.select(
+              "userId"
+            )
+              .where({ id: input.mediaId })
+              .first();
             const { attributeReshare } = await import("../watermark/reshare");
             await attributeReshare(
               input.mediaId,

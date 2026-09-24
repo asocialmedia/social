@@ -16,7 +16,7 @@ interface PostMetaProps {
     id: string;
     username: string;
   }[];
-  tags: TagWithCount[];
+  tags: Pick<TagWithCount, "name">[];
   // When provided, mentions/tags that already appear inline in the content
   // are dropped: they render in the post text itself, so showing them again
   // as chips would duplicate the row. Chips remain for relations added
@@ -49,7 +49,7 @@ export const PostMeta = ({ mentions, tags, content }: PostMetaProps) => {
             <Link
               className="meta-chip meta-chip-tag"
               href={`/hashtag/${tag.name}`}
-              key={tag.id}
+              key={tag.name}
             >
               <Hash className="meta-chip-accent h-3.5 w-3.5" />
               <span className="truncate">{tag.name}</span>

@@ -2,8 +2,8 @@
 
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createGustSchema, createPostSchema } from "@asm/auth/validation";
-import type { Prisma } from "@asm/db";
 import {
+  and,
   applyFlatAward,
   ATTACHMENT_BONUSES,
   cancelMediaCleanup,
@@ -12,13 +12,14 @@ import {
   enqueueNotificationCreated,
   enqueueShitposterCheck,
   generateLocalEmbedding,
-  getPostDataInclude,
+  getPostDataQuery,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
   invalidateCommunityPostAggregates,
   invalidateCommunityStats,
   invalidateFypProfile,
   MENTION_RECEIVED_AURA,
+  mapPostData,
   notifyCommunitySubscribers,
   POST_CREATION_AURA,
   POST_CREATION_MAX_AURA,
@@ -30,6 +31,7 @@ import {
   schedulePublishedNotificationCleanup,
   tagCache,
 } from "@asm/db";
+import type { PrismaTransaction } from "@asm/db";
 import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
 import { siteConfig } from "@asm/ui/meta/site";
 import { updateTag } from "next/cache";
@@ -63,6 +65,44 @@ const AURA_REWARDS = {
   HN_SHARE: HN_SHARE_BONUS_AURA,
   MAX_TOTAL: POST_CREATION_MAX_AURA,
 };
+const MAX_CAS_ATTEMPTS = 8;
+
+async function runSequentially<T>(
+  values: readonly T[],
+  operation: (value: T) => Promise<unknown>,
+  index = 0
+): Promise<void> {
+  if (index >= values.length) {
+    return;
+  }
+  const value = values[index] as T;
+  await operation(value);
+  return runSequentially(values, operation, index + 1);
+}
+
+async function updatePostAuraWithCas(
+  tx: PrismaTransaction,
+  postId: string,
+  delta: number,
+  attemptsRemaining = MAX_CAS_ATTEMPTS
+): Promise<void> {
+  const post = await tx.orm.public.Posts.select("aura")
+    .where({ id: postId })
+    .first();
+  if (!post) {
+    return;
+  }
+  const updated = await tx.orm.public.Posts.where((candidate) =>
+    and(candidate.id.eq(postId), candidate.aura.eq(post.aura))
+  ).updateAndCount({ aura: post.aura + delta });
+  if (updated === 1) {
+    return;
+  }
+  if (attemptsRemaining <= 1) {
+    throw new Error("Could not update post aura");
+  }
+  return updatePostAuraWithCas(tx, postId, delta, attemptsRemaining - 1);
+}
 
 type AttachmentType = "IMAGE" | "VIDEO" | "AUDIO";
 
@@ -98,10 +138,9 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
     return totalAura;
   }
 
-  const mediaItems = await prisma.media.findMany({
-    select: { id: true, type: true },
-    where: { id: { in: mediaIds } },
-  });
+  const mediaItems = await prisma.orm.public.PostMedia.select("id", "_type")
+    .where((media) => media.id.in(mediaIds))
+    .all();
 
   const typeCount: Record<AttachmentType, number> = {
     AUDIO: 0,
@@ -110,7 +149,7 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
   };
 
   for (const item of mediaItems) {
-    const type = item.type as AttachmentType;
+    const type = item._type as AttachmentType;
     if (type in typeCount) {
       typeCount[type] += 1;
     }
@@ -170,22 +209,22 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     // and a reshare must point at a post that actually lives in a community.
     let communityId: string | null = null;
     if (validatedInput.communityId) {
-      const community = await prisma.community.findUnique({
-        select: { id: true },
-        where: { id: validatedInput.communityId },
-      });
+      const community = await prisma.orm.public.Communities.select("id")
+        .where({ id: validatedInput.communityId })
+        .first();
       if (!community) {
         throw new Error("That community does not exist");
       }
-      const membership = await prisma.communityMember.findUnique({
-        select: { status: true },
-        where: {
-          communityId_userId: {
-            communityId: community.id,
-            userId: sessionData.user.id,
-          },
-        },
-      });
+      const membership = await prisma.orm.public.CommunityMembers.select(
+        "status"
+      )
+        .where((member) =>
+          and(
+            member.communityId.eq(community.id),
+            member.userId.eq(sessionData.user.id)
+          )
+        )
+        .first();
       if (membership?.status !== "ACTIVE") {
         throw new Error("Join this community before posting in it");
       }
@@ -198,10 +237,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     let communityShare: { communityId: string; sourcePostId: string } | null =
       null;
     if (validatedInput.communitySharePostId) {
-      const source = await prisma.post.findUnique({
-        select: { communityId: true, id: true },
-        where: { id: validatedInput.communitySharePostId },
-      });
+      const source = await prisma.orm.public.Posts.select("communityId", "id")
+        .where({ id: validatedInput.communitySharePostId })
+        .first();
       if (!source?.communityId) {
         throw new Error("That post is not from a community");
       }
@@ -225,9 +263,18 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     // Prisma's Json input needs its own JSON value type; a round-trip gives
     // a plain, index-signature-shaped payload without any assertion on the
     // embed objects themselves.
-    const embedsJson: Prisma.InputJsonValue | undefined =
+    const embedsJson =
       embeds.length > 0
-        ? (structuredClone(embeds) as unknown as Prisma.InputJsonValue)
+        ? embeds.map((embed) => ({
+            description: embed.description ?? null,
+            imageUrl: embed.imageUrl ?? null,
+            siteName: embed.siteName ?? null,
+            title: embed.title,
+            type: embed.type,
+            url: embed.url,
+            videoAuthor: embed.videoAuthor ?? null,
+            videoId: embed.videoId ?? null,
+          }))
         : undefined;
 
     const auraReward = await calculateAuraReward(
@@ -247,7 +294,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     // Reply and mention notification events wait for the commit (see
     // lib/notifications/deferred-events.ts).
     const notificationEvents = newNotificationEvents();
-    const newPost = await prisma.$transaction(async (tx) => {
+    const newPost = await prisma.transaction(async (tx) => {
       // Server-side hard stop matching the composer's client cap: a crafted
       // request bypassing the UI must not publish more than the contract
       // allows.
@@ -262,17 +309,16 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // would then permanently delete the victim's storage objects. Mirrors
       // the ownership validation the comment flow already applies.
       if (validatedInput.mediaIds.length > 0) {
-        const attachedMedia = await tx.media.findMany({
-          select: {
-            commentId: true,
-            id: true,
-            messageConversationId: true,
-            postId: true,
-            status: true,
-            userId: true,
-          },
-          where: { id: { in: validatedInput.mediaIds } },
-        });
+        const attachedMedia = await tx.orm.public.PostMedia.select(
+          "commentId",
+          "id",
+          "messageConversationId",
+          "postId",
+          "status",
+          "userId"
+        )
+          .where((media) => media.id.in(validatedInput.mediaIds))
+          .all();
         const foundIds = new Set(attachedMedia.map((m) => m.id));
         const allOwnedUnclaimedAndClaimable =
           attachedMedia.length === validatedInput.mediaIds.length &&
@@ -302,14 +348,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         // otherwise farm MENTION_RECEIVED aura (and self-notifications) by
         // naming the author's own account, even though the UI never offers
         // that option.
-        const validUsers = await tx.user.findMany({
-          select: { id: true },
-          where: {
-            id: {
-              in: validatedInput.mentions,
-            },
-          },
-        });
+        const validUsers = await tx.orm.public.Users.select("id")
+          .where((user) => user.id.in(validatedInput.mentions))
+          .all();
 
         const validUserIds = new Set(validUsers.map((u) => u.id));
         validatedInput.mentions = validatedInput.mentions.filter(
@@ -324,6 +365,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // top-level RESPONSE (null for a direct response) and is the pagination
       // anchor the responses API groups on.
       let parentPost: {
+        aura: number;
         id: string;
         moderated: boolean;
         parentPostId: string | null;
@@ -335,17 +377,17 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       let threadTopId: string | null = null;
       let threadRootAuthorId: string | null = null;
       if (validatedInput.parentPostId) {
-        parentPost = await tx.post.findUnique({
-          select: {
-            id: true,
-            moderated: true,
-            parentPostId: true,
-            rootPostId: true,
-            threadTopId: true,
-            userId: true,
-          },
-          where: { id: validatedInput.parentPostId },
-        });
+        parentPost = await tx.orm.public.Posts.select(
+          "aura",
+          "id",
+          "moderated",
+          "parentPostId",
+          "rootPostId",
+          "threadTopId",
+          "userId"
+        )
+          .where({ id: validatedInput.parentPostId })
+          .first();
         if (!parentPost) {
           throw new Error("The post you're responding to no longer exists");
         }
@@ -362,10 +404,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           rootPostId = parentPost.rootPostId ?? parentPost.parentPostId;
           threadTopId = parentPost.threadTopId ?? parentPost.id;
           const threadRoot = rootPostId
-            ? await tx.post.findUnique({
-                select: { userId: true },
-                where: { id: rootPostId },
-              })
+            ? await tx.orm.public.Posts.select("userId")
+                .where({ id: rootPostId })
+                .first()
             : null;
           threadRootAuthorId = threadRoot?.userId ?? null;
         }
@@ -385,71 +426,55 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       const initialEmbedding = generateLocalEmbedding(
         `${validatedInput.content} ${validatedInput.tags.join(" ")}`
       );
-      const post = await tx.post.create({
-        data: {
-          aura: 0,
-          // Native community post when set; null for a normal global post.
-          communityId,
-          content: validatedInput.content,
-          embedding: initialEmbedding,
-          // Resolved link previews; text-only posts keep the column null.
-          embeds: embedsJson,
-          id: postId,
-          isGust: validatedInput.isGust ?? false,
-          mentions:
-            validatedInput.mentions.length > 0
-              ? {
-                  create: validatedInput.mentions.map((userId) => ({
-                    userId,
-                  })),
-                }
-              : undefined,
-          parentPostId: parentPost?.id ?? null,
-          rootPostId,
-          semanticTags: [
-            ...new Set(validatedInput.tags.map((t) => t.toLowerCase())),
-          ],
-          tags: {
-            connectOrCreate: validatedInput.tags.map((tagName) => ({
-              create: { name: tagName.toLowerCase() },
-              where: { name: tagName.toLowerCase() },
-            })),
-          },
-          threadTopId,
-          userId: sessionData.user.id,
-        },
-        include: {
-          ...getPostDataInclude(sessionData.user.id),
-          hnStoryShare: true,
-          mentions: {
-            include: {
-              user: {
-                select: {
-                  avatarUrl: true,
-                  displayName: true,
-                  id: true,
-                  username: true,
-                },
-              },
-            },
-          },
-          tags: true,
-        },
+      const post = await tx.orm.public.Posts.create({
+        aura: 0,
+        communityId,
+        content: validatedInput.content,
+        embedding: initialEmbedding,
+        embeds: embedsJson,
+        id: postId,
+        isGust: validatedInput.isGust ?? false,
+        parentPostId: parentPost?.id ?? null,
+        rootPostId,
+        semanticTags: [
+          ...new Set(
+            validatedInput.tags.map((tagName) => tagName.toLowerCase())
+          ),
+        ],
+        threadTopId,
+        userId: sessionData.user.id,
+      });
+
+      await runSequentially(validatedInput.mentions, async (userId) => {
+        await tx.orm.public.Mentions.create({ postId: post.id, userId });
+      });
+
+      await runSequentially(validatedInput.tags, async (tagName) => {
+        const normalizedTagName = tagName.toLowerCase();
+        let tag = await tx.orm.public.Tag.select("id")
+          .where({ name: normalizedTagName })
+          .first();
+        if (!tag) {
+          tag = await tx.orm.public.Tag.create({ name: normalizedTagName });
+        }
+        await tx.orm.public.PostToTag.create({
+          a: post.id,
+          b: tag.id,
+        });
       });
 
       if (validatedInput.mediaIds.length > 0) {
-        const claim = await tx.media.updateMany({
-          data: { postId },
-          where: {
-            commentId: null,
-            id: { in: validatedInput.mediaIds },
-            messageConversationId: null,
-            postId: null,
-            status: { in: [...CLAIMABLE_STATUSES] },
-            userId: sessionData.user.id,
-          },
-        });
-        if (claim.count !== validatedInput.mediaIds.length) {
+        const claim = await tx.orm.public.PostMedia.where((media) =>
+          and(
+            media.commentId.isNull(),
+            media.id.in(validatedInput.mediaIds),
+            media.messageConversationId.isNull(),
+            media.postId.isNull(),
+            media.status.in([...CLAIMABLE_STATUSES]),
+            media.userId.eq(sessionData.user.id)
+          )
+        ).updateAndCount({ postId });
+        if (claim !== validatedInput.mediaIds.length) {
           throw new Error("One or more attachments are invalid");
         }
       }
@@ -459,13 +484,13 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // transaction as the post row so a confirmed post always has its
       // receipt.
       const zephUserId = await getModerationSystemUserId();
-      const publishedNotification = await tx.notification.create({
-        data: {
-          issuerId: zephUserId,
-          postId: post.id,
-          recipientId: sessionData.user.id,
-          type: "PUBLISHED",
-        },
+      const publishedNotification = await tx.orm.public.Notifications.select(
+        "id"
+      ).create({
+        _type: "PUBLISHED",
+        issuerId: zephUserId,
+        postId: post.id,
+        recipientId: sessionData.user.id,
       });
       publishedNotificationId = publishedNotification.id;
 
@@ -476,10 +501,11 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         // Responses are high-signal engagement: award aura to the parent post and its author
         // when responded to by another user (self-responses never award aura).
         if (parentPost.userId !== sessionData.user.id) {
-          await tx.post.update({
-            data: { aura: { increment: RESPONSE_RECEIVED_POST_AURA } },
-            where: { id: parentPost.id },
-          });
+          await updatePostAuraWithCas(
+            tx,
+            parentPost.id,
+            RESPONSE_RECEIVED_POST_AURA
+          );
 
           await applyFlatAward(tx, {
             actorId: sessionData.user.id,
@@ -522,13 +548,11 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         const replyRecipientIds = [...replyRecipients];
         const replyNotifications = await Promise.all(
           replyRecipientIds.map((recipientId) =>
-            tx.notification.create({
-              data: {
-                issuerId: sessionData.user.id,
-                postId: post.id,
-                recipientId,
-                type: "REPLY",
-              },
+            tx.orm.public.Notifications.select("id", "recipientId").create({
+              _type: "REPLY",
+              issuerId: sessionData.user.id,
+              postId: post.id,
+              recipientId,
             })
           )
         );
@@ -549,29 +573,25 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
 
       if (input.hnStory) {
-        await tx.hNStoryShare.create({
-          data: {
-            by: input.hnStory.by,
-            descendants: input.hnStory.descendants,
-            postId: post.id,
-            score: input.hnStory.score,
-            storyId: input.hnStory.storyId,
-            time: input.hnStory.time,
-            title: input.hnStory.title,
-            url: input.hnStory.url || null,
-          },
+        await tx.orm.public.HnStoryShares.create({
+          by: input.hnStory.by,
+          descendants: input.hnStory.descendants,
+          postId: post.id,
+          score: input.hnStory.score,
+          storyId: input.hnStory.storyId,
+          time: input.hnStory.time,
+          title: input.hnStory.title,
+          url: input.hnStory.url || null,
         });
       }
 
       // Reshare of a community post onto the global feed: the new post owns
       // its own media, and this side row records the source for attribution.
       if (communityShare) {
-        await tx.communityPostShare.create({
-          data: {
-            communityId: communityShare.communityId,
-            postId: post.id,
-            sourcePostId: communityShare.sourcePostId,
-          },
+        await tx.orm.public.CommunityPostShares.create({
+          communityId: communityShare.communityId,
+          postId: post.id,
+          sourcePostId: communityShare.sourcePostId,
         });
       }
 
@@ -589,13 +609,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       if (validatedInput.mentions.length > 0) {
         const mentionNotifications = await Promise.all(
           validatedInput.mentions.map(async (userId) => {
-            const notification = await tx.notification.create({
-              data: {
-                issuerId: sessionData.user.id,
-                postId: post.id,
-                recipientId: userId,
-                type: "MENTION",
-              },
+            const notification = await tx.orm.public.Notifications.select(
+              "id",
+              "recipientId"
+            ).create({
+              _type: "MENTION",
+              issuerId: sessionData.user.id,
+              postId: post.id,
+              recipientId: userId,
             });
 
             // Being mentioned pays the mentioned user a flat award, unique
@@ -663,28 +684,16 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         });
       }
 
-      const completePost = await tx.post.findUnique({
-        include: {
-          ...getPostDataInclude(sessionData.user.id),
-          hnStoryShare: true,
-          mentions: {
-            include: {
-              user: {
-                select: {
-                  avatarUrl: true,
-                  displayName: true,
-                  id: true,
-                  username: true,
-                },
-              },
-            },
-          },
-          tags: true,
-        },
-        where: { id: post.id },
-      });
-
-      return completePost;
+      const completePostRow = await getPostDataQuery(
+        tx.orm,
+        sessionData.user.id
+      )
+        .where({ id: post.id })
+        .first();
+      if (!completePostRow) {
+        throw new Error("Created post not found");
+      }
+      return mapPostData(completePostRow);
     });
 
     // A new community post changes the community's aggregate aura and the
@@ -830,10 +839,12 @@ export async function updatePostTags(postId: string, tags: string[]) {
     throw new Error("Unauthorized");
   }
 
-  const post = await prisma.post.findUnique({
-    include: { tags: true },
-    where: { id: postId },
-  });
+  const post = await prisma.orm.public.Posts.select("userId")
+    .include("postToTags", (postTag) =>
+      postTag.include("tag", (tag) => tag.select("name"))
+    )
+    .where({ id: postId })
+    .first();
 
   if (!post) {
     throw new Error("Post not found");
@@ -842,31 +853,41 @@ export async function updatePostTags(postId: string, tags: string[]) {
     throw new Error("Unauthorized");
   }
 
-  const oldTags = post.tags.map((t) => t.name);
+  const oldTags = post.postToTags.flatMap((postTag) =>
+    postTag.tag ? [postTag.tag.name] : []
+  );
   const tagsToAdd = tags.filter((t) => !oldTags.includes(t));
   const tagsToRemove = oldTags.filter((t) => !tags.includes(t));
 
-  return await prisma.$transaction(async (tx) => {
-    const updatedPost = await tx.post.update({
-      data: {
-        tags: {
-          connectOrCreate: tagsToAdd.map((tagName) => ({
-            create: { name: tagName },
-            where: { name: tagName },
-          })),
-          disconnect: tagsToRemove.map((tagName) => ({ name: tagName })),
-        },
-      },
-      include: getPostDataInclude(sessionData.user.id),
-      where: { id: postId },
+  return await prisma.transaction(async (tx) => {
+    if (tagsToRemove.length > 0) {
+      await tx.orm.public.PostToTag.where((postTag) =>
+        and(
+          postTag.a.eq(postId),
+          postTag.tag.some((tag) => tag.name.in(tagsToRemove))
+        )
+      ).delete();
+    }
+    await runSequentially(tagsToAdd, async (tagName) => {
+      let tag = await tx.orm.public.Tag.select("id")
+        .where({ name: tagName })
+        .first();
+      if (!tag) {
+        tag = await tx.orm.public.Tag.create({ name: tagName });
+      }
+      await tx.orm.public.PostToTag.create({ a: postId, b: tag.id });
     });
-
+    const updatedPostRow = await getPostDataQuery(tx.orm, sessionData.user.id)
+      .where({ id: postId })
+      .first();
+    if (!updatedPostRow) {
+      throw new Error("Post not found");
+    }
     await Promise.all([
       ...tagsToAdd.map((tagName) => tagCache.incrementTagCount(tagName)),
       ...tagsToRemove.map((tagName) => tagCache.decrementTagCount(tagName)),
     ]);
-
-    return updatedPost;
+    return mapPostData(updatedPostRow);
   });
 }
 
@@ -878,10 +899,10 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
       throw new Error("Unauthorized");
     }
 
-    const post = await prisma.post.findUnique({
-      include: { mentions: true },
-      where: { id: postId },
-    });
+    const post = await prisma.orm.public.Posts.select("userId")
+      .include("mentions", (mention) => mention.select("id"))
+      .where({ id: postId })
+      .first();
 
     if (!post) {
       throw new Error("Post not found");
@@ -891,43 +912,38 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
     }
 
     const notificationEvents = newNotificationEvents();
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.mention.deleteMany({
-        where: { postId },
-      });
+    const updated = await prisma.transaction(async (tx) => {
+      await tx.orm.public.Mentions.where({ postId }).delete();
 
       if (mentions.length > 0) {
-        await tx.mention.createMany({
-          data: mentions.map((userId) => ({
-            postId,
-            userId,
-          })),
+        await runSequentially(mentions, async (userId) => {
+          await tx.orm.public.Mentions.create({ postId, userId });
         });
 
-        const mentionNotifications = await tx.notification.createManyAndReturn({
-          data: mentions.map((userId) => ({
+        await runSequentially(mentions, async (userId) => {
+          const notification = await tx.orm.public.Notifications.select(
+            "id",
+            "recipientId"
+          ).create({
+            _type: "MENTION",
             issuerId: sessionData.user.id,
             postId,
             recipientId: userId,
-            type: "MENTION",
-          })),
-        });
-
-        for (const notification of mentionNotifications) {
+          });
           notificationEvents.created.push({
             notificationId: notification.id,
             recipientId: notification.recipientId,
           });
-        }
+        });
       }
 
-      return await tx.post.findUnique({
-        include: {
-          ...getPostDataInclude(sessionData.user.id),
-          hnStoryShare: true,
-        },
-        where: { id: postId },
-      });
+      const updatedRow = await getPostDataQuery(tx.orm, sessionData.user.id)
+        .where({ id: postId })
+        .first();
+      if (!updatedRow) {
+        throw new Error("Post not found");
+      }
+      return mapPostData(updatedRow);
     });
     flushNotificationEvents(notificationEvents, "mention");
     return updated;

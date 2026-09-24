@@ -1,4 +1,11 @@
-import { computeTrendingScore, prisma, publishTrendingSnapshot } from "@asm/db";
+import {
+  and,
+  computeTrendingScore,
+  fromPrismaDateTime,
+  prisma,
+  publishTrendingSnapshot,
+  toPrismaDateTime,
+} from "@asm/db";
 
 import { resolveLogger, withSpan } from "./log";
 import type { WorkerLogger } from "./log";
@@ -14,10 +21,11 @@ export interface TrendingScoreFlushResult {
   publishedToSnapshot: number;
 }
 
-// Recomputes the time-decayed trending score for every post created within
-// the window, in id-keyset batches, writing scores with one parameterized
-// bulk UPDATE per batch (never a whole-table scan), then publishes the full
-// recompute as a frozen Redis ZSET snapshot so scrolls don't drift.
+interface TrendingBatchState {
+  batches: number;
+  postsUpdated: number;
+}
+
 export async function flushTrendingScores(
   logger?: WorkerLogger,
   now?: Date
@@ -30,63 +38,76 @@ export async function flushTrendingScores(
     const windowStart = new Date(
       effectiveNow.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000
     );
-    let cursorId: string | undefined;
-    let batches = 0;
-    let postsUpdated = 0;
     const scoredEntries: { id: string; score: number }[] = [];
-
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop -- keyset pagination must await each batch
-      const posts = await prisma.post.findMany({
-        orderBy: { id: "asc" },
-        select: {
-          _count: { select: { bookmarks: true, comments: true } },
-          aura: true,
-          createdAt: true,
-          id: true,
-          viewCount: true,
-        },
-        take: BATCH_SIZE,
-        where: { createdAt: { gte: windowStart }, rootPostId: null },
-        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-      });
+    const flushNextBatch = async (
+      cursorId: string | undefined,
+      batches: number,
+      postsUpdated: number
+    ): Promise<TrendingBatchState> => {
+      let postsQuery = prisma.orm.public.Posts.select(
+        "aura",
+        "createdAt",
+        "id",
+        "viewCount"
+      )
+        .include("bookmarks", (bookmarks) => bookmarks.count())
+        .include("comments", (comments) => comments.count())
+        .where((post) =>
+          and(
+            post.createdAt.gte(toPrismaDateTime(windowStart)),
+            post.rootPostId.isNull()
+          )
+        )
+        .orderBy((post) => post.id.asc())
+        .limit(BATCH_SIZE);
+      if (cursorId) {
+        postsQuery = postsQuery.cursor({ id: cursorId });
+      }
+      const posts = await postsQuery.all();
       if (posts.length === 0) {
-        break;
+        return { batches, postsUpdated };
       }
 
       const scored = posts.map((post) => ({
         id: post.id,
         score: computeTrendingScore({
           aura: post.aura,
-          bookmarkCount: post._count.bookmarks,
-          commentCount: post._count.comments,
-          createdAt: post.createdAt,
+          bookmarkCount: post.bookmarks,
+          commentCount: post.comments,
+          createdAt: fromPrismaDateTime(post.createdAt),
           now: effectiveNow,
           viewCount: post.viewCount,
         }),
       }));
-      const ids = scored.map((entry) => entry.id);
-      const scores = scored.map((entry) => entry.score);
-
-      // eslint-disable-next-line no-await-in-loop -- each batch must persist before advancing the cursor
-      await prisma.$executeRaw`
-        UPDATE posts AS p
-        SET "trendingScore" = v.score
-        FROM unnest(
-          ${ids}::text[],
-          ${scores}::float8[]
-        ) AS v(id, score)
-        WHERE p.id = v.id
-      `;
+      await prisma.transaction(async (tx) => {
+        let updates: Promise<unknown> = Promise.resolve();
+        for (const entry of scored) {
+          updates = updates.then(() =>
+            tx.orm.public.Posts.where({ id: entry.id }).update({
+              trendingScore: entry.score,
+            })
+          );
+        }
+        await updates;
+      });
 
       scoredEntries.push(...scored);
-      batches += 1;
-      postsUpdated += posts.length;
-      cursorId = posts.at(-1)?.id;
-      if (posts.length < BATCH_SIZE) {
-        break;
+      const nextState = {
+        batches: batches + 1,
+        postsUpdated: postsUpdated + posts.length,
+      };
+      const nextCursor = posts.at(-1)?.id;
+      if (posts.length < BATCH_SIZE || !nextCursor) {
+        return nextState;
       }
-    }
+      return flushNextBatch(
+        nextCursor,
+        nextState.batches,
+        nextState.postsUpdated
+      );
+    };
+
+    const { batches, postsUpdated } = await flushNextBatch(undefined, 0, 0);
 
     // Best-effort: the trending route falls back to live Postgres ordering
     // whenever no snapshot is available, so a failed publish only costs

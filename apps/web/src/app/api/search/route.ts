@@ -1,8 +1,10 @@
 import {
+  and,
   communityVisibilityWhere,
   getClientIpFromRequest,
-  getPostDataInclude,
+  getPostDataQuery,
   hydrateViewCounts,
+  mapPostData,
   prisma,
   searchSuggestionsCache,
 } from "@asm/db";
@@ -41,21 +43,21 @@ export async function GET(request: Request) {
 
   // Guests can search public posts; per-user fields simply resolve to empty.
   // Moderated posts are excluded at the DB query — never returned to the client.
-  const posts = await prisma.post.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
-    include: getPostDataInclude(user?.id ?? ""),
-    orderBy: { createdAt: "desc" },
-    take: pageSize + 1,
-    where: {
-      AND: [
-        { moderated: false },
-        { content: { contains: q, mode: "insensitive" } },
-        // Posts in PRIVATE communities stay out of global search unless the
-        // searcher is an approved member.
-        communityVisibilityWhere(user?.id ?? ""),
-      ],
-    },
-  });
+  const pattern = `%${q.replaceAll(/[\\%_]/g, "\\$&")}%`;
+  let query = getPostDataQuery(prisma.orm, user?.id ?? "")
+    .where((post) =>
+      and(
+        post.moderated.eq(false),
+        post.content.ilike(pattern),
+        communityVisibilityWhere(user?.id ?? "")(post)
+      )
+    )
+    .orderBy((post) => post.createdAt.desc());
+  if (cursor) {
+    query = query.cursor({ id: cursor }).offset(1);
+  }
+  const postRows = await query.limit(pageSize + 1).all();
+  const posts = postRows.map(mapPostData);
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));

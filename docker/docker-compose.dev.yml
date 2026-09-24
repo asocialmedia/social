@@ -47,39 +47,6 @@ services:
         echo "PostgreSQL initialization complete!"
       '
 
-  prisma-migrate:
-    profiles: ["init"]
-    container_name: asmdev-schema-init
-    build:
-      context: ..
-      dockerfile: docker/prisma.dockerfile
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
-    networks:
-      - dev_network
-    depends_on:
-      postgres-dev:
-        condition: service_healthy
-    command: ["/usr/local/bin/prisma-bootstrap.sh"]
-
-  prisma-studio:
-    profiles: ["studio", "init"]
-    container_name: asmdev-prisma-studio
-    build:
-      context: ..
-      dockerfile: docker/prisma.dockerfile
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
-    ports:
-      - "5555:5555"
-    networks:
-      - dev_network
-    depends_on:
-      postgres-dev:
-        condition: service_healthy
-    command: ["/usr/local/bin/prisma-studio.sh"]
-    restart: unless-stopped
-
   redis-dev:
     container_name: asmdev-redis
     image: redis:8.6.2

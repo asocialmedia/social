@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { POST } from "./route";
 
 type Session = { user: { id: string } } | null;
@@ -14,6 +16,7 @@ const mockCreate = mock((args: { data: Record<string, unknown> }) => {
     ...args.data,
   };
   createdConversations.push(conversation);
+  createdConversation = queryConversation("convo-1");
   return Promise.resolve(conversation);
 });
 interface ConversationRow {
@@ -21,7 +24,44 @@ interface ConversationRow {
   keys: unknown[];
   members: unknown[];
 }
+
+interface ConversationWhereCall {
+  excludedUserIds: string[];
+  includedUserIds: string[];
+}
+
+const conversationWhereCalls: ConversationWhereCall[] = [];
 const mockFindFirst = mock((): ConversationRow | null => null);
+let createdConversation: Record<string, unknown> | null = null;
+
+function queryConversation(id: string): Record<string, unknown> {
+  return {
+    createdAt: new Date(),
+    id,
+    messageConversationKeys: [],
+    messageConversationMembers: [
+      {
+        conversationId: id,
+        lastReadAt: null,
+        user: {
+          avatarUrl: null,
+          badge: null,
+          badges: [],
+          communityMembers: [],
+          communityMemberships: [],
+          displayName: "User",
+          id: "user1",
+          messageIdentities: null,
+          username: "user1",
+        },
+        userId: "user1",
+      },
+    ],
+    messages: [],
+    pairKey: "user1:user2",
+    updatedAt: new Date(),
+  };
+}
 const mockFindUniqueUser = mock((args: { where: { id: string } }) =>
   args.where.id === "user2" ? { id: "user2" } : null
 );
@@ -54,13 +94,109 @@ mock.module("@/lib/messages/server", () => ({
 }));
 
 mock.module("@asm/db", () => ({
-  prisma: {
-    follow: { findUnique: mockFollowFindUnique },
-    messageConversation: {
-      create: mockCreate,
-      findFirst: mockFindFirst,
+  ...asmDbMockBase,
+  getMessageConversationDataQuery: () => ({
+    where: (where: unknown) => {
+      if (typeof where === "function") {
+        const call: ConversationWhereCall = {
+          excludedUserIds: [],
+          includedUserIds: [],
+        };
+        const predicate = where as (conversation: {
+          messageConversationMembers: {
+            none: (
+              predicate: (member: {
+                userId: { notIn: (ids: string[]) => unknown };
+              }) => unknown
+            ) => unknown;
+            some: (
+              predicate: (member: {
+                userId: { eq: (id: string) => unknown };
+              }) => unknown
+            ) => unknown;
+          };
+        }) => unknown;
+        predicate({
+          messageConversationMembers: {
+            none: (memberPredicate) => {
+              memberPredicate({
+                userId: {
+                  notIn: (ids) => {
+                    call.excludedUserIds.push(...ids);
+                    return { op: "notIn", value: ids };
+                  },
+                },
+              });
+              return {};
+            },
+            some: (memberPredicate) => {
+              memberPredicate({
+                userId: {
+                  eq: (id) => {
+                    call.includedUserIds.push(id);
+                    return { op: "eq", value: id };
+                  },
+                },
+              });
+              return {};
+            },
+          },
+        });
+        conversationWhereCalls.push(call);
+      }
+      const query = {
+        first: () => {
+          const row = mockFindFirst();
+          if (row) {
+            return Promise.resolve(
+              "createdAt" in row ? row : queryConversation(row.id)
+            );
+          }
+          return Promise.resolve(createdConversation);
+        },
+        orderBy: () => query,
+      };
+      return query;
     },
-    user: { findUnique: mockFindUniqueUser },
+  }),
+  prisma: {
+    orm: {
+      public: {
+        Follows: {
+          select: () => ({
+            where: () => ({ first: mockFollowFindUnique }),
+          }),
+        },
+        MessageConversationMembers: {
+          create: () => Promise.resolve({}),
+        },
+        MessageConversations: {
+          create: (data: Record<string, unknown>) => mockCreate({ data }),
+        },
+        Users: {
+          select: () => ({
+            where: (where: { id: string }) => ({
+              first: () => mockFindUniqueUser({ where }),
+            }),
+          }),
+        },
+      },
+    },
+    transaction: (
+      operation: (tx: {
+        orm: { public: Record<string, unknown> };
+      }) => Promise<unknown>
+    ) =>
+      operation({
+        orm: {
+          public: {
+            MessageConversationMembers: { create: () => Promise.resolve({}) },
+            MessageConversations: {
+              create: (data: Record<string, unknown>) => mockCreate({ data }),
+            },
+          },
+        },
+      }),
   },
 }));
 
@@ -76,6 +212,8 @@ function postWith(recipientId?: string) {
 describe("POST /api/messages/conversations", () => {
   beforeEach(() => {
     createdConversations.length = 0;
+    createdConversation = null;
+    conversationWhereCalls.length = 0;
     mockCreate.mockClear();
     mockFindFirst.mockClear();
     mockFindUniqueUser.mockClear();
@@ -134,19 +272,19 @@ describe("POST /api/messages/conversations", () => {
     expect(body.conversation.id).toBe("convo-1");
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const createArgs = mockCreate.mock.calls[0]?.[0] as {
-      data: { members: { create: unknown[] }; pairKey: string };
+      data: { pairKey: string };
     };
-    expect(createArgs.data.members.create).toHaveLength(2);
-    // Deterministic pair key: the two user ids sorted and joined.
     expect(createArgs.data.pairKey).toBe("user1:user2");
   });
 
   test("looks up membership by both user ids before creating", async () => {
     await postWith("user2");
-    const findArgs = mockFindFirst.mock.calls[0]?.[0] as {
-      where: { AND: unknown[] };
-    };
-    expect(findArgs.where.AND).toHaveLength(3);
+    expect(mockFindFirst).toHaveBeenCalled();
+    expect(conversationWhereCalls).toHaveLength(1);
+    expect(conversationWhereCalls[0]).toEqual({
+      excludedUserIds: ["user1", "user2"],
+      includedUserIds: ["user1", "user2"],
+    });
   });
 
   test("returns the existing conversation on create-or-find", async () => {

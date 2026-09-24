@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 
 import {
   COMMUNITY_MAX_MODERATORS,
@@ -11,6 +12,7 @@ import {
   prisma,
   setMemberRole,
 } from "@asm/db";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 // Coverage for the community role model: joining grants PARTICIPANT, the owner
 // promotes participants to member and members to moderator, moderators may only
@@ -27,13 +29,11 @@ const PLAIN_ID = `role-plain-${RUN_ID}`;
 const SLUG = `role${RUN_ID}`;
 
 async function createUser(id: string): Promise<void> {
-  await prisma.user.create({
-    data: {
-      displayName: id,
-      email: `${id}@example.test`,
-      id,
-      username: id,
-    },
+  await prisma.orm.public.Users.create({
+    displayName: id,
+    email: `${id}@example.test`,
+    id,
+    username: id,
   });
 }
 
@@ -41,18 +41,18 @@ beforeAll(async () => {
   await createUser(OWNER_ID);
   await createUser(MOD_ID);
   await createUser(PLAIN_ID);
-  await prisma.user.update({
-    data: { aura: 100_000 },
-    where: { id: OWNER_ID },
+  await prisma.orm.public.Users.where((user) =>
+    user.id.eq(OWNER_ID)
+  ).updateAndCount({
+    aura: 100_000,
   });
-  await prisma.auraLog.create({
-    data: {
-      amount: 100_000,
-      issuerId: OWNER_ID,
-      targetUserId: OWNER_ID,
-      type: "POST_CREATION",
-      userId: OWNER_ID,
-    },
+  await prisma.orm.public.AuraLogs.create({
+    _type: "COMMUNITY_JOIN",
+    amount: 100_000,
+    id: randomUUID(),
+    issuerId: OWNER_ID,
+    targetUserId: OWNER_ID,
+    userId: OWNER_ID,
   });
   await createCommunity({
     description: "Role model integration test community.",
@@ -65,18 +65,24 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const userIds = [OWNER_ID, MOD_ID, PLAIN_ID];
-  await prisma.auraLog.deleteMany({
-    where: { OR: [{ issuerId: { in: userIds } }, { userId: { in: userIds } }] },
-  });
-  await prisma.community.deleteMany({ where: { slug: SLUG } });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  await prisma.orm.public.AuraLogs.where((log) =>
+    or(log.issuerId.in(userIds), log.userId.in(userIds))
+  ).deleteAndCount();
+  await prisma.orm.public.Communities.where((community) =>
+    community.slug.eq(SLUG)
+  ).deleteAndCount();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(userIds)
+  ).deleteAndCount();
 });
 
 async function communityId(): Promise<string> {
-  const community = await prisma.community.findUniqueOrThrow({
-    select: { id: true },
-    where: { slug: SLUG },
-  });
+  const community = await prisma.orm.public.Communities.select("id")
+    .where((candidate) => candidate.slug.eq(SLUG))
+    .first();
+  if (!community) {
+    throw new Error("community missing");
+  }
   return community.id;
 }
 
@@ -141,17 +147,15 @@ describe("community role model", () => {
     ).rejects.toThrow(CommunityError);
 
     // Cleanup the extras so afterAll's scoped delete stays simple.
-    await prisma.auraLog.deleteMany({
-      where: {
-        OR: [
-          { issuerId: { in: [...extraIds, overflowId] } },
-          { userId: { in: [...extraIds, overflowId] } },
-        ],
-      },
-    });
-    await prisma.user.deleteMany({
-      where: { id: { in: [...extraIds, overflowId] } },
-    });
+    await prisma.orm.public.AuraLogs.where((log) =>
+      or(
+        log.issuerId.in([...extraIds, overflowId]),
+        log.userId.in([...extraIds, overflowId])
+      )
+    ).deleteAndCount();
+    await prisma.orm.public.Users.where((user) =>
+      user.id.in([...extraIds, overflowId])
+    ).deleteAndCount();
   });
 
   test("a moderator cannot appoint another moderator", async () => {
@@ -221,28 +225,28 @@ describe("community role model", () => {
         )
       );
 
-      const moderators = await prisma.communityMember.count({
-        where: {
-          communityId: community.id,
-          role: "MODERATOR",
-          status: "ACTIVE",
-        },
-      });
-      expect(moderators).toBe(COMMUNITY_MAX_MODERATORS);
+      const moderators = await prisma.orm.public.CommunityMembers.where(
+        (member) =>
+          and(
+            member.communityId.eq(community.id),
+            member.role.eq("MODERATOR"),
+            member.status.eq("ACTIVE")
+          )
+      ).aggregate((aggregate) => ({ count: aggregate.count() }));
+      expect(moderators.count).toBe(COMMUNITY_MAX_MODERATORS);
       expect(
         results.filter((result) => result.status === "rejected")
       ).toHaveLength(candidates.length - COMMUNITY_MAX_MODERATORS);
     } finally {
-      await prisma.auraLog.deleteMany({
-        where: {
-          OR: [
-            { issuerId: { in: candidates } },
-            { userId: { in: candidates } },
-          ],
-        },
-      });
-      await prisma.community.deleteMany({ where: { slug } });
-      await prisma.user.deleteMany({ where: { id: { in: candidates } } });
+      await prisma.orm.public.AuraLogs.where((log) =>
+        or(log.issuerId.in(candidates), log.userId.in(candidates))
+      ).deleteAndCount();
+      await prisma.orm.public.Communities.where((candidate) =>
+        candidate.slug.eq(slug)
+      ).deleteAndCount();
+      await prisma.orm.public.Users.where((user) =>
+        user.id.in(candidates)
+      ).deleteAndCount();
     }
   });
 });

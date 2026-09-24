@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const TOKEN = "reset-token-123";
@@ -30,29 +32,37 @@ function resetState() {
 }
 
 const mockPrisma = {
-  verification: {
-    delete: (args: { where: { id: string } }) => {
-      state.deletedId = args.where.id;
-      return Promise.resolve({});
-    },
-    findFirst: (args: { where: { identifier: string } }) => {
-      state.requestedIdentifier = args.where.identifier;
-      if (!state.found) {
-        return Promise.resolve(null);
-      }
-      // Only match the better-auth reset-password:{token} identifier shape.
-      if (!args.where.identifier.startsWith("reset-password:")) {
-        return Promise.resolve(null);
-      }
-      return Promise.resolve({
-        expiresAt: state.expiresAt,
-        id: "verification-1",
-      });
+  orm: {
+    public: {
+      Verification: {
+        where: (where: { id?: string; identifier?: string }) => ({
+          delete: () => {
+            state.deletedId = where.id ?? null;
+            return Promise.resolve({});
+          },
+          first: () => {
+            const { identifier } = where;
+            if (identifier) {
+              state.requestedIdentifier = identifier;
+            }
+            if (!state.found || !identifier?.startsWith("reset-password:")) {
+              return Promise.resolve(null);
+            }
+            return Promise.resolve({
+              expiresAt: state.expiresAt,
+              id: "verification-1",
+            });
+          },
+        }),
+      },
     },
   },
 };
 
-mock.module("@asm/db", () => ({ prisma: mockPrisma }));
+mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
+  prisma: mockPrisma,
+}));
 
 function request(token: string | null): NextRequestStub {
   const url = new URL("http://localhost/api/reset-password");

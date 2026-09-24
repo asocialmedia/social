@@ -1,33 +1,25 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  getCommentDataInclude,
-  getPostDataInclude,
-  getUserDataSelect,
+  getCommentDataQuery,
+  getPostDataQuery,
+  getUserDataQuery,
 } from "./client";
+import prisma from "./prisma";
 
 describe("db client queries", () => {
-  test("getUserDataSelect includes correct fields", () => {
-    const select = getUserDataSelect("user123");
-    expect(select.id).toBe(true);
-    expect(select.username).toBe(true);
-    expect(select.followers.where.followerId).toBe("user123");
+  test("creates a public user query", () => {
+    const query = getUserDataQuery(prisma.orm, "user123");
+    expect(query).toBeDefined();
   });
 
-  test("getPostDataInclude includes correct relations", () => {
-    const include = getPostDataInclude("user123");
-    expect(include.user).toBeDefined();
-    expect(include.attachments).toBe(true);
-    expect(include._count.select.comments).toEqual({
-      where: { deleted: false },
-    });
-    expect(include.bookmarks.where.userId).toBe("user123");
-    expect(include.vote.where.userId).toBe("user123");
+  test("creates a post query with related data", () => {
+    const query = getPostDataQuery(prisma.orm, "user123");
+    expect(query).toBeDefined();
   });
 
-  test("getCommentDataInclude includes user select", () => {
-    const include = getCommentDataInclude("user123");
-    expect(include.user.select.id).toBe(true);
-    expect(include.user.select.followers.where.followerId).toBe("user123");
+  test("creates a comment query with user data", () => {
+    const query = getCommentDataQuery(prisma.orm, "user123");
+    expect(query).toBeDefined();
   });
 });

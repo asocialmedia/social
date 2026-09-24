@@ -1,3 +1,4 @@
+import { toPrismaDateTime } from "@asm/db";
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -119,7 +120,7 @@ export function useUpdateMentionsMutation(postId?: string) {
       updatePostInCaches(queryClient, postId, (post) => ({
         ...post,
         mentions: users.map((user) => ({
-          createdAt: new Date(),
+          createdAt: toPrismaDateTime(new Date()),
           id: `${postId}-${user.id}`,
           postId,
           user,

@@ -76,7 +76,7 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
         attachments: target.attachments,
         avatarUrl: target.user?.avatarUrl ?? null,
         badge: target.user?.badge,
-        badges: target.user?.badges,
+        badges: [...(target.user?.badges ?? [])],
         content: target.content,
         createdAt: target.createdAt,
         displayName: target.user?.displayName ?? undefined,

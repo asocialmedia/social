@@ -1,56 +1,13 @@
-import prisma from "./prisma";
+import { and, or } from "@prisma/orm-postgres/orm-client";
+
+import prisma, { fromPrismaDateTime, toPrismaDateTime } from "./prisma";
 import { SYSTEM_MODERATION_USER_ID } from "./users/reserved-usernames";
-
-let ensurePromise: Promise<void> | null = null;
-
-// Runtime-managed trigram indexes. Prisma cannot express GIN/trgm operator
-// classes in the schema, so these are created here on first search and dropped
-// then recreated by the production sync (see docker/prisma-sync.sh). Community
-// search rides the same lazy path as user/post search so the first directory
-// search on a fresh database is the only one that pays for index creation.
-export function ensureSearchIndexes(): Promise<void> {
-  if (!ensurePromise) {
-    ensurePromise = (async () => {
-      try {
-        await prisma.$executeRawUnsafe(
-          "CREATE EXTENSION IF NOT EXISTS pg_trgm"
-        );
-        await prisma.$executeRawUnsafe(
-          "CREATE INDEX IF NOT EXISTS idx_users_username_trgm ON users USING gin (username gin_trgm_ops)"
-        );
-        await prisma.$executeRawUnsafe(
-          `CREATE INDEX IF NOT EXISTS idx_users_displayname_trgm ON users USING gin ("displayName" gin_trgm_ops)`
-        );
-        await prisma.$executeRawUnsafe(
-          `CREATE INDEX IF NOT EXISTS idx_users_displayusername_trgm ON users USING gin ("displayUsername" gin_trgm_ops)`
-        );
-        await prisma.$executeRawUnsafe(
-          "CREATE INDEX IF NOT EXISTS idx_posts_content_trgm ON posts USING gin (content gin_trgm_ops)"
-        );
-        await prisma.$executeRawUnsafe(
-          `CREATE INDEX IF NOT EXISTS idx_communities_name_trgm ON communities USING gin (name gin_trgm_ops)`
-        );
-        await prisma.$executeRawUnsafe(
-          `CREATE INDEX IF NOT EXISTS idx_communities_slug_trgm ON communities USING gin (slug gin_trgm_ops)`
-        );
-        await prisma.$executeRawUnsafe(
-          `CREATE INDEX IF NOT EXISTS idx_communities_description_trgm ON communities USING gin (description gin_trgm_ops)`
-        );
-      } catch (error) {
-        ensurePromise = null;
-        throw error;
-      }
-    })();
-  }
-
-  return ensurePromise;
-}
 
 export interface SearchUserResult {
   aura: number;
   avatarUrl: string | null;
   badge: string | null;
-  badges: string[];
+  badges: readonly string[];
   bio: string | null;
   displayName: string;
   displayUsername: string | null;
@@ -62,19 +19,15 @@ export interface SearchPostResult {
   aura: number;
   authorAvatarUrl: string | null;
   authorBadge: string | null;
-  authorBadges: string[];
+  authorBadges: readonly string[];
   authorDisplayName: string;
   authorId: string;
   authorUsername: string;
-  // The owning community, or null for a global post. Shape matches the URL
-  // helper's target so a search result can build its canonical
-  // /a/<slug>/posts/... link directly.
   community: { slug: string } | null;
   content: string;
   createdAt: Date;
   explicitContent: boolean;
   id: string;
-  // A gust must route to /gusts, not /posts, so the URL builder needs to know.
   isGust: boolean;
   previewMedia: {
     id: string;
@@ -93,6 +46,10 @@ export interface SearchCommunityResult {
   slug: string;
 }
 
+function insensitiveContainsPattern(query: string): string {
+  return `%${query.replaceAll(/[\\%_]/g, "\\$&")}%`;
+}
+
 export async function searchUsers(
   query: string,
   limit = 10
@@ -102,45 +59,39 @@ export async function searchUsers(
     return [];
   }
 
-  await ensureSearchIndexes();
-
-  const users = await prisma.user.findMany({
-    orderBy: { aura: "desc" },
-    select: {
-      aura: true,
-      avatarUrl: true,
-      badge: true,
-      badges: true,
-      bio: true,
-      displayName: true,
-      displayUsername: true,
-      id: true,
-      username: true,
-    },
-    take: limit,
-    where: {
-      AND: [
-        { id: { not: SYSTEM_MODERATION_USER_ID } },
-        {
-          OR: [
-            { username: { contains: q, mode: "insensitive" } },
-            { displayName: { contains: q, mode: "insensitive" } },
-            { displayUsername: { contains: q, mode: "insensitive" } },
-            {
-              usernameAliases: {
-                some: {
-                  expiresAt: { gt: new Date() },
-                  username: { contains: q, mode: "insensitive" },
-                },
-              },
-            },
-          ],
-        },
-      ],
-    },
-  });
-
-  return users;
+  const pattern = insensitiveContainsPattern(q);
+  const now = toPrismaDateTime(new Date());
+  const users = await prisma.orm.public.Users.select(
+    "aura",
+    "avatarUrl",
+    "badge",
+    "badges",
+    "bio",
+    "displayName",
+    "displayUsername",
+    "id",
+    "username"
+  )
+    .where((user) =>
+      and(
+        user.id.neq(SYSTEM_MODERATION_USER_ID),
+        or(
+          user.username.ilike(pattern),
+          user.displayName.ilike(pattern),
+          user.displayUsername.ilike(pattern),
+          user.usernameAliases.some((alias) =>
+            and(alias.expiresAt.gt(now), alias.username.ilike(pattern))
+          )
+        )
+      )
+    )
+    .orderBy((user) => user.aura.desc())
+    .limit(limit)
+    .all();
+  return users.map((user) => ({
+    ...user,
+    badges: user.badges ?? [],
+  }));
 }
 
 export async function searchPosts(
@@ -152,74 +103,70 @@ export async function searchPosts(
     return [];
   }
 
-  await ensureSearchIndexes();
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "explicitContent",
+    "id",
+    "isGust",
+    "viewCount"
+  )
+    .include("postMedias", (media) =>
+      media.select("id", "thumbnailKey", "_type").limit(1)
+    )
+    .include("community", (community) => community.select("slug"))
+    .include("user", (user) =>
+      user.select(
+        "avatarUrl",
+        "badge",
+        "badges",
+        "displayName",
+        "id",
+        "username"
+      )
+    )
+    .where((post) =>
+      and(
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.content.ilike(insensitiveContainsPattern(q))
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
 
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      attachments: {
-        select: { id: true, thumbnailKey: true, type: true },
-        take: 1,
-      },
-      aura: true,
-      community: { select: { slug: true } },
-      content: true,
-      createdAt: true,
-      explicitContent: true,
-      id: true,
-      isGust: true,
-      moderated: true,
-      user: {
-        select: {
-          avatarUrl: true,
-          badge: true,
-          badges: true,
-          displayName: true,
-          id: true,
-          username: true,
-        },
-      },
-      viewCount: true,
-    },
-    take: limit,
-    where: {
-      AND: [
-        { moderated: false },
-        { rootPostId: null },
-        { content: { contains: q, mode: "insensitive" } },
-      ],
-    },
-  });
-
-  return posts
-    .filter((post) => !post.moderated)
-    .map((post) => ({
+  return posts.map((post) => {
+    if (!post.user) {
+      throw new Error(`Post ${post.id} has no author`);
+    }
+    return {
       aura: post.aura,
       authorAvatarUrl: post.user.avatarUrl,
       authorBadge: post.user.badge,
-      authorBadges: post.user.badges,
+      authorBadges: post.user.badges ?? [],
       authorDisplayName: post.user.displayName,
       authorId: post.user.id,
       authorUsername: post.user.username,
       community: post.community,
       content: post.content,
-      createdAt: post.createdAt,
+      createdAt: fromPrismaDateTime(post.createdAt),
       explicitContent: post.explicitContent,
       id: post.id,
       isGust: post.isGust,
-      previewMedia: post.attachments?.[0]
+      previewMedia: post.postMedias[0]
         ? {
-            id: post.attachments[0].id,
-            thumbnailKey: post.attachments[0].thumbnailKey,
-            type: post.attachments[0].type,
+            id: post.postMedias[0].id,
+            thumbnailKey: post.postMedias[0].thumbnailKey,
+            type: post.postMedias[0]._type,
           }
         : null,
       viewCount: post.viewCount,
-    }));
+    };
+  });
 }
 
-// Community search for the spotlight and explore surfaces. Public communities
-// only (private ones are not discoverable), ranked by member count.
 export async function searchCommunitiesForSearch(
   query: string,
   limit = 6
@@ -229,35 +176,48 @@ export async function searchCommunitiesForSearch(
     return [];
   }
 
-  await ensureSearchIndexes();
-
-  const communities = await prisma.community.findMany({
-    orderBy: [{ members: { _count: "desc" } }, { createdAt: "desc" }],
-    select: {
-      _count: { select: { members: { where: { status: "ACTIVE" } } } },
-      accentColor: true,
-      avatarUrl: true,
-      id: true,
-      name: true,
-      slug: true,
-    },
-    take: Math.min(Math.max(limit, 1), 20),
-    where: {
-      OR: [
-        { name: { contains: q, mode: "insensitive" } },
-        { slug: { contains: q, mode: "insensitive" } },
-        { description: { contains: q, mode: "insensitive" } },
-      ],
-      type: { not: "PRIVATE" },
-    },
-  });
-
-  return communities.map((community) => ({
-    accentColor: community.accentColor,
-    avatarUrl: community.avatarUrl,
-    id: community.id,
-    memberCount: community._count.members,
-    name: community.name,
-    slug: community.slug,
-  }));
+  const boundedLimit = Math.min(Math.max(limit, 1), 20);
+  const pattern = insensitiveContainsPattern(q);
+  const communities = await prisma.orm.public.Communities.select(
+    "accentColor",
+    "avatarUrl",
+    "createdAt",
+    "id",
+    "name",
+    "slug"
+  )
+    .include("communityMembers", (members) =>
+      members.where((member) => member.status.eq("ACTIVE")).count()
+    )
+    .where((community) =>
+      and(
+        community._type.neq("PRIVATE"),
+        or(
+          community.name.ilike(pattern),
+          community.slug.ilike(pattern),
+          community.description.ilike(pattern)
+        )
+      )
+    )
+    .all();
+  return communities
+    .toSorted((left, right) => {
+      const memberDifference = right.communityMembers - left.communityMembers;
+      if (memberDifference !== 0) {
+        return memberDifference;
+      }
+      const createdDifference =
+        fromPrismaDateTime(right.createdAt).getTime() -
+        fromPrismaDateTime(left.createdAt).getTime();
+      return createdDifference || left.id.localeCompare(right.id);
+    })
+    .slice(0, boundedLimit)
+    .map((community) => ({
+      accentColor: community.accentColor,
+      avatarUrl: community.avatarUrl,
+      id: community.id,
+      memberCount: community.communityMembers,
+      name: community.name,
+      slug: community.slug,
+    }));
 }

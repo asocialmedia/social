@@ -4,7 +4,7 @@ import {
   hybridSessionStore,
   validateJWTToken,
 } from "@asm/auth/core";
-import { prisma } from "@asm/db";
+import { fromPrismaDateTime, prisma } from "@asm/db";
 
 import { auth } from "./config";
 
@@ -14,21 +14,45 @@ interface UserBanState {
   banReason: string | null;
 }
 
+interface SelectedUserData extends Omit<UserBanState, "banExpires"> {
+  banExpires: unknown;
+  createdAt: unknown;
+  displayName: string;
+  email: string | null;
+  emailVerified: boolean;
+  name: string | null;
+  role: string;
+  twoFactorEnabled: boolean;
+  updatedAt: unknown;
+  username: string;
+}
+
 function selectUserData() {
+  return [
+    "banExpires",
+    "banReason",
+    "banned",
+    "createdAt",
+    "displayName",
+    "email",
+    "emailVerified",
+    "name",
+    "role",
+    "twoFactorEnabled",
+    "updatedAt",
+    "username",
+  ] as const;
+}
+
+function normalizeUserData(userData: SelectedUserData) {
   return {
-    banExpires: true,
-    banReason: true,
-    banned: true,
-    createdAt: true,
-    displayName: true,
-    email: true,
-    emailVerified: true,
-    name: true,
-    role: true,
-    twoFactorEnabled: true,
-    updatedAt: true,
-    username: true,
-  } as const;
+    ...userData,
+    banExpires: userData.banExpires
+      ? fromPrismaDateTime(userData.banExpires)
+      : null,
+    createdAt: fromPrismaDateTime(userData.createdAt),
+    updatedAt: fromPrismaDateTime(userData.updatedAt),
+  };
 }
 
 /**
@@ -55,9 +79,10 @@ async function enforceBan(
     const isExpired = userData.banExpires && userData.banExpires <= now;
 
     if (isExpired) {
-      await prisma.user.update({
-        data: { banExpires: null, banReason: null, banned: false },
-        where: { id: userId },
+      await prisma.orm.public.Users.where({ id: userId }).update({
+        banExpires: null,
+        banReason: null,
+        banned: false,
       });
     } else {
       return { session: null, user: null };
@@ -78,12 +103,14 @@ export async function getSessionFromRequest(
       const cachedSession = await hybridSessionStore.findByToken(token);
       if (cachedSession) {
         console.log("Using cached session from hybrid store");
-        const userData = await prisma.user.findUnique({
-          select: selectUserData(),
-          where: { id: cachedSession.userId },
-        });
+        const selectedUser = await prisma.orm.public.Users.select(
+          ...selectUserData()
+        )
+          .where({ id: cachedSession.userId })
+          .first();
 
-        if (userData) {
+        if (selectedUser) {
+          const userData = normalizeUserData(selectedUser);
           const banned = await enforceBan(cachedSession.userId, userData);
           if (banned) {
             return banned;
@@ -125,12 +152,14 @@ export async function getSessionFromRequest(
           return { session: null, user: null };
         }
 
-        const userData = await prisma.user.findUnique({
-          select: selectUserData(),
-          where: { id: userId },
-        });
+        const selectedUser = await prisma.orm.public.Users.select(
+          ...selectUserData()
+        )
+          .where({ id: userId })
+          .first();
 
-        if (userData) {
+        if (selectedUser) {
+          const userData = normalizeUserData(selectedUser);
           const banned = await enforceBan(userId, userData);
           if (banned) {
             return banned;
@@ -188,10 +217,9 @@ export async function getSessionFromRequest(
       return { session: null, user: null };
     }
 
-    const userData = await prisma.user.findUnique({
-      select: { username: true },
-      where: { id: session.user.id },
-    });
+    const userData = await prisma.orm.public.Users.select("username")
+      .where({ id: session.user.id })
+      .first();
 
     return {
       session: session.session,

@@ -1,19 +1,15 @@
 import {
-  getCommunityRoleSelect,
-  messageConversationInclude,
+  and,
+  fromPrismaDateTime,
+  getUserDataQuery,
+  mapUserData,
   prisma,
+  toPrismaDateTime,
 } from "@asm/db";
 
 // The server never sees plaintext, but it does validate membership, follow
 // relationships, and blocks so the API cannot be abused to spam or read
 // outside a conversation.
-
-// The members portion of the canonical include from @asm/db, so a consumer
-// that only needs the member rows (e.g. the keys route) stays in sync with the
-// full conversation include instead of drifting.
-export function getConversationMembersInclude() {
-  return { members: messageConversationInclude.members } as const;
-}
 
 // Returns the conversation only when `userId` is one of its members.
 //
@@ -27,16 +23,51 @@ export async function getConversationForUser(
   userId: string,
   options: { enforceBlocks?: boolean } = {}
 ) {
-  const conversation = await prisma.messageConversation.findUnique({
-    // `keys` (the wrapped conversation keys) is required by the client to
-    // unwrap the root key before sending or decrypting, so include it like
-    // the list and create paths do.
-    include: {
-      ...getConversationMembersInclude(),
-      keys: true,
-    },
-    where: { id: conversationId },
-  });
+  const conversationRow = await prisma.orm.public.MessageConversations.select(
+    "id",
+    "pairKey",
+    "createdAt",
+    "updatedAt"
+  )
+    .include("messageConversationMembers", (member) =>
+      member
+        .select("userId", "lastReadAt")
+        .include("user", (_user) =>
+          getUserDataQuery(prisma.orm, "").include(
+            "messageIdentities",
+            (identity) => identity.select("publicKey")
+          )
+        )
+    )
+    .include("messageConversationKeys")
+    .where({ id: conversationId })
+    .first();
+  const conversation = conversationRow
+    ? {
+        ...conversationRow,
+        createdAt: fromPrismaDateTime(conversationRow.createdAt),
+        keys: conversationRow.messageConversationKeys.map((key) => ({
+          ...key,
+          createdAt: fromPrismaDateTime(key.createdAt),
+        })),
+        members: conversationRow.messageConversationMembers.map((member) => {
+          if (!member.user) {
+            throw new Error("Conversation member has no user");
+          }
+          return {
+            ...member,
+            lastReadAt: member.lastReadAt
+              ? fromPrismaDateTime(member.lastReadAt)
+              : null,
+            user: {
+              ...mapUserData(member.user),
+              messageIdentity: member.user.messageIdentities,
+            },
+          };
+        }),
+        updatedAt: fromPrismaDateTime(conversationRow.updatedAt),
+      }
+    : null;
   if (!conversation) {
     return null;
   }
@@ -58,63 +89,53 @@ export async function getConversationForUser(
 // prevent messaging between the pair.
 export async function areBlocked(a: string, b: string): Promise<boolean> {
   const [ab, ba] = await Promise.all([
-    prisma.block.findUnique({
-      where: { blockerId_blockedId: { blockedId: b, blockerId: a } },
-    }),
-    prisma.block.findUnique({
-      where: { blockerId_blockedId: { blockedId: a, blockerId: b } },
-    }),
+    prisma.orm.public.Blocks.select("blockerId")
+      .where((block) => and(block.blockerId.eq(a), block.blockedId.eq(b)))
+      .first(),
+    prisma.orm.public.Blocks.select("blockerId")
+      .where((block) => and(block.blockerId.eq(b), block.blockedId.eq(a)))
+      .first(),
   ]);
   return Boolean(ab || ba);
 }
 
 export async function hasMessageIdentity(userId: string): Promise<boolean> {
   return (
-    (await prisma.messageIdentity.findUnique({
-      select: { userId: true },
-      where: { userId },
-    })) !== null
+    (await prisma.orm.public.MessageIdentities.select("userId")
+      .where({ userId })
+      .first()) !== null
   );
 }
 
 export function messageSenderSelect() {
-  return {
-    sender: {
-      select: {
-        avatarUrl: true,
-        badge: true,
-        badges: true,
-        // Badged community roles, so a message author shows the same role
-        // banners as everywhere else.
-        communityMemberships: getCommunityRoleSelect(),
-        displayName: true,
-        id: true,
-        username: true,
-      },
-    },
-  } as const;
+  return getUserDataQuery(prisma.orm, "");
 }
 
 // The where clause shared by every unread-message count: the current user's
 // own sent messages never accrue a badge (the writer only increments the
 // peer), and soft-deleted messages are not counted. Kept in one place so the
 // read, list, and badge-seed routes cannot drift.
+type MessageWhereCallback = (message: {
+  conversationId: { eq: (value: string) => ReturnType<typeof and> };
+  createdAt: {
+    gt: (value: ReturnType<typeof toPrismaDateTime>) => ReturnType<typeof and>;
+  };
+  deletedAt: { isNull: () => ReturnType<typeof and> };
+  senderId: { notIn: (value: string[]) => ReturnType<typeof and> };
+}) => ReturnType<typeof and>;
+
 export function unreadMessageWhere(params: {
   conversationId: string;
   lastReadAt: Date | null;
   userId: string;
-}): {
-  conversationId: string;
-  createdAt: { gt: Date };
-  deletedAt: null;
-  senderId: { not: string };
-} {
-  return {
-    conversationId: params.conversationId,
-    createdAt: { gt: params.lastReadAt ?? new Date(0) },
-    deletedAt: null,
-    senderId: { not: params.userId },
-  };
+}): MessageWhereCallback {
+  return (message) =>
+    and(
+      message.conversationId.eq(params.conversationId),
+      message.createdAt.gt(toPrismaDateTime(params.lastReadAt ?? new Date(0))),
+      message.deletedAt.isNull(),
+      message.senderId.notIn([params.userId])
+    );
 }
 
 // The sender's current ratchet index. The authoritative source is the message
@@ -129,15 +150,22 @@ export async function nextRatchetIndex(
   senderId: string
 ): Promise<number> {
   const [key, sentCount] = await Promise.all([
-    prisma.messageConversationKey.findUnique({
-      select: { ratchetCounter: true },
-      where: {
-        conversationId_ownerUserId: { conversationId, ownerUserId: senderId },
-      },
-    }),
-    prisma.message.count({ where: { conversationId, senderId } }),
+    prisma.orm.public.MessageConversationKeys.select("ratchetCounter")
+      .where((keyRow) =>
+        and(
+          keyRow.conversationId.eq(conversationId),
+          keyRow.ownerUserId.eq(senderId)
+        )
+      )
+      .first(),
+    prisma.orm.public.Messages.where((message) =>
+      and(
+        message.conversationId.eq(conversationId),
+        message.senderId.eq(senderId)
+      )
+    ).aggregate((aggregate) => ({ count: aggregate.count() })),
   ]);
-  return Math.max(key?.ratchetCounter ?? 0, sentCount);
+  return Math.max(key?.ratchetCounter ?? 0, sentCount.count);
 }
 
 // Safely parses a request body. A malformed JSON body returns null so the

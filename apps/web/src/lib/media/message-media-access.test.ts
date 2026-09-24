@@ -4,11 +4,8 @@ import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { isMessageMediaViewer } from "./message-media-access";
 
-const mockFindUnique = mock(
-  (args: { where: { conversationId_userId: { userId: string } } }) =>
-    args.where.conversationId_userId.userId === "member-1"
-      ? { conversationId: "convo-1", userId: "member-1" }
-      : null
+const mockFindUnique = mock((userId: string) =>
+  userId === "member-1" ? { conversationId: "convo-1", userId } : null
 );
 const mockFindFirst = mock(() => ({ userId: "member-2" }));
 const mockAreBlocked = mock(() => false);
@@ -24,9 +21,42 @@ const mockRedisSet = mock((key: string, value: string) => {
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   prisma: {
-    messageConversationMember: {
-      findFirst: mockFindFirst,
-      findUnique: mockFindUnique,
+    orm: {
+      public: {
+        MessageConversationMembers: {
+          select: () => ({
+            where: (
+              predicate: (candidate: {
+                conversationId: { eq: (id: string) => unknown };
+                userId: {
+                  eq: (id: string) => unknown;
+                  notIn: (ids: string[]) => unknown;
+                };
+              }) => unknown
+            ) => {
+              let viewerId = "";
+              let peerLookup = false;
+              predicate({
+                conversationId: { eq: () => ({}) },
+                userId: {
+                  eq: (id) => {
+                    viewerId = id;
+                    return {};
+                  },
+                  notIn: () => {
+                    peerLookup = true;
+                    return {};
+                  },
+                },
+              });
+              return {
+                first: () =>
+                  peerLookup ? mockFindFirst() : mockFindUnique(viewerId),
+              };
+            },
+          }),
+        },
+      },
     },
   },
   redis: {

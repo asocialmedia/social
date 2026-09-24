@@ -30,10 +30,9 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
   // Resolve the canonical (database) casing of the tag so mixed-case URLs for
   // the same tag do not split their link equity.
-  const tagRecord = await prisma.tag.findFirst({
-    select: { name: true },
-    where: { name: { equals: rawTag, mode: "insensitive" } },
-  });
+  const tagRecord = await prisma.orm.public.Tag.select("name")
+    .where((tag) => tag.name.ilike(rawTag))
+    .first();
   if (!tagRecord) {
     notFound();
   }
@@ -46,9 +45,11 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     permanentRedirect(`/hashtag/${encodeURIComponent(tagRecord.name)}`);
   }
 
-  const count = await prisma.post.count({
-    where: { tags: { some: { name: tagRecord.name } } },
-  });
+  const { count } = await prisma.orm.public.Posts.where((post) =>
+    post.postToTags.some((postTag) =>
+      postTag.tag.some((tag) => tag.name.eq(tagRecord.name))
+    )
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
 
   const title = `#${tagRecord.name} posts`;
   const description = `${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tagRecord.name} on asocialmedia. Explore the latest eddies and join the conversation.`;
@@ -102,10 +103,9 @@ async function HashtagContent({ params }: PageProps) {
     notFound();
   }
 
-  const tagRecord = await prisma.tag.findFirst({
-    select: { name: true },
-    where: { name: { equals: decodedTag, mode: "insensitive" } },
-  });
+  const tagRecord = await prisma.orm.public.Tag.select("name")
+    .where((candidate) => candidate.name.ilike(decodedTag))
+    .first();
   const canonicalName = tagRecord?.name ?? decodedTag;
   const tagUrl = absoluteUrl(`/hashtag/${encodeURIComponent(canonicalName)}`);
 

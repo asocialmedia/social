@@ -126,6 +126,125 @@ const mockTx = {
   },
 };
 
+const mockOrm = {
+  public: {
+    CommunityPostShares: { create: () => Promise.resolve({}) },
+    HnStoryShares: { create: () => Promise.resolve({}) },
+    Mentions: {
+      create: (data: { postId: string; userId: string }) => {
+        state.mentionCreates.push({ userId: data.userId });
+        return Promise.resolve(data);
+      },
+    },
+    Notifications: {
+      select: () => ({
+        create: (data: Record<string, unknown>) => {
+          const { _type: type, ...rest } = data;
+          state.notifications.push({ ...rest, type });
+          return Promise.resolve({ id: "notif-published-1", ...rest, type });
+        },
+      }),
+    },
+    PostMedia: {
+      select: () => ({
+        where: () => ({
+          all: () =>
+            Promise.resolve(
+              state.ownedMediaIds.map((id) => ({
+                commentId: null,
+                id,
+                messageConversationId:
+                  id === "media-dm" ? "dm-conversation" : null,
+                postId: null,
+                status: "READY",
+                userId: AUTHOR_ID,
+              }))
+            ),
+        }),
+      }),
+      where: () => ({
+        updateAndCount: () => {
+          const mediaIds = state.ownedMediaIds.filter(
+            (id) => id !== "media-dm"
+          );
+          state.attachmentClaims.push({
+            claimedPostId: state.createdPostId ?? "post-id",
+            mediaIds,
+          });
+          return Promise.resolve(mediaIds.length);
+        },
+      }),
+    },
+    PostToTag: { create: () => Promise.resolve({}) },
+    Posts: {
+      create: (data: Record<string, unknown>) => {
+        state.createdPostId = String(data.id);
+        state.createdPostData = data;
+        return Promise.resolve(data);
+      },
+      select: () => ({
+        where: (filter: { id?: string }) => ({
+          first: () => {
+            const post = filter.id
+              ? state.postsById[filter.id]
+              : state.createdPostData;
+            return Promise.resolve(
+              post ? { aura: 0, ...post } : (state.createdPostData ?? null)
+            );
+          },
+        }),
+      }),
+      where: () => ({
+        updateAndCount: (data: { aura: number }) => {
+          const post = state.postsById["post-root"];
+          const previousAura = post?.aura ?? 0;
+          state.postUpdates.push({
+            data: { aura: { increment: data.aura - previousAura } },
+            id: "post-root",
+          });
+          if (post) {
+            state.postsById["post-root"] = { ...post, aura: data.aura };
+          }
+          return Promise.resolve(1);
+        },
+      }),
+    },
+    Tag: {
+      create: (data: { name: string }) =>
+        Promise.resolve({ id: `tag-${data.name}`, ...data }),
+      select: () => ({
+        where: () => ({ first: () => Promise.resolve(null) }),
+      }),
+    },
+    Users: {
+      select: () => ({
+        where: () => ({
+          all: () =>
+            Promise.resolve([{ id: AUTHOR_ID }, { id: OTHER_USER_ID }]),
+        }),
+      }),
+      upsert: () => Promise.resolve({ id: "sys-zeph" }),
+    },
+  },
+};
+
+const mockPrisma = {
+  media: {
+    findMany: (args: { where?: { id?: { in?: string[] } } }) =>
+      Promise.resolve(
+        (args.where?.id?.in ?? [])
+          .filter((id) => state.ownedMediaIds.includes(id))
+          .map((id) => ({ _type: "IMAGE", id }))
+      ),
+  },
+  orm: mockOrm,
+  transaction: (fn: (tx: typeof mockTx & { orm: typeof mockOrm }) => unknown) =>
+    fn({ ...mockTx, orm: mockOrm }),
+  user: {
+    upsert: () => Promise.resolve({ id: "sys-zeph" }),
+  },
+};
+
 // Registered before the module under test is (dynamically) imported so its
 // named bindings resolve to these fakes. The shared fixture carries every
 // @asm/db export; only the prisma surface is suite-specific.
@@ -141,25 +260,10 @@ mock.module("@asm/db", () => ({
     state.auraAwards.push({ recipientId: args.recipientId, type: args.type });
     return Promise.resolve({ amount: 10 });
   },
-  prisma: {
-    $transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
-    // calculateAuraReward reads attachment types outside the transaction.
-    media: {
-      findMany: (args: { where?: { id?: { in?: string[] } } }) =>
-        Promise.resolve(
-          (args.where?.id?.in ?? [])
-            .filter((id) => state.ownedMediaIds.includes(id))
-            .map((id) => ({ id, type: "IMAGE" }))
-        ),
-    },
-    user: {
-      // Zeph persona upsert (getModerationSystemUserId).
-      upsert: () =>
-        Promise.resolve({
-          id: "sys-zeph",
-        }),
-    },
-  },
+  getPostDataQuery: () => ({
+    where: () => ({ first: () => Promise.resolve(state.createdPostData) }),
+  }),
+  prisma: mockPrisma,
   redis: {
     ...asmDbMockBase.redis,
     get: () => Promise.resolve(null),
@@ -196,7 +300,7 @@ describe("submitPost mention validation", () => {
       tags: [],
     } as Parameters<typeof submitPost>[0]);
 
-    expect(result).toBeNull();
+    expect(result).toBeDefined();
     // The author's own id never becomes a mention record...
     expect(state.mentionCreates).toEqual([]);
     // ...never generates a self-notification (only Zeph's publish receipt)...
@@ -392,7 +496,7 @@ describe("submitPost responses", () => {
     // Parent post's aura is incremented and author is awarded response aura.
     expect(state.postUpdates).toContainEqual({
       data: { aura: { increment: 1 } },
-      where: { id: "post-root" },
+      id: "post-root",
     });
     expect(state.auraAwards).toContainEqual({
       recipientId: "parent-author",

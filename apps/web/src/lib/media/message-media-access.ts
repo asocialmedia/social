@@ -1,4 +1,4 @@
-import { prisma, redis } from "@asm/db";
+import { and, prisma, redis } from "@asm/db";
 
 import { areBlocked } from "@/lib/messages/server";
 
@@ -78,18 +78,31 @@ async function checkMembership(
   conversationId: string,
   viewerId: string
 ): Promise<boolean> {
-  const member = await prisma.messageConversationMember.findUnique({
-    where: { conversationId_userId: { conversationId, userId: viewerId } },
-  });
+  const member = await prisma.orm.public.MessageConversationMembers.select(
+    "userId"
+  )
+    .where((candidate) =>
+      and(
+        candidate.conversationId.eq(conversationId),
+        candidate.userId.eq(viewerId)
+      )
+    )
+    .first();
   if (!member) {
     return false;
   }
   // Mirror the message read gate: a blocked pair loses access, not just the
   // ability to send.
-  const peer = await prisma.messageConversationMember.findFirst({
-    select: { userId: true },
-    where: { conversationId, userId: { not: viewerId } },
-  });
+  const peer = await prisma.orm.public.MessageConversationMembers.select(
+    "userId"
+  )
+    .where((candidate) =>
+      and(
+        candidate.conversationId.eq(conversationId),
+        candidate.userId.notIn([viewerId])
+      )
+    )
+    .first();
   if (peer && (await areBlocked(viewerId, peer.userId))) {
     return false;
   }

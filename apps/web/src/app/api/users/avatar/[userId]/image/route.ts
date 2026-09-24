@@ -61,10 +61,9 @@ export async function GET(
     avatarKey = cached.key;
   }
   if (!avatarKey) {
-    const user = await prisma.user.findUnique({
-      select: { avatarKey: true },
-      where: { id: userId },
-    });
+    const user = await prisma.orm.public.Users.select("avatarKey")
+      .where({ id: userId })
+      .first();
     avatarKey = user?.avatarKey ?? null;
   }
 

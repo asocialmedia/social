@@ -123,7 +123,7 @@ const MP4_FIXTURE = buildMinimalMp4Head();
 // ── Module mocks (registered before the subject import) ────────────────────
 
 interface UpdateManyData {
-  attempts?: { increment: number };
+  attempts?: number;
   detectedMime?: string;
   failureCode?: string;
   publishedKey?: string;
@@ -131,19 +131,9 @@ interface UpdateManyData {
   status?: string;
 }
 
-interface UpdateManyArgs {
-  data: UpdateManyData;
-  where: {
-    id?: string;
-    publishedKey?: string | null;
-    status?: string;
-    userId?: string;
-  };
-}
-
 function applyUpdates(current: MediaRow, data: UpdateManyData) {
-  if (data.attempts) {
-    current.attempts += data.attempts.increment;
+  if (data.attempts !== undefined) {
+    current.attempts = data.attempts;
   }
   if (data.status !== undefined) {
     current.status = data.status;
@@ -159,66 +149,171 @@ function applyUpdates(current: MediaRow, data: UpdateManyData) {
   }
 }
 
-function matchesWhere(
-  current: MediaRow,
-  where: UpdateManyArgs["where"]
-): boolean {
-  if (where.id !== undefined && where.id !== current.id) {
-    return false;
+type QueryFilter =
+  | { field: string; op: string; value: unknown }
+  | { filters: QueryFilter[]; kind: "and" }
+  | Record<string, unknown>;
+
+function queryField(
+  field: string
+): Record<string, (value: unknown) => QueryFilter> {
+  return new Proxy(
+    {},
+    {
+      get: (_target, property) => (value: unknown) => ({
+        field,
+        op: String(property),
+        value,
+      }),
+    }
+  );
+}
+
+function isAndFilter(
+  filter: QueryFilter
+): filter is { filters: QueryFilter[]; kind: "and" } {
+  return "kind" in filter && filter.kind === "and";
+}
+
+function isFieldFilter(
+  filter: QueryFilter
+): filter is { field: string; op: string; value: unknown } {
+  return "field" in filter && typeof filter.field === "string";
+}
+
+function flattenFilter(filter: QueryFilter): Record<string, unknown> {
+  if (isAndFilter(filter)) {
+    return Object.assign({}, ...filter.filters.map(flattenFilter));
   }
-  if (where.status !== undefined && where.status !== current.status) {
-    return false;
+  if (isFieldFilter(filter)) {
+    if (filter.op === "isNull") {
+      return { [filter.field]: null };
+    }
+    if (filter.op === "isNotNull") {
+      return { [filter.field]: { not: null } };
+    }
+    if (filter.op === "neq") {
+      return { [filter.field]: { not: filter.value } };
+    }
+    if (filter.op === "in") {
+      return { [filter.field]: { in: filter.value } };
+    }
+    return { [filter.field]: filter.value };
   }
-  if (
-    where.publishedKey !== undefined &&
-    (where.publishedKey ?? null) !== (current.publishedKey ?? null)
-  ) {
-    return false;
-  }
-  return true;
+  return filter;
+}
+
+function matchesFilter(current: MediaRow, filter: QueryFilter): boolean {
+  const where = flattenFilter(filter);
+  return Object.entries(where).every(([key, expected]) => {
+    if (expected && typeof expected === "object" && "not" in expected) {
+      return (
+        (current as unknown as Record<string, unknown>)[key] !== expected.not
+      );
+    }
+    if (expected && typeof expected === "object" && "in" in expected) {
+      return (expected as { in: unknown[] }).in.includes(
+        (current as unknown as Record<string, unknown>)[key]
+      );
+    }
+    return (current as unknown as Record<string, unknown>)[key] === expected;
+  });
+}
+
+function createPostMediaQuery() {
+  const filters: QueryFilter[] = [];
+  const query = {
+    all: () => Promise.resolve(row ? [{ ...row }] : []),
+    first: (filter?: { id: string }) => {
+      if (!row || (filter && row.id !== filter.id)) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve({ ...row });
+    },
+    include: () => query,
+    select: () => query,
+    update: (data: Record<string, unknown>) => {
+      const where = Object.assign({}, ...filters.map(flattenFilter));
+      updateCalls.push({ data, where });
+      if (row && matchesFilter(row, where)) {
+        applyUpdates(row, data as UpdateManyData);
+      }
+      return row ? { ...row } : null;
+    },
+    updateAndCount: (data: UpdateManyData) => {
+      const where = Object.assign({}, ...filters.map(flattenFilter));
+      const matched = Boolean(row && matchesFilter(row, where));
+      if (matched && row) {
+        applyUpdates(row, data);
+      }
+      const entry = { count: matched ? 1 : 0, data, where };
+      updateManyCalls.push(entry);
+      return entry.count;
+    },
+    where: (filter: unknown) => {
+      if (typeof filter === "function") {
+        const fields = new Proxy(
+          {},
+          {
+            get: (_target, property) => queryField(String(property)),
+          }
+        );
+        const evaluate = filter as (
+          fields: Record<
+            string,
+            Record<string, (value: unknown) => QueryFilter>
+          >
+        ) => QueryFilter;
+        filters.push(evaluate(fields));
+      } else {
+        filters.push(filter as QueryFilter);
+      }
+      return query;
+    },
+  };
+  return query;
 }
 
 mock.module("@asm/db", () => ({
-  Prisma: { DbNull: Symbol.for("test.DbNull") },
+  and: (...filters: QueryFilter[]) => ({ filters, kind: "and" }),
+  enqueueMediaAnalyze: () => Promise.resolve(),
   enqueueMediaProcess: (mediaId: string) => {
     processedEnqueues.push(mediaId);
     return Promise.resolve();
   },
+  enqueueMediaScan: () => Promise.resolve(),
   prisma: {
-    media: {
-      findFirst: () => Promise.resolve(null),
-      findUnique: ({ where }: { where: { id: string } }) =>
-        Promise.resolve(row && row.id === where.id ? { ...row } : null),
-      update: (args: {
-        data: Record<string, unknown>;
-        where: { id: string };
-      }) => Promise.resolve(updateCalls.push(args)),
-      updateMany: (args: UpdateManyArgs) => {
-        // Rejections release onto a possibly-already-updated fake row: the
-        // unconditional calls carry only an id in their where clause.
-        const unconditional = !args.where.status;
-        if (!row || (!matchesWhere(row, args.where) && !unconditional)) {
-          const entry = { count: 0, data: args.data, where: args.where };
-          updateManyCalls.push(entry);
-          return Promise.resolve(entry);
-        }
-        applyUpdates(row, args.data);
-        const entry = { count: 1, data: args.data, where: args.where };
-        updateManyCalls.push(entry);
-        return Promise.resolve(entry);
+    orm: {
+      public: {
+        PostMedia: {
+          first: (filter: { id: string }) =>
+            createPostMediaQuery().first(filter),
+          select: () => createPostMediaQuery(),
+          where: (filter: QueryFilter) => createPostMediaQuery().where(filter),
+        },
+        Users: {
+          select: () => ({
+            first: () =>
+              Promise.resolve({
+                displayName: "Test User",
+                username: "testuser",
+              }),
+            where: () => ({
+              first: () =>
+                Promise.resolve({
+                  displayName: "Test User",
+                  username: "testuser",
+                }),
+            }),
+          }),
+        },
       },
-    },
-    user: {
-      findUnique: () =>
-        Promise.resolve({
-          displayName: "Test User",
-          username: "testuser",
-        }),
     },
   },
   redis: {
     decrby: () => Promise.resolve(0),
   },
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 mock.module("../env", () => ({

@@ -5,19 +5,18 @@ import type { TrendingTopic } from "@asm/db";
 
 async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
   try {
-    const tags = await prisma.tag.findMany({
-      orderBy: { posts: { _count: "desc" } },
-      select: {
-        _count: { select: { posts: true } },
-        name: true,
-      },
-      take: 10,
-    });
+    const tags = await prisma.orm.public.Tag.select("name")
+      .include("postToTags", (postTags) =>
+        postTags.combine({ total: postTags.count() })
+      )
+      .all();
 
     return tags
-      .filter((tag) => tag._count.posts > 0)
+      .filter((tag) => tag.postToTags.total > 0)
+      .toSorted((left, right) => right.postToTags.total - left.postToTags.total)
+      .slice(0, 10)
       .map((tag) => ({
-        count: tag._count.posts,
+        count: tag.postToTags.total,
         hashtag: `#${tag.name}`,
       }));
   } catch (error) {

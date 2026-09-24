@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 const mockGetSession = mock();
 const mockSessionFindFirst = mock();
 const mockSessionFindMany = mock();
 const mockPublishSessionRevocation = mock();
 const fetchMock = mock();
+
+interface SessionWhereCall {
+  expiresAt: Date;
+  id?: string;
+  userId?: string;
+}
+
+const sessionWhereCalls: SessionWhereCall[] = [];
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
@@ -16,10 +26,49 @@ mock.module("@/lib/auth/auth-internal", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    session: {
-      findFirst: mockSessionFindFirst,
-      findMany: mockSessionFindMany,
+    orm: {
+      public: {
+        Sessions: {
+          select: () => ({
+            where: (
+              predicate: (session: {
+                expiresAt: { gt: (value: Date) => unknown };
+                id: { eq: (value: string) => unknown };
+                userId: { eq: (value: string) => unknown };
+              }) => unknown
+            ) => {
+              const call: SessionWhereCall = { expiresAt: new Date(0) };
+              predicate({
+                expiresAt: {
+                  gt: (value) => {
+                    call.expiresAt = value;
+                    return { field: "expiresAt", op: "gt", value };
+                  },
+                },
+                id: {
+                  eq: (value) => {
+                    call.id = value;
+                    return { field: "id", op: "eq", value };
+                  },
+                },
+                userId: {
+                  eq: (value) => {
+                    call.userId = value;
+                    return { field: "userId", op: "eq", value };
+                  },
+                },
+              });
+              sessionWhereCalls.push(call);
+              return {
+                first: mockSessionFindFirst,
+                orderBy: () => ({ all: mockSessionFindMany }),
+              };
+            },
+          }),
+        },
+      },
     },
   },
   publishSessionRevocation: mockPublishSessionRevocation,
@@ -45,6 +94,7 @@ describe("/api/security/sessions", () => {
     mockGetSession.mockReset();
     mockSessionFindFirst.mockReset();
     mockSessionFindMany.mockReset();
+    sessionWhereCalls.length = 0;
     mockPublishSessionRevocation.mockReset();
     fetchMock.mockReset();
 
@@ -86,22 +136,13 @@ describe("/api/security/sessions", () => {
         userAgent: "Mozilla/5.0 Chrome/140.0",
       },
     ]);
-    expect(mockSessionFindMany).toHaveBeenCalledWith({
-      orderBy: { updatedAt: "desc" },
-      select: {
-        country: true,
-        createdAt: true,
-        expiresAt: true,
-        id: true,
-        ipAddress: true,
-        updatedAt: true,
-        userAgent: true,
-      },
-      where: {
-        expiresAt: { gt: expect.any(Date) },
-        userId: "user-1",
-      },
-    });
+    expect(mockSessionFindMany).toHaveBeenCalled();
+    expect(sessionWhereCalls).toHaveLength(1);
+    expect(sessionWhereCalls[0]?.userId).toBe("user-1");
+    expect(sessionWhereCalls[0]?.id).toBeUndefined();
+    expect(sessionWhereCalls[0]?.expiresAt.getTime()).toBeGreaterThan(
+      Date.now() - 1000
+    );
   });
 
   test("uses a server-side token lookup before revoking one session", async () => {
@@ -120,6 +161,14 @@ describe("/api/security/sessions", () => {
     expect(mockPublishSessionRevocation).toHaveBeenCalledWith("user-1", {
       revokedSessionId: "session-2",
     });
+    expect(sessionWhereCalls).toHaveLength(1);
+    expect(sessionWhereCalls[0]).toMatchObject({
+      id: "session-2",
+      userId: "user-1",
+    });
+    expect(sessionWhereCalls[0]?.expiresAt.getTime()).toBeGreaterThan(
+      Date.now() - 1000
+    );
   });
 
   test("keeps destructive actions behind Better Auth's fresh-session check", async () => {

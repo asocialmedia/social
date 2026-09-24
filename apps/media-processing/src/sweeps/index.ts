@@ -12,10 +12,12 @@
 // derivative supersedes it and the retention window has passed.
 
 import {
+  and,
   enqueueMediaAnalyze,
   enqueueMediaProcess,
   enqueueMediaScan,
   prisma,
+  toPrismaDateTime,
 } from "@asm/db";
 import { Worker } from "bullmq";
 
@@ -39,17 +41,18 @@ export async function legacyMigrationSweep(): Promise<{ enqueued: number }> {
   }
   // Legacy rows: created before the pipeline, still UPLOADING with a real
   // object key and never rejected/deleted.
-  const candidates = await prisma.media.findMany({
-    orderBy: { createdAt: "asc" },
-    select: { id: true, key: true },
-    take: SWEEP_BATCH,
-    where: {
-      key: { not: "" },
-      pipelineVersion: null,
-      status: "UPLOADING",
-      url: { not: "" },
-    },
-  });
+  const candidates = await prisma.orm.public.PostMedia.select("id", "key")
+    .where((media) =>
+      and(
+        media.key.neq(""),
+        media.pipelineVersion.isNull(),
+        media.status.eq("UPLOADING"),
+        media.url.neq("")
+      )
+    )
+    .orderBy((media) => media.createdAt.asc())
+    .limit(SWEEP_BATCH)
+    .all();
 
   let enqueued = 0;
   for (const candidate of candidates) {
@@ -57,11 +60,14 @@ export async function legacyMigrationSweep(): Promise<{ enqueued: number }> {
       continue;
     }
     // Point the lifecycle at the existing object and re-run the full chain.
-    const claimed = await prisma.media.updateMany({
-      data: { originalKey: candidate.key, status: "QUARANTINED" },
-      where: { id: candidate.id, pipelineVersion: null, status: "UPLOADING" },
-    });
-    if (claimed.count > 0) {
+    const claimed = await prisma.orm.public.PostMedia.where((media) =>
+      and(
+        media.id.eq(candidate.id),
+        media.pipelineVersion.isNull(),
+        media.status.eq("UPLOADING")
+      )
+    ).updateAndCount({ originalKey: candidate.key, status: "QUARANTINED" });
+    if (claimed > 0) {
       try {
         await enqueueScanForLegacyRow(candidate.id);
         enqueued += 1;
@@ -70,9 +76,9 @@ export async function legacyMigrationSweep(): Promise<{ enqueued: number }> {
           `Legacy migration enqueue failed for ${candidate.id}:`,
           error
         );
-        await prisma.media.updateMany({
-          data: { originalKey: null, status: "UPLOADING" },
-          where: { id: candidate.id },
+        await prisma.orm.public.PostMedia.where({ id: candidate.id }).update({
+          originalKey: null,
+          status: "UPLOADING",
         });
       }
     }
@@ -106,18 +112,23 @@ export async function legacyGcSweep(): Promise<{ deletedObjects: number }> {
 
   // READY rows whose derivatives supersede the legacy raw object, older than
   // the retention window.
-  const rows = await prisma.media.findMany({
-    orderBy: { createdAt: "asc" },
-    select: { id: true, key: true, publishedKey: true },
-    take: GC_BATCH,
-    where: {
-      createdAt: { lt: cutoff },
-      key: { not: "" },
-      pipelineVersion: { not: null },
-      publishedKey: { not: null },
-      status: "READY",
-    },
-  });
+  const rows = await prisma.orm.public.PostMedia.select(
+    "id",
+    "key",
+    "publishedKey"
+  )
+    .where((media) =>
+      and(
+        media.createdAt.lt(toPrismaDateTime(cutoff)),
+        media.key.neq(""),
+        media.pipelineVersion.isNotNull(),
+        media.publishedKey.isNotNull(),
+        media.status.eq("READY")
+      )
+    )
+    .orderBy((media) => media.createdAt.asc())
+    .limit(GC_BATCH)
+    .all();
 
   let deletedObjects = 0;
   const s3 = getS3();
@@ -128,9 +139,8 @@ export async function legacyGcSweep(): Promise<{ deletedObjects: number }> {
     try {
       await s3.delete(row.key);
       deletedObjects += 1;
-      await prisma.media.update({
-        data: { key: "" }, // Legacy fallback retired; variants serve from here on.
-        where: { id: row.id },
+      await prisma.orm.public.PostMedia.where({ id: row.id }).update({
+        key: "",
       });
     } catch (error) {
       console.error(`Legacy GC failed for ${row.id}:`, error);
@@ -165,30 +175,55 @@ export async function quarantineGcSweep(): Promise<{
     Date.now() - limits.originalRetentionDays * 24 * 60 * 60 * 1000
   );
 
-  const rows = await prisma.media.findMany({
-    orderBy: { processedAt: "asc" },
-    select: { id: true, originalKey: true, size: true },
-    take: GC_BATCH,
-    where: {
-      OR: [
-        {
-          originalKey: { startsWith: "quarantine/" },
-          pipelineVersion: { not: null },
-          processedAt: { lt: cutoff },
-          publishedKey: { not: null },
-        },
-        {
-          // Only reap failed attachments past retention; orphaned FAILED
-          // drafts are already covered by the abandoned-upload reaper.
-          OR: [{ postId: { not: null } }, { commentId: { not: null } }],
-          originalKey: { startsWith: "quarantine/" },
-          pipelineVersion: { not: null },
-          processedAt: { lt: cutoff },
-          status: "FAILED",
-        },
-      ],
-    },
-  });
+  const cutoffTemporal = toPrismaDateTime(cutoff);
+  const [publishedRows, failedPostRows, failedCommentRows] = await Promise.all([
+    prisma.orm.public.PostMedia.select("id", "originalKey", "size")
+      .where((media) =>
+        and(
+          media.originalKey.like("quarantine/%"),
+          media.pipelineVersion.isNotNull(),
+          media.processedAt.lt(cutoffTemporal),
+          media.publishedKey.isNotNull()
+        )
+      )
+      .orderBy((media) => media.processedAt.asc())
+      .limit(GC_BATCH)
+      .all(),
+    prisma.orm.public.PostMedia.select("id", "originalKey", "size")
+      .where((media) =>
+        and(
+          media.originalKey.like("quarantine/%"),
+          media.pipelineVersion.isNotNull(),
+          media.processedAt.lt(cutoffTemporal),
+          media.status.eq("FAILED"),
+          media.postId.isNotNull()
+        )
+      )
+      .orderBy((media) => media.processedAt.asc())
+      .limit(GC_BATCH)
+      .all(),
+    prisma.orm.public.PostMedia.select("id", "originalKey", "size")
+      .where((media) =>
+        and(
+          media.originalKey.like("quarantine/%"),
+          media.pipelineVersion.isNotNull(),
+          media.processedAt.lt(cutoffTemporal),
+          media.status.eq("FAILED"),
+          media.commentId.isNotNull()
+        )
+      )
+      .orderBy((media) => media.processedAt.asc())
+      .limit(GC_BATCH)
+      .all(),
+  ]);
+  const rows = [
+    ...new Map(
+      [...publishedRows, ...failedPostRows, ...failedCommentRows].map((row) => [
+        row.id,
+        row,
+      ])
+    ).values(),
+  ].slice(0, GC_BATCH);
 
   let deletedObjects = 0;
   let reclaimedBytes = 0;
@@ -201,9 +236,8 @@ export async function quarantineGcSweep(): Promise<{
       await s3.delete(row.originalKey);
       deletedObjects += 1;
       reclaimedBytes += row.size;
-      await prisma.media.update({
-        data: { originalKey: null },
-        where: { id: row.id },
+      await prisma.orm.public.PostMedia.where({ id: row.id }).update({
+        originalKey: null,
       });
     } catch (error) {
       // One failed delete must not strand the batch: skip and continue so
@@ -254,24 +288,27 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   // collapse on jobId; addWithFreshId clears completed/failed jobs holding
   // the id so the re-enqueue actually lands.
   const cutoff = new Date(Date.now() - DERIVED_HEAL_GRACE_MS);
-  const candidates = await prisma.media.findMany({
-    orderBy: { processedAt: "asc" },
-    select: { id: true },
-    take: SWEEP_BATCH,
-    where: {
-      createdAt: { lt: cutoff },
-      failureCode: null,
-      processedAt: { lt: cutoff, not: null },
-      status: "READY",
-      type: { in: [...DERIVED_HEAL_TYPES] },
-    },
-  });
+  const cutoffTemporal = toPrismaDateTime(cutoff);
+  const candidates = await prisma.orm.public.PostMedia.select("id")
+    .where((media) =>
+      and(
+        media.createdAt.lt(cutoffTemporal),
+        media.failureCode.isNull(),
+        media.processedAt.lt(cutoffTemporal),
+        media.status.eq("READY"),
+        media._type.in([...DERIVED_HEAL_TYPES])
+      )
+    )
+    .orderBy((media) => media.processedAt.asc())
+    .limit(SWEEP_BATCH)
+    .all();
 
   let enqueued = 0;
   for (const row of candidates) {
-    const derivativeCount = await prisma.mediaDerivative.count({
-      where: { mediaId: row.id },
-    });
+    const { count: derivativeCount } =
+      await prisma.orm.public.PostMediaDerivatives.where({
+        mediaId: row.id,
+      }).aggregate((aggregate) => ({ count: aggregate.count() }));
     if (derivativeCount > 0) {
       continue;
     }
@@ -290,18 +327,19 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   // SCANNING is excluded because processMediaScan only claims QUARANTINED
   // rows - a stuck SCANNING row is recovered when its worker restarts and
   // the claim flips it back through the pipeline.
-  const unscanned = await prisma.media.findMany({
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-    take: SWEEP_BATCH,
-    where: {
-      createdAt: { lt: cutoff },
-      originalKey: { startsWith: "quarantine/" },
-      pipelineVersion: null,
-      status: "QUARANTINED",
-      type: { in: [...DERIVED_HEAL_TYPES] },
-    },
-  });
+  const unscanned = await prisma.orm.public.PostMedia.select("id")
+    .where((media) =>
+      and(
+        media.createdAt.lt(cutoffTemporal),
+        media.originalKey.like("quarantine/%"),
+        media.pipelineVersion.isNull(),
+        media.status.eq("QUARANTINED"),
+        media._type.in([...DERIVED_HEAL_TYPES])
+      )
+    )
+    .orderBy((media) => media.createdAt.asc())
+    .limit(SWEEP_BATCH)
+    .all();
   for (const row of unscanned) {
     try {
       // Suffix busts any dead jobId occupying the dedupe slot.
@@ -339,16 +377,20 @@ export async function transcriptionBackfillSweep(): Promise<{
   if (!workerEnv.BACKFILL_ENABLED) {
     return { enqueued: 0 };
   }
-  const candidates = await prisma.media.findMany({
-    orderBy: { createdAt: "desc" },
-    select: { id: true, techMetadata: true },
-    take: SWEEP_BATCH,
-    where: {
-      captionsKey: null,
-      status: "READY",
-      type: { in: ["VIDEO", "AUDIO"] },
-    },
-  });
+  const candidates = await prisma.orm.public.PostMedia.select(
+    "id",
+    "techMetadata"
+  )
+    .where((media) =>
+      and(
+        media.captionsKey.isNull(),
+        media.status.eq("READY"),
+        media._type.in(["VIDEO", "AUDIO"])
+      )
+    )
+    .orderBy((media) => media.createdAt.desc())
+    .limit(SWEEP_BATCH)
+    .all();
 
   let enqueued = 0;
   const now = Date.now();
@@ -420,19 +462,27 @@ export async function semanticClassificationBackfillSweep(): Promise<{
     return { enqueued: 0 };
   }
 
-  const candidates = await prisma.media.findMany({
-    orderBy: { createdAt: "asc" },
-    select: { id: true, techMetadata: true },
-    take: SWEEP_BATCH,
-    where: {
-      status: "READY",
-      techMetadata: {
-        not: SEMANTIC_CLASSIFICATION_VERSION,
-        path: ["semanticClassificationVersion"],
-      },
-      type: { in: ["AUDIO", "IMAGE", "VIDEO"] },
-    },
-  });
+  const candidateRows = await prisma.orm.public.PostMedia.select(
+    "id",
+    "techMetadata"
+  )
+    .where((media) =>
+      and(media.status.eq("READY"), media._type.in(["AUDIO", "IMAGE", "VIDEO"]))
+    )
+    .orderBy((media) => media.createdAt.asc())
+    .all();
+  const candidates = candidateRows
+    .filter((candidate) => {
+      const metadata =
+        candidate.techMetadata && typeof candidate.techMetadata === "object"
+          ? (candidate.techMetadata as Record<string, unknown>)
+          : null;
+      return (
+        metadata?.semanticClassificationVersion !==
+        SEMANTIC_CLASSIFICATION_VERSION
+      );
+    })
+    .slice(0, SWEEP_BATCH);
 
   let enqueued = 0;
   for (const candidate of candidates) {

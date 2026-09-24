@@ -108,10 +108,9 @@ export async function POST(request: Request) {
   // batch would make the client re-queue it forever, so one deleted post would
   // permanently stall every later event behind it.
   const postIds = [...new Set(events.map((event) => event.postId))];
-  const posts = await prisma.post.findMany({
-    select: { id: true },
-    where: { id: { in: postIds } },
-  });
+  const posts = await prisma.orm.public.Posts.select("id")
+    .where((post) => post.id.in(postIds))
+    .all();
   const existingPostIds = new Set(posts.map((post) => post.id));
   let acceptedEvents = events.filter((event) =>
     existingPostIds.has(event.postId)
@@ -121,22 +120,24 @@ export async function POST(request: Request) {
     return Response.json({ accepted: 0 });
   }
 
-  const insertEvents = (eventList: RecommendationEventInput[]) =>
-    prisma.recommendationEvent.createMany({
-      data: eventList.map((event) => ({
-        dedupeKey:
-          event.eventType === "IMPRESSION"
-            ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
-            : undefined,
-        durationMs: event.durationMs,
-        eventType: event.eventType,
-        postId: event.postId,
-        sessionId: session.session?.id,
-        userId,
-        value: event.value,
-      })),
-      skipDuplicates: true,
-    });
+  const insertEvents = async (eventList: RecommendationEventInput[]) => {
+    await Promise.all(
+      eventList.map((event) =>
+        prisma.orm.public.RecommendationEvents.create({
+          dedupeKey:
+            event.eventType === "IMPRESSION"
+              ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
+              : null,
+          durationMs: event.durationMs ?? null,
+          eventType: event.eventType,
+          postId: event.postId,
+          sessionId: session.session?.id ?? null,
+          userId,
+          value: event.value ?? null,
+        })
+      )
+    );
+  };
 
   try {
     await insertEvents(acceptedEvents);
@@ -148,10 +149,9 @@ export async function POST(request: Request) {
     if (!isForeignKeyError(error)) {
       throw error;
     }
-    const remainingPosts = await prisma.post.findMany({
-      select: { id: true },
-      where: { id: { in: acceptedEvents.map((event) => event.postId) } },
-    });
+    const remainingPosts = await prisma.orm.public.Posts.select("id")
+      .where((post) => post.id.in(acceptedEvents.map((event) => event.postId)))
+      .all();
     const remainingPostIds = new Set(remainingPosts.map((post) => post.id));
     acceptedEvents = acceptedEvents.filter((event) =>
       remainingPostIds.has(event.postId)

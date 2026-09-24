@@ -1,4 +1,10 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  and,
+  getPostDataQuery,
+  hydrateViewCounts,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -18,23 +24,13 @@ export async function GET(
   const pageSize = 20;
   const { userId } = await ctx.params;
 
-  const votes = await prisma.vote.findMany({
-    orderBy: [{ createdAt: "desc" }, { postId: "desc" }],
-    select: { createdAt: true, postId: true },
-    take: pageSize + 1,
-    where: { userId, value: 1 },
-    ...(cursor
-      ? {
-          cursor: {
-            userId_postId: {
-              postId: cursor,
-              userId,
-            },
-          },
-          skip: 1,
-        }
-      : {}),
-  });
+  let voteQuery = prisma.orm.public.Votes.select("createdAt", "postId")
+    .where((vote) => and(vote.userId.eq(userId), vote.value.eq(1)))
+    .orderBy([(vote) => vote.createdAt.desc(), (vote) => vote.postId.desc()]);
+  if (cursor) {
+    voteQuery = voteQuery.cursor({ postId: cursor }).offset(1);
+  }
+  const votes = await voteQuery.limit(pageSize + 1).all();
 
   const hasMore = votes.length > pageSize;
   const pageVotes = votes.slice(0, pageSize);
@@ -46,10 +42,10 @@ export async function GET(
     return Response.json({ nextCursor, posts: [] });
   }
 
-  const posts = await prisma.post.findMany({
-    include: getPostDataInclude(user.id),
-    where: { id: { in: pageVotes.map((vote) => vote.postId) } },
-  });
+  const postRows = await getPostDataQuery(prisma.orm, user.id)
+    .where((post) => post.id.in(pageVotes.map((vote) => vote.postId)))
+    .all();
+  const posts = postRows.map(mapPostData);
 
   // Preserve the vote order (most recently amplified first).
   const postById = new Map(posts.map((post) => [post.id, post]));

@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { parseJsonBody } from "@/lib/messages/server";
@@ -13,21 +13,18 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const blocks = await prisma.block.findMany({
-    include: {
-      blocked: {
-        select: {
-          avatarUrl: true,
-          displayName: true,
-          id: true,
-          username: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: BLOCK_LIST_LIMIT,
-    where: { blockerId: user.id },
-  });
+  const blocks = await prisma.orm.public.Blocks.select(
+    "blockerId",
+    "blockedId",
+    "createdAt"
+  )
+    .include("blocked", (blocked) =>
+      blocked.select("avatarUrl", "displayName", "id", "username")
+    )
+    .where((block) => block.blockerId.eq(user.id))
+    .orderBy((block) => block.createdAt.desc())
+    .limit(BLOCK_LIST_LIMIT)
+    .all();
 
   return Response.json({
     blockedUsers: blocks.map((block) => block.blocked),
@@ -51,26 +48,24 @@ export async function POST(request: Request) {
     return Response.json({ error: "Cannot block yourself" }, { status: 400 });
   }
 
-  const target = await prisma.user.findUnique({
-    select: { id: true },
-    where: { id: blockedId },
-  });
+  const target = await prisma.orm.public.Users.select("id")
+    .where({ id: blockedId })
+    .first();
   if (!target) {
     return Response.json({ error: "User not found" }, { status: 404 });
   }
 
   // Only a *fresh* block revokes key material; re-blocking an already
   // blocked pair must not keep churning the conversation keys.
-  const existingBlock = await prisma.block.findUnique({
-    select: { blockerId: true },
-    where: { blockerId_blockedId: { blockedId, blockerId: user.id } },
-  });
+  const existingBlock = await prisma.orm.public.Blocks.select("blockerId")
+    .where((block) =>
+      and(block.blockedId.eq(blockedId), block.blockerId.eq(user.id))
+    )
+    .first();
 
-  await prisma.block.upsert({
-    create: { blockedId, blockerId: user.id },
-    update: {},
-    where: { blockerId_blockedId: { blockedId, blockerId: user.id } },
-  });
+  if (!existingBlock) {
+    await prisma.orm.public.Blocks.create({ blockedId, blockerId: user.id });
+  }
 
   // Defense in depth for the E2EE layer: strip the blocked party's wrapped
   // conversation key so they can no longer fetch the root key through the API
@@ -91,16 +86,17 @@ async function revokeBlockedConversationKeys(
 ) {
   try {
     const pairKey = [blockerId, blockedId].toSorted().join(":");
-    const conversation = await prisma.messageConversation.findUnique({
-      select: { id: true },
-      where: { pairKey },
-    });
+    const conversation = await prisma.orm.public.MessageConversations.select(
+      "id"
+    )
+      .where({ pairKey })
+      .first();
     if (!conversation) {
       return;
     }
-    await prisma.messageConversationKey.deleteMany({
-      where: { conversationId: conversation.id, ownerUserId: blockedId },
-    });
+    await prisma.orm.public.MessageConversationKeys.where((key) =>
+      and(key.conversationId.eq(conversation.id), key.ownerUserId.eq(blockedId))
+    ).delete();
   } catch (error) {
     console.error("Failed to revoke blocked conversation keys:", error);
   }

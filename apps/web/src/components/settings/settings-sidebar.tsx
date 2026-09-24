@@ -38,6 +38,17 @@ interface SettingsSidebarProps {
   user: UserData;
 }
 
+type UserWithCounts = UserData & {
+  _count?: {
+    followers: number;
+    following: number;
+  };
+};
+
+function getUserCount(user: UserData, key: "followers" | "following") {
+  return (user as UserWithCounts)._count?.[key] ?? 0;
+}
+
 const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ user }) => {
   const { data: liveUserData } = useUserDataQuery(user);
   const avatarUrl = liveUserData.avatarUrl
@@ -103,8 +114,14 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ user }) => {
             </div>
             <Separator className="bg-border/60 my-2" />
             <div className="grid grid-cols-3 gap-2 px-3 pb-2.5">
-              <Stat label="Following" value={liveUserData._count.following} />
-              <Stat label="Followers" value={liveUserData._count.followers} />
+              <Stat
+                label="Following"
+                value={getUserCount(liveUserData, "following")}
+              />
+              <Stat
+                label="Followers"
+                value={getUserCount(liveUserData, "followers")}
+              />
               <Stat label="Aura" value={liveUserData.aura} />
             </div>
           </div>

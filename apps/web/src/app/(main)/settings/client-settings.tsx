@@ -1,6 +1,5 @@
 "use client";
 
-import type { PrivateUserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,6 +16,7 @@ import {
   getSettingsTab,
   isSettingsTab,
 } from "@/components/settings/settings-tab-state";
+import type { PrivateUserData } from "@/hooks/users/use-user-data";
 
 import AccountSettings from "./tabs/account-settings";
 import ProfileSettings from "./tabs/profile-settings";

@@ -1,6 +1,5 @@
 "use client";
 
-import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
 import { FileIcon, Loader2, Volume2 } from "lucide-react";
@@ -19,6 +18,7 @@ import { useUserMediaQuery } from "@/hooks/users/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/users/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
+import type { Media } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,

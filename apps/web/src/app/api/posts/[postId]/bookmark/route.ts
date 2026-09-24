@@ -1,8 +1,10 @@
 import {
+  and,
   applyFlatAward,
   applyWeightedAward,
   BOOKMARK_GIVEN_AURA,
   BOOKMARK_RECEIVED_AURA,
+  fromPrismaDateTime,
   invalidateAuraSignals,
   invalidateFypProfile,
   prisma,
@@ -28,14 +30,9 @@ export async function GET(
 
     const loggedInUser = sessionResponse.user;
 
-    const bookmark = await prisma.bookmark.findUnique({
-      where: {
-        userId_postId: {
-          postId,
-          userId: loggedInUser.id,
-        },
-      },
-    });
+    const bookmark = await prisma.orm.public.Bookmarks.where((candidate) =>
+      and(candidate.postId.eq(postId), candidate.userId.eq(loggedInUser.id))
+    ).first();
 
     const data: BookmarkInfo = {
       isBookmarkedByUser: !!bookmark,
@@ -59,10 +56,9 @@ export async function POST(
   }
   const { postId } = await ctx.params;
 
-  const post = await prisma.post.findUnique({
-    select: { id: true, userId: true },
-    where: { id: postId },
-  });
+  const post = await prisma.orm.public.Posts.select("id", "userId")
+    .where({ id: postId })
+    .first();
 
   if (!post) {
     return Response.json({ error: "Post not found" }, { status: 404 });
@@ -73,21 +69,19 @@ export async function POST(
   const isSelfBookmark = post.userId === user.id;
   let affectedAuthorId: string | null = null;
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.transaction(async (tx) => {
     // Skip when already bookmarked so repeated calls (double-clicks, retries)
     // are idempotent instead of erroring or double-awarding.
-    const existingBookmark = await tx.bookmark.findUnique({
-      where: {
-        userId_postId: { postId, userId: user.id },
-      },
-    });
+    const existingBookmark = await tx.orm.public.Bookmarks.where((bookmark) =>
+      and(bookmark.postId.eq(postId), bookmark.userId.eq(user.id))
+    ).first();
 
     if (existingBookmark) {
       return;
     }
 
     if (isSelfBookmark) {
-      await tx.bookmark.create({ data: { postId, userId: user.id } });
+      await tx.orm.public.Bookmarks.create({ postId, userId: user.id });
     } else {
       affectedAuthorId = post.userId;
 
@@ -105,14 +99,16 @@ export async function POST(
       // Recognition for the creator: weighted by the bookmarker's
       // credibility - the strongest deliberate signal, priced above an
       // amplify, tapered per pair like every engagement class.
-      const actor = await tx.user.findUnique({
-        select: { aura: true, createdAt: true },
-        where: { id: user.id },
-      });
+      const actor = await tx.orm.public.Users.select("aura", "createdAt")
+        .where({ id: user.id })
+        .first();
       let receivedAmount = 0;
       if (actor) {
         const awarded = await applyWeightedAward(tx, {
-          actor: { aura: actor.aura, createdAt: actor.createdAt },
+          actor: {
+            aura: actor.aura,
+            createdAt: fromPrismaDateTime(actor.createdAt),
+          },
           actorId: user.id,
           baseAmount: BOOKMARK_RECEIVED_AURA,
           now: new Date(),
@@ -125,13 +121,11 @@ export async function POST(
         receivedAmount = awarded.amount;
       }
 
-      await tx.bookmark.create({
-        data: {
-          authorAura: receivedAmount,
-          bookmarkerAura: givenAmount,
-          postId,
-          userId: user.id,
-        },
+      await tx.orm.public.Bookmarks.create({
+        authorAura: receivedAmount,
+        bookmarkerAura: givenAmount,
+        postId,
+        userId: user.id,
       });
     }
   });
@@ -165,10 +159,9 @@ export async function DELETE(
   }
   const { postId } = await ctx.params;
 
-  const post = await prisma.post.findUnique({
-    select: { id: true, userId: true },
-    where: { id: postId },
-  });
+  const post = await prisma.orm.public.Posts.select("id", "userId")
+    .where({ id: postId })
+    .first();
 
   if (!post) {
     return Response.json({ error: "Post not found" }, { status: 404 });
@@ -176,24 +169,28 @@ export async function DELETE(
 
   const isSelfBookmark = post.userId === user.id;
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.transaction(async (tx) => {
     // Read the stored open positions before the authoritative delete: the
     // deleteMany count decides WHO performed the logical unbookmark, and the
     // stored positions say exactly how much to unwind. Legacy bookmarks
     // (created before the economy shipped) carry zeros and reverse nothing -
     // conservative by design.
-    const bookmark = await tx.bookmark.findUnique({
-      select: { authorAura: true, bookmarkerAura: true },
-      where: { userId_postId: { postId, userId: user.id } },
-    });
+    const bookmark = await tx.orm.public.Bookmarks.select(
+      "authorAura",
+      "bookmarkerAura"
+    )
+      .where((candidate) =>
+        and(candidate.postId.eq(postId), candidate.userId.eq(user.id))
+      )
+      .first();
 
     // The delete itself is the gate: under READ COMMITTED two concurrent
     // unbookmarks can both observe the row as present, but only the
     // transaction whose deleteMany removes exactly one row performed the
     // logical unbookmark and may reverse aura.
-    const { count } = await tx.bookmark.deleteMany({
-      where: { postId, userId: user.id },
-    });
+    const count = await tx.orm.public.Bookmarks.where((candidate) =>
+      and(candidate.postId.eq(postId), candidate.userId.eq(user.id))
+    ).deleteAndCount();
 
     if (count !== 1 || !bookmark || isSelfBookmark) {
       return;

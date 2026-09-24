@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const USER_ID = "user1";
@@ -46,34 +48,6 @@ let lastLegacyArgs: {
 
 const rowsById = new Map<string, Row>();
 
-const mockPrisma = {
-  post: {
-    findMany: mock(
-      (args?: {
-        cursor?: { id: string };
-        include?: unknown;
-        orderBy?: unknown;
-        take?: number;
-        where?: unknown;
-      }) => {
-        if (!args?.orderBy) {
-          // Include-fetch for snapshot ids, order-independent.
-          const where = args?.where as { id: { in: string[] } } | undefined;
-          const wanted = where?.id.in ?? [];
-          return wanted
-            .map((id) => rowsById.get(id))
-            .filter((row): row is Row => row !== undefined);
-        }
-        // Legacy live-ordering query.
-        lastLegacyArgs = args ?? null;
-        return [...pgPosts]
-          .toSorted((a, b) => (b.trendingScore ?? 0) - (a.trendingScore ?? 0))
-          .slice(0, args?.take ?? 21);
-      }
-    ),
-  },
-};
-
 const mockHydrate = mock((posts: unknown[]) => posts);
 
 const mockFetchSnapshotPage = mock((_args: unknown) => snapshotPage);
@@ -82,12 +56,167 @@ const mockEncodeCursor = mock(
     encodeCursor({ id: cursor.postId, score: cursor.score }, cursor.generation)
 );
 
+interface PostQuery {
+  all: () => Row[];
+  cursor: (cursor: { id: string }) => PostQuery;
+  first: () => Row | null;
+  limit: (limit: number) => PostQuery;
+  offset: (offset: number) => PostQuery;
+  orderBy: (order: unknown) => PostQuery;
+  where: (
+    predicate: (post: {
+      id: {
+        desc: () => unknown;
+        in: (ids: string[]) => unknown;
+        notIn: (ids: string[]) => unknown;
+      };
+      isGust: { eq: (value: boolean) => unknown };
+      moderated: { eq: (value: boolean) => unknown };
+      rootPostId: { isNull: () => unknown };
+      trendingScore: { desc: () => unknown };
+    }) => unknown
+  ) => PostQuery;
+}
+
+function createPostQuery(): PostQuery {
+  const state = {
+    cursorId: undefined as string | undefined,
+    ids: [] as string[],
+    limit: 21,
+    live: false,
+    offset: 0,
+    orderBy: undefined as unknown,
+    where: {} as Record<string, unknown>,
+  };
+  const query: PostQuery = {
+    all: () => {
+      let rows: Row[];
+      if (snapshotPage) {
+        rows = snapshotPage.entries
+          .map((entry) => rowsById.get(entry.id))
+          .filter((row): row is Row => row !== undefined);
+      } else if (state.ids.length > 0) {
+        rows = state.ids
+          .map((id) => rowsById.get(id))
+          .filter((row): row is Row => row !== undefined);
+      } else if (state.live) {
+        rows = [...pgPosts];
+      } else {
+        rows = [...rowsById.values()];
+      }
+      if (state.where.moderated === false) {
+        rows = rows.filter((row) => !row.moderated);
+      }
+      if (state.live) {
+        lastLegacyArgs = {
+          cursor: state.cursorId ? { id: state.cursorId } : undefined,
+          orderBy: state.orderBy,
+          skip: state.offset,
+          take: state.limit,
+          where: state.where,
+        };
+        rows = rows.toSorted(
+          (a, b) => (b.trendingScore ?? 0) - (a.trendingScore ?? 0)
+        );
+      }
+      if (state.cursorId) {
+        const index = rows.findIndex((row) => row.id === state.cursorId);
+        if (index !== -1) {
+          rows = rows.slice(index + state.offset);
+        }
+      }
+      return rows.slice(0, state.limit);
+    },
+    cursor: (cursor) => {
+      state.cursorId = cursor.id;
+      return query;
+    },
+    first: () => {
+      if (state.ids.length > 0) {
+        return rowsById.get(state.ids[0] ?? "") ?? null;
+      }
+      return pgPosts[0] ?? null;
+    },
+    limit: (limit) => {
+      state.limit = limit;
+      return query;
+    },
+    offset: (offset) => {
+      state.offset = offset;
+      return query;
+    },
+    orderBy: (order) => {
+      state.orderBy = order;
+      if (Array.isArray(order)) {
+        state.live = true;
+        state.orderBy = [{ trendingScore: "desc" }, { id: "desc" }];
+        for (const expression of order) {
+          if (typeof expression === "function") {
+            expression({
+              id: { desc: () => ({}) },
+              trendingScore: { desc: () => ({}) },
+            });
+          }
+        }
+      }
+      return query;
+    },
+    where: (predicate) => {
+      const where: Record<string, unknown> = {};
+      predicate({
+        id: {
+          in: (ids) => {
+            state.ids = ids;
+            where.id = { in: ids };
+            return {};
+          },
+          notIn: (ids) => {
+            where.id = { notIn: ids };
+            return {};
+          },
+        },
+        isGust: { eq: (value) => (where.isGust = value) },
+        moderated: { eq: (value) => (where.moderated = value) },
+        rootPostId: { isNull: () => (where.rootPostId = null) },
+        trendingScore: { desc: () => ({}) },
+      });
+      state.where = where;
+      return query;
+    },
+  };
+  return query;
+}
+
+const mockPrisma = {
+  orm: {
+    public: {
+      Posts: {
+        select: () => ({
+          where: (
+            predicate: (post: {
+              id: { notIn: (ids: string[]) => unknown };
+            }) => unknown
+          ) => {
+            let excludedIds: string[] = [];
+            predicate({ id: { notIn: (ids) => (excludedIds = ids) } });
+            return {
+              first: () =>
+                pgPosts.find((post) => !excludedIds.includes(post.id)) ?? null,
+            };
+          },
+        }),
+      },
+    },
+  },
+};
+
 mock.module("@asm/db", () => ({
-  communityVisibilityWhere: () => ({}),
+  ...asmDbMockBase,
+  communityVisibilityWhere: () => () => ({}),
   encodeTrendingCursor: mockEncodeCursor,
   fetchTrendingSnapshotPage: mockFetchSnapshotPage,
   getPersonalizedFeedPage: () => ({ anchorCursor: null, posts: [] }),
-  getPostDataInclude: () => ({ user: true, vote: true }),
+  getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrate,
   isTrendingSnapshotCursor: (raw: string | undefined | null) =>
     Boolean(raw && raw.startsWith("tz1.")),
@@ -109,7 +238,6 @@ describe("GET /api/posts/trending", () => {
     mockFetchSnapshotPage.mockClear();
     mockEncodeCursor.mockClear();
     mockHydrate.mockClear();
-    mockPrisma.post.findMany.mockClear();
   });
 
   describe("snapshot path", () => {

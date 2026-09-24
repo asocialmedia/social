@@ -1,10 +1,12 @@
 "use server";
 
 import {
+  and,
   applyModerationPenalty,
   enqueuePostDeleted,
-  getPostDataInclude,
+  getPostDataQuery,
   invalidateAuraSignals,
+  mapPostData,
   invalidateCommunityPostAggregates,
   invalidateCommunityStats,
   POST_VIEWS_KEY_PREFIX,
@@ -20,6 +22,31 @@ import { updateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getModerationSystemUserId } from "@/lib/moderation/system-moderation-user";
+
+const MAX_CAS_ATTEMPTS = 8;
+
+async function updatePostAuraWithCas(
+  postId: string,
+  delta: number,
+  attemptsRemaining = MAX_CAS_ATTEMPTS
+): Promise<void> {
+  const post = await prisma.orm.public.Posts.select("aura")
+    .where({ id: postId })
+    .first();
+  if (!post) {
+    return;
+  }
+  const updated = await prisma.orm.public.Posts.where((candidate) =>
+    and(candidate.id.eq(postId), candidate.aura.eq(post.aura))
+  ).updateAndCount({ aura: post.aura + delta });
+  if (updated === 1) {
+    return;
+  }
+  if (attemptsRemaining <= 1) {
+    throw new Error("Could not update post aura");
+  }
+  return updatePostAuraWithCas(postId, delta, attemptsRemaining - 1);
+}
 
 export interface PostModerationChanges {
   explicitContent?: boolean;
@@ -44,10 +71,14 @@ export async function updatePostModeration(
     throw new Error("Unauthorized");
   }
 
-  const post = await prisma.post.findUnique({
-    select: { explicitContent: true, id: true, moderated: true, userId: true },
-    where: { id },
-  });
+  const post = await prisma.orm.public.Posts.select(
+    "explicitContent",
+    "id",
+    "moderated",
+    "userId"
+  )
+    .where({ id })
+    .first();
 
   if (!post) {
     throw new Error("Post not found");
@@ -84,44 +115,42 @@ export async function updatePostModeration(
   let confirmedFlaggedExplicit = false; // false -> true
   let confirmedUnflaggedExplicit = false; // true -> false
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await prisma.transaction(async (tx) => {
     // Moderated transition: conditional on the current DB value.
     if (data.moderated !== undefined) {
-      const flip = await tx.post.updateMany({
-        data: { moderated: data.moderated },
-        where: { id, moderated: !data.moderated },
-      });
+      const flip = await tx.orm.public.Posts.where((candidate) =>
+        and(candidate.id.eq(id), candidate.moderated.eq(!data.moderated))
+      ).updateAndCount({ moderated: data.moderated });
       if (data.moderated) {
-        confirmedModerated = flip.count === 1;
+        confirmedModerated = flip === 1;
       } else {
-        confirmedUnmoderated = flip.count === 1;
+        confirmedUnmoderated = flip === 1;
       }
     }
 
     // Explicit-content transition: conditional on the current DB value.
     if (data.explicitContent !== undefined) {
-      const flip = await tx.post.updateMany({
-        data: { explicitContent: data.explicitContent },
-        where: {
-          explicitContent: !data.explicitContent,
-          id,
-        },
-      });
+      const flip = await tx.orm.public.Posts.where((candidate) =>
+        and(
+          candidate.id.eq(id),
+          candidate.explicitContent.eq(!data.explicitContent)
+        )
+      ).updateAndCount({ explicitContent: data.explicitContent });
       if (data.explicitContent) {
-        confirmedFlaggedExplicit = flip.count === 1;
+        confirmedFlaggedExplicit = flip === 1;
       } else {
-        confirmedUnflaggedExplicit = flip.count === 1;
+        confirmedUnflaggedExplicit = flip === 1;
       }
     }
 
-    const result = await tx.post.findUnique({
-      include: getPostDataInclude(session.user.id),
-      where: { id },
-    });
+    const resultRow = await getPostDataQuery(tx.orm, session.user.id)
+      .where({ id })
+      .first();
 
-    if (!result) {
+    if (!resultRow) {
       throw new Error("Post not found");
     }
+    const result = mapPostData(resultRow);
 
     // The moderation aura penalty is applied exactly once, on the transactionally
     // confirmed false->true transition, through the audited ledger writer.
@@ -144,13 +173,11 @@ export async function updatePostModeration(
       confirmedFlaggedExplicit ||
       confirmedUnflaggedExplicit
     ) {
-      await tx.notification.create({
-        data: {
-          issuerId: systemUserId,
-          postId: id,
-          recipientId: post.userId,
-          type: "MODERATION",
-        },
+      await tx.orm.public.Notifications.create({
+        _type: "MODERATION",
+        issuerId: systemUserId,
+        postId: id,
+        recipientId: post.userId,
       });
     }
 
@@ -197,9 +224,9 @@ export async function deletePost(id: string) {
     throw new Error("Unauthorized");
   }
 
-  const post = await prisma.post.findUnique({
-    where: { id },
-  });
+  const post = await prisma.orm.public.Posts.select("userId")
+    .where({ id })
+    .first();
 
   if (!post) {
     throw new Error("Post not found");
@@ -213,17 +240,16 @@ export async function deletePost(id: string) {
   // client removes attachment rows during post.delete (emulated referential
   // action), so neither ids nor object keys can be discovered afterwards and
   // the cleanup worker would leak every S3 object.
-  const attachedMedia = await prisma.media.findMany({
-    select: {
-      derivatives: { select: { key: true } },
-      id: true,
-      key: true,
-      originalKey: true,
-      publishedKey: true,
-      thumbnailKey: true,
-    },
-    where: { postId: id },
-  });
+  const attachedMedia = await prisma.orm.public.PostMedia.select(
+    "id",
+    "key",
+    "originalKey",
+    "publishedKey",
+    "thumbnailKey"
+  )
+    .include("postMediaDerivatives", (derivative) => derivative.select("key"))
+    .where({ postId: id })
+    .all();
   const attachedMediaIds = attachedMedia.map((m) => m.id);
   const attachedObjectKeys = [
     ...new Set(
@@ -232,25 +258,32 @@ export async function deletePost(id: string) {
         m.originalKey,
         m.publishedKey,
         m.thumbnailKey,
-        ...m.derivatives.map((d) => d.key),
+        ...m.postMediaDerivatives.map((d) => d.key),
       ])
     ),
   ].filter((key): key is string => Boolean(key && key.length > 0));
 
   let reversedAuraCount = 0;
-  const deletedPost = await prisma.$transaction(async (tx) => {
+  const deletedPost = await prisma.transaction(async (tx) => {
     // Reversing creation and bonus aura prevents create-delete farming loops.
-    const creationLogs = await tx.auraLog.findMany({
-      select: { amount: true, id: true, type: true },
-      where: {
-        amount: { gt: 0 },
-        postId: id,
-        type: {
-          in: ["POST_CREATION", "POST_ATTACHMENT_BONUS", "HN_SHARE_BONUS"],
-        },
-        userId: session.user.id,
-      },
-    });
+    const creationLogs = await tx.orm.public.AuraLogs.select(
+      "amount",
+      "id",
+      "_type"
+    )
+      .where((log) =>
+        and(
+          log.amount.gt(0),
+          log.postId.eq(id),
+          log._type.in([
+            "POST_CREATION",
+            "POST_ATTACHMENT_BONUS",
+            "HN_SHARE_BONUS",
+          ]),
+          log.userId.eq(session.user.id)
+        )
+      )
+      .all();
 
     for (const log of creationLogs) {
       // oxlint-disable-next-line no-await-in-loop -- each award reversal writes to the user ledger strictly in sequence
@@ -260,22 +293,28 @@ export async function deletePost(id: string) {
         postId: id,
         recipientId: session.user.id,
         targetUserId: session.user.id,
-        type: log.type,
+        type: log._type,
       });
       reversedAuraCount += 1;
     }
 
     // Unlink any remaining aura logs from this post before deletion so foreign
     // key constraints stay valid while preserving audit history.
-    await tx.auraLog.updateMany({
-      data: { postId: null },
-      where: { postId: id },
+    await tx.orm.public.AuraLogs.where((log) =>
+      log.postId.eq(id)
+    ).updateAndCount({
+      postId: null,
     });
 
-    return await tx.post.delete({
-      include: getPostDataInclude(session.user.id),
-      where: { id },
-    });
+    const deletedRow = await getPostDataQuery(tx.orm, session.user.id)
+      .where({ id })
+      .first();
+    if (!deletedRow) {
+      throw new Error("Post not found");
+    }
+    const mappedDeletedPost = mapPostData(deletedRow);
+    await tx.orm.public.Posts.where({ id }).delete();
+    return mappedDeletedPost;
   });
 
   if (reversedAuraCount > 0) {
@@ -342,10 +381,10 @@ export async function deletePost(id: string) {
     deletedPost.parentPost.userId !== session.user.id
   ) {
     try {
-      await prisma.post.update({
-        data: { aura: { decrement: RESPONSE_RECEIVED_POST_AURA } },
-        where: { id: deletedPost.parentPostId },
-      });
+      await updatePostAuraWithCas(
+        deletedPost.parentPostId,
+        -RESPONSE_RECEIVED_POST_AURA
+      );
     } catch (error) {
       console.error(
         "Failed to decrement parent post aura on response deletion:",

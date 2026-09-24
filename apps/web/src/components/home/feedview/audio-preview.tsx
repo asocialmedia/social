@@ -1,6 +1,5 @@
 "use client";
 
-import type { Media } from "@asm/db";
 import { Pause, Play } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
@@ -10,6 +9,7 @@ import {
   extractWaveform,
 } from "@/components/posts/editor/waveform";
 import { formatFileName } from "@/lib/format-file-name";
+import type { Media } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface AudioPreviewProps {

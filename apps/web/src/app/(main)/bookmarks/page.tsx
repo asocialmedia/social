@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -37,15 +37,25 @@ async function BookmarksContent() {
   const [postBookmarkCount, gustBookmarkCount, hnBookmarkCount] =
     await Promise.all([
       // Posts excludes gusts since they have their own tab/count.
-      prisma.bookmark.count({
-        where: { post: { isGust: false }, userId: session.user.id },
-      }),
-      prisma.bookmark.count({
-        where: { post: { isGust: true }, userId: session.user.id },
-      }),
-      prisma.hNBookmark.count({
-        where: { userId: session.user.id },
-      }),
+      prisma.orm.public.Bookmarks.where((bookmark) =>
+        and(
+          bookmark.post.some((post) => post.isGust.eq(false)),
+          bookmark.userId.eq(session.user.id)
+        )
+      )
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count),
+      prisma.orm.public.Bookmarks.where((bookmark) =>
+        and(
+          bookmark.post.some((post) => post.isGust.eq(true)),
+          bookmark.userId.eq(session.user.id)
+        )
+      )
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count),
+      prisma.orm.public.HNBookmark.where({ userId: session.user.id })
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count),
     ]);
 
   return (

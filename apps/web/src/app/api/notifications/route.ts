@@ -1,4 +1,9 @@
-import { notificationsInclude, prisma } from "@asm/db";
+import {
+  and,
+  getNotificationDataQuery,
+  mapNotificationData,
+  prisma,
+} from "@asm/db";
 import type { NotificationsPage } from "@asm/db";
 import type { NextRequest } from "next/server";
 
@@ -14,16 +19,20 @@ export async function GET(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const userId = session.user.id;
-    const notifications = await prisma.notification.findMany({
-      cursor: cursor ? { id: cursor } : undefined,
-      include: notificationsInclude,
-      orderBy: { createdAt: "desc" },
-      take: pageSize + 1,
-      where: {
-        recipientId: userId,
-        ...(type === "mentions" ? { type: "MENTION" } : {}),
-      },
-    });
+    const notificationQuery = getNotificationDataQuery(prisma.orm)
+      .where((notification) =>
+        and(
+          notification.recipientId.eq(userId),
+          ...(type === "mentions" ? [notification._type.eq("MENTION")] : [])
+        )
+      )
+      .orderBy((notification) => notification.createdAt.desc())
+      .limit(pageSize + 1);
+    const notifications = await (
+      cursor ? notificationQuery.cursor({ id: cursor }) : notificationQuery
+    )
+      .all()
+      .then((rows) => rows.map(mapNotificationData));
     const nextCursor =
       notifications.length > pageSize && notifications[pageSize]
         ? notifications[pageSize].id

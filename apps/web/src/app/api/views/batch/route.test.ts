@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { POST } from "./route";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -23,16 +25,15 @@ const mockIncrementView = mock(
   }
 );
 
-const mockFindMany = mock((args: { where?: { id?: { in?: string[] } } }) => {
-  const ids = args?.where?.id?.in ?? [];
-  return ids
+const mockFindMany = mock((postIds: string[]) =>
+  postIds
     .map((id) =>
       persistedById.has(id)
         ? { id, viewCount: persistedById.get(id) as number }
         : null
     )
-    .filter((post): post is { id: string; viewCount: number } => post !== null);
-});
+    .filter((post): post is { id: string; viewCount: number } => post !== null)
+);
 
 let mockRateLimitAllowed = true;
 const mockConsumeRateLimit = mock(() =>
@@ -46,6 +47,7 @@ const mockConsumeRateLimit = mock(() =>
 );
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   consumeRateLimit: mockConsumeRateLimit,
   getClientIpFromRequest: (request: Request) =>
     request.headers.get("cf-connecting-ip") ?? "unknown",
@@ -54,8 +56,22 @@ mock.module("@asm/db", () => ({
     incrementView: mockIncrementView,
   },
   prisma: {
-    post: {
-      findMany: mockFindMany,
+    orm: {
+      public: {
+        Posts: {
+          select: () => ({
+            where: (
+              predicate: (post: {
+                id: { in: (ids: string[]) => unknown };
+              }) => unknown
+            ) => {
+              let postIds: string[] = [];
+              predicate({ id: { in: (ids) => (postIds = ids) } });
+              return { all: () => mockFindMany(postIds) };
+            },
+          }),
+        },
+      },
     },
   },
 }));

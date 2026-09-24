@@ -121,16 +121,14 @@ export async function requestPasswordReset(
     let email: string | null = null;
 
     if (EMAIL_REGEX.test(identifier)) {
-      user = await prisma.user.findUnique({
-        select: { email: true, id: true, username: true },
-        where: { email: identifier },
-      });
+      user = await prisma.orm.public.Users.select("email", "id", "username")
+        .where({ email: identifier })
+        .first();
       email = identifier;
     } else {
-      user = await prisma.user.findUnique({
-        select: { email: true, id: true, username: true },
-        where: { username: identifier },
-      });
+      user = await prisma.orm.public.Users.select("email", "id", "username")
+        .where({ username: identifier })
+        .first();
       email = user?.email || null;
     }
 

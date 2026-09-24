@@ -1,37 +1,10 @@
-import type { Prisma } from "../prisma/generated/prisma/client";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
+import { and } from "@prisma/orm-postgres/orm-client";
+
 import { communityVisibilityWhere } from "./communities/visibility";
+import type { PrismaOrm } from "./prisma";
+import { fromPrismaDateTime } from "./prisma";
 
-// The badged community roles a user holds, for the role banners on their name.
-// Shared so every user payload in the app carries the same shape. Participants
-// are excluded at the query: they carry no badge, so fetching them would be
-// dead rows on every payload in every feed. The badge rail renders one banner
-// per distinct role, and the tooltip names the communities, so each row carries
-// the community's name and slug alongside the role.
-export function getCommunityRoleSelect() {
-  return {
-    select: {
-      community: {
-        select: {
-          accentColor: true,
-          avatarUrl: true,
-          name: true,
-          slug: true,
-        },
-      },
-      role: true,
-    },
-    where: {
-      role: { in: ["OWNER", "MODERATOR", "MEMBER"] },
-      status: "ACTIVE",
-    },
-  } satisfies Prisma.CommunityMemberFindManyArgs;
-}
-
-// One community role row a user holds. Typed with the FULL role union rather
-// than the badged subset that `getCommunityRoleSelect`'s `where` guarantees:
-// Prisma cannot express a filtered relation's narrowing in its return type, and
-// the badge renderer guards with `isBadgedRole` anyway. A single cast here would
-// be needed otherwise, which is worse than an honest wider type.
 export interface CommunityRoleRow {
   community: {
     accentColor: string;
@@ -42,225 +15,384 @@ export interface CommunityRoleRow {
   role: "MEMBER" | "MODERATOR" | "OWNER" | "PARTICIPANT";
 }
 
-export function getPublicUserSelect(loggedInUserId: string) {
+type UserQueryData = ResultType<ReturnType<typeof getUserDataQuery>>;
+
+export interface UserData extends Omit<
+  UserQueryData,
+  "communityMembers" | "createdAt" | "followsFollows"
+> {
+  communityMemberships: CommunityRoleRow[];
+  createdAt: Date;
+  followers: { followerId: string }[];
+}
+
+export function mapUserData(user: UserQueryData): UserData {
+  const { communityMembers, createdAt, followsFollows, ...scalars } = user;
   return {
+    ...scalars,
+    communityMemberships: communityMembers.flatMap((membership) =>
+      membership.community
+        ? [
+            {
+              community: membership.community,
+              role: membership.role,
+            },
+          ]
+        : []
+    ),
+    createdAt: fromPrismaDateTime(createdAt),
+    followers: followsFollows,
+  };
+}
+
+export function getPublicUserQuery(orm: PrismaOrm, loggedInUserId: string) {
+  return orm.public.Users.select(
+    "aura",
+    "avatarUrl",
+    "badge",
+    "badges",
+    "bannerUrl",
+    "bio",
+    "createdAt",
+    "customDomain",
+    "displayName",
+    "displayUsername",
+    "githubUsername",
+    "id",
+    "linkedinUsername",
+    "redditUsername",
+    "twitterUsername",
+    "username"
+  )
+    .include("communityMembers", (memberships) =>
+      memberships
+        .where((member) =>
+          and(
+            member.status.eq("ACTIVE"),
+            member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+          )
+        )
+        .select("role")
+        .include("community", (community) =>
+          community.select("accentColor", "avatarUrl", "name", "slug")
+        )
+    )
+    .include("followsFollows", (follows) =>
+      follows.where({ followerId: loggedInUserId }).select("followerId")
+    );
+}
+
+export function getUserDataQuery(orm: PrismaOrm, loggedInUserId: string) {
+  return getPublicUserQuery(orm, loggedInUserId);
+}
+
+export function getPrivateUserQuery(orm: PrismaOrm, loggedInUserId: string) {
+  return orm.public.Users.select(
+    "aura",
+    "avatarKey",
+    "avatarUrl",
+    "badge",
+    "badges",
+    "bannerKey",
+    "bannerUrl",
+    "bio",
+    "createdAt",
+    "customDomain",
+    "displayName",
+    "displayUsername",
+    "email",
+    "emailVerified",
+    "githubUsername",
+    "googleId",
+    "id",
+    "lastLoginMethod",
+    "linkedinUsername",
+    "redditId",
+    "redditUsername",
+    "twitterUsername",
+    "twoFactorEnabled",
+    "username"
+  )
+    .include("communityMembers", (memberships) =>
+      memberships
+        .where((member) =>
+          and(
+            member.status.eq("ACTIVE"),
+            member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+          )
+        )
+        .select("role")
+        .include("community", (community) =>
+          community.select("accentColor", "avatarUrl", "name", "slug")
+        )
+    )
+    .include("followsFollows", (follows) =>
+      follows.where({ followerId: loggedInUserId }).select("followerId")
+    );
+}
+
+export type PrivateUserData = ResultType<
+  ReturnType<typeof getPrivateUserQuery>
+>;
+
+export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
+  return orm.public.Posts.include("bookmarks", (bookmarks) =>
+    bookmarks.combine({
+      total: bookmarks.count(),
+      viewer: bookmarks.where({ userId: loggedInUserId }).select("userId"),
+    })
+  )
+    .include("comments", (comments) =>
+      comments.where((comment) => comment.deleted.eq(false)).count()
+    )
+    .include("mentions")
+    .include("postMedias", (media) =>
+      media.select("id", "_type", "thumbnailKey").limit(1)
+    )
+    .include("posts", (responses) => responses.count())
+    .include("postToTags", (postTags) =>
+      postTags.include("tag", (tag) => tag.select("name"))
+    )
+    .include("votes", (votes) =>
+      votes.where({ userId: loggedInUserId }).select("userId", "value")
+    )
+    .include("community", (community) =>
+      community.select("accentColor", "id", "name", "slug")
+    )
+    .include("communityPostShares", (share) =>
+      share
+        .select("sourcePostId")
+        .include("community", (community) => community.select("slug"))
+    )
+    .include("hnStoryShares")
+    .include("user", (_user) => getUserDataQuery(orm, loggedInUserId))
+    .include("parentPost", (parent) =>
+      parent
+        .where(communityVisibilityWhere(loggedInUserId))
+        .select(
+          "content",
+          "createdAt",
+          "embeds",
+          "id",
+          "isGust",
+          "moderated",
+          "userId"
+        )
+        .include("postMedias", (media) => media.select("id", "_type").limit(1))
+        .include("community", (community) => community.select("slug"))
+        .include("user", (user) =>
+          user
+            .select(
+              "avatarUrl",
+              "badge",
+              "badges",
+              "displayName",
+              "id",
+              "username"
+            )
+            .include("communityMembers", (memberships) =>
+              memberships
+                .where((member) =>
+                  and(
+                    member.status.eq("ACTIVE"),
+                    member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+                  )
+                )
+                .select("role")
+                .include("community", (community) =>
+                  community.select("accentColor", "avatarUrl", "name", "slug")
+                )
+            )
+        )
+    );
+}
+
+export type PostQueryData = ResultType<ReturnType<typeof getPostDataQuery>>;
+
+export interface PostParentData {
+  attachments: {
+    id: string;
+    type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
+  }[];
+  community: { slug: string } | null;
+  content: string;
+  createdAt: Date;
+  embeds: unknown;
+  id: string;
+  isGust: boolean;
+  moderated: boolean;
+  user: CommunityRoleUser;
+  userId: string;
+}
+
+export interface PostData extends Omit<
+  PostQueryData,
+  | "bookmarks"
+  | "comments"
+  | "communityPostShares"
+  | "createdAt"
+  | "hnStoryShares"
+  | "parentPost"
+  | "postMedias"
+  | "postToTags"
+  | "posts"
+  | "user"
+  | "votes"
+> {
+  _count: {
+    bookmarks: number;
+    comments: number;
+    responses: number;
+    vote: number;
+  };
+  attachments: {
+    id: string;
+    thumbnailKey: string | null;
+    type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
+  }[];
+  bookmarks: { userId: string }[];
+  createdAt: Date;
+  communityShare: {
+    community: { slug: string };
+    sourcePostId: string;
+  } | null;
+  hnStoryShare: PostQueryData["hnStoryShares"][number] | undefined;
+  parentPost: PostParentData | null;
+  tags: { name: string }[];
+  user: UserData;
+  vote: { userId: string; value: number }[];
+  aura: number;
+}
+
+interface CommunityRoleUser {
+  avatarUrl: string | null;
+  badge: string | null;
+  badges: readonly string[];
+  communityMemberships: CommunityRoleRow[];
+  displayName: string;
+  id: string;
+  username: string;
+}
+
+export function mapPostData(post: PostQueryData): PostData {
+  if (!post.user) {
+    throw new Error(`Post ${post.id} has no author`);
+  }
+  const {
+    bookmarks,
+    communityPostShares,
+    hnStoryShares,
+    postMedias,
+    posts,
+    postToTags,
+    user,
+    votes,
+    ...scalarsAndRelations
+  } = post;
+  return {
+    ...scalarsAndRelations,
     _count: {
-      select: {
-        followers: true,
-        following: true,
-        // Posts, including responses: the profile Posts tab lists both, so the
-        // count matches what the tab actually shows.
-        posts: true,
-      },
+      bookmarks: bookmarks.total,
+      comments: post.comments,
+      responses: posts,
+      vote: votes.length,
     },
-    aura: true,
-    avatarUrl: true,
-    badge: true,
-    badges: true,
-    bannerUrl: true,
-    bio: true,
-    communityMemberships: getCommunityRoleSelect(),
-    createdAt: true,
-    customDomain: true,
-    displayName: true,
-    displayUsername: true,
-    followers: {
-      select: {
-        followerId: true,
-      },
-      where: {
-        followerId: loggedInUserId,
-      },
-    },
-    githubUsername: true,
-    id: true,
-    linkedinUsername: true,
-    redditUsername: true,
-    twitterUsername: true,
-    username: true,
-  } satisfies Prisma.UserSelect;
+    attachments: postMedias.map((media) => ({
+      id: media.id,
+      thumbnailKey: media.thumbnailKey,
+      type: media._type,
+    })),
+    bookmarks: bookmarks.viewer,
+    communityShare:
+      communityPostShares[0] && communityPostShares[0].community
+        ? {
+            community: communityPostShares[0].community,
+            sourcePostId: communityPostShares[0].sourcePostId,
+          }
+        : null,
+    createdAt: fromPrismaDateTime(post.createdAt),
+    hnStoryShare: hnStoryShares[0],
+    parentPost: post.parentPost
+      ? (() => {
+          const {
+            postMedias: parentPostMedias,
+            user: parentUser,
+            ...parent
+          } = post.parentPost;
+          if (!parentUser) {
+            throw new Error(`Post ${post.parentPost.id} has no author`);
+          }
+          return {
+            ...parent,
+            attachments: parentPostMedias.map((media) => ({
+              id: media.id,
+              type: media._type,
+            })),
+            createdAt: fromPrismaDateTime(parent.createdAt),
+            user: {
+              avatarUrl: parentUser.avatarUrl,
+              badge: parentUser.badge,
+              badges: parentUser.badges ?? [],
+              communityMemberships: parentUser.communityMembers.flatMap(
+                (membership) =>
+                  membership.community
+                    ? [
+                        {
+                          community: membership.community,
+                          role: membership.role,
+                        },
+                      ]
+                    : []
+              ),
+              displayName: parentUser.displayName,
+              id: parentUser.id,
+              username: parentUser.username,
+            },
+          };
+        })()
+      : null,
+    tags: postToTags.flatMap((postTag) => (postTag.tag ? [postTag.tag] : [])),
+    user: mapUserData(user),
+    vote: votes,
+  };
 }
-
-export function getUserDataSelect(loggedInUserId: string) {
-  return getPublicUserSelect(loggedInUserId);
-}
-
-export function getPrivateUserSelect(loggedInUserId: string) {
-  return {
-    ...getPublicUserSelect(loggedInUserId),
-    avatarKey: true,
-    bannerKey: true,
-    email: true,
-    emailVerified: true,
-    googleId: true,
-    lastLoginMethod: true,
-    redditId: true,
-    twoFactorEnabled: true,
-  } satisfies Prisma.UserSelect;
-}
-
-export type PrivateUserData = Prisma.UserGetPayload<{
-  select: ReturnType<typeof getPrivateUserSelect>;
-}>;
-
-export function getPostDataInclude(loggedInUserId: string) {
-  return {
-    _count: {
-      select: {
-        comments: {
-          where: {
-            deleted: false,
-          },
-        },
-        mentions: true,
-        // Direct responses only (one level), matching the action-bar count.
-        responses: true,
-        vote: true,
-      },
-    },
-    attachments: true,
-    bookmarks: {
-      select: {
-        userId: true,
-      },
-      where: {
-        userId: loggedInUserId,
-      },
-    },
-    // Native community post: the compact community identity drives the accent
-    // rail and the a/<slug> attribution on the card. Null for global posts.
-    community: {
-      select: {
-        accentColor: true,
-        id: true,
-        name: true,
-        slug: true,
-      },
-    },
-    // Reshare of a community post onto the global feed: carries the source
-    // post id and the community it came from for the attribution card.
-    communityShare: {
-      select: {
-        community: {
-          select: {
-            accentColor: true,
-            id: true,
-            name: true,
-            slug: true,
-          },
-        },
-        sourcePostId: true,
-      },
-    },
-    hnStoryShare: true,
-    mentions: {
-      include: {
-        user: {
-          select: {
-            avatarUrl: true,
-            displayName: true,
-            id: true,
-            username: true,
-          },
-        },
-      },
-    },
-    // Compact embedded parent for responses: enough to render the quoted card
-    // (or a tombstone when `parentPost` is null but `parentPostId` is set)
-    // without dragging the parent's full include into every feed row.
-    //
-    // Scoped by the same community visibility as every other read. A reply's
-    // `communityId` is the REPLIER's choice, not inherited from the parent, so
-    // a member can reply to a post inside a PRIVATE community and publish that
-    // reply globally. Without this filter the embedded parent would ship the
-    // private post's content to every reader of the reply, including guests -
-    // the reply would be a backdoor around communityVisibilityWhere.
-    parentPost: {
-      select: {
-        attachments: {
-          select: {
-            id: true,
-            type: true,
-          },
-          take: 1,
-        },
-        // Lets the quoted parent row link a community parent to its canonical
-        // /a/<slug>/posts/... address.
-        community: { select: { slug: true } },
-        content: true,
-        createdAt: true,
-        embeds: true,
-        id: true,
-        isGust: true,
-        moderated: true,
-        user: {
-          select: {
-            avatarUrl: true,
-            badge: true,
-            badges: true,
-            // Badged community roles, so the quoted parent card's author shows
-            // the same role banners as the main card.
-            communityMemberships: getCommunityRoleSelect(),
-            displayName: true,
-            id: true,
-            username: true,
-          },
-        },
-        userId: true,
-      },
-      where: communityVisibilityWhere(loggedInUserId),
-    },
-    tags: true,
-    user: {
-      select: getUserDataSelect(loggedInUserId),
-    },
-    vote: {
-      select: {
-        userId: true,
-        value: true,
-      },
-      where: {
-        userId: loggedInUserId,
-      },
-    },
-  } satisfies Prisma.PostInclude;
-}
-
-export type UserData = Prisma.UserGetPayload<{
-  select: ReturnType<typeof getUserDataSelect>;
-}>;
 
 export interface PostsPage {
   nextCursor: string | null;
   posts: PostData[];
 }
 
-export function getCommentDataInclude(loggedInUserId: string) {
-  return {
-    _count: {
-      select: {
-        votes: true,
-      },
-    },
-    attachments: true,
-    user: {
-      select: getUserDataSelect(loggedInUserId),
-    },
-    votes: {
-      select: {
-        userId: true,
-        value: true,
-      },
-      where: {
-        userId: loggedInUserId,
-      },
-    },
-  } satisfies Prisma.CommentInclude;
+export function getCommentDataQuery(orm: PrismaOrm, loggedInUserId: string) {
+  return orm.public.Comments.include("commentVotes", (commentVotes) =>
+    commentVotes.where({ userId: loggedInUserId }).select("userId", "value")
+  ).include("user", (_user) => getUserDataQuery(orm, loggedInUserId));
 }
 
-export type CommentData = Prisma.CommentGetPayload<{
-  include: ReturnType<typeof getCommentDataInclude>;
-}>;
+export type CommentQueryData = ResultType<
+  ReturnType<typeof getCommentDataQuery>
+>;
+
+export interface CommentData extends Omit<
+  CommentQueryData,
+  "commentVotes" | "createdAt" | "user"
+> {
+  createdAt: Date;
+  user: UserData;
+  vote: CommentQueryData["commentVotes"];
+}
+
+export function mapCommentData(comment: CommentQueryData): CommentData {
+  if (!comment.user) {
+    throw new Error(`Comment ${comment.id} has no author`);
+  }
+  const { commentVotes, createdAt, user, ...rest } = comment;
+  return {
+    ...rest,
+    createdAt: fromPrismaDateTime(createdAt),
+    user: mapUserData(user),
+    vote: commentVotes,
+  };
+}
 
 export interface CommentVoteInfo {
   aura: number;
@@ -272,53 +404,52 @@ export interface CommentsPage {
   previousCursor: string | null;
 }
 
-export const notificationsInclude = {
-  comment: {
-    select: {
-      id: true,
-      parent: {
-        select: {
-          userId: true,
-        },
-      },
-      parentId: true,
-    },
-  },
-  // Set on COMMUNITY_POST notifications: the community whose activity the
-  // notification batches, so the row can show the community's identity and
-  // link to its namespace instead of an individual author.
-  community: {
-    select: {
-      accentColor: true,
-      id: true,
-      name: true,
-      slug: true,
-    },
-  },
-  issuer: {
-    select: {
-      avatarUrl: true,
-      displayName: true,
-      id: true,
-      username: true,
-    },
-  },
-  post: {
-    select: {
-      // The community slug lets a notification link a community post to its
-      // canonical /a/<slug>/posts/... address instead of the global path.
-      community: { select: { slug: true } },
-      content: true,
-      id: true,
-      isGust: true,
-      parentPostId: true,
-    },
-  },
-} satisfies Prisma.NotificationInclude;
+export function getNotificationDataQuery(orm: PrismaOrm) {
+  return orm.public.Notifications.include("comment", (comment) =>
+    comment
+      .select("id", "parentId")
+      .include("parent", (parent) => parent.select("userId"))
+  )
+    .include("community", (community) =>
+      community.select("accentColor", "id", "name", "slug")
+    )
+    .include("issuer", (issuer) =>
+      issuer.select("avatarUrl", "displayName", "id", "username")
+    )
+    .include("post", (post) =>
+      post
+        .select("content", "id", "isGust", "parentPostId")
+        .include("community", (community) => community.select("slug"))
+    );
+}
 
-export type NotificationData = Prisma.NotificationGetPayload<{
-  include: typeof notificationsInclude;
-}>;
+export type NotificationQueryData = ResultType<
+  ReturnType<typeof getNotificationDataQuery>
+>;
+
+export interface NotificationData extends Omit<
+  NotificationQueryData,
+  "_type" | "createdAt" | "issuer"
+> {
+  createdAt: Date;
+  issuer: NonNullable<NotificationQueryData["issuer"]>;
+  type: NotificationQueryData["_type"];
+}
+
+export function mapNotificationData(
+  notification: NotificationQueryData
+): NotificationData {
+  const { _type, createdAt, issuer, ...rest } = notification;
+  if (!issuer) {
+    throw new Error(`Notification ${notification.id} has no issuer`);
+  }
+  return {
+    ...rest,
+    createdAt: fromPrismaDateTime(createdAt),
+    issuer,
+    type: _type,
+  };
+}
 
 export interface NotificationsPage {
   nextCursor: string | null;
@@ -329,17 +460,6 @@ export interface FollowerInfo {
   followers: number;
   isFollowedByUser: boolean;
 }
-
-// Derived from the single source of truth (getPostDataInclude) so new relation
-// projections stay in sync automatically.
-export type PostData = Prisma.PostGetPayload<{
-  include: ReturnType<typeof getPostDataInclude>;
-}> & {
-  aura: number;
-};
-
-// The compact embedded parent carried on a response row.
-export type PostParentData = NonNullable<PostData["parentPost"]>;
 
 export interface ResponsesPage {
   previousCursor: string | null;
@@ -369,52 +489,36 @@ export interface NotificationCountInfo {
   unreadCount: number;
 }
 
-// E2EE message shapes. The server only ever sees ciphertext; the include below
-// is intentionally lean (no plaintext fields to leak).
-export const messageConversationInclude = {
-  keys: true,
-  members: {
-    include: {
-      user: {
-        select: {
-          avatarUrl: true,
-          badge: true,
-          badges: true,
-          // Badged community roles, so the conversation header and message
-          // rows show the same role banners as every other surface.
-          communityMemberships: getCommunityRoleSelect(),
-          displayName: true,
-          id: true,
-          messageIdentity: {
-            select: { publicKey: true },
-          },
-          username: true,
-        },
-      },
-    },
-  },
-} satisfies Prisma.MessageConversationInclude;
+export function getMessageConversationDataQuery(orm: PrismaOrm) {
+  return orm.public.MessageConversations.include(
+    "messageConversationKeys"
+  ).include("messageConversationMembers", (members) =>
+    members.include("user", (user) =>
+      user
+        .select("avatarUrl", "badge", "badges", "displayName", "id", "username")
+        .include("communityMembers", (memberships) =>
+          memberships
+            .where((member) =>
+              and(
+                member.status.eq("ACTIVE"),
+                member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+              )
+            )
+            .select("role")
+            .include("community", (community) =>
+              community.select("accentColor", "avatarUrl", "name", "slug")
+            )
+        )
+        .include("messageIdentities", (identity) =>
+          identity.select("publicKey")
+        )
+    )
+  );
+}
 
-export type MessageConversationData = Prisma.MessageConversationGetPayload<{
-  include: typeof messageConversationInclude;
-}>;
-
-export const messageInclude = {
-  sender: {
-    select: {
-      avatarUrl: true,
-      badge: true,
-      badges: true,
-      displayName: true,
-      id: true,
-      username: true,
-    },
-  },
-} satisfies Prisma.MessageInclude;
-
-export type MessageData = Prisma.MessageGetPayload<{
-  include: typeof messageInclude;
-}>;
+export type MessageConversationData = ResultType<
+  ReturnType<typeof getMessageConversationDataQuery>
+>;
 
 export interface MessagePage {
   messages: MessageData[];
@@ -428,8 +532,6 @@ export interface ConversationListPage {
 
 export interface BookmarkCountInfo {
   totalCount: number;
-  // Split by kind so the bookmarks page tabs and sidebar tiles can show
-  // per-category counts from one shared, reactive query.
   gustCount: number;
   hnCount: number;
   postCount: number;
@@ -465,6 +567,21 @@ export interface SignUpFormProps {
   onSuccess?: () => void;
 }
 
+export function getMessageDataQuery(orm: PrismaOrm) {
+  return orm.public.Messages.include("sender", (sender) =>
+    sender.select(
+      "avatarUrl",
+      "badge",
+      "badges",
+      "displayName",
+      "id",
+      "username"
+    )
+  );
+}
+
+export type MessageData = ResultType<ReturnType<typeof getMessageDataQuery>>;
+
 export interface MentionData {
   createdAt: Date;
   id: string;
@@ -478,16 +595,11 @@ export interface MentionData {
   userId: string;
 }
 
-export const mentionsInclude = {
-  user: {
-    select: {
-      avatarUrl: true,
-      displayName: true,
-      id: true,
-      username: true,
-    },
-  },
-} satisfies Prisma.MentionInclude;
+export function getMentionDataQuery(orm: PrismaOrm) {
+  return orm.public.Mentions.include("user", (user) =>
+    user.select("avatarUrl", "displayName", "id", "username")
+  );
+}
 
 export interface UnfollowUserDialogProps {
   handleUnfollow: (userId: string) => void;
@@ -495,5 +607,3 @@ export interface UnfollowUserDialogProps {
   open: boolean;
   user: UserData;
 }
-
-export * from "../prisma/generated/prisma/client";

@@ -17,9 +17,10 @@ const POST_ID = "cmsoxrlww0000m3vnr2xf0v6h";
 const TEST_USER_ID = "cmsoxrlww0000m3vnr2xf0v6u";
 
 async function resetPostCounters() {
-  await prisma.post.update({
-    data: { aura: 0, lastAwardedViewCount: 0, viewCount: 0 },
-    where: { id: POST_ID },
+  await prisma.orm.public.Posts.where({ id: POST_ID }).update({
+    aura: 0,
+    lastAwardedViewCount: 0,
+    viewCount: 0,
   });
   await redis.del(`${POST_VIEWS_KEY_PREFIX}${POST_ID}`);
   await redis.srem(POST_VIEWS_SET, POST_ID);
@@ -31,7 +32,8 @@ describe("event-driven worker integration", () => {
     // Self-sufficient fixtures: the suite must never depend on seed data,
     // so the author and the post are upserted under deterministic ids and
     // reaped again below.
-    await prisma.user.upsert({
+    await prisma.orm.public.Users.upsert({
+      conflictOn: { id: TEST_USER_ID },
       create: {
         displayName: "Worker Integration Test",
         email: "worker-integration-test@asocialmedia.cc",
@@ -39,22 +41,21 @@ describe("event-driven worker integration", () => {
         username: "worker-integration-test",
       },
       update: {},
-      where: { id: TEST_USER_ID },
     });
-    await prisma.post.upsert({
+    await prisma.orm.public.Posts.upsert({
+      conflictOn: { id: POST_ID },
       create: {
         content: "worker integration fixture post",
         id: POST_ID,
         userId: TEST_USER_ID,
       },
       update: {},
-      where: { id: POST_ID },
     });
   });
 
   afterAll(async () => {
-    await prisma.post.deleteMany({ where: { id: POST_ID } });
-    await prisma.user.deleteMany({ where: { id: TEST_USER_ID } });
+    await prisma.orm.public.Posts.where({ id: POST_ID }).deleteAndCount();
+    await prisma.orm.public.Users.where({ id: TEST_USER_ID }).deleteAndCount();
   });
 
   test("computeViewAura awards 5 aura at the 50-view milestone", () => {
@@ -110,7 +111,9 @@ describe("event-driven worker integration", () => {
   test("processPostDeleted is idempotent on a post with no media", async () => {
     // Use a post with no attachments; it should complete without error.
     await processPostDeleted({ postId: POST_ID });
-    const media = await prisma.media.findMany({ where: { postId: POST_ID } });
+    const media = await prisma.orm.public.PostMedia.where({
+      postId: POST_ID,
+    }).all();
     expect(media).toEqual([]);
   });
 });

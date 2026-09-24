@@ -1,4 +1,4 @@
-import { communityVisibilityWhere, MediaType, prisma } from "@asm/db";
+import { and, communityVisibilityWhere, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -16,41 +16,35 @@ export async function GET(
   const pageSize = 24;
   const { userId } = await ctx.params;
 
-  const media = await prisma.media.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
-    include: {
-      // Lets the gallery route gust media to /gusts instead of /posts, and
-      // carries the moderation state so tiles can blur explicit media or show
-      // the moderated banner.
-      post: {
-        select: {
-          // The community slug lets the gallery open a community post's media
-          // at its canonical /a/<slug>/posts/.../media/... address.
-          community: { select: { slug: true } },
-          explicitContent: true,
-          id: true,
-          isGust: true,
-          moderated: true,
-        },
-      },
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: pageSize + 1,
-    where: {
-      post: {
-        userId,
-        ...communityVisibilityWhere(session.user.id),
-      },
-      type: {
-        in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
-      },
-    },
-  });
+  let query = prisma.orm.public.PostMedia.include("post", (post) =>
+    post
+      .select("explicitContent", "id", "isGust", "moderated")
+      .include("community", (community) => community.select("slug"))
+  )
+    .where((media) =>
+      and(
+        media.post.some((post) =>
+          and(
+            post.userId.eq(userId),
+            communityVisibilityWhere(session.user.id)(post)
+          )
+        ),
+        media._type.in(["IMAGE", "VIDEO", "AUDIO"])
+      )
+    )
+    .orderBy([(media) => media.createdAt.desc(), (media) => media.id.desc()]);
+  if (cursor) {
+    query = query.cursor({ id: cursor }).offset(1);
+  }
+  const media = await query.limit(pageSize + 1).all();
 
   const nextCursor = media.length > pageSize ? media[pageSize].id : null;
 
   return Response.json({
-    media: media.slice(0, pageSize),
+    media: media.slice(0, pageSize).map((item) => ({
+      ...item,
+      type: item._type,
+    })),
     nextCursor,
   });
 }

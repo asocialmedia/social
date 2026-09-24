@@ -49,10 +49,9 @@ export async function POST(request: Request) {
     const viewerHash = userId ? undefined : hashViewerId(clientIp);
 
     const persistedPosts = postIds.length
-      ? await prisma.post.findMany({
-          select: { id: true, userId: true, viewCount: true },
-          where: { id: { in: postIds } },
-        })
+      ? await prisma.orm.public.Posts.select("id", "userId", "viewCount")
+          .where((post) => post.id.in(postIds))
+          .all()
       : [];
     const persistedById = new Map(
       persistedPosts.map((post) => [post.id, post.viewCount])

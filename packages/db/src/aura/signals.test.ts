@@ -6,14 +6,26 @@ import type { AuraSignals } from "./signals";
 // Fakes for the two IO dependencies of the signals module. Registered via
 // mock.module before the dynamic import so the real Prisma/Redis never load.
 // Signatures are deliberately wide so tests can re-point them per case.
+let fakeUser: { aura: number; createdAt: Date } | null = null;
+let fakeEntries: { amount: number; createdAt: Date }[] = [];
+let fakeUserReads = 0;
 const fakePrisma = {
-  auraLog: {
-    findMany: (): Promise<{ amount: number; createdAt: Date }[]> =>
-      Promise.resolve([]),
-  },
-  user: {
-    findUnique: (): Promise<{ aura: number; createdAt: Date } | null> =>
-      Promise.resolve(null),
+  orm: {
+    public: {
+      AuraLogs: {
+        select: () => ({ where: () => ({ all: () => fakeEntries }) }),
+      },
+      Users: {
+        select: () => ({
+          where: () => ({
+            first: () => {
+              fakeUserReads += 1;
+              return fakeUser;
+            },
+          }),
+        }),
+      },
+    },
   },
 };
 const fakeRedis = {
@@ -41,8 +53,8 @@ function configureFakes(
     deletedKeys: [] as string[],
   };
 
-  fakePrisma.user.findUnique = () => Promise.resolve(options.user ?? null);
-  fakePrisma.auraLog.findMany = () => Promise.resolve(options.entries ?? []);
+  fakeUser = options.user ?? null;
+  fakeEntries = options.entries ?? [];
   fakeRedis.get = () => Promise.resolve(options.cached ?? null);
   fakeRedis.setex = (key: string, _ttl: number, value: string) => {
     if (options.setexShouldFail) {
@@ -109,14 +121,11 @@ describe("getAuraSignals caching", () => {
       momentum: 12,
       visibilityWeight: 1,
     };
-    let reads = 0;
+    fakeUserReads = 0;
     const calls = configureFakes({ cached: null });
-    fakePrisma.user.findUnique = () => {
-      reads += 1;
-      return Promise.resolve({ aura: 4200, createdAt: new Date(0) });
-    };
+    fakeUser = { aura: 4200, createdAt: new Date(0) };
     fakeRedis.get = () =>
-      Promise.resolve(reads > 0 ? JSON.stringify(signalsBundle) : null);
+      Promise.resolve(fakeUserReads > 0 ? JSON.stringify(signalsBundle) : null);
 
     const first = await getAuraSignalsForUsers(["u-cache"]);
     expect(first.get("u-cache")?.lifetimeAura).toBe(4200);
@@ -127,10 +136,10 @@ describe("getAuraSignals caching", () => {
     expect(JSON.parse(writeValue ?? "{}")).toEqual(first.get("u-cache"));
 
     // Second lookup hits the cache path: no additional ledger read.
-    const before = reads;
+    const before = fakeUserReads;
     const second = await getAuraSignalsForUsers(["u-cache"]);
     expect(second.get("u-cache")).toEqual(signalsBundle);
-    expect(reads).toBe(before);
+    expect(fakeUserReads).toBe(before);
   });
 
   test("a cache write failure is swallowed (fail-open)", async () => {

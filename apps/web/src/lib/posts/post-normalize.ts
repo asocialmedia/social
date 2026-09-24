@@ -1,5 +1,16 @@
 import type { PostData } from "@asm/db";
 
+import type { Media } from "@/lib/types";
+
+export type PostAttachment = Pick<Media, "id" | "type"> & {
+  thumbnailKey: string | null;
+} & Partial<
+    Pick<
+      Media,
+      "aiGenerated" | "altText" | "height" | "mimeType" | "transcript" | "width"
+    >
+  >;
+
 // A post that escaped the server without viewer-scoped joins or array relations
 // (stale React Query page, persisted SSR prop, optimistic draft, route cache) will
 // have undefined properties and crash consumers like `post.vote[0]`, `post.attachments.length`,
@@ -43,9 +54,9 @@ export function getCommentVote(
   return comment.votes[0]?.value ?? 0;
 }
 
-export function getPostAttachments<M = unknown>(
-  post: { attachments?: M[] | null } | undefined | null
-): M[] {
+export function getPostAttachments(
+  post: { attachments?: PostAttachment[] | null } | undefined | null
+): PostAttachment[] {
   if (!post || !Array.isArray(post.attachments)) {
     return [];
   }

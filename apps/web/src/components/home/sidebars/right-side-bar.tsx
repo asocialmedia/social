@@ -27,6 +27,7 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import kyInstance from "@/lib/ky";
+import { getUserCount } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -131,7 +132,8 @@ const WhoToFollowRow: React.FC<{
           <FollowButton
             className="h-8 shrink-0 px-3 text-xs"
             initialState={{
-              followers: followState?.followers ?? user._count.followers,
+              followers:
+                followState?.followers ?? getUserCount(user, "followers"),
               isFollowedByUser: followState?.isFollowedByUser ?? false,
             }}
             onFollowed={() => handleFollowed(user.id)}

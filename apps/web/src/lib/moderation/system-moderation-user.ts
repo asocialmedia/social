@@ -22,7 +22,8 @@ export async function getModerationSystemUserId(): Promise<string> {
     return cachedUserId;
   }
 
-  const user = await prisma.user.upsert({
+  const user = await prisma.orm.public.Users.upsert({
+    conflictOn: { id: MODERATION_SYSTEM_USER.id },
     create: {
       ...MODERATION_SYSTEM_USER,
       emailVerified: false,
@@ -32,7 +33,6 @@ export async function getModerationSystemUserId(): Promise<string> {
       avatarUrl: MODERATION_SYSTEM_USER.avatarUrl,
       displayName: MODERATION_SYSTEM_USER.displayName,
     },
-    where: { id: MODERATION_SYSTEM_USER.id },
   });
 
   cachedUserId = user.id;

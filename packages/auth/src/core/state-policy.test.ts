@@ -14,11 +14,14 @@ mock.module("../../env", () => ({
 // mock it before the module under test loads. Reddit credentials are unset in
 // the test environment, so only the google provider gets configured.
 mock.module("@asm/db", () => ({
+  and: () => null,
+  fromPrismaDateTime: (value: Date) => value,
   isReservedUsername: () => false,
-  prisma: {},
-}));
-mock.module("better-auth/adapters/prisma", () => ({
-  prismaAdapter: () => ({}),
+  prisma: {
+    orm: { public: {} },
+    transaction: () => Promise.resolve(),
+  },
+  toPrismaDateTime: (value: Date) => value,
 }));
 mock.module("@better-auth/passkey", () => ({
   passkey: () => ({}),

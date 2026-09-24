@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 
 import {
   approveMember,
@@ -11,7 +12,9 @@ import {
   leaveCommunity,
   prisma,
   redis,
+  toPrismaDateTime,
 } from "@asm/db";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 // View access for PRIVATE communities. PUBLIC/RESTRICTED stay world-readable;
 // PRIVATE is readable only by an ACTIVE (approved) member, so a guest who
@@ -29,13 +32,11 @@ const PRIVATE_SLUG = `visp${RUN_ID}`;
 const PUBLIC_SLUG = `visu${RUN_ID}`;
 
 async function createUser(id: string): Promise<void> {
-  await prisma.user.create({
-    data: {
-      displayName: id,
-      email: `${id}@example.test`,
-      id,
-      username: id,
-    },
+  await prisma.orm.public.Users.create({
+    displayName: id,
+    email: `${id}@example.test`,
+    id,
+    username: id,
   });
 }
 
@@ -45,18 +46,18 @@ beforeAll(async () => {
   await createUser(STRANGER_ID);
   // Founding is gated on standing derived from earned ledger income, so the
   // owner needs a real non-milestone row before createCommunity will pass.
-  await prisma.user.update({
-    data: { aura: 100_000 },
-    where: { id: OWNER_ID },
+  await prisma.orm.public.Users.where((user) =>
+    user.id.eq(OWNER_ID)
+  ).updateAndCount({
+    aura: 100_000,
   });
-  await prisma.auraLog.create({
-    data: {
-      amount: 100_000,
-      issuerId: OWNER_ID,
-      targetUserId: OWNER_ID,
-      type: "POST_CREATION",
-      userId: OWNER_ID,
-    },
+  await prisma.orm.public.AuraLogs.create({
+    _type: "COMMUNITY_JOIN",
+    amount: 100_000,
+    id: randomUUID(),
+    issuerId: OWNER_ID,
+    targetUserId: OWNER_ID,
+    userId: OWNER_ID,
   });
 
   await createCommunity({
@@ -78,13 +79,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const userIds = [OWNER_ID, MEMBER_ID, STRANGER_ID];
-  await prisma.auraLog.deleteMany({
-    where: { OR: [{ issuerId: { in: userIds } }, { userId: { in: userIds } }] },
-  });
-  await prisma.community.deleteMany({
-    where: { slug: { in: [PRIVATE_SLUG, PUBLIC_SLUG] } },
-  });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  await prisma.orm.public.AuraLogs.where((log) =>
+    or(log.issuerId.in(userIds), log.userId.in(userIds))
+  ).deleteAndCount();
+  await prisma.orm.public.Communities.where((community) =>
+    community.slug.in([PRIVATE_SLUG, PUBLIC_SLUG])
+  ).deleteAndCount();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(userIds)
+  ).deleteAndCount();
   await redis.del(`community:stats:${PRIVATE_SLUG}`);
   await redis.del(`community:stats:${PUBLIC_SLUG}`);
 });
@@ -152,68 +155,68 @@ describe("community view access", () => {
     // here depends on recency, only on visibility.
     const fixtureCreatedAt = new Date("2020-01-01T00:00:00.000Z");
     const [privatePost, publicPost, globalPost] = await Promise.all([
-      prisma.post.create({
-        data: {
-          communityId: privateCommunity.id,
-          content: "private community post",
-          createdAt: fixtureCreatedAt,
-          userId: OWNER_ID,
-        },
+      prisma.orm.public.Posts.create({
+        communityId: privateCommunity.id,
+        content: "private community post",
+        createdAt: toPrismaDateTime(fixtureCreatedAt),
+        id: randomUUID(),
+        userId: OWNER_ID,
       }),
-      prisma.post.create({
-        data: {
-          communityId: publicCommunity.id,
-          content: "public community post",
-          createdAt: fixtureCreatedAt,
-          userId: OWNER_ID,
-        },
+      prisma.orm.public.Posts.create({
+        communityId: publicCommunity.id,
+        content: "public community post",
+        createdAt: toPrismaDateTime(fixtureCreatedAt),
+        id: randomUUID(),
+        userId: OWNER_ID,
       }),
-      prisma.post.create({
-        data: {
-          content: "global post",
-          createdAt: fixtureCreatedAt,
-          userId: OWNER_ID,
-        },
+      prisma.orm.public.Posts.create({
+        content: "global post",
+        createdAt: toPrismaDateTime(fixtureCreatedAt),
+        id: randomUUID(),
+        userId: OWNER_ID,
       }),
     ]);
 
     try {
       // A guest sees the public and global posts, never the private one.
-      const guestPosts = await prisma.post.findMany({
-        select: { id: true },
-        where: {
-          AND: [communityVisibilityWhere("")],
-          id: { in: [privatePost.id, publicPost.id, globalPost.id] },
-        },
-      });
+      const guestPosts = await prisma.orm.public.Posts.select("id")
+        .where((post) =>
+          and(
+            communityVisibilityWhere("")(post),
+            post.id.in([privatePost.id, publicPost.id, globalPost.id])
+          )
+        )
+        .all();
       const guestIds = guestPosts.map((post) => post.id);
       expect(guestIds).toContain(publicPost.id);
       expect(guestIds).toContain(globalPost.id);
       expect(guestIds).not.toContain(privatePost.id);
 
       // A non-member stranger is treated like a guest.
-      const strangerPosts = await prisma.post.findMany({
-        select: { id: true },
-        where: {
-          AND: [communityVisibilityWhere(STRANGER_ID)],
-          id: { in: [privatePost.id] },
-        },
-      });
+      const strangerPosts = await prisma.orm.public.Posts.select("id")
+        .where((post) =>
+          and(
+            communityVisibilityWhere(STRANGER_ID)(post),
+            post.id.in([privatePost.id])
+          )
+        )
+        .all();
       expect(strangerPosts).toHaveLength(0);
 
       // An approved member (the founding owner) sees it.
-      const memberPosts = await prisma.post.findMany({
-        select: { id: true },
-        where: {
-          AND: [communityVisibilityWhere(OWNER_ID)],
-          id: { in: [privatePost.id] },
-        },
-      });
+      const memberPosts = await prisma.orm.public.Posts.select("id")
+        .where((post) =>
+          and(
+            communityVisibilityWhere(OWNER_ID)(post),
+            post.id.in([privatePost.id])
+          )
+        )
+        .all();
       expect(memberPosts.map((post) => post.id)).toEqual([privatePost.id]);
     } finally {
-      await prisma.post.deleteMany({
-        where: { id: { in: [privatePost.id, publicPost.id, globalPost.id] } },
-      });
+      await prisma.orm.public.Posts.where((post) =>
+        post.id.in([privatePost.id, publicPost.id, globalPost.id])
+      ).deleteAndCount();
     }
   });
 });

@@ -34,9 +34,16 @@ const originalEnv = {
 };
 
 mock.module("@asm/db", () => ({
+  and: () => null,
+  fromPrismaDateTime: (value: Date) => value,
+  isReservedUsername: () => false,
   jwtSessionCache: jwtSessionCacheMock,
-  prisma: {},
+  prisma: {
+    orm: { public: {} },
+    transaction: () => Promise.resolve(),
+  },
   redis: {},
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 describe("jwt helpers", () => {

@@ -8,17 +8,6 @@ interface PostRow {
   viewCount: number;
 }
 
-interface FindManyArgs {
-  cursor?: { id: string };
-  orderBy: { id: string };
-  select: Record<string, unknown>;
-  skip?: number;
-  take: number;
-  where: { createdAt: { gte: Date } };
-}
-
-// Deterministic stand-in for the real scorer (the module is mocked here, so
-// the real implementation never loads). Scores are just double the aura.
 const fakeComputeTrendingScore = (input: { aura: number }): number =>
   input.aura * 2;
 
@@ -31,45 +20,92 @@ const stubPost = (id: string): PostRow => ({
 });
 
 describe("flushTrendingScores", () => {
-  const findManyCalls: FindManyArgs[] = [];
-  // Queue of batches the mocked findMany hands out, one entry per call.
   let batchedPosts: PostRow[][] = [];
+  const cursorValues: (string | undefined)[] = [];
+  const dateConversions: Date[] = [];
 
-  const mockFindMany = mock((args: FindManyArgs): PostRow[] => {
-    findManyCalls.push(args);
-    return batchedPosts.shift() ?? [];
-  });
+  const mockFindMany = mock((): PostRow[] => batchedPosts.shift() ?? []);
 
-  const executed: { args: unknown[]; query: string }[] = [];
-
-  const mockExecutedRaw = mock(
-    (query: TemplateStringsArray, ...args: unknown[]) => {
-      executed.push({ args, query: String(query[0]) });
-      return args.length;
+  const scoreUpdates: { id: string; trendingScore: number }[] = [];
+  const mockPostUpdate = mock(
+    (update: { id: string; trendingScore: number }) => {
+      scoreUpdates.push(update);
+      return Promise.resolve(update);
     }
   );
 
+  let queryCursor: string | undefined;
+  const query = {
+    all: () => mockFindMany(),
+    cursor: (value: { id: string }) => {
+      queryCursor = value.id;
+      cursorValues.push(queryCursor);
+      return query;
+    },
+    include: () => query,
+    limit: () => query,
+    orderBy: () => query,
+    where: (predicate: (accessor: object) => unknown) => {
+      const accessor = new Proxy(
+        {},
+        {
+          get: () => ({
+            gte: () => ({}),
+            isNull: () => ({}),
+          }),
+        }
+      );
+      predicate(accessor);
+      return query;
+    },
+  };
   const mockPublishSnapshot = mock(
     (entries: { id: string; score: number }[]) => entries.length
   );
 
+  const mockOrm = {
+    public: {
+      Posts: {
+        select: () => ({
+          include: () => query,
+        }),
+        where: (value: { id: string }) => ({
+          update: (update: { trendingScore: number }) =>
+            mockPostUpdate({
+              id: value.id,
+              trendingScore: update.trendingScore,
+            }),
+        }),
+      },
+    },
+  };
   const mockPrisma = {
-    $executeRaw: mockExecutedRaw,
-    post: { findMany: mockFindMany },
+    orm: mockOrm,
+    transaction: (
+      operation: (tx: { orm: typeof mockOrm }) => Promise<unknown>
+    ) => operation({ orm: mockOrm }),
   };
 
   mock.module("@asm/db", () => ({
+    and: (...expressions: unknown[]) => expressions,
     computeTrendingScore: fakeComputeTrendingScore,
+    fromPrismaDateTime: (value: Date) => value,
     prisma: mockPrisma,
     publishTrendingSnapshot: mockPublishSnapshot,
+    toPrismaDateTime: (value: Date) => {
+      dateConversions.push(value);
+      return value;
+    },
   }));
 
   beforeEach(() => {
-    findManyCalls.length = 0;
-    executed.length = 0;
+    scoreUpdates.length = 0;
     batchedPosts = [];
+    cursorValues.length = 0;
+    dateConversions.length = 0;
+    queryCursor = undefined;
     mockFindMany.mockClear();
-    mockExecutedRaw.mockClear();
+    mockPostUpdate.mockClear();
     mockPublishSnapshot.mockClear();
     mockPublishSnapshot.mockImplementation(
       (entries: { id: string; score: number }[]) => entries.length
@@ -84,16 +120,11 @@ describe("flushTrendingScores", () => {
     const result = await flushTrendingScores();
 
     expect(mockFindMany).toHaveBeenCalledTimes(1);
-    expect(mockExecutedRaw).toHaveBeenCalledTimes(1);
-
-    const [update] = executed;
-    expect(update?.query).toContain("UPDATE posts");
-    const idsParam = (update?.args[0] ?? []) as string[];
-    expect(idsParam).toContain("post-1");
-    expect(idsParam).toContain("post-2");
-
-    const scoresParam = (update?.args[1] ?? []) as number[];
-    expect(scoresParam).toEqual([10, 10]); // fake scorer: aura * 2
+    expect(mockPostUpdate).toHaveBeenCalledTimes(2);
+    expect(scoreUpdates).toEqual([
+      { id: "post-1", trendingScore: 10 },
+      { id: "post-2", trendingScore: 10 },
+    ]);
 
     expect(result).toEqual({
       batches: 1,
@@ -113,11 +144,8 @@ describe("flushTrendingScores", () => {
     const result = await flushTrendingScores();
 
     expect(mockFindMany).toHaveBeenCalledTimes(2);
-    expect(mockExecutedRaw).toHaveBeenCalledTimes(2);
-
-    const [, secondCall] = findManyCalls;
-    expect(secondCall?.cursor).toEqual({ id: "p499" });
-    expect(secondCall?.skip).toBe(1);
+    expect(mockPostUpdate).toHaveBeenCalledTimes(501);
+    expect(cursorValues).toEqual(["p499"]);
 
     // All 501 scored posts reach the snapshot publisher in order.
     expect(mockPublishSnapshot).toHaveBeenCalledTimes(1);
@@ -140,11 +168,7 @@ describe("flushTrendingScores", () => {
     const now = new Date("2026-08-23T12:00:00Z");
     await flushTrendingScores(undefined, now);
 
-    const [firstCall] = findManyCalls;
-    expect(firstCall?.where.createdAt.gte).toEqual(
-      new Date("2026-08-16T12:00:00Z")
-    );
-    expect(firstCall?.where.createdAt.gte.getTime()).toBe(
+    expect(dateConversions[0]?.getTime()).toBe(
       now.getTime() - 7 * 24 * 60 * 60 * 1000
     );
   });
@@ -156,7 +180,7 @@ describe("flushTrendingScores", () => {
 
     const result = await flushTrendingScores();
 
-    expect(mockExecutedRaw).not.toHaveBeenCalled();
+    expect(mockPostUpdate).not.toHaveBeenCalled();
     // The publisher itself no-ops on an empty window; the flush hands it the
     // (empty) recompute regardless.
     expect(mockPublishSnapshot).toHaveBeenCalledWith([]);

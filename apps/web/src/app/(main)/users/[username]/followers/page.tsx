@@ -1,4 +1,9 @@
-import { getUserDataSelect, prisma, resolveUsername } from "@asm/db";
+import {
+  getUserDataQuery,
+  mapUserData,
+  prisma,
+  resolveUsername,
+} from "@asm/db";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
@@ -26,10 +31,10 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
     notFound();
   }
 
-  const user = await prisma.user.findUnique({
-    select: getUserDataSelect(loggedInUserId),
-    where: { id: resolvedUsername.id },
-  });
+  const userRow = await getUserDataQuery(prisma.orm, loggedInUserId)
+    .where({ id: resolvedUsername.id })
+    .first();
+  const user = userRow ? mapUserData(userRow) : null;
 
   if (!user) {
     notFound();

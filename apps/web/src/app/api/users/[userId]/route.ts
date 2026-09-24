@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataQuery, mapUserData, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -22,10 +22,10 @@ export async function GET(
     const session = await getSessionFromApi();
     const viewerId = session?.user?.id ?? "";
 
-    const user = await prisma.user.findUnique({
-      select: getUserDataSelect(viewerId),
-      where: { id: userId },
-    });
+    const userRow = await getUserDataQuery(prisma.orm, viewerId)
+      .where({ id: userId })
+      .first();
+    const user = userRow ? mapUserData(userRow) : null;
 
     if (!user) {
       return NextResponse.json({ message: "User not found" }, { status: 404 });

@@ -56,10 +56,13 @@ export async function GET(
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
 
-  const community = await prisma.community.findUnique({
-    select: { bannerKey: true, id: true, type: true },
-    where: { id: communityId },
-  });
+  const community = await prisma.orm.public.Communities.select(
+    "bannerKey",
+    "id",
+    "_type"
+  )
+    .where({ id: communityId })
+    .first();
   if (!community?.bannerKey) {
     return new NextResponse("Banner not found", { status: 404 });
   }
@@ -67,8 +70,14 @@ export async function GET(
 
   // A PRIVATE community's banner is part of its members-only surface; guests
   // and non-members get the same 404 as a missing image.
-  const isPrivate = community.type === "PRIVATE";
-  if (isPrivate && !(await canViewCommunity(community, userId))) {
+  const isPrivate = community._type === "PRIVATE";
+  if (
+    isPrivate &&
+    !(await canViewCommunity(
+      { id: community.id, type: community._type },
+      userId
+    ))
+  ) {
     return new NextResponse("Banner not found", { status: 404 });
   }
 

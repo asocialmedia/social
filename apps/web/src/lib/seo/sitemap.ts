@@ -1,5 +1,7 @@
 import {
+  and,
   communityVisibilityWhere,
+  fromPrismaDateTime,
   prisma,
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
@@ -136,30 +138,32 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
 // with no media rarely get indexed and burn crawl budget. We prioritize
 // posts that have substance or visual content.
 async function getPostEntries(): Promise<SitemapEntry[]> {
-  const posts = await prisma.post.findMany({
-    // The community slug is required so a community post's sitemap URL is its
-    // canonical /a/<slug>/posts/... address, not the global one it redirects
-    // away from.
-    include: {
-      attachments: { where: { status: "READY" as const } },
-      community: { select: { slug: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: SITEMAP_URL_LIMIT,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      user: { banned: false },
-      // Crawlers are anonymous: private-community posts must not be indexed.
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("postMedias", (media) =>
+      media.where({ status: "READY" }).select("id", "mimeType", "_type")
+    )
+    .include("community", (community) => community.select("slug"))
+    .orderBy((post) => post.createdAt.desc())
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .limit(SITEMAP_URL_LIMIT)
+    .all();
 
   return posts
     .filter((post) => {
       const text = (post.content ?? "").trim();
-      const hasMedia = (post.attachments ?? []).length > 0;
+      const hasMedia = post.postMedias.length > 0;
       // Keep posts with >=20 chars or with media; thin text-only posts are deprioritized
       // but still discoverable via feed HTML - just not in the high-priority sitemap.
       if (text.length >= 20 || hasMedia) {
@@ -170,117 +174,122 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
       return false;
     })
     .map((post) => {
-      const preview = (post.attachments ?? []).find(
-        (m) =>
-          m.mimeType.toLowerCase().startsWith("image/") ||
-          (m as { type?: string }).type === "VIDEO"
+      const preview = post.postMedias.find(
+        (media) =>
+          media.mimeType.toLowerCase().startsWith("image/") ||
+          media._type === "VIDEO"
       );
       const imageUrl = preview
-        ? `${siteConfig.url}/api/media/${preview.id}${(preview as { type?: string }).type === "VIDEO" ? "?thumb=1" : ""}`
+        ? `${siteConfig.url}/api/media/${preview.id}${preview._type === "VIDEO" ? "?thumb=1" : ""}`
         : undefined;
       return {
         ...(imageUrl ? { images: [imageUrl] } : {}),
-        lastModified: post.createdAt,
-        url: getPostUrl(post),
+        lastModified: fromPrismaDateTime(post.createdAt),
+        url: getPostUrl({
+          community: post.community,
+          content: post.content,
+          id: post.id,
+        }),
       };
     });
 }
 
 async function getGustEntries(): Promise<SitemapEntry[]> {
-  const posts = await prisma.post.findMany({
-    include: { attachments: { where: { status: "READY" as const } } },
-    orderBy: { createdAt: "desc" },
-    take: SITEMAP_URL_LIMIT,
-    where: {
-      isGust: true,
-      moderated: false,
-      user: { banned: false },
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select("createdAt", "id")
+    .include("postMedias", (media) =>
+      media.where({ status: "READY" }).select("id", "_type")
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .where((post) =>
+      and(
+        post.isGust.eq(true),
+        post.moderated.eq(false),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .limit(SITEMAP_URL_LIMIT)
+    .all();
 
   return posts.map((post) => {
-    const video = (post.attachments ?? []).find(
-      (m) => (m as { type?: string }).type === "VIDEO"
-    );
+    const video = post.postMedias.find((media) => media._type === "VIDEO");
     const imageUrl = video
       ? `${siteConfig.url}/api/media/${video.id}?thumb=1`
       : undefined;
     return {
       ...(imageUrl ? { images: [imageUrl] } : {}),
-      lastModified: post.createdAt,
+      lastModified: fromPrismaDateTime(post.createdAt),
       url: `${siteConfig.url}/gusts?id=${post.id}`,
     };
   });
 }
 
 async function getUserEntries(): Promise<SitemapEntry[]> {
-  const users = await prisma.user.findMany({
-    orderBy: { updatedAt: "desc" },
-    select: { updatedAt: true, username: true },
-    take: SITEMAP_URL_LIMIT,
-    where: {
-      banned: false,
-      id: { not: SYSTEM_MODERATION_USER_ID },
-    },
-  });
+  const users = await prisma.orm.public.Users.select("updatedAt", "username")
+    .where((user) =>
+      and(user.banned.eq(false), user.id.notIn([SYSTEM_MODERATION_USER_ID]))
+    )
+    .orderBy((user) => user.updatedAt.desc())
+    .limit(SITEMAP_URL_LIMIT)
+    .all();
 
   return users.map((user) => ({
-    lastModified: user.updatedAt,
+    lastModified: fromPrismaDateTime(user.updatedAt),
     url: `${siteConfig.url}/users/${user.username}`,
   }));
 }
 
 async function getTagEntries(): Promise<SitemapEntry[]> {
-  const tags = await prisma.tag.findMany({
-    orderBy: { updatedAt: "desc" },
-    select: { name: true, updatedAt: true },
-    take: SITEMAP_URL_LIMIT,
-  });
+  const tags = await prisma.orm.public.Tag.select("name", "updatedAt")
+    .orderBy((tag) => tag.updatedAt.desc())
+    .limit(SITEMAP_URL_LIMIT)
+    .all();
 
   return tags.map((tag) => ({
-    lastModified: tag.updatedAt,
+    lastModified: fromPrismaDateTime(tag.updatedAt),
     url: `${siteConfig.url}/hashtag/${encodeURIComponent(tag.name)}`,
   }));
 }
 
 interface CommunityActivityRow {
-  // GREATEST(...) of the community's own updatedAt and its newest post.
   lastmod: Date;
   slug: string;
 }
 
-// Public communities, freshest activity first. `lastmod` is the later of the
-// community's own updatedAt and its newest visible post's createdAt: a
-// community that only gained posts still reads as changed, which `updatedAt`
-// alone cannot express (inserting a post does not touch the community row).
-//
-// The newest post per community is fetched with a LATERAL subquery, not a
-// GROUP BY over the whole posts table: each lateral probe is an index read
-// (ORDER BY createdAt DESC LIMIT 1 on the (communityId, createdAt) index), so
-// the work is proportional to the number of communities in the window rather
-// than to their entire post history. The route that serves this is CDN-cached.
 async function getCommunityActivity(
   limit: number
 ): Promise<CommunityActivityRow[]> {
-  return await prisma.$queryRaw<CommunityActivityRow[]>`
-    SELECT
-      c."slug" AS slug,
-      GREATEST(c."updatedAt", COALESCE(newest."createdAt", c."updatedAt")) AS lastmod
-    FROM "communities" c
-    LEFT JOIN LATERAL (
-      SELECT p."createdAt"
-      FROM "posts" p
-      WHERE p."communityId" = c."id"
-        AND p."isGust" = false
-        AND p."moderated" = false
-      ORDER BY p."createdAt" DESC
-      LIMIT 1
-    ) AS newest ON true
-    WHERE c."type" <> 'PRIVATE'::"CommunityType"
-    ORDER BY lastmod DESC
-    LIMIT ${limit}
-  `;
+  const communities = await prisma.orm.public.Communities.select(
+    "slug",
+    "updatedAt"
+  )
+    .include("posts", (posts) =>
+      posts
+        .where((post) => and(post.isGust.eq(false), post.moderated.eq(false)))
+        .select("createdAt")
+        .orderBy((post) => post.createdAt.desc())
+        .limit(1)
+    )
+    .where((community) => community._type.neq("PRIVATE"))
+    .all();
+
+  return communities
+    .map((community) => {
+      const communityUpdatedAt = fromPrismaDateTime(community.updatedAt);
+      const [newestPost] = community.posts;
+      const newestPostAt = newestPost
+        ? fromPrismaDateTime(newestPost.createdAt)
+        : null;
+      return {
+        lastmod:
+          newestPostAt && newestPostAt > communityUpdatedAt
+            ? newestPostAt
+            : communityUpdatedAt,
+        slug: community.slug,
+      };
+    })
+    .toSorted((left, right) => right.lastmod.getTime() - left.lastmod.getTime())
+    .slice(0, limit);
 }
 
 // Public communities only; private communities are not discoverable and must
@@ -322,36 +331,30 @@ export async function getSitemapLastModified(
 ): Promise<Date | undefined> {
   switch (id) {
     case "posts": {
-      const latest = await prisma.post.findFirst({
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-        where: { isGust: false, moderated: false },
-      });
-      return latest?.createdAt;
+      const latest = await prisma.orm.public.Posts.select("createdAt")
+        .where((post) => and(post.isGust.eq(false), post.moderated.eq(false)))
+        .orderBy((post) => post.createdAt.desc())
+        .first();
+      return latest ? fromPrismaDateTime(latest.createdAt) : undefined;
     }
     case "gusts": {
-      const latest = await prisma.post.findFirst({
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-        where: { isGust: true, moderated: false },
-      });
-      return latest?.createdAt;
+      const latest = await prisma.orm.public.Posts.select("createdAt")
+        .where((post) => and(post.isGust.eq(true), post.moderated.eq(false)))
+        .orderBy((post) => post.createdAt.desc())
+        .first();
+      return latest ? fromPrismaDateTime(latest.createdAt) : undefined;
     }
     case "users": {
-      const [latest] = await prisma.user.findMany({
-        orderBy: { updatedAt: "desc" },
-        select: { updatedAt: true },
-        take: 1,
-      });
-      return latest?.updatedAt;
+      const latest = await prisma.orm.public.Users.select("updatedAt")
+        .orderBy((user) => user.updatedAt.desc())
+        .first();
+      return latest ? fromPrismaDateTime(latest.updatedAt) : undefined;
     }
     case "tags": {
-      const [latest] = await prisma.tag.findMany({
-        orderBy: { updatedAt: "desc" },
-        select: { updatedAt: true },
-        take: 1,
-      });
-      return latest?.updatedAt;
+      const latest = await prisma.orm.public.Tag.select("updatedAt")
+        .orderBy((tag) => tag.updatedAt.desc())
+        .first();
+      return latest ? fromPrismaDateTime(latest.updatedAt) : undefined;
     }
     case "communities": {
       // The child sitemap's own head, so the index lastmod matches the freshest

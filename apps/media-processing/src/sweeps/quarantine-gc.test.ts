@@ -14,6 +14,78 @@ mock.module("../env", () => ({
   workerEnv: {},
 }));
 
+type QueryFilter =
+  | { field: string; op: string; value: unknown }
+  | { filters: QueryFilter[]; kind: "and" }
+  | Record<string, unknown>;
+
+function queryField(
+  field: string
+): Record<string, (value: unknown) => QueryFilter> {
+  return new Proxy(
+    {},
+    {
+      get: (_target, property) => (value: unknown) => ({
+        field,
+        op: String(property),
+        value,
+      }),
+    }
+  );
+}
+
+function isAndFilter(
+  filter: QueryFilter
+): filter is { filters: QueryFilter[]; kind: "and" } {
+  return "kind" in filter && filter.kind === "and";
+}
+
+function isFieldFilter(
+  filter: QueryFilter
+): filter is { field: string; op: string; value: unknown } {
+  return "field" in filter && typeof filter.field === "string";
+}
+
+function flattenFilter(filter: QueryFilter): Record<string, unknown> {
+  if (isAndFilter(filter)) {
+    return Object.assign({}, ...filter.filters.map(flattenFilter));
+  }
+  if (isFieldFilter(filter)) {
+    if (filter.op === "isNull") {
+      return { [filter.field]: null };
+    }
+    if (filter.op === "isNotNull") {
+      return { [filter.field]: { not: null } };
+    }
+    if (filter.op === "lt") {
+      return { [filter.field]: { lt: filter.value } };
+    }
+    if (filter.op === "like") {
+      return {
+        [filter.field]: {
+          startsWith: String(filter.value).replace(/%$/, ""),
+        },
+      };
+    }
+    return { [filter.field]: filter.value };
+  }
+  return filter;
+}
+
+function evaluateFilter(filter: unknown): QueryFilter {
+  if (typeof filter !== "function") {
+    return filter as QueryFilter;
+  }
+  const fields = new Proxy(
+    {},
+    { get: (_target, property) => queryField(String(property)) }
+  );
+  const evaluate = filter as (
+    fields: Record<string, Record<string, (value: unknown) => QueryFilter>>
+  ) => QueryFilter;
+  return evaluate(fields);
+}
+
 interface FindManyArgs {
   orderBy?: Record<string, string>;
   select?: Record<string, boolean>;
@@ -25,6 +97,40 @@ interface FindManyArgs {
 // so much as a stray query fails the test loudly.
 let prismaDisabled = false;
 const findManyArgs: FindManyArgs[] = [];
+
+function createQuery() {
+  const filters: QueryFilter[] = [];
+  let take: number | undefined;
+  const query = {
+    all: () => {
+      if (prismaDisabled) {
+        throw new Error("must not query when retention is disabled");
+      }
+      const where = Object.assign({}, ...filters.map(flattenFilter));
+      findManyArgs.push({ take, where });
+      return Promise.resolve(sweepRows);
+    },
+    limit: (value: number) => {
+      take = value;
+      return query;
+    },
+    orderBy: () => query,
+    select: () => query,
+    update: (_data: Record<string, unknown>) => {
+      if (prismaDisabled) {
+        throw new Error("must not update when retention is disabled");
+      }
+      const where = Object.assign({}, ...filters.map(flattenFilter));
+      updatedIds.push(String(where.id));
+      return Promise.resolve({});
+    },
+    where: (filter: unknown) => {
+      filters.push(evaluateFilter(filter));
+      return query;
+    },
+  };
+  return query;
+}
 let sweepRows: {
   id: string;
   originalKey: string | null;
@@ -40,7 +146,7 @@ let failDeleteForKey: string | null = null;
   {} as Record<string, number>;
 
 mock.module("@asm/db", () => ({
-  Prisma: { DbNull: Symbol.for("test.DbNull") },
+  and: (...filters: QueryFilter[]) => ({ filters, kind: "and" }),
   // Unused by this sweep; present so whichever test file evaluates the sweep
   // module first binds a complete enqueue set for the other suites sharing
   // this process-wide mock key.
@@ -58,34 +164,21 @@ mock.module("@asm/db", () => ({
   },
   enqueueMediaScan: () => Promise.resolve(),
   prisma: {
-    media: {
-      // Sync bodies are fine: the sweeper awaits the returned values, and
-      // await resolves plain arrays/objects transparently.
-      findMany: (args: FindManyArgs) => {
-        if (prismaDisabled) {
-          throw new Error("must not query when retention is disabled");
-        }
-        findManyArgs.push(args);
-        return sweepRows;
-      },
-      update: ({ where }: { where: { id: string } }) => {
-        if (prismaDisabled) {
-          throw new Error("must not update when retention is disabled");
-        }
-        updatedIds.push(where.id);
-        return {};
-      },
-    },
-    mediaDerivative: {
-      count: ({ where }: { where: { mediaId: string } }) => {
-        const g = globalThis as unknown as Record<string, unknown>;
-        const counts =
-          (g.__qm_derivativeCounts as Record<string, number>) ?? {};
-        return Promise.resolve(counts[where.mediaId] ?? 0);
+    orm: {
+      public: {
+        PostMedia: {
+          select: () => createQuery(),
+          where: (filter: unknown) => createQuery().where(filter),
+        },
+        PostMediaDerivatives: {
+          where: (_filter: { mediaId: string }) => ({
+            aggregate: () => Promise.resolve({ count: 0 }),
+          }),
+        },
       },
     },
   },
-  redis: { decrby: () => Promise.resolve(0), incrby: () => Promise.resolve(0) },
+  toPrismaDateTime: (value: Date) => value,
 }));
 mock.module("../s3", () => ({
   getS3: () => ({
@@ -116,31 +209,35 @@ describe("quarantine retention sweep", () => {
 
   test("queries only true quarantine originals of published pipeline rows past the window", async () => {
     await quarantineGcSweep();
-    expect(findManyArgs).toHaveLength(1);
-    const [args] = findManyArgs;
-    if (!args) {
-      throw new Error("expected one findMany call");
+    expect(findManyArgs).toHaveLength(3);
+    const [published, failedPost, failedComment] = findManyArgs;
+    if (!published || !failedPost || !failedComment) {
+      throw new Error("expected all quarantine queries");
     }
-    expect(args.orderBy).toEqual({ processedAt: "asc" });
-    expect(args.take).toBeGreaterThan(0);
-    const where = args.where as Record<string, unknown>;
-    // Now an OR of two clauses: published-success and failed-attachment past retention
-    const or = where.OR as Record<string, unknown>[];
-    expect(or).toHaveLength(2);
-    for (const clause of or) {
-      expect(clause.originalKey as Record<string, unknown>).toEqual({
-        startsWith: "quarantine/",
-      });
-      expect((clause as Record<string, unknown>).pipelineVersion).toEqual({
-        not: null,
-      });
+    for (const args of findManyArgs) {
+      expect(args.take).toBeGreaterThan(0);
+      const where = args.where ?? {};
+      expect(where.originalKey).toEqual({ startsWith: "quarantine/" });
+      expect(where.pipelineVersion).toEqual({ not: null });
     }
-    expect(or[0]?.publishedKey).toEqual({ not: null });
-    expect(or[1]?.status).toBe("FAILED");
-    // Cutoff is now minus the 30-day window (1s tolerance for clock drift).
-    const cutoff = (
-      (or[0] as Record<string, unknown>).processedAt as { lt: Date }
-    ).lt.getTime();
+    expect(published.where?.publishedKey).toEqual({ not: null });
+    expect(failedPost.where?.status).toBe("FAILED");
+    expect(failedPost.where?.postId).toEqual({ not: null });
+    expect(failedComment.where?.status).toBe("FAILED");
+    expect(failedComment.where?.commentId).toEqual({ not: null });
+    const publishedWhere = published.where;
+    if (!publishedWhere) {
+      throw new Error("expected published quarantine filter");
+    }
+    const { processedAt } = publishedWhere;
+    if (
+      !processedAt ||
+      typeof processedAt !== "object" ||
+      !("lt" in processedAt)
+    ) {
+      throw new Error("expected processed cutoff");
+    }
+    const cutoff = (processedAt as { lt: Date }).lt.getTime();
     expect(
       Math.abs(Date.now() - 30 * 24 * 60 * 60 * 1000 - cutoff)
     ).toBeLessThan(1000);

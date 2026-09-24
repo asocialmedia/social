@@ -12,18 +12,11 @@ export async function GET(req: Request) {
       tags = await tagCache.searchTags(query);
 
       if (!tags || tags.length === 0) {
-        const dbTags = await prisma.tag.findMany({
-          orderBy: {
-            name: "asc",
-          },
-          take: 10,
-          where: {
-            name: {
-              contains: query,
-              mode: "insensitive",
-            },
-          },
-        });
+        const dbTags = await prisma.orm.public.Tag.select("name")
+          .where((tag) => tag.name.ilike(`%${query}%`))
+          .orderBy((tag) => tag.name.asc())
+          .limit(10)
+          .all();
         tags = dbTags.map((t) => t.name);
       }
 

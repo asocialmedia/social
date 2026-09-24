@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const USER_ID = "user1";
@@ -17,20 +19,33 @@ const posts = [
 ];
 
 let lastTake: number;
+let visitRows = [...visits];
+
+interface VisitQuery {
+  all: () => Promise<{ postId: string }[]>;
+  limit: (take: number) => VisitQuery;
+  orderBy: () => VisitQuery;
+  where: () => VisitQuery;
+}
+
+function createVisitQuery(_take?: number): VisitQuery {
+  return {
+    all: () => Promise.resolve([...visitRows]),
+    limit: (nextTake) => {
+      lastTake = nextTake;
+      return createVisitQuery(nextTake);
+    },
+    orderBy: () => createVisitQuery(),
+    where: () => createVisitQuery(),
+  };
+}
 
 const mockPrisma = {
-  post: {
-    findMany: () => [...posts],
-  },
-  postVisit: {
-    findMany: (args: {
-      orderBy: unknown;
-      select: { postId: boolean };
-      take: number;
-      where: { userId: string };
-    }) => {
-      lastTake = args.take;
-      return [...visits];
+  orm: {
+    public: {
+      PostVisits: {
+        select: () => createVisitQuery(),
+      },
     },
   },
 };
@@ -38,7 +53,8 @@ const mockPrisma = {
 const mockHydrate = mock((items: unknown[]) => items);
 
 mock.module("@asm/db", () => ({
-  getPostDataInclude: () => ({ user: true }),
+  ...asmDbMockBase,
+  getPostDataQuery: () => ({ where: () => ({ all: () => [...posts] }) }),
   hydrateViewCounts: mockHydrate,
   prisma: mockPrisma,
 }));
@@ -51,6 +67,7 @@ describe("GET /api/posts/history", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     mockHydrate.mockClear();
+    visitRows = [...visits];
   });
 
   test("rejects unauthenticated requests", async () => {
@@ -76,7 +93,7 @@ describe("GET /api/posts/history", () => {
   });
 
   test("returns an empty list when there is no history", async () => {
-    mockPrisma.postVisit.findMany = () => [];
+    visitRows = [];
 
     const res = await GET();
 

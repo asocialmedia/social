@@ -1,6 +1,7 @@
 import {
   avatarCache,
-  getPrivateUserSelect,
+  fromPrismaDateTime,
+  getPrivateUserQuery,
   prisma,
   profileProxyUrl,
   promoteProfileDerivative,
@@ -31,10 +32,9 @@ async function deletableLegacyAvatarKey(
     return null;
   }
   if (avatarMediaId) {
-    const media = await prisma.media.findUnique({
-      select: { id: true },
-      where: { id: avatarMediaId },
-    });
+    const media = await prisma.orm.public.PostMedia.select("id")
+      .where({ id: avatarMediaId })
+      .first();
     // The Media row is gone (reaped): its orphaned object can go too.
     return media ? null : avatarKey;
   }
@@ -64,17 +64,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "mediaId is required" }, { status: 400 });
     }
 
-    const media = await prisma.media.findUnique({
-      select: {
-        id: true,
-        key: true,
-        publishedKey: true,
-        status: true,
-        type: true,
-        userId: true,
-      },
-      where: { id: payload.mediaId },
-    });
+    const media = await prisma.orm.public.PostMedia.select(
+      "id",
+      "key",
+      "publishedKey",
+      "status",
+      "_type",
+      "userId"
+    )
+      .where({ id: payload.mediaId })
+      .first();
     if (!media || media.userId !== userId) {
       // Deliberately opaque about other users' rows.
       return Response.json({ error: "Media not found" }, { status: 404 });
@@ -85,17 +84,19 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    if (media.type !== "IMAGE") {
+    if (media._type !== "IMAGE") {
       return Response.json(
         { error: "Only images can be used as an avatar" },
         { status: 415 }
       );
     }
 
-    const currentUser = await prisma.user.findUnique({
-      select: { avatarKey: true, avatarMediaId: true },
-      where: { id: userId },
-    });
+    const currentUser = await prisma.orm.public.Users.select(
+      "avatarKey",
+      "avatarMediaId"
+    )
+      .where({ id: userId })
+      .first();
 
     // Serving flows through /api/users/avatar/{userId}/image exactly as for
     // legacy uploads; storing the published original key there keeps GIFs
@@ -105,14 +106,10 @@ export async function POST(request: Request) {
     const avatarKey = media.publishedKey ?? media.key;
     const avatarUrl = profileProxyUrl("avatar", userId, avatarKey);
 
-    const updatedUser = await prisma.user.update({
-      data: {
-        avatarKey,
-        avatarMediaId: media.id,
-        avatarUrl,
-      },
-      select: getPrivateUserSelect(userId),
-      where: { id: userId },
+    await prisma.orm.public.Users.where({ id: userId }).update({
+      avatarKey,
+      avatarMediaId: media.id,
+      avatarUrl,
     });
 
     await avatarCache.set(userId, {
@@ -181,21 +178,25 @@ export async function DELETE() {
     }
     const userId = user.id;
 
-    const currentUser = await prisma.user.findUnique({
-      select: { avatarKey: true, avatarMediaId: true },
-      where: { id: userId },
-    });
+    const currentUser = await prisma.orm.public.Users.select(
+      "avatarKey",
+      "avatarMediaId"
+    )
+      .where({ id: userId })
+      .first();
 
     // Clear the references first; if that fails, the avatar stays intact.
-    const updatedUser = await prisma.user.update({
-      data: {
-        avatarKey: null,
-        avatarMediaId: null,
-        avatarUrl: null,
-      },
-      select: getPrivateUserSelect(userId),
-      where: { id: userId },
+    await prisma.orm.public.Users.where({ id: userId }).update({
+      avatarKey: null,
+      avatarMediaId: null,
+      avatarUrl: null,
     });
+    const updatedUser = await getPrivateUserQuery(prisma.orm, userId)
+      .where({ id: userId })
+      .first();
+    if (!updatedUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
 
     await avatarCache.del(userId);
 
@@ -221,7 +222,13 @@ export async function DELETE() {
       }
     }
 
-    return NextResponse.json({ success: true, user: updatedUser });
+    return NextResponse.json({
+      success: true,
+      user: {
+        ...updatedUser,
+        createdAt: fromPrismaDateTime(updatedUser.createdAt),
+      },
+    });
   } catch (error) {
     console.error("Avatar deletion error:", error);
     return NextResponse.json(
@@ -249,13 +256,9 @@ export async function GET(request: Request) {
     if (cachedAvatar) {
       return NextResponse.json(cachedAvatar);
     }
-    const user = await prisma.user.findUnique({
-      select: {
-        avatarKey: true,
-        avatarUrl: true,
-      },
-      where: { id: userId },
-    });
+    const user = await prisma.orm.public.Users.select("avatarKey", "avatarUrl")
+      .where({ id: userId })
+      .first();
 
     if (!user?.avatarUrl || !user.avatarKey) {
       return new NextResponse("Avatar not found", { status: 404 });

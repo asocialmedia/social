@@ -1,7 +1,9 @@
 import {
+  and,
   findVisiblePost,
-  getCommentDataInclude,
+  getCommentDataQuery,
   invalidateFypProfile,
+  mapCommentData,
   prisma,
 } from "@asm/db";
 import type { CommentsPage } from "@asm/db";
@@ -106,20 +108,21 @@ export async function GET(
   const url = new URL(request.url);
   const cursor = decodeCommentCursor(url.searchParams.get("cursor"));
 
-  const where = { parentId: null, postId };
-
-  const topLevel = await prisma.comment.findMany({
-    include: getCommentDataInclude(userId),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: PAGE_SIZE + 1,
-    where,
-    ...(cursor
-      ? {
-          cursor: { id: cursor.id },
-          skip: 1,
-        }
-      : {}),
-  });
+  const topLevelQuery = getCommentDataQuery(prisma.orm, userId)
+    .where((comment) =>
+      and(comment.parentId.isNull(), comment.postId.eq(postId))
+    )
+    .orderBy([
+      (comment) => comment.createdAt.desc(),
+      (comment) => comment.id.desc(),
+    ])
+    .limit(PAGE_SIZE + 1);
+  const topLevelRows = await (
+    cursor ? topLevelQuery.cursor({ id: cursor.id }) : topLevelQuery
+  )
+    .offset(cursor ? 1 : 0)
+    .all();
+  const topLevel = topLevelRows.map(mapCommentData);
 
   const hasMore = topLevel.length > PAGE_SIZE;
   const page = hasMore ? topLevel.slice(0, PAGE_SIZE) : topLevel;
@@ -128,11 +131,13 @@ export async function GET(
 
   const descendants =
     topLevelIds.length > 0
-      ? await prisma.comment.findMany({
-          include: getCommentDataInclude(userId),
-          orderBy: { createdAt: "asc" },
-          where: { postId, rootId: { in: topLevelIds } },
-        })
+      ? await getCommentDataQuery(prisma.orm, userId)
+          .where((comment) =>
+            and(comment.postId.eq(postId), comment.rootId.in(topLevelIds))
+          )
+          .orderBy((comment) => comment.createdAt.asc())
+          .all()
+          .then((rows) => rows.map(mapCommentData))
       : [];
 
   const response: CommentsPage = {

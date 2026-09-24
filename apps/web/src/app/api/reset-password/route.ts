@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { fromPrismaDateTime, prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
@@ -56,9 +56,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const resetToken = await prisma.verification.findFirst({
-      where: { identifier: `reset-password:${token}` },
-    });
+    const resetToken = await prisma.orm.public.Verification.where({
+      identifier: `reset-password:${token}`,
+    }).first();
 
     if (!resetToken) {
       return Response.json(
@@ -70,10 +70,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (resetToken.expiresAt < new Date()) {
-      await prisma.verification.delete({
-        where: { id: resetToken.id },
-      });
+    if (fromPrismaDateTime(resetToken.expiresAt) < new Date()) {
+      await prisma.orm.public.Verification.where({
+        id: resetToken.id,
+      }).delete();
 
       return Response.json(
         { error: "Token expired" },

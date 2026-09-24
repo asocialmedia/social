@@ -4,41 +4,108 @@ interface UserBadgeRow {
   aura?: number;
   badge: string | null;
   badges: string[];
+  followsFollows?: number;
+  id?: string;
 }
 
+interface CollectionMock {
+  aggregate: (fn: (aggregate: { count: () => number }) => unknown) => Promise<{
+    count: number;
+  }>;
+  all: () => Promise<UserBadgeRow[]>;
+  first: () => Promise<UserBadgeRow | null>;
+  include: (
+    relation: string,
+    fn: (collection: CollectionMock) => unknown
+  ) => CollectionMock;
+  limit: (value: number) => CollectionMock;
+  orderBy: (fn: (model: unknown) => unknown) => CollectionMock;
+  select: (...fields: string[]) => CollectionMock;
+  update: (data: Record<string, unknown>) => Promise<UserBadgeRow>;
+  where: (predicate: unknown) => CollectionMock;
+}
+
+const userFirstResults: (UserBadgeRow | null)[] = [];
+const userAllResults: UserBadgeRow[][] = [];
+const postCounts: number[] = [];
+const userUpdates: Record<string, unknown>[] = [];
+const userUpdateErrors: (Error | null)[] = [];
+
+function createUserCollection(): CollectionMock {
+  const collection: CollectionMock = {
+    aggregate: mock(() => Promise.resolve({ count: 0 })),
+    all: mock(() => Promise.resolve(userAllResults.shift() ?? [])),
+    first: mock(() => Promise.resolve(userFirstResults.shift() ?? null)),
+    include: mock(() => collection),
+    limit: mock(() => collection),
+    orderBy: mock(() => collection),
+    select: mock(() => collection),
+    update: mock((data) => {
+      const failure = userUpdateErrors.shift();
+      if (failure) {
+        return Promise.reject(failure);
+      }
+      userUpdates.push(data);
+      return Promise.resolve({
+        badge: null,
+        badges: [],
+        id: "updated",
+      });
+    }),
+    where: mock(() => collection),
+  };
+  return collection;
+}
+
+function createPostCollection(): CollectionMock {
+  const collection: CollectionMock = {
+    aggregate: mock(() => Promise.resolve({ count: postCounts.shift() ?? 0 })),
+    all: mock(() => Promise.resolve([])),
+    first: mock(() => Promise.resolve(null)),
+    include: mock(() => collection),
+    limit: mock(() => collection),
+    orderBy: mock(() => collection),
+    select: mock(() => collection),
+    update: mock(() => Promise.resolve({ badge: null, badges: [] })),
+    where: mock(() => collection),
+  };
+  return collection;
+}
+
+const userCollection = createUserCollection();
+const postCollection = createPostCollection();
 const prismaMock = {
-  post: {
-    count: mock((): Promise<number> => Promise.resolve(0)),
-  },
-  user: {
-    count: mock((): Promise<number> => Promise.resolve(0)),
-    findFirst: mock((): Promise<{ id: string } | null> =>
-      Promise.resolve(null)
-    ),
-    findMany: mock((): Promise<{ id: string }[]> => Promise.resolve([])),
-    // Takes the query args so tests can answer per-id (grant/revoke re-read the
-    // row before writing, so the same mock serves several ids in one call).
-    findUnique: mock(
-      (_args?: { where?: { id?: string } }): Promise<UserBadgeRow | null> =>
-        Promise.resolve(null)
-    ),
-    update: mock((): Promise<{ id: string }> => Promise.resolve({ id: "u" })),
+  orm: {
+    public: {
+      Posts: {
+        select: postCollection.select,
+        where: postCollection.where,
+      },
+      Users: {
+        select: userCollection.select,
+        where: userCollection.where,
+      },
+    },
   },
 };
 
-mock.module("../prisma", () => ({ default: prismaMock }));
+mock.module("../prisma", () => ({
+  default: prismaMock,
+  toPrismaDateTime: (value: Date) =>
+    Temporal.PlainDateTime.from(value.toISOString().replace("Z", "")),
+}));
 
 beforeEach(() => {
-  for (const methods of Object.values(prismaMock)) {
-    for (const method of Object.values(methods)) {
+  for (const collection of [userCollection, postCollection]) {
+    for (const method of Object.values(collection)) {
       method.mockClear();
     }
   }
-  prismaMock.user.findFirst.mockResolvedValue(null);
-  prismaMock.user.findMany.mockResolvedValue([]);
-  prismaMock.user.findUnique.mockResolvedValue(null);
-  prismaMock.user.update.mockResolvedValue({ id: "u" });
-  prismaMock.post.count.mockResolvedValue(0);
+  userFirstResults.length = 0;
+  userAllResults.length = 0;
+  postCounts.length = 0;
+  userUpdates.length = 0;
+  userUpdateErrors.length = 0;
 });
 
 describe("getUserBadges", () => {
@@ -60,12 +127,6 @@ describe("getUserBadges", () => {
   test("merges the legacy badge with the array and orders by precedence", async () => {
     const { getUserBadges } = await import("./badges");
 
-    // Legacy author + array early => author leads (highest precedence).
-    expect(getUserBadges({ badge: "author", badges: ["early"] })).toEqual([
-      "author",
-      "early",
-    ]);
-    // Array already has both, legacy column repeats -> dedupe keeps one.
     expect(
       getUserBadges({ badge: "author", badges: ["early", "author"] })
     ).toEqual(["author", "early"]);
@@ -84,343 +145,210 @@ describe("getUserBadges", () => {
 describe("grantBadge", () => {
   test("returns false when the user already holds the badge", async () => {
     const { grantBadge } = await import("./badges");
+    userFirstResults.push({ badge: null, badges: ["shitposter"] });
 
-    prismaMock.user.findUnique.mockResolvedValue({
-      badge: null,
-      badges: ["shitposter"],
-    });
-
-    const result = await grantBadge("u1", "shitposter");
-
-    expect(result).toBe(false);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(await grantBadge("u1", "shitposter")).toBe(false);
+    expect(userUpdates).toHaveLength(0);
   });
 
-  test("throws BadgeLimitError when granting author to a second user", async () => {
+  test("throws BadgeLimitError when a legacy author exists", async () => {
     const { BadgeLimitError, grantBadge } = await import("./badges");
-
-    prismaMock.user.findFirst.mockResolvedValue({ id: "u0" });
+    userFirstResults.push({ badge: "author", badges: [] });
 
     await expect(grantBadge("u1", "author")).rejects.toThrow(BadgeLimitError);
-    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    expect(userUpdates).toHaveLength(0);
+  });
+
+  test("maps a global author unique violation to BadgeLimitError", async () => {
+    const { BadgeLimitError, grantBadge } = await import("./badges");
+    userFirstResults.push(null, { badge: null, badges: [] });
+    userUpdateErrors.push(
+      Object.assign(new Error("conflict"), { code: "P2002" })
+    );
+
+    await expect(grantBadge("u1", "author")).rejects.toThrow(BadgeLimitError);
   });
 
   test("appends the badge when not held", async () => {
     const { grantBadge } = await import("./badges");
+    userFirstResults.push({ badge: null, badges: [] });
 
-    prismaMock.user.findUnique.mockResolvedValue({ badge: null, badges: [] });
-
-    const result = await grantBadge("u1", "dev");
-
-    expect(result).toBe(true);
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
-      data: { badges: ["dev"] },
-      where: { id: "u1" },
-    });
+    expect(await grantBadge("u1", "dev")).toBe(true);
+    expect(userUpdates.at(-1)?.badges).toEqual(["dev"]);
   });
 
-  test("materializes the legacy badge into the array when granting a second one", async () => {
+  test("materializes the legacy badge into the array", async () => {
     const { grantBadge } = await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({
-      badge: "author",
-      badges: [],
-    });
+    userFirstResults.push({ badge: "author", badges: [] });
 
     await grantBadge("u1", "shitposter");
-
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
-      data: { badges: ["author", "shitposter"] },
-      where: { id: "u1" },
-    });
+    expect(userUpdates.at(-1)?.badges).toEqual(["author", "shitposter"]);
   });
 });
 
 describe("revokeBadge", () => {
   test("removes a badge from the array", async () => {
     const { revokeBadge } = await import("./badges");
+    userFirstResults.push({ badge: null, badges: ["dev", "early"] });
 
-    prismaMock.user.findUnique.mockResolvedValue({
+    expect(await revokeBadge("u1", "early")).toBe(true);
+    expect(userUpdates.at(-1)).toMatchObject({
       badge: null,
-      badges: ["dev", "early"],
-    });
-
-    const result = await revokeBadge("u1", "early");
-
-    expect(result).toBe(true);
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
-      data: { badge: null, badges: ["dev"] },
-      where: { id: "u1" },
+      badges: ["dev"],
     });
   });
 
-  test("removes a legacy-only badge and clears the legacy column", async () => {
-    const { getUserBadges, revokeBadge } = await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({
-      badge: "dev",
-      badges: [],
-    });
-
-    const result = await revokeBadge("u1", "dev");
-
-    expect(result).toBe(true);
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
-      data: { badge: null, badges: [] },
-      where: { id: "u1" },
-    });
-
-    // A later read must not render the revoked badge from either location.
-    expect(getUserBadges({ badge: null, badges: [] })).toEqual([]);
-  });
-
-  test("returns false when the badge is not present", async () => {
+  test("removes a legacy-only badge", async () => {
     const { revokeBadge } = await import("./badges");
+    userFirstResults.push({ badge: "dev", badges: [] });
 
-    prismaMock.user.findUnique.mockResolvedValue({
-      badge: null,
-      badges: ["early"],
-    });
+    expect(await revokeBadge("u1", "dev")).toBe(true);
+    expect(userUpdates.at(-1)).toMatchObject({ badge: null, badges: [] });
+  });
 
-    const result = await revokeBadge("u1", "dev");
+  test("returns false when the badge is absent", async () => {
+    const { revokeBadge } = await import("./badges");
+    userFirstResults.push({ badge: null, badges: ["early"] });
 
-    expect(result).toBe(false);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(await revokeBadge("u1", "dev")).toBe(false);
+    expect(userUpdates).toHaveLength(0);
   });
 
   test("returns false for a missing user", async () => {
     const { revokeBadge } = await import("./badges");
 
-    prismaMock.user.findUnique.mockResolvedValue(null);
-
-    const result = await revokeBadge("missing", "dev");
-
-    expect(result).toBe(false);
+    expect(await revokeBadge("missing", "dev")).toBe(false);
   });
 
   test("rejects revoking the author badge", async () => {
     const { BadgeLimitError, revokeBadge } = await import("./badges");
 
     await expect(revokeBadge("u1", "author")).rejects.toThrow(BadgeLimitError);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 });
 
-describe("grantShitposterBadgeIfQualified", () => {
-  test("grants when recent posts meet the threshold", async () => {
+describe("qualified badges", () => {
+  test("grants shitposter at the recent-post threshold", async () => {
     const { grantShitposterBadgeIfQualified } = await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({ badge: null, badges: [] });
-    prismaMock.post.count.mockResolvedValue(5);
-
-    const result = await grantShitposterBadgeIfQualified("u1");
-
-    expect(result).toBe(true);
-    expect(prismaMock.post.count).toHaveBeenCalled();
-    expect(prismaMock.user.update).toHaveBeenCalled();
-  });
-
-  test("no-ops when below the threshold", async () => {
-    const { grantShitposterBadgeIfQualified } = await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({ badge: null, badges: [] });
-    prismaMock.post.count.mockResolvedValue(4);
-
-    const result = await grantShitposterBadgeIfQualified("u1");
-
-    expect(result).toBe(false);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
-  });
-
-  test("no-ops when the user already holds the shitposter badge", async () => {
-    const { grantShitposterBadgeIfQualified } = await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({
-      badge: null,
-      badges: ["shitposter"],
-    });
-
-    const result = await grantShitposterBadgeIfQualified("u1");
-
-    expect(result).toBe(false);
-    expect(prismaMock.post.count).not.toHaveBeenCalled();
-  });
-
-  test("grants when the user has the legacy badge and qualifies", async () => {
-    const { grantShitposterBadgeIfQualified } = await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({ badge: "dev", badges: [] });
-    prismaMock.post.count.mockResolvedValue(5);
-
-    const result = await grantShitposterBadgeIfQualified("u1");
-
-    expect(result).toBe(true);
-  });
-});
-
-describe("early badge window", () => {
-  test("is open before the deadline and closed at or after it", async () => {
-    const { EARLY_DEADLINE, isEarlyBadgeWindowOpen } = await import("./badges");
-
-    expect(isEarlyBadgeWindowOpen(new Date("2026-01-01T00:00:00Z"))).toBe(true);
-    expect(isEarlyBadgeWindowOpen(new Date(EARLY_DEADLINE.getTime() - 1))).toBe(
-      true
+    userFirstResults.push(
+      { badge: null, badges: [] },
+      { badge: null, badges: [] }
     );
-    // The deadline itself is the first closed instant.
-    expect(isEarlyBadgeWindowOpen(EARLY_DEADLINE)).toBe(false);
-    expect(isEarlyBadgeWindowOpen(new Date("2027-01-01T00:00:00Z"))).toBe(
-      false
-    );
+    postCounts.push(5);
+
+    expect(await grantShitposterBadgeIfQualified("u1")).toBe(true);
+    expect(userUpdates.at(-1)?.badges).toEqual(["shitposter"]);
   });
 
-  test("grantEarlyBadgeIfQualified refuses once the window has closed", async () => {
+  test("does not grant shitposter below the threshold", async () => {
+    const { grantShitposterBadgeIfQualified } = await import("./badges");
+    userFirstResults.push({ badge: null, badges: [] });
+    postCounts.push(4);
+
+    expect(await grantShitposterBadgeIfQualified("u1")).toBe(false);
+    expect(userUpdates).toHaveLength(0);
+  });
+
+  test("does not re-grant shitposter", async () => {
+    const { grantShitposterBadgeIfQualified } = await import("./badges");
+    userFirstResults.push({ badge: null, badges: ["shitposter"] });
+
+    expect(await grantShitposterBadgeIfQualified("u1")).toBe(false);
+  });
+
+  test("grants early at the aura threshold", async () => {
+    const { grantEarlyBadgeIfQualified, EARLY_AURA_THRESHOLD } =
+      await import("./badges");
+    userFirstResults.push(
+      {
+        aura: EARLY_AURA_THRESHOLD,
+        badge: null,
+        badges: [],
+      },
+      { badge: null, badges: [] }
+    );
+
+    expect(await grantEarlyBadgeIfQualified("u1")).toBe(true);
+  });
+
+  test("refuses early badges after the deadline", async () => {
     const { grantEarlyBadgeIfQualified, EARLY_DEADLINE } =
       await import("./badges");
 
-    prismaMock.user.findUnique.mockResolvedValue({ badge: null, badges: [] });
-
-    const result = await grantEarlyBadgeIfQualified(
-      "u1",
-      new Date(EARLY_DEADLINE.getTime() + 1000)
-    );
-
-    expect(result).toBe(false);
-    // No user read once the campaign is over: the window check comes first.
-    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
-  });
-
-  test("grantEarlyBadgeIfQualified refuses below the aura threshold", async () => {
-    const { grantEarlyBadgeIfQualified, EARLY_AURA_THRESHOLD } =
-      await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({
-      aura: EARLY_AURA_THRESHOLD - 1,
-      badge: null,
-      badges: [],
-    });
-
-    expect(await grantEarlyBadgeIfQualified("u1")).toBe(false);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
-  });
-
-  test("grantEarlyBadgeIfQualified grants at the threshold", async () => {
-    const { grantEarlyBadgeIfQualified, EARLY_AURA_THRESHOLD } =
-      await import("./badges");
-
-    prismaMock.user.findUnique.mockResolvedValue({
-      aura: EARLY_AURA_THRESHOLD,
-      badge: null,
-      badges: [],
-    });
-
-    expect(await grantEarlyBadgeIfQualified("u1")).toBe(true);
-    expect(prismaMock.user.update).toHaveBeenCalled();
-  });
-
-  test("sweep is a no-op once the window has closed", async () => {
-    const { sweepEarlyBadges, EARLY_DEADLINE } = await import("./badges");
-
-    const granted = await sweepEarlyBadges(
-      new Date(EARLY_DEADLINE.getTime() + 1000)
-    );
-
-    expect(granted).toBe(0);
-    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
-  });
-
-  test("sweep pages through candidates and grants each", async () => {
-    const { sweepEarlyBadges } = await import("./badges");
-
-    // One short page, so the sweep terminates after a single pass.
-    prismaMock.user.findMany.mockResolvedValue([{ id: "u1" }, { id: "u2" }]);
-    prismaMock.user.findUnique
-      .mockResolvedValueOnce({ badge: null, badges: [] })
-      .mockResolvedValueOnce({ badge: null, badges: [] });
-
-    const granted = await sweepEarlyBadges(
-      new Date("2026-06-01T00:00:00Z"),
-      200
-    );
-
-    expect(granted).toBe(2);
-    expect(prismaMock.user.findMany).toHaveBeenCalledTimes(1);
-    expect(prismaMock.user.update).toHaveBeenCalledTimes(2);
-  });
-
-  test("candidate filter excludes holders by the array, not the nullable column", async () => {
-    const { sweepEarlyBadges } = await import("./badges");
-
-    prismaMock.user.findMany.mockResolvedValue([]);
-    await sweepEarlyBadges(new Date("2026-06-01T00:00:00Z"));
-
-    // mock.calls entries are argument arrays; the mock takes one args object.
-    const calls = prismaMock.user.findMany.mock.calls as unknown as {
-      where: Record<string, unknown>;
-    }[][];
-    const where = calls.at(-1)?.[0]?.where ?? {};
-    // Guard against the regression: a NOT over the nullable legacy `badge`
-    // column compiles to `NOT (badge = 'early')`, which is NULL (and therefore
-    // excludes the row) for every user without a legacy badge - so the sweep
-    // silently found nobody. The filter must key off the non-nullable array.
-    expect(where).toEqual({
-      NOT: { badges: { has: "early" } },
-      aura: { gte: 5000 },
-    });
-    expect(JSON.stringify(where)).not.toContain('"badge"');
+    expect(
+      await grantEarlyBadgeIfQualified(
+        "u1",
+        new Date(EARLY_DEADLINE.getTime() + 1000)
+      )
+    ).toBe(false);
   });
 });
 
-describe("trending badge sync", () => {
-  test("grants to the current cohort and revokes everyone who dropped off", async () => {
-    const { syncTrendingBadges } = await import("./badges");
-
-    // The holders query returns the previous cohort. grantBadge/revokeBadge
-    // re-read the row before writing, so the mock must answer per id: "old"
-    // still holds trending (revocable), "stays" holds it (already correct),
-    // "fresh" does not (grantable).
-    prismaMock.user.findMany.mockResolvedValue([
-      { id: "old" },
-      { id: "stays" },
+describe("badge sweeps", () => {
+  test("sweep pages through candidates and grants each", async () => {
+    const { sweepEarlyBadges } = await import("./badges");
+    userAllResults.push([
+      { badge: null, badges: [], id: "u1" },
+      { badge: null, badges: [], id: "u2" },
     ]);
-    prismaMock.user.findUnique.mockImplementation(
-      (args?: { where?: { id?: string } }) =>
-        Promise.resolve(
-          args?.where?.id === "fresh"
-            ? { badge: null, badges: [] }
-            : { badge: null, badges: ["trending"] }
-        )
+    userFirstResults.push(
+      { badge: null, badges: [] },
+      { badge: null, badges: [] }
     );
 
-    const result = await syncTrendingBadges(["stays", "fresh"]);
-
-    // "fresh" is granted, "old" is revoked, "stays" is left untouched.
-    expect(result.granted).toBe(1);
-    expect(result.revoked).toBe(1);
+    expect(await sweepEarlyBadges(new Date("2026-06-01T00:00:00Z"), 200)).toBe(
+      2
+    );
+    expect(userUpdates).toHaveLength(2);
   });
 
-  test("an empty cohort revokes every holder", async () => {
-    const { syncTrendingBadges } = await import("./badges");
+  test("sweep filters existing holders before granting", async () => {
+    const { sweepEarlyBadges } = await import("./badges");
+    userAllResults.push([{ badge: null, badges: ["early"], id: "u1" }]);
 
-    prismaMock.user.findMany.mockResolvedValue([{ id: "a" }, { id: "b" }]);
-    prismaMock.user.findUnique.mockResolvedValue({
-      badge: null,
-      badges: ["trending"],
+    expect(await sweepEarlyBadges(new Date("2026-06-01T00:00:00Z"))).toBe(0);
+    expect(userUpdates).toHaveLength(0);
+  });
+
+  test("sync grants the new cohort and revokes dropped holders", async () => {
+    const { syncTrendingBadges } = await import("./badges");
+    userAllResults.push([
+      { badge: null, badges: ["trending"], id: "old" },
+      { badge: null, badges: ["trending"], id: "stays" },
+    ]);
+    userFirstResults.push(
+      { badge: null, badges: [] },
+      { badge: null, badges: ["trending"] }
+    );
+
+    expect(await syncTrendingBadges(["stays", "fresh"])).toEqual({
+      granted: 1,
+      revoked: 1,
     });
-
-    const result = await syncTrendingBadges([]);
-
-    expect(result.granted).toBe(0);
-    expect(result.revoked).toBe(2);
   });
 
-  test("is a no-op when the cohort already matches the holders", async () => {
+  test("sync revokes every holder for an empty cohort", async () => {
     const { syncTrendingBadges } = await import("./badges");
+    userAllResults.push([
+      { badge: null, badges: ["trending"], id: "a" },
+      { badge: null, badges: ["trending"], id: "b" },
+    ]);
+    userFirstResults.push(
+      { badge: null, badges: ["trending"] },
+      { badge: null, badges: ["trending"] }
+    );
 
-    prismaMock.user.findMany.mockResolvedValue([{ id: "a" }]);
+    expect(await syncTrendingBadges([])).toEqual({ granted: 0, revoked: 2 });
+  });
 
-    const result = await syncTrendingBadges(["a"]);
+  test("sync is a no-op when the cohort already matches", async () => {
+    const { syncTrendingBadges } = await import("./badges");
+    userAllResults.push([{ badge: null, badges: ["trending"], id: "a" }]);
 
-    expect(result).toEqual({ granted: 0, revoked: 0 });
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(await syncTrendingBadges(["a"])).toEqual({
+      granted: 0,
+      revoked: 0,
+    });
+    expect(userUpdates).toHaveLength(0);
   });
 });

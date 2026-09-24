@@ -1,4 +1,4 @@
-import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
+import { and, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -16,33 +16,53 @@ export async function GET(request: Request) {
     return Response.json({ users: [] });
   }
 
-  const users = await prisma.user.findMany({
-    select: {
-      avatarUrl: true,
-      badge: true,
-      badges: true,
-      displayName: true,
-      id: true,
-      messageIdentity: { select: { userId: true } },
-      username: true,
-    },
-    take: 10,
-    where: {
-      AND: [
-        // Only people the caller follows are messageable; filter through the
-        // relation instead of a separate follow query + id list. The system
-        // moderation persona has no discoverable profile.
-        { id: { not: SYSTEM_MODERATION_USER_ID } },
-        { followers: { some: { followerId: user.id } } },
-        {
-          OR: [
-            { displayName: { contains: query, mode: "insensitive" } },
-            { username: { contains: query, mode: "insensitive" } },
-          ],
-        },
-      ],
-    },
-  });
+  const pattern = `%${query}%`;
+  const [usernameMatches, displayNameMatches] = await Promise.all([
+    prisma.orm.public.Users.select(
+      "avatarUrl",
+      "badge",
+      "badges",
+      "displayName",
+      "id",
+      "username"
+    )
+      .where((candidate) =>
+        and(
+          candidate.id.notIn([SYSTEM_MODERATION_USER_ID]),
+          candidate.followsFollows.some((follow) =>
+            follow.followerId.eq(user.id)
+          ),
+          candidate.username.ilike(pattern)
+        )
+      )
+      .include("messageIdentities", (identity) => identity.select("userId"))
+      .limit(10)
+      .all(),
+    prisma.orm.public.Users.select(
+      "avatarUrl",
+      "badge",
+      "badges",
+      "displayName",
+      "id",
+      "username"
+    )
+      .where((candidate) =>
+        and(
+          candidate.id.notIn([SYSTEM_MODERATION_USER_ID]),
+          candidate.followsFollows.some((follow) =>
+            follow.followerId.eq(user.id)
+          ),
+          candidate.displayName.ilike(pattern)
+        )
+      )
+      .include("messageIdentities", (identity) => identity.select("userId"))
+      .limit(10)
+      .all(),
+  ]);
+  const users = [...usernameMatches, ...displayNameMatches].filter(
+    (candidate, index, all) =>
+      all.findIndex((other) => other.id === candidate.id) === index
+  );
 
   return Response.json({
     users: users.map((u) => ({
@@ -50,7 +70,7 @@ export async function GET(request: Request) {
       badge: u.badge,
       badges: u.badges,
       displayName: u.displayName,
-      hasIdentity: u.messageIdentity !== null,
+      hasIdentity: u.messageIdentities !== null,
       id: u.id,
       username: u.username,
     })),

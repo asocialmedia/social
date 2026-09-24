@@ -1,8 +1,10 @@
 import {
+  and,
   communityVisibilityWhere,
   getPostAncestors,
-  getPostDataInclude,
+  getPostDataQuery,
   hydrateViewCounts,
+  mapPostData,
   prisma,
 } from "@asm/db";
 import type { PostData } from "@asm/db";
@@ -26,18 +28,24 @@ export async function GET(
   // leak of its content through a known id. For a guest that means public
   // communities only.
   const visibility = communityVisibilityWhere(userId);
-  let post = await prisma.post.findFirst({
-    include: getPostDataInclude(userId),
-    where: { id: postId, ...visibility },
-  });
+  const postQuery = getPostDataQuery(prisma.orm, userId);
+  const postRow = await postQuery
+    .where((post) => and(post.id.eq(postId), visibility(post)))
+    .first();
+  let post = postRow ? mapPostData(postRow) : null;
   if (!post && postId.length >= 8) {
-    const matches = await prisma.post.findMany({
-      include: getPostDataInclude(userId),
-      take: 2,
-      where: { id: { startsWith: postId }, ...visibility },
-    });
-    if (matches.length === 1) {
-      post = matches[0] ?? null;
+    const candidateIds = await prisma.orm.public.Posts.select("id")
+      .where((candidate) => visibility(candidate))
+      .all();
+    const matchingIds = candidateIds
+      .filter((candidate) => candidate.id.startsWith(postId))
+      .slice(0, 2);
+    if (matchingIds.length === 1) {
+      const matchId = matchingIds[0]?.id;
+      if (matchId) {
+        const matchRow = await postQuery.where({ id: matchId }).first();
+        post = matchRow ? mapPostData(matchRow) : null;
+      }
     }
   }
   if (!post) {

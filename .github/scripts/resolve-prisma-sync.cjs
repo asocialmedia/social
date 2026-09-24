@@ -1,7 +1,7 @@
 const { selectChangedFiles } = require("./select-changed-files.cjs");
 
 const PRISMA_PATHS = new Set([
-  "packages/db/prisma/schema.prisma",
+  "packages/db/prisma/contract.prisma",
   "packages/db/prisma.config.ts",
   "packages/db/keys.ts",
   "docker/prisma-package.json",

@@ -24,27 +24,31 @@ export async function processMediaCleanup(
   await withSpan(
     "job.media-cleanup",
     async () => {
-      const media = await prisma.media.findUnique({
-        select: {
-          avatarOf: { select: { id: true } },
-          bannerOf: { select: { id: true } },
-          commentId: true,
-          communityAvatarOf: { select: { id: true } },
-          communityBannerOf: { select: { id: true } },
-          createdAt: true,
-          id: true,
-          key: true,
-          messageConversationId: true,
-          originalKey: true,
-          postId: true,
-          publishedKey: true,
-          size: true,
-          status: true,
-          thumbnailKey: true,
-          userId: true,
-        },
-        where: { id: mediaId },
-      });
+      const media = await prisma.orm.public.PostMedia.select(
+        "commentId",
+        "createdAt",
+        "id",
+        "key",
+        "messageConversationId",
+        "originalKey",
+        "postId",
+        "publishedKey",
+        "size",
+        "status",
+        "thumbnailKey",
+        "userId"
+      )
+        .include("users", (user) => user.select("id"))
+        .include("usersUsers", (user) => user.select("id"))
+        .include("communities", (community) => community.select("id"))
+        .include("communitiesCommunities", (community) =>
+          community.select("id")
+        )
+        .include("messageConversation", (conversation) =>
+          conversation.select("id")
+        )
+        .where({ id: mediaId })
+        .first();
 
       // Still orphaned after the grace period (never attached to a post, a
       // comment, a profile, a conversation, or a community): delete.
@@ -53,10 +57,11 @@ export async function processMediaCleanup(
         media.postId ||
         media.commentId ||
         media.messageConversationId ||
-        media.avatarOf ||
-        media.bannerOf ||
-        media.communityAvatarOf ||
-        media.communityBannerOf
+        media.users.length > 0 ||
+        media.usersUsers.length > 0 ||
+        media.communities.length > 0 ||
+        media.communitiesCommunities.length > 0 ||
+        media.messageConversation
       ) {
         return;
       }
@@ -87,7 +92,7 @@ export async function processMediaCleanup(
           console.error("Failed to refund storage quota:", error);
         }
       }
-      await prisma.media.delete({ where: { id: mediaId } });
+      await prisma.orm.public.PostMedia.where({ id: mediaId }).delete();
       mediaLogger.info({ mediaId }, "abandoned media cleaned up");
     },
     { "media.id": mediaId }

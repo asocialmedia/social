@@ -32,6 +32,7 @@ import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import { useLogout } from "@/hooks/auth/use-logout";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { getUserCount, getUserPostCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -305,17 +306,17 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             <PopoverStat
               icon={FileText}
               label="Posts"
-              value={userData._count.posts}
+              value={getUserPostCount(userData)}
             />
             <PopoverStat
               icon={Users}
               label="Followers"
-              value={userData._count.followers}
+              value={getUserCount(userData, "followers")}
             />
             <PopoverStat
               icon={UserPlus}
               label="Following"
-              value={userData._count.following}
+              value={getUserCount(userData, "following")}
             />
             <PopoverStat
               icon={Flame}

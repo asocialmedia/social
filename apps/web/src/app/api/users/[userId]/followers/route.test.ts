@@ -28,6 +28,179 @@ function resetState() {
   state.notifications = [];
 }
 
+function createFollowOrm() {
+  const findFollow = (followerId: string, followingId: string) =>
+    state.isFollowing &&
+    followerId === FOLLOWER_ID &&
+    followingId === FOLLOWED_ID
+      ? {
+          gainedAura: state.followRow?.gainedAura ?? 0,
+          givenAura: state.followRow?.givenAura ?? 0,
+          id: "follow-1",
+        }
+      : null;
+  return {
+    AuraLogs: {
+      create: (data: Record<string, unknown>) => {
+        const { _type, ...rest } = data;
+        return mockTx.auraLog.create({ data: { ...rest, type: _type } });
+      },
+      where: () => ({
+        aggregate: (
+          aggregate: (value: {
+            count: () => number;
+            sum: (field: string) => number;
+          }) => unknown
+        ) => aggregate({ count: () => 0, sum: () => 0 }),
+      }),
+    },
+    Follows: {
+      create: (data: Record<string, unknown>) =>
+        mockTx.follow.create({
+          data: data as { gainedAura: number; givenAura: number },
+        }),
+      select: () => ({ where: () => ({ first: () => null }) }),
+      where: (
+        predicate: (follow: {
+          followerId: { eq: (id: string) => unknown };
+          followingId: { eq: (id: string) => unknown };
+        }) => unknown
+      ) => {
+        let followerId = "";
+        let followingId = "";
+        predicate({
+          followerId: { eq: (id) => (followerId = id) },
+          followingId: { eq: (id) => (followingId = id) },
+        });
+        const find = () => findFollow(followerId, followingId);
+        return {
+          aggregate: (aggregate: (value: { count: () => number }) => unknown) =>
+            aggregate({ count: () => (state.isFollowing ? 1 : 0) }),
+          delete: () => {
+            if (find()) {
+              state.isFollowing = false;
+            }
+            return Promise.resolve({});
+          },
+          first: find,
+        };
+      },
+    },
+    Notifications: {
+      select: () => ({
+        create: (data: Record<string, unknown>) => {
+          const { _type, ...rest } = data;
+          return mockTx.notification.create({
+            data: { ...rest, type: _type },
+          });
+        },
+        where: (
+          predicate: (notification: {
+            issuerId: { eq: (id: string) => unknown };
+            recipientId: { eq: (id: string) => unknown };
+            _type: { eq: (type: string) => unknown };
+          }) => unknown
+        ) => {
+          let issuerId = "";
+          let recipientId = "";
+          let type = "";
+          predicate({
+            _type: { eq: (value) => (type = value) },
+            issuerId: { eq: (id) => (issuerId = id) },
+            recipientId: { eq: (id) => (recipientId = id) },
+          });
+          return {
+            delete: () => {
+              state.notifications = state.notifications.filter(
+                (notification) =>
+                  !(
+                    notification.issuerId === issuerId &&
+                    notification.recipientId === recipientId &&
+                    notification.type === type
+                  )
+              );
+              return Promise.resolve({});
+            },
+          };
+        },
+      }),
+      where: (
+        predicate: (notification: {
+          issuerId: { eq: (id: string) => unknown };
+          recipientId: { eq: (id: string) => unknown };
+          _type: { eq: (type: string) => unknown };
+        }) => unknown
+      ) => {
+        let issuerId = "";
+        let recipientId = "";
+        let type = "";
+        predicate({
+          _type: { eq: (value) => (type = value) },
+          issuerId: { eq: (id) => (issuerId = id) },
+          recipientId: { eq: (id) => (recipientId = id) },
+        });
+        return {
+          delete: () => {
+            state.notifications = state.notifications.filter(
+              (notification) =>
+                !(
+                  notification.issuerId === issuerId &&
+                  notification.recipientId === recipientId &&
+                  notification.type === type
+                )
+            );
+            return Promise.resolve({});
+          },
+        };
+      },
+    },
+    Users: {
+      select: (...fields: string[]) => ({
+        where: (where: { id: string }) => ({
+          first: () => {
+            if (fields.includes("createdAt")) {
+              return Promise.resolve({ aura: 12_000, createdAt: new Date(0) });
+            }
+            if (where.id === FOLLOWED_ID) {
+              return Promise.resolve({
+                aura: state.followedAura,
+                createdAt: new Date(0),
+                displayName: "Alice",
+                id: FOLLOWED_ID,
+                username: "alice",
+              });
+            }
+            return Promise.resolve({ aura: state.followerAura });
+          },
+        }),
+      }),
+      where: (
+        predicate: (user: {
+          aura: { eq: (value: number) => unknown };
+          id: { eq: (id: string) => unknown };
+        }) => unknown
+      ) => {
+        let userId = "";
+        let _aura = 0;
+        predicate({
+          aura: { eq: (value) => (_aura = value) },
+          id: { eq: (id) => (userId = id) },
+        });
+        return {
+          updateAndCount: ({ aura: nextAura }: { aura: number }) => {
+            if (userId === FOLLOWED_ID) {
+              state.followedAura = nextAura;
+            } else {
+              state.followerAura = nextAura;
+            }
+            return Promise.resolve(1);
+          },
+        };
+      },
+    },
+  };
+}
+
 const mockTx = {
   auraLog: {
     // Real ledger helpers read pair history and daily income through these;
@@ -83,6 +256,7 @@ const mockTx = {
       return Promise.resolve({});
     },
   },
+  orm: { public: createFollowOrm() },
   user: {
     // Two shapes are requested: the follower credibility snapshot and the
     // final profile payload.
@@ -118,6 +292,8 @@ const mockTx = {
 
 const mockPrisma = {
   $transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+  orm: { public: createFollowOrm() },
+  transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
 };
 
 mock.module("@asm/config/debug", () => ({
@@ -127,9 +303,13 @@ mock.module("@asm/config/debug", () => ({
 // Only IO-bound exports are patched; the real ledger helpers and constants
 // run against the fake tx so route orchestration is tested end-to-end.
 mock.module("@asm/db", () => ({
+  and: (...conditions: unknown[]) => conditions,
   followerInfoCache: { invalidate: () => {} },
+  fromPrismaDateTime: (value: Date): Date => value,
   invalidateAuraSignals: () => Promise.resolve(),
+  invalidateFypProfile: () => Promise.resolve(),
   prisma: mockPrisma,
+  toPrismaDateTime: (value: Date): Date => value,
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -170,6 +350,7 @@ describe("POST /api/users/[userId]/followers", () => {
       {
         amount: 10,
         commentId: null,
+        id: expect.any(String),
         issuerId: FOLLOWER_ID,
         postId: null,
         targetUserId: FOLLOWED_ID,
@@ -179,6 +360,7 @@ describe("POST /api/users/[userId]/followers", () => {
       {
         amount: 1,
         commentId: null,
+        id: expect.any(String),
         issuerId: FOLLOWER_ID,
         postId: null,
         targetUserId: FOLLOWER_ID,
@@ -236,6 +418,7 @@ describe("DELETE /api/users/[userId]/followers", () => {
       {
         amount: -4,
         commentId: null,
+        id: expect.any(String),
         issuerId: FOLLOWER_ID,
         postId: null,
         targetUserId: FOLLOWED_ID,
@@ -245,6 +428,7 @@ describe("DELETE /api/users/[userId]/followers", () => {
       {
         amount: -1,
         commentId: null,
+        id: expect.any(String),
         issuerId: FOLLOWER_ID,
         postId: null,
         targetUserId: FOLLOWER_ID,

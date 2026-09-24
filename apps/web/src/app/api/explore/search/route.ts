@@ -1,19 +1,20 @@
 import {
+  and,
   communityVisibilityWhere,
-  getPostDataInclude,
-  getUserDataSelect,
+  getPostDataQuery,
+  getUserDataQuery,
   hydrateViewCounts,
+  mapPostData,
+  mapUserData,
   prisma,
   searchCommunitiesForSearch,
 } from "@asm/db";
-import type { Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
 export async function GET(request: Request) {
-  // Guests can explore; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
 
@@ -40,80 +41,144 @@ export async function GET(request: Request) {
     return Response.json({ posts: [], users: [] });
   }
 
-  const postOrderBy:
-    | Prisma.PostOrderByWithRelationInput
-    | Prisma.PostOrderByWithRelationInput[] =
-    tab === "trending"
-      ? [{ aura: "desc" }, { id: "desc" }]
-      : { createdAt: "desc" };
-
-  // Tags (post and media) are stored lowercased (connectOrCreate lowercases
-  // on write), so the exact-match `has` predicate needs the normalized form;
-  // `contains` predicates are case-insensitive and use the raw query.
   const lowerQ = q.toLowerCase();
-
-  const searchFilter: Prisma.PostWhereInput = {
-    OR: [
-      { content: { contains: q, mode: "insensitive" } },
-      { tags: { some: { name: { contains: q, mode: "insensitive" } } } },
-      { semanticTags: { has: lowerQ } },
-      {
-        attachments: {
-          some: {
-            OR: [
-              { transcript: { contains: q, mode: "insensitive" } },
-              { ocrText: { contains: q, mode: "insensitive" } },
-              { semanticTags: { has: lowerQ } },
-            ],
-          },
-        },
-      },
-    ],
-  };
-
-  // `searchFilter` owns the top-level OR, so the visibility rule is added via
-  // AND rather than clobbering it.
+  const pattern = `%${q.replaceAll(/[\\%_]/g, "\\$&")}%`;
   const visibility = communityVisibilityWhere(userId);
-  const postWhere: Prisma.PostWhereInput =
-    tab === "gusts"
-      ? {
-          ...searchFilter,
-          AND: [visibility],
-          isGust: true,
-          // Moderated posts are hidden from explore entirely.
-          moderated: false,
-          rootPostId: null,
-        }
-      : {
-          ...searchFilter,
-          AND: [visibility],
-          moderated: false,
-          rootPostId: null,
-        };
-
-  const [rawPosts, users, communities] = await Promise.all([
-    prisma.post.findMany({
-      include: getPostDataInclude(userId),
-      orderBy: postOrderBy,
-      take: pageSize,
-      where: postWhere,
-    }),
-    prisma.user.findMany({
-      orderBy: { aura: "desc" },
-      select: getUserDataSelect(userId),
-      take: pageSize,
-      where: {
-        OR: [
-          { username: { contains: q, mode: "insensitive" } },
-          { displayName: { contains: q, mode: "insensitive" } },
-          { displayUsername: { contains: q, mode: "insensitive" } },
-        ],
-      },
-    }),
+  const [
+    contentPosts,
+    tagPosts,
+    semanticPosts,
+    transcriptPosts,
+    ocrPosts,
+    mediaSemanticPosts,
+    usernameUsers,
+    displayNameUsers,
+    displayUsernameUsers,
+    communities,
+  ] = await Promise.all([
+    getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.content.ilike(pattern),
+          visibility(post),
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
+        )
+      )
+      .limit(pageSize)
+      .all(),
+    getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.postToTags.some((postTag) =>
+            postTag.tag.some((tag) => tag.name.ilike(pattern))
+          ),
+          visibility(post),
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
+        )
+      )
+      .limit(pageSize)
+      .all(),
+    getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.semanticTags.in([[lowerQ]]),
+          visibility(post),
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
+        )
+      )
+      .limit(pageSize)
+      .all(),
+    getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.postMedias.some((media) => media.transcript.ilike(pattern)),
+          visibility(post),
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
+        )
+      )
+      .limit(pageSize)
+      .all(),
+    getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.postMedias.some((media) => media.ocrText.ilike(pattern)),
+          visibility(post),
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
+        )
+      )
+      .limit(pageSize)
+      .all(),
+    getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.postMedias.some((media) => media.semanticTags.in([[lowerQ]])),
+          visibility(post),
+          post.moderated.eq(false),
+          post.rootPostId.isNull(),
+          ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
+        )
+      )
+      .limit(pageSize)
+      .all(),
+    getUserDataQuery(prisma.orm, userId)
+      .where((user) => user.username.ilike(pattern))
+      .orderBy((user) => user.aura.desc())
+      .limit(pageSize)
+      .all(),
+    getUserDataQuery(prisma.orm, userId)
+      .where((user) => user.displayName.ilike(pattern))
+      .orderBy((user) => user.aura.desc())
+      .limit(pageSize)
+      .all(),
+    getUserDataQuery(prisma.orm, userId)
+      .where((user) => user.displayUsername.ilike(pattern))
+      .orderBy((user) => user.aura.desc())
+      .limit(pageSize)
+      .all(),
     searchCommunitiesForSearch(q, pageSize),
   ]);
 
-  const posts = await hydrateViewCounts(rawPosts);
+  const uniquePosts = new Map(
+    [
+      ...contentPosts,
+      ...tagPosts,
+      ...semanticPosts,
+      ...transcriptPosts,
+      ...ocrPosts,
+      ...mediaSemanticPosts,
+    ].map((post) => [post.id, post])
+  );
+  const rawPosts = [...uniquePosts.values()]
+    .toSorted((left, right) => {
+      if (tab === "trending") {
+        return right.aura - left.aura || right.id.localeCompare(left.id);
+      }
+      return right.createdAt
+        .toString()
+        .localeCompare(left.createdAt.toString());
+    })
+    .slice(0, pageSize);
+
+  const uniqueUsers = new Map(
+    [...usernameUsers, ...displayNameUsers, ...displayUsernameUsers].map(
+      (user) => [user.id, user]
+    )
+  );
+  const users = [...uniqueUsers.values()]
+    .toSorted((left, right) => right.aura - left.aura)
+    .slice(0, pageSize)
+    .map(mapUserData);
+  const posts = await hydrateViewCounts(rawPosts.map(mapPostData));
 
   return Response.json({ communities, posts, users });
 }

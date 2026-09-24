@@ -25,7 +25,7 @@ if (import.meta.main) {
 
   type Telemetry = ReturnType<typeof initTelemetry>;
 
-  const { MEDIA_PROCESS_QUEUE, MEDIA_SCAN_QUEUE, prisma } =
+  const { and, MEDIA_PROCESS_QUEUE, MEDIA_SCAN_QUEUE, prisma } =
     await import("@asm/db");
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
   const { Worker } = await import("bullmq");
@@ -156,11 +156,10 @@ if (import.meta.main) {
       return;
     }
     if (job?.name === MEDIA_JOB_NAMES.scan) {
-      await prisma.media
-        .updateMany({
-          data: { failureCode: "scan-failed", status: "FAILED" },
-          where: { id: mediaId, status: { in: ["SCANNING", "QUARANTINED"] } },
-        })
+      await prisma.orm.public.PostMedia.where((media) =>
+        and(media.id.eq(mediaId), media.status.in(["SCANNING", "QUARANTINED"]))
+      )
+        .updateAndCount({ failureCode: "scan-failed", status: "FAILED" })
         .catch((markError: unknown) => {
           mediaLogger.error(
             { error: String(markError) },
@@ -173,21 +172,16 @@ if (import.meta.main) {
       job?.name === MEDIA_JOB_NAMES.process ||
       job?.name === MEDIA_JOB_NAMES.analyze
     ) {
-      await prisma.media
-        .updateMany({
-          data: {
-            failureCode:
-              job.name === MEDIA_JOB_NAMES.process
-                ? "encode-failed"
-                : "unknown",
-            failureDetail: {
-              message: String(error),
-              stage: job.name,
-            },
+      await prisma.orm.public.PostMedia.where((media) =>
+        and(media.id.eq(mediaId), media.status.eq("READY"))
+      )
+        .updateAndCount({
+          failureCode:
+            job.name === MEDIA_JOB_NAMES.process ? "encode-failed" : "unknown",
+          failureDetail: {
+            message: String(error),
+            stage: job.name,
           },
-          // Only rows still actively serving: a REJECTED/FAILED/DELETED row
-          // must never resurrect diagnostic fields onto itself.
-          where: { id: mediaId, status: "READY" },
         })
         .catch((markError: unknown) => {
           mediaLogger.error(

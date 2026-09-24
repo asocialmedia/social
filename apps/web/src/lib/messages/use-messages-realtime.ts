@@ -1,9 +1,9 @@
 "use client";
 
-import type { MessageData } from "@asm/db";
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import type { MessageData } from "@/lib/messages/types";
 
 const INITIAL_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30_000;

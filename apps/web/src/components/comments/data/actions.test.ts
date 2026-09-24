@@ -57,6 +57,44 @@ function addAura(userId: string, delta: number) {
   }
 }
 
+function createNotificationQuery() {
+  return {
+    where: (
+      predicate: (notification: {
+        commentId: { eq: (id: string) => unknown };
+        _type: { in: (types: string[]) => unknown };
+      }) => unknown
+    ) => {
+      let commentId = "";
+      let types: string[] = [];
+      predicate({
+        _type: {
+          in: (values) => {
+            types = values;
+            return {};
+          },
+        },
+        commentId: { eq: (id) => (commentId = id) },
+      });
+      const matches = () =>
+        state.notifications.filter(
+          (notification) =>
+            notification.commentId === commentId &&
+            types.includes(notification.type as string)
+        );
+      return {
+        all: () => Promise.resolve(matches()),
+        delete: () => {
+          state.notifications = state.notifications.filter(
+            (notification) => !matches().includes(notification)
+          );
+          return Promise.resolve({});
+        },
+      };
+    },
+  };
+}
+
 const mockTx = {
   auraLog: {
     // Real ledger helpers read pair history and daily income through these;
@@ -114,13 +152,13 @@ const mockTx = {
     findMany: (args: { where: { id: { in: string[] } } }) =>
       Promise.resolve(
         (args.where.id.in ?? []).map((id) => ({
+          _type: "IMAGE",
           commentId: null,
           id,
           messageConversationId: null,
           mimeType: "image/png",
           postId: null,
           status: "READY",
-          type: "IMAGE",
           userId: COMMENTER_ID,
         }))
       ),
@@ -178,6 +216,65 @@ const mockTx = {
         })
       ),
   },
+  orm: {
+    public: {
+      Comments: {
+        select: () => ({
+          create: (data: Record<string, unknown>) =>
+            mockTx.comment.create({ data }),
+        }),
+        where: () => ({
+          update: (data: Record<string, unknown>) =>
+            mockTx.comment.update({
+              data: data as {
+                creationAura?: number;
+                postReceivedAura?: number;
+                receivedAura?: number;
+              },
+              where: { id: COMMENT_ID },
+            }),
+        }),
+      },
+      Notifications: {
+        select: () => ({
+          create: (data: Record<string, unknown>) => {
+            const { _type, ...rest } = data;
+            return mockTx.notification.create({
+              data: { ...rest, type: _type },
+            });
+          },
+          ...createNotificationQuery(),
+        }),
+        ...createNotificationQuery(),
+      },
+      PostMedia: {
+        select: () => ({
+          where: (
+            predicate: (media: {
+              id: { in: (ids: string[]) => unknown };
+            }) => unknown
+          ) => {
+            let ids: string[] = [];
+            predicate({ id: { in: (values) => (ids = values) } });
+            return {
+              all: () => mockTx.media.findMany({ where: { id: { in: ids } } }),
+            };
+          },
+        }),
+        where: () => ({ update: () => Promise.resolve({}) }),
+      },
+      Users: {
+        select: () => ({
+          where: () => ({
+            first: () =>
+              mockTx.user.findUnique({
+                select: { aura: true, createdAt: true },
+              }),
+          }),
+        }),
+      },
+    },
+  },
   user: {
     findUnique: (args: { select?: Record<string, unknown> }) => {
       const select = args.select ?? {};
@@ -226,6 +323,38 @@ const mockPrisma = {
     },
     update: mockTx.comment.update,
   },
+  orm: {
+    public: {
+      Comments: {
+        select: () => ({
+          where: (where: { id: string }) => ({
+            first: () => mockPrisma.comment.findUnique({ where }),
+          }),
+        }),
+        where: (where: { id: string }) => ({
+          update: (data: Record<string, unknown>) =>
+            mockTx.comment.update({
+              data: data as {
+                creationAura?: number;
+                postReceivedAura?: number;
+                receivedAura?: number;
+              },
+              where,
+            }),
+        }),
+      },
+      Posts: {
+        select: () => ({
+          where: (where: { id: string }) => ({
+            first: () =>
+              Promise.resolve(
+                where.id === POST_ID ? { id: POST_ID, userId: AUTHOR_ID } : null
+              ),
+          }),
+        }),
+      },
+    },
+  },
   post: {
     findUnique: (
       args: { where: { id: string } } & {
@@ -236,6 +365,7 @@ const mockPrisma = {
         ? Promise.resolve({ id: POST_ID, userId: AUTHOR_ID })
         : Promise.resolve(null),
   },
+  transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
 };
 
 const mockPublish = mock(async () => {});
@@ -309,9 +439,24 @@ mock.module("@asm/db", () => ({
     postId === POST_ID
       ? Promise.resolve({ id: POST_ID, parentPostId: null, userId: AUTHOR_ID })
       : Promise.resolve(null),
-  getCommentDataInclude: () => ({ user: true }),
+  getCommentDataQuery: () => ({
+    where: () => ({
+      first: () =>
+        Promise.resolve({
+          content: "",
+          creationAura: storedCreationAura,
+          id: COMMENT_ID,
+          parentId: state.createdParentId ?? null,
+          postId: POST_ID,
+          postReceivedAura: storedPostReceivedAura,
+          receivedAura: storedReceivedAura,
+          userId: COMMENTER_ID,
+        }),
+    }),
+  }),
   invalidateAuraSignals: () => Promise.resolve(),
   invalidateFypProfile: () => Promise.resolve(),
+  mapCommentData: (comment: Record<string, unknown>) => comment,
   prisma: mockPrisma,
   publishCommentCreated: mockPublish,
   publishCommentDeleted: mockPublish,
@@ -467,13 +612,13 @@ describe("submitComment", () => {
     mockTx.media.findMany = () =>
       Promise.resolve([
         {
+          _type: "IMAGE",
           commentId: null,
           id: "media-unowned",
           messageConversationId: null,
           mimeType: "image/png",
           postId: null,
           status: "READY",
-          type: "IMAGE",
           userId: null,
         },
       ]);
@@ -498,13 +643,13 @@ describe("submitComment", () => {
     mockTx.media.findMany = () =>
       Promise.resolve([
         {
+          _type: "IMAGE",
           commentId: null,
           id: "media-dm",
           messageConversationId: "conv-123",
           mimeType: "image/png",
           postId: null,
           status: "READY",
-          type: "IMAGE",
           userId: COMMENTER_ID,
         },
       ]);

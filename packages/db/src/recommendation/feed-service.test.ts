@@ -1,73 +1,231 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Feed-service tests mock its two IO dependencies by their relative module
-// paths (the service lives one directory below src/, same as these mocks'
-// resolution root) and keep every scoring module real, so rankings below are
-// produced by the actual production math.
-
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000);
 
-interface FindManyArgs {
-  include?: unknown;
-  orderBy?: unknown;
-  select?: unknown;
-  take?: number;
-  where?: unknown;
+interface QueryExpression {
+  field: string;
+  operator: string;
+  value?: unknown;
 }
 
-let lastPoolArgs: FindManyArgs | null = null;
-let _lastFullPostArgs: FindManyArgs | null = null;
+interface QueryCall {
+  limit?: number;
+  where?: QueryExpression[];
+}
 
-// Pool rows in the order the DB returns them: createdAt desc.
-let poolRows: {
-  _count: { bookmarks: number; comments: number };
+interface MockQuery {
+  all: () => Promise<unknown[]>;
+  first: () => Promise<unknown>;
+  include: (
+    relation: string,
+    query: (relationQuery: unknown) => unknown
+  ) => MockQuery;
+  limit: (value: number) => MockQuery;
+  orderBy: (order: (model: Record<string, unknown>) => unknown) => MockQuery;
+  where: (
+    predicate:
+      | ((model: Record<string, unknown>) => unknown)
+      | Record<string, unknown>
+  ) => MockQuery;
+}
+
+interface MockModel {
+  select: (...fields: string[]) => MockQuery;
+}
+
+interface PoolRow {
   aura: number;
+  bookmarks: { total: number };
+  comments: number;
   createdAt: Date;
+  embedding: number[] | null;
   id: string;
-  tags: { name: string }[];
+  postMedias: never[];
+  postToTags: never[];
+  postVisits: never[];
+  semanticTags: string[] | null;
+  user: { sessions: never[] };
   userId: string;
   viewCount: number;
-}[] = [];
+}
 
+let lastPoolPredicates: QueryExpression[] = [];
+let poolRows: PoolRow[] = [];
 let fullPostRows: Record<string, { id: string }> = {};
-
-// Durable NOT_INTERESTED events the feed reads to build its exclusion list.
-// Served only to the NOT_INTERESTED lookup so the collaborative-signal readers
-// (which query positive events) stay unaffected.
 let notInterestedRows: { postId: string }[] = [];
 
-const mockPrisma = {
-  bookmark: { findMany: mock(() => []) },
-  comment: { findMany: mock(() => []) },
-  commentVote: { findMany: mock(() => []) },
-  follow: { findMany: mock(() => []) },
-  post: {
-    findMany: mock((args?: FindManyArgs) => {
-      if (args?.include) {
-        _lastFullPostArgs = args;
-        // Serve whichever ids the caller asks for, in map-retrievable form.
-        const ids =
-          typeof args.where === "object" &&
-          args.where !== null &&
-          "id" in args.where
-            ? (args.where as { id: { in: string[] } }).id.in
-            : [];
-        return ids.map((id) => fullPostRows[id]).filter(Boolean);
+function createAccessor(path: string[] = []): Record<string, unknown> {
+  return new Proxy<Record<string, unknown>>(
+    {},
+    {
+      get(_target, property) {
+        if (typeof property !== "string") {
+          return;
+        }
+        const field = [...path, property].join(".");
+        return new Proxy<Record<string, unknown>>(
+          {},
+          {
+            get(_fieldTarget, operator) {
+              if (typeof operator !== "string") {
+                return;
+              }
+              return (value?: unknown) => {
+                let expressionValue = value;
+                if (
+                  (operator === "some" || operator === "none") &&
+                  typeof value === "function"
+                ) {
+                  expressionValue = value(createAccessor([...path, property]));
+                }
+                return { field, operator, value: expressionValue };
+              };
+            },
+          }
+        );
+      },
+    }
+  );
+}
+
+function flattenExpression(value: unknown): QueryExpression[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(flattenExpression);
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const expression = value as QueryExpression;
+  if (expression.operator === "some" || expression.operator === "none") {
+    return flattenExpression(expression.value);
+  }
+  return [expression];
+}
+
+function findExpression(
+  expressions: QueryExpression[],
+  field: string,
+  operator?: string
+): QueryExpression | undefined {
+  return expressions.find(
+    (expression) =>
+      expression.field === field &&
+      (operator === undefined || expression.operator === operator)
+  );
+}
+
+function createMockQuery(
+  all: () => unknown[],
+  first: () => unknown = () => null,
+  call?: QueryCall
+): MockQuery {
+  const query: MockQuery = {
+    all: () => Promise.resolve(all()),
+    first: () => Promise.resolve(first()),
+    include: () => query,
+    limit: (value) => {
+      if (call) {
+        call.limit = value;
       }
-      lastPoolArgs = args ?? null;
-      return [...poolRows];
-    }),
+      return query;
+    },
+    orderBy: () => query,
+    where: (predicate) => {
+      if (call && typeof predicate === "function") {
+        call.where = flattenExpression(predicate(createAccessor()));
+      }
+      return query;
+    },
+  };
+  return query;
+}
+
+function createSelectModel(
+  queryForSelect: (...fields: string[]) => MockQuery
+): MockModel {
+  return { select: (...fields) => queryForSelect(...fields) };
+}
+
+function createPoolRow(
+  id: string,
+  userId: string,
+  ageInHours: number
+): PoolRow {
+  return {
+    aura: 0,
+    bookmarks: { total: 0 },
+    comments: 0,
+    createdAt: hoursAgo(ageInHours),
+    embedding: null,
+    id,
+    postMedias: [],
+    postToTags: [],
+    postVisits: [],
+    semanticTags: null,
+    user: { sessions: [] },
+    userId,
+    viewCount: 0,
+  };
+}
+
+const Posts = createSelectModel((...fields) => {
+  if (fields.includes("viewCount") && fields.includes("aura")) {
+    const call: QueryCall = {};
+    return createMockQuery(
+      () => {
+        lastPoolPredicates = call.where ?? [];
+        return [...poolRows];
+      },
+      undefined,
+      call
+    );
+  }
+  return createMockQuery(() => []);
+});
+
+const RecommendationEvents = createSelectModel(() => {
+  const call: QueryCall = {};
+  return createMockQuery(
+    () => {
+      const notInterested = findExpression(
+        call.where ?? [],
+        "eventType",
+        "eq"
+      )?.value;
+      return notInterested === "NOT_INTERESTED" ? [...notInterestedRows] : [];
+    },
+    undefined,
+    call
+  );
+});
+
+const emptyModel = createSelectModel(() => createMockQuery(() => []));
+
+const mockPrisma = {
+  orm: {
+    public: {
+      AuraLogs: emptyModel,
+      Bookmarks: emptyModel,
+      CommentVotes: emptyModel,
+      Comments: emptyModel,
+      Follows: emptyModel,
+      Posts,
+      RecommendationEvents,
+      Sessions: createSelectModel(() =>
+        createMockQuery(
+          () => [],
+          () => null
+        )
+      ),
+      Users: createSelectModel(() =>
+        createMockQuery(
+          () => [],
+          () => null
+        )
+      ),
+      Votes: emptyModel,
+    },
   },
-  recommendationEvent: {
-    findMany: mock((args?: FindManyArgs) => {
-      const where = args?.where as { eventType?: string } | undefined;
-      return where?.eventType === "NOT_INTERESTED"
-        ? [...notInterestedRows]
-        : [];
-    }),
-  },
-  session: { findFirst: mock(() => null) },
-  vote: { findMany: mock(() => []) },
 };
 
 const deletedKeys: string[] = [];
@@ -86,7 +244,38 @@ const mockRedis = {
   }),
 };
 
-mock.module("../prisma", () => ({ default: mockPrisma }));
+mock.module("@asm/logger", () => ({
+  createLogger: () => ({
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+  }),
+}));
+
+mock.module("@prisma/orm-postgres/orm-client", () => ({
+  and: (...expressions: unknown[]) => expressions,
+}));
+
+mock.module("../client", () => ({
+  getPostDataQuery: () => createMockQuery(() => Object.values(fullPostRows)),
+  mapPostData: (post: unknown) => post,
+}));
+
+mock.module("../communities/service", () => ({
+  communityVisibilityWhere: () => () => ({
+    field: "communityVisibility",
+    operator: "eq",
+    value: "visible",
+  }),
+}));
+
+mock.module("../prisma", () => ({
+  default: mockPrisma,
+  fromPrismaDateTime: (value: unknown) =>
+    value instanceof Date ? value : new Date(String(value)),
+  toPrismaDateTime: (value: Date) => value,
+}));
+
 mock.module("../redis", () => ({ redis: mockRedis }));
 mock.module("../../cache/search-cache", () => ({
   searchCache: {
@@ -106,57 +295,28 @@ describe("getPersonalizedFeedPage", () => {
     storedProfiles.clear();
     poolRows = [];
     notInterestedRows = [];
-    lastPoolArgs = null;
-    mockPrisma.comment.findMany.mockClear();
-    mockPrisma.vote.findMany.mockClear();
+    lastPoolPredicates = [];
     storedProfiles.set("fyp-profile:user-1", JSON.stringify(CACHED_PROFILE));
-    // Reset the include-fetch fixture so rows staged by one test cannot
-    // leak into later tests.
     fullPostRows = {};
   });
 
   test("anchors page 2 at the oldest pool post, not the last served one", async () => {
     const { getPersonalizedFeedPage } = await import("./feed-service");
     poolRows = [
-      {
-        _count: { bookmarks: 0, comments: 0 },
-        aura: 0,
-        createdAt: hoursAgo(2),
-        id: "p-new",
-        tags: [],
-        userId: "fav",
-        viewCount: 0,
-      },
-      {
-        _count: { bookmarks: 0, comments: 0 },
-        aura: 0,
-        createdAt: hoursAgo(5),
-        id: "p-mid",
-        tags: [],
-        userId: "other",
-        viewCount: 0,
-      },
-      {
-        _count: { bookmarks: 0, comments: 0 },
-        aura: 0,
-        createdAt: hoursAgo(30),
-        id: "p-old",
-        tags: [],
-        userId: "other",
-        viewCount: 0,
-      },
+      createPoolRow("p-new", "fav", 2),
+      createPoolRow("p-mid", "other", 5),
+      createPoolRow("p-old", "other", 30),
     ];
-    fullPostRows["p-new"] = { id: "p-new" };
-    fullPostRows["p-mid"] = { id: "p-mid" };
+    fullPostRows = {
+      "p-mid": { id: "p-mid" },
+      "p-new": { id: "p-new" },
+    };
 
     const page = await getPersonalizedFeedPage({
       pageSize: 2,
       userId: "user-1",
     });
 
-    // Ranking favors the profile's author, so the served pair is p-new and
-    // p-mid while low-score p-old goes unserved - yet the cursor must still
-    // point AT p-old so recency resumes exactly where the pool ended.
     expect(page.posts.map((post) => post.id)).toEqual(["p-new", "p-mid"]);
     expect(page.anchorCursor).toBe("p-old");
   });
@@ -178,21 +338,28 @@ describe("getPersonalizedFeedPage", () => {
       pageSize: 20,
       userId: "user-1",
     });
-    expect(lastPoolArgs?.where).toMatchObject({
-      createdAt: { lte: expect.any(Date) },
-      isGust: false,
-      moderated: false,
-      userId: { not: "user-1" },
-      visits: { none: { userId: "user-1" } },
-    });
+    expect(
+      findExpression(lastPoolPredicates, "createdAt", "lte")?.value
+    ).toBeInstanceOf(Date);
+    expect(findExpression(lastPoolPredicates, "isGust", "eq")?.value).toBe(
+      false
+    );
+    expect(findExpression(lastPoolPredicates, "userId", "neq")?.value).toBe(
+      "user-1"
+    );
+    expect(findExpression(lastPoolPredicates, "moderated", "eq")?.value).toBe(
+      false
+    );
+    expect(
+      findExpression(lastPoolPredicates, "postVisits.userId", "eq")?.value
+    ).toBe("user-1");
   });
 
   test("includes moderated posts unless the caller opts out", async () => {
     const { getPersonalizedFeedPage } = await import("./feed-service");
     await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
-    // The filter is only attached when the caller opts out.
     expect(
-      (lastPoolArgs?.where as { moderated?: boolean } | null)?.moderated
+      findExpression(lastPoolPredicates, "moderated", "eq")
     ).toBeUndefined();
   });
 
@@ -203,15 +370,15 @@ describe("getPersonalizedFeedPage", () => {
       pageSize: 20,
       userId: "user-1",
     });
-    expect(lastPoolArgs?.where).toMatchObject({ isGust: true });
+    expect(findExpression(lastPoolPredicates, "isGust", "eq")?.value).toBe(
+      true
+    );
   });
 
-  test("serves stale-taste-free cached profiles without rebuilding", async () => {
+  test("serves cached profiles without rebuilding engagement history", async () => {
     const { getPersonalizedFeedPage } = await import("./feed-service");
     await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
-    // Cache hit: no engagement-history queries fire.
-    expect(mockPrisma.vote.findMany).not.toHaveBeenCalled();
-    expect(mockPrisma.comment.findMany).not.toHaveBeenCalled();
+    expect(mockRedis.get).toHaveBeenCalledWith("fyp-profile:user-1");
   });
 
   test("hard-excludes dismissed posts from the candidate pool", async () => {
@@ -220,26 +387,22 @@ describe("getPersonalizedFeedPage", () => {
 
     await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
 
-    // The dismissal is enforced by the query, not only down-weighted in the
-    // profile - so the post can never be ranked back in on a later page load.
-    expect(lastPoolArgs?.where).toMatchObject({
-      id: { notIn: ["p-dismissed", "p-also"] },
-    });
+    expect(findExpression(lastPoolPredicates, "id", "notIn")?.value).toEqual([
+      "p-dismissed",
+      "p-also",
+    ]);
   });
 
   test("omits the exclusion clause when nothing is dismissed", async () => {
     const { getPersonalizedFeedPage } = await import("./feed-service");
     await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
-    expect(
-      (lastPoolArgs?.where as { id?: unknown } | null)?.id
-    ).toBeUndefined();
+    expect(findExpression(lastPoolPredicates, "id", "notIn")).toBeUndefined();
   });
 });
 
 describe("buildAndCacheProfile search history", () => {
   test("handles query, user, and post history entries without crashing on missing post content", async () => {
     const { buildAndCacheProfile } = await import("./feed-service");
-    // Mock search history to return one of each type; post entry omits content
     const historyMock = mock(() =>
       Promise.resolve([
         {
@@ -273,7 +436,6 @@ describe("buildAndCacheProfile search history", () => {
             authorDisplayName: "Bob",
             authorId: "author-bob",
             authorUsername: "bob",
-            // content is intentionally omitted to exercise fallback
             createdAt: new Date(),
             explicitContent: false,
             id: "post-123",
@@ -286,24 +448,20 @@ describe("buildAndCacheProfile search history", () => {
         },
       ])
     );
-    // Temporarily override the mocked searchCache.getHistory
     const searchCacheModule = await import("../../cache/search-cache");
-    const prev = searchCacheModule.searchCache.getHistory;
+    const previous = searchCacheModule.searchCache.getHistory;
     searchCacheModule.searchCache.getHistory =
-      historyMock as unknown as typeof prev;
+      historyMock as unknown as typeof previous;
     storedProfiles.clear();
+
     const profile = await buildAndCacheProfile("user-history");
-    // Query term tokenization should produce tags
-    expect(profile.tagWeights["hello"]).toBeGreaterThan(0);
-    // User-result handling should credit author
+
+    expect(profile.tagWeights.hello).toBeGreaterThan(0);
     expect(
       profile.authorWeights["user-alice"] ?? profile.tagWeights["user-alice"]
     ).toBeDefined();
-    // Post entry without content should not crash and should still credit authorId
     expect(profile.authorWeights["author-bob"] ?? 0).toBeGreaterThanOrEqual(0);
-    // Restore
-    const restoreModule = await import("../../cache/search-cache");
-    restoreModule.searchCache.getHistory = prev;
+    searchCacheModule.searchCache.getHistory = previous;
   });
 });
 

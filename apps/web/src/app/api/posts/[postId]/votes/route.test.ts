@@ -152,6 +152,76 @@ const mockTx = {
   },
 };
 
+const mockOrm = {
+  public: {
+    Notifications: {
+      select: () => ({
+        create: (data: Record<string, unknown>) => {
+          state.notifications.push(data);
+          return Promise.resolve({ id: "notification-1", ...data });
+        },
+      }),
+      where: () => ({
+        delete: () => {
+          state.notifications = [];
+          return Promise.resolve();
+        },
+      }),
+    },
+    Posts: {
+      select: () => ({
+        where: (filter: { id?: string }) => ({
+          first: () =>
+            Promise.resolve(
+              filter.id === POST_ID
+                ? { aura: state.postAura, id: POST_ID, userId: AUTHOR_ID }
+                : null
+            ),
+        }),
+      }),
+      where: () => ({
+        updateAndCount: (data: { aura: number }) => {
+          state.postAura = data.aura;
+          return Promise.resolve(1);
+        },
+      }),
+    },
+    Users: {
+      select: () => ({
+        where: () => ({
+          first: () =>
+            Promise.resolve({ aura: 12_000, createdAt: new Date(0) }),
+        }),
+      }),
+    },
+    Votes: {
+      create: (data: VoteRow) => {
+        state.existingVote = {
+          awardedAura: data.awardedAura,
+          mutingCostAura: data.mutingCostAura,
+          value: data.value,
+        };
+        return Promise.resolve(data);
+      },
+      where: () => ({
+        deleteAndCount: () => {
+          state.existingVote = null;
+          return Promise.resolve(1);
+        },
+        first: () => Promise.resolve(state.existingVote),
+        updateAndCount: (data: VoteRow) => {
+          state.existingVote = {
+            awardedAura: data.awardedAura,
+            mutingCostAura: data.mutingCostAura,
+            value: data.value,
+          };
+          return Promise.resolve(1);
+        },
+      }),
+    },
+  },
+};
+
 // Mock ledger helpers mirroring the real contracts narrowly: a maximally
 // credible voter pays full price (amplify +3 / mute -3 / muting cost -1),
 // self-engagement zeroes, removals reverse exactly. The math itself is
@@ -159,6 +229,7 @@ const mockTx = {
 const mockDb = () => ({
   AMPLIFY_RECEIVE_AURA: 3,
   MUTE_RECEIVE_AURA: 3,
+  and: (...conditions: unknown[]) => conditions,
   applyWeightedAward: (
     tx: typeof mockTx,
     args: {
@@ -214,8 +285,24 @@ const mockDb = () => ({
     newValue: number
   ): { kind: string }[] =>
     decompose(oldValue, newValue).map((kind) => ({ kind })),
+  fromPrismaDateTime: (value: Date) => value,
   getPostDataInclude: () => ({ user: true, vote: true }),
+  getPostDataQuery: () => ({
+    where: () => ({
+      first: () =>
+        Promise.resolve({
+          aura: state.postAura,
+          id: POST_ID,
+          userId: AUTHOR_ID,
+          vote: state.existingVote
+            ? [{ userId: VOTER_ID, value: state.existingVote.value }]
+            : [],
+        }),
+    }),
+  }),
   invalidateAuraSignals: () => Promise.resolve(),
+  invalidateFypProfile: () => Promise.resolve(),
+  mapPostData: (value: Record<string, unknown>) => value,
   prisma: mockPrisma,
   reverseExactAura: (
     tx: typeof mockTx,
@@ -247,16 +334,89 @@ const mockDb = () => ({
     });
     return Promise.resolve({ amount: reversed });
   },
+  settleVoteTransition: (
+    tx: typeof mockTx,
+    args: {
+      actorId: string;
+      newValue: number;
+      oldValue: number;
+      postId: string;
+      positions: { awardedAura: number; mutingCostAura: number };
+      recipientId: string;
+      types: {
+        amplifyApplied: string;
+        amplifyRemoved: string;
+      };
+    }
+  ) => {
+    let { awardedAura } = args.positions;
+    let { mutingCostAura } = args.positions;
+    const apply = (amount: number, recipientId: string, type: string) => {
+      if (amount === 0) {
+        return;
+      }
+      tx.user.update({
+        data: { aura: { increment: amount } },
+        where: { id: recipientId },
+      });
+      tx.auraLog.create({
+        data: {
+          amount,
+          issuerId: args.actorId,
+          postId: args.postId,
+          targetUserId: recipientId,
+          type,
+          userId: recipientId,
+        },
+      });
+    };
+    if (args.oldValue === 1 && args.newValue !== 1) {
+      apply(-awardedAura, args.recipientId, args.types.amplifyRemoved);
+      awardedAura = 0;
+    }
+    if (args.oldValue === -1 && args.newValue !== -1) {
+      apply(-awardedAura, args.recipientId, args.types.amplifyApplied);
+      awardedAura = 0;
+      if (mutingCostAura !== 0) {
+        apply(-mutingCostAura, args.actorId, "MUTING_COST");
+        mutingCostAura = 0;
+      }
+    }
+    if (args.newValue === 1 && args.oldValue !== 1) {
+      const amount = args.actorId === args.recipientId ? 0 : 3;
+      apply(amount, args.recipientId, args.types.amplifyApplied);
+      awardedAura += amount;
+    }
+    if (args.newValue === -1 && args.oldValue !== -1) {
+      const amount = args.actorId === args.recipientId ? 0 : -3;
+      apply(amount, args.recipientId, args.types.amplifyRemoved);
+      awardedAura += amount;
+      apply(-1, args.actorId, "MUTING_COST");
+      mutingCostAura -= 1;
+    }
+    return Promise.resolve({ awardedAura, mutingCostAura });
+  },
 });
 
 const mockPrisma = {
-  $transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+  orm: mockOrm,
   post: mockTx.post,
+  transaction: (
+    fn: (tx: typeof mockTx & { orm: typeof mockOrm }) => Promise<unknown>
+  ) => fn({ ...mockTx, orm: mockOrm }),
   user: mockTx.user,
   vote: mockTx.vote,
 };
 
 mock.module("@asm/db", () => mockDb());
+
+mock.module("@/lib/recommendations/record-event", () => ({
+  recordRecommendationInteraction: () => Promise.resolve(),
+}));
+
+mock.module("@/lib/users/suggested-users-cache", () => ({
+  suggestedUsersCache: { invalidateForUser: () => Promise.resolve() },
+}));
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
@@ -343,10 +503,10 @@ describe("POST /api/posts/[postId]/votes", () => {
     ]);
     expect(state.notifications).toEqual([
       {
+        _type: "AMPLIFY",
         issuerId: VOTER_ID,
         postId: POST_ID,
         recipientId: AUTHOR_ID,
-        type: "AMPLIFY",
       },
     ]);
   });

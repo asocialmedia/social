@@ -7,7 +7,14 @@ import {
   PasswordSafetyError,
 } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { isReservedUsername, prisma, redis } from "@asm/db";
+import {
+  and,
+  fromPrismaDateTime,
+  isReservedUsername,
+  prisma,
+  redis,
+  toPrismaDateTime,
+} from "@asm/db";
 import { createLogger, getTelemetryApi } from "@asm/logger";
 import { SpanStatusCode } from "@opentelemetry/api";
 import type { Attributes } from "@opentelemetry/api";
@@ -84,14 +91,12 @@ const RATE_MAX_CREATIONS_PER_WINDOW = 3;
 
 async function cleanupExpiredVerifications(): Promise<void> {
   try {
-    const result = await prisma.verification.deleteMany({
-      where: {
-        expiresAt: { lt: new Date() },
-      },
-    });
-    if (result.count > 0) {
-      debugLog.api("cleanup:expired-verifications", { count: result.count });
-      console.log(`Cleaned up ${result.count} expired verification records`);
+    const count = await prisma.orm.public.Verification.where((verification) =>
+      verification.expiresAt.lt(toPrismaDateTime(new Date()))
+    ).deleteAndCount();
+    if (count > 0) {
+      debugLog.api("cleanup:expired-verifications", { count });
+      console.log(`Cleaned up ${count} expired verification records`);
     }
   } catch (error) {
     console.error("Failed to cleanup expired verifications:", error);
@@ -101,19 +106,14 @@ async function cleanupExpiredVerifications(): Promise<void> {
 async function consumeVerificationCodes(emailLower: string): Promise<void> {
   try {
     const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
-    await prisma.verification.deleteMany({
-      where: {
-        OR: [
-          {
-            identifier: {
-              equals: betterAuthIdentifier,
-              mode: "insensitive",
-            },
-          },
-          { identifier: { equals: emailLower, mode: "insensitive" } },
-        ],
-      },
-    });
+    await Promise.all([
+      prisma.orm.public.Verification.where((verification) =>
+        verification.identifier.ilike(betterAuthIdentifier)
+      ).deleteAndCount(),
+      prisma.orm.public.Verification.where((verification) =>
+        verification.identifier.ilike(emailLower)
+      ).deleteAndCount(),
+    ]);
     debugLog.api("verifyEmailOtp:codes-consumed", {
       email: redactEmail(emailLower),
     });
@@ -182,23 +182,29 @@ async function verifyEmailOtp(
 
   const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
   try {
-    await prisma.verification.deleteMany({
-      where: {
-        expiresAt: { lt: new Date() },
-        identifier: { equals: betterAuthIdentifier, mode: "insensitive" },
-      },
-    });
+    await prisma.orm.public.Verification.where((verification) =>
+      and(
+        verification.expiresAt.lt(toPrismaDateTime(new Date())),
+        verification.identifier.ilike(betterAuthIdentifier)
+      )
+    ).deleteAndCount();
   } catch (cleanupError) {
     console.error("Failed to cleanup expired OTPs:", cleanupError);
   }
 
-  const allVerifications = await prisma.verification.findMany({
-    select: { expiresAt: true, id: true, identifier: true, value: true },
-    where: {
-      expiresAt: { gte: new Date() },
-      identifier: { equals: betterAuthIdentifier, mode: "insensitive" },
-    },
-  });
+  const allVerifications = await prisma.orm.public.Verification.select(
+    "expiresAt",
+    "id",
+    "identifier",
+    "value"
+  )
+    .where((verification) =>
+      and(
+        verification.expiresAt.gte(toPrismaDateTime(new Date())),
+        verification.identifier.ilike(betterAuthIdentifier)
+      )
+    )
+    .all();
 
   debugLog.api("verifyEmailOtp:lookup", {
     email: redactEmail(emailLower),
@@ -227,10 +233,11 @@ async function verifyEmailOtp(
     return "invalid";
   }
 
-  if (v.expiresAt < new Date()) {
+  const expiresAt = fromPrismaDateTime(v.expiresAt);
+  if (expiresAt < new Date()) {
     debugLog.api("verifyEmailOtp:expired", {
       email: redactEmail(emailLower),
-      expiresAt: v.expiresAt,
+      expiresAt,
     });
     return "invalid";
   }
@@ -490,20 +497,15 @@ async function findExistingSignupUser(
   emailLower: string,
   username: string
 ): Promise<ExistingSignupUser | null> {
-  return await prisma.user.findFirst({
-    select: {
-      email: true,
-      id: true,
-      passwordHash: true,
-      username: true,
-    },
-    where: {
-      OR: [
-        { email: { equals: emailLower, mode: "insensitive" } },
-        { username: { equals: username, mode: "insensitive" } },
-      ],
-    },
-  });
+  const [emailMatch, usernameMatch] = await Promise.all([
+    prisma.orm.public.Users.select("email", "id", "passwordHash", "username")
+      .where((user) => user.email.ilike(emailLower))
+      .first(),
+    prisma.orm.public.Users.select("email", "id", "passwordHash", "username")
+      .where((user) => user.username.ilike(username))
+      .first(),
+  ]);
+  return emailMatch ?? usernameMatch;
 }
 
 function userExistsResponse() {
@@ -867,20 +869,15 @@ export const signupRouter = router({
             return { error: "invalid-request", success: false } as const;
           }
 
-          const existing = await prisma.user.findFirst({
-            select: { id: true },
-            where: {
-              OR: [
-                { email: { equals: pendingData.email, mode: "insensitive" } },
-                {
-                  username: {
-                    equals: pendingData.username,
-                    mode: "insensitive",
-                  },
-                },
-              ],
-            },
-          });
+          const [emailMatch, usernameMatch] = await Promise.all([
+            prisma.orm.public.Users.select("id")
+              .where((user) => user.email.ilike(pendingData.email))
+              .first(),
+            prisma.orm.public.Users.select("id")
+              .where((user) => user.username.ilike(pendingData.username))
+              .first(),
+          ]);
+          const existing = emailMatch ?? usernameMatch;
           debugLog.api("pendingSignupVerify:existing", {
             exists: Boolean(existing),
           });
@@ -892,29 +889,23 @@ export const signupRouter = router({
           try {
             const pendingEmailLower = input.email.toLowerCase();
             const betterAuthIdentifier = `email-verification-otp-${pendingEmailLower}`;
-            const deletedCount = await prisma.verification.deleteMany({
-              where: {
-                OR: [
-                  {
-                    identifier: {
-                      equals: betterAuthIdentifier,
-                      mode: "insensitive",
-                    },
-                  },
-                  {
-                    identifier: {
-                      equals: pendingEmailLower,
-                      mode: "insensitive",
-                    },
-                  },
-                ],
-              },
-            });
+            const cleanupCounts = await Promise.all([
+              prisma.orm.public.Verification.where((verification) =>
+                verification.identifier.ilike(betterAuthIdentifier)
+              ).deleteAndCount(),
+              prisma.orm.public.Verification.where((verification) =>
+                verification.identifier.ilike(pendingEmailLower)
+              ).deleteAndCount(),
+            ]);
+            const deletedCount = cleanupCounts.reduce(
+              (total, count) => total + count,
+              0
+            );
             debugLog.api("pendingSignupVerify:otp-cleaned-up", {
-              deletedCount: deletedCount.count,
+              deletedCount,
             });
             console.log(
-              `Cleaned up ${deletedCount.count} OTP records for ${redactEmail(emailLower)}`
+              `Cleaned up ${deletedCount} OTP records for ${redactEmail(emailLower)}`
             );
           } catch (cleanupError) {
             console.error("Failed to cleanup OTP records:", cleanupError);
@@ -934,18 +925,15 @@ export const signupRouter = router({
             return { error: "user-exists", success: false } as const;
           }
 
-          const user = await prisma.user.create({
-            data: {
-              displayName: pendingData.displayName,
-              displayUsername: pendingData.username,
-              email: pendingData.email,
-              emailVerified: true,
-              emailVerifiedAt: new Date(),
-              passwordHash: pendingData.passwordHash,
-              role: "user",
-              username: pendingData.username,
-            },
-            select: { id: true },
+          const user = await prisma.orm.public.Users.select("id").create({
+            displayName: pendingData.displayName,
+            displayUsername: pendingData.username,
+            email: pendingData.email,
+            emailVerified: true,
+            emailVerifiedAt: toPrismaDateTime(new Date()),
+            passwordHash: pendingData.passwordHash,
+            role: "user",
+            username: pendingData.username,
           });
           debugLog.api("pendingSignupVerify:user-created", { userId: user.id });
 
@@ -960,14 +948,12 @@ export const signupRouter = router({
               "signup.verify.provision-credential-account",
               { "signup.userId": user.id },
               async () => {
-                await prisma.account.create({
-                  data: {
-                    accountId: user.id,
-                    issuer: LOCAL_CREDENTIAL_ISSUER,
-                    password: pendingData.passwordHash,
-                    providerId: "credential",
-                    userId: user.id,
-                  },
+                await prisma.orm.public.Accounts.create({
+                  accountId: user.id,
+                  issuer: LOCAL_CREDENTIAL_ISSUER,
+                  password: pendingData.passwordHash,
+                  providerId: "credential",
+                  userId: user.id,
                 });
               }
             );
@@ -1011,15 +997,15 @@ export const signupRouter = router({
         return { error: errorType, success: false } as const;
       }
 
-      const existing = await prisma.user.findFirst({
-        select: { id: true },
-        where: {
-          OR: [
-            { email: { equals: data.email, mode: "insensitive" } },
-            { username: { equals: data.username, mode: "insensitive" } },
-          ],
-        },
-      });
+      const [emailMatch, usernameMatch] = await Promise.all([
+        prisma.orm.public.Users.select("id")
+          .where((user) => user.email.ilike(data.email))
+          .first(),
+        prisma.orm.public.Users.select("id")
+          .where((user) => user.username.ilike(data.username))
+          .first(),
+      ]);
+      const existing = emailMatch ?? usernameMatch;
       debugLog.api("pendingSignupVerify:existing", {
         exists: Boolean(existing),
       });
@@ -1036,18 +1022,15 @@ export const signupRouter = router({
         return { error: "user-exists", success: false } as const;
       }
 
-      const user = await prisma.user.create({
-        data: {
-          displayName: data.displayName,
-          displayUsername: data.username,
-          email: data.email,
-          emailVerified: true,
-          emailVerifiedAt: new Date(),
-          passwordHash: data.passwordHash,
-          role: "user",
-          username: data.username,
-        },
-        select: { id: true },
+      const user = await prisma.orm.public.Users.select("id").create({
+        displayName: data.displayName,
+        displayUsername: data.username,
+        email: data.email,
+        emailVerified: true,
+        emailVerifiedAt: toPrismaDateTime(new Date()),
+        passwordHash: data.passwordHash,
+        role: "user",
+        username: data.username,
       });
       debugLog.api("pendingSignupVerify:user-created", { userId: user.id });
 
@@ -1057,14 +1040,12 @@ export const signupRouter = router({
           "signup.verify.provision-credential-account",
           { "signup.userId": user.id },
           async () => {
-            await prisma.account.create({
-              data: {
-                accountId: user.id,
-                issuer: LOCAL_CREDENTIAL_ISSUER,
-                password: data.passwordHash,
-                providerId: "credential",
-                userId: user.id,
-              },
+            await prisma.orm.public.Accounts.create({
+              accountId: user.id,
+              issuer: LOCAL_CREDENTIAL_ISSUER,
+              password: data.passwordHash,
+              providerId: "credential",
+              userId: user.id,
             });
           }
         );
@@ -1088,24 +1069,23 @@ export const signupRouter = router({
       try {
         const emailLower = data.email.toLowerCase();
         const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
-        const deletedCount = await prisma.verification.deleteMany({
-          where: {
-            OR: [
-              {
-                identifier: {
-                  equals: betterAuthIdentifier,
-                  mode: "insensitive",
-                },
-              },
-              { identifier: { equals: emailLower, mode: "insensitive" } },
-            ],
-          },
-        });
+        const cleanupCounts = await Promise.all([
+          prisma.orm.public.Verification.where((verification) =>
+            verification.identifier.ilike(betterAuthIdentifier)
+          ).deleteAndCount(),
+          prisma.orm.public.Verification.where((verification) =>
+            verification.identifier.ilike(emailLower)
+          ).deleteAndCount(),
+        ]);
+        const deletedCount = cleanupCounts.reduce(
+          (total, count) => total + count,
+          0
+        );
         debugLog.api("pendingSignupVerify:otp-cleaned-up-link-path", {
-          deletedCount: deletedCount.count,
+          deletedCount,
         });
         console.log(
-          `Cleaned up ${deletedCount.count} OTP records for ${redactEmail(emailLower)} (link path)`
+          `Cleaned up ${deletedCount} OTP records for ${redactEmail(emailLower)} (link path)`
         );
       } catch (cleanupError) {
         console.error("Failed to cleanup OTP records:", cleanupError);

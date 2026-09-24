@@ -19,21 +19,20 @@ export async function GET(
     return mediaJsonError("Media ID is required", 400);
   }
 
-  const media = await prisma.media.findUnique({
-    select: {
-      altText: true,
-      commentId: true,
-      failureCode: true,
-      id: true,
-      messageConversationId: true,
-      postId: true,
-      rejectedReason: true,
-      safety: true,
-      status: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "altText",
+    "commentId",
+    "failureCode",
+    "id",
+    "messageConversationId",
+    "postId",
+    "rejectedReason",
+    "safety",
+    "status",
+    "userId"
+  )
+    .where({ id: mediaId })
+    .first();
   if (!media) {
     return mediaJsonError("Media not found", 404);
   }

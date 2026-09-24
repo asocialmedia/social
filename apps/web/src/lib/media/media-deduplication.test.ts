@@ -65,6 +65,89 @@ const prismaMock = {
   },
 };
 
+function createMediaFindQuery(where: Record<string, unknown>) {
+  const query = {
+    create: (data: Record<string, unknown>) =>
+      prismaMock.media.create({ data }),
+    first: () =>
+      Promise.resolve(prismaMock.media.findFirst({ where })).then((row) =>
+        row && typeof row === "object"
+          ? {
+              ...row,
+              communities: [],
+              communitiesCommunities: [],
+              users: [],
+              usersUsers: [],
+            }
+          : row
+      ),
+    include: () => query,
+    orderBy: () => query,
+    where: (nextWhere: Record<string, unknown>) =>
+      createMediaFindQuery(nextWhere),
+  };
+  return query;
+}
+
+function createPostMediaOrm() {
+  return {
+    PostMedia: {
+      create: (data: Record<string, unknown>) =>
+        prismaMock.media.create({ data }),
+      select: () => ({
+        create: (data: Record<string, unknown>) =>
+          prismaMock.media.create({ data }),
+        where: (where: Record<string, unknown>) => createMediaFindQuery(where),
+      }),
+      where: (
+        where: Record<string, unknown> | ((value: unknown) => unknown)
+      ) => {
+        if (typeof where !== "function") {
+          return {
+            update: (data: Record<string, unknown>) =>
+              prismaMock.media.update({ data, where }),
+          };
+        }
+        let id = "";
+        let status = "";
+        where({
+          _type: { eq: () => ({}) },
+          createdAt: { desc: () => ({}) },
+          id: { eq: (value: string) => (id = value) },
+          messageConversationId: {
+            eq: () => ({}),
+            isNull: () => ({}),
+          },
+          sha256: { eq: () => ({}) },
+          size: { eq: () => ({}) },
+          status: { eq: (value: string) => (status = value), in: () => ({}) },
+          userId: { eq: () => ({}) },
+        });
+        const query = {
+          aggregate: (aggregate: (value: { count: () => number }) => unknown) =>
+            aggregate({ count: () => 0 }),
+          first: () => createMediaFindQuery({}).first(),
+          include: () => query,
+          orderBy: () => query,
+          updateAndCount: (data: Record<string, unknown>) => {
+            prismaMock.media.updateMany({
+              data,
+              where: { id, status },
+            });
+            return mediaUpdateManyImpl({ data, where: { id, status } }).count;
+          },
+        };
+        return query;
+      },
+    },
+    PostMediaDerivatives: {
+      create: (data: Record<string, unknown>) =>
+        prismaMock.mediaDerivative.createMany({ data: [data] }),
+      where: () => ({ all: () => prismaMock.mediaDerivative.findMany({}) }),
+    },
+  };
+}
+
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   Prisma: {
@@ -73,10 +156,12 @@ mock.module("@asm/db", () => ({
   cancelMediaCleanup: cancelMediaCleanupMock,
   consumeRateLimit: mock(() => ({ allowed: true })),
   prisma: {
-    // Interactive-transaction passthrough: the clone fast path wraps the
-    // media create + derivative copy in one callback.
-    $transaction: async (fn: (tx: never) => Promise<unknown>) =>
-      await fn(prismaMock as never),
+    orm: { public: createPostMediaOrm() },
+    transaction: async (
+      fn: (tx: {
+        orm: { public: ReturnType<typeof createPostMediaOrm> };
+      }) => Promise<unknown>
+    ) => await fn({ orm: { public: createPostMediaOrm() } }),
     ...prismaMock,
   },
   redis: {
@@ -131,6 +216,7 @@ describe("createInitiatedUpload deduplication", () => {
 
   test("instantly reuses unattached READY draft without generating uploadUrl", async () => {
     mediaFindFirstImpl = () => ({
+      _type: "IMAGE",
       avatarOf: null,
       bannerOf: null,
       commentId: null,
@@ -140,7 +226,6 @@ describe("createInitiatedUpload deduplication", () => {
       sha256: TEST_SHA256,
       size: 1024,
       status: "READY",
-      type: "IMAGE",
       userId: USER_ID,
     });
 
@@ -162,6 +247,7 @@ describe("createInitiatedUpload deduplication", () => {
 
   test("revives soft-discarded (DELETED) draft with intact publishedKey", async () => {
     mediaFindFirstImpl = () => ({
+      _type: "VIDEO",
       avatarOf: null,
       bannerOf: null,
       commentId: null,
@@ -171,7 +257,6 @@ describe("createInitiatedUpload deduplication", () => {
       sha256: TEST_SHA256,
       size: 5000,
       status: "DELETED",
-      type: "VIDEO",
       userId: USER_ID,
     });
 
@@ -203,6 +288,7 @@ describe("createInitiatedUpload deduplication", () => {
 
   test("joins in-flight PROCESSING unattached draft without re-uploading bytes", async () => {
     mediaFindFirstImpl = () => ({
+      _type: "VIDEO",
       avatarOf: null,
       bannerOf: null,
       commentId: null,
@@ -212,7 +298,6 @@ describe("createInitiatedUpload deduplication", () => {
       sha256: TEST_SHA256,
       size: 5000,
       status: "PROCESSING",
-      type: "VIDEO",
       userId: USER_ID,
     });
 
@@ -234,6 +319,7 @@ describe("createInitiatedUpload deduplication", () => {
 
   test("clones media and derivatives when reusing a READY media already attached to a post", async () => {
     mediaFindFirstImpl = () => ({
+      _type: "VIDEO",
       aiGenerated: false,
       avatarOf: null,
       bannerOf: null,
@@ -258,7 +344,6 @@ describe("createInitiatedUpload deduplication", () => {
       thumbnailHeight: 360,
       thumbnailKey: "media/attached-media-id-thumb.jpg",
       thumbnailWidth: 640,
-      type: "VIDEO",
       uploaderDisplayName: "Test",
       uploaderUsername: "test",
       url: "https://asmob.example.com/media/attached-media-id.mp4",
@@ -299,6 +384,7 @@ describe("createInitiatedUpload deduplication", () => {
     // back without binding it, so the sender rendered the image while the
     // peer 404d on every fetch with no working retry.
     mediaFindFirstImpl = () => ({
+      _type: "IMAGE",
       avatarOf: null,
       bannerOf: null,
       commentId: null,
@@ -309,7 +395,6 @@ describe("createInitiatedUpload deduplication", () => {
       sha256: TEST_SHA256,
       size: 1024,
       status: "READY",
-      type: "IMAGE",
       userId: USER_ID,
     });
 
@@ -344,6 +429,7 @@ describe("createInitiatedUpload deduplication", () => {
 
   test("lost claim falls through to a fresh linked row, never the bare id", async () => {
     mediaFindFirstImpl = () => ({
+      _type: "IMAGE",
       avatarOf: null,
       bannerOf: null,
       commentId: null,
@@ -354,7 +440,6 @@ describe("createInitiatedUpload deduplication", () => {
       sha256: TEST_SHA256,
       size: 1024,
       status: "READY",
-      type: "IMAGE",
       userId: USER_ID,
     });
     // Another conversation won the race: the conditional update matches nothing.
@@ -380,6 +465,7 @@ describe("createInitiatedUpload deduplication", () => {
 
   test("non-message upload keeps the legacy bare reuse of unlinked rows", async () => {
     mediaFindFirstImpl = () => ({
+      _type: "IMAGE",
       avatarOf: null,
       bannerOf: null,
       commentId: null,
@@ -390,7 +476,6 @@ describe("createInitiatedUpload deduplication", () => {
       sha256: TEST_SHA256,
       size: 1024,
       status: "READY",
-      type: "IMAGE",
       userId: USER_ID,
     });
 
@@ -438,9 +523,9 @@ describe("createInitiatedUpload deduplication", () => {
 
     test("rejects audioOverlayId if media is not AUDIO type", async () => {
       mediaFindFirstImpl = () => ({
+        _type: "IMAGE",
         id: "sound-1",
         status: "READY",
-        type: "IMAGE",
         userId: "user-1",
       });
       await expect(
@@ -457,9 +542,9 @@ describe("createInitiatedUpload deduplication", () => {
 
     test("rejects audioOverlayId if sound is not ready", async () => {
       mediaFindFirstImpl = () => ({
+        _type: "AUDIO",
         id: "sound-1",
         status: "PROCESSING",
-        type: "AUDIO",
         userId: "user-1",
       });
       await expect(
@@ -483,9 +568,9 @@ describe("createInitiatedUpload deduplication", () => {
         };
         if (query.where?.id === "sound-1") {
           return {
+            _type: "AUDIO",
             id: "sound-1",
             status: "READY",
-            type: "AUDIO",
             userId: "user-1",
           };
         }
@@ -514,9 +599,9 @@ describe("createInitiatedUpload deduplication", () => {
         };
         if (query.where?.id === "sound-1") {
           return {
+            _type: "AUDIO",
             id: "sound-1",
             status: "READY",
-            type: "AUDIO",
             userId: "user-1",
           };
         }

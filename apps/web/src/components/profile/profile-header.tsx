@@ -1,6 +1,6 @@
 "use client";
 
-import type { PrivateUserData, UserCommunityRole, UserData } from "@asm/db";
+import type { UserCommunityRole, UserData } from "@asm/db";
 import { formatDate } from "date-fns";
 import { CalendarDays, Flame, Globe, MessageCircle } from "lucide-react";
 import Image from "next/image";
@@ -17,8 +17,10 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import CommunityRoleSummary from "@/components/profile/community-role-summary";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { getUserCount } from "@/lib/types";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -107,7 +109,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
   const isFollowedByUser = Boolean(liveUserData.followers?.length);
   const followerInfo = {
-    followers: liveUserData._count.followers,
+    followers: getUserCount(liveUserData, "followers"),
     isFollowedByUser,
   };
 
@@ -261,7 +263,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             href={`/users/${liveUserData.username}/following`}
           >
             <span className="font-semibold">
-              {formatNumber(liveUserData._count.following)}
+              {formatNumber(getUserCount(liveUserData, "following"))}
             </span>{" "}
             <span className="text-muted-foreground group-hover:text-foreground transition-colors">
               Following

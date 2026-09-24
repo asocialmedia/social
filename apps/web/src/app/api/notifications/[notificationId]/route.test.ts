@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 const USER_ID = "user-alice";
 
 let currentSession: { user: { id: string } } | null = {
@@ -37,7 +39,36 @@ const mockUnreadCache = {
 };
 
 mock.module("@asm/db", () => ({
-  prisma: mockPrisma,
+  ...asmDbMockBase,
+  prisma: {
+    orm: {
+      public: {
+        Notifications: {
+          where: (
+            predicate: (notification: {
+              id: { in: (ids: string[]) => unknown };
+              recipientId: { eq: (id: string) => unknown };
+            }) => unknown
+          ) => {
+            let ids: string[] = [];
+            let recipientId = "";
+            predicate({
+              id: { in: (values) => (ids = values) },
+              recipientId: { eq: (id) => (recipientId = id) },
+            });
+            return {
+              deleteAndCount: () =>
+                mockPrisma.notification
+                  .deleteMany({
+                    where: { id: { in: ids }, recipientId },
+                  })
+                  .then((result) => result.count),
+            };
+          },
+        },
+      },
+    },
+  },
   unreadNotificationCache: mockUnreadCache,
 }));
 

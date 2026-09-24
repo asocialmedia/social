@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 type Session = { user: { id: string } } | null;
@@ -13,16 +15,72 @@ const mockMemberships = mock(() => [
   },
 ]);
 const mockCount = mock(() => 7);
+let lastCountWhere: {
+  conversationId: string;
+  createdAfter: Date;
+  senderIds: string[];
+} | null = null;
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    block: { findMany: mock(() => []) },
-    message: { count: mockCount },
-    messageConversationMember: { findMany: mockMemberships },
+    orm: {
+      public: {
+        Blocks: {
+          select: () => ({ where: () => ({ all: () => Promise.resolve([]) }) }),
+        },
+        MessageConversationMembers: {
+          select: () => ({ where: () => ({ all: mockMemberships }) }),
+        },
+        Messages: {
+          where: (
+            predicate: (message: {
+              conversationId: { eq: (id: string) => unknown };
+              createdAt: { gt: (value: Date) => unknown };
+              deletedAt: { isNull: () => unknown };
+              senderId: { notIn: (ids: string[]) => unknown };
+            }) => unknown
+          ) => {
+            let conversationId = "";
+            let createdAfter = new Date(0);
+            let senderIds: string[] = [];
+            predicate({
+              conversationId: {
+                eq: (id) => {
+                  conversationId = id;
+                  return {};
+                },
+              },
+              createdAt: {
+                gt: (value) => {
+                  createdAfter = value;
+                  return {};
+                },
+              },
+              deletedAt: { isNull: () => ({}) },
+              senderId: {
+                notIn: (ids) => {
+                  senderIds = ids;
+                  return {};
+                },
+              },
+            });
+            return {
+              aggregate: (
+                aggregate: (value: { count: () => number }) => unknown
+              ) => {
+                lastCountWhere = { conversationId, createdAfter, senderIds };
+                return aggregate({ count: mockCount });
+              },
+            };
+          },
+        },
+      },
+    },
   },
   unreadMessageCache: {
     get: mockCacheGet,
@@ -37,6 +95,7 @@ describe("GET /api/messages/unread-count", () => {
     mockMemberships.mockClear();
     mockCount.mockClear();
     mockGetSession.mockClear();
+    lastCountWhere = null;
     mockCacheGet.mockReturnValue(null);
   });
 
@@ -68,21 +127,10 @@ describe("GET /api/messages/unread-count", () => {
     const body = (await res.json()) as { unreadCount: number };
     expect(body.unreadCount).toBe(7);
     expect(mockCacheIncrement).toHaveBeenCalledWith("user1", 7);
-    // Each conversation is bounded by its own read watermark, and the count
-    // only includes received (not own) undeleted messages.
-    const countArgs = mockCount.mock.calls[0]?.[0] as {
-      where: {
-        conversationId: string;
-        createdAt: { gt: Date };
-        deletedAt: null;
-        senderId: { not: string };
-      };
-    };
-    expect(countArgs.where.conversationId).toBe("convo-1");
-    expect(countArgs.where.createdAt.gt).toEqual(
-      new Date("2026-01-01T00:00:00Z")
-    );
-    expect(countArgs.where.senderId).toEqual({ not: "user1" });
-    expect(countArgs.where.deletedAt).toBeNull();
+    expect(lastCountWhere).toEqual({
+      conversationId: "convo-1",
+      createdAfter: new Date("2026-01-01T00:00:00Z"),
+      senderIds: ["user1"],
+    });
   });
 });

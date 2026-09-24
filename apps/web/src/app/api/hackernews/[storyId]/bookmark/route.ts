@@ -1,4 +1,6 @@
-import { prisma } from "@asm/db";
+import { randomUUID } from "node:crypto";
+
+import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -18,14 +20,12 @@ export async function GET(
 
     const loggedInUser = sessionResponse.user;
 
-    const bookmark = await prisma.hNBookmark.findUnique({
-      where: {
-        userId_storyId: {
-          storyId: Math.trunc(Number(storyId)),
-          userId: loggedInUser.id,
-        },
-      },
-    });
+    const bookmark = await prisma.orm.public.HNBookmark.where((candidate) =>
+      and(
+        candidate.storyId.eq(Math.trunc(Number(storyId))),
+        candidate.userId.eq(loggedInUser.id)
+      )
+    ).first();
 
     return Response.json({ isBookmarked: !!bookmark });
   } catch (error) {
@@ -44,8 +44,10 @@ export async function POST(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { storyId } = await ctx.params;
-  await prisma.hNBookmark.create({
-    data: { storyId: Number(storyId), userId: user.id },
+  await prisma.orm.public.HNBookmark.create({
+    id: randomUUID(),
+    storyId: Math.trunc(Number(storyId)),
+    userId: user.id,
   });
   return Response.json({ success: true });
 }
@@ -60,8 +62,11 @@ export async function DELETE(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { storyId } = await ctx.params;
-  await prisma.hNBookmark.deleteMany({
-    where: { storyId: Number(storyId), userId: user.id },
-  });
+  await prisma.orm.public.HNBookmark.where((bookmark) =>
+    and(
+      bookmark.storyId.eq(Math.trunc(Number(storyId))),
+      bookmark.userId.eq(user.id)
+    )
+  ).delete();
   return Response.json({ success: true });
 }

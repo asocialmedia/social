@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataQuery, mapUserData, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -9,12 +9,16 @@ export async function GET() {
   }
   const userId = session.user.id;
 
-  const followed = await prisma.follow.findMany({
-    select: { following: { select: getUserDataSelect(userId) } },
-    where: { followerId: userId },
-  });
+  const followed = await prisma.orm.public.Follows.include(
+    "following",
+    (_following) => getUserDataQuery(prisma.orm, userId)
+  )
+    .where({ followerId: userId })
+    .all();
 
   return Response.json(
-    followed.map((f) => (f as { following: unknown }).following)
+    followed.flatMap((follow) =>
+      follow.following ? [mapUserData(follow.following)] : []
+    )
   );
 }

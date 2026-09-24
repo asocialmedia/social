@@ -1,4 +1,4 @@
-import { prisma, redis } from "@asm/db";
+import { and, prisma, redis } from "@asm/db";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
@@ -27,44 +27,42 @@ export async function DELETE(
     return Response.json({ error: "Invalid media id" }, { status: 400 });
   }
 
-  const claim = await prisma.media.updateMany({
-    // Conditional transition doubles as the attachment guard: a row that
-    // already belongs to a post/comment/avatar can never match, so the
-    // discard can never yank media out of a live surface. DELETED rows are
-    // terminal in the pipeline state machine.
-    data: { status: "DELETED" },
-    where: {
-      avatarOf: null,
-      bannerOf: null,
-      commentId: null,
-      communityAvatarOf: null,
-      communityBannerOf: null,
-      id: mediaId,
-      messageConversationId: null,
-      postId: null,
-      status: {
-        in: ["UPLOADING", "QUARANTINED", "SCANNING", "PROCESSING", "READY"],
-      },
-      userId: user.id,
-    },
-  });
-  if (claim.count === 0) {
+  const claim = await prisma.orm.public.PostMedia.where((media) =>
+    and(
+      media.id.eq(mediaId),
+      media.userId.eq(user.id),
+      media.postId.isNull(),
+      media.commentId.isNull(),
+      media.messageConversationId.isNull(),
+      media.users.none(),
+      media.usersUsers.none(),
+      media.communities.none(),
+      media.communitiesCommunities.none(),
+      media.status.in([
+        "UPLOADING",
+        "QUARANTINED",
+        "SCANNING",
+        "PROCESSING",
+        "READY",
+      ])
+    )
+  ).updateAndCount({ status: "DELETED" });
+  if (claim === 0) {
     // Deliberately opaque: not-owned / attached / already-deleted all look
     // the same to the client.
     return Response.json({ error: "Media not discardable" }, { status: 409 });
   }
 
-  const media = await prisma.media.findUnique({
-    select: {
-      customThumbnailKey: true,
-      key: true,
-      originalKey: true,
-      publishedKey: true,
-      size: true,
-      thumbnailKey: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "customThumbnailKey",
+    "key",
+    "originalKey",
+    "publishedKey",
+    "size",
+    "thumbnailKey"
+  )
+    .where({ id: mediaId })
+    .first();
 
   if (media) {
     // Only immediately delete unfinalized quarantine objects; published

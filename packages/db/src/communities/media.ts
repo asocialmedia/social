@@ -1,12 +1,7 @@
-// Community avatar / banner media lifecycle. Mirrors the user profile-media
-// helpers (packages/db/src/users/profile-media.ts) for a second owner surface:
-// link a READY upload, purge the superseded one, and promote the best
-// derivative once the process stage commits it. Storage quota follows the same
-// single-refund invariant as profile media.
-
 import { createLogger } from "@asm/logger";
+import { and } from "@prisma/orm-postgres/orm-client";
 
-import prisma from "../prisma";
+import prisma, { toPrismaDateTime } from "../prisma";
 import { deleteObject } from "../storage";
 import { profileSurfaceVersion } from "../users/profile-media";
 
@@ -20,45 +15,39 @@ export function communityProxyUrl(
   return `/api/communities/${kind}/${communityId}/image?v=${profileSurfaceVersion(servingKey)}`;
 }
 
-// Deletes a superseded community image: objects (original + derivatives),
-// quota refund, then the row. Skips rows that got linked to a post, comment,
-// or either profile surface in the meantime - those belong to another
-// lifecycle now.
 export async function purgeSupersededCommunityMedia(
   mediaId: string,
   communityId: string
 ): Promise<void> {
-  const media = await prisma.media.findUnique({
-    select: {
-      avatarOf: { select: { id: true } },
-      bannerOf: { select: { id: true } },
-      commentId: true,
-      communityAvatarOf: { select: { id: true } },
-      communityBannerOf: { select: { id: true } },
-      key: true,
-      originalKey: true,
-      postId: true,
-      publishedKey: true,
-      size: true,
-      status: true,
-      thumbnailKey: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
-  // Only purge when the row is still owned by THIS community. A re-link to
-  // another surface (post, comment, profile, or a different community) aborts
-  // the purge so we never delete live media.
+  const media = await prisma.orm.public.PostMedia.select(
+    "commentId",
+    "key",
+    "originalKey",
+    "postId",
+    "publishedKey",
+    "size",
+    "status",
+    "thumbnailKey",
+    "userId"
+  )
+    .include("communities", (community) => community.select("id"))
+    .include("communitiesCommunities", (community) => community.select("id"))
+    .include("users", (user) => user.select("id"))
+    .include("usersUsers", (user) => user.select("id"))
+    .where({ id: mediaId })
+    .first();
   const ownedByThisCommunity =
-    media?.communityAvatarOf?.id === communityId ||
-    media?.communityBannerOf?.id === communityId;
+    media?.communities.some((community) => community.id === communityId) ||
+    media?.communitiesCommunities.some(
+      (community) => community.id === communityId
+    );
   if (
     !media ||
     !ownedByThisCommunity ||
     media.postId ||
     media.commentId ||
-    media.avatarOf ||
-    media.bannerOf
+    media.users.length > 0 ||
+    media.usersUsers.length > 0
   ) {
     return;
   }
@@ -77,10 +66,11 @@ export async function purgeSupersededCommunityMedia(
   );
 
   try {
-    const derivatives = await prisma.mediaDerivative.findMany({
-      select: { key: true },
-      where: { mediaId },
-    });
+    const derivatives = await prisma.orm.public.PostMediaDerivatives.select(
+      "key"
+    )
+      .where({ mediaId })
+      .all();
     await Promise.allSettled(
       derivatives.map((derivative) =>
         deleteObject(derivative.key).catch((error: unknown) => {
@@ -114,54 +104,50 @@ export async function purgeSupersededCommunityMedia(
     );
   }
 
-  await prisma.media.delete({ where: { id: mediaId } });
+  await prisma.orm.public.PostMedia.where({ id: mediaId }).delete();
 }
 
 export interface CommunityPromotionResult {
   servingKey: string | null;
 }
 
-// Swaps a linked, static community image from its published original to the
-// best committed derivative and deletes the original. Called by the image
-// process stage and by the link route as race cover.
 export async function promoteCommunityDerivative(
   mediaId: string,
   kind: "avatar" | "banner"
 ): Promise<CommunityPromotionResult> {
-  const media = await prisma.media.findUnique({
-    select: {
-      communityAvatarOf: { select: { id: true } },
-      communityBannerOf: { select: { id: true } },
-      derivatives: {
-        select: { key: true, kind: true, mimeType: true, width: true },
-      },
-      publishedKey: true,
-      type: true,
-    },
-    where: { id: mediaId },
-  });
-  if (!media || media.type !== "IMAGE" || !media.publishedKey) {
+  const media = await prisma.orm.public.PostMedia.select(
+    "publishedKey",
+    "_type"
+  )
+    .include("communities", (community) => community.select("id"))
+    .include("communitiesCommunities", (community) => community.select("id"))
+    .include("postMediaDerivatives", (derivative) =>
+      derivative.select("key", "kind", "mimeType", "width")
+    )
+    .where({ id: mediaId })
+    .first();
+  if (!media || media._type !== "IMAGE" || !media.publishedKey) {
     return { servingKey: null };
   }
 
   const owner =
     kind === "avatar"
-      ? media.communityAvatarOf?.id
-      : media.communityBannerOf?.id;
+      ? media.communities[0]?.id
+      : media.communitiesCommunities[0]?.id;
   if (!owner) {
     return { servingKey: null };
   }
 
-  const webpDerivatives = media.derivatives.filter(
-    (d) => d.mimeType === "image/webp"
+  const webpDerivatives = media.postMediaDerivatives.filter(
+    (derivative) => derivative.mimeType === "image/webp"
   );
   const preferredKind = kind === "avatar" ? "sm" : "lg";
   const chosen =
-    webpDerivatives.find((d) => d.kind === preferredKind) ??
+    webpDerivatives.find((derivative) => derivative.kind === preferredKind) ??
     [...webpDerivatives].toSorted(
       (a, b) => (b.width ?? 0) - (a.width ?? 0)
     )[0] ??
-    media.derivatives[0] ??
+    media.postMediaDerivatives[0] ??
     null;
   if (!chosen || chosen.key === media.publishedKey) {
     return { servingKey: media.publishedKey };
@@ -170,19 +156,27 @@ export async function promoteCommunityDerivative(
   const promotedUrl = communityProxyUrl(kind, owner, chosen.key);
   const swap =
     kind === "avatar"
-      ? await prisma.community.updateMany({
-          data: { avatarKey: chosen.key, avatarUrl: promotedUrl },
-          where: { avatarMediaId: mediaId, id: owner },
+      ? await prisma.orm.public.Communities.where((community) =>
+          and(community.avatarMediaId.eq(mediaId), community.id.eq(owner))
+        ).updateAndCount({
+          avatarKey: chosen.key,
+          avatarUrl: promotedUrl,
+          updatedAt: toPrismaDateTime(new Date()),
         })
-      : await prisma.community.updateMany({
-          data: { bannerKey: chosen.key, bannerUrl: promotedUrl },
-          where: { bannerMediaId: mediaId, id: owner },
+      : await prisma.orm.public.Communities.where((community) =>
+          and(community.bannerMediaId.eq(mediaId), community.id.eq(owner))
+        ).updateAndCount({
+          bannerKey: chosen.key,
+          bannerUrl: promotedUrl,
+          updatedAt: toPrismaDateTime(new Date()),
         });
-  if (swap.count === 0) {
+  if (swap === 0) {
     return { servingKey: null };
   }
 
-  const stale = media.derivatives.filter((d) => d.key !== chosen.key);
+  const stale = media.postMediaDerivatives.filter(
+    (derivative) => derivative.key !== chosen.key
+  );
   await Promise.allSettled(
     stale.map((derivative) =>
       deleteObject(derivative.key).catch((error: unknown) => {
@@ -194,9 +188,9 @@ export async function promoteCommunityDerivative(
     )
   );
   if (stale.length > 0) {
-    await prisma.mediaDerivative.deleteMany({
-      where: { key: { in: stale.map((d) => d.key) } },
-    });
+    await prisma.orm.public.PostMediaDerivatives.where((derivative) =>
+      derivative.key.in(stale.map((entry) => entry.key))
+    ).deleteAndCount();
   }
 
   try {

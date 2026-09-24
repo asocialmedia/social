@@ -1,4 +1,9 @@
-import { getPrivateUserSelect, prisma, profileProxyUrl } from "@asm/db";
+import {
+  fromPrismaDateTime,
+  getPrivateUserQuery,
+  prisma,
+  profileProxyUrl,
+} from "@asm/db";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -24,10 +29,9 @@ async function deletableLegacyBannerKey(
     return null;
   }
   if (bannerMediaId) {
-    const media = await prisma.media.findUnique({
-      select: { id: true },
-      where: { id: bannerMediaId },
-    });
+    const media = await prisma.orm.public.PostMedia.select("id")
+      .where({ id: bannerMediaId })
+      .first();
     // The Media row is gone (reaped): its orphaned object can go too.
     return media ? null : bannerKey;
   }
@@ -57,17 +61,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "mediaId is required" }, { status: 400 });
     }
 
-    const media = await prisma.media.findUnique({
-      select: {
-        id: true,
-        key: true,
-        publishedKey: true,
-        status: true,
-        type: true,
-        userId: true,
-      },
-      where: { id: payload.mediaId },
-    });
+    const media = await prisma.orm.public.PostMedia.select(
+      "id",
+      "key",
+      "publishedKey",
+      "status",
+      "_type",
+      "userId"
+    )
+      .where({ id: payload.mediaId })
+      .first();
     if (!media || media.userId !== userId) {
       // Deliberately opaque about other users' rows.
       return Response.json({ error: "Media not found" }, { status: 404 });
@@ -78,17 +81,19 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    if (media.type !== "IMAGE") {
+    if (media._type !== "IMAGE") {
       return Response.json(
         { error: "Only images can be used as a banner" },
         { status: 415 }
       );
     }
 
-    const currentUser = await prisma.user.findUnique({
-      select: { bannerKey: true, bannerMediaId: true },
-      where: { id: userId },
-    });
+    const currentUser = await prisma.orm.public.Users.select(
+      "bannerKey",
+      "bannerMediaId"
+    )
+      .where({ id: userId })
+      .first();
 
     // Serving flows through /api/users/banner/{userId}/image exactly as for
     // legacy uploads; storing the published original key there keeps GIFs
@@ -100,14 +105,10 @@ export async function POST(request: Request) {
     const bannerKey = media.publishedKey ?? media.key;
     const bannerUrl = profileProxyUrl("banner", userId, bannerKey);
 
-    await prisma.user.update({
-      data: {
-        bannerKey,
-        bannerMediaId: media.id,
-        bannerUrl,
-      },
-      select: getPrivateUserSelect(userId),
-      where: { id: userId },
+    await prisma.orm.public.Users.where({ id: userId }).update({
+      bannerKey,
+      bannerMediaId: media.id,
+      bannerUrl,
     });
 
     // Best-effort removal of the replaced legacy banner object. Superseded
@@ -171,21 +172,25 @@ export async function DELETE() {
     }
     const userId = user.id;
 
-    const currentUser = await prisma.user.findUnique({
-      select: { bannerKey: true, bannerMediaId: true },
-      where: { id: userId },
-    });
+    const currentUser = await prisma.orm.public.Users.select(
+      "bannerKey",
+      "bannerMediaId"
+    )
+      .where({ id: userId })
+      .first();
 
     // Clear the references first; if that fails, the banner stays intact.
-    const updatedUser = await prisma.user.update({
-      data: {
-        bannerKey: null,
-        bannerMediaId: null,
-        bannerUrl: null,
-      },
-      select: getPrivateUserSelect(userId),
-      where: { id: userId },
+    await prisma.orm.public.Users.where({ id: userId }).update({
+      bannerKey: null,
+      bannerMediaId: null,
+      bannerUrl: null,
     });
+    const updatedUser = await getPrivateUserQuery(prisma.orm, userId)
+      .where({ id: userId })
+      .first();
+    if (!updatedUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
 
     // Best-effort removal of the underlying object (legacy uploads only).
     // Unlinked pipeline banners go through the cleanup worker, which refunds
@@ -210,7 +215,13 @@ export async function DELETE() {
       }
     }
 
-    return NextResponse.json({ success: true, user: updatedUser });
+    return NextResponse.json({
+      success: true,
+      user: {
+        ...updatedUser,
+        createdAt: fromPrismaDateTime(updatedUser.createdAt),
+      },
+    });
   } catch (error) {
     console.error("Banner deletion error:", error);
     return NextResponse.json(

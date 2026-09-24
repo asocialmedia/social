@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { PrismaTransaction } from "../prisma";
 import {
   AMPLIFY_RECEIVE_AURA,
   MUTE_RECEIVE_AURA,
@@ -12,6 +13,7 @@ import {
   chargeMutingCost,
   reverseExactAura,
 } from "./ledger";
+import type { AuraEventType, AuraLedgerEntry } from "./ledger";
 
 // Hand-built fake transaction client: captures balance updates and ledger
 // rows so the writer's behavior is verified without a database. Mirrors the
@@ -25,40 +27,41 @@ function createFakeTx(
   } = {}
 ) {
   const state = {
-    aggregateQueries: [] as Record<string, unknown>[],
+    aggregateQueries: [] as {
+      recipientId: string;
+      since: Date;
+    }[],
     balanceUpdates: [] as { id: string; increment: number }[],
-    countQueries: [] as Record<string, unknown>[],
-    ledgerRows: [] as Record<string, unknown>[],
+    countQueries: [] as {
+      actorId: string;
+      classTypes: readonly AuraEventType[];
+      recipientId: string;
+      since: Date;
+    }[],
+    ledgerRows: [] as AuraLedgerEntry[],
   };
 
   const tx = {
-    auraLog: {
-      // Promise-returning shapes match AuraLedgerTx without async arrows
-      // (which the linter strips).
-      aggregate: (args: { where: Record<string, unknown> }) => {
-        state.aggregateQueries.push(args.where);
-        return Promise.resolve({ _sum: { amount: options.incomeToday ?? 0 } });
-      },
-      count: (args: { where: Record<string, unknown> }) => {
-        state.countQueries.push(args.where);
-        return Promise.resolve(options.priorInteractions ?? 0);
-      },
-      create: (args: { data: Record<string, unknown> }) => {
-        state.ledgerRows.push(args.data);
-        return Promise.resolve({});
-      },
+    countAuraLogs: (input: {
+      actorId: string;
+      classTypes: readonly AuraEventType[];
+      recipientId: string;
+      since: Date;
+    }) => {
+      state.countQueries.push(input);
+      return Promise.resolve(options.priorInteractions ?? 0);
     },
-    user: {
-      update: (args: {
-        data: { aura: { increment: number } };
-        where: { id: string };
-      }) => {
-        state.balanceUpdates.push({
-          id: args.where.id,
-          increment: args.data.aura.increment,
-        });
-        return Promise.resolve({});
-      },
+    createAuraLog: (input: AuraLedgerEntry) => {
+      state.ledgerRows.push(input);
+      return Promise.resolve();
+    },
+    incrementUserAura: (userId: string, amount: number) => {
+      state.balanceUpdates.push({ id: userId, increment: amount });
+      return Promise.resolve();
+    },
+    sumEngagementIncome: (input: { recipientId: string; since: Date }) => {
+      state.aggregateQueries.push(input);
+      return Promise.resolve(options.incomeToday ?? 0);
     },
   };
 
@@ -172,14 +175,15 @@ describe("applyWeightedAward", () => {
     });
 
     expect(state.countQueries).toHaveLength(1);
-    const where = state.countQueries[0] as Record<string, unknown>;
-    expect(where).toMatchObject({
-      amount: { gt: 0 },
-      issuerId: ACTOR_ID,
-      targetUserId: RECIPIENT,
-    });
+    const [countInput] = state.countQueries;
+    if (!countInput) {
+      throw new Error("Expected a count query");
+    }
+    expect(countInput.actorId).toBe(ACTOR_ID);
+    expect(countInput.classTypes).toContain("POST_VOTE");
+    expect(countInput.recipientId).toBe(RECIPIENT);
     // Window is PAIR_TAPER_WINDOW_DAYS wide ending at `now`.
-    const windowStart = (where.createdAt as { gte: Date }).gte;
+    const windowStart = countInput?.since;
     expect(now.getTime() - windowStart.getTime()).toBe(30 * 86_400_000);
 
     // floor(3 * 1.0 * 0.6)
@@ -200,19 +204,12 @@ describe("applyWeightedAward", () => {
     });
 
     expect(state.aggregateQueries).toHaveLength(1);
-    const where = state.aggregateQueries[0] as Record<string, unknown>;
-    expect(where).toMatchObject({
-      amount: { gt: 0 },
-      type: {
-        notIn: [
-          "POST_VIEWS_MILESTONE",
-          "SHARE_MILESTONE",
-          "TRENDING_APPEARANCE",
-        ],
-      },
-      userId: RECIPIENT,
-    });
-    const dayStart = (where.createdAt as { gte: Date }).gte;
+    const [aggregateInput] = state.aggregateQueries;
+    if (!aggregateInput) {
+      throw new Error("Expected an aggregate query");
+    }
+    expect(aggregateInput).toMatchObject({ recipientId: RECIPIENT });
+    const dayStart = aggregateInput.since;
     expect(dayStart.toISOString()).toBe("2026-08-24T00:00:00.000Z");
 
     // floor(2 * 1.0 * 1.0 * 0.5)
@@ -295,6 +292,60 @@ describe("applyFlatAward", () => {
 
     // trunc(1 * max(0.15, 120/900)) = trunc(0.133) = 0
     expect(result.amount).toBe(0);
+  });
+});
+
+describe("Prisma transaction aura updates", () => {
+  test("retries a compare-and-swap aura update after a concurrent change", async () => {
+    let currentAura = 10;
+    const attemptedAuras: number[] = [];
+    const readCollection = {
+      first: () => Promise.resolve({ aura: currentAura }),
+      select: () => readCollection,
+      where: () => readCollection,
+    };
+    const updateCollection = {
+      updateAndCount: (data: { aura: number }) => {
+        attemptedAuras.push(data.aura);
+        if (attemptedAuras.length === 1) {
+          currentAura = 12;
+          return Promise.resolve(0);
+        }
+        currentAura = data.aura;
+        return Promise.resolve(1);
+      },
+      where: () => updateCollection,
+    };
+    const ledgerRows: AuraLedgerEntry[] = [];
+    const transaction = {
+      orm: {
+        public: {
+          AuraLogs: {
+            create: (entry: AuraLedgerEntry) => {
+              ledgerRows.push(entry);
+              return Promise.resolve({ id: "log-1" });
+            },
+          },
+          Users: {
+            select: () => readCollection,
+            where: () => updateCollection,
+          },
+        },
+      },
+    } as unknown as PrismaTransaction;
+
+    const result = await applyFlatAward(transaction, {
+      actorId: ACTOR_ID,
+      baseAmount: 7,
+      now: new Date("2026-08-24T12:00:00Z"),
+      recipientId: RECIPIENT,
+      type: "POST_CREATION",
+    });
+
+    expect(result.amount).toBe(7);
+    expect(attemptedAuras).toEqual([17, 19]);
+    expect(currentAura).toBe(19);
+    expect(ledgerRows).toHaveLength(1);
   });
 });
 

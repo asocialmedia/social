@@ -70,11 +70,9 @@ export async function POST(
     );
   }
 
-  const providerField = provider === "google" ? "googleId" : "redditId";
-  await prisma.user.update({
-    data: { [providerField]: null },
-    where: { id: session.user.id },
-  });
+  await prisma.orm.public.Users.where({ id: session.user.id }).update(
+    provider === "google" ? { googleId: null } : { redditId: null }
+  );
 
   return Response.json({ success: true });
 }

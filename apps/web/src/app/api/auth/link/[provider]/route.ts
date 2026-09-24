@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -55,14 +55,17 @@ async function handleLink(request: NextRequest, provider: string) {
   }
 
   const [user, credentialAccount] = await Promise.all([
-    prisma.user.findUnique({
-      select: { email: true, emailVerified: true },
-      where: { id: session.user.id },
-    }),
-    prisma.account.findFirst({
-      select: { password: true },
-      where: { providerId: "credential", userId: session.user.id },
-    }),
+    prisma.orm.public.Users.select("email", "emailVerified")
+      .where({ id: session.user.id })
+      .first(),
+    prisma.orm.public.Accounts.select("password")
+      .where((account) =>
+        and(
+          account.providerId.eq("credential"),
+          account.userId.eq(session.user.id)
+        )
+      )
+      .first(),
   ]);
   if (!user?.email || !user.emailVerified) {
     return redirectToSettingsError("link_requires_verified_email");

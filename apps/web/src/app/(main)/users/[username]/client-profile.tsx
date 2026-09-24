@@ -1,6 +1,6 @@
 "use client";
 
-import type { PrivateUserData, UserCommunityRole, UserData } from "@asm/db";
+import type { UserCommunityRole, UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -23,6 +23,7 @@ import UserResponsesFeed from "@/components/profile/user-responses-feed";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import {
   resolveProfileTab,
   useTabMemoryReady,

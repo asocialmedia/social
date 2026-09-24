@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let session: { user: { id: string } } | null = { user: { id: "user-1" } };
 let row: { deleted: boolean; userId: string } | null = {
   deleted: false,
@@ -10,11 +12,18 @@ let softDelete: () => Promise<unknown> = () =>
 const softDeleteComment = mock(() => softDelete());
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    comment: { findUnique: () => Promise.resolve(row) },
+    orm: {
+      public: {
+        Comments: {
+          select: () => ({
+            where: () => ({ first: () => Promise.resolve(row) }),
+          }),
+        },
+      },
+    },
   },
-  // Named-export stub: other route tests running in the same process mock
-  // @asm/db with their own shape, and the linker needs every key present.
   redis: {},
 }));
 mock.module("@/components/comments/data/comment-service", () => ({

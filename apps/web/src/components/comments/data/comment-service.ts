@@ -1,13 +1,16 @@
 import { createCommentSchema } from "@asm/auth/validation";
 import {
+  and,
   applyFlatAward,
   applyWeightedAward,
   cancelMediaCleanup,
   COMMENT_CREATION_AURA,
   COMMENT_RECEIVED_AURA,
   findVisiblePost,
-  getCommentDataInclude,
+  getCommentDataQuery,
+  fromPrismaDateTime,
   invalidateAuraSignals,
+  mapCommentData,
   prisma,
   publishCommentCreated,
   publishCommentDeleted,
@@ -65,10 +68,14 @@ export async function createComment(
   } | null = null;
 
   if (parentId) {
-    parent = await prisma.comment.findUnique({
-      select: { id: true, postId: true, rootId: true, userId: true },
-      where: { id: parentId },
-    });
+    parent = await prisma.orm.public.Comments.select(
+      "id",
+      "postId",
+      "rootId",
+      "userId"
+    )
+      .where({ id: parentId })
+      .first();
 
     if (!parent) {
       throw new Error("Parent comment not found");
@@ -112,25 +119,24 @@ export async function createComment(
   let postReceivedAmount = 0;
 
   const notificationEvents = newNotificationEvents();
-  const comment = await prisma.$transaction(async (tx) => {
+  const comment = await prisma.transaction(async (tx) => {
     // Eddies carry images and GIFs only, uploaded by the commenter. A crafted
     // request could attach another user's media, a video, or a stale id, so
     // verify every requested id is owned by the caller and is a raster image,
     // and that the returned set exactly matches what was asked for.
     if (mediaIdsValidated.length > 0) {
-      const attachedMedia = await tx.media.findMany({
-        select: {
-          commentId: true,
-          id: true,
-          messageConversationId: true,
-          mimeType: true,
-          postId: true,
-          status: true,
-          type: true,
-          userId: true,
-        },
-        where: { id: { in: mediaIdsValidated } },
-      });
+      const attachedMedia = await tx.orm.public.PostMedia.select(
+        "commentId",
+        "id",
+        "messageConversationId",
+        "mimeType",
+        "postId",
+        "status",
+        "_type",
+        "userId"
+      )
+        .where((candidate) => candidate.id.in(mediaIdsValidated))
+        .all();
       const foundIds = new Set(attachedMedia.map((m) => m.id));
       const allFound = mediaIdsValidated.every((id) => foundIds.has(id));
       if (!allFound || attachedMedia.length !== mediaIdsValidated.length) {
@@ -138,7 +144,7 @@ export async function createComment(
       }
       const disallowed = attachedMedia.some(
         (media) =>
-          media.type === "VIDEO" ||
+          media._type === "VIDEO" ||
           !media.mimeType.startsWith("image/") ||
           media.mimeType === "image/svg+xml" ||
           media.userId !== params.userId ||
@@ -153,26 +159,35 @@ export async function createComment(
       }
     }
 
-    const created = await tx.comment.create({
-      data: {
-        attachments: mediaIdsValidated.length
-          ? { connect: mediaIdsValidated.map((id) => ({ id })) }
-          : undefined,
-        content: contentValidated,
-        parentId: parent?.id,
-        postId: params.postId,
-        rootId,
-        userId: params.userId,
-      },
-      include: getCommentDataInclude(params.userId),
+    const createdBase = await tx.orm.public.Comments.select("id").create({
+      content: contentValidated,
+      parentId: parent?.id ?? null,
+      postId: params.postId,
+      rootId,
+      userId: params.userId,
     });
+
+    await Promise.all(
+      mediaIdsValidated.map((mediaId) =>
+        tx.orm.public.PostMedia.where({ id: mediaId }).update({
+          commentId: createdBase.id,
+        })
+      )
+    );
+
+    const createdRow = await getCommentDataQuery(tx.orm, params.userId)
+      .where({ id: createdBase.id })
+      .first();
+    if (!createdRow) {
+      throw new Error("Created comment not found");
+    }
+    const created = mapCommentData(createdRow);
 
     // Commenter's participation stipend: flat (not credibility-weighted, so
     // earning never entrenches), but under the daily income cap.
-    const commenter = await tx.user.findUnique({
-      select: { aura: true, createdAt: true },
-      where: { id: params.userId },
-    });
+    const commenter = await tx.orm.public.Users.select("aura", "createdAt")
+      .where({ id: params.userId })
+      .first();
 
     if (commenter) {
       const creationAward = await applyFlatAward(tx, {
@@ -192,7 +207,10 @@ export async function createComment(
     // commenter's credibility and tapered per pair.
     if (receivedRecipientId && commenter) {
       const receivedAward = await applyWeightedAward(tx, {
-        actor: { aura: commenter.aura, createdAt: commenter.createdAt },
+        actor: {
+          aura: commenter.aura,
+          createdAt: fromPrismaDateTime(commenter.createdAt),
+        },
         actorId: params.userId,
         baseAmount: COMMENT_RECEIVED_AURA,
         commentId: created.id,
@@ -219,7 +237,10 @@ export async function createComment(
 
     if (postAuthorAlsoPaid && commenter) {
       const postAward = await applyWeightedAward(tx, {
-        actor: { aura: commenter.aura, createdAt: commenter.createdAt },
+        actor: {
+          aura: commenter.aura,
+          createdAt: fromPrismaDateTime(commenter.createdAt),
+        },
         actorId: params.userId,
         baseAmount: COMMENT_RECEIVED_AURA,
         commentId: created.id,
@@ -238,13 +259,10 @@ export async function createComment(
       receivedAmount !== 0 ||
       postReceivedAmount !== 0
     ) {
-      await tx.comment.update({
-        data: {
-          creationAura: creationAmount,
-          postReceivedAura: postReceivedAmount,
-          receivedAura: receivedAmount,
-        },
-        where: { id: created.id },
+      await tx.orm.public.Comments.where({ id: created.id }).update({
+        creationAura: creationAmount,
+        postReceivedAura: postReceivedAmount,
+        receivedAura: receivedAmount,
       });
     }
 
@@ -254,14 +272,14 @@ export async function createComment(
     if (notificationRecipientIds.size > 0) {
       await Promise.all(
         [...notificationRecipientIds].map(async (recipientId) => {
-          const commentNotification = await tx.notification.create({
-            data: {
-              commentId: created.id,
-              issuerId: params.userId,
-              postId: params.postId,
-              recipientId,
-              type: "COMMENT",
-            },
+          const commentNotification = await tx.orm.public.Notifications.select(
+            "id"
+          ).create({
+            _type: "COMMENT",
+            commentId: created.id,
+            issuerId: params.userId,
+            postId: params.postId,
+            recipientId,
           });
 
           notificationEvents.created.push({
@@ -324,18 +342,17 @@ export async function softDeleteComment(
   commentId: string,
   userId: string
 ): Promise<CommentData> {
-  const comment = await prisma.comment.findUnique({
-    select: {
-      creationAura: true,
-      id: true,
-      parentId: true,
-      postId: true,
-      postReceivedAura: true,
-      receivedAura: true,
-      userId: true,
-    },
-    where: { id: commentId },
-  });
+  const comment = await prisma.orm.public.Comments.select(
+    "creationAura",
+    "id",
+    "parentId",
+    "postId",
+    "postReceivedAura",
+    "receivedAura",
+    "userId"
+  )
+    .where({ id: commentId })
+    .first();
 
   if (!comment) {
     throw new Error("Comment not found");
@@ -345,10 +362,9 @@ export async function softDeleteComment(
     throw new Error("Unauthorized");
   }
 
-  const post = await prisma.post.findUnique({
-    select: { id: true, userId: true },
-    where: { id: comment.postId },
-  });
+  const post = await prisma.orm.public.Posts.select("id", "userId")
+    .where({ id: comment.postId })
+    .first();
 
   if (!post) {
     throw new Error("Post not found");
@@ -367,12 +383,18 @@ export async function softDeleteComment(
   }
 
   const deleteEvents = newNotificationEvents();
-  const deletedComment = await prisma.$transaction(async (tx) => {
-    const softDeleted = await tx.comment.update({
-      data: { content: "", deleted: true },
-      include: getCommentDataInclude(userId),
-      where: { id: commentId },
+  const deletedComment = await prisma.transaction(async (tx) => {
+    await tx.orm.public.Comments.where({ id: commentId }).update({
+      content: "",
+      deleted: true,
     });
+    const softDeletedRow = await getCommentDataQuery(tx.orm, userId)
+      .where({ id: commentId })
+      .first();
+    if (!softDeletedRow) {
+      throw new Error("Comment not found after deletion");
+    }
+    const softDeleted = mapCommentData(softDeletedRow);
 
     if (comment.creationAura !== 0) {
       await reverseExactAura(tx, {
@@ -392,10 +414,9 @@ export async function softDeleteComment(
       // exactly who createComment paid.
       let primaryRecipient = post.userId;
       if (comment.parentId) {
-        const parent = await tx.comment.findUnique({
-          select: { userId: true },
-          where: { id: comment.parentId },
-        });
+        const parent = await tx.orm.public.Comments.select("userId")
+          .where({ id: comment.parentId })
+          .first();
         if (parent) {
           primaryRecipient = parent.userId;
         }
@@ -435,13 +456,22 @@ export async function softDeleteComment(
     // replies to it, and eddie amplifies) all point at content that no longer
     // exists, so clean them up for every recipient whether or not aura was
     // ever awarded.
-    const commentNotifications = await tx.notification.findMany({
-      select: { recipientId: true },
-      where: { commentId, type: { in: ["COMMENT", "AMPLIFY"] } },
-    });
-    await tx.notification.deleteMany({
-      where: { commentId, type: { in: ["COMMENT", "AMPLIFY"] } },
-    });
+    const commentNotifications = await tx.orm.public.Notifications.select(
+      "recipientId"
+    )
+      .where((notification) =>
+        and(
+          notification.commentId.eq(commentId),
+          notification._type.in(["COMMENT", "AMPLIFY"])
+        )
+      )
+      .all();
+    await tx.orm.public.Notifications.where((notification) =>
+      and(
+        notification.commentId.eq(commentId),
+        notification._type.in(["COMMENT", "AMPLIFY"])
+      )
+    ).delete();
     const notificationRecipientIds = [
       ...new Set(commentNotifications.map((n) => n.recipientId)),
     ];

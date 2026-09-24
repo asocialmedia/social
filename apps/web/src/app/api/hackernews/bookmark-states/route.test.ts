@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { POST } from "./route";
 
 const USER_ID = "user1";
@@ -11,18 +13,37 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 let lastStoryIds: number[] = [];
 
 const mockPrisma = {
-  hNBookmark: {
-    findMany: (args: {
-      select: { storyId: boolean };
-      where: { storyId: { in: number[] }; userId: string };
-    }) => {
-      lastStoryIds = args.where.storyId.in;
-      return [{ storyId: 1001 }, { storyId: 1003 }];
+  orm: {
+    public: {
+      HNBookmark: {
+        select: () => ({
+          where: (
+            predicate: (bookmark: {
+              storyId: { in: (ids: number[]) => unknown };
+              userId: { eq: (id: string) => unknown };
+            }) => unknown
+          ) => {
+            predicate({
+              storyId: {
+                in: (ids) => {
+                  lastStoryIds = ids;
+                  return {};
+                },
+              },
+              userId: { eq: () => ({}) },
+            });
+            return {
+              all: () => [{ storyId: 1001 }, { storyId: 1003 }],
+            };
+          },
+        }),
+      },
     },
   },
 };
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: mockPrisma,
 }));
 

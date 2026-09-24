@@ -1,13 +1,15 @@
 import {
+  and,
   communityVisibilityWhere,
   encodeTrendingCursor,
   fetchTrendingSnapshotPage,
-  getPostDataInclude,
+  getPostDataQuery,
   hydrateViewCounts,
   isTrendingSnapshotCursor,
+  mapPostData,
   prisma,
 } from "@asm/db";
-import type { PostsPage, Prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -29,13 +31,7 @@ export async function GET(request: Request) {
   // order-by-a-mutating-column pagination had. Anything that went missing
   // from Postgres (deleted/moderated since publish) is filtered here and its
   // slot simply advances the cursor.
-  const where: Prisma.PostWhereInput = {
-    ...(excludeModerated
-      ? { isGust: false, moderated: false, rootPostId: null }
-      : { isGust: false, rootPostId: null }),
-    // A private-community post must never trend to someone who cannot read it.
-    ...communityVisibilityWhere(userId),
-  };
+  const visibility = communityVisibilityWhere(userId);
 
   let data: PostsPage | null = null;
   try {
@@ -45,18 +41,17 @@ export async function GET(request: Request) {
     });
     if (snapshot) {
       const ids = snapshot.entries.map((entry) => entry.id);
-      const rows = await prisma.post.findMany({
-        include: getPostDataInclude(userId),
-        // Gusts and responses must never surface here even if the worker
-        // snapshotted one: the live fallback excludes them, so the snapshot
-        // path must too.
-        where: {
-          id: { in: ids },
-          isGust: false,
-          rootPostId: null,
-          ...communityVisibilityWhere(userId),
-        },
-      });
+      const postRows = await getPostDataQuery(prisma.orm, userId)
+        .where((post) =>
+          and(
+            post.id.in(ids),
+            post.isGust.eq(false),
+            post.rootPostId.isNull(),
+            visibility(post)
+          )
+        )
+        .all();
+      const rows = postRows.map(mapPostData);
       const byId = new Map(rows.map((row) => [row.id, row]));
 
       const served: {
@@ -91,19 +86,20 @@ export async function GET(request: Request) {
           postId: lastServed.entry.id,
           score: lastServed.entry.score,
         });
-      } else if (
-        lastServed !== undefined &&
-        typeof prisma.post.findFirst === "function"
-      ) {
+      } else if (lastServed !== undefined) {
         // When active snapshot window ends, check if older/expired posts exist
         // so they appear at the bottom of trending rather than being hidden.
-        const hasMoreExpired = await prisma.post.findFirst({
-          select: { id: true },
-          where: {
-            ...where,
-            id: { notIn: ids },
-          },
-        });
+        const hasMoreExpired = await prisma.orm.public.Posts.select("id")
+          .where((post) =>
+            and(
+              post.id.notIn(ids),
+              post.isGust.eq(false),
+              post.rootPostId.isNull(),
+              ...(excludeModerated ? [post.moderated.eq(false)] : []),
+              visibility(post)
+            )
+          )
+          .first();
         if (hasMoreExpired) {
           nextCursor = `exp.${lastServed.entry.id}`;
         }
@@ -131,16 +127,21 @@ export async function GET(request: Request) {
       liveCursor = liveCursor.slice(4) || undefined;
     }
 
-    const posts = await prisma.post.findMany({
-      cursor: liveCursor ? { id: liveCursor } : undefined,
-      include: getPostDataInclude(userId),
-      // trendingScore is maintained by the worker's flush job; the id
-      // tiebreak keeps equal scores deterministic.
-      orderBy: [{ trendingScore: "desc" }, { id: "desc" }],
-      skip: liveCursor ? 1 : 0,
-      take: pageSize + 1,
-      where,
-    });
+    let liveQuery = getPostDataQuery(prisma.orm, userId)
+      .where((post) =>
+        and(
+          post.isGust.eq(false),
+          ...(excludeModerated ? [post.moderated.eq(false)] : []),
+          post.rootPostId.isNull(),
+          visibility(post)
+        )
+      )
+      .orderBy([(post) => post.trendingScore.desc(), (post) => post.id.desc()]);
+    if (liveCursor) {
+      liveQuery = liveQuery.cursor({ id: liveCursor }).offset(1);
+    }
+    const postRows = await liveQuery.limit(pageSize + 1).all();
+    const posts = postRows.map(mapPostData);
 
     const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
     data = {
@@ -159,6 +160,4 @@ export async function GET(request: Request) {
   return Response.json(data, { headers: responseHeaders });
 }
 
-type PostRow = Prisma.PostGetPayload<{
-  include: ReturnType<typeof getPostDataInclude>;
-}>;
+type PostRow = ReturnType<typeof mapPostData>;

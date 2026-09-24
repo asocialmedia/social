@@ -1,5 +1,5 @@
 import type { NotificationCountInfo } from "@asm/db";
-import { prisma, unreadNotificationCache } from "@asm/db";
+import { and, prisma, unreadNotificationCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -20,9 +20,11 @@ export async function GET() {
     } satisfies NotificationCountInfo);
   }
 
-  const unreadCount = await prisma.notification.count({
-    where: { read: false, recipientId: userId },
-  });
+  const unreadResult = await prisma.orm.public.Notifications.where(
+    (notification) =>
+      and(notification.read.eq(false), notification.recipientId.eq(userId))
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  const unreadCount = unreadResult.count;
 
   if (unreadCount > 0) {
     await unreadNotificationCache.increment(userId, unreadCount);

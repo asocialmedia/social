@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { fromPrismaDateTime, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { parseJsonBody } from "@/lib/messages/server";
@@ -20,21 +20,21 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const identity = await prisma.messageIdentity.findUnique({
-    where: { userId: user.id },
-  });
+  const identity = await prisma.orm.public.MessageIdentities.where({
+    userId: user.id,
+  }).first();
   if (!identity || !identity.masterKeyHash) {
     return Response.json({ identity: null });
   }
 
   const payload: MessageIdentityPayload = {
-    createdAt: identity.createdAt.toISOString(),
+    createdAt: fromPrismaDateTime(identity.createdAt).toISOString(),
     encryptedPrivateKey: identity.encryptedPrivateKey,
     kdfIterations: identity.kdfIterations,
     masterKeyHash: identity.masterKeyHash,
     publicKey: identity.publicKey,
     salt: identity.salt,
-    updatedAt: identity.updatedAt.toISOString(),
+    updatedAt: fromPrismaDateTime(identity.updatedAt).toISOString(),
   };
   return Response.json({ identity: payload });
 }
@@ -80,10 +80,11 @@ export async function POST(request: Request) {
     // the SAME public key is a harmless no-op (the client may re-run the
     // bootstrap), but a different public key must never replace the stored
     // keypair, which would orphan every existing conversation key for it.
-    const existing = await prisma.messageIdentity.findUnique({
-      select: { publicKey: true },
-      where: { userId: user.id },
-    });
+    const existing = await prisma.orm.public.MessageIdentities.select(
+      "publicKey"
+    )
+      .where({ userId: user.id })
+      .first();
     if (existing) {
       if (existing.publicKey !== body.publicKey) {
         return Response.json(
@@ -94,15 +95,13 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    await prisma.messageIdentity.create({
-      data: {
-        encryptedPrivateKey: body.encryptedPrivateKey,
-        kdfIterations: body.kdfIterations,
-        masterKeyHash: body.masterKeyHash,
-        publicKey: body.publicKey,
-        salt: body.salt,
-        userId: user.id,
-      },
+    await prisma.orm.public.MessageIdentities.create({
+      encryptedPrivateKey: body.encryptedPrivateKey,
+      kdfIterations: body.kdfIterations,
+      masterKeyHash: body.masterKeyHash,
+      publicKey: body.publicKey,
+      salt: body.salt,
+      userId: user.id,
     });
 
     return Response.json({ ok: true });

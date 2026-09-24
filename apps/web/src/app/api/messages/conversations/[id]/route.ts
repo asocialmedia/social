@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getConversationForUser } from "@/lib/messages/server";
@@ -20,12 +20,16 @@ export async function GET(
   }
 
   const [keys, mySentCount] = await Promise.all([
-    prisma.messageConversationKey.findMany({
-      where: { conversationId: id },
-    }),
-    prisma.message.count({
-      where: { conversationId: id, senderId: user.id },
-    }),
+    prisma.orm.public.MessageConversationKeys.select(
+      "encryptedKey",
+      "iv",
+      "ownerUserId"
+    )
+      .where({ conversationId: id })
+      .all(),
+    prisma.orm.public.Messages.where((message) =>
+      and(message.conversationId.eq(id), message.senderId.eq(user.id))
+    ).aggregate((aggregate) => ({ count: aggregate.count() })),
   ]);
 
   return Response.json({
@@ -37,6 +41,6 @@ export async function GET(
       },
       ownerUserId: key.ownerUserId,
     })),
-    mySentCount,
+    mySentCount: mySentCount.count,
   });
 }

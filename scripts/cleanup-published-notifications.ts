@@ -1,23 +1,12 @@
 #!/usr/bin/env bun
 
-// High-traffic cleanup script for Zeph's publish-confirmation notifications.
-// Safely purges notifications created when users post fleets or gusts after 15 minutes.
-//
-// Usage:
-//   bun scripts/cleanup-published-notifications.ts [options]
-//
-// Options:
-//   --batch-size=N     Number of notifications to delete per transaction (default: 100)
-//   --max-batches=N    Maximum number of batches to run (default: 1000)
-//   --delay-ms=N       Delay between transaction batches in ms (default: 20)
-//   --age-minutes=N    Cutoff age in minutes (default: 15)
-//   --dry-run          Preview count without deleting
-
 import {
+  and,
   cleanupExpiredPublishedNotifications,
   NotificationType,
   prisma,
   SYSTEM_MODERATION_USER_ID,
+  toPrismaDateTime,
 } from "@asm/db";
 
 export function parseNumberFlag(
@@ -81,7 +70,21 @@ export async function runCleanupCli(
 ) {
   const options = parseCleanupArgs(argv);
   const log = deps.logger?.log ?? console.log;
-  const countFn = deps.countFn ?? ((args) => prisma.notification.count(args));
+  const countFn =
+    deps.countFn ??
+    (async (args) => {
+      const result = await prisma.orm.public.Notifications.where(
+        (notification) =>
+          and(
+            notification.createdAt.lte(
+              toPrismaDateTime(args.where.createdAt.lte)
+            ),
+            notification.issuerId.eq(SYSTEM_MODERATION_USER_ID),
+            notification._type.eq(NotificationType.PUBLISHED)
+          )
+      ).aggregate((aggregate) => ({ count: aggregate.count() }));
+      return result.count;
+    });
   const cleanupFn = deps.cleanupFn ?? cleanupExpiredPublishedNotifications;
 
   log("=== Zeph Published Notification Cleanup ===");
