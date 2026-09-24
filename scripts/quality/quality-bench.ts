@@ -4,7 +4,7 @@
 // compression ratio. Run against a curated sample folder before bumping
 // quality settings so numbers - not vibes - drive the trade-off.
 //
-// Usage: bun scripts/quality-bench.ts [samples/dir] [--qualities 70,78,84]
+// Usage: bun scripts/quality/quality-bench.ts [samples/dir] [--qualities 70,78,84]
 //
 // ffprobe/ffmpeg must be on PATH (the media worker's ffmpeg image is fine).
 

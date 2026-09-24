@@ -6,7 +6,7 @@
 // the new public key from GET /api/push/public-key and the stale subscription
 // is replaced when enableWebPush runs again).
 //
-// Usage: bun scripts/generate-vapid-keys.ts
+// Usage: bun scripts/local-setup/generate-vapid-keys.ts
 import webpush from "web-push";
 
 const keys = webpush.generateVAPIDKeys();

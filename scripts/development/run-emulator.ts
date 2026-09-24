@@ -12,7 +12,7 @@ import {
   findNewEmulatorSerial,
   hasAllReverses,
   isBootCompleted,
-} from "../apps/mobile/scripts/dev-android-lib";
+} from "../../apps/mobile/scripts/dev-android-lib";
 
 function getAndroidHome(): string {
   return process.env.ANDROID_HOME ?? join(homedir(), "Android", "Sdk");

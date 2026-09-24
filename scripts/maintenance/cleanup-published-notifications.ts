@@ -129,7 +129,7 @@ export async function runCleanupCli(
 
 const isDirectExecution = Bun.argv.some(
   (arg) =>
-    arg.endsWith("scripts/cleanup-published-notifications.ts") ||
+    arg.endsWith("scripts/maintenance/cleanup-published-notifications.ts") ||
     arg.endsWith("cleanup-published-notifications.ts")
 );
 

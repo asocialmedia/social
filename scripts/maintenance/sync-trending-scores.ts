@@ -105,7 +105,7 @@ export async function syncTrendingScores(
         `[sync-scores] ${batches} batches done, ${postsSynced} posts updated; last processed post id: ${cursorId}`
       );
       console.log(
-        `[sync-scores] to resume from here: bun scripts/sync-trending-scores.ts --after=${cursorId}`
+        `[sync-scores] to resume from here: bun scripts/maintenance/sync-trending-scores.ts --after=${cursorId}`
       );
     }
 

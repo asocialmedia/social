@@ -427,7 +427,7 @@ export async function runCoverageCli(
   const [scopeInput] = args;
 
   const usage =
-    "Usage: bun scripts/run-coverage-suite.ts [all|unit|integration]";
+    "Usage: bun scripts/testing/run-coverage-suite.ts [all|unit|integration]";
   if (scopeInput !== undefined && isCoverageScope(scopeInput) === false) {
     console.error(usage);
     return 1;
@@ -438,7 +438,7 @@ export async function runCoverageCli(
 
 const isDirectExecution = Bun.argv.some(
   (arg) =>
-    arg.endsWith("scripts/run-coverage-suite.ts") ||
+    arg.endsWith("scripts/testing/run-coverage-suite.ts") ||
     arg.endsWith("run-coverage-suite.ts")
 );
 

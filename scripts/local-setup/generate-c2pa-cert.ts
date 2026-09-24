@@ -5,7 +5,7 @@
 // self-signed certs (issuer == subject && isCa), and a real deployment uses
 // exactly this CA -> leaf shape anyway.
 //
-// Usage: bun scripts/generate-c2pa-cert.ts
+// Usage: bun scripts/local-setup/generate-c2pa-cert.ts
 // Output: .dev-c2pa/{ca.cert.pem, ca.key.pem, cert.pem, key.pem}
 
 import { chmod, mkdir } from "node:fs/promises";
@@ -13,7 +13,7 @@ import path from "node:path";
 
 import { $ } from "bun";
 
-const outDir = path.resolve(import.meta.dir, "../.dev-c2pa");
+const outDir = path.resolve(import.meta.dir, "../../.dev-c2pa");
 const caCert = path.join(outDir, "ca.cert.pem");
 const caKey = path.join(outDir, "ca.key.pem");
 const certPath = path.join(outDir, "cert.pem");

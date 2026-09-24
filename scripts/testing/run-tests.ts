@@ -219,7 +219,8 @@ export async function runTestSuite(
 }
 
 const isDirectExecution = Bun.argv.some(
-  (arg) => arg.endsWith("scripts/run-tests.ts") || arg.endsWith("run-tests.ts")
+  (arg) =>
+    arg.endsWith("scripts/testing/run-tests.ts") || arg.endsWith("run-tests.ts")
 );
 
 if (isDirectExecution) {

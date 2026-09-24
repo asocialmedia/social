@@ -94,7 +94,7 @@ export const keys = createEnv({
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
     // Provenance stamping identity. Unset (the default) disables embedding
     // signed C2PA manifests - AI detection still records to the database.
-    // Generate a dev pair via `bun scripts/generate-c2pa-cert.ts`.
+    // Generate a dev pair via `bun scripts/local-setup/generate-c2pa-cert.ts`.
     DATABASE_URL: z
       .url()
       .default(
