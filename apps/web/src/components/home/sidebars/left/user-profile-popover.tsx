@@ -163,7 +163,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
     );
   } else {
     bannerContent = (
-      <div className="absolute inset-0 bg-gradient-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+      <div className="absolute inset-0 bg-linear-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
     );
   }
 
@@ -223,7 +223,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
 
         <PopoverContent
           align="start"
-          className="apple-panel z-50 w-[21rem] overflow-hidden rounded-2xl border-0 p-0 shadow-none"
+          className="apple-panel z-50 w-84 overflow-hidden rounded-2xl border-0 p-0 shadow-none"
           // Radix moves focus to the first tabbable child when a popover opens.
           // Here that child is the badge, and Radix's HoverCard opens on focus -
           // so opening this menu immediately popped the badge card on top of it
@@ -237,9 +237,9 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
           <div className="relative h-24 overflow-hidden">
             {bannerContent}
             {hasBanner ? (
-              <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--primary)/0.45)] via-[hsl(var(--primary)/0.15)] to-[hsl(var(--background-alt))]" />
+              <div className="absolute inset-0 bg-linear-to-b from-[hsl(var(--primary)/0.45)] via-[hsl(var(--primary)/0.15)] to-[hsl(var(--background-alt))]" />
             ) : (
-              <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] to-transparent" />
+              <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background-alt))] to-transparent" />
             )}
             <div className="bg-border/40 absolute inset-x-0 bottom-0 h-px" />
           </div>

@@ -8,6 +8,7 @@
 - use tailwindcss for styling whenever possible, only resort to custom css if needed
 - run bun run check to check for linting & formatting errors, and bun run check-types to check for errors after making changes
 - use context7 to get the latest docs about the library or package you are using, and to get help with any issues you encounter
+- This is Prisma 8, not Prisma 7: read the latest Prisma 8 migration docs at https://github.com/prisma/orm/blob/main/docs/architecture%20docs/subsystems/7.%20Migration%20System.md before changing the database layer.
 - write tests for your code to ensure it works as expected and to catch any potential bugs early on
 - write unit, integration, and end-to-end tests as appropriate for the functionality you are implementing
 - use descriptive variable and function names to improve code readability and maintainability

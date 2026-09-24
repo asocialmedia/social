@@ -54,7 +54,13 @@ describe("worker job processors", () => {
   ]);
 
   const mockUserAll = mock(() => [{ id: "user-1" }]);
-  const mockUserDelete = mock(() => 1);
+  let userDeleteError: unknown;
+  const mockUserDelete = mock((_userId: string) => {
+    if (userDeleteError) {
+      return Promise.reject(userDeleteError);
+    }
+    return 1;
+  });
   const mockResetDelete = mock(() => 3);
   const mockAliasDelete = mock(() => 2);
   const mockPrisma = {
@@ -137,6 +143,7 @@ describe("worker job processors", () => {
     mockMediaDeleteOne.mockClear();
     mockMediaFirst.mockClear();
     mockUserAll.mockClear();
+    userDeleteError = undefined;
     mockUserDelete.mockClear();
     mockResetDelete.mockClear();
     mockAliasDelete.mockClear();
@@ -217,6 +224,19 @@ describe("worker job processors", () => {
     expect(mockUserAll).toHaveBeenCalled();
     expect(mockUserDelete).toHaveBeenCalled();
     expect(deleted).toBe(1);
+  });
+
+  test("processInactiveUsersSweep retains users blocked by restricted relations", async () => {
+    userDeleteError = {
+      constraint: "aura_logs_userId_fkey",
+      sqlState: "23001",
+    };
+
+    const { processInactiveUsersSweep } = await import("./jobs");
+    const deleted = await processInactiveUsersSweep();
+
+    expect(deleted).toBe(0);
+    expect(mockUserDelete).toHaveBeenCalled();
   });
 
   test("processExpiredTokens deletes expired reset tokens", async () => {
