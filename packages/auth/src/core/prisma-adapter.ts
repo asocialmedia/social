@@ -10,7 +10,7 @@ import type {
 } from "better-auth/adapters";
 import { createAdapterFactory } from "better-auth/adapters";
 
-type AuthModel = "account" | "session" | "user" | "verification";
+type AuthModel = "account" | "jwks" | "session" | "user" | "verification";
 type AuthExpression = Parameters<typeof and>[number];
 type AuthRecord = Record<string, unknown>;
 
@@ -61,6 +61,7 @@ interface AdapterContext {
 
 const AUTH_MODELS: Record<string, AuthModel> = {
   account: "account",
+  jwks: "jwks",
   session: "session",
   user: "user",
   verification: "verification",
@@ -78,6 +79,9 @@ function modelCollection(orm: PrismaOrm, model: AuthModel): DynamicCollection {
   switch (model) {
     case "account": {
       return orm.public.Accounts as unknown as DynamicCollection;
+    }
+    case "jwks": {
+      return orm.public.Jwks as unknown as DynamicCollection;
     }
     case "session": {
       return orm.public.Sessions as unknown as DynamicCollection;
