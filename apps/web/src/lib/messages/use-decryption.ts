@@ -1,11 +1,11 @@
 "use client";
 
-import type { MessageConversationData } from "@asm/db";
 import { useMemo } from "react";
 
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { createRootKeyStore } from "@/lib/messages/client";
 import type { EncryptedBlob } from "@/lib/messages/crypto";
+import type { MessageConversationData } from "@/lib/messages/types";
 
 // A memoized root-key store that lives for the lifetime of the unlocked
 // private key. Unwrapping a conversation key is a one-time ECDH+HKDF per

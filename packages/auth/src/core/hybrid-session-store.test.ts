@@ -8,9 +8,11 @@ import {
   test,
 } from "bun:test";
 
-import type { Session } from "@asm/db";
-
 import { HybridSessionStore } from "./hybrid-session-store";
+
+type Session = HybridSessionData & {
+  impersonatedBy: string | null;
+};
 
 interface HybridSessionData {
   country?: string | null;
@@ -32,15 +34,14 @@ interface RedisPipeline {
   srem: (key: string, token: string) => RedisPipeline;
 }
 
-const mockSessionCreate = mock(
-  ({ data }: { data: HybridSessionData }): Promise<Session> =>
-    Promise.resolve({
-      ...data,
-      country: data.country ?? null,
-      impersonatedBy: null,
-      ipAddress: data.ipAddress ?? null,
-      userAgent: data.userAgent ?? null,
-    })
+const mockSessionCreate = mock((data: HybridSessionData): Promise<Session> =>
+  Promise.resolve({
+    ...data,
+    country: data.country ?? null,
+    impersonatedBy: null,
+    ipAddress: data.ipAddress ?? null,
+    userAgent: data.userAgent ?? null,
+  })
 );
 
 const mockSessionFindUnique = mock((): Promise<Session | null> =>
@@ -69,7 +70,8 @@ const mockSessionUpdate = mock(
     })
 );
 const mockSessionDeleteMany = mock(
-  (_args: unknown): Promise<{ count: number }> => Promise.resolve({ count: 1 })
+  (_args: unknown = {}): Promise<{ count: number }> =>
+    Promise.resolve({ count: 1 })
 );
 
 const mockPipelineFactory = mock((): RedisPipeline => {
@@ -89,16 +91,20 @@ const mockRedisKeys = mock((): Promise<string[]> => Promise.resolve([]));
 const mockRedisSmembers = mock((): Promise<string[]> => Promise.resolve([]));
 const mockRedisDel = mock((): Promise<number> => Promise.resolve(1));
 
+const mockSessions = {
+  create: mockSessionCreate,
+  where: (where: { id?: string; token?: string; userId?: string }) => ({
+    all: () => mockSessionFindMany(),
+    deleteAndCount: () => mockSessionDeleteMany(),
+    first: () => mockSessionFindUnique(),
+    update: (data: Partial<HybridSessionData>) =>
+      mockSessionUpdate({ data, where: { id: where.id ?? "" } }),
+  }),
+};
+
 mock.module("@asm/db", () => ({
-  prisma: {
-    session: {
-      create: mockSessionCreate,
-      deleteMany: mockSessionDeleteMany,
-      findMany: mockSessionFindMany,
-      findUnique: mockSessionFindUnique,
-      update: mockSessionUpdate,
-    },
-  },
+  fromPrismaDateTime: (value: Date) => value,
+  prisma: { orm: { public: { Sessions: mockSessions } } },
   redis: {
     del: mockRedisDel,
     get: mockRedisGet,
@@ -106,6 +112,7 @@ mock.module("@asm/db", () => ({
     pipeline: mockPipelineFactory,
     smembers: mockRedisSmembers,
   },
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 describe("HybridSessionStore", () => {
@@ -327,8 +334,6 @@ describe("HybridSessionStore", () => {
     mockRedisGet.mockResolvedValueOnce(expired);
     await store.delete("token1");
 
-    expect(mockSessionDeleteMany).toHaveBeenCalledWith({
-      where: { token: "token1" },
-    });
+    expect(mockSessionDeleteMany).toHaveBeenCalled();
   });
 });

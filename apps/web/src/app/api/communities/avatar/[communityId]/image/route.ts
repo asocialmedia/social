@@ -57,10 +57,13 @@ export async function GET(
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
 
-  const community = await prisma.community.findUnique({
-    select: { avatarKey: true, id: true, type: true },
-    where: { id: communityId },
-  });
+  const community = await prisma.orm.public.Communities.select(
+    "avatarKey",
+    "id",
+    "_type"
+  )
+    .where({ id: communityId })
+    .first();
   if (!community?.avatarKey) {
     return new NextResponse("Avatar not found", { status: 404 });
   }
@@ -68,8 +71,14 @@ export async function GET(
 
   // A PRIVATE community's avatar is part of its members-only surface; guests
   // and non-members get the same 404 as a missing image.
-  const isPrivate = community.type === "PRIVATE";
-  if (isPrivate && !(await canViewCommunity(community, userId))) {
+  const isPrivate = community._type === "PRIVATE";
+  if (
+    isPrivate &&
+    !(await canViewCommunity(
+      { id: community.id, type: community._type },
+      userId
+    ))
+  ) {
     return new NextResponse("Avatar not found", { status: 404 });
   }
 

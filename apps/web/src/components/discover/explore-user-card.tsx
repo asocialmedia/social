@@ -14,6 +14,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -58,7 +59,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
   const resolvedReason = firstReason(user, reason);
   const { data: followStates } = useFollowStates([user.id]);
   const followState = user.followState ?? followStates?.[user.id];
-  const followers = followState?.followers ?? user._count.followers;
+  const followers = followState?.followers ?? getUserCount(user, "followers");
   const isFollowed = followState?.isFollowedByUser ?? false;
 
   const [bannerFailed, setBannerFailed] = useState(false);

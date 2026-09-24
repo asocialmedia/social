@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 
 import {
   createCommunity,
@@ -20,7 +21,9 @@ import {
   recordCommunityVisit,
   redis,
   searchCommunities,
+  toPrismaDateTime,
 } from "@asm/db";
+import { or } from "@prisma/orm-postgres/orm-client";
 
 const RUN_ID =
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -33,13 +36,11 @@ const VISITOR_ID = `comm-it-visitor-${RUN_ID}`;
 const POST_IDS: string[] = [];
 
 async function createUser(id: string): Promise<void> {
-  await prisma.user.create({
-    data: {
-      displayName: id,
-      email: `${id}@example.test`,
-      id,
-      username: id,
-    },
+  await prisma.orm.public.Users.create({
+    displayName: id,
+    email: `${id}@example.test`,
+    id,
+    username: id,
   });
 }
 
@@ -51,18 +52,18 @@ beforeAll(async () => {
   // (attention milestones only count up to an allowance). The fixture owner
   // needs real non-milestone income to clear the first tier, not just a raw
   // balance - a bare `aura` update would leave standing at 0.
-  await prisma.user.update({
-    data: { aura: 1000 },
-    where: { id: OWNER_ID },
+  await prisma.orm.public.Users.where((user) =>
+    user.id.eq(OWNER_ID)
+  ).updateAndCount({
+    aura: 1000,
   });
-  await prisma.auraLog.create({
-    data: {
-      amount: 1000,
-      issuerId: OWNER_ID,
-      targetUserId: OWNER_ID,
-      type: "POST_CREATION",
-      userId: OWNER_ID,
-    },
+  await prisma.orm.public.AuraLogs.create({
+    _type: "COMMUNITY_JOIN",
+    amount: 1000,
+    id: randomUUID(),
+    issuerId: OWNER_ID,
+    targetUserId: OWNER_ID,
+    userId: OWNER_ID,
   });
 });
 
@@ -70,14 +71,20 @@ afterAll(async () => {
   const userIds = [OWNER_ID, MEMBER_ID, VISITOR_ID];
   // Community creation awards the creator aura, so the aura ledger rows (which
   // RESTRICT user deletes) must go first.
-  await prisma.auraLog.deleteMany({
-    where: { OR: [{ issuerId: { in: userIds } }, { userId: { in: userIds } }] },
-  });
+  await prisma.orm.public.AuraLogs.where((log) =>
+    or(log.issuerId.in(userIds), log.userId.in(userIds))
+  ).deleteAndCount();
   // Community cascade removes membership + share rows; posts detach (SetNull)
   // so they must be deleted explicitly.
-  await prisma.community.deleteMany({ where: { slug: SLUG } });
-  await prisma.post.deleteMany({ where: { id: { in: POST_IDS } } });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  await prisma.orm.public.Communities.where((community) =>
+    community.slug.eq(SLUG)
+  ).deleteAndCount();
+  await prisma.orm.public.Posts.where((post) =>
+    post.id.in(POST_IDS)
+  ).deleteAndCount();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(userIds)
+  ).deleteAndCount();
   await redis.del(`community:stats:${SLUG}`);
 });
 
@@ -133,14 +140,13 @@ describe("community service integration", () => {
     const fixtureBase = new Date("2020-01-01T00:00:00.000Z").getTime();
     const created = await Promise.all(
       [0, 1, 2].map((index) =>
-        prisma.post.create({
-          data: {
-            aura: index * 10,
-            communityId: community.id,
-            content: `community post ${index}`,
-            createdAt: new Date(fixtureBase - index * 60_000),
-            userId: OWNER_ID,
-          },
+        prisma.orm.public.Posts.create({
+          aura: index * 10,
+          communityId: community.id,
+          content: `community post ${index}`,
+          createdAt: toPrismaDateTime(new Date(fixtureBase - index * 60_000)),
+          id: randomUUID(),
+          userId: OWNER_ID,
         })
       )
     );

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { POST } from "./route";
 
 const USER_ID = "user1";
@@ -12,18 +14,28 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 let upserted = false;
 
 const mockPrisma = {
-  post: {
-    findUnique: (args: { where: { id: string } }) =>
-      args.where.id === POST_ID ? { id: POST_ID } : null,
-  },
-  postVisit: {
-    upsert: () => {
-      upserted = true;
+  orm: {
+    public: {
+      PostVisits: {
+        upsert: () => {
+          upserted = true;
+          return {};
+        },
+      },
+      Posts: {
+        select: () => ({
+          where: (where: { id: string }) => ({
+            first: () =>
+              Promise.resolve(where.id === POST_ID ? { id: POST_ID } : null),
+          }),
+        }),
+      },
     },
   },
 };
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: mockPrisma,
 }));
 

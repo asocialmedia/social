@@ -3,7 +3,7 @@ import {
   hashPasswordWithScrypt,
   PasswordSafetyError,
 } from "@asm/auth/core";
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -55,10 +55,12 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const currentUser = await prisma.user.findUnique({
-    select: { email: true, emailVerified: true },
-    where: { id: session.user.id },
-  });
+  const currentUser = await prisma.orm.public.Users.select(
+    "email",
+    "emailVerified"
+  )
+    .where({ id: session.user.id })
+    .first();
   if (!currentUser?.email || !currentUser.emailVerified) {
     return Response.json(
       {
@@ -73,46 +75,50 @@ export async function POST(request: Request): Promise<Response> {
     await assertPasswordNotPwned(parsed.data.password);
     const passwordHash = await hashPasswordWithScrypt(parsed.data.password);
 
-    await prisma.$transaction(async (transaction) => {
-      const freshUser = await transaction.user.findUnique({
-        select: { email: true, emailVerified: true },
-        where: { id: session.user.id },
-      });
+    await prisma.transaction(async (transaction) => {
+      const freshUser = await transaction.orm.public.Users.select(
+        "email",
+        "emailVerified"
+      )
+        .where({ id: session.user.id })
+        .first();
       if (!freshUser?.email || !freshUser.emailVerified) {
         throw new Error("Email verification is required");
       }
 
-      const credential = await transaction.account.findFirst({
-        select: { id: true, password: true },
-        where: {
-          providerId: "credential",
-          userId: session.user.id,
-        },
-      });
+      const credential = await transaction.orm.public.Accounts.select(
+        "id",
+        "password"
+      )
+        .where((account) =>
+          and(
+            account.providerId.eq("credential"),
+            account.userId.eq(session.user.id)
+          )
+        )
+        .first();
       if (credential?.password) {
         throw new PasswordAlreadySetError();
       }
 
       await (credential
-        ? transaction.account.update({
-            data: { password: passwordHash },
-            where: { id: credential.id },
+        ? transaction.orm.public.Accounts.where({
+            id: credential.id,
+          }).update({
+            password: passwordHash,
           })
-        : transaction.account.create({
-            data: {
-              accountId: session.user.id,
-              issuer: LOCAL_CREDENTIAL_ISSUER,
-              password: passwordHash,
-              providerId: "credential",
-              userId: session.user.id,
-            },
+        : transaction.orm.public.Accounts.create({
+            accountId: session.user.id,
+            issuer: LOCAL_CREDENTIAL_ISSUER,
+            password: passwordHash,
+            providerId: "credential",
+            userId: session.user.id,
           }));
 
       // Keep the legacy user column consistent while Better Auth authenticates
       // against the credential account row.
-      await transaction.user.update({
-        data: { passwordHash },
-        where: { id: session.user.id },
+      await transaction.orm.public.Users.where({ id: session.user.id }).update({
+        passwordHash,
       });
     });
   } catch (error) {

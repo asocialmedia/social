@@ -1,13 +1,19 @@
 import {
-  getPostDataInclude,
+  and,
+  fromPrismaDateTime,
+  getPostDataQuery,
   invalidateAuraSignals,
   invalidateFypProfile,
+  mapPostData,
   prisma,
   settleVoteTransition,
 } from "@asm/db";
-import type { PostData } from "@asm/db";
+import type { PostData, PrismaTransaction } from "@asm/db";
 
-import { runSerializableTransaction } from "@/lib/aura/db-transactions";
+import {
+  runSerializableTransaction,
+  TransactionRetryError,
+} from "@/lib/aura/db-transactions";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   flushNotificationEvents,
@@ -23,6 +29,31 @@ interface VoteInfo {
 }
 
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
+const MAX_CAS_ATTEMPTS = 8;
+
+async function updatePostAuraWithCas(
+  tx: PrismaTransaction,
+  postId: string,
+  delta: number,
+  attemptsRemaining = MAX_CAS_ATTEMPTS
+): Promise<void> {
+  const post = await tx.orm.public.Posts.select("aura")
+    .where({ id: postId })
+    .first();
+  if (!post) {
+    return;
+  }
+  const updated = await tx.orm.public.Posts.where((candidate) =>
+    and(candidate.id.eq(postId), candidate.aura.eq(post.aura))
+  ).updateAndCount({ aura: post.aura + delta });
+  if (updated === 1) {
+    return;
+  }
+  if (attemptsRemaining <= 1) {
+    throw new TransactionRetryError();
+  }
+  return updatePostAuraWithCas(tx, postId, delta, attemptsRemaining - 1);
+}
 
 export async function GET(
   _req: Request,
@@ -38,10 +69,10 @@ export async function GET(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const post = await prisma.post.findUnique({
-      include: getPostDataInclude(user.id),
-      where: { id: postId },
-    });
+    const postRow = await getPostDataQuery(prisma.orm, user.id)
+      .where({ id: postId })
+      .first();
+    const post = postRow ? mapPostData(postRow) : null;
 
     if (!post) {
       return Response.json({ error: "Post not found" }, { status: 404 });
@@ -82,29 +113,24 @@ export async function POST(
 
   let auraChanged = false;
   try {
-    // Serializable + retry: a concurrent vote must re-read the committed
-    // state instead of double-applying the aura delta (READ COMMITTED lets
-    // both writers observe the same pre-race value).
     const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
-      // A serializable retry re-runs this callback; start its events clean.
       resetNotificationEvents(notificationEvents);
-      const post = await tx.post.findUnique({
-        select: { id: true, userId: true },
-        where: { id: postId },
-      });
+      auraChanged = false;
+      const post = await tx.orm.public.Posts.select("id", "userId")
+        .where({ id: postId })
+        .first();
       if (!post) {
         return null;
       }
 
       const [existingVote, actor] = await Promise.all([
-        tx.vote.findUnique({
-          where: { userId_postId: { postId, userId: user.id } },
-        }),
-        tx.user.findUnique({
-          select: { aura: true, createdAt: true },
-          where: { id: user.id },
-        }),
+        tx.orm.public.Votes.where((vote) =>
+          and(vote.postId.eq(postId), vote.userId.eq(user.id))
+        ).first(),
+        tx.orm.public.Users.select("aura", "createdAt")
+          .where({ id: user.id })
+          .first(),
       ]);
       if (!actor) {
         return null;
@@ -113,7 +139,10 @@ export async function POST(
       const oldValue = existingVote?.value ?? 0;
 
       const positions = await settleVoteTransition(tx, {
-        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actor: {
+          aura: actor.aura,
+          createdAt: fromPrismaDateTime(actor.createdAt),
+        },
         actorId: user.id,
         newValue: value,
         oldValue,
@@ -132,71 +161,81 @@ export async function POST(
 
       if (value === 0) {
         if (existingVote) {
-          await tx.vote.delete({
-            where: { userId_postId: { postId, userId: user.id } },
-          });
+          const removed = await tx.orm.public.Votes.where((vote) =>
+            and(
+              vote.postId.eq(postId),
+              vote.userId.eq(user.id),
+              vote.value.eq(oldValue)
+            )
+          ).deleteAndCount();
+          if (removed !== 1) {
+            throw new TransactionRetryError();
+          }
+        }
+      } else if (existingVote) {
+        const updated = await tx.orm.public.Votes.where((vote) =>
+          and(
+            vote.postId.eq(postId),
+            vote.userId.eq(user.id),
+            vote.value.eq(oldValue)
+          )
+        ).updateAndCount({
+          awardedAura: positions.awardedAura,
+          mutingCostAura: positions.mutingCostAura,
+          value,
+        });
+        if (updated !== 1) {
+          throw new TransactionRetryError();
         }
       } else {
-        await tx.vote.upsert({
-          create: {
-            awardedAura: positions.awardedAura,
-            mutingCostAura: positions.mutingCostAura,
-            postId,
-            userId: user.id,
-            value,
-          },
-          update: {
-            awardedAura: positions.awardedAura,
-            mutingCostAura: positions.mutingCostAura,
-            value,
-          },
-          where: { userId_postId: { postId, userId: user.id } },
+        await tx.orm.public.Votes.create({
+          awardedAura: positions.awardedAura,
+          mutingCostAura: positions.mutingCostAura,
+          postId,
+          userId: user.id,
+          value,
         });
       }
 
-      // Raw score keeps +-1-per-vote semantics; only User.aura is weighted.
       const auraDelta = value - oldValue;
       if (auraDelta !== 0) {
         auraChanged = true;
-        await tx.post.update({
-          data: { aura: { increment: auraDelta } },
-          where: { id: postId },
-        });
+        await updatePostAuraWithCas(tx, postId, auraDelta);
       }
 
       // Only notify others, never yourself.
       const isSelfVote = post.userId === user.id;
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
-          const amplifyNotification = await tx.notification.create({
-            data: {
-              issuerId: user.id,
-              postId,
-              recipientId: post.userId,
-              type: "AMPLIFY",
-            },
+          const amplifyNotification = await tx.orm.public.Notifications.select(
+            "id"
+          ).create({
+            _type: "AMPLIFY",
+            issuerId: user.id,
+            postId,
+            recipientId: post.userId,
           });
           notificationEvents.created.push({
             notificationId: amplifyNotification.id,
             recipientId: post.userId,
           });
         } else if (value !== 1 && oldValue === 1) {
-          await tx.notification.deleteMany({
-            where: {
-              issuerId: user.id,
-              postId,
-              recipientId: post.userId,
-              type: "AMPLIFY",
-            },
-          });
+          await tx.orm.public.Notifications.where((notification) =>
+            and(
+              notification.issuerId.eq(user.id),
+              notification.postId.eq(postId),
+              notification.recipientId.eq(post.userId),
+              notification._type.eq("AMPLIFY")
+            )
+          ).delete();
           notificationEvents.deleted.push(post.userId);
         }
       }
 
-      return await tx.post.findUnique({
-        include: getPostDataInclude(user.id),
-        where: { id: postId },
-      });
+      const resultRow = await getPostDataQuery(tx.orm, user.id)
+        .where({ id: postId })
+        .first();
+      return resultRow ? mapPostData(resultRow) : null;
     });
 
     // Committed: now the worker can see the rows it is told about.
@@ -255,24 +294,22 @@ export async function DELETE(
   try {
     const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
-      // A serializable retry re-runs this callback; start its events clean.
       resetNotificationEvents(notificationEvents);
-      const post = await tx.post.findUnique({
-        select: { id: true, userId: true },
-        where: { id: postId },
-      });
+      auraChanged = false;
+      const post = await tx.orm.public.Posts.select("id", "userId")
+        .where({ id: postId })
+        .first();
       if (!post) {
         return null;
       }
 
       const [existingVote, actor] = await Promise.all([
-        tx.vote.findUnique({
-          where: { userId_postId: { postId, userId: user.id } },
-        }),
-        tx.user.findUnique({
-          select: { aura: true, createdAt: true },
-          where: { id: user.id },
-        }),
+        tx.orm.public.Votes.where((vote) =>
+          and(vote.postId.eq(postId), vote.userId.eq(user.id))
+        ).first(),
+        tx.orm.public.Users.select("aura", "createdAt")
+          .where({ id: user.id })
+          .first(),
       ]);
       if (!actor) {
         return null;
@@ -281,7 +318,10 @@ export async function DELETE(
       const oldValue = existingVote?.value ?? 0;
 
       await settleVoteTransition(tx, {
-        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actor: {
+          aura: actor.aura,
+          createdAt: fromPrismaDateTime(actor.createdAt),
+        },
         actorId: user.id,
         newValue: 0,
         oldValue,
@@ -299,38 +339,42 @@ export async function DELETE(
       });
 
       if (existingVote) {
-        await tx.vote.delete({
-          where: { userId_postId: { postId, userId: user.id } },
-        });
+        const removed = await tx.orm.public.Votes.where((vote) =>
+          and(
+            vote.postId.eq(postId),
+            vote.userId.eq(user.id),
+            vote.value.eq(oldValue)
+          )
+        ).deleteAndCount();
+        if (removed !== 1) {
+          throw new TransactionRetryError();
+        }
       }
 
       const auraDelta = 0 - oldValue;
       if (auraDelta !== 0) {
         auraChanged = true;
-        await tx.post.update({
-          data: { aura: { increment: auraDelta } },
-          where: { id: postId },
-        });
+        await updatePostAuraWithCas(tx, postId, auraDelta);
       }
 
       // Only notify others, never yourself.
       const isSelfVote = post.userId === user.id;
       if (oldValue === 1 && !isSelfVote) {
-        await tx.notification.deleteMany({
-          where: {
-            issuerId: user.id,
-            postId,
-            recipientId: post.userId,
-            type: "AMPLIFY",
-          },
-        });
+        await tx.orm.public.Notifications.where((notification) =>
+          and(
+            notification.issuerId.eq(user.id),
+            notification.postId.eq(postId),
+            notification.recipientId.eq(post.userId),
+            notification._type.eq("AMPLIFY")
+          )
+        ).delete();
         notificationEvents.deleted.push(post.userId);
       }
 
-      return await tx.post.findUnique({
-        include: getPostDataInclude(user.id),
-        where: { id: postId },
-      });
+      const resultRow = await getPostDataQuery(tx.orm, user.id)
+        .where({ id: postId })
+        .first();
+      return resultRow ? mapPostData(resultRow) : null;
     });
 
     // Committed: now the worker can see the rows it is told about.

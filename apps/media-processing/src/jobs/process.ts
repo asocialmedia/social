@@ -48,15 +48,14 @@ export function processMedia(jobData: {
     "job.media-process",
     async () => {
       const limits = resolveWorkerMediaLimits();
-      const media = await prisma.media.findUnique({
-        select: {
-          id: true,
-          publishedKey: true,
-          status: true,
-          type: true,
-        },
-        where: { id: jobData.mediaId },
-      });
+      const media = await prisma.orm.public.PostMedia.select(
+        "id",
+        "publishedKey",
+        "status",
+        "_type"
+      )
+        .where({ id: jobData.mediaId })
+        .first();
 
       if (
         !media ||
@@ -82,7 +81,7 @@ export function processMedia(jobData: {
       const uploadedKeys: string[] = [];
 
       try {
-        switch (media.type) {
+        switch (media._type) {
           case "AUDIO": {
             await processMediaAudio({
               limits,

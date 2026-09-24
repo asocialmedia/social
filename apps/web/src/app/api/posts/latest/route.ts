@@ -1,10 +1,12 @@
 import {
-  getPostDataInclude,
+  and,
+  getPostDataQuery,
   getSubscribedCommunityIds,
   hydrateViewCounts,
+  mapPostData,
   prisma,
 } from "@asm/db";
-import type { PostsPage, Prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -33,28 +35,28 @@ export async function GET(request: Request) {
   const subscribedCommunityIds = userId
     ? await getSubscribedCommunityIds(userId)
     : [];
-  const where: Prisma.PostWhereInput = {
-    isGust: false,
-    ...(excludeModerated ? { moderated: false } : {}),
-  };
-  if (subscribedCommunityIds.length > 0) {
-    where.OR = [
-      { communityId: null },
-      { communityId: { in: subscribedCommunityIds } },
-    ];
-  } else {
-    // No subscriptions (a guest, or a viewer who follows none): the plain
-    // global-posts constraint, so the common case stays one simple predicate.
-    where.communityId = null;
+  let query = getPostDataQuery(prisma.orm, userId)
+    .where((post) => {
+      const filters = [post.isGust.eq(false)];
+      if (excludeModerated) {
+        filters.push(post.moderated.eq(false));
+      }
+      if (subscribedCommunityIds.length > 0) {
+        filters.push(
+          post.communityId.isNull(),
+          post.communityId.in(subscribedCommunityIds)
+        );
+      } else {
+        filters.push(post.communityId.isNull());
+      }
+      return and(...filters);
+    })
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
+  if (cursor) {
+    query = query.cursor({ id: cursor }).offset(1);
   }
-  const posts = await prisma.post.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
-    include: getPostDataInclude(userId),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    skip: cursor ? 1 : 0,
-    take: pageSize + 1,
-    where,
-  });
+  const postRows = await query.limit(pageSize + 1).all();
+  const posts = postRows.map(mapPostData);
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {

@@ -1,5 +1,6 @@
-import type { Media } from "@asm/db";
 import { create } from "zustand";
+
+import type { Media } from "@/lib/types";
 
 export type ComposerMode = "post" | "gust";
 

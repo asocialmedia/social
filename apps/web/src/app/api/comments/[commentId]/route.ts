@@ -19,10 +19,9 @@ export async function DELETE(
   }
   const { commentId } = await ctx.params;
 
-  const existing = await prisma.comment.findUnique({
-    select: { deleted: true, userId: true },
-    where: { id: commentId },
-  });
+  const existing = await prisma.orm.public.Comments.select("deleted", "userId")
+    .where({ id: commentId })
+    .first();
   if (!existing) {
     return Response.json({ error: "Comment not found" }, { status: 404 });
   }

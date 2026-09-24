@@ -1,9 +1,9 @@
 "use client";
 
-import type { Media } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 import kyInstance from "@/lib/ky";
+import type { Media } from "@/lib/types";
 
 // The media API includes each row's owning post so the gallery can tell a
 // gust from a regular post (gust media opens /gusts, not /posts) and can show

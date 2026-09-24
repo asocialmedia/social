@@ -20,6 +20,7 @@ import {
   withTimeout,
   probeMedia,
 } from "../transcode/ffmpeg";
+import { persistMediaDerivatives } from "./derivatives";
 
 const WAVEFORM_POINTS = 200;
 
@@ -205,10 +206,9 @@ export async function processMediaAudio(input: {
         variant: "peaks",
       });
 
-      await prisma.mediaDerivative.createMany({
-        data: derivatives.map((item) => ({ ...item, mediaId: input.mediaId })),
-        skipDuplicates: true,
-      });
+      await prisma.transaction((transaction) =>
+        persistMediaDerivatives(transaction, input.mediaId, derivatives)
+      );
 
       const hasCoverArt = derivatives.some((d) => d.kind === "cover");
       const audioFprint =
@@ -223,45 +223,37 @@ export async function processMediaAudio(input: {
           .catch(() => null)) || null;
 
       if (probe.audio) {
-        await prisma.media.update({
-          data: {
-            phash: audioFprint,
-            techMetadata: {
-              audio: probe.audio,
-              container: probe.container,
-              durationSec: probe.durationSec,
-              hasCoverArt,
-              targetLufs: AUDIO_TARGET_LUFS,
-            },
+        await prisma.orm.public.PostMedia.where({ id: input.mediaId }).update({
+          phash: audioFprint,
+          techMetadata: {
+            audio: probe.audio,
+            container: probe.container,
+            durationSec: probe.durationSec,
+            hasCoverArt,
+            targetLufs: AUDIO_TARGET_LUFS,
           },
-          where: { id: input.mediaId },
         });
       } else if (hasCoverArt) {
-        await prisma.media.update({
-          data: {
-            ...(audioFprint ? { phash: audioFprint } : {}),
-            techMetadata: {
-              container: probe.container,
-              durationSec: probe.durationSec,
-              hasCoverArt,
-            } as object,
+        await prisma.orm.public.PostMedia.where({ id: input.mediaId }).update({
+          ...(audioFprint ? { phash: audioFprint } : {}),
+          techMetadata: {
+            container: probe.container,
+            durationSec: probe.durationSec,
+            hasCoverArt,
           },
-          where: { id: input.mediaId },
         });
       } else if (audioFprint) {
-        await prisma.media.update({
-          data: { phash: audioFprint },
-          where: { id: input.mediaId },
+        await prisma.orm.public.PostMedia.where({ id: input.mediaId }).update({
+          phash: audioFprint,
         });
       }
 
       // Re-share attribution for audio — same bounded phash scan as images, now with 128-bit fingerprint
       if (audioFprint) {
         try {
-          const mediaOwner = await prisma.media.findUnique({
-            select: { userId: true },
-            where: { id: input.mediaId },
-          });
+          const mediaOwner = await prisma.orm.public.PostMedia.select("userId")
+            .where({ id: input.mediaId })
+            .first();
           const { attributeReshare } = await import("../watermark/reshare");
           await attributeReshare(
             input.mediaId,

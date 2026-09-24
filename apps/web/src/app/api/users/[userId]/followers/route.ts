@@ -1,9 +1,11 @@
 import { debugLog } from "@asm/config/debug";
 import {
+  and,
   applyFlatAward,
   applyWeightedAward,
   FOLLOW_GAINED_AURA,
   FOLLOW_GIVEN_AURA,
+  fromPrismaDateTime,
   followerInfoCache,
   invalidateAuraSignals,
   invalidateFypProfile,
@@ -47,25 +49,23 @@ export async function POST(
     }
 
     const notificationEvents = newNotificationEvents();
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.transaction(async (tx) => {
       // Only reward aura when the follow is actually created, so repeated
       // follow calls (double-clicks, retries) cannot farm aura.
-      const existingFollow = await tx.follow.findUnique({
-        where: {
-          followerId_followingId: {
-            followerId: loggedInUser.id,
-            followingId: userId,
-          },
-        },
-      });
+      const existingFollow = await tx.orm.public.Follows.where((follow) =>
+        and(
+          follow.followerId.eq(loggedInUser.id),
+          follow.followingId.eq(userId)
+        )
+      ).first();
 
       if (!existingFollow) {
-        const followNotification = await tx.notification.create({
-          data: {
-            issuerId: loggedInUser.id,
-            recipientId: userId,
-            type: "FOLLOW",
-          },
+        const followNotification = await tx.orm.public.Notifications.select(
+          "id"
+        ).create({
+          _type: "FOLLOW",
+          issuerId: loggedInUser.id,
+          recipientId: userId,
         });
 
         notificationEvents.created.push({
@@ -77,13 +77,15 @@ export async function POST(
         // veteran's follow means more than a throwaway's, and follow rings
         // taper per pair like every engagement class.
         let gainedAmount = 0;
-        const follower = await tx.user.findUnique({
-          select: { aura: true, createdAt: true },
-          where: { id: loggedInUser.id },
-        });
+        const follower = await tx.orm.public.Users.select("aura", "createdAt")
+          .where({ id: loggedInUser.id })
+          .first();
         if (follower) {
           const awarded = await applyWeightedAward(tx, {
-            actor: { aura: follower.aura, createdAt: follower.createdAt },
+            actor: {
+              aura: follower.aura,
+              createdAt: fromPrismaDateTime(follower.createdAt),
+            },
             actorId: loggedInUser.id,
             baseAmount: FOLLOW_GAINED_AURA,
             now: new Date(),
@@ -106,27 +108,28 @@ export async function POST(
           type: "FOLLOW_GIVEN",
         });
 
-        await tx.follow.create({
-          data: {
-            followerId: loggedInUser.id,
-            followingId: userId,
-            gainedAura: gainedAmount,
-            givenAura: givenAmount,
-          },
+        await tx.orm.public.Follows.create({
+          followerId: loggedInUser.id,
+          followingId: userId,
+          gainedAura: gainedAmount,
+          givenAura: givenAmount,
         });
       }
 
-      const userData = await tx.user.findUnique({
-        select: {
-          _count: { select: { followers: true } },
-          displayName: true,
-          id: true,
-          username: true,
-        },
-        where: { id: userId },
-      });
+      const [userData, followerCount] = await Promise.all([
+        tx.orm.public.Users.select("displayName", "id", "username")
+          .where({ id: userId })
+          .first(),
+        tx.orm.public.Follows.where((follow) =>
+          follow.followingId.eq(userId)
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
+      ]);
 
-      return { userData };
+      return {
+        userData: userData
+          ? { ...userData, _count: { followers: followerCount.count } }
+          : null,
+      };
     });
 
     // Committed: now the worker can see the rows it is told about.
@@ -186,24 +189,20 @@ export async function GET(
       return Response.json(cachedData);
     }
 
-    const [user, isFollowing] = await Promise.all([
-      prisma.user.findUnique({
-        select: {
-          _count: {
-            select: { followers: true },
-          },
-        },
-        where: { id: userId },
-      }),
+    const [user, followerCount, isFollowing] = await Promise.all([
+      prisma.orm.public.Users.select("id").where({ id: userId }).first(),
+      prisma.orm.public.Follows.where((follow) =>
+        follow.followingId.eq(userId)
+      ).aggregate((aggregate) => ({ count: aggregate.count() })),
       loggedInUser
-        ? prisma.follow.findUnique({
-            where: {
-              followerId_followingId: {
-                followerId: loggedInUser.id,
-                followingId: userId,
-              },
-            },
-          })
+        ? prisma.orm.public.Follows.select("followerId")
+            .where((follow) =>
+              and(
+                follow.followerId.eq(loggedInUser.id),
+                follow.followingId.eq(userId)
+              )
+            )
+            .first()
         : Promise.resolve(null),
     ]);
 
@@ -212,7 +211,7 @@ export async function GET(
     }
 
     const data: FollowerInfo = {
-      followers: user._count.followers,
+      followers: followerCount.count,
       isFollowedByUser: Boolean(loggedInUser && isFollowing),
     };
 
@@ -249,36 +248,32 @@ export async function DELETE(
     }
 
     const notificationEvents = newNotificationEvents();
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.transaction(async (tx) => {
       // Read the stored open positions before deleting: unfollowing reverses
       // exactly what this follow awarded. Legacy follows carry zeros and
       // reverse nothing - conservative under-refund by design.
-      const existingFollow = await tx.follow.findUnique({
-        where: {
-          followerId_followingId: {
-            followerId: loggedInUser.id,
-            followingId: userId,
-          },
-        },
-      });
+      const existingFollow = await tx.orm.public.Follows.where((follow) =>
+        and(
+          follow.followerId.eq(loggedInUser.id),
+          follow.followingId.eq(userId)
+        )
+      ).first();
 
       if (existingFollow) {
-        await tx.follow.delete({
-          where: {
-            followerId_followingId: {
-              followerId: loggedInUser.id,
-              followingId: userId,
-            },
-          },
-        });
+        await tx.orm.public.Follows.where((follow) =>
+          and(
+            follow.followerId.eq(loggedInUser.id),
+            follow.followingId.eq(userId)
+          )
+        ).delete();
 
-        await tx.notification.deleteMany({
-          where: {
-            issuerId: loggedInUser.id,
-            recipientId: userId,
-            type: "FOLLOW",
-          },
-        });
+        await tx.orm.public.Notifications.where((notification) =>
+          and(
+            notification.issuerId.eq(loggedInUser.id),
+            notification.recipientId.eq(userId),
+            notification._type.eq("FOLLOW")
+          )
+        ).delete();
 
         notificationEvents.deleted.push(userId);
 
@@ -303,17 +298,18 @@ export async function DELETE(
         }
       }
 
-      const userData = await tx.user.findUnique({
-        select: {
-          _count: { select: { followers: true } },
-          displayName: true,
-          id: true,
-          username: true,
-        },
-        where: { id: userId },
-      });
+      const [userData, followerCount] = await Promise.all([
+        tx.orm.public.Users.select("displayName", "id", "username")
+          .where({ id: userId })
+          .first(),
+        tx.orm.public.Follows.where((follow) =>
+          follow.followingId.eq(userId)
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
+      ]);
 
-      return userData;
+      return userData
+        ? { ...userData, _count: { followers: followerCount.count } }
+        : null;
     });
 
     // Committed: now the worker can see the rows it is told about.

@@ -22,21 +22,16 @@ export async function generateMetadata(
   const gustId = searchParams.id;
 
   if (gustId) {
-    const post = await prisma.post.findUnique({
-      include: {
-        attachments: true,
-        tags: { select: { name: true } },
-        user: {
-          select: {
-            avatarUrl: true,
-            displayName: true,
-            id: true,
-            username: true,
-          },
-        },
-      },
-      where: { id: gustId },
-    });
+    const post = await prisma.orm.public.Posts.select("aura", "content", "id")
+      .include("postMedias", (media) => media.select("id", "_type"))
+      .include("postToTags", (postTags) =>
+        postTags.include("tag", (tag) => tag.select("name"))
+      )
+      .include("user", (user) =>
+        user.select("avatarUrl", "displayName", "id", "username")
+      )
+      .where({ id: gustId })
+      .first();
 
     if (post) {
       const authorUsername = post.user?.username || "unknown";
@@ -51,8 +46,13 @@ export async function generateMetadata(
         : `Watch ${authorName}'s gust video clip on asocialmedia.`;
       const canonical = `/gusts?id=${post.id}`;
       const url = absoluteUrl(canonical);
+      const tags = post.postToTags.flatMap((postTag) =>
+        postTag.tag ? [postTag.tag] : []
+      );
 
-      const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+      const videoMedia = post.postMedias.find(
+        (media) => media._type === "VIDEO"
+      );
       // ?thumb=1 always resolves server-side: poster derivative for
       // pipeline videos, legacy thumbnail frame otherwise.
       const videoThumb = videoMedia
@@ -70,7 +70,7 @@ export async function generateMetadata(
           "reels",
           authorName,
           authorUsername,
-          ...post.tags.map((t) => t.name),
+          ...tags.map((tag) => tag.name),
         ],
         openGraph: {
           authors: [absoluteUrl(`/users/${authorUsername}`)],
@@ -85,7 +85,7 @@ export async function generateMetadata(
           ],
           locale: siteConfig.locale,
           siteName: siteConfig.name,
-          tags: post.tags.map((t) => t.name),
+          tags: tags.map((tag) => tag.name),
           title,
           type: "article",
           url,

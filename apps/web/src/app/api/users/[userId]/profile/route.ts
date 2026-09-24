@@ -1,6 +1,6 @@
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
-import { getUserDataSelect, prisma } from "@asm/db";
+import { prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -64,11 +64,7 @@ export async function PATCH(
     );
   }
 
-  await prisma.user.update({
-    data,
-    select: getUserDataSelect(user.id),
-    where: { id: user.id },
-  });
+  await prisma.orm.public.Users.where({ id: user.id }).update(data);
 
   return Response.json({ success: true });
 }

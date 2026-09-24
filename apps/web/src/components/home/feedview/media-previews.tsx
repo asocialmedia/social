@@ -2,7 +2,7 @@
 // Compiler would otherwise try to memoize across parent renders
 // oxlint-disable react/exhaustive-effect-dependencies -- cached image checks use media.id intentionally
 
-import type { Media, PostData } from "@asm/db";
+import type { PostData } from "@asm/db";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
   ChevronDown,
@@ -30,6 +30,7 @@ import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { useVideoMuteStore } from "@/lib/stores/video-mute-store";
+import type { Media } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,

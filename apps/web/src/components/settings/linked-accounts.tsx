@@ -1,5 +1,4 @@
 import { clientLog } from "@asm/config/debug";
-import type { PrivateUserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -18,6 +17,7 @@ import {
   SettingsCard,
   SettingsStatusChip,
 } from "@/components/settings/settings-section-card";
+import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 

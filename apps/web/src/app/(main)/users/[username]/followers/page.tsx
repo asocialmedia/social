@@ -1,6 +1,12 @@
-import { getUserDataSelect, prisma, resolveUsername } from "@asm/db";
+import {
+  getUserDataQuery,
+  mapUserData,
+  prisma,
+  resolveUsername,
+} from "@asm/db";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
@@ -26,10 +32,10 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
     notFound();
   }
 
-  const user = await prisma.user.findUnique({
-    select: getUserDataSelect(loggedInUserId),
-    where: { id: resolvedUsername.id },
-  });
+  const userRow = await getUserDataQuery(prisma.orm, loggedInUserId)
+    .where({ id: resolvedUsername.id })
+    .first();
+  const user = userRow ? mapUserData(userRow) : null;
 
   if (!user) {
     notFound();
@@ -47,6 +53,7 @@ export default function Page(props: PageProps) {
 }
 
 async function FollowersContent({ params }: PageProps) {
+  await connection();
   const { username } = await params;
   const session = await getSessionFromApi();
 

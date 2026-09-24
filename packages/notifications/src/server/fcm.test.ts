@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { NotificationRecord } from "../shared/types";
 import {
   buildFcmMessage,
+  FCM_OAUTH_ENDPOINT,
   getFcmAccessToken,
   isFcmToken,
   parseServiceAccount,
@@ -229,7 +230,7 @@ describe("sendFcmPush", () => {
 
   test("collects UNREGISTERED tokens for pruning on a 404", async () => {
     const fetchImpl = ((input: RequestInfo | URL) => {
-      if (String(input).includes("oauth2.googleapis.com")) {
+      if (String(input) === FCM_OAUTH_ENDPOINT) {
         return Promise.resolve(
           Response.json({ access_token: "ya29.test", expires_in: 3600 })
         );
@@ -258,7 +259,7 @@ describe("sendFcmPush", () => {
 
   test("counts a non-unregistered send error as failed", async () => {
     const fetchImpl = ((input: RequestInfo | URL) => {
-      if (String(input).includes("oauth2.googleapis.com")) {
+      if (String(input) === FCM_OAUTH_ENDPOINT) {
         return Promise.resolve(
           Response.json({ access_token: "ya29.test", expires_in: 3600 })
         );
@@ -280,7 +281,7 @@ describe("sendFcmPush", () => {
     // would let one payload bug wipe every user's registration in a single
     // fan-out, so INVALID_ARGUMENT must count as a plain failure instead.
     const fetchImpl = ((input: RequestInfo | URL) => {
-      if (String(input).includes("oauth2.googleapis.com")) {
+      if (String(input) === FCM_OAUTH_ENDPOINT) {
         return Promise.resolve(
           Response.json({ access_token: "ya29.test", expires_in: 3600 })
         );
@@ -391,7 +392,7 @@ describe("FCM send logging", () => {
   test("logs a send failure with status and reason but never the token", async () => {
     const { lines, logger } = recordingLogger();
     const fetchImpl = ((input: RequestInfo | URL) => {
-      if (String(input).includes("oauth2.googleapis.com")) {
+      if (String(input) === FCM_OAUTH_ENDPOINT) {
         return Promise.resolve(
           Response.json({ access_token: "ya29.test", expires_in: 3600 })
         );
@@ -439,7 +440,7 @@ describe("FCM send logging", () => {
   test("does not log when every send succeeds", async () => {
     const { lines, logger } = recordingLogger();
     const fetchImpl = ((input: RequestInfo | URL) => {
-      if (String(input).includes("oauth2.googleapis.com")) {
+      if (String(input) === FCM_OAUTH_ENDPOINT) {
         return Promise.resolve(
           Response.json({ access_token: "ya29.test", expires_in: 3600 })
         );

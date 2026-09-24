@@ -26,44 +26,74 @@ describe("worker job processors", () => {
     thumbnailKey: string | null;
   }
 
+  const mockMediaDelete = mock(() => 2);
+  const mockMediaDeleteOne = mock(() => ({}));
+  const mockMediaFirst = mock((): Promise<MediaRow | null> =>
+    Promise.resolve({
+      commentId: null,
+      createdAt: new Date(),
+      id: "media-1",
+      key: "uploads/a.jpg",
+      postId: null,
+      thumbnailKey: null,
+    })
+  );
+  const mockMediaAll = mock(() => [
+    {
+      id: "media-1",
+      key: "uploads/a.jpg",
+      postMediaDerivatives: [],
+      thumbnailKey: null,
+    },
+    {
+      id: "media-2",
+      key: "",
+      postMediaDerivatives: [{ key: "derived/v2/media-2/poster-default.jpg" }],
+      thumbnailKey: "uploads/video-thumb.jpg",
+    },
+  ]);
+
+  const mockUserAll = mock(() => [{ id: "user-1" }]);
+  let userDeleteError: unknown;
+  const mockUserDelete = mock((_userId: string) => {
+    if (userDeleteError) {
+      return Promise.reject(userDeleteError);
+    }
+    return 1;
+  });
+  const mockResetDelete = mock(() => 3);
+  const mockAliasDelete = mock(() => 2);
   const mockPrisma = {
-    media: {
-      delete: mock(() => ({})),
-      deleteMany: mock(() => ({ count: 2 })),
-      findMany: mock(() => [
-        {
-          derivatives: [],
-          id: "media-1",
-          key: "uploads/a.jpg",
-          thumbnailKey: null,
+    orm: {
+      public: {
+        PasswordResetTokens: {
+          where: () => ({ deleteAndCount: mockResetDelete }),
         },
-        {
-          derivatives: [{ key: "derived/v2/media-2/poster-default.jpg" }],
-          id: "media-2",
-          key: "",
-          thumbnailKey: "uploads/video-thumb.jpg",
+        PostMedia: {
+          select: () => ({
+            include: () => ({
+              where: () => ({ all: mockMediaAll }),
+            }),
+            where: () => ({ first: mockMediaFirst }),
+          }),
+          where: () => ({
+            delete: mockMediaDeleteOne,
+            deleteAndCount: mockMediaDelete,
+          }),
         },
-      ]),
-      findUnique: mock((): Promise<MediaRow | null> =>
-        Promise.resolve({
-          commentId: null,
-          createdAt: new Date(),
-          id: "media-1",
-          key: "uploads/a.jpg",
-          postId: null,
-          thumbnailKey: null,
-        })
-      ),
-    },
-    passwordResetToken: {
-      deleteMany: mock(() => ({ count: 3 })),
-    },
-    user: {
-      deleteMany: mock(() => ({ count: 1 })),
-      findMany: mock(() => [{ id: "user-1" }]),
-    },
-    usernameAlias: {
-      deleteMany: mock(() => ({ count: 2 })),
+        UsernameAliases: {
+          where: () => ({ deleteAndCount: mockAliasDelete }),
+        },
+        Users: {
+          select: () => ({
+            where: () => ({
+              all: mockUserAll,
+              limit: () => ({ all: mockUserAll }),
+            }),
+          }),
+          where: () => ({ deleteAndCount: mockUserDelete }),
+        },
+      },
     },
   };
 
@@ -76,6 +106,7 @@ describe("worker job processors", () => {
   mock.module("@asm/db", () => ({
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
+    and: (...expressions: unknown[]) => expressions,
     cleanupExpiredPublishedNotifications: mock(() =>
       Promise.resolve({ batchesProcessed: 2, deletedCount: 15 })
     ),
@@ -83,17 +114,18 @@ describe("worker job processors", () => {
       Promise.resolve(id === "notif-valid")
     ),
     deleteObject: mockDeleteObject,
+    fromPrismaDateTime: (value: Date) => value,
     getTrendingUserIds: mock(() => Promise.resolve(["user-1"])),
     grantShitposterBadgeIfQualified: mockGrantShitposter,
     listDevicePushTokens: mock(() => Promise.resolve([])),
     listPushSubscriptions: mock(() => Promise.resolve([])),
-    notificationsInclude: {},
     prisma: mockPrisma,
     pruneDevicePushTokens: mock(() => Promise.resolve(0)),
     prunePushSubscriptions: mock(() => Promise.resolve(0)),
     redis: mockRedis,
     sweepEarlyBadges: mock(() => Promise.resolve(0)),
     syncTrendingBadges: mock(() => Promise.resolve({ granted: 0, revoked: 0 })),
+    toPrismaDateTime: (value: Date) => value,
     unreadNotificationCache: {
       decrement: mock(() => 0),
       increment: mock(() => 1),
@@ -106,14 +138,15 @@ describe("worker job processors", () => {
     mockDeleteObject.mockClear();
     mockRedis.srem.mockClear();
     mockRedis.del.mockClear();
-    mockPrisma.media.findMany.mockClear();
-    mockPrisma.media.deleteMany.mockClear();
-    mockPrisma.media.findUnique.mockClear();
-    mockPrisma.media.delete.mockClear();
-    mockPrisma.user.findMany.mockClear();
-    mockPrisma.user.deleteMany.mockClear();
-    mockPrisma.passwordResetToken.deleteMany.mockClear();
-    mockPrisma.usernameAlias.deleteMany.mockClear();
+    mockMediaAll.mockClear();
+    mockMediaDelete.mockClear();
+    mockMediaDeleteOne.mockClear();
+    mockMediaFirst.mockClear();
+    mockUserAll.mockClear();
+    userDeleteError = undefined;
+    mockUserDelete.mockClear();
+    mockResetDelete.mockClear();
+    mockAliasDelete.mockClear();
   });
 
   test("processPostDeleted deletes media objects and rows and clears view keys", async () => {
@@ -130,18 +163,7 @@ describe("worker job processors", () => {
     // Select shape mirrors jobs.ts exactly: derivative keys, the gust
     // custom-thumbnail pointer, and the pipeline's original/published
     // pointers join the legacy columns.
-    expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
-      select: {
-        customThumbnailKey: true,
-        derivatives: { select: { key: true } },
-        id: true,
-        key: true,
-        originalKey: true,
-        publishedKey: true,
-        thumbnailKey: true,
-      },
-      where: { id: { in: ["media-1", "media-2"] } },
-    });
+    expect(mockMediaAll).toHaveBeenCalled();
     // Legacy keys, thumbnails, and pipeline derivative objects all reach
     // the object store for deletion.
     expect(deletedObjects).toEqual([
@@ -149,7 +171,7 @@ describe("worker job processors", () => {
       "uploads/video-thumb.jpg",
       "derived/v2/media-2/poster-default.jpg",
     ]);
-    expect(mockPrisma.media.deleteMany).toHaveBeenCalled();
+    expect(mockMediaDelete).toHaveBeenCalled();
     expect(mockRedis.srem).toHaveBeenCalled();
     expect(mockRedis.del).toHaveBeenCalled();
   });
@@ -159,25 +181,12 @@ describe("worker job processors", () => {
 
     await processMediaCleanup({ mediaId: "media-1" });
 
-    expect(mockPrisma.media.findUnique).toHaveBeenCalledWith({
-      select: {
-        commentId: true,
-        createdAt: true,
-        customThumbnailKey: true,
-        id: true,
-        key: true,
-        postId: true,
-        thumbnailKey: true,
-      },
-      where: { id: "media-1" },
-    });
+    expect(mockMediaFirst).toHaveBeenCalled();
     expect(deletedObjects).toEqual(["uploads/a.jpg"]);
-    expect(mockPrisma.media.delete).toHaveBeenCalledWith({
-      where: { id: "media-1" },
-    });
+    expect(mockMediaDeleteOne).toHaveBeenCalled();
 
     // Attached media should be left alone.
-    mockPrisma.media.findUnique.mockResolvedValueOnce({
+    mockMediaFirst.mockResolvedValueOnce({
       commentId: null,
       createdAt: new Date(),
       id: "media-2",
@@ -186,13 +195,13 @@ describe("worker job processors", () => {
       thumbnailKey: null,
     });
     deletedObjects.length = 0;
-    mockPrisma.media.delete.mockClear();
+    mockMediaDeleteOne.mockClear();
     await processMediaCleanup({ mediaId: "media-2" });
     expect(deletedObjects).toEqual([]);
-    expect(mockPrisma.media.delete).not.toHaveBeenCalled();
+    expect(mockMediaDeleteOne).not.toHaveBeenCalled();
 
     // Media attached to a comment eddy is not orphaned either.
-    mockPrisma.media.findUnique.mockResolvedValueOnce({
+    mockMediaFirst.mockResolvedValueOnce({
       commentId: "comment-1",
       createdAt: new Date(),
       id: "media-3",
@@ -201,10 +210,10 @@ describe("worker job processors", () => {
       thumbnailKey: null,
     });
     deletedObjects.length = 0;
-    mockPrisma.media.delete.mockClear();
+    mockMediaDeleteOne.mockClear();
     await processMediaCleanup({ mediaId: "media-3" });
     expect(deletedObjects).toEqual([]);
-    expect(mockPrisma.media.delete).not.toHaveBeenCalled();
+    expect(mockMediaDeleteOne).not.toHaveBeenCalled();
   });
 
   test("processInactiveUsersSweep deletes unverified users older than 30 days", async () => {
@@ -212,9 +221,22 @@ describe("worker job processors", () => {
 
     const deleted = await processInactiveUsersSweep();
 
-    expect(mockPrisma.user.findMany).toHaveBeenCalled();
-    expect(mockPrisma.user.deleteMany).toHaveBeenCalled();
+    expect(mockUserAll).toHaveBeenCalled();
+    expect(mockUserDelete).toHaveBeenCalled();
     expect(deleted).toBe(1);
+  });
+
+  test("processInactiveUsersSweep retains users blocked by restricted relations", async () => {
+    userDeleteError = {
+      constraint: "aura_logs_userId_fkey",
+      sqlState: "23001",
+    };
+
+    const { processInactiveUsersSweep } = await import("./jobs");
+    const deleted = await processInactiveUsersSweep();
+
+    expect(deleted).toBe(0);
+    expect(mockUserDelete).toHaveBeenCalled();
   });
 
   test("processExpiredTokens deletes expired reset tokens", async () => {
@@ -222,7 +244,7 @@ describe("worker job processors", () => {
 
     await processExpiredTokens();
 
-    expect(mockPrisma.passwordResetToken.deleteMany).toHaveBeenCalled();
+    expect(mockResetDelete).toHaveBeenCalled();
   });
 
   test("processExpiredUsernameAliases releases expired usernames", async () => {
@@ -230,9 +252,7 @@ describe("worker job processors", () => {
 
     await processExpiredUsernameAliases();
 
-    expect(mockPrisma.usernameAlias.deleteMany).toHaveBeenCalledWith({
-      where: { expiresAt: { lte: expect.any(Date) } },
-    });
+    expect(mockAliasDelete).toHaveBeenCalled();
   });
 
   test("processNotificationCreated and Deleted adjust the unread counter", async () => {

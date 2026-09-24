@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -40,10 +40,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const media = await prisma.media.findFirst({
-    select: { originalKey: true, size: true, status: true },
-    where: { id: parsed.data.mediaId, userId: user.id },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "originalKey",
+    "size",
+    "status"
+  )
+    .where((candidate) =>
+      and(candidate.id.eq(parsed.data.mediaId), candidate.userId.eq(user.id))
+    )
+    .first();
   if (!media || !media.originalKey) {
     return Response.json({ error: "Media not found" }, { status: 404 });
   }

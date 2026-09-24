@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 interface PostRow {
   content: string;
   createdAt: Date;
@@ -26,40 +28,110 @@ let lastLegacyArgs: {
   where?: unknown;
 } | null = null;
 let pgPosts: PostRow[] = [];
-
-const mockPrisma = {
-  post: {
-    findMany: mock(
-      (args?: {
-        cursor?: { id: string };
-        include?: unknown;
-        orderBy?: unknown;
-        skip?: number;
-        take?: number;
-        where?: unknown;
-      }) => {
-        lastLegacyArgs = args ?? null;
-        return [...pgPosts].slice(0, args?.take ?? 21);
-      }
-    ),
-  },
+let mockArchiveAnchor: { createdAt: Date } | null = {
+  createdAt: new Date(),
 };
+
+const mockFindPosts = mock(
+  (args?: {
+    cursor?: { id: string };
+    skip?: number;
+    take?: number;
+    where?: unknown;
+  }) => {
+    lastLegacyArgs = args ?? null;
+    return [...pgPosts].slice(0, args?.take ?? 21);
+  }
+);
+
+const mockArchiveAnchorFirst = mock(() => mockArchiveAnchor);
 
 const mockHydrate = mock((posts: unknown[]) => posts);
 const mockGetPersonalizedFeedPage = mock(
   (_args: unknown) => mockPersonalizedPage
 );
 
+interface PostQuery {
+  all: () => ReturnType<typeof mockFindPosts>;
+  cursor: (cursor: { createdAt: Date; id: string }) => PostQuery;
+  limit: (limit: number) => PostQuery;
+  offset: (offset: number) => PostQuery;
+  orderBy: (order: unknown) => PostQuery;
+  where: (
+    predicate: (post: {
+      isGust: { eq: (value: boolean) => unknown };
+      moderated: { eq: (value: boolean) => unknown };
+      userId: { neq: (id: string) => unknown };
+    }) => unknown
+  ) => PostQuery;
+}
+
+function createPostQuery(): PostQuery {
+  const state = {
+    cursorId: undefined as string | undefined,
+    limit: 21,
+    offset: 0,
+    where: {} as Record<string, unknown>,
+  };
+  const query: PostQuery = {
+    all: () =>
+      mockFindPosts({
+        cursor: state.cursorId ? { id: state.cursorId } : undefined,
+        skip: state.offset,
+        take: state.limit,
+        where: state.where,
+      }),
+    cursor: (cursor) => {
+      state.cursorId = cursor.id;
+      return query;
+    },
+    limit: (limit) => {
+      state.limit = limit;
+      return query;
+    },
+    offset: (offset) => {
+      state.offset = offset;
+      return query;
+    },
+    orderBy: () => query,
+    where: (predicate) => {
+      const where: Record<string, unknown> = {};
+      predicate({
+        isGust: { eq: (value) => (where.isGust = value) },
+        moderated: { eq: (value) => (where.moderated = value) },
+        userId: { neq: (id) => (where.userId = { not: id }) },
+      });
+      state.where = where;
+      return query;
+    },
+  };
+  return query;
+}
+
 mock.module("@asm/db", () => ({
-  communityVisibilityWhere: () => ({}),
+  ...asmDbMockBase,
+  communityVisibilityWhere: () => () => ({}),
+  getPersonalizedFeedPage: mockGetPersonalizedFeedPage,
+  getPostDataQuery: () => createPostQuery(),
+  hydrateViewCounts: mockHydrate,
+  prisma: {
+    orm: {
+      public: {
+        Posts: {
+          select: () => ({
+            where: () => ({ first: mockArchiveAnchorFirst }),
+          }),
+        },
+      },
+    },
+  },
+}));
+
+mock.module("@asm/db/recommendation/trending-snapshot", () => ({
   encodeTrendingCursor: () => "tz1.mock",
   fetchTrendingSnapshotPage: () => null,
-  getPersonalizedFeedPage: mockGetPersonalizedFeedPage,
-  getPostDataInclude: () => ({ user: true }),
-  hydrateViewCounts: mockHydrate,
   isTrendingSnapshotCursor: (raw: string | undefined | null) =>
     Boolean(raw && raw.startsWith("tz1.")),
-  prisma: mockPrisma,
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -75,9 +147,11 @@ describe("GET /api/posts/for-you", () => {
       posts: [],
     };
     pgPosts = [];
+    mockArchiveAnchor = { createdAt: new Date() };
     lastLegacyArgs = null;
     mockGetPersonalizedFeedPage.mockClear();
-    mockPrisma.post.findMany.mockClear();
+    mockFindPosts.mockClear();
+    mockArchiveAnchorFirst.mockClear();
   });
 
   test("serves personalized feed for signed-in user without cursor", async () => {
@@ -158,6 +232,21 @@ describe("GET /api/posts/for-you", () => {
     expect(body.posts[0].id).toBe("exp-1");
     expect(lastLegacyArgs?.cursor).toEqual({ id: "p-anchor" });
     expect(lastLegacyArgs?.skip).toBe(1);
+  });
+
+  test("restarts the archive when its cursor anchor is gone", async () => {
+    const { GET } = await import("./route");
+    mockArchiveAnchor = null;
+    pgPosts = [{ content: "fresh", createdAt: new Date(), id: "fresh-1" }];
+
+    const res = await GET(
+      new Request("http://localhost/api/posts/for-you?cursor=exp.missing")
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.posts[0].id).toBe("fresh-1");
+    expect(lastLegacyArgs?.cursor).toBeUndefined();
   });
 
   test("allows guests to browse chronological recency", async () => {

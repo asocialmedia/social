@@ -1,14 +1,48 @@
 import {
+  and,
   getPersonalizedFeedPage,
-  getPostDataInclude,
+  getPostDataQuery,
   hydrateViewCounts,
+  mapPostData,
   prisma,
 } from "@asm/db";
-import type { PostsPage, Prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
+
+async function queryChronologicalGusts(
+  userId: string,
+  excludeModerated: boolean,
+  cursor: string | undefined,
+  limit: number
+) {
+  let query = getPostDataQuery(prisma.orm, userId)
+    .where((post) => {
+      const filters = [
+        post.postMedias.some((media) => media._type.eq("VIDEO")),
+        post.isGust.eq(true),
+        post.rootPostId.isNull(),
+      ];
+      if (excludeModerated) {
+        filters.push(post.moderated.eq(false));
+      }
+      return and(...filters);
+    })
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
+  if (cursor) {
+    const anchor = await prisma.orm.public.Posts.select("createdAt")
+      .where({ id: cursor })
+      .first();
+    if (!anchor) {
+      return null;
+    }
+    query = query.cursor({ createdAt: anchor.createdAt, id: cursor }).offset(1);
+  }
+  const postRows = await query.limit(limit).all();
+  return postRows.map(mapPostData);
+}
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
@@ -56,32 +90,39 @@ export async function GET(request: Request) {
 
   // When initialId is requested on the first page, ensure that gust is returned at the top
   if (initialId && !cursor) {
-    const initialPost = await prisma.post.findUnique({
-      include: getPostDataInclude(userId),
-      where: {
-        attachments: { some: { type: "VIDEO" } },
-        id: initialId,
-        isGust: true,
-        rootPostId: null,
-        // When the caller opted out of moderated gusts (explore rail), the
-        // initial post is held to the same contract: a moderated gust is not
-        // prepended.
-        ...(excludeModerated ? { moderated: false } : {}),
-      },
-    });
+    const initialPostRow = await getPostDataQuery(prisma.orm, userId)
+      .where((post) => {
+        const filters = [
+          post.postMedias.some((media) => media._type.eq("VIDEO")),
+          post.id.eq(initialId),
+          post.isGust.eq(true),
+          post.rootPostId.isNull(),
+        ];
+        if (excludeModerated) {
+          filters.push(post.moderated.eq(false));
+        }
+        return and(...filters);
+      })
+      .first();
+    const initialPost = initialPostRow ? mapPostData(initialPostRow) : null;
 
-    const otherPosts = await prisma.post.findMany({
-      include: getPostDataInclude(userId),
-      orderBy: { createdAt: "desc" },
-      take: pageSize + 1,
-      where: {
-        attachments: { some: { type: "VIDEO" } },
-        id: { not: initialId },
-        isGust: true,
-        rootPostId: null,
-        ...(excludeModerated ? { moderated: false } : {}),
-      },
-    });
+    const otherPostRows = await getPostDataQuery(prisma.orm, userId)
+      .where((post) => {
+        const filters = [
+          post.postMedias.some((media) => media._type.eq("VIDEO")),
+          post.id.neq(initialId),
+          post.isGust.eq(true),
+          post.rootPostId.isNull(),
+        ];
+        if (excludeModerated) {
+          filters.push(post.moderated.eq(false));
+        }
+        return and(...filters);
+      })
+      .orderBy((post) => post.createdAt.desc())
+      .limit(pageSize + 1)
+      .all();
+    const otherPosts = otherPostRows.map(mapPostData);
 
     const combined = initialPost ? [initialPost, ...otherPosts] : otherPosts;
     const hydrated = await hydrateViewCounts(combined.slice(0, pageSize));
@@ -102,30 +143,24 @@ export async function GET(request: Request) {
     return Response.json(data, { headers: responseHeaders });
   }
 
-  const where: Prisma.PostWhereInput = excludeModerated
-    ? {
-        attachments: { some: { type: "VIDEO" } },
-        isGust: true,
-        moderated: false,
-        rootPostId: null,
-      }
-    : {
-        attachments: { some: { type: "VIDEO" } },
-        isGust: true,
-        rootPostId: null,
-      };
   const chronologicalCursor = cursor?.startsWith("exp.")
     ? cursor.slice(4) || undefined
     : cursor;
 
-  const posts = await prisma.post.findMany({
-    cursor: chronologicalCursor ? { id: chronologicalCursor } : undefined,
-    include: getPostDataInclude(userId),
-    orderBy: { createdAt: "desc" },
-    skip: chronologicalCursor ? 1 : 0,
-    take: pageSize + 1,
-    where,
-  });
+  const posts =
+    (await queryChronologicalGusts(
+      userId,
+      excludeModerated,
+      chronologicalCursor,
+      pageSize + 1
+    )) ??
+    (await queryChronologicalGusts(
+      userId,
+      excludeModerated,
+      undefined,
+      pageSize + 1
+    )) ??
+    [];
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;

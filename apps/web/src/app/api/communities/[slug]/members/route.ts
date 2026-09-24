@@ -1,11 +1,11 @@
 import {
+  and,
   canViewCommunity,
   getCommunityBySlug,
   getMembership,
   isCommunityModerator,
   prisma,
 } from "@asm/db";
-import type { Prisma } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -17,21 +17,6 @@ const logger = createLogger({ serviceName: "community-members-api" });
 // ?limit=100000 would ask Postgres for the whole roster.
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 50;
-
-// Role ordering for the roster: owner first, then moderators, then members,
-// then plain participants. The enum's own ordinal order already runs this way,
-// so an ascending sort is enough - kept explicit here so a future enum edit
-// cannot silently reorder the list.
-const ROLE_ORDER: Prisma.CommunityMemberOrderByWithRelationInput[] = [
-  { role: "asc" },
-  { createdAt: "asc" },
-];
-
-// Leaderboard ordering: highest aura first, then a stable tiebreaker.
-const AURA_ORDER: Prisma.CommunityMemberOrderByWithRelationInput[] = [
-  { user: { aura: "desc" } },
-  { createdAt: "asc" },
-];
 
 // Community members. Pending requests are only visible to the owner/moderators;
 // everyone else sees the active member list.
@@ -77,37 +62,46 @@ export async function GET(
       : false;
     const wantsPending = includePending && canModerate;
 
-    const members = await prisma.communityMember.findMany({
-      orderBy: sort === "aura" ? AURA_ORDER : ROLE_ORDER,
-      select: {
-        createdAt: true,
-        role: true,
-        status: true,
-        user: {
-          select: {
-            aura: true,
-            avatarUrl: true,
-            // Carried so a member row can paint the same banner wash the home
-            // rail's suggestion rows use, giving each person the same top-left
-            // image treatment.
-            bannerUrl: true,
-            displayName: true,
-            id: true,
-            username: true,
-          },
-        },
-      },
-      take: limit,
-      where: {
-        communityId: community.id,
-        status: wantsPending ? "PENDING" : "ACTIVE",
-        // Participants carry no badge, so the roster card filters them out at
-        // the query rather than fetching rows it will not render.
-        ...(badgedOnly && !wantsPending
-          ? { role: { in: ["OWNER", "MODERATOR", "MEMBER"] } }
-          : {}),
-      },
-    });
+    let memberQuery = prisma.orm.public.CommunityMembers.select(
+      "createdAt",
+      "role",
+      "status"
+    )
+      .include("user", (user) =>
+        user.select(
+          "aura",
+          "avatarUrl",
+          "bannerUrl",
+          "displayName",
+          "id",
+          "username"
+        )
+      )
+      .where((member) =>
+        and(
+          member.communityId.eq(community.id),
+          member.status.eq(wantsPending ? "PENDING" : "ACTIVE")
+        )
+      );
+    if (badgedOnly && !wantsPending) {
+      memberQuery = memberQuery.where((member) =>
+        member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+      );
+    }
+    const members = await memberQuery
+      .orderBy([
+        (member) => member.role.asc(),
+        (member) => member.createdAt.asc(),
+      ])
+      .limit(limit)
+      .all();
+    if (sort === "aura") {
+      members.sort(
+        (left, right) =>
+          (right.user?.aura ?? 0) - (left.user?.aura ?? 0) ||
+          left.createdAt.toString().localeCompare(right.createdAt.toString())
+      );
+    }
 
     const membership = userId
       ? await getMembership(community.id, userId)

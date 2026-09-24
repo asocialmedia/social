@@ -1,4 +1,4 @@
-import { prisma, unreadNotificationCache } from "@asm/db";
+import { and, prisma, unreadNotificationCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -21,11 +21,11 @@ export async function DELETE(
         .filter(Boolean)
     : [notificationId];
 
-  const deleted = await prisma.notification.deleteMany({
-    where: { id: { in: ids }, recipientId: user.id },
-  });
+  const deleted = await prisma.orm.public.Notifications.where((notification) =>
+    and(notification.id.in(ids), notification.recipientId.eq(user.id))
+  ).deleteAndCount();
 
-  if (deleted.count === 0) {
+  if (deleted === 0) {
     return Response.json({ error: "Notification not found" }, { status: 404 });
   }
 

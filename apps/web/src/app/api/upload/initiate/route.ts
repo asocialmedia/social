@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -78,11 +78,15 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const membership = await prisma.messageConversationMember.findUnique({
-      where: {
-        conversationId_userId: { conversationId, userId: user.id },
-      },
-    });
+    const membership =
+      await prisma.orm.public.MessageConversationMembers.select("userId")
+        .where((member) =>
+          and(
+            member.conversationId.eq(conversationId),
+            member.userId.eq(user.id)
+          )
+        )
+        .first();
     if (!membership) {
       return Response.json(
         { error: "You are not a member of this conversation" },

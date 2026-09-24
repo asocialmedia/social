@@ -1,4 +1,6 @@
-import prisma from "../prisma";
+import { and } from "@prisma/orm-postgres/orm-client";
+
+import prisma, { toPrismaDateTime } from "../prisma";
 
 export const USERNAME_ALIAS_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const USERNAME_CHANGE_LIMIT = 5;
@@ -18,8 +20,10 @@ export function getUsernameChangeWindowStart(now = new Date()): Date {
   return new Date(now.getTime() - USERNAME_CHANGE_WINDOW_MS);
 }
 
-// Returns the active owner of a handle. Current handles always win, which is
-// important immediately after an expired alias is claimed by a new account.
+function exactInsensitivePattern(value: string): string {
+  return value.replaceAll(/[\\%_]/g, "\\$&");
+}
+
 export async function resolveUsername(
   username: string,
   now = new Date()
@@ -29,22 +33,27 @@ export async function resolveUsername(
     return null;
   }
 
-  const currentUser = await prisma.user.findFirst({
-    select: { id: true, username: true },
-    where: { username: { equals: normalizedUsername, mode: "insensitive" } },
-  });
+  const currentUser = await prisma.orm.public.Users.select("id", "username")
+    .where((user) =>
+      user.username.ilike(exactInsensitivePattern(normalizedUsername))
+    )
+    .first();
   if (currentUser) {
     return { ...currentUser, isAlias: false };
   }
 
-  const alias = await prisma.usernameAlias.findFirst({
-    select: { user: { select: { id: true, username: true } } },
-    where: {
-      expiresAt: { gt: now },
-      username: { equals: normalizedUsername, mode: "insensitive" },
-    },
-  });
-  if (!alias) {
+  const alias = await prisma.orm.public.UsernameAliases.include(
+    "user",
+    (user) => user.select("id", "username")
+  )
+    .where((candidate) =>
+      and(
+        candidate.expiresAt.gt(toPrismaDateTime(now)),
+        candidate.username.ilike(exactInsensitivePattern(normalizedUsername))
+      )
+    )
+    .first();
+  if (!alias?.user) {
     return null;
   }
   return { ...alias.user, isAlias: true };

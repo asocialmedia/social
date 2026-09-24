@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, TagWithCount, UserData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import { DropdownMenuItem } from "@asm/ui/shadui/dropdown-menu";
 import {
   Eye,
@@ -43,8 +43,10 @@ import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
+import { getPostAttachments } from "@/lib/posts/post-normalize";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
+import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -71,7 +73,8 @@ export const GustCard: React.FC<GustCardProps> = ({
   shouldMountVideo = true,
 }) => {
   const { user } = useSession();
-  const videoMedia = post.attachments?.find((m) => m.type === "VIDEO");
+  const attachments = getPostAttachments(post);
+  const videoMedia = attachments.find((m) => m.type === "VIDEO");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
@@ -90,7 +93,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   // inline below the caption - the same reveal store the fleet card's
   // "Show alt" menu entry drives.
   const altRevealed = useAltRevealed(post.id);
-  const gustAltText = post.attachments?.find((a) => a.altText)?.altText;
+  const gustAltText = attachments.find((a) => a.altText)?.altText;
   const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
   const toggleGlobalCaptions = useVideoCaptionsStore(
     (state) => state.toggleCaptions
@@ -621,8 +624,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           <div>
             <AiGeneratedBadge
               media={{
-                aiGenerated:
-                  post.attachments?.some((a) => a.aiGenerated) ?? false,
+                aiGenerated: attachments.some((a) => a.aiGenerated) ?? false,
               }}
             />
           </div>
@@ -652,7 +654,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                   <FollowButton
                     className="h-7 shrink-0 rounded-full px-3 text-xs"
                     initialState={{
-                      followers: post.user._count?.followers ?? 0,
+                      followers: getUserCount(post.user, "followers"),
                       isFollowedByUser,
                     }}
                     userId={post.user.id}
@@ -694,8 +696,10 @@ export const GustCard: React.FC<GustCardProps> = ({
           {post.tags?.length || post.mentions?.length ? (
             <PostMeta
               content={post.content}
-              mentions={post.mentions.map((m) => m.user as unknown as UserData)}
-              tags={post.tags as TagWithCount[]}
+              mentions={post.mentions.map(
+                (m) => (m as unknown as { user: UserData }).user
+              )}
+              tags={post.tags}
             />
           ) : null}
 

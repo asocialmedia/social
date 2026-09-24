@@ -1,9 +1,8 @@
-import { isReservedUsername, prisma } from "@asm/db";
+import { fromPrismaDateTime, isReservedUsername, prisma } from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
-import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import {
   admin as adminPlugin,
@@ -24,6 +23,7 @@ import { env } from "../../env";
 import { validateEmailAdvanced } from "../validation/email-validator";
 import { buildPasskeyOrigins } from "./passkey-origins";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
+import { prismaAdapter } from "./prisma-adapter";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
 
@@ -198,6 +198,13 @@ function buildSocialProviderConfig(authBaseUrl: string): {
   return { socialProviders, trustedProviders };
 }
 
+async function usernameExists(candidate: string): Promise<boolean> {
+  const existing = await prisma.orm.public.Users.select("id")
+    .where((candidateUser) => candidateUser.username.ilike(candidate))
+    .first();
+  return Boolean(existing);
+}
+
 export function createAuthConfig(config: AuthConfig = {}) {
   const {
     baseURL,
@@ -228,9 +235,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
 
   // Resilient adapter that resolves legacy accounts (stored with empty/fallback
   // issuer strings) and prevents duplicate key errors on account linking.
-  const basePrismaAdapterFactory = prismaAdapter(prisma, {
-    provider: "postgresql",
-  });
+  const basePrismaAdapterFactory = prismaAdapter(prisma);
 
   const resilientPrismaAdapter = (
     adapterOptions: Parameters<typeof basePrismaAdapterFactory>[0]
@@ -282,10 +287,9 @@ export function createAuthConfig(config: AuthConfig = {}) {
             const accountId = (fallbackResult as { id?: string }).id;
             if (typeof accountId === "string" && currentIssuer) {
               try {
-                await prisma.account.update({
-                  data: { issuer: currentIssuer },
-                  where: { id: accountId },
-                });
+                await prisma.orm.public.Accounts.where({
+                  id: accountId,
+                }).update({ issuer: currentIssuer });
               } catch {
                 // Non-blocking self-healing attempt
               }
@@ -313,22 +317,17 @@ export function createAuthConfig(config: AuthConfig = {}) {
           id?: string;
         };
         if (data.providerId && data.accountId) {
-          const existing = await prisma.account.findUnique({
-            where: {
-              providerId_accountId: {
-                accountId: data.accountId,
-                providerId: data.providerId,
-              },
-            },
-          });
+          const existing = await prisma.orm.public.Accounts.where({
+            accountId: data.accountId,
+            providerId: data.providerId,
+          }).first();
           if (existing) {
             // Update existing account with latest token/issuer info instead of crashing on duplicate key
-            const updated = await prisma.account.update({
-              data: {
-                ...(data.issuer ? { issuer: data.issuer } : {}),
-                ...(data.userId ? { userId: data.userId } : {}),
-              },
-              where: { id: existing.id },
+            const updated = await prisma.orm.public.Accounts.where({
+              id: existing.id,
+            }).update({
+              ...(data.issuer ? { issuer: data.issuer } : {}),
+              ...(data.userId ? { userId: data.userId } : {}),
             });
             return updated as unknown as R;
           }
@@ -639,16 +638,14 @@ export function createAuthConfig(config: AuthConfig = {}) {
             // provider linkage onto the user so the linked-accounts UI and any
             // downstream lookups reflect the connection immediately.
             try {
-              const providerToField: Record<string, string | undefined> = {
-                google: "googleId",
-                reddit: "redditId",
-              };
-              const field = providerToField[account.providerId];
-              if (field) {
-                await prisma.user.update({
-                  data: { [field]: account.accountId },
-                  where: { id: account.userId },
-                });
+              if (account.providerId === "google") {
+                await prisma.orm.public.Users.where({
+                  id: account.userId,
+                }).update({ googleId: account.accountId });
+              } else if (account.providerId === "reddit") {
+                await prisma.orm.public.Users.where({
+                  id: account.userId,
+                }).update({ redditId: account.accountId });
               }
             } catch (error) {
               console.error(
@@ -662,24 +659,29 @@ export function createAuthConfig(config: AuthConfig = {}) {
       session: {
         create: {
           before: async (session, context) => {
-            const user = await prisma.user.findUnique({
-              select: { banExpires: true, banReason: true, banned: true },
-              where: { id: session.userId },
-            });
+            const user = await prisma.orm.public.Users.select(
+              "banExpires",
+              "banReason",
+              "banned"
+            )
+              .where({ id: session.userId })
+              .first();
 
             if (user?.banned) {
               const now = new Date();
-              const isExpired = user.banExpires && user.banExpires <= now;
+              const banExpires = user.banExpires
+                ? fromPrismaDateTime(user.banExpires)
+                : null;
+              const isExpired = banExpires && banExpires <= now;
 
               if (isExpired) {
-                await prisma.user.update({
-                  data: { banExpires: null, banReason: null, banned: false },
-                  where: { id: session.userId },
-                });
+                await prisma.orm.public.Users.where({
+                  id: session.userId,
+                }).update({ banExpires: null, banReason: null, banned: false });
               } else {
                 throw new Error(
                   JSON.stringify({
-                    banExpires: user.banExpires?.toISOString(),
+                    banExpires: banExpires?.toISOString(),
                     banReason: user.banReason || "Account suspended",
                     code: "USER_BANNED",
                   })
@@ -738,12 +740,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
                   continue;
                 }
                 // oxlint-disable-next-line no-await-in-loop -- uniqueness is probed one candidate at a time
-                const existing = await prisma.user.findFirst({
-                  select: { id: true },
-                  where: {
-                    username: { equals: candidate, mode: "insensitive" },
-                  },
-                });
+                const existing = await usernameExists(candidate);
                 if (!existing) {
                   break;
                 }

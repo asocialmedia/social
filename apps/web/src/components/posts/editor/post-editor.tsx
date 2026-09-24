@@ -1,6 +1,6 @@
 "use client";
 
-import type { Media, PostData, UserData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import { MAX_POST_ATTACHMENTS } from "@asm/media";
 import {
   DropdownMenu,
@@ -58,14 +58,15 @@ import { communityAccentStyle } from "@/lib/communities/accent";
 import { toast as showToast, useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
-
-import "./styles.css";
 import {
   ALT_TEXT_MAX_LENGTH,
   patchAudioOverlay,
   patchThumbnail,
   uploadMediaFile,
 } from "@/lib/media/media-upload-client";
+
+import "./styles.css";
+import type { Media } from "@/lib/types";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import type { ComposerReplyTarget } from "@/store/composer-store";

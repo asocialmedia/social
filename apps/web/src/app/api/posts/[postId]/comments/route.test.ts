@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let mockSessionUser: { user: { id: string } } | null = {
   user: { id: "user-123" },
 };
@@ -13,6 +15,7 @@ mock.module("@/lib/auth/session", () => ({
 let postVisible = true;
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   COMMENT_CREATION_AURA: 5,
   COMMENT_RECEIVED_AURA: 10,
   applyFlatAward: mock(() => Promise.resolve({ amount: 5 })),
@@ -27,8 +30,19 @@ mock.module("@asm/db", () => ({
         : null
     ),
   getCommentDataInclude: () => ({}),
+  getCommentDataQuery: () => {
+    const query = {
+      all: () => Promise.resolve([]),
+      cursor: () => query,
+      limit: () => query,
+      offset: () => query,
+      orderBy: () => query,
+    };
+    return { where: () => query };
+  },
   invalidateAuraSignals: mock(() => Promise.resolve()),
   invalidateFypProfile: mock(() => Promise.resolve()),
+  mapCommentData: (comment: Record<string, unknown>) => comment,
   prisma: {
     $transaction: mock((fn: (tx: unknown) => Promise<unknown>) =>
       fn({

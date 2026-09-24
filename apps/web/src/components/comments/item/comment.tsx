@@ -11,6 +11,7 @@ import UserTooltip from "@/components/layouts/user/user-tooltip";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import type { Media } from "@/lib/types";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -38,6 +39,16 @@ const RAIL_X = LEVEL_PAD / 2;
 // smooth circular bend (start tangent vertical, end tangent horizontal).
 const CURVE_RADIUS = LEVEL_PAD - RAIL_X;
 
+type CommentWithExtras = CommentData & {
+  attachments?: {
+    id: string;
+    type: Media["type"];
+    mimeType?: string;
+    thumbnailKey?: string | null;
+  }[];
+  votes?: { userId: string; value: number }[];
+};
+
 interface CommentItemProps {
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
@@ -61,6 +72,7 @@ export default function CommentItem({
   const shared = useCommentsRealtimeValue();
   const [showReply, setShowReply] = useState(false);
 
+  const commentWithExtras = comment as CommentWithExtras;
   const commentUser = comment.user;
   const username = commentUser?.username ?? "unknown";
   const displayName = commentUser?.displayName || username;
@@ -224,7 +236,7 @@ export default function CommentItem({
                   </UserTooltip>
                   <UserBadge
                     badge={commentUser.badge}
-                    badges={commentUser.badges}
+                    badges={[...(commentUser.badges ?? [])]}
                     communityRoles={commentUser.communityMemberships}
                   />
                   <Link
@@ -251,7 +263,9 @@ export default function CommentItem({
             ) : (
               <>
                 <PostLinkedContent content={comment.content} />
-                <CommentAttachments attachments={comment.attachments} />
+                <CommentAttachments
+                  attachments={commentWithExtras.attachments ?? []}
+                />
                 <CommentLinkEmbeds content={comment.content} />
               </>
             )}
@@ -264,7 +278,7 @@ export default function CommentItem({
                   expandable={false}
                   initialState={{
                     aura: comment.aura ?? 0,
-                    userVote: comment.votes?.[0]?.value ?? 0,
+                    userVote: commentWithExtras.votes?.[0]?.value ?? 0,
                   }}
                   postId={post.id}
                 />

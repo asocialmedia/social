@@ -1,6 +1,6 @@
 "use client";
 
-import type { Tag, TagWithCount } from "@asm/db";
+import type { TagWithCount } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Hash, Loader2, Plus, Search, X } from "lucide-react";
@@ -11,6 +11,7 @@ import type { MouseEvent } from "react";
 
 import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
+import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { useUpdateTagsMutation } from "./mutations/tag-mention-mutation";

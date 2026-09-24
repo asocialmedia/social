@@ -1,17 +1,95 @@
-import type { MessageData, MessagePage } from "@asm/db";
-import { prisma, publishMessageCreated, unreadMessageCache } from "@asm/db";
+import {
+  and,
+  fromPrismaDateTime,
+  getMessageDataQuery,
+  prisma,
+  publishMessageCreated,
+  toPrismaDateTime,
+  unreadMessageCache,
+} from "@asm/db";
+import type { PrismaTransaction } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   areBlocked,
   getConversationForUser,
   isUniqueConstraintViolation,
-  messageSenderSelect,
   nextRatchetIndex,
   parseJsonBody,
 } from "@/lib/messages/server";
+import type { MessageData, MessagePage } from "@/lib/messages/types";
 
 const PAGE_SIZE = 30;
+const MAX_CAS_ATTEMPTS = 8;
+
+async function updateMessageRatchetWithCas(
+  tx: PrismaTransaction,
+  conversationId: string,
+  ownerUserId: string,
+  attemptsRemaining = MAX_CAS_ATTEMPTS
+): Promise<void> {
+  const key = await tx.orm.public.MessageConversationKeys.select(
+    "ratchetCounter"
+  )
+    .where((candidate) =>
+      and(
+        candidate.conversationId.eq(conversationId),
+        candidate.ownerUserId.eq(ownerUserId)
+      )
+    )
+    .first();
+  if (!key) {
+    return;
+  }
+  const updated = await tx.orm.public.MessageConversationKeys.where(
+    (candidate) =>
+      and(
+        candidate.conversationId.eq(conversationId),
+        candidate.ownerUserId.eq(ownerUserId),
+        candidate.ratchetCounter.eq(key.ratchetCounter)
+      )
+  ).updateAndCount({ ratchetCounter: key.ratchetCounter + 1 });
+  if (updated === 1) {
+    return;
+  }
+  if (attemptsRemaining <= 1) {
+    throw new Error("Could not update message ratchet");
+  }
+  return updateMessageRatchetWithCas(
+    tx,
+    conversationId,
+    ownerUserId,
+    attemptsRemaining - 1
+  );
+}
+
+type MessageQueryData = NonNullable<
+  Awaited<ReturnType<ReturnType<typeof getMessageDataQuery>["first"]>>
+>;
+
+function mapMessage(message: MessageQueryData): MessageData {
+  return {
+    ciphertext: message.ciphertext ?? "",
+    conversationId: message.conversationId ?? "",
+    createdAt: fromPrismaDateTime(message.createdAt),
+    deletedAt: message.deletedAt ? fromPrismaDateTime(message.deletedAt) : null,
+    id: message.id ?? "",
+    iv: message.iv ?? "",
+    ratchetIndex: message.ratchetIndex ?? 0,
+    sender: message.sender
+      ? {
+          avatarUrl: message.sender.avatarUrl,
+          badge: message.sender.badge,
+          badges: message.sender.badges ?? [],
+          communityMemberships: [],
+          displayName: message.sender.displayName,
+          id: message.sender.id,
+          username: message.sender.username,
+        }
+      : null,
+    senderId: message.senderId ?? "",
+  };
+}
 
 export async function GET(
   request: Request,
@@ -37,12 +115,17 @@ export async function GET(
   // in the same total order - sorting by createdAt with an id cursor would skip
   // or duplicate messages on long threads where many share a timestamp.
   // (Prisma cuids are time-ordered, so id desc is still newest-first.)
-  const messages = await prisma.message.findMany({
-    include: messageSenderSelect(),
-    orderBy: [{ id: "desc" }],
-    take: PAGE_SIZE + 1,
-    where: { conversationId: id, ...(cursor ? { id: { lt: cursor } } : {}) },
-  });
+  const messageQuery = getMessageDataQuery(prisma.orm)
+    .where((message) =>
+      and(
+        message.conversationId.eq(id),
+        ...(cursor ? [message.id.lt(cursor)] : [])
+      )
+    )
+    .orderBy((message) => message.id.desc())
+    .limit(PAGE_SIZE + 1);
+  const messageRows = await messageQuery.all();
+  const messages = messageRows.map(mapMessage);
 
   const hasMore = messages.length > PAGE_SIZE;
   const page = hasMore ? messages.slice(0, PAGE_SIZE) : messages;
@@ -122,35 +205,22 @@ export async function POST(
   }
 
   let message: MessageData | null = null;
+  let createdMessageId: string | null = null;
   try {
-    await prisma.$transaction(async (tx) => {
-      // The transaction client types the create without the include; the
-      // runtime row does carry the sender (Prisma applies includes in
-      // transactions too), so cast to the shape the client expects.
-      message = (await tx.message.create({
-        data: {
-          ciphertext,
-          conversationId: id,
-          iv,
-          ratchetIndex: expectedIndex,
-          senderId: user.id,
-        },
-        include: messageSenderSelect(),
-      })) as unknown as MessageData;
-
-      // Advance the sender's atomic counter so the next index is fresh.
-      // updateMany tolerates a missing key row (legacy conversation) instead
-      // of throwing, keeping the dense count-based fallback consistent.
-      await tx.messageConversationKey.updateMany({
-        data: { ratchetCounter: { increment: 1 } },
-        where: { conversationId: id, ownerUserId: user.id },
+    await prisma.transaction(async (tx) => {
+      const created = await tx.orm.public.Messages.create({
+        ciphertext,
+        conversationId: id,
+        iv,
+        ratchetIndex: expectedIndex,
+        senderId: user.id,
       });
+      createdMessageId = created.id;
 
-      // Bump the conversation so the list page reorders this thread to the top
-      // on activity. @updatedAt only fires when the row itself is updated.
-      await tx.messageConversation.update({
-        data: { updatedAt: new Date() },
-        where: { id },
+      await updateMessageRatchetWithCas(tx, id, user.id);
+
+      await tx.orm.public.MessageConversations.where({ id }).update({
+        updatedAt: toPrismaDateTime(new Date()),
       });
     });
   } catch (error) {
@@ -164,6 +234,16 @@ export async function POST(
       );
     }
     throw error;
+  }
+
+  if (!createdMessageId) {
+    throw new Error("Message was not created");
+  }
+  const messageRow = await getMessageDataQuery(prisma.orm)
+    .where({ id: createdMessageId })
+    .first();
+  if (messageRow) {
+    message = mapMessage(messageRow);
   }
 
   // The sender always reads their own messages; only the peer accrues unread.

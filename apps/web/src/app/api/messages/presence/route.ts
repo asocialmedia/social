@@ -1,4 +1,10 @@
-import { getIdleUsers, getOnlineUsers, markUserOnline, prisma } from "@asm/db";
+import {
+  and,
+  getIdleUsers,
+  getOnlineUsers,
+  markUserOnline,
+  prisma,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -32,19 +38,16 @@ export async function GET() {
   // the online set is read exactly once per poll instead of once here and once
   // inside getIdleUsers.
   const onlineIds = await getOnlineUsers();
-  const [idleIds, follows] = await Promise.all([
+  const [idleIds, followingRows, followerRows] = await Promise.all([
     getIdleUsers(onlineIds),
-    // Presence is mutual: a user is visible to anyone they follow AND anyone
-    // who follows them. DM creation only requires the sender to follow the
-    // recipient (one direction), so gating presence on a single direction
-    // would leave one side seeing "offline" while the other sees "online".
-    prisma.follow.findMany({
-      select: { followerId: true, followingId: true },
-      where: {
-        OR: [{ followerId: user.id }, { followingId: user.id }],
-      },
-    }),
+    prisma.orm.public.Follows.select("followerId", "followingId")
+      .where((follow) => follow.followerId.eq(user.id))
+      .all(),
+    prisma.orm.public.Follows.select("followerId", "followingId")
+      .where((follow) => follow.followingId.eq(user.id))
+      .all(),
   ]);
+  const follows = [...followingRows, ...followerRows];
   const connectedIds = new Set<string>();
   for (const follow of follows) {
     if (follow.followerId !== user.id) {
@@ -67,15 +70,19 @@ export async function GET() {
     return Response.json({ users: [] });
   }
 
-  const blocked = await prisma.block.findMany({
-    select: { blockedId: true, blockerId: true },
-    where: {
-      OR: [
-        { blockedId: { in: visibleIds }, blockerId: user.id },
-        { blockedId: user.id, blockerId: { in: visibleIds } },
-      ],
-    },
-  });
+  const [blockedByUser, blockedUser] = await Promise.all([
+    prisma.orm.public.Blocks.select("blockedId", "blockerId")
+      .where((block) =>
+        and(block.blockerId.eq(user.id), block.blockedId.in(visibleIds))
+      )
+      .all(),
+    prisma.orm.public.Blocks.select("blockedId", "blockerId")
+      .where((block) =>
+        and(block.blockedId.eq(user.id), block.blockerId.in(visibleIds))
+      )
+      .all(),
+  ]);
+  const blocked = [...blockedByUser, ...blockedUser];
   const blockedIds = new Set<string>();
   for (const block of blocked) {
     // Both block directions remove the other party: when I blocked someone
@@ -91,15 +98,14 @@ export async function GET() {
     return Response.json({ users: [] });
   }
 
-  const users = await prisma.user.findMany({
-    select: {
-      avatarUrl: true,
-      displayName: true,
-      id: true,
-      username: true,
-    },
-    where: { id: { in: visible } },
-  });
+  const users = await prisma.orm.public.Users.select(
+    "avatarUrl",
+    "displayName",
+    "id",
+    "username"
+  )
+    .where((candidate) => candidate.id.in(visible))
+    .all();
 
   const withStatus: PresenceUser[] = users.map((member) => ({
     ...member,

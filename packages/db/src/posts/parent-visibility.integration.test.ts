@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 
-import { createCommunity, getPostDataInclude, prisma } from "@asm/db";
+import { createCommunity, getPostDataQuery, prisma } from "@asm/db";
+import { or } from "@prisma/orm-postgres/orm-client";
 
 // A reply is a normal post with `parentPostId` set; its `communityId` is the
 // REPLIER's choice, not inherited from the parent. So a member can reply to a
@@ -27,31 +29,29 @@ let _privateParentId = "";
 let globalReplyId = "";
 
 async function createUser(id: string): Promise<void> {
-  await prisma.user.create({
-    data: {
-      displayName: id,
-      email: `${id}@example.test`,
-      id,
-      username: id,
-    },
+  await prisma.orm.public.Users.create({
+    displayName: id,
+    email: `${id}@example.test`,
+    id,
+    username: id,
   });
 }
 
 beforeAll(async () => {
   await createUser(OWNER_ID);
   await createUser(STRANGER_ID);
-  await prisma.user.update({
-    data: { aura: 100_000 },
-    where: { id: OWNER_ID },
+  await prisma.orm.public.Users.where((user) =>
+    user.id.eq(OWNER_ID)
+  ).updateAndCount({
+    aura: 100_000,
   });
-  await prisma.auraLog.create({
-    data: {
-      amount: 100_000,
-      issuerId: OWNER_ID,
-      targetUserId: OWNER_ID,
-      type: "POST_CREATION",
-      userId: OWNER_ID,
-    },
+  await prisma.orm.public.AuraLogs.create({
+    _type: "COMMUNITY_JOIN",
+    amount: 100_000,
+    id: randomUUID(),
+    issuerId: OWNER_ID,
+    targetUserId: OWNER_ID,
+    userId: OWNER_ID,
   });
 
   const community = await createCommunity({
@@ -64,46 +64,47 @@ beforeAll(async () => {
   });
 
   // The parent lives in the private community.
-  const parent = await prisma.post.create({
-    data: {
-      communityId: community.id,
-      content: SECRET_CONTENT,
-      userId: OWNER_ID,
-    },
+  const parent = await prisma.orm.public.Posts.create({
+    communityId: community.id,
+    content: SECRET_CONTENT,
+    id: randomUUID(),
+    userId: OWNER_ID,
   });
   _privateParentId = parent.id;
 
   // The reply carries NO community, so it is a global (world-readable) post
   // that nevertheless points at the private parent.
-  const reply = await prisma.post.create({
-    data: {
-      content: REPLY_CONTENT,
-      parentPostId: parent.id,
-      rootPostId: parent.id,
-      userId: OWNER_ID,
-    },
+  const reply = await prisma.orm.public.Posts.create({
+    content: REPLY_CONTENT,
+    id: randomUUID(),
+    parentPostId: parent.id,
+    rootPostId: parent.id,
+    userId: OWNER_ID,
   });
   globalReplyId = reply.id;
 });
 
 afterAll(async () => {
   const userIds = [OWNER_ID, STRANGER_ID];
-  await prisma.post.deleteMany({
-    where: { userId: { in: userIds } },
-  });
-  await prisma.auraLog.deleteMany({
-    where: { OR: [{ issuerId: { in: userIds } }, { userId: { in: userIds } }] },
-  });
-  await prisma.community.deleteMany({ where: { slug: PRIVATE_SLUG } });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  await prisma.orm.public.Posts.where((post) =>
+    post.userId.in(userIds)
+  ).deleteAndCount();
+  await prisma.orm.public.AuraLogs.where((log) =>
+    or(log.issuerId.in(userIds), log.userId.in(userIds))
+  ).deleteAndCount();
+  await prisma.orm.public.Communities.where((community) =>
+    community.slug.eq(PRIVATE_SLUG)
+  ).deleteAndCount();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(userIds)
+  ).deleteAndCount();
 });
 
 describe("embedded parent visibility", () => {
   test("a global reply never embeds a parent the viewer cannot read", async () => {
-    const reply = await prisma.post.findUnique({
-      include: getPostDataInclude(""),
-      where: { id: globalReplyId },
-    });
+    const reply = await getPostDataQuery(prisma.orm, "")
+      .where((post) => post.id.eq(globalReplyId))
+      .first();
     if (!reply) {
       throw new Error("reply missing");
     }
@@ -116,18 +117,16 @@ describe("embedded parent visibility", () => {
   });
 
   test("the owner (a member) still sees the parent, so threads render", async () => {
-    const reply = await prisma.post.findUnique({
-      include: getPostDataInclude(OWNER_ID),
-      where: { id: globalReplyId },
-    });
+    const reply = await getPostDataQuery(prisma.orm, OWNER_ID)
+      .where((post) => post.id.eq(globalReplyId))
+      .first();
     expect(reply?.parentPost?.content).toBe(SECRET_CONTENT);
   });
 
   test("a stranger logged in is denied the parent too", async () => {
-    const reply = await prisma.post.findUnique({
-      include: getPostDataInclude(STRANGER_ID),
-      where: { id: globalReplyId },
-    });
+    const reply = await getPostDataQuery(prisma.orm, STRANGER_ID)
+      .where((post) => post.id.eq(globalReplyId))
+      .first();
     expect(JSON.stringify(reply)).not.toContain(SECRET_CONTENT);
   });
 });

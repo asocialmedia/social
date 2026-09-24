@@ -1,5 +1,5 @@
 import { verifyPasswordHash } from "@asm/auth/core";
-import { consumeRateLimit, prisma } from "@asm/db";
+import { and, consumeRateLimit, prisma, toPrismaDateTime } from "@asm/db";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -46,13 +46,14 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const credential = await prisma.account.findFirst({
-    select: { password: true },
-    where: {
-      providerId: "credential",
-      userId: currentSession.user.id,
-    },
-  });
+  const credential = await prisma.orm.public.Accounts.select("password")
+    .where((account) =>
+      and(
+        account.providerId.eq("credential"),
+        account.userId.eq(currentSession.user.id)
+      )
+    )
+    .first();
   if (!credential?.password) {
     return noStoreJson(
       {
@@ -71,15 +72,14 @@ export async function POST(request: Request): Promise<Response> {
     return noStoreJson({ error: "Incorrect password" }, 401);
   }
 
-  const updated = await prisma.session.updateMany({
-    data: { createdAt: new Date() },
-    where: {
-      expiresAt: { gt: new Date() },
-      id: currentSession.session.id,
-      userId: currentSession.user.id,
-    },
-  });
-  if (updated.count !== 1) {
+  const updated = await prisma.orm.public.Sessions.where((session) =>
+    and(
+      session.expiresAt.gt(toPrismaDateTime(new Date())),
+      session.id.eq(currentSession.session.id),
+      session.userId.eq(currentSession.user.id)
+    )
+  ).updateAndCount({ createdAt: toPrismaDateTime(new Date()) });
+  if (updated !== 1) {
     return noStoreJson(
       { error: "Your session has ended. Sign in again." },
       401

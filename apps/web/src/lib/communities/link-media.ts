@@ -1,4 +1,5 @@
 import {
+  and,
   communityProxyUrl,
   prisma,
   promoteCommunityDerivative,
@@ -46,22 +47,23 @@ export async function linkCommunityMedia(
     return { error: "mediaId is required", status: 400 };
   }
 
-  const community = await prisma.community.findUnique({
-    select: { id: true, ownerId: true },
-    where: { slug: slug.trim().toLowerCase() },
-  });
+  const community = await prisma.orm.public.Communities.select("id", "ownerId")
+    .where({ slug: slug.trim().toLowerCase() })
+    .first();
   if (!community) {
     return { error: "Community not found", status: 404 };
   }
 
   const isOwner = community.ownerId === user.id;
   if (!isOwner) {
-    const membership = await prisma.communityMember.findUnique({
-      select: { role: true, status: true },
-      where: {
-        communityId_userId: { communityId: community.id, userId: user.id },
-      },
-    });
+    const membership = await prisma.orm.public.CommunityMembers.select(
+      "role",
+      "status"
+    )
+      .where((member) =>
+        and(member.communityId.eq(community.id), member.userId.eq(user.id))
+      )
+      .first();
     const canModerate =
       membership?.status === "ACTIVE" && membership.role === "MODERATOR";
     if (!canModerate) {
@@ -72,46 +74,45 @@ export async function linkCommunityMedia(
     }
   }
 
-  const media = await prisma.media.findUnique({
-    select: {
-      id: true,
-      key: true,
-      publishedKey: true,
-      status: true,
-      type: true,
-      userId: true,
-    },
-    where: { id: payload.mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "id",
+    "key",
+    "publishedKey",
+    "status",
+    "_type",
+    "userId"
+  )
+    .where({ id: payload.mediaId })
+    .first();
   if (!media || media.userId !== user.id) {
     return { error: "Media not found", status: 404 };
   }
   if (media.status !== "READY") {
     return { error: "Upload is not ready yet", status: 409 };
   }
-  if (media.type !== "IMAGE") {
+  if (media._type !== "IMAGE") {
     return { error: "Only images can be used here", status: 415 };
   }
 
   const servingKey = media.publishedKey ?? media.key;
   const url = communityProxyUrl(kind, community.id, servingKey);
 
-  const current = await prisma.community.findUnique({
-    select: { avatarMediaId: true, bannerMediaId: true },
-    where: { id: community.id },
-  });
+  const current = await prisma.orm.public.Communities.select(
+    "avatarMediaId",
+    "bannerMediaId"
+  )
+    .where({ id: community.id })
+    .first();
   const previousMediaId =
     kind === "avatar" ? current?.avatarMediaId : current?.bannerMediaId;
 
   // One update call, branching only the column set: the avatar and banner
   // surfaces share the same shape otherwise.
-  await prisma.community.update({
-    data:
-      kind === "avatar"
-        ? { avatarKey: servingKey, avatarMediaId: media.id, avatarUrl: url }
-        : { bannerKey: servingKey, bannerMediaId: media.id, bannerUrl: url },
-    where: { id: community.id },
-  });
+  await prisma.orm.public.Communities.where({ id: community.id }).update(
+    kind === "avatar"
+      ? { avatarKey: servingKey, avatarMediaId: media.id, avatarUrl: url }
+      : { bannerKey: servingKey, bannerMediaId: media.id, bannerUrl: url }
+  );
 
   // Reap the replaced pipeline upload (best-effort) and cover the promotion
   // race: derivatives may have committed before this link landed.

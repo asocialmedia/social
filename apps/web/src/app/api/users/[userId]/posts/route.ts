@@ -1,11 +1,12 @@
 import {
+  and,
   communityVisibilityWhere,
-  getPostDataInclude,
+  getPostDataQuery,
   hydrateViewCounts,
-  MediaType,
+  mapPostData,
   prisma,
 } from "@asm/db";
-import type { PostsPage, Prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -27,39 +28,35 @@ export async function GET(
   const pageSize = 20;
   const { userId } = await ctx.params;
 
-  let where: Prisma.PostWhereInput;
-  if (filter === "gusts") {
-    where = { isGust: true, userId };
-  } else if (filter === "media") {
-    where = {
-      attachments: {
-        some: {
-          type: {
-            in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
-          },
-        },
-      },
-      userId,
-    };
-  } else {
-    where = { isGust: false, userId };
+  let query = getPostDataQuery(prisma.orm, viewerId)
+    .where((post) => {
+      const filters = [
+        post.userId.eq(userId),
+        communityVisibilityWhere(viewerId)(post),
+      ];
+      if (filter === "gusts") {
+        filters.push(post.isGust.eq(true));
+      } else {
+        filters.push(post.isGust.eq(false));
+      }
+      if (filter === "media") {
+        filters.push(
+          post.postMedias.some((media) =>
+            media._type.in(["IMAGE", "VIDEO", "AUDIO"])
+          )
+        );
+      }
+      if (excludeModerated) {
+        filters.push(post.moderated.eq(false));
+      }
+      return and(...filters);
+    })
+    .orderBy((post) => post.createdAt.desc());
+  if (cursor) {
+    query = query.cursor({ id: cursor }).offset(1);
   }
-
-  if (excludeModerated) {
-    where = { ...where, moderated: false };
-  }
-
-  // A profile is a global read: private-community posts the viewer cannot
-  // access stay off it.
-  where = { ...where, ...communityVisibilityWhere(viewerId) };
-
-  const posts = await prisma.post.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
-    include: getPostDataInclude(viewerId),
-    orderBy: { createdAt: "desc" },
-    take: pageSize + 1,
-    where,
-  });
+  const postRows = await query.limit(pageSize + 1).all();
+  const posts = postRows.map(mapPostData);
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));

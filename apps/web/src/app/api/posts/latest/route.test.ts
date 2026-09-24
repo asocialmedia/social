@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let lastFindManyArgs: {
   skip?: number;
   take?: number;
   where?: unknown;
 } | null = null;
 
-const mockPrisma = {
-  post: {
-    findMany: mock((args: typeof lastFindManyArgs) => {
-      lastFindManyArgs = args;
-      return [
-        { id: "post-1", rootPostId: null },
-        { id: "post-2", rootPostId: "post-1" },
-      ];
-    }),
-  },
-};
+const mockPosts = [
+  { id: "post-1", rootPostId: null },
+  { id: "post-2", rootPostId: "post-1" },
+];
+
+const mockFindPosts = mock((args: typeof lastFindManyArgs) => {
+  lastFindManyArgs = args;
+  return mockPosts;
+});
 
 const mockHydrateViewCounts = mock((posts: unknown[]) => posts);
 
@@ -30,11 +30,94 @@ const mockGetSubscribedCommunityIds = mock(
 
 let sessionUser: { id: string } | null = null;
 
+interface PostQuery {
+  all: () => typeof mockPosts;
+  cursor: (cursor: { id: string }) => PostQuery;
+  limit: (limit: number) => PostQuery;
+  offset: (offset: number) => PostQuery;
+  orderBy: (order: unknown) => PostQuery;
+  where: (
+    predicate: (post: {
+      communityId: { in: (ids: string[]) => unknown; isNull: () => unknown };
+      isGust: { eq: (value: boolean) => unknown };
+      moderated: { eq: (value: boolean) => unknown };
+    }) => unknown
+  ) => PostQuery;
+}
+
+function createPostQuery(): PostQuery {
+  const state = {
+    cursorId: undefined as string | undefined,
+    limit: 21,
+    offset: 0,
+    where: {} as Record<string, unknown>,
+  };
+  const query: PostQuery = {
+    all: () =>
+      mockFindPosts({
+        skip: state.offset,
+        take: state.limit,
+        where: state.where,
+      }),
+    cursor: (cursor) => {
+      state.cursorId = cursor.id;
+      return query;
+    },
+    limit: (limit) => {
+      state.limit = limit;
+      return query;
+    },
+    offset: (offset) => {
+      state.offset = offset;
+      return query;
+    },
+    orderBy: () => query,
+    where: (predicate) => {
+      const where: Record<string, unknown> = {};
+      const communityConditions: unknown[] = [];
+      predicate({
+        communityId: {
+          in: (ids) => {
+            communityConditions.push({ communityId: { in: ids } });
+            return {};
+          },
+          isNull: () => {
+            communityConditions.push({ communityId: null });
+            return {};
+          },
+        },
+        isGust: {
+          eq: (value) => {
+            where.isGust = value;
+            return {};
+          },
+        },
+        moderated: {
+          eq: (value) => {
+            where.moderated = value;
+            return {};
+          },
+        },
+      });
+      if (communityConditions.length === 1) {
+        const [condition] = communityConditions as [{ communityId: unknown }];
+        where.communityId = condition.communityId;
+      } else if (communityConditions.length > 1) {
+        where.OR = communityConditions;
+      }
+      state.where = where;
+      return query;
+    },
+  };
+  return query;
+}
+
 mock.module("@asm/db", () => ({
-  getPostDataInclude: () => ({ user: true }),
+  ...asmDbMockBase,
+  getPostDataQuery: () => createPostQuery(),
   getSubscribedCommunityIds: mockGetSubscribedCommunityIds,
   hydrateViewCounts: mockHydrateViewCounts,
-  prisma: mockPrisma,
+  prisma: {},
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -46,7 +129,7 @@ describe("GET /api/posts/latest", () => {
     lastFindManyArgs = null;
     subscribedCommunityIds = [];
     sessionUser = null;
-    mockPrisma.post.findMany.mockClear();
+    mockFindPosts.mockClear();
     mockHydrateViewCounts.mockClear();
     mockGetSubscribedCommunityIds.mockClear();
   });

@@ -1,7 +1,7 @@
-import type { TransactionClient } from "../../prisma/generated/prisma/internal/prismaNamespace";
 import prisma from "../prisma";
 import { redis } from "../redis";
 import { TRENDING_CARD_AURA } from "./config";
+import { applyFlatAward } from "./ledger";
 import { invalidateAuraSignals } from "./signals";
 
 // Appearing in the trending users card pays a flat profile award, deduped to
@@ -36,19 +36,13 @@ async function awardOnce(userId: string, now: Date): Promise<boolean> {
   }
 
   try {
-    await prisma.$transaction(async (tx: TransactionClient) => {
-      await tx.user.update({
-        data: { aura: { increment: TRENDING_CARD_AURA } },
-        where: { id: userId },
-      });
-      await tx.auraLog.create({
-        data: {
-          amount: TRENDING_CARD_AURA,
-          issuerId: userId,
-          targetUserId: userId,
-          type: "TRENDING_APPEARANCE",
-          userId,
-        },
+    await prisma.transaction(async (transaction) => {
+      await applyFlatAward(transaction, {
+        actorId: userId,
+        baseAmount: TRENDING_CARD_AURA,
+        now,
+        recipientId: userId,
+        type: "TRENDING_APPEARANCE",
       });
     });
   } catch {

@@ -28,20 +28,19 @@ export async function GET(
   }
 
   const { mediaId } = await ctx.params;
-  const media = await prisma.media.findUnique({
-    select: {
-      commentId: true,
-      key: true,
-      messageConversationId: true,
-      mimeType: true,
-      postId: true,
-      publishedKey: true,
-      size: true,
-      status: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "commentId",
+    "key",
+    "messageConversationId",
+    "mimeType",
+    "postId",
+    "publishedKey",
+    "size",
+    "status",
+    "userId"
+  )
+    .where({ id: mediaId })
+    .first();
   if (!media) {
     return mediaError("Media not found", 404);
   }

@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -13,9 +13,9 @@ export async function DELETE(
   }
 
   const { userId } = await ctx.params;
-  await prisma.block.deleteMany({
-    where: { blockedId: userId, blockerId: user.id },
-  });
+  await prisma.orm.public.Blocks.where((block) =>
+    and(block.blockedId.eq(userId), block.blockerId.eq(user.id))
+  ).delete();
 
   return Response.json({ ok: true });
 }

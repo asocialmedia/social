@@ -1,4 +1,4 @@
-import { canViewCommunity, prisma } from "@asm/db";
+import { and, canViewCommunity, prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
@@ -32,19 +32,18 @@ function isValidWebVtt(vtt: string): boolean {
 // (UPLOADING -> SCANNING -> READY) and published keys are immediately visible
 // without stale cache misses.
 async function getMediaObject(mediaId: string) {
-  return await prisma.media.findUnique({
-    select: {
-      id: true,
-      key: true,
-      mimeType: true,
-      publishedKey: true,
-      size: true,
-      status: true,
-      thumbnailKey: true,
-      type: true,
-    },
-    where: { id: mediaId },
-  });
+  return await prisma.orm.public.PostMedia.select(
+    "id",
+    "key",
+    "mimeType",
+    "publishedKey",
+    "size",
+    "status",
+    "thumbnailKey",
+    "_type"
+  )
+    .where({ id: mediaId })
+    .first();
 }
 
 // Lifecycle gate. New-pipeline rows become publicly servable only once the
@@ -83,40 +82,70 @@ function resolveObjectKey(
 // the access decision always reads fresh ownership data on a single indexed
 // PK lookup.
 async function getMediaOwnership(mediaId: string) {
-  return await prisma.media.findUnique({
-    select: {
-      // For comment-linked media the owning community lives on the comment's
-      // parent post, so it is selected here too and resolved by
-      // resolveOwningCommunity below.
-      comment: {
-        select: {
-          post: {
-            select: {
-              community: { select: { id: true, type: true } },
-            },
-          },
-        },
-      },
-      commentId: true,
-      derivatives: { select: { durationMs: true } },
-      messageConversationId: true,
-      mimeType: true,
-      post: {
-        select: {
-          community: {
-            select: {
-              id: true,
-              type: true,
-            },
-          },
-          communityId: true,
-        },
-      },
-      postId: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const ownership = await prisma.orm.public.PostMedia.select(
+    "commentId",
+    "messageConversationId",
+    "mimeType",
+    "postId",
+    "userId"
+  )
+    .include("comment", (comment) =>
+      comment
+        .select("postId")
+        .include("post", (post) =>
+          post
+            .select("communityId")
+            .include("community", (community) =>
+              community.select("id", "_type")
+            )
+        )
+    )
+    .include("post", (post) =>
+      post
+        .select("communityId")
+        .include("community", (community) => community.select("id", "_type"))
+    )
+    .include("postMediaDerivatives", (derivative) =>
+      derivative.select("durationMs")
+    )
+    .where({ id: mediaId })
+    .first();
+
+  if (!ownership) {
+    return null;
+  }
+
+  return {
+    ...ownership,
+    comment: ownership.comment
+      ? {
+          ...ownership.comment,
+          post: ownership.comment.post
+            ? {
+                ...ownership.comment.post,
+                community: ownership.comment.post.community
+                  ? {
+                      ...ownership.comment.post.community,
+                      type: ownership.comment.post.community._type,
+                    }
+                  : null,
+              }
+            : null,
+        }
+      : null,
+    derivatives: ownership.postMediaDerivatives,
+    post: ownership.post
+      ? {
+          ...ownership.post,
+          community: ownership.post.community
+            ? {
+                ...ownership.post.community,
+                type: ownership.post.community._type,
+              }
+            : null,
+        }
+      : null,
+  };
 }
 
 // Object storage rejects invalid or unsatisfiable byte ranges with the
@@ -236,10 +265,12 @@ export async function GET(
       url.searchParams.get("vtt") === "1";
 
     if (isCaptions) {
-      const freshMedia = await prisma.media.findUnique({
-        select: { captionsKey: true, transcript: true },
-        where: { id: mediaId },
-      });
+      const freshMedia = await prisma.orm.public.PostMedia.select(
+        "captionsKey",
+        "transcript"
+      )
+        .where({ id: mediaId })
+        .first();
       if (freshMedia?.captionsKey) {
         try {
           const captionsObject = await asmobClient.send(
@@ -298,7 +329,9 @@ export async function GET(
 
           const maxDurationMs = Math.max(
             0,
-            ...ownership.derivatives.map((d) => d.durationMs ?? 0)
+            ...ownership.derivatives.map(
+              (derivative) => derivative.durationMs ?? 0
+            )
           );
           const totalSeconds =
             maxDurationMs > 0
@@ -365,16 +398,19 @@ export async function GET(
         status: 200,
       });
     }
-    if (isThumbnail && media.type === "VIDEO") {
+    if (isThumbnail && media._type === "VIDEO") {
       // thumbnailKey is written AFTER publish by the process job, so reading
       // it from the hours-cached object would pin "no thumbnail" until cache
       // expiry - freshly posted videos would show no frame without a manual
       // refresh. Pull it fresh (single indexed PK lookup), same reason
       // ownership is read fresh below.
-      const freshThumb = await prisma.media.findUnique({
-        select: { customThumbnailKey: true, status: true, thumbnailKey: true },
-        where: { id: mediaId },
-      });
+      const freshThumb = await prisma.orm.public.PostMedia.select(
+        "customThumbnailKey",
+        "status",
+        "thumbnailKey"
+      )
+        .where({ id: mediaId })
+        .first();
       // Priority: the author's custom cover (gust thumbnail) first, then the
       // pipeline's scene-aware poster derivative, then the legacy
       // thumbnailKey column. Serve whichever exists so feed cards get a real
@@ -383,17 +419,25 @@ export async function GET(
       // streams pretending to be images).
       let posterKey: string | null = freshThumb?.customThumbnailKey ?? null;
       if (!posterKey && freshThumb?.status === "READY") {
-        const poster = await prisma.mediaDerivative.findFirst({
-          select: { key: true },
-          where: { kind: "poster", mediaId },
-        });
+        const poster = await prisma.orm.public.PostMediaDerivatives.select(
+          "key"
+        )
+          .where((derivative) =>
+            and(derivative.kind.eq("poster"), derivative.mediaId.eq(mediaId))
+          )
+          .first();
         if (poster?.key) {
           posterKey = poster.key;
         } else {
-          const thumbPoster = await prisma.mediaDerivative.findFirst({
-            select: { key: true },
-            where: { kind: "poster-thumb", mediaId },
-          });
+          const thumbPoster =
+            await prisma.orm.public.PostMediaDerivatives.select("key")
+              .where((derivative) =>
+                and(
+                  derivative.kind.eq("poster-thumb"),
+                  derivative.mediaId.eq(mediaId)
+                )
+              )
+              .first();
           posterKey = thumbPoster?.key ?? freshThumb?.thumbnailKey ?? null;
         }
       }

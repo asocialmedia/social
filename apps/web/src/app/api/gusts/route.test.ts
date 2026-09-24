@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -30,24 +32,23 @@ let lastFindManyArgs: unknown = null;
 
 const mockFindMany = mock(
   (args: {
-    attachments?: { some: { type: string } };
     cursor?: { id: string };
     take?: number;
-    where?: {
-      id?: { not?: string };
-      rootPostId?: null;
-    };
+    where?: { id?: { not?: string }; isGust?: boolean; rootPostId?: null };
   }) => {
     lastFindManyArgs = args;
     const take = args?.take ?? 11;
     let list = mockPostList;
     if (args?.where?.id?.not) {
-      list = list.filter((p) => p.id !== args.where?.id?.not);
+      list = list.filter((post) => post.id !== args.where?.id?.not);
+    }
+    if (args?.where?.isGust) {
+      list = list.filter((post) => post.isGust);
     }
     if (args?.cursor?.id) {
-      const cursorIndex = list.findIndex((p) => p.id === args.cursor?.id);
+      const cursorIndex = list.findIndex((post) => post.id === args.cursor?.id);
       if (cursorIndex !== -1) {
-        list = list.slice(cursorIndex);
+        list = list.slice(cursorIndex + 1);
       }
     }
     return list.slice(0, take);
@@ -76,21 +77,120 @@ const mockFindUnique = mock(
   }
 );
 
+interface PostQuery {
+  all: () => ReturnType<typeof mockFindMany>;
+  cursor: (cursor: { createdAt: Date; id: string }) => PostQuery;
+  first: () => ReturnType<typeof mockFindUnique>;
+  limit: (limit: number) => PostQuery;
+  offset: (offset: number) => PostQuery;
+  orderBy: (order: unknown) => PostQuery;
+  where: (
+    predicate: (post: {
+      id: {
+        desc: () => unknown;
+        eq: (id: string) => unknown;
+        neq: (id: string) => unknown;
+      };
+      isGust: { eq: (value: boolean) => unknown };
+      moderated: { eq: (value: boolean) => unknown };
+      postMedias: {
+        some: (
+          predicate: (media: {
+            _type: { eq: (value: string) => unknown };
+          }) => unknown
+        ) => unknown;
+      };
+      rootPostId: { isNull: () => unknown };
+    }) => unknown
+  ) => PostQuery;
+}
+
+function createPostQuery(): PostQuery {
+  const state = {
+    cursorId: undefined as string | undefined,
+    excludeId: undefined as string | undefined,
+    excludeModerated: false,
+    id: undefined as string | undefined,
+    isGust: true,
+    limit: 11,
+    offset: 0,
+  };
+  const query: PostQuery = {
+    all: () => {
+      const args = {
+        cursor: state.cursorId ? { id: state.cursorId } : undefined,
+        take: state.limit,
+        where: {
+          id: state.excludeId ? { not: state.excludeId } : undefined,
+          isGust: state.isGust,
+          rootPostId: null,
+        },
+      };
+      return mockFindMany(args);
+    },
+    cursor: (cursor) => {
+      state.cursorId = cursor.id;
+      return query;
+    },
+    first: () =>
+      mockFindUnique({
+        where: {
+          id: state.id,
+          moderated: state.excludeModerated ? false : undefined,
+        },
+      }),
+    limit: (limit) => {
+      state.limit = limit;
+      return query;
+    },
+    offset: (offset) => {
+      state.offset = offset;
+      return query;
+    },
+    orderBy: () => query,
+    where: (predicate) => {
+      predicate({
+        id: {
+          desc: () => ({}),
+          eq: (id) => (state.id = id),
+          neq: (id) => (state.excludeId = id),
+        },
+        isGust: { eq: (value) => (state.isGust = value) },
+        moderated: {
+          eq: (value) => {
+            state.excludeModerated = value === false;
+            return {};
+          },
+        },
+        postMedias: { some: () => ({}) },
+        rootPostId: { isNull: () => ({}) },
+      });
+      return query;
+    },
+  };
+  return query;
+}
+
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   MediaType: {
     AUDIO: "AUDIO",
     IMAGE: "IMAGE",
     VIDEO: "VIDEO",
   },
-  getPostDataInclude: (viewerId: string) => ({
-    user: true,
-    vote: !!viewerId,
-  }),
+  getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrateViewCounts,
   prisma: {
-    post: {
-      findMany: mockFindMany,
-      findUnique: mockFindUnique,
+    orm: {
+      public: {
+        Posts: {
+          select: () => ({
+            where: (where: { id: string }) => ({
+              first: () => mockFindUnique({ where }),
+            }),
+          }),
+        },
+      },
     },
   },
 }));
@@ -104,6 +204,7 @@ describe("GET /api/gusts", () => {
     mockPostList = [...sampleGusts];
     lastFindManyArgs = null;
     mockFindMany.mockClear();
+    mockFindUnique.mockClear();
     mockHydrateViewCounts.mockClear();
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
@@ -168,7 +269,7 @@ describe("GET /api/gusts", () => {
 
     // Returns page size of 10 items
     expect(json.posts).toHaveLength(10);
-    expect(json.nextCursor).toBe("gust_10");
+    expect(json.nextCursor).toBe("gust_11");
 
     const callArgs = lastFindManyArgs as { cursor?: { id: string } };
     expect(callArgs?.cursor?.id).toBe("gust_0");
@@ -182,6 +283,19 @@ describe("GET /api/gusts", () => {
     const callArgs = lastFindManyArgs as { take?: number };
     // take + 1 for pagination lookahead
     expect(callArgs?.take).toBe(6);
+  });
+
+  test("restarts gust pagination when the cursor anchor is gone", async () => {
+    const res = await GET(
+      new Request("http://localhost:3000/api/gusts?cursor=exp.missing")
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { posts: { id: string }[] };
+    expect(body.posts[0]?.id).toBe("gust1");
+    expect(
+      (lastFindManyArgs as { cursor?: { id: string } }).cursor
+    ).toBeUndefined();
   });
 
   test("prepends requested initialId gust to the first page", async () => {

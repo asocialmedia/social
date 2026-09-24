@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { NextRequest } from "next/server";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 const mockGetSession = mock();
 const mockUserUpdate = mock();
 const fetchMock = mock();
@@ -11,7 +13,16 @@ mock.module("@/lib/auth/session", () => ({
 }));
 
 mock.module("@asm/db", () => ({
-  prisma: { user: { update: mockUserUpdate } },
+  ...asmDbMockBase,
+  prisma: {
+    orm: {
+      public: {
+        Users: {
+          where: () => ({ update: mockUserUpdate }),
+        },
+      },
+    },
+  },
 }));
 
 globalThis.fetch = fetchMock;
@@ -58,9 +69,6 @@ describe("POST /api/auth/unlink/:provider", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockUserUpdate).toHaveBeenCalledWith({
-      data: { googleId: null },
-      where: { id: "user-1" },
-    });
+    expect(mockUserUpdate).toHaveBeenCalledWith({ googleId: null });
   });
 });

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let lastFindManyArgs: unknown = null;
 const mockFindMany = mock((args: unknown) => {
   lastFindManyArgs = args;
@@ -22,11 +24,15 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: "viewer1" },
 }));
 
-const mockCommunityVisibilityWhere = mock((userId: string) => ({
-  _communityVisibilityFor: userId,
-}));
+const mockCommunityVisibilityWhere = mock(
+  (userId: string) => (post: { _communityVisibilityFor?: string }) => {
+    post._communityVisibilityFor = userId;
+    return {};
+  }
+);
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   MediaType: {
     AUDIO: "AUDIO",
     IMAGE: "IMAGE",
@@ -34,8 +40,60 @@ mock.module("@asm/db", () => ({
   },
   communityVisibilityWhere: mockCommunityVisibilityWhere,
   prisma: {
-    media: {
-      findMany: mockFindMany,
+    orm: {
+      public: {
+        PostMedia: {
+          include: () => ({
+            where: (
+              predicate: (media: {
+                _type: { in: (types: string[]) => unknown };
+                createdAt: { desc: () => unknown };
+                id: { desc: () => unknown };
+                post: {
+                  some: (
+                    predicate: (post: {
+                      community: unknown;
+                      userId: { eq: (id: string) => unknown };
+                    }) => unknown
+                  ) => unknown;
+                };
+              }) => unknown
+            ) => {
+              const post = {
+                _communityVisibilityFor: undefined as string | undefined,
+                community: {},
+                userId: "",
+              };
+              predicate({
+                _type: { in: () => ({}) },
+                createdAt: { desc: () => ({}) },
+                id: { desc: () => ({}) },
+                post: {
+                  some: (postPredicate) => {
+                    const candidate = {
+                      _communityVisibilityFor: undefined as string | undefined,
+                      community: post.community,
+                      userId: { eq: (id: string) => (post.userId = id) },
+                    };
+                    const result = postPredicate(candidate);
+                    post._communityVisibilityFor =
+                      candidate._communityVisibilityFor;
+                    return result && {};
+                  },
+                },
+              });
+              const query = {
+                all: () => mockFindMany({ where: { post } }),
+                cursor: () => query,
+                limit: () => query,
+                offset: () => query,
+                orderBy: () => query,
+              };
+              return query;
+            },
+          }),
+        },
+      },
     },
   },
 }));

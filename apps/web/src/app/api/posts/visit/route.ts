@@ -1,12 +1,13 @@
-import { prisma } from "@asm/db";
+import { prisma, toPrismaDateTime } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function POST(request: Request) {
   const session = await getSessionFromApi();
-  if (!session?.user) {
+  if (!session?.user?.id) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = session.user.id;
 
   const body = (await request.json().catch(() => null)) as {
     postId?: string;
@@ -16,29 +17,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "postId is required" }, { status: 400 });
   }
 
-  const post = await prisma.post.findUnique({
-    select: { id: true },
-    where: { id: body.postId },
-  });
+  const { postId } = body;
+  const post = await prisma.orm.public.Posts.select("id")
+    .where({ id: postId })
+    .first();
 
   if (!post) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
 
-  // Upsert keeps one row per user+post, bumping visitedAt so the history
-  // card reflects "most recently viewed" order.
-  await prisma.postVisit.upsert({
-    create: {
-      postId: body.postId,
-      userId: session.user.id,
-    },
-    update: { visitedAt: new Date() },
-    where: {
-      userId_postId: {
-        postId: body.postId,
-        userId: session.user.id,
-      },
-    },
+  await prisma.orm.public.PostVisits.upsert({
+    conflictOn: { postId, userId },
+    create: { postId, userId },
+    update: { visitedAt: toPrismaDateTime(new Date()) },
   });
 
   return Response.json({ success: true });

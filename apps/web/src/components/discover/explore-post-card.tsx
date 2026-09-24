@@ -1,6 +1,6 @@
 "use client";
 
-import type { Media, PostData } from "@asm/db";
+import type { PostData } from "@asm/db";
 import noMediaImage from "@assets/general/nomedia.png";
 import { Clapperboard, Play } from "lucide-react";
 import Image from "next/image";
@@ -20,7 +20,9 @@ import {
 } from "@/components/posts/embeds/embed-utils";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
+import { getPostAttachments } from "@/lib/posts/post-normalize";
 import { getPostPath } from "@/lib/seo/seo";
+import type { Media } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -196,7 +198,7 @@ interface ExplorePostCardProps {
 }
 
 const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
-  const media = post.attachments?.find(
+  const media = getPostAttachments(post).find(
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
   const isGustPost = Boolean(post.isGust);

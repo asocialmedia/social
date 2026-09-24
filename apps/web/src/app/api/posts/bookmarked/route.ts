@@ -1,4 +1,10 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  and,
+  getPostDataQuery,
+  hydrateViewCounts,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -15,20 +21,19 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const isGustFilter = url.searchParams.get("filter") === "gusts";
 
-  const bookmarks = await prisma.bookmark.findMany({
-    include: { post: true },
-    orderBy: { createdAt: "desc" },
-    where: { userId: user.id },
-  });
+  const bookmarks = await prisma.orm.public.Bookmarks.select("postId")
+    .where({ userId: user.id })
+    .orderBy((bookmark) => bookmark.createdAt.desc())
+    .all();
 
   const postIds = bookmarks
     .map((bookmark) => bookmark.postId)
     .filter((postId): postId is string => Boolean(postId));
 
-  const posts = await prisma.post.findMany({
-    include: getPostDataInclude(user.id),
-    where: { id: { in: postIds }, isGust: isGustFilter },
-  });
+  const postRows = await getPostDataQuery(prisma.orm, user.id)
+    .where((post) => and(post.id.in(postIds), post.isGust.eq(isGustFilter)))
+    .all();
+  const posts = postRows.map(mapPostData);
 
   // Preserve the bookmark order (most recently bookmarked first).
   const postById = new Map(posts.map((post) => [post.id, post]));

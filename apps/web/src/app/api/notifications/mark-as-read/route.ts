@@ -1,4 +1,4 @@
-import { prisma, unreadNotificationCache } from "@asm/db";
+import { and, prisma, unreadNotificationCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -8,10 +8,9 @@ async function markAllAsRead() {
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  await prisma.notification.updateMany({
-    data: { read: true },
-    where: { read: false, recipientId: user.id },
-  });
+  await prisma.orm.public.Notifications.where((notification) =>
+    and(notification.read.eq(false), notification.recipientId.eq(user.id))
+  ).updateAndCount({ read: true });
   await unreadNotificationCache.reset(user.id);
   return Response.json({ success: true });
 }

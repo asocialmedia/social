@@ -8,8 +8,24 @@ export default defineConfig({
   globals: {
     Bun: "readonly",
   },
-  ignorePatterns: [...core.ignorePatterns, "scripts/**"],
+  ignorePatterns: [
+    ...core.ignorePatterns,
+    "scripts/**",
+    "packages/db/prisma/migrations/**",
+  ],
   overrides: [
+    {
+      files: ["packages/db/src/notification-type.ts"],
+      rules: {
+        "eslint/no-redeclare": "off",
+      },
+    },
+    {
+      files: ["packages/auth/src/core/prisma-adapter.ts"],
+      rules: {
+        "promise/prefer-await-to-callbacks": "off",
+      },
+    },
     {
       // Media-processing manipulates binary formats (bitstream hashing,
       // waveform views, pixel packing) where bitwise operators are the

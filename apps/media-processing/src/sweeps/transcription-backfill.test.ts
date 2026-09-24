@@ -22,7 +22,7 @@ const enqueuedIds: string[] = [];
 const semanticRefreshIds: string[] = [];
 
 mock.module("@asm/db", () => ({
-  Prisma: { DbNull: Symbol.for("test.DbNull") },
+  and: (...filters: unknown[]) => filters,
   enqueueMediaAnalyze: (
     id: string,
     options?: { semanticRefresh?: boolean }
@@ -40,11 +40,29 @@ mock.module("@asm/db", () => ({
   enqueueMediaScan: () => Promise.resolve(),
   globalKnowledgeGraph: {},
   prisma: {
-    media: {
-      findMany: () => Promise.resolve(candidateRows),
+    orm: {
+      public: {
+        PostMedia: {
+          select: () => ({
+            where: () => ({
+              all: () => Promise.resolve(candidateRows),
+              limit: () => ({
+                all: () => Promise.resolve(candidateRows),
+              }),
+              orderBy: () => ({
+                all: () => Promise.resolve(candidateRows),
+                limit: () => ({
+                  all: () => Promise.resolve(candidateRows),
+                }),
+              }),
+            }),
+          }),
+        },
+      },
     },
   },
   redis: {},
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 const {

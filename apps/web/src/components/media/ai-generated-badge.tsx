@@ -8,7 +8,6 @@
 // for special labels, so it reads as distinct from the orange action
 // buttons while staying unmistakably part of the system.
 
-import type { Media } from "@asm/db";
 import {
   Tooltip,
   TooltipContent,
@@ -19,6 +18,7 @@ import noMessageImage from "@assets/general/nomessage.png";
 import { Sparkles } from "lucide-react";
 import Image from "next/image";
 
+import type { Media } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface AiGeneratedBadgeProps {

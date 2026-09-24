@@ -27,6 +27,7 @@ import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog"
 import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
+import { getPostAttachments } from "@/lib/posts/post-normalize";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn } from "@/lib/utils";
@@ -81,11 +82,10 @@ export default function PostMoreButton({
   // Anyone may view alt text - it is reader accessibility info, not an
   // authoring or moderation surface. The toggle reveals it inline below the
   // media grid, so the entry only appears when something is described.
-  const hasAltText = (post.attachments ?? []).some(
-    (attachment) => attachment.altText
-  );
+  const attachments = getPostAttachments(post);
+  const hasAltText = attachments.some((attachment) => attachment.altText);
   const isAltRevealed = useAltRevealed(post.id);
-  const hasVideo = (post.attachments ?? []).some(
+  const hasVideo = attachments.some(
     (attachment) => attachment.type === "VIDEO"
   );
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
@@ -341,7 +341,7 @@ export default function PostMoreButton({
 
       <PostMetaEditorDialog
         mentions={(post.mentions ?? []).map(
-          (m) => m.user as unknown as UserData
+          (m) => (m as unknown as { user: UserData }).user
         )}
         onClose={handleCloseEditDialog}
         open={showEditDialog}

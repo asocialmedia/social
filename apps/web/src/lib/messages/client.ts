@@ -1,10 +1,9 @@
+import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type {
   MessageConversationData,
   MessageData,
   MessagePage,
-} from "@asm/db";
-
-import { uploadMediaFile } from "@/lib/media/media-upload-client";
+} from "@/lib/messages/types";
 
 import {
   encryptMessage,

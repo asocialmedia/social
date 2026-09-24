@@ -2,55 +2,170 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { GET } from "./route";
 
+interface QueryExpression {
+  field: string;
+  operator: string;
+  value?: unknown;
+}
+
+interface QueryCall {
+  limit?: number;
+  orderBy?: QueryExpression[];
+  where?: QueryExpression[];
+}
+
+interface SearchQuery {
+  all: () => Promise<Record<string, unknown>[]>;
+  limit: (value: number) => SearchQuery;
+  orderBy: (
+    predicate: (model: Record<string, unknown>) => unknown
+  ) => SearchQuery;
+  where: (
+    predicate: (model: Record<string, unknown>) => unknown
+  ) => SearchQuery;
+}
+
 const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: "u1" },
 }));
 
-let lastPostFindManyArgs: unknown = null;
-let _lastUserFindManyArgs: unknown = null;
+const postQueries: QueryCall[] = [];
+const userQueries: QueryCall[] = [];
 
-const mockPostFindMany = mock((args: unknown) => {
-  lastPostFindManyArgs = args;
-  return Promise.resolve([
+function createAccessor(path: string[] = []): Record<string, unknown> {
+  return new Proxy<Record<string, unknown>>(
+    {},
+    {
+      get(_target, property) {
+        if (typeof property !== "string") {
+          return;
+        }
+        const field = [...path, property].join(".");
+        return new Proxy<Record<string, unknown>>(
+          {},
+          {
+            get(_fieldTarget, operator) {
+              if (typeof operator !== "string") {
+                return;
+              }
+              return (value?: unknown) => {
+                let expressionValue = value;
+                if (
+                  (operator === "some" || operator === "none") &&
+                  typeof value === "function"
+                ) {
+                  expressionValue = value(createAccessor([...path, property]));
+                }
+                return { field, operator, value: expressionValue };
+              };
+            },
+          }
+        );
+      },
+    }
+  );
+}
+
+function flattenExpression(value: unknown): QueryExpression[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(flattenExpression);
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const expression = value as QueryExpression;
+  if (expression.operator === "some" || expression.operator === "none") {
+    return flattenExpression(expression.value);
+  }
+  return [expression];
+}
+
+function findExpression(
+  expressions: QueryExpression[],
+  field: string,
+  operator?: string
+): QueryExpression | undefined {
+  return expressions.find(
+    (expression) =>
+      expression.field === field &&
+      (operator === undefined || expression.operator === operator)
+  );
+}
+
+function createSearchQuery(
+  call: QueryCall,
+  rows: Record<string, unknown>[]
+): SearchQuery {
+  const query: SearchQuery = {
+    all: () => Promise.resolve(rows.map((row) => ({ ...row }))),
+    limit: (value) => {
+      call.limit = value;
+      return query;
+    },
+    orderBy: (predicate) => {
+      call.orderBy = flattenExpression(predicate(createAccessor()));
+      return query;
+    },
+    where: (predicate) => {
+      call.where = flattenExpression(predicate(createAccessor()));
+      return query;
+    },
+  };
+  return query;
+}
+
+function createPostRows(): Record<string, unknown>[] {
+  return [
     {
       aura: 50,
       content: "amazing viral gust",
+      createdAt: new Date("2026-09-20T00:00:00.000Z"),
       id: "p1",
       isGust: true,
     },
-  ]);
-});
+  ];
+}
 
-const mockUserFindMany = mock((args: unknown) => {
-  _lastUserFindManyArgs = args;
-  return Promise.resolve([
-    {
-      aura: 100,
-      displayName: "Alice",
-      id: "u1",
-      username: "alice",
-    },
-  ]);
-});
+let postRows = createPostRows();
+const userRows: Record<string, unknown>[] = [
+  {
+    aura: 100,
+    displayName: "Alice",
+    id: "u1",
+    username: "alice",
+  },
+];
 
-const mockHydrateViewCounts = mock((posts: unknown[]) =>
-  Promise.resolve(posts)
-);
-
-mock.module("@asm/db", () => ({
-  communityVisibilityWhere: () => ({}),
-  getPostDataInclude: () => ({ user: true }),
-  getUserDataSelect: () => ({ id: true }),
-  hydrateViewCounts: mockHydrateViewCounts,
-  prisma: {
-    post: {
-      findMany: mockPostFindMany,
-    },
-    user: {
-      findMany: mockUserFindMany,
+const mockPrisma = {
+  orm: {
+    public: {
+      Posts: {},
+      Users: {},
     },
   },
-  // Communities are surfaced alongside posts/users in the search response.
+};
+
+mock.module("@asm/db", () => ({
+  and: (...expressions: unknown[]) => expressions,
+  communityVisibilityWhere: () => () => ({
+    field: "communityVisibility",
+    operator: "eq",
+    value: "visible",
+  }),
+  getPostDataQuery: () => {
+    const call: QueryCall = {};
+    postQueries.push(call);
+    return createSearchQuery(call, postRows);
+  },
+  getUserDataQuery: () => {
+    const call: QueryCall = {};
+    userQueries.push(call);
+    return createSearchQuery(call, userRows);
+  },
+  hydrateViewCounts: mock((posts: unknown[]) => Promise.resolve(posts)),
+  mapPostData: (post: unknown) => post,
+  mapUserData: (user: unknown) => user,
+  prisma: mockPrisma,
   searchCommunitiesForSearch: () => Promise.resolve([]),
 }));
 
@@ -60,11 +175,9 @@ mock.module("@/lib/auth/session", () => ({
 
 describe("GET /api/explore/search", () => {
   beforeEach(() => {
-    lastPostFindManyArgs = null;
-    _lastUserFindManyArgs = null;
-    mockPostFindMany.mockClear();
-    mockUserFindMany.mockClear();
-    mockHydrateViewCounts.mockClear();
+    postQueries.length = 0;
+    userQueries.length = 0;
+    postRows = createPostRows();
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "u1" } }));
   });
@@ -77,73 +190,90 @@ describe("GET /api/explore/search", () => {
     const json = (await res.json()) as { posts: unknown[]; users: unknown[] };
     expect(json.posts).toEqual([]);
     expect(json.users).toEqual([]);
-    expect(mockPostFindMany).not.toHaveBeenCalled();
+    expect(postQueries).toHaveLength(0);
+    expect(userQueries).toHaveLength(0);
   });
 
-  test("filters by isGust: true when tab=gusts", async () => {
+  test("filters every Prisma 8 post query when tab=gusts", async () => {
     const req = new Request(
       "http://localhost:3000/api/explore/search?q=Viral&tab=gusts"
     );
     const res = await GET(req);
 
     expect(res.status).toBe(200);
-    const postArgs = lastPostFindManyArgs as {
-      where?: {
-        OR?: {
-          attachments?: { some: { OR?: Record<string, unknown>[] } };
-          content?: { contains?: string };
-          semanticTags?: { has?: string };
-          tags?: { some: { name: { contains?: string } } };
-        }[];
-        content?: { contains?: string };
-        isGust?: boolean;
-      };
-    };
-    const orBranches = postArgs?.where?.OR ?? [];
-    const contentContains =
-      postArgs?.where?.content?.contains ??
-      orBranches.find((item) => item.content?.contains)?.content?.contains;
-    // The raw query reaches content predicates untouched (mode: insensitive
-    // handles casing); the same mixed-case input must land here.
-    expect(contentContains).toBe("Viral");
-    expect(postArgs?.where?.isGust).toBe(true);
+    expect(postQueries).toHaveLength(6);
+    expect(userQueries).toHaveLength(3);
+    for (const query of postQueries) {
+      expect(query.limit).toBe(20);
+      expect(findExpression(query.where ?? [], "isGust", "eq")?.value).toBe(
+        true
+      );
+      expect(findExpression(query.where ?? [], "moderated", "eq")?.value).toBe(
+        false
+      );
+      expect(
+        findExpression(query.where ?? [], "rootPostId", "isNull")
+      ).toBeDefined();
+    }
 
-    // Every enrichment predicate in the OR chain must carry the query so a
-    // tag/transcript/OCR hit is impossible to miss. `contains` predicates
-    // are case-insensitive and carry the raw mixed-case query; the exact
-    // `has` predicates must be lowercased (array matching is case-sensitive),
-    // so the semanticTags branches verify normalization.
-    const postTagBranch = orBranches.find((item) => item.tags);
-    expect(postTagBranch?.tags?.some?.name?.contains).toBe("Viral");
-
-    const postSemanticBranch = orBranches.find((item) => item.semanticTags);
-    expect(postSemanticBranch?.semanticTags?.has).toBe("viral");
-
-    const attachmentBranch = orBranches.find((item) => item.attachments);
-    const attachmentOr = attachmentBranch?.attachments?.some?.OR ?? [];
-    expect(attachmentOr.find((item) => item.transcript)?.transcript).toEqual({
-      contains: "Viral",
-      mode: "insensitive",
-    });
-    expect(attachmentOr.find((item) => item.ocrText)?.ocrText).toEqual({
-      contains: "Viral",
-      mode: "insensitive",
-    });
     expect(
-      attachmentOr.find((item) => item.semanticTags)?.semanticTags
-    ).toEqual({ has: "viral" });
+      findExpression(postQueries[0].where ?? [], "content", "ilike")?.value
+    ).toBe("%Viral%");
+    expect(
+      findExpression(postQueries[1].where ?? [], "postToTags.tag.name", "ilike")
+        ?.value
+    ).toBe("%Viral%");
+    expect(
+      findExpression(postQueries[2].where ?? [], "semanticTags", "in")?.value
+    ).toEqual([["viral"]]);
+    expect(
+      findExpression(
+        postQueries[3].where ?? [],
+        "postMedias.transcript",
+        "ilike"
+      )?.value
+    ).toBe("%Viral%");
+    expect(
+      findExpression(postQueries[4].where ?? [], "postMedias.ocrText", "ilike")
+        ?.value
+    ).toBe("%Viral%");
+    expect(
+      findExpression(
+        postQueries[5].where ?? [],
+        "postMedias.semanticTags",
+        "in"
+      )?.value
+    ).toEqual([["viral"]]);
   });
 
-  test("orders by aura desc when tab=trending", async () => {
+  test("orders returned posts by aura when tab=trending", async () => {
+    postRows = [
+      {
+        aura: 50,
+        content: "middle",
+        createdAt: new Date("2026-09-21T00:00:00.000Z"),
+        id: "p1",
+      },
+      {
+        aura: 100,
+        content: "top",
+        createdAt: new Date("2026-09-20T00:00:00.000Z"),
+        id: "p2",
+      },
+      {
+        aura: 25,
+        content: "bottom",
+        createdAt: new Date("2026-09-22T00:00:00.000Z"),
+        id: "p3",
+      },
+    ];
     const req = new Request(
       "http://localhost:3000/api/explore/search?q=trend&tab=trending"
     );
     const res = await GET(req);
 
     expect(res.status).toBe(200);
-    const postArgs = lastPostFindManyArgs as {
-      orderBy?: { aura?: string }[];
-    };
-    expect(postArgs?.orderBy?.[0]?.aura).toBe("desc");
+    const json = (await res.json()) as { posts: { id: string }[] };
+    expect(json.posts.map((post) => post.id)).toEqual(["p2", "p1", "p3"]);
   });
 });

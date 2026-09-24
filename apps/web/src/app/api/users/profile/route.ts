@@ -1,5 +1,5 @@
 import { updateUserProfileSchema } from "@asm/auth/validation";
-import { getPrivateUserSelect, prisma } from "@asm/db";
+import { fromPrismaDateTime, getPrivateUserQuery, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -48,25 +48,30 @@ export async function POST(request: Request) {
       );
     }
 
-    const updatedUser = await prisma.user.update({
-      data: {
-        bio: parsedValues.bio,
-        customDomain: parsedValues.customDomain || null,
-        displayName: parsedValues.displayName,
-        githubUsername: parsedValues.githubUsername || null,
-        linkedinUsername: parsedValues.linkedinUsername || null,
-        redditUsername: parsedValues.redditUsername || null,
-        twitterUsername: parsedValues.twitterUsername || null,
-      },
-      select: getPrivateUserSelect(userId),
-      where: { id: userId },
+    await prisma.orm.public.Users.where({ id: userId }).update({
+      bio: parsedValues.bio,
+      customDomain: parsedValues.customDomain || null,
+      displayName: parsedValues.displayName,
+      githubUsername: parsedValues.githubUsername || null,
+      linkedinUsername: parsedValues.linkedinUsername || null,
+      redditUsername: parsedValues.redditUsername || null,
+      twitterUsername: parsedValues.twitterUsername || null,
     });
+    const updatedUser = await getPrivateUserQuery(prisma.orm, userId)
+      .where({ id: userId })
+      .first();
+    if (!updatedUser) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
 
     // Avatar updates never happen here: profile edits change text fields only,
     // and avatar files flow through the media pipeline's own link route.
     return NextResponse.json({
       avatar: null,
-      user: updatedUser,
+      user: {
+        ...updatedUser,
+        createdAt: fromPrismaDateTime(updatedUser.createdAt),
+      },
     });
   } catch (error) {
     console.error("Profile update error:", error);

@@ -1,14 +1,29 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { nextRatchetIndex } from "./server";
 
 const mockKeyFindUnique = mock(() => null);
 const mockMessageCount = mock(() => 0);
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    message: { count: mockMessageCount },
-    messageConversationKey: { findUnique: mockKeyFindUnique },
+    orm: {
+      public: {
+        MessageConversationKeys: {
+          select: () => ({ where: () => ({ first: mockKeyFindUnique }) }),
+        },
+        Messages: {
+          where: () => ({
+            aggregate: (
+              aggregate: (value: { count: () => number }) => unknown
+            ) => aggregate({ count: mockMessageCount }),
+          }),
+        },
+      },
+    },
   },
 }));
 

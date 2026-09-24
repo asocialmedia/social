@@ -13,10 +13,9 @@ export async function GET(
 ) {
   const { userId } = await context.params;
 
-  const user = await prisma.user.findUnique({
-    select: { bannerKey: true },
-    where: { id: userId },
-  });
+  const user = await prisma.orm.public.Users.select("bannerKey")
+    .where({ id: userId })
+    .first();
 
   if (!user?.bannerKey) {
     return new NextResponse("Banner not found", { status: 404 });

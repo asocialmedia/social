@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma, toPrismaDateTime } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -17,29 +17,47 @@ export async function GET(request: Request) {
       return Response.json({ users: [] });
     }
 
-    const users = await prisma.user.findMany({
-      select: {
-        avatarUrl: true,
-        displayName: true,
-        id: true,
-        username: true,
-      },
-      take: 10,
-      where: {
-        OR: [
-          { username: { contains: query, mode: "insensitive" } },
-          { displayName: { contains: query, mode: "insensitive" } },
-          {
-            usernameAliases: {
-              some: {
-                expiresAt: { gt: new Date() },
-                username: { contains: query, mode: "insensitive" },
-              },
-            },
-          },
-        ],
-      },
-    });
+    const pattern = `%${query}%`;
+    const [usernameMatches, displayNameMatches, aliasRows] = await Promise.all([
+      prisma.orm.public.Users.select(
+        "avatarUrl",
+        "displayName",
+        "id",
+        "username"
+      )
+        .where((candidate) => candidate.username.ilike(pattern))
+        .limit(10)
+        .all(),
+      prisma.orm.public.Users.select(
+        "avatarUrl",
+        "displayName",
+        "id",
+        "username"
+      )
+        .where((candidate) => candidate.displayName.ilike(pattern))
+        .limit(10)
+        .all(),
+      prisma.orm.public.UsernameAliases.where((alias) =>
+        and(
+          alias.expiresAt.gt(toPrismaDateTime(new Date())),
+          alias.username.ilike(pattern)
+        )
+      )
+        .include("user", (includedUser) =>
+          includedUser.select("avatarUrl", "displayName", "id", "username")
+        )
+        .all(),
+    ]);
+    const users = [
+      ...usernameMatches,
+      ...displayNameMatches,
+      ...aliasRows.flatMap((alias) => (alias.user ? [alias.user] : [])),
+    ]
+      .filter(
+        (candidate, index, all) =>
+          all.findIndex((other) => other.id === candidate.id) === index
+      )
+      .slice(0, 10);
 
     return Response.json({ users });
   } catch (error) {

@@ -18,6 +18,7 @@ import { useState, useSyncExternalStore } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { PostInlineContent } from "@/components/posts/content/post-inline-content";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -85,7 +86,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
   }
 
   const followerState: FollowerInfo = {
-    followers: user._count?.followers ?? 0,
+    followers: getUserCount(user, "followers"),
     isFollowedByUser: user.followers
       ? !!user.followers.some(
           ({ followerId }) => followerId === loggedInUser?.id
@@ -207,7 +208,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
                 <TooltipStat
                   icon={UserPlus}
                   label="Following"
-                  value={user._count?.following ?? 0}
+                  value={getUserCount(user, "following")}
                 />
                 <TooltipStat
                   filled={false}

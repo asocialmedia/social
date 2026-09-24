@@ -3,7 +3,7 @@
 // type, enforces resource limits, and runs antivirus. Only scanned, verified
 // bytes are promoted out of quarantine.
 
-import { enqueueMediaProcess, Prisma, prisma } from "@asm/db";
+import { and, enqueueMediaProcess, prisma, toPrismaDateTime } from "@asm/db";
 import {
   MEDIA_ENCODER_VERSION,
   MEDIA_PIPELINE_VERSION,
@@ -87,16 +87,15 @@ async function rejectMedia(
   failureCode: string,
   detail: string
 ): Promise<ScanOutcome> {
-  const row = await prisma.media.findUnique({
-    select: {
-      commentId: true,
-      originalKey: true,
-      postId: true,
-      size: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const row = await prisma.orm.public.PostMedia.select(
+    "commentId",
+    "originalKey",
+    "postId",
+    "size",
+    "userId"
+  )
+    .where({ id: mediaId })
+    .first();
   // Quarantined rejected bytes never linger - but ONLY true quarantine
   // copies. Backfilled legacy rows point originalKey at the live serving
   // object; deleting that on a rejection would break every post using it.
@@ -113,16 +112,13 @@ async function rejectMedia(
   if (row) {
     await refundStorageQuota(row.userId, row.size);
   }
-  await prisma.media.updateMany({
-    data: {
-      commentId: null,
-      failureCode,
-      failureDetail: { detail },
-      postId: null,
-      rejectedReason: reason,
-      status: "REJECTED",
-    },
-    where: { id: mediaId },
+  await prisma.orm.public.PostMedia.where({ id: mediaId }).updateAndCount({
+    commentId: null,
+    failureCode,
+    failureDetail: { detail },
+    postId: null,
+    rejectedReason: reason,
+    status: "REJECTED",
   });
   mediaLogger.warn({ mediaId, reason }, "media rejected during scan");
   return { detail, outcome: "rejected" };
@@ -135,7 +131,7 @@ export function processMediaScan(
   return withSpan(
     "job.media-scan",
     async () => {
-      const media = await prisma.media.findUnique({ where: { id: mediaId } });
+      const media = await prisma.orm.public.PostMedia.first({ id: mediaId });
       if (!media || !media.originalKey) {
         return { detail: "row or object key missing", outcome: "skipped" };
       }
@@ -158,14 +154,19 @@ export function processMediaScan(
       // under quarantine/, so rescanning is the only recovery path. A row
       // already carrying a published key in PROCESSING is being actively
       // published by a live worker and stays off-limits (guarded below).
-      const claim = await prisma.media.updateMany({
-        data: { attempts: { increment: 1 }, status: "SCANNING" },
-        where:
+      const claim = await prisma.orm.public.PostMedia.where((candidate) =>
+        and(
+          candidate.id.eq(mediaId),
+          candidate.attempts.eq(media.attempts),
           media.status === "PROCESSING" && !media.publishedKey
-            ? { id: mediaId, publishedKey: null, status: "PROCESSING" }
-            : { id: mediaId, status: "QUARANTINED" },
-      });
-      if (claim.count === 0) {
+            ? and(
+                candidate.publishedKey.isNull(),
+                candidate.status.eq("PROCESSING")
+              )
+            : candidate.status.eq("QUARANTINED")
+        )
+      ).updateAndCount({ attempts: media.attempts + 1, status: "SCANNING" });
+      if (claim === 0) {
         return {
           detail: `status ${media.status} not claimable`,
           outcome: "skipped",
@@ -338,11 +339,10 @@ export function processMediaScan(
         // 4b. Publish gate: promote verified bytes into the media prefix,
         // then flip SCANNING -> PROCESSING -> READY with conditional updates
         // so a concurrent mutation can never publish twice.
-        const firstFlip = await prisma.media.updateMany({
-          data: { status: "PROCESSING" },
-          where: { id: mediaId, status: "SCANNING" },
-        });
-        if (firstFlip.count === 0) {
+        const firstFlip = await prisma.orm.public.PostMedia.where((candidate) =>
+          and(candidate.id.eq(mediaId), candidate.status.eq("SCANNING"))
+        ).updateAndCount({ status: "PROCESSING" });
+        if (firstFlip === 0) {
           return { detail: "lost claim", outcome: "skipped" };
         }
 
@@ -543,10 +543,9 @@ export function processMediaScan(
         // below: displayName + username are the human-readable attribution
         // embedded into every stamped manifest and snapshotted on the row.
         const uploaderRecord = media.userId
-          ? await prisma.user.findUnique({
-              select: { displayName: true, username: true },
-              where: { id: media.userId },
-            })
+          ? await prisma.orm.public.Users.select("displayName", "username")
+              .where({ id: media.userId })
+              .first()
           : null;
         const uploaderDisplayName = uploaderRecord?.displayName ?? null;
         const uploaderUsername = uploaderRecord?.username ?? null;
@@ -622,76 +621,77 @@ export function processMediaScan(
         // row is the authoritative provenance source. The duplicate lookup
         // is a detection signal only (same SHA-256 = byte-identical upload);
         // it says nothing about ownership.
-        const existingDuplicate = await prisma.media.findFirst({
-          select: { id: true },
-          where: {
-            id: { not: mediaId },
-            publishedKey: { not: null },
-            sha256,
-          },
-        });
+        const existingDuplicate = await prisma.orm.public.PostMedia.select("id")
+          .where((candidate) =>
+            and(
+              candidate.id.neq(mediaId),
+              candidate.publishedKey.isNotNull(),
+              candidate.sha256.eq(sha256)
+            )
+          )
+          .first();
 
         await s3.write(targetKey, Bun.file(publishPath));
 
-        const secondFlip = await prisma.media.updateMany({
-          data: {
-            aiGenerated: provenance ? provenance.verdict.aiGenerated : null,
-            aiProvenance: provenance
-              ? (structuredClone({
-                  ...provenance.verdict,
-                  detectedAt: new Date().toISOString(),
-                  stamped,
-                }) as object)
-              : Prisma.DbNull,
-            detectedMime: detected.mime,
-            // True when the published original had its metadata containers
-            // structurally removed above (image structural strip, image
-            // re-encode fallback, or the av remux scrub); derivatives are
-            // always stripped by re-encoding regardless.
-            duplicateOf: existingDuplicate?.id ?? null,
-            encoderVersion: MEDIA_ENCODER_VERSION,
-            exifStripped: exifStripped || avStripped,
-            pipelineVersion: MEDIA_PIPELINE_VERSION,
-            platform: "asocialmedia.cc",
-            processedAt: new Date(),
-            publishedKey: targetKey,
-            sha256,
-            size: totalBytes,
-            status: "READY",
-            techMetadata: {
-              avScanned: scanned,
-              container: detected.container,
-              family: detected.family,
-              ...(capturedOrientation
-                ? { orientation: capturedOrientation }
-                : {}),
-              ...(provenance
-                ? {
-                    c2pa: {
-                      claimGenerator: provenance.claimGenerator,
-                      generators: provenance.verdict.generators,
-                      manifestCount: provenance.verdict.c2paPresent ? 1 : 0,
-                    },
-                  }
-                : {}),
-            },
-            uploaderDisplayName,
-            uploaderUsername,
+        const secondFlip = await prisma.orm.public.PostMedia.where(
+          (candidate) =>
+            and(candidate.id.eq(mediaId), candidate.status.eq("PROCESSING"))
+        ).updateAndCount({
+          aiGenerated: provenance ? provenance.verdict.aiGenerated : null,
+          aiProvenance: provenance
+            ? {
+                aiGenerated: provenance.verdict.aiGenerated,
+                c2paPresent: provenance.verdict.c2paPresent,
+                detectedAt: new Date().toISOString(),
+                evidence: provenance.verdict.evidence.map((item) => ({
+                  detail: item.detail,
+                  kind: item.kind,
+                  source: item.source,
+                })),
+                generators: [...provenance.verdict.generators],
+                stamped,
+              }
+            : null,
+          detectedMime: detected.mime,
+          duplicateOf: existingDuplicate?.id ?? null,
+          encoderVersion: MEDIA_ENCODER_VERSION,
+          exifStripped: exifStripped || avStripped,
+          pipelineVersion: MEDIA_PIPELINE_VERSION,
+          platform: "asocialmedia.cc",
+          processedAt: toPrismaDateTime(new Date()),
+          publishedKey: targetKey,
+          sha256,
+          size: totalBytes,
+          status: "READY",
+          techMetadata: {
+            avScanned: scanned,
+            container: detected.container,
+            family: detected.family,
+            ...(capturedOrientation
+              ? { orientation: capturedOrientation }
+              : {}),
+            ...(provenance
+              ? {
+                  c2pa: {
+                    claimGenerator: provenance.claimGenerator,
+                    generators: provenance.verdict.generators,
+                    manifestCount: provenance.verdict.c2paPresent ? 1 : 0,
+                  },
+                }
+              : {}),
           },
-          where: { id: mediaId, status: "PROCESSING" },
+          uploaderDisplayName,
+          uploaderUsername,
         });
 
-        if (secondFlip.count > 0) {
+        if (secondFlip > 0) {
           // Dual-write legacy columns so today's serving route renders this
           // media immediately; variant serving supersedes in phase 2 without
           // touching this contract.
-          await prisma.media.update({
-            data: {
-              key: targetKey,
-              mimeType: detected.mime,
-              url: `${workerEnv.ASMOB_ENDPOINT}/${workerEnv.ASMOB_BUCKET}/${targetKey}`,
-            },
-            where: { id: mediaId },
+          await prisma.orm.public.PostMedia.where({ id: mediaId }).update({
+            key: targetKey,
+            mimeType: detected.mime,
+            url: `${workerEnv.ASMOB_ENDPOINT}/${workerEnv.ASMOB_BUCKET}/${targetKey}`,
           });
         }
 
@@ -743,13 +743,12 @@ export function processMediaScan(
         // QUARANTINED so BullMQ's next attempt re-scans cleanly. Terminal
         // failure marking happens in the worker's failed handler once BullMQ
         // exhausts attempts.
-        await prisma.media.updateMany({
-          data: {
-            failureCode: "scan-failed",
-            failureDetail: { message: String(error) },
-            status: "QUARANTINED",
-          },
-          where: { id: mediaId, status: "SCANNING" },
+        await prisma.orm.public.PostMedia.where((candidate) =>
+          and(candidate.id.eq(mediaId), candidate.status.eq("SCANNING"))
+        ).updateAndCount({
+          failureCode: "scan-failed",
+          failureDetail: { message: String(error) },
+          status: "QUARANTINED",
         });
         throw error;
       } finally {

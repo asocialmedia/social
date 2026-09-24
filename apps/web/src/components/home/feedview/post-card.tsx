@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, TagWithCount, UserData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { CornerDownRight, Eye, MessageSquare } from "lucide-react";
@@ -58,21 +58,6 @@ import ShareButton from "./share-button";
 export { isInteractiveTarget } from "@/lib/interactive-target";
 
 type ExtendedPostData = PostData & {
-  community?: {
-    accentColor: string;
-    id: string;
-    name: string;
-    slug: string;
-  } | null;
-  communityShare?: {
-    community: {
-      accentColor: string;
-      id: string;
-      name: string;
-      slug: string;
-    };
-    sourcePostId: string;
-  } | null;
   hnStoryShare?: {
     storyId: number;
     title: string;
@@ -106,7 +91,7 @@ interface PostCardProps {
 interface PostHeaderProps {
   authorAvatarUrl?: string | null;
   authorBadge?: string | null;
-  authorBadges?: string[] | null;
+  authorBadges?: readonly string[] | null;
   authorCommunityRoles?: readonly { role: string }[] | null;
   authorDisplayName: string;
   authorProfileHref: string;
@@ -186,7 +171,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               <FollowButton
                 className="h-7 px-3 text-xs"
                 initialState={{
-                  followers: post.user._count?.followers ?? 0,
+                  followers: post.user.followers.length,
                   isFollowedByUser: post.user.followers.length > 0,
                 }}
                 userId={post.user.id}
@@ -507,7 +492,15 @@ const PostContent: React.FC<PostContentProps> = ({
                   the source post and community. */}
               {post.communityShare ? (
                 <CommunityShareCard
-                  community={post.communityShare.community}
+                  community={{
+                    accentColor: post.community?.accentColor ?? "",
+                    id:
+                      post.community?.id ?? post.communityShare.community.slug,
+                    name:
+                      post.community?.name ??
+                      post.communityShare.community.slug,
+                    slug: post.communityShare.community.slug,
+                  }}
                   sourcePostId={post.communityShare.sourcePostId}
                 />
               ) : null}
@@ -540,10 +533,11 @@ const PostContent: React.FC<PostContentProps> = ({
                 <PostMeta
                   content={post.content}
                   mentions={
-                    post.mentions?.map((m) => m.user as unknown as UserData) ??
-                    []
+                    post.mentions?.map(
+                      (m) => (m as unknown as { user: UserData }).user
+                    ) ?? []
                   }
-                  tags={(post.tags ?? []) as TagWithCount[]}
+                  tags={post.tags ?? []}
                 />
               ) : null}
             </>
@@ -756,7 +750,7 @@ const RespondButton = ({ post }: RespondButtonProps) => {
           attachments: post.attachments,
           avatarUrl: post.user?.avatarUrl ?? null,
           badge: post.user?.badge,
-          badges: post.user?.badges,
+          badges: [...(post.user?.badges ?? [])],
           communityMemberships: post.user?.communityMemberships,
           content: post.content,
           createdAt: post.createdAt,

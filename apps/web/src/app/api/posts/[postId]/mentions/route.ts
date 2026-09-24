@@ -16,9 +16,7 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { postId } = await ctx.params;
-  const mentions = await prisma.mention.findMany({
-    where: { postId },
-  });
+  const mentions = await prisma.orm.public.Mentions.where({ postId }).all();
   return Response.json(mentions);
 }
 
@@ -41,10 +39,9 @@ export async function POST(
       ? userIds.filter((id) => id !== user.id)
       : [];
 
-    const post = await prisma.post.findUnique({
-      select: { userId: true },
-      where: { id: postId },
-    });
+    const post = await prisma.orm.public.Posts.select("userId")
+      .where({ id: postId })
+      .first();
 
     if (!post) {
       return Response.json({ error: "Post not found" }, { status: 404 });
@@ -55,28 +52,19 @@ export async function POST(
     }
 
     const notificationEvents = newNotificationEvents();
-    await prisma.$transaction(async (tx) => {
-      await tx.mention.deleteMany({
-        where: { postId },
-      });
+    await prisma.transaction(async (tx) => {
+      await tx.orm.public.Mentions.where({ postId }).delete();
 
       const mentionPromises = filteredUserIds.map((userId: string) =>
-        tx.mention.create({
-          data: {
-            postId,
-            userId,
-          },
-        })
+        tx.orm.public.Mentions.create({ postId, userId })
       );
 
       const notificationPromises = filteredUserIds.map((userId: string) =>
-        tx.notification.create({
-          data: {
-            issuerId: user.id,
-            postId,
-            recipientId: userId,
-            type: NotificationType.MENTION,
-          },
+        tx.orm.public.Notifications.select("id", "recipientId").create({
+          _type: NotificationType.MENTION,
+          issuerId: user.id,
+          postId,
+          recipientId: userId,
         })
       );
 
@@ -94,21 +82,11 @@ export async function POST(
     // Committed: now the worker can see the rows it is told about.
     flushNotificationEvents(notificationEvents, "mention");
 
-    const updatedMentions = await prisma.mention.findMany({
-      include: {
-        user: {
-          select: {
-            avatarUrl: true,
-            displayName: true,
-            id: true,
-            username: true,
-          },
-        },
-      },
-      where: {
-        postId,
-      },
-    });
+    const updatedMentions = await prisma.orm.public.Mentions.where({ postId })
+      .include("user", (includedUser) =>
+        includedUser.select("avatarUrl", "displayName", "id", "username")
+      )
+      .all();
 
     return Response.json({ mentions: updatedMentions.map((m) => m.user) });
   } catch (error) {

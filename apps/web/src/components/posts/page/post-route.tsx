@@ -1,4 +1,9 @@
-import { getPostAncestors, getPostDataInclude, prisma } from "@asm/db";
+import {
+  getPostAncestors,
+  getPostDataQuery,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -38,26 +43,20 @@ export const getPost = cache(
     loggedInUser: string,
     identity: PostMatchIdentity = {}
   ) => {
-    let post = await prisma.post.findUnique({
-      include: getPostDataInclude(loggedInUser),
-      where: {
-        id: postId,
-      },
-    });
+    const postQuery = getPostDataQuery(prisma.orm, loggedInUser);
+    const postRow = await postQuery.where({ id: postId }).first();
+    let post = postRow ? mapPostData(postRow) : null;
 
     if (!post && postId.length >= 8) {
       // The 8-char short id is a cuid timestamp prefix, so two posts created in
       // the same millisecond share it. Fetch the candidates and let the slug
       // (or the requested media row) pick the intended one, instead of 404ing
       // on an ambiguous prefix.
-      const matches = await prisma.post.findMany({
-        include: getPostDataInclude(loggedInUser),
-        take: POST_MATCH_CANDIDATE_LIMIT,
-        where: {
-          id: { startsWith: postId },
-        },
-      });
-      post = selectPostMatch(matches, identity);
+      const matches = await postQuery
+        .where((candidate) => candidate.id.ilike(`${postId}%`))
+        .limit(POST_MATCH_CANDIDATE_LIMIT)
+        .all();
+      post = selectPostMatch(matches.map(mapPostData), identity);
     }
 
     if (!post) {

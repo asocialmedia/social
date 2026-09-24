@@ -3,6 +3,12 @@ node_modules
 .pnp.js
 strix_runs/
 .claude
+.agents
+.cursor
+.devin
+packages/db/.agents
+packages/db/.cursor
+packages/db/.devin
 .dev-init
 .env
 .env.local
@@ -19,6 +25,7 @@ test-timings.json
 docs/
 .next/
 out/
+tmp/
 build
 dist
 .init-complete

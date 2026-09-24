@@ -1,7 +1,8 @@
 import { clientLog } from "@asm/config/debug";
-import type { Tag } from "@asm/db";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
+
+import type { Tag } from "@/lib/types";
 
 interface TagResponse {
   tags: string[];

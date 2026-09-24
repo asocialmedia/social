@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -21,13 +21,11 @@ export async function POST(request: Request) {
     return Response.json({ bookmarked: {} });
   }
 
-  const bookmarks = await prisma.hNBookmark.findMany({
-    select: { storyId: true },
-    where: {
-      storyId: { in: storyIds },
-      userId: user.id,
-    },
-  });
+  const bookmarks = await prisma.orm.public.HNBookmark.select("storyId")
+    .where((bookmark) =>
+      and(bookmark.storyId.in(storyIds), bookmark.userId.eq(user.id))
+    )
+    .all();
 
   const bookmarked: Record<number, boolean> = {};
   for (const bookmark of bookmarks) {

@@ -1,5 +1,5 @@
 import type { BookmarkCountInfo } from "@asm/db";
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -11,9 +11,25 @@ export async function GET() {
   const userId = session.user.id;
 
   const [postBookmarks, gustBookmarks, hnBookmarks] = await Promise.all([
-    prisma.bookmark.count({ where: { post: { isGust: false }, userId } }),
-    prisma.bookmark.count({ where: { post: { isGust: true }, userId } }),
-    prisma.hNBookmark.count({ where: { userId } }),
+    prisma.orm.public.Bookmarks.where((bookmark) =>
+      and(
+        bookmark.post.some((post) => post.isGust.eq(false)),
+        bookmark.userId.eq(userId)
+      )
+    )
+      .aggregate((aggregate) => ({ count: aggregate.count() }))
+      .then((result) => result.count),
+    prisma.orm.public.Bookmarks.where((bookmark) =>
+      and(
+        bookmark.post.some((post) => post.isGust.eq(true)),
+        bookmark.userId.eq(userId)
+      )
+    )
+      .aggregate((aggregate) => ({ count: aggregate.count() }))
+      .then((result) => result.count),
+    prisma.orm.public.HNBookmark.where({ userId })
+      .aggregate((aggregate) => ({ count: aggregate.count() }))
+      .then((result) => result.count),
   ]);
 
   return Response.json({

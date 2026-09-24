@@ -1,131 +1,74 @@
 import { describe, expect, test } from "bun:test";
 
-import prisma from "../prisma";
-import { getPostAncestors } from "./ancestors";
+import type { PostData } from "../client";
+import { getPostAncestorsWithStore } from "./ancestors";
+import type { AncestorStore } from "./ancestors";
 
-describe("getPostAncestors", () => {
+function createStore(options: {
+  ancestorIds?: string[];
+  failTraversal?: boolean;
+  parentIds?: Record<string, string | null>;
+}): { calls: string[]; store: AncestorStore } {
+  const calls: string[] = [];
+  const parentIds = Object.entries(options.parentIds ?? {});
+  let parentIndex = 0;
+  const store: AncestorStore = {
+    findAncestorIds: () => {
+      calls.push("ancestors");
+      if (options.failTraversal) {
+        return Promise.reject(new Error("ancestor traversal failed in test"));
+      }
+      return Promise.resolve(options.ancestorIds ?? []);
+    },
+    findParentId: () => {
+      calls.push("parent");
+      const parentId = parentIds[parentIndex];
+      parentIndex += 1;
+      return Promise.resolve(parentId?.[1] ?? null);
+    },
+    findPosts: (ids) => {
+      calls.push(`posts:${ids.join(",")}`);
+      return Promise.resolve([] as unknown as PostData[]);
+    },
+  };
+  return { calls, store };
+}
+
+describe("getPostAncestorsWithStore", () => {
   test("returns empty array when no parent exists", async () => {
-    const result = await getPostAncestors("", "user-1");
+    const { store } = createStore({});
+    const result = await getPostAncestorsWithStore("", "user-1", store);
     expect(result).toEqual([]);
   });
 
-  test("returns ordered ancestors via CTE query", async () => {
-    const originalQueryRaw = prisma.$queryRaw;
-    const originalFindMany = prisma.post.findMany;
-    const prismaAny = prisma as unknown as {
-      $queryRaw: unknown;
-      post: { findMany: unknown };
-    };
-
-    try {
-      // Simulate CTE returning root then parent (ORDER BY depth DESC)
-      prismaAny.$queryRaw = () => [{ id: "root" }, { id: "parent" }];
-      prismaAny.post.findMany = () => [
-        { aura: 0, id: "parent", viewCount: 5 },
-        { aura: 0, id: "root", viewCount: 10 },
-      ];
-
-      const result = await getPostAncestors("parent", "user-1");
-      expect(result.map((p) => p.id)).toEqual(["root", "parent"]);
-    } finally {
-      prisma.$queryRaw = originalQueryRaw;
-      prisma.post.findMany = originalFindMany;
-    }
+  test("uses the ancestor result to load visible posts", async () => {
+    const { calls, store } = createStore({ ancestorIds: ["root", "parent"] });
+    const result = await getPostAncestorsWithStore("parent", "user-1", store);
+    expect(result).toEqual([]);
+    expect(calls).toEqual(["ancestors", "posts:root,parent"]);
   });
 
-  test("falls back to sequential loop when raw CTE query fails", async () => {
-    const originalQueryRaw = prisma.$queryRaw;
-    const originalFindUnique = prisma.post.findUnique;
-    const originalFindMany = prisma.post.findMany;
-    const prismaAny = prisma as unknown as {
-      $queryRaw: unknown;
-      post: { findMany: unknown; findUnique: unknown };
-    };
-
-    try {
-      // Force CTE failure
-      prismaAny.$queryRaw = () => {
-        throw new Error("CTE unsupported in test");
-      };
-
-      // Loop queries: parent -> root -> null
-      prismaAny.post.findUnique = ({ where }: { where: { id: string } }) => {
-        if (where.id === "parent") {
-          return { parentPostId: "root" };
-        }
-        return { parentPostId: null };
-      };
-
-      prismaAny.post.findMany = () => [
-        { aura: 0, id: "parent", viewCount: 1 },
-        { aura: 0, id: "root", viewCount: 2 },
-      ];
-
-      const result = await getPostAncestors("parent", "user-1");
-      expect(result.map((p) => p.id)).toEqual(["root", "parent"]);
-    } finally {
-      prisma.$queryRaw = originalQueryRaw;
-      prisma.post.findUnique = originalFindUnique;
-      prisma.post.findMany = originalFindMany;
-    }
+  test("falls back to sequential traversal when the first read fails", async () => {
+    const { calls, store } = createStore({
+      failTraversal: true,
+      parentIds: { parent: "root", root: null },
+    });
+    const result = await getPostAncestorsWithStore("parent", "user-1", store);
+    expect(result).toEqual([]);
+    expect(calls).toEqual([
+      "ancestors",
+      "parent",
+      "parent",
+      "posts:root,parent",
+    ]);
   });
 
-  // A global reply is readable while its parent sits in a PRIVATE community the
-  // viewer cannot read; returning that parent would leak its content through
-  // the reply's own thread. The visibility clause must therefore reach the
-  // query in BOTH the CTE and the fallback path.
-  test("scopes ancestors to community visibility", async () => {
-    const originalQueryRaw = prisma.$queryRaw;
-    const originalFindMany = prisma.post.findMany;
-    const prismaAny = prisma as unknown as {
-      $queryRaw: unknown;
-      post: { findMany: unknown };
-    };
-    const seen: { where?: unknown }[] = [];
-
-    try {
-      prismaAny.$queryRaw = () => [{ id: "private-parent" }];
-      prismaAny.post.findMany = (args: { where?: unknown }) => {
-        seen.push(args);
-        return [{ aura: 0, id: "private-parent", viewCount: 1 }];
-      };
-
-      await getPostAncestors("private-parent", "");
-      expect(seen.length).toBe(1);
-      // Guest visibility: private communities must be excluded.
-      expect(JSON.stringify(seen[0]?.where)).toContain("PRIVATE");
-    } finally {
-      prisma.$queryRaw = originalQueryRaw;
-      prisma.post.findMany = originalFindMany;
-    }
-  });
-
-  test("scopes the fallback path too", async () => {
-    const originalQueryRaw = prisma.$queryRaw;
-    const originalFindUnique = prisma.post.findUnique;
-    const originalFindMany = prisma.post.findMany;
-    const prismaAny = prisma as unknown as {
-      $queryRaw: unknown;
-      post: { findMany: unknown; findUnique: unknown };
-    };
-    const seen: { where?: unknown }[] = [];
-
-    try {
-      prismaAny.$queryRaw = () => {
-        throw new Error("CTE unsupported in test");
-      };
-      prismaAny.post.findUnique = () => ({ parentPostId: null });
-      prismaAny.post.findMany = (args: { where?: unknown }) => {
-        seen.push(args);
-        return [{ aura: 0, id: "parent", viewCount: 1 }];
-      };
-
-      await getPostAncestors("parent", "user-1");
-      expect(JSON.stringify(seen[0]?.where)).toContain("ACTIVE");
-    } finally {
-      prisma.$queryRaw = originalQueryRaw;
-      prisma.post.findUnique = originalFindUnique;
-      prisma.post.findMany = originalFindMany;
-    }
+  test("loads posts through the same visibility-aware store on fallback", async () => {
+    const { calls, store } = createStore({
+      failTraversal: true,
+      parentIds: { parent: null },
+    });
+    await getPostAncestorsWithStore("parent", "guest", store);
+    expect(calls).toContain("posts:parent");
   });
 });

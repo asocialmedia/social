@@ -1,5 +1,5 @@
 // oxlint-disable next/no-img-element -- Satori image generation requires native img elements
-import { prisma } from "@asm/db";
+import { fromPrismaDateTime, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
@@ -31,47 +31,71 @@ async function getPostForCard(postId: string) {
   cacheLife("hours");
   cacheTag("og-post-card");
 
-  const select = {
-    _count: { select: { comments: true, vote: true } },
-    attachments: true,
-    aura: true,
-    content: true,
-    createdAt: true,
-    id: true,
-    tags: { select: { name: true } },
-    user: {
-      select: {
-        avatarKey: true,
-        displayName: true,
-        id: true,
-        username: true,
-      },
-    },
-  };
+  const postQuery = prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("postMedias", (media) =>
+      media.select(
+        "id",
+        "_type",
+        "height",
+        "thumbnailHeight",
+        "thumbnailKey",
+        "thumbnailWidth",
+        "width"
+      )
+    )
+    .include("postToTags", (postTags) =>
+      postTags.include("tag", (tag) => tag.select("name"))
+    )
+    .include("user", (user) =>
+      user.select("avatarKey", "displayName", "id", "username")
+    )
+    .include("comments", (comments) => comments.count())
+    .include("votes", (votes) => votes.count());
 
-  let post = await prisma.post.findUnique({
-    select,
-    where: { id: postId },
-  });
+  let post = await postQuery.where({ id: postId }).first();
 
   if (!post && postId.length >= 8) {
-    const matches = await prisma.post.findMany({
-      select,
-      take: 2,
-      where: { id: { startsWith: postId } },
-    });
+    const matches = await postQuery
+      .where((candidate) => candidate.id.ilike(`${postId}%`))
+      .limit(2)
+      .all();
     if (matches.length === 1) {
       post = matches[0] ?? null;
     }
   }
 
-  return post;
+  const postUser = post?.user;
+  if (!post || !postUser) {
+    return null;
+  }
+
+  return {
+    ...post,
+    _count: {
+      comments: post.comments,
+      vote: post.votes,
+    },
+    attachments: post.postMedias.map((media) => ({
+      ...media,
+      type: media._type,
+    })),
+    createdAt: fromPrismaDateTime(post.createdAt),
+    tags: post.postToTags.flatMap((postTag) =>
+      postTag.tag ? [postTag.tag] : []
+    ),
+    user: postUser,
+  };
 }
 
 interface PostCardData {
   attachments: {
     id: string;
-    type: string;
+    type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
     width: number | null;
     height: number | null;
     thumbnailKey: string | null;
@@ -82,7 +106,12 @@ interface PostCardData {
   content: string;
   createdAt: Date;
   tags: { name: string }[];
-  user: { displayName: string; id: string; username: string };
+  user: {
+    avatarKey: string | null;
+    displayName: string;
+    id: string;
+    username: string;
+  };
   _count: { comments: number; vote: number };
 }
 

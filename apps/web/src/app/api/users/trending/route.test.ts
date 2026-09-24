@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const USER_ID = "auth-user-1";
@@ -17,40 +19,85 @@ const mockRedis = {
 };
 
 const users = [
-  { aura: 500, displayName: "Top User", id: "u1", username: "top" },
-  { aura: 400, displayName: "Auth User", id: USER_ID, username: "auth" },
-  { aura: 300, displayName: "Third User", id: "u3", username: "third" },
-  { aura: 999, displayName: "Zeph", id: "sys-zeph", username: "zeph" },
+  {
+    aura: 500,
+    createdAt: new Date(0),
+    displayName: "Top User",
+    follows: { total: 0 },
+    followsFollows: [],
+    id: "u1",
+    username: "top",
+  },
+  {
+    aura: 400,
+    createdAt: new Date(0),
+    displayName: "Auth User",
+    follows: { total: 0 },
+    followsFollows: [],
+    id: USER_ID,
+    username: "auth",
+  },
+  {
+    aura: 300,
+    createdAt: new Date(0),
+    displayName: "Third User",
+    follows: { total: 0 },
+    followsFollows: [],
+    id: "u3",
+    username: "third",
+  },
+  {
+    aura: 999,
+    createdAt: new Date(0),
+    displayName: "Zeph",
+    follows: { total: 0 },
+    followsFollows: [],
+    id: "sys-zeph",
+    username: "zeph",
+  },
 ];
 
-const mockPrisma = {
-  user: {
-    findMany: (args: {
-      orderBy: unknown;
-      select: unknown;
-      take: number;
-      where: { AND: { id: { not: string | undefined } }[] };
-    }) => {
-      const excludeIds = args.where.AND.map((clause) => clause.id?.not).filter(
-        (id): id is string => Boolean(id)
-      );
-      const filtered = excludeIds.length
-        ? users.filter((u) => !excludeIds.includes(u.id))
-        : users;
-      return filtered.slice(0, args.take);
+interface UserQuery {
+  all: () => typeof users;
+  include: () => UserQuery;
+  where: (
+    predicate: (user: { id: { neq: (id: string) => unknown } }) => unknown
+  ) => { all: () => typeof users };
+}
+
+let excludedIds: string[] = [];
+function createUserQuery(): UserQuery {
+  return {
+    all: () => users,
+    include: () => createUserQuery(),
+    where: (predicate) => {
+      const ids: string[] = [];
+      predicate({
+        id: {
+          neq: (id) => {
+            ids.push(id);
+            return {};
+          },
+        },
+      });
+      excludedIds = ids;
+      return {
+        all: () => users.filter((user) => !excludedIds.includes(user.id)),
+      };
     },
-  },
+  };
+}
+
+const mockPrisma = {
+  orm: { public: {} },
 };
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   SYSTEM_MODERATION_USER_ID: "sys-zeph",
-  getUserDataSelect: (loggedInUserId: string) => ({
-    aura: true,
-    displayName: true,
-    id: true,
-    isFollowedByLoggedUser: Boolean(loggedInUserId),
-    username: true,
-  }),
+  awardTrendingCardPresence: () => Promise.resolve(),
+  getUserDataQuery: () => createUserQuery(),
+  mapUserData: (user: (typeof users)[number]) => user,
   prisma: mockPrisma,
   redis: mockRedis,
 }));

@@ -1,10 +1,10 @@
 "use client";
 
-import type { PrivateUserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import EditProfileDialog from "@/components/layouts/user/edit-profile-dialog";
+import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { cn } from "@/lib/utils";
 

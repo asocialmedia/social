@@ -1,7 +1,9 @@
 "use server";
 
 import {
-  getCommunityRoleSelect,
+  and,
+  getUserDataQuery,
+  mapUserData,
   prisma,
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
@@ -49,38 +51,33 @@ export interface TrendingFeed {
 
 async function getTopMentionedUsers(): Promise<TrendingMention[]> {
   try {
-    const grouped = await prisma.mention.groupBy({
-      _count: { _all: true },
-      by: ["userId"],
-      orderBy: { _count: { userId: "desc" } },
-      take: 5,
-      where: { userId: { not: SYSTEM_MODERATION_USER_ID } },
-    });
+    const grouped = await prisma.orm.public.Mentions.where((mention) =>
+      mention.userId.notIn([SYSTEM_MODERATION_USER_ID])
+    )
+      .groupBy("userId")
+      .aggregate((aggregate) => ({ count: aggregate.count() }));
+    const topGrouped = [...grouped]
+      .toSorted((left, right) => right.count - left.count)
+      .slice(0, 5);
 
-    if (grouped.length === 0) {
+    if (topGrouped.length === 0) {
       return [];
     }
 
-    const users = await prisma.user.findMany({
-      select: {
-        avatarUrl: true,
-        badge: true,
-        badges: true,
-        communityMemberships: getCommunityRoleSelect(),
-        displayName: true,
-        id: true,
-        username: true,
-      },
-      where: {
-        NOT: { id: SYSTEM_MODERATION_USER_ID },
-        id: { in: grouped.map((g) => g.userId) },
-      },
-    });
+    const users = await getUserDataQuery(prisma.orm, "")
+      .where((user) =>
+        and(
+          user.id.notIn([SYSTEM_MODERATION_USER_ID]),
+          user.id.in(topGrouped.map((group) => group.userId))
+        )
+      )
+      .all()
+      .then((rows) => rows.map(mapUserData));
 
     const userById = new Map(users.map((user) => [user.id, user]));
 
     return (
-      grouped
+      topGrouped
         // Annotated so the Prisma enum on `role` widens to the DTO's `string`;
         // without it the type predicate below cannot narrow the mapped array.
         .map((group): TrendingMention | null => {
@@ -91,9 +88,9 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
           return {
             avatarUrl: user.avatarUrl,
             badge: user.badge,
-            badges: user.badges,
+            badges: [...(user.badges ?? [])],
             communityMemberships: user.communityMemberships,
-            count: group._count._all,
+            count: group.count,
             displayName: user.displayName,
             type: "mention",
             userId: user.id,
@@ -115,30 +112,20 @@ const TOP_AURA_CANDIDATES = 10;
 
 async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
   try {
-    const users = await prisma.user.findMany({
-      orderBy: { aura: "desc" },
-      select: {
-        aura: true,
-        avatarUrl: true,
-        badge: true,
-        badges: true,
-        communityMemberships: getCommunityRoleSelect(),
-        displayName: true,
-        id: true,
-        username: true,
-      },
-      take: TOP_AURA_CANDIDATES,
-      where: {
-        banned: false,
-        id: { not: SYSTEM_MODERATION_USER_ID },
-      },
-    });
+    const users = await getUserDataQuery(prisma.orm, "")
+      .where((user) =>
+        and(user.banned.eq(false), user.id.notIn([SYSTEM_MODERATION_USER_ID]))
+      )
+      .orderBy((user) => user.aura.desc())
+      .limit(TOP_AURA_CANDIDATES)
+      .all()
+      .then((rows) => rows.map(mapUserData));
 
     return users.map((user) => ({
       aura: user.aura,
       avatarUrl: user.avatarUrl,
       badge: user.badge,
-      badges: user.badges,
+      badges: [...(user.badges ?? [])],
       communityMemberships: user.communityMemberships,
       displayName: user.displayName,
       type: "aura" as const,

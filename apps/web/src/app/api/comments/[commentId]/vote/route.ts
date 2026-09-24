@@ -1,12 +1,17 @@
 import {
+  and,
   findVisibleCommentPost,
+  fromPrismaDateTime,
   invalidateAuraSignals,
   prisma,
   settleVoteTransition,
 } from "@asm/db";
-import type { CommentVoteInfo } from "@asm/db";
+import type { CommentVoteInfo, PrismaTransaction } from "@asm/db";
 
-import { runSerializableTransaction } from "@/lib/aura/db-transactions";
+import {
+  runSerializableTransaction,
+  TransactionRetryError,
+} from "@/lib/aura/db-transactions";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   flushNotificationEvents,
@@ -15,6 +20,31 @@ import {
 } from "@/lib/notifications/deferred-events";
 
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
+const MAX_CAS_ATTEMPTS = 8;
+
+async function updateCommentAuraWithCas(
+  tx: PrismaTransaction,
+  commentId: string,
+  delta: number,
+  attemptsRemaining = MAX_CAS_ATTEMPTS
+): Promise<void> {
+  const comment = await tx.orm.public.Comments.select("aura")
+    .where({ id: commentId })
+    .first();
+  if (!comment) {
+    return;
+  }
+  const updated = await tx.orm.public.Comments.where((candidate) =>
+    and(candidate.id.eq(commentId), candidate.aura.eq(comment.aura))
+  ).updateAndCount({ aura: comment.aura + delta });
+  if (updated === 1) {
+    return;
+  }
+  if (attemptsRemaining <= 1) {
+    throw new TransactionRetryError();
+  }
+  return updateCommentAuraWithCas(tx, commentId, delta, attemptsRemaining - 1);
+}
 
 export async function GET(
   _req: Request,
@@ -34,18 +64,19 @@ export async function GET(
     return Response.json({ error: "Comment not found" }, { status: 404 });
   }
 
-  const comment = await prisma.comment.findUnique({
-    select: { aura: true },
-    where: { id: commentId },
-  });
+  const comment = await prisma.orm.public.Comments.select("aura")
+    .where({ id: commentId })
+    .first();
 
   if (!comment) {
     return Response.json({ error: "Comment not found" }, { status: 404 });
   }
 
-  const vote = await prisma.commentVote.findUnique({
-    where: { userId_commentId: { commentId, userId: user.id } },
-  });
+  const vote = await prisma.orm.public.CommentVotes.select("value")
+    .where((candidate) =>
+      and(candidate.commentId.eq(commentId), candidate.userId.eq(user.id))
+    )
+    .first();
 
   const voteInfo: CommentVoteInfo = {
     aura: comment.aura,
@@ -80,28 +111,28 @@ export async function POST(
 
   let affectedAuthorId: string | null = null;
   try {
-    // Serializable + retry so a concurrent vote re-reads committed state
-    // instead of double-applying an aura delta.
     const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
-      // A serializable retry re-runs this callback; start its events clean.
       resetNotificationEvents(notificationEvents);
-      const comment = await tx.comment.findUnique({
-        select: { aura: true, id: true, postId: true, userId: true },
-        where: { id: commentId },
-      });
+      const comment = await tx.orm.public.Comments.select(
+        "aura",
+        "id",
+        "postId",
+        "userId"
+      )
+        .where({ id: commentId })
+        .first();
       if (!comment) {
         return null;
       }
 
       const [existingVote, actor] = await Promise.all([
-        tx.commentVote.findUnique({
-          where: { userId_commentId: { commentId, userId: user.id } },
-        }),
-        tx.user.findUnique({
-          select: { aura: true, createdAt: true },
-          where: { id: user.id },
-        }),
+        tx.orm.public.CommentVotes.where((vote) =>
+          and(vote.commentId.eq(commentId), vote.userId.eq(user.id))
+        ).first(),
+        tx.orm.public.Users.select("aura", "createdAt")
+          .where({ id: user.id })
+          .first(),
       ]);
       if (!actor) {
         return null;
@@ -111,7 +142,10 @@ export async function POST(
       affectedAuthorId = comment.userId;
 
       const positions = await settleVoteTransition(tx, {
-        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actor: {
+          aura: actor.aura,
+          createdAt: fromPrismaDateTime(actor.createdAt),
+        },
         actorId: user.id,
         commentId,
         newValue: value,
@@ -131,35 +165,45 @@ export async function POST(
 
       if (value === 0) {
         if (existingVote) {
-          await tx.commentVote.delete({
-            where: { userId_commentId: { commentId, userId: user.id } },
-          });
+          const removed = await tx.orm.public.CommentVotes.where((vote) =>
+            and(
+              vote.commentId.eq(commentId),
+              vote.userId.eq(user.id),
+              vote.value.eq(oldValue)
+            )
+          ).deleteAndCount();
+          if (removed !== 1) {
+            throw new TransactionRetryError();
+          }
+        }
+      } else if (existingVote) {
+        const updated = await tx.orm.public.CommentVotes.where((vote) =>
+          and(
+            vote.commentId.eq(commentId),
+            vote.userId.eq(user.id),
+            vote.value.eq(oldValue)
+          )
+        ).updateAndCount({
+          awardedAura: positions.awardedAura,
+          mutingCostAura: positions.mutingCostAura,
+          value,
+        });
+        if (updated !== 1) {
+          throw new TransactionRetryError();
         }
       } else {
-        await tx.commentVote.upsert({
-          create: {
-            awardedAura: positions.awardedAura,
-            commentId,
-            mutingCostAura: positions.mutingCostAura,
-            userId: user.id,
-            value,
-          },
-          update: {
-            awardedAura: positions.awardedAura,
-            mutingCostAura: positions.mutingCostAura,
-            value,
-          },
-          where: { userId_commentId: { commentId, userId: user.id } },
+        await tx.orm.public.CommentVotes.create({
+          awardedAura: positions.awardedAura,
+          commentId,
+          mutingCostAura: positions.mutingCostAura,
+          userId: user.id,
+          value,
         });
       }
 
-      // Raw score keeps +-1-per-vote semantics; only User.aura is weighted.
       const auraDelta = value - oldValue;
       if (auraDelta !== 0) {
-        await tx.comment.update({
-          data: { aura: { increment: auraDelta } },
-          where: { id: commentId },
-        });
+        await updateCommentAuraWithCas(tx, commentId, auraDelta);
       }
 
       // Only notify others, never yourself.
@@ -169,14 +213,14 @@ export async function POST(
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
           wasAmplified = true;
-          const amplifyNotification = await tx.notification.create({
-            data: {
-              commentId,
-              issuerId: user.id,
-              postId: comment.postId,
-              recipientId: comment.userId,
-              type: "AMPLIFY",
-            },
+          const amplifyNotification = await tx.orm.public.Notifications.select(
+            "id"
+          ).create({
+            _type: "AMPLIFY",
+            commentId,
+            issuerId: user.id,
+            postId: comment.postId,
+            recipientId: comment.userId,
           });
           notificationEvents.created.push({
             notificationId: amplifyNotification.id,
@@ -184,23 +228,22 @@ export async function POST(
           });
         } else if (value !== 1 && oldValue === 1) {
           wasAmplifyRemoved = true;
-          await tx.notification.deleteMany({
-            where: {
-              commentId,
-              issuerId: user.id,
-              postId: comment.postId,
-              recipientId: comment.userId,
-              type: "AMPLIFY",
-            },
-          });
+          await tx.orm.public.Notifications.where((notification) =>
+            and(
+              notification.commentId.eq(commentId),
+              notification.issuerId.eq(user.id),
+              notification.postId.eq(comment.postId),
+              notification.recipientId.eq(comment.userId),
+              notification._type.eq("AMPLIFY")
+            )
+          ).delete();
           notificationEvents.deleted.push(comment.userId);
         }
       }
 
-      const updated = await tx.comment.findUnique({
-        select: { aura: true },
-        where: { id: commentId },
-      });
+      const updated = await tx.orm.public.Comments.select("aura")
+        .where({ id: commentId })
+        .first();
 
       return {
         aura: updated?.aura ?? comment.aura,
@@ -254,24 +297,25 @@ export async function DELETE(
   try {
     const notificationEvents = newNotificationEvents();
     const result = await runSerializableTransaction(async (tx) => {
-      // A serializable retry re-runs this callback; start its events clean.
       resetNotificationEvents(notificationEvents);
-      const comment = await tx.comment.findUnique({
-        select: { aura: true, postId: true, userId: true },
-        where: { id: commentId },
-      });
+      const comment = await tx.orm.public.Comments.select(
+        "aura",
+        "postId",
+        "userId"
+      )
+        .where({ id: commentId })
+        .first();
       if (!comment) {
         return null;
       }
 
       const [existingVote, actor] = await Promise.all([
-        tx.commentVote.findUnique({
-          where: { userId_commentId: { commentId, userId: user.id } },
-        }),
-        tx.user.findUnique({
-          select: { aura: true, createdAt: true },
-          where: { id: user.id },
-        }),
+        tx.orm.public.CommentVotes.where((vote) =>
+          and(vote.commentId.eq(commentId), vote.userId.eq(user.id))
+        ).first(),
+        tx.orm.public.Users.select("aura", "createdAt")
+          .where({ id: user.id })
+          .first(),
       ]);
       if (!actor) {
         return null;
@@ -280,7 +324,10 @@ export async function DELETE(
       const oldValue = existingVote?.value ?? 0;
 
       await settleVoteTransition(tx, {
-        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actor: {
+          aura: actor.aura,
+          createdAt: fromPrismaDateTime(actor.createdAt),
+        },
         actorId: user.id,
         commentId,
         newValue: 0,
@@ -299,38 +346,41 @@ export async function DELETE(
       });
 
       if (existingVote) {
-        await tx.commentVote.delete({
-          where: { userId_commentId: { commentId, userId: user.id } },
-        });
+        const removed = await tx.orm.public.CommentVotes.where((vote) =>
+          and(
+            vote.commentId.eq(commentId),
+            vote.userId.eq(user.id),
+            vote.value.eq(oldValue)
+          )
+        ).deleteAndCount();
+        if (removed !== 1) {
+          throw new TransactionRetryError();
+        }
       }
 
       const auraDelta = 0 - oldValue;
       if (auraDelta !== 0) {
-        await tx.comment.update({
-          data: { aura: { decrement: oldValue } },
-          where: { id: commentId },
-        });
+        await updateCommentAuraWithCas(tx, commentId, auraDelta);
       }
 
       // Only notify others, never yourself.
       const isSelfVote = comment.userId === user.id;
       if (oldValue === 1 && !isSelfVote) {
-        await tx.notification.deleteMany({
-          where: {
-            commentId,
-            issuerId: user.id,
-            postId: comment.postId,
-            recipientId: comment.userId,
-            type: "AMPLIFY",
-          },
-        });
+        await tx.orm.public.Notifications.where((notification) =>
+          and(
+            notification.commentId.eq(commentId),
+            notification.issuerId.eq(user.id),
+            notification.postId.eq(comment.postId),
+            notification.recipientId.eq(comment.userId),
+            notification._type.eq("AMPLIFY")
+          )
+        ).delete();
         notificationEvents.deleted.push(comment.userId);
       }
 
-      const updated = await tx.comment.findUnique({
-        select: { aura: true },
-        where: { id: commentId },
-      });
+      const updated = await tx.orm.public.Comments.select("aura")
+        .where({ id: commentId })
+        .first();
 
       return { aura: updated?.aura ?? comment.aura, userVote: 0 };
     });

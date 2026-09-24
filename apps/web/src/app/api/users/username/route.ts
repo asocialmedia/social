@@ -1,9 +1,11 @@
 import {
+  and,
+  fromPrismaDateTime,
   getUsernameAliasExpiry,
   getUsernameChangeWindowStart,
   isReservedUsername,
-  Prisma,
   prisma,
+  toPrismaDateTime,
   USERNAME_CHANGE_LIMIT,
 } from "@asm/db";
 import { z } from "zod";
@@ -31,7 +33,10 @@ type UsernameChangeResult =
 
 function isPrismaError(error: unknown, code: string): boolean {
   return (
-    error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
   );
 }
 
@@ -51,13 +56,15 @@ async function changeUsername(
     retriesRemaining: number
   ): Promise<UsernameChangeResult> => {
     try {
-      const result = await prisma.$transaction(
+      const result = await prisma.transaction(
         async (transaction): Promise<UsernameChangeResult> => {
           const now = new Date();
-          const currentUser = await transaction.user.findUnique({
-            select: { id: true, username: true },
-            where: { id: userId },
-          });
+          const currentUser = await transaction.orm.public.Users.select(
+            "id",
+            "username"
+          )
+            .where({ id: userId })
+            .first();
           if (!currentUser) {
             return { status: "not-found" };
           }
@@ -66,55 +73,46 @@ async function changeUsername(
             currentUser.username.toLowerCase() ===
             requestedUsername.toLowerCase()
           ) {
-            await transaction.user.update({
-              data: { username: requestedUsername },
-              where: { id: userId },
+            await transaction.orm.public.Users.where({ id: userId }).update({
+              username: requestedUsername,
             });
             return { status: "unchanged", username: requestedUsername };
           }
 
           // Treat expired aliases as released even if the daily maintenance job
           // has not reached them yet.
-          await transaction.usernameAlias.deleteMany({
-            where: {
-              expiresAt: { lte: now },
-              username: {
-                equals: requestedUsername,
-                mode: "insensitive",
-              },
-            },
-          });
+          await transaction.orm.public.UsernameAliases.where((alias) =>
+            and(
+              alias.expiresAt.lte(toPrismaDateTime(now)),
+              alias.username.ilike(requestedUsername)
+            )
+          ).delete();
 
           const [existingUser, existingAlias, recentChanges] =
             await Promise.all([
-              transaction.user.findFirst({
-                select: { id: true },
-                where: {
-                  username: {
-                    equals: requestedUsername,
-                    mode: "insensitive",
-                  },
-                },
-              }),
-              transaction.usernameAlias.findFirst({
-                select: { id: true, userId: true },
-                where: {
-                  expiresAt: { gt: now },
-                  username: {
-                    equals: requestedUsername,
-                    mode: "insensitive",
-                  },
-                },
-              }),
-              transaction.usernameAlias.findMany({
-                orderBy: { createdAt: "asc" },
-                select: { createdAt: true },
-                take: USERNAME_CHANGE_LIMIT,
-                where: {
-                  createdAt: { gte: getUsernameChangeWindowStart(now) },
-                  userId,
-                },
-              }),
+              transaction.orm.public.Users.select("id")
+                .where((user) => user.username.ilike(requestedUsername))
+                .first(),
+              transaction.orm.public.UsernameAliases.select("id", "userId")
+                .where((alias) =>
+                  and(
+                    alias.expiresAt.gt(toPrismaDateTime(now)),
+                    alias.username.ilike(requestedUsername)
+                  )
+                )
+                .first(),
+              transaction.orm.public.UsernameAliases.select("createdAt")
+                .where((alias) =>
+                  and(
+                    alias.createdAt.gte(
+                      toPrismaDateTime(getUsernameChangeWindowStart(now))
+                    ),
+                    alias.userId.eq(userId)
+                  )
+                )
+                .orderBy((alias) => alias.createdAt.asc())
+                .limit(USERNAME_CHANGE_LIMIT)
+                .all(),
             ]);
 
           if (
@@ -129,7 +127,9 @@ async function changeUsername(
               throw new Error("Username change limit has no matching history");
             }
             return {
-              retryAfter: getUsernameAliasExpiry(oldestChange.createdAt),
+              retryAfter: getUsernameAliasExpiry(
+                fromPrismaDateTime(oldestChange.createdAt)
+              ),
               status: "rate-limited",
             };
           }
@@ -137,22 +137,19 @@ async function changeUsername(
           // Reclaiming one of your own still-reserved handles replaces that
           // alias with a reservation for the handle you are leaving now.
           if (existingAlias) {
-            await transaction.usernameAlias.delete({
-              where: { id: existingAlias.id },
-            });
+            await transaction.orm.public.UsernameAliases.where({
+              id: existingAlias.id,
+            }).delete();
           }
 
           const aliasExpiresAt = getUsernameAliasExpiry(now);
-          await transaction.user.update({
-            data: { username: requestedUsername },
-            where: { id: userId },
+          await transaction.orm.public.Users.where({ id: userId }).update({
+            username: requestedUsername,
           });
-          await transaction.usernameAlias.create({
-            data: {
-              expiresAt: aliasExpiresAt,
-              userId,
-              username: currentUser.username,
-            },
+          await transaction.orm.public.UsernameAliases.create({
+            expiresAt: toPrismaDateTime(aliasExpiresAt),
+            userId,
+            username: currentUser.username,
           });
 
           return {
@@ -160,8 +157,7 @@ async function changeUsername(
             status: "changed",
             username: requestedUsername,
           };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        }
       );
       return result;
     } catch (error) {

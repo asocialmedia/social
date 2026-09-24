@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { NextRequest } from "next/server";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 const mockGetSession = mock();
 const mockUserFindUnique = mock();
 const mockAccountFindFirst = mock();
@@ -12,9 +14,18 @@ mock.module("@/lib/auth/session", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    account: { findFirst: mockAccountFindFirst },
-    user: { findUnique: mockUserFindUnique },
+    orm: {
+      public: {
+        Accounts: {
+          select: () => ({ where: () => ({ first: mockAccountFindFirst }) }),
+        },
+        Users: {
+          select: () => ({ where: () => ({ first: mockUserFindUnique }) }),
+        },
+      },
+    },
   },
 }));
 

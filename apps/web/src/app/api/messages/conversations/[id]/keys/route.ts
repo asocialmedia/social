@@ -56,15 +56,24 @@ export async function POST(
   // Create-only: a wrapped key may never be overwritten. Once a key exists for
   // an owner it is immutable, so a re-run (heal path, concurrent retry) is a
   // no-op instead of replacing the ciphertext the peer relies on.
-  await prisma.messageConversationKey.createMany({
-    data: keys.map((key) => ({
-      conversationId: id,
-      encryptedKey: key.encryptedKey.ciphertext,
-      iv: key.encryptedKey.iv,
-      ownerUserId: key.ownerUserId,
-    })),
-    skipDuplicates: true,
-  });
+  const existingKeys = await prisma.orm.public.MessageConversationKeys.select(
+    "ownerUserId"
+  )
+    .where({ conversationId: id })
+    .all();
+  const existingOwners = new Set(existingKeys.map((key) => key.ownerUserId));
+  await Promise.all(
+    keys
+      .filter((key) => !existingOwners.has(key.ownerUserId))
+      .map((key) =>
+        prisma.orm.public.MessageConversationKeys.create({
+          conversationId: id,
+          encryptedKey: key.encryptedKey.ciphertext,
+          iv: key.encryptedKey.iv,
+          ownerUserId: key.ownerUserId,
+        })
+      )
+  );
 
   return Response.json({ ok: true });
 }

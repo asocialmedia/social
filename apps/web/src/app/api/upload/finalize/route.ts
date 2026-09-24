@@ -1,4 +1,4 @@
-import { deleteObject, enqueueMediaScan, prisma } from "@asm/db";
+import { and, deleteObject, enqueueMediaScan, prisma } from "@asm/db";
 import { maxBytesForType } from "@asm/media";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -36,16 +36,15 @@ export async function POST(request: Request) {
   }
   const { mediaId } = parsed.data;
 
-  const media = await prisma.media.findUnique({
-    select: {
-      id: true,
-      originalKey: true,
-      size: true,
-      type: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "id",
+    "originalKey",
+    "size",
+    "_type",
+    "userId"
+  )
+    .where({ id: mediaId })
+    .first();
   if (!media || media.userId !== user.id) {
     // Deliberately opaque: do not reveal existence of other users' rows.
     return Response.json({ error: "Media not found" }, { status: 404 });
@@ -66,7 +65,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const maxBytes = maxBytesForType(MEDIA_LIMITS, media.type);
+    const maxBytes = maxBytesForType(MEDIA_LIMITS, media._type);
     let policyError: UploadPolicyError | null = null;
     if (stored.contentLength <= 0) {
       policyError = new UploadPolicyError("Uploaded file is empty", 400);
@@ -81,13 +80,16 @@ export async function POST(request: Request) {
       // matched QUARANTINED and was therefore dead code (the +1 check throws
       // before the flip). Refund is not needed here: quota is only charged
       // after a successful flip.
-      await prisma.media.updateMany({
-        data: {
-          failureCode: "limit-exceeded",
-          rejectedReason: policyError.status === 400 ? "CORRUPT" : "TOO_LARGE",
-          status: "REJECTED",
-        },
-        where: { id: mediaId, status: "UPLOADING", userId: user.id },
+      await prisma.orm.public.PostMedia.where((candidate) =>
+        and(
+          candidate.id.eq(mediaId),
+          candidate.status.eq("UPLOADING"),
+          candidate.userId.eq(user.id)
+        )
+      ).updateAndCount({
+        failureCode: "limit-exceeded",
+        rejectedReason: policyError.status === 400 ? "CORRUPT" : "TOO_LARGE",
+        status: "REJECTED",
       });
       if (media.originalKey) {
         try {
@@ -107,15 +109,20 @@ export async function POST(request: Request) {
 
     // Conditional transition makes double-finalize races harmless: the loser
     // of the UPDATE affects zero rows and reports the current state.
-    const transition = await prisma.media.updateMany({
-      data: { size: stored.contentLength, status: "QUARANTINED" },
-      where: { id: mediaId, status: "UPLOADING", userId: user.id },
+    const transition = await prisma.orm.public.PostMedia.where((candidate) =>
+      and(
+        candidate.id.eq(mediaId),
+        candidate.status.eq("UPLOADING"),
+        candidate.userId.eq(user.id)
+      )
+    ).updateAndCount({
+      size: stored.contentLength,
+      status: "QUARANTINED",
     });
-    if (transition.count === 0) {
-      const current = await prisma.media.findUnique({
-        select: { status: true },
-        where: { id: mediaId },
-      });
+    if (transition === 0) {
+      const current = await prisma.orm.public.PostMedia.select("status")
+        .where({ id: mediaId })
+        .first();
       return NextResponse.json({ mediaId, status: current?.status });
     }
 

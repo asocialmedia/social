@@ -17,10 +17,10 @@ interface PostMetaEditorDialogProps {
   mentions: UserData[];
   onClose: () => void;
   onMentionsChange?: (mentions: UserData[]) => void;
-  onTagsChange?: (tags: TagWithCount[]) => void;
+  onTagsChange?: (tags: Pick<TagWithCount, "name">[]) => void;
   open: boolean;
   postId: string;
-  tags: TagWithCount[];
+  tags: Pick<TagWithCount, "name">[];
 }
 
 export const PostMetaEditorDialog = ({

@@ -1,6 +1,5 @@
 "use client";
 
-import type { MessagePage } from "@asm/db";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,6 +31,7 @@ import type {
   MessageMediaUpload,
 } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
+import type { MessagePage } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
 
 interface MessageComposerProps {

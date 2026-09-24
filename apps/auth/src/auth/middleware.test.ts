@@ -37,6 +37,7 @@ const mockFindUnique = mock(
   (): Promise<SessionLookupUser | { username: string } | null> =>
     Promise.resolve(null)
 );
+const mockUserUpdate = mock(() => Promise.resolve({}));
 
 const mockFindByToken = mock((): Promise<HybridSession | null> =>
   Promise.resolve(null)
@@ -103,10 +104,20 @@ describe("middleware", () => {
     console.warn = mock(() => {}) as typeof console.warn;
 
     mock.module("@asm/db", () => ({
+      fromPrismaDateTime: (value: Date) => value,
       prisma: {
-        user: {
-          findUnique: mockFindUnique,
-          update: mock(() => ({})),
+        orm: {
+          public: {
+            Users: {
+              select: () => ({
+                where: () => ({
+                  first: mockFindUnique,
+                  update: mockUserUpdate,
+                }),
+              }),
+              where: () => ({ update: mockUserUpdate }),
+            },
+          },
         },
       },
     }));
@@ -136,6 +147,7 @@ describe("middleware", () => {
       "mock-secret-123456789012345678901234567890";
 
     mockFindUnique.mockClear();
+    mockUserUpdate.mockClear();
     mockFindByToken.mockClear();
     mockCreate.mockClear();
     mockValidateJWTToken.mockClear();

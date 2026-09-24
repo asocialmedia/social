@@ -1,4 +1,9 @@
-import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
+import {
+  getUserDataQuery,
+  mapUserData,
+  prisma,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -8,11 +13,11 @@ export async function GET() {
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const users = await prisma.user.findMany({
-    orderBy: { createdAt: "desc" },
-    select: getUserDataSelect(user.id),
-    take: 10,
-    where: { id: { not: SYSTEM_MODERATION_USER_ID } },
-  });
+  const userRows = await getUserDataQuery(prisma.orm, user.id)
+    .where((candidate) => candidate.id.neq(SYSTEM_MODERATION_USER_ID))
+    .orderBy((candidate) => candidate.createdAt.desc())
+    .limit(10)
+    .all();
+  const users = userRows.map(mapUserData);
   return Response.json(users);
 }

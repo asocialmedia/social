@@ -1,4 +1,5 @@
 // oxlint-disable oxc/no-barrel-file
+export { and } from "@prisma/orm-postgres/orm-client";
 export * from "./cache/avatar-cache";
 export * from "./cache/followbutton-cache";
 export * from "./cache/search-cache";
@@ -7,20 +8,24 @@ export * from "./cache/tag-cache";
 export * from "./cache/user-cache";
 export * from "./constants/cache-keys";
 export * from "./src/aura";
-// Communities: `aura` holds the cached aggregates (stats, category counts,
-// discovery totals, curated sections); `service` holds the queries they wrap.
 export * from "./src/communities/aura";
 export * from "./src/communities/constants";
 export * from "./src/communities/media";
 export * from "./src/communities/service";
 export * from "./src/communities/slug";
+export { communityVisibilityWhere } from "./src/communities/visibility";
 export * from "./src/users/badges";
-export { NotificationType } from "./prisma/generated/prisma/enums";
 export * from "./queue";
 export * from "./src/client";
-export { default as prisma } from "./src/prisma";
-export * as Prisma from "./prisma/generated/prisma/internal/prismaNamespace";
-export type { Prisma as PrismaTypes } from "./prisma/generated/prisma/client";
+export {
+  default as prisma,
+  closePrisma,
+  fromPrismaDateTime,
+  toPrismaDateTime,
+} from "./src/prisma";
+export type { PrismaClient, PrismaOrm, PrismaTransaction } from "./src/prisma";
+export type { Contract, Models, TypeMaps } from "./generated/prisma/contract";
+export * from "./src/notification-type";
 export * from "./src/rate-limit";
 export * from "./src/redis";
 export * from "./src/users/profile-media";
@@ -34,7 +39,6 @@ export * from "./src/users/reserved-usernames";
 export * from "./src/users/username-aliases";
 export * from "./src/search";
 export * from "./src/storage";
-export * from "./src/recommendation/trending-snapshot";
 export * from "./src/recommendation/trending-score";
 export * from "./src/notifications";
 export * from "./src/posts/ancestors";

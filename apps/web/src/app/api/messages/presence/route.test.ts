@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockGetOnline = mock(() => []);
 const mockGetIdle = mock((_online: string[]) => []);
-const mockFollowFindMany = mock(() => []);
+const mockFollowFindMany = mock(
+  (_direction: "followerId" | "followingId") => []
+);
 const mockBlockFindMany = mock(() => []);
 const mockUserFindMany = mock(() => []);
 
@@ -15,12 +19,48 @@ mock.module("@/lib/auth/session", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   getIdleUsers: mockGetIdle,
   getOnlineUsers: mockGetOnline,
+  markUserOnline: mock(() => Promise.resolve()),
   prisma: {
-    block: { findMany: mockBlockFindMany },
-    follow: { findMany: mockFollowFindMany },
-    user: { findMany: mockUserFindMany },
+    orm: {
+      public: {
+        Blocks: {
+          select: () => ({ where: () => ({ all: mockBlockFindMany }) }),
+        },
+        Follows: {
+          select: () => ({
+            where: (
+              predicate: (follow: {
+                followerId: { eq: (id: string) => unknown };
+                followingId: { eq: (id: string) => unknown };
+              }) => unknown
+            ) => {
+              let direction: "followerId" | "followingId" = "followerId";
+              predicate({
+                followerId: {
+                  eq: () => {
+                    direction = "followerId";
+                    return {};
+                  },
+                },
+                followingId: {
+                  eq: () => {
+                    direction = "followingId";
+                    return {};
+                  },
+                },
+              });
+              return { all: () => mockFollowFindMany(direction) };
+            },
+          }),
+        },
+        Users: {
+          select: () => ({ where: () => ({ all: mockUserFindMany }) }),
+        },
+      },
+    },
   },
 }));
 
@@ -86,13 +126,8 @@ describe("GET /api/messages/presence", () => {
       users: { id: string; status: string }[];
     };
     expect(body.users.map((u) => u.id)).toEqual(["user2"]);
-    // The follow query must include both directions.
-    expect(mockFollowFindMany).toHaveBeenCalledWith({
-      select: { followerId: true, followingId: true },
-      where: {
-        OR: [{ followerId: "user1" }, { followingId: "user1" }],
-      },
-    });
+    expect(mockFollowFindMany).toHaveBeenCalledWith("followerId");
+    expect(mockFollowFindMany).toHaveBeenCalledWith("followingId");
   });
 
   test("never includes the caller themselves", async () => {

@@ -1,7 +1,10 @@
 import {
+  and,
   communityVisibilityWhere,
-  getPostDataInclude,
+  fromPrismaDateTime,
+  getPostDataQuery,
   hydrateViewCounts,
+  mapPostData,
   prisma,
 } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
@@ -26,15 +29,6 @@ export interface CrawlPost {
 
 // Shared projection for the non-gust crawl queries: the fields the CrawlPost
 // shape needs, plus the community slug for canonical links.
-const CRAWL_POST_SELECT = {
-  aura: true,
-  community: { select: { slug: true } },
-  content: true,
-  createdAt: true,
-  id: true,
-  user: { select: { displayName: true, username: true } },
-} as const;
-
 function toCrawlPost(p: {
   aura: number;
   community: { slug: string } | null;
@@ -55,125 +49,185 @@ function toCrawlPost(p: {
 }
 
 export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: CRAWL_POST_SELECT,
-    take: limit,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      user: { banned: false },
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("community", (community) => community.select("slug"))
+    .include("user", (user) => user.select("displayName", "username"))
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
 
-  return posts.map(toCrawlPost);
+  return posts.map((post) =>
+    toCrawlPost({
+      ...post,
+      createdAt: fromPrismaDateTime(post.createdAt),
+    })
+  );
 }
 
 export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      user: { select: { displayName: true, username: true } },
-    },
-    take: limit,
-    where: {
-      isGust: true,
-      moderated: false,
-      user: { banned: false },
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("user", (user) => user.select("displayName", "username"))
+    .where((post) =>
+      and(
+        post.isGust.eq(true),
+        post.moderated.eq(false),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
 
-  return posts.map((p) => ({
-    ...toCrawlPost({ ...p, community: null }),
-  }));
+  return posts.map((post) =>
+    toCrawlPost({
+      ...post,
+      community: null,
+      createdAt: fromPrismaDateTime(post.createdAt),
+    })
+  );
 }
 
 export async function getTrendingPostsForCrawl(
   limit = 20
 ): Promise<CrawlPost[]> {
   // Trending ranking mirrors the API fallback: order by trendingScore desc.
-  const posts = await prisma.post.findMany({
-    orderBy: [{ trendingScore: "desc" }, { id: "desc" }],
-    select: CRAWL_POST_SELECT,
-    take: limit,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      user: { banned: false },
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("community", (community) => community.select("slug"))
+    .include("user", (user) => user.select("displayName", "username"))
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .orderBy([(post) => post.trendingScore.desc(), (post) => post.id.desc()])
+    .limit(limit)
+    .all();
 
-  return posts.map(toCrawlPost);
+  return posts.map((post) =>
+    toCrawlPost({
+      ...post,
+      createdAt: fromPrismaDateTime(post.createdAt),
+    })
+  );
 }
 
 export async function getHashtagPostsForCrawl(
   tag: string,
   limit = 20
 ): Promise<CrawlPost[]> {
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: CRAWL_POST_SELECT,
-    take: limit,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      tags: { some: { name: tag } },
-      user: { banned: false },
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("community", (community) => community.select("slug"))
+    .include("user", (user) => user.select("displayName", "username"))
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.postToTags.some((postTag) =>
+          postTag.tag.some((tagRecord) => tagRecord.name.eq(tag))
+        ),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
 
-  return posts.map(toCrawlPost);
+  return posts.map((post) =>
+    toCrawlPost({
+      ...post,
+      createdAt: fromPrismaDateTime(post.createdAt),
+    })
+  );
 }
 
 export async function getUserPostsForCrawl(
   userId: string,
   limit = 12
 ): Promise<CrawlPost[]> {
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: CRAWL_POST_SELECT,
-    take: limit,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      user: { banned: false },
-      userId,
-      ...communityVisibilityWhere(""),
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("community", (community) => community.select("slug"))
+    .include("user", (user) => user.select("displayName", "username"))
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.userId.eq(userId),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
 
-  return posts.map(toCrawlPost);
+  return posts.map((post) =>
+    toCrawlPost({
+      ...post,
+      createdAt: fromPrismaDateTime(post.createdAt),
+    })
+  );
 }
 
 // For rich SSR where the client expects full PostData (not just crawl links),
 // expose a helper that returns hydrated PostData - used by home/discover
 // to seed the feed's initial HTML.
 export async function getRecentPostDataForCrawl(limit = 20) {
-  const rows = await prisma.post.findMany({
-    include: getPostDataInclude(""),
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    where: {
-      isGust: false,
-      moderated: false,
-      rootPostId: null,
-      user: { banned: false },
-      ...communityVisibilityWhere(""),
-    },
-  });
-  return hydrateViewCounts(rows);
+  const rows = await getPostDataQuery(prisma.orm, "")
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.rootPostId.isNull(),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post)
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
+  return hydrateViewCounts(rows.map(mapPostData));
 }
 
 export function crawlPostHref(
@@ -193,26 +247,31 @@ export async function getCommunityPostsForCrawl(
   community: { id: string; slug: string },
   limit = 20
 ): Promise<CrawlPost[]> {
-  const posts = await prisma.post.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      user: { select: { displayName: true, username: true } },
-    },
-    take: limit,
-    where: {
-      communityId: community.id,
-      isGust: false,
-      moderated: false,
-      user: { banned: false },
-    },
-  });
+  const posts = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "createdAt",
+    "id"
+  )
+    .include("user", (user) => user.select("displayName", "username"))
+    .where((post) =>
+      and(
+        post.communityId.eq(community.id),
+        post.isGust.eq(false),
+        post.moderated.eq(false),
+        post.user.some((user) => user.banned.eq(false))
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(limit)
+    .all();
 
-  return posts.map((p) =>
-    toCrawlPost({ ...p, community: { slug: community.slug } })
+  return posts.map((post) =>
+    toCrawlPost({
+      ...post,
+      community: { slug: community.slug },
+      createdAt: fromPrismaDateTime(post.createdAt),
+    })
   );
 }
 

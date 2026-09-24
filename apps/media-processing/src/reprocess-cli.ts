@@ -22,11 +22,11 @@ if (import.meta.main) {
   const mediaIdIndex = process.argv.indexOf("--mediaId");
   const limitIndex = process.argv.indexOf("--limit");
 
-  let targetKind: string | undefined;
+  let targetKind: "AUDIO" | "IMAGE" | "VIDEO" | undefined;
   if (kindIndex !== -1) {
     const raw = process.argv[kindIndex + 1]?.toLowerCase();
-    if (raw && ["image", "video", "audio"].includes(raw)) {
-      targetKind = raw.toUpperCase();
+    if (raw === "image" || raw === "video" || raw === "audio") {
+      targetKind = raw.toUpperCase() as "AUDIO" | "IMAGE" | "VIDEO";
     } else {
       console.error("--kind must be one of: image, video, audio");
       process.exit(1);
@@ -44,43 +44,47 @@ if (import.meta.main) {
     }
   }
 
-  const { prisma } = await import("@asm/db");
+  const { and, prisma } = await import("@asm/db");
   const { MEDIA_PIPELINE_VERSION } = await import("@asm/media");
   const { enqueueMediaProcess } = await import("@asm/db");
 
-  const where: Record<string, unknown> = targetMediaId
-    ? { id: targetMediaId, publishedKey: { not: null }, status: "READY" }
-    : {
-        publishedKey: { not: null },
-        status: "READY",
-        ...(targetKind ? { type: targetKind as unknown as string } : {}),
-        ...(includeCurrent
-          ? {}
-          : { pipelineVersion: { not: MEDIA_PIPELINE_VERSION } }),
-      };
+  let dryRunQuery = prisma.orm.public.PostMedia.where((media) =>
+    and(media.publishedKey.isNotNull(), media.status.eq("READY"))
+  );
+  if (targetMediaId) {
+    dryRunQuery = dryRunQuery.where({ id: targetMediaId });
+  } else {
+    if (targetKind) {
+      dryRunQuery = dryRunQuery.where({ _type: targetKind });
+    }
+    if (!includeCurrent) {
+      dryRunQuery = dryRunQuery.where((media) =>
+        media.pipelineVersion.neq(MEDIA_PIPELINE_VERSION)
+      );
+    }
+  }
 
   if (dryRun) {
-    const count = await prisma.media.count({ where });
-    const byType = await prisma.media.groupBy({
-      _count: { _all: true },
-      by: ["type"],
-      where,
-    });
+    const { count } = await dryRunQuery.aggregate((aggregate) => ({
+      count: aggregate.count(),
+    }));
+    const byType = await dryRunQuery
+      .groupBy("_type")
+      .aggregate((aggregate) => ({ count: aggregate.count() }));
     console.log(
       `Dry run: ${count} media rows would be reprocessed (v=${MEDIA_PIPELINE_VERSION}, limit ${limit}).`
     );
     for (const entry of byType) {
-      console.log(`  ${String(entry.type).padEnd(12)} ${entry._count._all}`);
+      console.log(`  ${String(entry._type).padEnd(12)} ${entry.count}`);
     }
     process.exit(0);
   }
 
-  const rows = await prisma.media.findMany({
-    orderBy: { createdAt: "asc" },
-    select: { id: true, pipelineVersion: true, type: true },
-    take: limit,
-    where,
-  });
+  const rows = await dryRunQuery
+    .select("id", "pipelineVersion", "_type")
+    .orderBy((media) => media.createdAt.asc())
+    .limit(limit)
+    .all();
 
   if (rows.length === 0) {
     console.log("Nothing to reprocess.");
@@ -92,16 +96,19 @@ if (import.meta.main) {
 
   let requeued = 0;
   for (const row of rows) {
-    const derivatives = await prisma.mediaDerivative.findMany({
-      select: { key: true },
-      where: { mediaId: row.id },
-    });
+    const derivatives = await prisma.orm.public.PostMediaDerivatives.select(
+      "key"
+    )
+      .where({ mediaId: row.id })
+      .all();
     await Promise.allSettled(derivatives.map((d) => s3.delete(d.key)));
-    await prisma.mediaDerivative.deleteMany({ where: { mediaId: row.id } });
+    await prisma.orm.public.PostMediaDerivatives.where({
+      mediaId: row.id,
+    }).deleteAndCount();
     await enqueueMediaProcess(row.id);
     requeued += 1;
     console.log(
-      `  ${row.type} ${row.id} (was v${row.pipelineVersion}) → requeued`
+      `  ${row._type} ${row.id} (was v${row.pipelineVersion}) → requeued`
     );
   }
   console.log(

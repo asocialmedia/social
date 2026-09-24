@@ -1,11 +1,13 @@
 import {
+  and,
   communityVisibilityWhere,
   getPersonalizedFeedPage,
-  getPostDataInclude,
+  getPostDataQuery,
   hydrateViewCounts,
+  mapPostData,
   prisma,
 } from "@asm/db";
-import type { PostsPage, Prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -22,6 +24,38 @@ function isMissingCursorError(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "P2025"
   );
+}
+
+async function queryArchivePosts(
+  userId: string,
+  excludeModerated: boolean,
+  cursor: string | undefined,
+  limit: number
+) {
+  const visibility = communityVisibilityWhere(userId);
+  let query = getPostDataQuery(prisma.orm, userId)
+    .where((post) => {
+      const filters = [post.isGust.eq(false), visibility(post)];
+      if (excludeModerated) {
+        filters.push(post.moderated.eq(false));
+      }
+      if (userId) {
+        filters.push(post.userId.neq(userId));
+      }
+      return and(...filters);
+    })
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
+  if (cursor) {
+    const anchor = await prisma.orm.public.Posts.select("createdAt")
+      .where({ id: cursor })
+      .first();
+    if (!anchor) {
+      return null;
+    }
+    query = query.cursor({ createdAt: anchor.createdAt, id: cursor }).offset(1);
+  }
+  const rows = await query.limit(limit).all();
+  return rows.map(mapPostData);
 }
 
 export async function GET(request: Request) {
@@ -69,20 +103,20 @@ export async function GET(request: Request) {
       ) {
         const chronologicalCursor =
           personalized.nextCursor.slice(4) || undefined;
-        const fallbackWhere: Prisma.PostWhereInput = {
-          isGust: false,
-          moderated: excludeModerated ? false : undefined,
-          userId: { not: userId },
-          ...communityVisibilityWhere(userId),
-        };
-        const fallbackPosts = await prisma.post.findMany({
-          cursor: chronologicalCursor ? { id: chronologicalCursor } : undefined,
-          include: getPostDataInclude(userId),
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          skip: chronologicalCursor ? 1 : 0,
-          take: pageSize - posts.length + 1,
-          where: fallbackWhere,
-        });
+        const fallbackPosts =
+          (await queryArchivePosts(
+            userId,
+            excludeModerated,
+            chronologicalCursor,
+            pageSize - posts.length + 1
+          )) ??
+          (await queryArchivePosts(
+            userId,
+            excludeModerated,
+            undefined,
+            pageSize - posts.length + 1
+          )) ??
+          [];
         const seenPostIds = new Set(posts.map((post) => post.id));
         const fillPosts = fallbackPosts.filter(
           (post) => !seenPostIds.has(post.id)
@@ -104,41 +138,41 @@ export async function GET(request: Request) {
   if (!data) {
     // Guests, cursor pages beyond the candidate pool, and cold-start fallbacks
     // stream all remaining/expired posts chronologically at the bottom.
-    const where: Prisma.PostWhereInput = {
-      isGust: false,
-      moderated: excludeModerated ? false : undefined,
-      userId: userId ? { not: userId } : undefined,
-      // Private-community posts never stream into a global feed.
-      ...communityVisibilityWhere(userId),
-    };
-
     const rawCursor =
       cursor && cursor.startsWith("exp.")
         ? cursor.slice(4) || undefined
         : cursor;
 
-    let posts;
+    let posts: Awaited<ReturnType<typeof queryArchivePosts>>;
     try {
-      posts = await prisma.post.findMany({
-        cursor: rawCursor ? { id: rawCursor } : undefined,
-        include: getPostDataInclude(userId),
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        skip: rawCursor ? 1 : 0,
-        take: pageSize + 1,
-        where,
-      });
+      posts = await queryArchivePosts(
+        userId,
+        excludeModerated,
+        rawCursor,
+        pageSize + 1
+      );
     } catch (error) {
       if (!isMissingCursorError(error)) {
         throw error;
       }
       // The anchor post vanished mid-scroll; restart the feed from the top
       // rather than failing the request.
-      posts = await prisma.post.findMany({
-        include: getPostDataInclude(userId),
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: pageSize + 1,
-        where,
-      });
+      posts = await queryArchivePosts(
+        userId,
+        excludeModerated,
+        undefined,
+        pageSize + 1
+      );
+    }
+
+    if (posts === null) {
+      posts =
+        (await queryArchivePosts(
+          userId,
+          excludeModerated,
+          undefined,
+          pageSize + 1
+        )) ?? [];
     }
 
     const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));

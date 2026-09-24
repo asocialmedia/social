@@ -7,8 +7,8 @@ export async function GET() {
   if (!session?.user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const mentions = await prisma.mention.findMany({
-    where: { userId: session.user.id },
-  });
+  const mentions = await prisma.orm.public.Mentions.where({
+    userId: session.user.id,
+  }).all();
   return Response.json(mentions);
 }

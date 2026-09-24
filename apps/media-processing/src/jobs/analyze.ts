@@ -10,8 +10,8 @@
 // All stages degrade independently with try/catch and timeout guards so a failure
 // in any one stage never cascades or impacts published post availability.
 
-import type { Prisma } from "@asm/db";
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
+import type { Models } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
 
 import { classifyMediaConcepts } from "../analyze/classify";
@@ -26,6 +26,41 @@ import { classifyImageSafety } from "../scan/safety";
 
 // Only these types ever reach an analysis run
 const ANALYZABLE_TYPES = new Set(["AUDIO", "IMAGE", "VIDEO"]);
+type MediaJson = NonNullable<Models.public_PostMedia["techMetadata"]>;
+type MediaJsonObject = Readonly<Record<string, MediaJson>>;
+
+function isMediaJson(value: unknown): value is MediaJson {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every((item) => isMediaJson(item));
+  }
+  if (typeof value === "object") {
+    return Object.values(value).every(
+      (item) => item !== undefined && isMediaJson(item)
+    );
+  }
+  return false;
+}
+
+function isMediaJsonObject(value: unknown): value is MediaJsonObject {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every(
+    (item) => item !== undefined && isMediaJson(item)
+  );
+}
+
+function asMediaJsonObject(value: unknown): MediaJsonObject | null {
+  return isMediaJsonObject(value) ? value : null;
+}
 
 interface AnalysisSource {
   avLocalPath: string | null;
@@ -33,7 +68,7 @@ interface AnalysisSource {
   ocrText: string | null;
   rasterLocalPath: string | null;
   semanticTags: string[];
-  techMetadata: unknown;
+  techMetadata: MediaJson | null;
   transcript: string | null;
   type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 }
@@ -42,41 +77,39 @@ async function resolveAnalysisSource(
   mediaId: string,
   semanticRefresh: boolean
 ): Promise<AnalysisSource | null> {
-  const media = await prisma.media.findUnique({
-    select: {
-      derivatives: {
-        orderBy: { createdAt: "asc" },
-        select: { key: true, kind: true },
-      },
-      key: true,
-      ocrText: true,
-      originalKey: true,
-      publishedKey: true,
-      semanticTags: true,
-      status: true,
-      techMetadata: true,
-      transcript: true,
-      type: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "key",
+    "ocrText",
+    "originalKey",
+    "publishedKey",
+    "semanticTags",
+    "status",
+    "techMetadata",
+    "transcript",
+    "_type"
+  )
+    .include("postMediaDerivatives", (derivative) =>
+      derivative.select("key", "kind").orderBy((item) => item.createdAt.asc())
+    )
+    .where({ id: mediaId })
+    .first();
 
   if (!media || media.status !== "READY") {
     return null;
   }
-  if (!ANALYZABLE_TYPES.has(media.type)) {
+  if (!ANALYZABLE_TYPES.has(media._type)) {
     return null;
   }
 
   const preferredRaster =
-    media.derivatives.find((d) => d.kind === "poster") ??
-    media.derivatives.find((d) => d.kind === "cover") ??
-    media.derivatives.find((d) => d.kind === "thumb");
+    media.postMediaDerivatives.find((d) => d.kind === "poster") ??
+    media.postMediaDerivatives.find((d) => d.kind === "cover") ??
+    media.postMediaDerivatives.find((d) => d.kind === "thumb");
 
   const rasterKey =
     preferredRaster?.key ??
-    (media.type === "IMAGE" ? media.publishedKey : null) ??
-    media.derivatives[0]?.key;
+    (media._type === "IMAGE" ? media.publishedKey : null) ??
+    media.postMediaDerivatives[0]?.key;
 
   let rasterLocalPath: string | null = null;
   if (rasterKey) {
@@ -96,7 +129,7 @@ async function resolveAnalysisSource(
   if (
     !semanticRefresh &&
     workerEnv.WHISPER_ENABLED &&
-    (media.type === "VIDEO" || media.type === "AUDIO")
+    (media._type === "VIDEO" || media._type === "AUDIO")
   ) {
     const avKey =
       media.publishedKey ??
@@ -117,13 +150,13 @@ async function resolveAnalysisSource(
 
   return {
     avLocalPath,
-    isRaster: Boolean(preferredRaster) || media.type === "IMAGE",
+    isRaster: Boolean(preferredRaster) || media._type === "IMAGE",
     ocrText: media.ocrText,
     rasterLocalPath,
-    semanticTags: media.semanticTags,
+    semanticTags: [...(media.semanticTags ?? [])],
     techMetadata: media.techMetadata,
     transcript: media.transcript,
-    type: media.type,
+    type: media._type,
   };
 }
 
@@ -199,7 +232,7 @@ export function processMediaAnalyze(
 
         // Stage 4: Multi-label concept & topic classification
         let semanticTags: string[] = [];
-        let semantics: Record<string, unknown> | null = null;
+        let semantics: MediaJson | null = null;
         let classificationSucceeded = false;
         try {
           const classification = await classifyMediaConcepts({
@@ -209,7 +242,9 @@ export function processMediaAnalyze(
             transcript: transcriptForClassification,
           });
           semanticTags = classification.tags;
-          semantics = classification.semantics ?? null;
+          semantics = isMediaJson(classification.semantics)
+            ? classification.semantics
+            : null;
           classificationSucceeded = true;
         } catch (error) {
           mediaLogger.warn(
@@ -219,45 +254,32 @@ export function processMediaAnalyze(
         }
 
         // Stage 5: Update Media database row — re-read fresh techMetadata to avoid clobbering concurrent updates
-        const freshMediaForTech = await prisma.media.findUnique({
-          select: { techMetadata: true },
-          where: { id: jobData.mediaId },
-        });
-        let existingTech: Record<string, unknown>;
-        if (
-          freshMediaForTech?.techMetadata &&
-          typeof freshMediaForTech.techMetadata === "object"
-        ) {
-          existingTech = structuredClone(
-            freshMediaForTech.techMetadata as Record<string, unknown>
-          );
-        } else if (
-          source.techMetadata &&
-          typeof source.techMetadata === "object"
-        ) {
-          existingTech = structuredClone(
-            source.techMetadata as Record<string, unknown>
-          );
-        } else {
-          existingTech = {};
-        }
-        const prevTranscription =
-          existingTech.transcription &&
-          typeof existingTech.transcription === "object"
-            ? (existingTech.transcription as Record<string, unknown>)
-            : {};
+        const freshMediaForTech = await prisma.orm.public.PostMedia.select(
+          "techMetadata"
+        )
+          .where({ id: jobData.mediaId })
+          .first();
+        const freshTech = asMediaJsonObject(freshMediaForTech?.techMetadata);
+        const sourceTech = asMediaJsonObject(source.techMetadata);
+        const existingTech: MediaJsonObject = structuredClone(
+          freshTech ?? sourceTech ?? {}
+        );
+        const storedTranscription = asMediaJsonObject(
+          existingTech.transcription
+        );
+        const prevTranscription = storedTranscription ?? {};
         const prevAttempts =
           typeof prevTranscription.attempts === "number"
             ? prevTranscription.attempts
             : 0;
 
         const isAudioVideo = source.type === "AUDIO" || source.type === "VIDEO";
-        let transcriptionMeta: Record<string, unknown> | null = null;
+        let transcriptionMeta: MediaJsonObject | null = null;
         if (transcription) {
           transcriptionMeta = {
             attemptedAt: new Date().toISOString(),
             attempts: prevAttempts + 1,
-            error: transcription.error ?? null,
+            ...(transcription.error ? { error: transcription.error } : {}),
             status: transcription.status,
           };
         } else if (isAudioVideo && !semanticRefresh) {
@@ -283,41 +305,38 @@ export function processMediaAnalyze(
             ? source.semanticTags
             : semanticTags;
 
-        await prisma.media.update({
-          data: {
+        await prisma.orm.public.PostMedia.where({ id: jobData.mediaId }).update(
+          {
             ...(transcription?.captionsKey
               ? { captionsKey: transcription.captionsKey }
               : {}),
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
-            ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
+            ...(verdict && isMediaJson(verdict)
+              ? { safety: structuredClone(verdict) }
+              : {}),
             ...(effectiveSemanticTags.length > 0
               ? { semanticTags: effectiveSemanticTags }
               : {}),
-            ...(semantics
-              ? { semantics: structuredClone(semantics) as object }
-              : {}),
-            techMetadata:
-              updatedTechMetadata as unknown as Prisma.InputJsonValue,
+            ...(semantics ? { semantics: structuredClone(semantics) } : {}),
+            techMetadata: updatedTechMetadata,
             ...(transcription?.transcript
               ? { transcript: transcription.transcript }
               : {}),
-          },
-          where: { id: jobData.mediaId },
-        });
+          }
+        );
 
         // Stage 5.5: Notify author that closed captions and transcription are ready
         if (transcription?.captionsKey || transcription?.transcript) {
           try {
-            const mediaWithOwner = await prisma.media.findUnique({
-              select: {
-                id: true,
-                post: { select: { id: true, isGust: true, userId: true } },
-                postId: true,
-                type: true,
-                userId: true,
-              },
-              where: { id: jobData.mediaId },
-            });
+            const mediaWithOwner = await prisma.orm.public.PostMedia.select(
+              "id",
+              "postId",
+              "_type",
+              "userId"
+            )
+              .include("post", (post) => post.select("id", "isGust", "userId"))
+              .where({ id: jobData.mediaId })
+              .first();
 
             if (mediaWithOwner) {
               const recipientId =
@@ -328,44 +347,54 @@ export function processMediaAnalyze(
                   enqueueNotificationCreated,
                 } = await import("@asm/db");
 
-                await prisma.user.upsert({
-                  create: {
-                    avatarUrl: "/avatars/avatar-placeholder.png",
-                    displayName: "Zeph",
-                    email: "zeph@asocialmedia.cc",
-                    emailVerified: false,
-                    id: SYSTEM_MODERATION_USER_ID,
-                    role: "user",
-                    username: "zeph",
-                  },
-                  update: {},
-                  where: { id: SYSTEM_MODERATION_USER_ID },
-                });
+                const transcriptionNotificationId = await prisma.transaction(
+                  async (transaction) => {
+                    await transaction.orm.public.Users.upsert({
+                      conflictOn: { id: SYSTEM_MODERATION_USER_ID },
+                      create: {
+                        avatarUrl: "/avatars/avatar-placeholder.png",
+                        displayName: "Zeph",
+                        email: "zeph@asocialmedia.cc",
+                        emailVerified: false,
+                        id: SYSTEM_MODERATION_USER_ID,
+                        role: "user",
+                        username: "zeph",
+                      },
+                      update: {},
+                    });
 
-                const existingNotification = mediaWithOwner.postId
-                  ? await prisma.notification.findFirst({
-                      where: {
+                    const existingNotification = mediaWithOwner.postId
+                      ? await transaction.orm.public.Notifications.where(
+                          (notification) =>
+                            and(
+                              notification.issuerId.eq(
+                                SYSTEM_MODERATION_USER_ID
+                              ),
+                              notification.postId.eq(mediaWithOwner.postId),
+                              notification.recipientId.eq(recipientId),
+                              notification._type.eq("TRANSCRIPTION")
+                            )
+                        ).first()
+                      : null;
+                    if (existingNotification) {
+                      return null;
+                    }
+
+                    const notification =
+                      await transaction.orm.public.Notifications.create({
+                        _type: "TRANSCRIPTION",
                         issuerId: SYSTEM_MODERATION_USER_ID,
                         postId: mediaWithOwner.postId,
                         recipientId,
-                        type: "TRANSCRIPTION",
-                      },
-                    })
-                  : null;
+                      });
+                    return notification.id;
+                  }
+                );
 
-                if (!existingNotification) {
-                  const transcriptionNotification =
-                    await prisma.notification.create({
-                      data: {
-                        issuerId: SYSTEM_MODERATION_USER_ID,
-                        postId: mediaWithOwner.postId ?? null,
-                        recipientId,
-                        type: "TRANSCRIPTION",
-                      },
-                    });
+                if (transcriptionNotificationId) {
                   await enqueueNotificationCreated(
                     recipientId,
-                    transcriptionNotification.id
+                    transcriptionNotificationId
                   );
                   mediaLogger.info(
                     { mediaId: jobData.mediaId, recipientId },
@@ -383,10 +412,10 @@ export function processMediaAnalyze(
         }
 
         // Stage 6: Update Parent Post (Explicit flag & Recommendation Embeddings)
-        const media = await prisma.media.findUnique({
-          select: { post: { select: { id: true } }, postId: true },
-          where: { id: jobData.mediaId },
-        });
+        const media = await prisma.orm.public.PostMedia.select("postId")
+          .include("post", (post) => post.select("id"))
+          .where({ id: jobData.mediaId })
+          .first();
 
         if (media?.post) {
           // Concurrent analyze jobs for different attachments of the same
@@ -430,20 +459,15 @@ export function processMediaAnalyze(
             // Re-read the post and every sibling attachment while holding
             // the lock so the aggregate below includes results already
             // written by sibling jobs that finished ahead of this one.
-            const post = await prisma.post.findUnique({
-              include: {
-                attachments: {
-                  select: {
-                    id: true,
-                    ocrText: true,
-                    semanticTags: true,
-                    transcript: true,
-                  },
-                },
-                tags: { select: { name: true } },
-              },
-              where: { id: postId },
-            });
+            const post = await prisma.orm.public.Posts.select("content", "id")
+              .include("postMedias", (attachment) =>
+                attachment.select("id", "ocrText", "semanticTags", "transcript")
+              )
+              .include("postToTags", (postTag) =>
+                postTag.include("tag", (tag) => tag.select("name"))
+              )
+              .where({ id: postId })
+              .first();
             if (!post) {
               return { outcome: "analyzed" as const };
             }
@@ -451,20 +475,22 @@ export function processMediaAnalyze(
             const postExplicitContent = verdict?.explicit ? true : undefined;
 
             // Aggregate all text and tags across the post and all its attachments
-            const allTranscripts = (post.attachments ?? [])
-              .map((a) => a.transcript)
+            const allTranscripts = post.postMedias
+              .map((attachment) => attachment.transcript)
               .filter(Boolean)
               .join(" ");
-            const allOcr = (post.attachments ?? [])
-              .map((a) => a.ocrText)
+            const allOcr = post.postMedias
+              .map((attachment) => attachment.ocrText)
               .filter(Boolean)
               .join(" ");
             const allSemanticTags = [
               ...new Set([
-                ...post.tags.map((t) => t.name),
-                ...(post.attachments ?? [])
-                  .filter((a) => a.id !== jobData.mediaId)
-                  .flatMap((a) => a.semanticTags),
+                ...post.postToTags.flatMap((postTag) =>
+                  postTag.tag ? [postTag.tag.name] : []
+                ),
+                ...post.postMedias
+                  .filter((attachment) => attachment.id !== jobData.mediaId)
+                  .flatMap((attachment) => attachment.semanticTags ?? []),
                 ...effectiveSemanticTags,
               ]),
             ];
@@ -488,17 +514,14 @@ export function processMediaAnalyze(
               );
             }
 
-            await prisma.post.update({
-              data: {
-                ...(postExplicitContent === undefined
-                  ? {}
-                  : { explicitContent: postExplicitContent }),
-                ...(embedding.length > 0 ? { embedding } : {}),
-                ...(allSemanticTags.length > 0
-                  ? { semanticTags: allSemanticTags }
-                  : {}),
-              },
-              where: { id: post.id },
+            await prisma.orm.public.Posts.where({ id: post.id }).update({
+              ...(postExplicitContent === undefined
+                ? {}
+                : { explicitContent: postExplicitContent }),
+              ...(embedding.length > 0 ? { embedding } : {}),
+              ...(allSemanticTags.length > 0
+                ? { semanticTags: allSemanticTags }
+                : {}),
             });
 
             mediaLogger.info(

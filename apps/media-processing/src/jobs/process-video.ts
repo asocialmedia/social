@@ -24,6 +24,7 @@ import {
   probeMedia,
 } from "../transcode/ffmpeg";
 import type { ProbeResult } from "../transcode/ffmpeg";
+import { persistMediaDerivatives } from "./derivatives";
 
 const PROGRESSIVE_MAX_HEIGHT = 1080;
 
@@ -64,15 +65,16 @@ export async function processMediaVideo(input: {
       // video's own audio. The audio is downloaded and remuxed over the clip
       // (video stream copied, audio transcoded to AAC, shortest duration) so
       // every derivative below - poster, MP4, HLS - carries the new track.
-      const overlay = await prisma.media.findUnique({
-        select: { audioOverlayId: true },
-        where: { id: input.mediaId },
-      });
+      const overlay = await prisma.orm.public.PostMedia.select("audioOverlayId")
+        .where({ id: input.mediaId })
+        .first();
       if (overlay?.audioOverlayId) {
-        const audio = await prisma.media.findUnique({
-          select: { originalKey: true, publishedKey: true },
-          where: { id: overlay.audioOverlayId },
-        });
+        const audio = await prisma.orm.public.PostMedia.select(
+          "originalKey",
+          "publishedKey"
+        )
+          .where({ id: overlay.audioOverlayId })
+          .first();
         const audioKey = audio?.publishedKey ?? audio?.originalKey;
         if (audioKey) {
           const overlayPath = `/tmp/asm-audio-overlay-${input.mediaId}-${randomUUID()}`;
@@ -239,42 +241,38 @@ export async function processMediaVideo(input: {
         );
         await s3.write(thumbKey, Bun.file(thumbPath));
         input.uploadedKeys?.push(thumbKey);
-        await prisma.mediaDerivative.createMany({
-          data: [
+        await prisma.transaction((transaction) =>
+          persistMediaDerivatives(transaction, input.mediaId, [
             {
               key: thumbKey,
               kind: "poster-thumb",
-              mediaId: input.mediaId,
               mimeType: "image/jpeg",
               pipelineVersion: MEDIA_PIPELINE_VERSION,
               variant: "default",
             },
-          ],
-          skipDuplicates: true,
-        });
+          ])
+        );
       }
 
       // Publish the poster + LQIP before the expensive transcodes: the
       // serving route can then hand feed cards the real frame seconds
       // earlier, and a mid-MP4 crash still leaves the thumbnail live.
       // skipDuplicates keeps a retry idempotent (unique [mediaId,kind,variant]).
-      await prisma.mediaDerivative.createMany({
-        data: [
+      await prisma.transaction((transaction) =>
+        persistMediaDerivatives(transaction, input.mediaId, [
           {
             durationMs: Math.round(probe.durationSec * 1000),
             key: posterKey,
             kind: "poster",
-            mediaId: input.mediaId,
             mimeType: "image/jpeg",
             pipelineVersion: MEDIA_PIPELINE_VERSION,
             variant: "default",
           },
-        ],
-        skipDuplicates: true,
-      });
-      await prisma.media.update({
-        data: { blurDataUrl, thumbnailKey: posterKey },
-        where: { id: input.mediaId },
+        ])
+      );
+      await prisma.orm.public.PostMedia.where({ id: input.mediaId }).update({
+        blurDataUrl,
+        thumbnailKey: posterKey,
       });
       const posterRow = {
         durationMs: Math.round(probe.durationSec * 1000),
@@ -451,15 +449,13 @@ export async function processMediaVideo(input: {
         }
       }
 
-      await prisma.mediaDerivative.createMany({
-        data: derivatives.map((item) => ({ ...item, mediaId: input.mediaId })),
-        skipDuplicates: true,
-      });
+      await prisma.transaction((transaction) =>
+        persistMediaDerivatives(transaction, input.mediaId, derivatives)
+      );
 
-      const existing = await prisma.media.findUnique({
-        select: { techMetadata: true },
-        where: { id: input.mediaId },
-      });
+      const existing = await prisma.orm.public.PostMedia.select("techMetadata")
+        .where({ id: input.mediaId })
+        .first();
       const baseTech =
         existing?.techMetadata &&
         typeof existing.techMetadata === "object" &&
@@ -475,41 +471,41 @@ export async function processMediaVideo(input: {
           posterSeek
         ).catch(() => null)) || null;
 
-      await prisma.media.update({
-        data: {
-          blurDataUrl,
-          hasHls: plan.hls,
-          height: probe.video.height,
-          phash: computedVideoPhash,
-          techMetadata: {
-            ...baseTech,
-            aspectRatio: Number(
-              (probe.video.width / probe.video.height).toFixed(4)
-            ),
-            audio: probe.audio ?? undefined,
-            bitrateKbps: probe.formatBitrateKbps,
-            colorSpace: probe.video.colorSpace ?? undefined,
-            colorTransfer: probe.video.colorTransfer ?? undefined,
-            durationSec: probe.durationSec,
-            fps: probe.video.fps,
-            frameRateMode: probe.video.frameRateMode,
-            hdr: probe.video.colorTransfer === "smpte2084",
-            pixelFormat: probe.video.pixelFormat,
-            rotation: probe.video.rotation || undefined,
-            videoBitrateKbps: probe.video.bitrateKbps,
-            videoCodec: probe.video.codec,
-          } as object,
-          width: probe.video.width,
+      await prisma.orm.public.PostMedia.where({ id: input.mediaId }).update({
+        blurDataUrl,
+        hasHls: plan.hls,
+        height: probe.video.height,
+        phash: computedVideoPhash,
+        techMetadata: {
+          ...baseTech,
+          aspectRatio: Number(
+            (probe.video.width / probe.video.height).toFixed(4)
+          ),
+          ...(probe.audio ? { audio: probe.audio } : {}),
+          bitrateKbps: probe.formatBitrateKbps,
+          ...(probe.video.colorSpace
+            ? { colorSpace: probe.video.colorSpace }
+            : {}),
+          ...(probe.video.colorTransfer
+            ? { colorTransfer: probe.video.colorTransfer }
+            : {}),
+          durationSec: probe.durationSec,
+          fps: probe.video.fps,
+          frameRateMode: probe.video.frameRateMode,
+          hdr: probe.video.colorTransfer === "smpte2084",
+          pixelFormat: probe.video.pixelFormat,
+          ...(probe.video.rotation ? { rotation: probe.video.rotation } : {}),
+          videoBitrateKbps: probe.video.bitrateKbps,
+          videoCodec: probe.video.codec,
         },
-        where: { id: input.mediaId },
+        width: probe.video.width,
       });
 
       if (computedVideoPhash) {
         try {
-          const mediaOwner = await prisma.media.findUnique({
-            select: { userId: true },
-            where: { id: input.mediaId },
-          });
+          const mediaOwner = await prisma.orm.public.PostMedia.select("userId")
+            .where({ id: input.mediaId })
+            .first();
           const { attributeReshare } = await import("../watermark/reshare");
           await attributeReshare(
             input.mediaId,

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import ExploreClient from "@/components/discover/explore-client";
@@ -26,6 +27,7 @@ export default function DiscoveryPage() {
 }
 
 async function DiscoveryContent() {
+  await connection();
   const [recentPosts, trendingPosts, gusts] = await Promise.all([
     getRecentPostsForCrawl(20),
     getTrendingPostsForCrawl(12),

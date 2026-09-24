@@ -129,16 +129,79 @@ const tx = {
   },
 };
 
+const mockOrm = {
+  public: {
+    AuraLogs: {
+      select: () => ({
+        where: () => ({ all: () => Promise.resolve(mockAuraLogsForPost) }),
+      }),
+      where: () => ({
+        updateAndCount: () => {
+          mockUnlinkedAuraLogs.push(POST_ID);
+          return Promise.resolve(1);
+        },
+      }),
+    },
+    Notifications: {
+      create: (data: Record<string, unknown>) => {
+        notifications.push(data as (typeof notifications)[number]);
+        return Promise.resolve(data);
+      },
+    },
+    PostMedia: {
+      select: () => ({
+        include: () => ({
+          where: () => ({ all: () => Promise.resolve([]) }),
+        }),
+      }),
+    },
+    Posts: {
+      select: () => ({
+        where: (filter: { id?: string }) => ({
+          first: () =>
+            Promise.resolve(filter.id === POST_ID ? { ...postState } : null),
+        }),
+      }),
+      where: () => ({
+        delete: () => {
+          mockDeletedPosts.push(POST_ID);
+          return Promise.resolve();
+        },
+        updateAndCount: (data: {
+          explicitContent?: boolean;
+          moderated?: boolean;
+        }) => {
+          if (
+            (data.moderated !== undefined &&
+              data.moderated === postState.moderated) ||
+            (data.explicitContent !== undefined &&
+              data.explicitContent === postState.explicitContent)
+          ) {
+            return Promise.resolve(0);
+          }
+          postState = { ...postState, ...data };
+          return Promise.resolve(1);
+        },
+      }),
+    },
+    Users: {
+      upsert: () => Promise.resolve({ id: "sys-zeph" }),
+    },
+  },
+};
+
 const mockPrisma = {
-  $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
   media: {
     findMany: () => [],
     updateMany: () => ({ count: 0 }),
   },
+  orm: mockOrm,
   post: {
     findUnique: (args: { where: { id: string } }) =>
       args.where.id === POST_ID ? { ...postState } : null,
   },
+  transaction: (fn: (t: typeof tx & { orm: typeof mockOrm }) => unknown) =>
+    fn({ ...tx, orm: mockOrm }),
   user: {
     upsert: () => ({ id: "sys-zeph" }),
   },
@@ -198,6 +261,9 @@ mock.module("@asm/db", () => ({
   getOnlineUsers: () => Promise.resolve([]),
   // This suite's admin/moderation flows read the richer include shape.
   getPostDataInclude: mockInclude,
+  getPostDataQuery: () => ({
+    where: () => ({ first: () => Promise.resolve({ ...postState }) }),
+  }),
   getUserDataSelect: () => ({ id: true }),
   grantShitposterBadgeIfQualified: () => Promise.resolve(false),
   hydrateViewCounts: (posts: unknown[]) => Promise.resolve(posts),
@@ -212,6 +278,7 @@ mock.module("@asm/db", () => ({
     get: () => Promise.resolve(null),
     set: () => Promise.resolve(),
   },
+  mapPostData: (value: Record<string, unknown>) => value,
   markUserOnline: () => Promise.resolve(),
   messageConversationInclude: {},
   prisma: mockPrisma,
@@ -341,10 +408,10 @@ describe("updatePostModeration", () => {
     expect(auraPenalties).toEqual([AUTHOR_ID]);
     expect(notifications).toEqual([
       {
+        _type: "MODERATION",
         issuerId: "sys-zeph",
         postId: POST_ID,
         recipientId: AUTHOR_ID,
-        type: "MODERATION",
       },
     ]);
     expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
@@ -360,10 +427,10 @@ describe("updatePostModeration", () => {
 
     expect(notifications).toEqual([
       {
+        _type: "MODERATION",
         issuerId: "sys-zeph",
         postId: POST_ID,
         recipientId: AUTHOR_ID,
-        type: "MODERATION",
       },
     ]);
     expect(mockIncrementUnread).toHaveBeenCalledWith(AUTHOR_ID);
@@ -380,10 +447,10 @@ describe("updatePostModeration", () => {
     expect(auraPenalties).toEqual([]);
     expect(notifications).toEqual([
       {
+        _type: "MODERATION",
         issuerId: "sys-zeph",
         postId: POST_ID,
         recipientId: AUTHOR_ID,
-        type: "MODERATION",
       },
     ]);
     expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
@@ -402,10 +469,10 @@ describe("updatePostModeration", () => {
     expect(auraLogs).toEqual([]);
     expect(notifications).toEqual([
       {
+        _type: "MODERATION",
         issuerId: "sys-zeph",
         postId: POST_ID,
         recipientId: AUTHOR_ID,
-        type: "MODERATION",
       },
     ]);
     expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
@@ -424,10 +491,10 @@ describe("updatePostModeration", () => {
     expect(auraLogs).toEqual([]);
     expect(notifications).toEqual([
       {
+        _type: "MODERATION",
         issuerId: "sys-zeph",
         postId: POST_ID,
         recipientId: AUTHOR_ID,
-        type: "MODERATION",
       },
     ]);
     expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
@@ -495,8 +562,8 @@ describe("deletePost", () => {
     }));
 
     mockAuraLogsForPost = [
-      { amount: 20, id: "log-1", type: "POST_CREATION" },
-      { amount: 15, id: "log-2", type: "POST_ATTACHMENT_BONUS" },
+      { _type: "POST_CREATION", amount: 20, id: "log-1" },
+      { _type: "POST_ATTACHMENT_BONUS", amount: 15, id: "log-2" },
     ];
 
     await deletePost(POST_ID);

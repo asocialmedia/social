@@ -1,6 +1,7 @@
 import {
   getUserCommunityRoles,
-  getUserDataSelect,
+  getUserDataQuery,
+  mapUserData,
   prisma,
   resolveUsername,
   SYSTEM_MODERATION_USER_ID,
@@ -9,6 +10,7 @@ import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
 import { notFound, permanentRedirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
 import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
@@ -30,10 +32,10 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
     notFound();
   }
 
-  const user = await prisma.user.findUnique({
-    select: getUserDataSelect(loggedInUserId),
-    where: { id: resolvedUsername.id },
-  });
+  const userRow = await getUserDataQuery(prisma.orm, loggedInUserId)
+    .where({ id: resolvedUsername.id })
+    .first();
+  const user = userRow ? mapUserData(userRow) : null;
 
   if (!user) {
     notFound();
@@ -59,10 +61,10 @@ async function getMetadataUser(username: string) {
     return null;
   }
 
-  const user = await prisma.user.findUnique({
-    select: getUserDataSelect(""),
-    where: { id: resolvedUsername.id },
-  });
+  const userRow = await getUserDataQuery(prisma.orm, "")
+    .where({ id: resolvedUsername.id })
+    .first();
+  const user = userRow ? mapUserData(userRow) : null;
 
   if (!user || user.id === SYSTEM_MODERATION_USER_ID) {
     return null;
@@ -142,6 +144,7 @@ export default function Page(props: PageProps) {
 }
 
 async function ProfileContent({ params }: PageProps) {
+  await connection();
   const { username } = await params;
   const session = await getSessionFromApi();
 

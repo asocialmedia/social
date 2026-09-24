@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth",
-  "version": "1.1.58",
+  "version": "1.1.65",
   "private": true,
   "description": "asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
@@ -28,7 +28,7 @@
     "@asm/logger": "workspace:*",
     "@better-auth/expo": "^1.7.5",
     "@better-auth/passkey": "^1.7.3",
-    "@prisma/client": "7.9.1",
+    "@prisma/orm-postgres": "8.0.0-rc.11",
     "@simplewebauthn/server": "^13.3.1",
     "@t3-oss/env-core": "^0.13.11",
     "better-auth": "^1.7.3",

@@ -24,6 +24,87 @@ mock.module("../env", () => ({
   },
 }));
 
+type QueryFilter =
+  | { field: string; op: string; value: unknown }
+  | { filters: QueryFilter[]; kind: "and" }
+  | Record<string, unknown>;
+
+function queryField(
+  field: string
+): Record<string, (value: unknown) => QueryFilter> {
+  return new Proxy(
+    {},
+    {
+      get: (_target, property) => (value: unknown) => ({
+        field,
+        op: String(property),
+        value,
+      }),
+    }
+  );
+}
+
+function isAndFilter(
+  filter: QueryFilter
+): filter is { filters: QueryFilter[]; kind: "and" } {
+  return "kind" in filter && filter.kind === "and";
+}
+
+function isFieldFilter(
+  filter: QueryFilter
+): filter is { field: string; op: string; value: unknown } {
+  return "field" in filter && typeof filter.field === "string";
+}
+
+function flattenFilter(filter: QueryFilter): Record<string, unknown> {
+  if (isAndFilter(filter)) {
+    return Object.assign({}, ...filter.filters.map(flattenFilter));
+  }
+  if (isFieldFilter(filter)) {
+    if (filter.op === "isNull") {
+      return { [filter.field]: null };
+    }
+    if (filter.op === "isNotNull") {
+      return { [filter.field]: { not: null } };
+    }
+    if (filter.op === "neq") {
+      return { [filter.field]: { not: filter.value } };
+    }
+    if (filter.op === "in") {
+      return { [filter.field]: { in: filter.value } };
+    }
+    if (filter.op === "lt") {
+      return { [filter.field]: { lt: filter.value } };
+    }
+    if (filter.op === "gte") {
+      return { [filter.field]: { gte: filter.value } };
+    }
+    if (filter.op === "like") {
+      return {
+        [filter.field]: {
+          startsWith: String(filter.value).replace(/%$/, ""),
+        },
+      };
+    }
+    return { [filter.field]: filter.value };
+  }
+  return filter;
+}
+
+function evaluateFilter(filter: unknown): QueryFilter {
+  if (typeof filter !== "function") {
+    return filter as QueryFilter;
+  }
+  const fields = new Proxy(
+    {},
+    { get: (_target, property) => queryField(String(property)) }
+  );
+  const evaluate = filter as (
+    fields: Record<string, Record<string, (value: unknown) => QueryFilter>>
+  ) => QueryFilter;
+  return evaluate(fields);
+}
+
 interface FindManyArgs {
   select?: Record<string, boolean>;
   take?: number;
@@ -32,6 +113,7 @@ interface FindManyArgs {
     processedAt?: unknown;
     status?: unknown;
     type?: { in: string[] };
+    _type?: { in: string[] };
     originalKey?: unknown;
     pipelineVersion?: unknown;
   };
@@ -46,6 +128,34 @@ const derivativeCounts: Record<string, number> = {};
 const enqueuedMediaIds: string[] = [];
 const enqueuedScanMediaIds: string[] = [];
 const findManyArgs: FindManyArgs[] = [];
+
+function createQuery() {
+  const filters: QueryFilter[] = [];
+  let take: number | undefined;
+  const query = {
+    all: () => {
+      if (prismaDisabled) {
+        throw new Error("must not query when the sweep is disabled");
+      }
+      const where = Object.assign({}, ...filters.map(flattenFilter));
+      findManyArgs.push({ take, where });
+      return Promise.resolve(
+        where.status === "READY" ? readyRows : unscannedRows
+      );
+    },
+    limit: (value: number) => {
+      take = value;
+      return query;
+    },
+    orderBy: () => query,
+    select: () => query,
+    where: (filter: unknown) => {
+      filters.push(evaluateFilter(filter));
+      return query;
+    },
+  };
+  return query;
+}
 // Sync to global for cross-file mock compatibility
 (globalThis as unknown as Record<string, unknown>).__qm_prismaDisabled =
   prismaDisabled;
@@ -55,7 +165,7 @@ const findManyArgs: FindManyArgs[] = [];
   derivativeCounts;
 
 mock.module("@asm/db", () => ({
-  Prisma: { DbNull: Symbol.for("test.DbNull") },
+  and: (...filters: QueryFilter[]) => ({ filters, kind: "and" }),
   enqueueMediaAnalyze: (_mediaId: string) => Promise.resolve(),
   enqueueMediaProcess: (mediaId: string) => {
     const g = globalThis as unknown as Record<string, unknown>;
@@ -84,40 +194,32 @@ mock.module("@asm/db", () => ({
     return Promise.resolve();
   },
   prisma: {
-    media: {
-      findMany: (args: FindManyArgs) => {
-        if (prismaDisabled) {
-          throw new Error("must not query when the sweep is disabled");
-        }
-        findManyArgs.push(args);
-        // Distinguish the two queries by their where shape, not call order:
-        // the READY-without-derivatives query filters on status READY, the
-        // unscanned-quarantine query on QUARANTINED. Keeps the mock stable
-        // if the sweep adds or reorders queries.
-        const status = args.where?.status;
-        const isReadyQuery =
-          status === "READY" ||
-          (typeof status === "object" &&
-            status !== null &&
-            "in" in status &&
-            (status as { in: unknown[] }).in === undefined);
-        return isReadyQuery ? readyRows : unscannedRows;
-      },
-      update: () => ({}),
-    },
-    mediaDerivative: {
-      count: ({ where }: { where: { mediaId: string } }) => {
-        const g = globalThis as unknown as Record<string, unknown>;
-        const counts =
-          (g.__qm_derivativeCounts as Record<string, number>) ??
-          derivativeCounts;
-        return Promise.resolve(
-          counts[where.mediaId] ?? derivativeCounts[where.mediaId] ?? 0
-        );
+    orm: {
+      public: {
+        PostMedia: {
+          select: () => createQuery(),
+          where: (filter: unknown) => createQuery().where(filter),
+        },
+        PostMediaDerivatives: {
+          where: (filter: { mediaId: string }) => ({
+            aggregate: () => {
+              const g = globalThis as unknown as Record<string, unknown>;
+              const counts =
+                (g.__qm_derivativeCounts as Record<string, number>) ??
+                derivativeCounts;
+              return Promise.resolve({
+                count:
+                  counts[filter.mediaId] ??
+                  derivativeCounts[filter.mediaId] ??
+                  0,
+              });
+            },
+          }),
+        },
       },
     },
   },
-  redis: { decrby: () => Promise.resolve(0), incrby: () => Promise.resolve(0) },
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 mock.module("../s3", () => ({
@@ -175,8 +277,8 @@ describe("derived-heal sweep", () => {
     expect(args.where.status).toBe("READY");
     // Only types that generate derivatives are healed; DOCUMENT uploads
     // legitimately have none.
-    expect(args.where.type?.in).toContain("VIDEO");
-    expect(args.where.type?.in).not.toContain("DOCUMENT");
+    expect(args.where._type?.in).toContain("VIDEO");
+    expect(args.where._type?.in).not.toContain("DOCUMENT");
   });
 
   test("re-enqueues READY rows older than the grace window with zero derivatives", async () => {

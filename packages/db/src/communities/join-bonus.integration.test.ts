@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 
 import {
   COMMUNITY_JOIN_AURA,
@@ -11,7 +12,9 @@ import {
   leaveCommunity,
   prisma,
   redis,
+  toPrismaDateTime,
 } from "@asm/db";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 // Anti-farm coverage for the community join bonus. The whole feature is one
 // expensive award per (community, user) pair, so these tests pin the guards
@@ -30,31 +33,41 @@ const PUBLIC_SLUG = `jbp${RUN_ID}`;
 const RESTRICTED_SLUG = `jbr${RUN_ID}`;
 
 async function createUser(id: string, ageDays: number): Promise<void> {
-  await prisma.user.create({
-    data: {
-      createdAt: new Date(Date.now() - ageDays * 86_400_000),
-      displayName: id,
-      email: `${id}@example.test`,
-      id,
-      username: id,
-    },
+  await prisma.orm.public.Users.create({
+    createdAt: toPrismaDateTime(new Date(Date.now() - ageDays * 86_400_000)),
+    displayName: id,
+    email: `${id}@example.test`,
+    id,
+    username: id,
   });
 }
 
 async function auraOf(userId: string): Promise<number> {
-  const user = await prisma.user.findUnique({
-    select: { aura: true },
-    where: { id: userId },
-  });
+  const user = await prisma.orm.public.Users.select("aura")
+    .where((candidate) => candidate.id.eq(userId))
+    .first();
   return user?.aura ?? 0;
 }
 
 async function joinedCommunityIds(userId: string): Promise<string[]> {
-  const rows = await prisma.communityMember.findMany({
-    select: { communityId: true },
-    where: { status: "ACTIVE", userId },
-  });
+  const rows = await prisma.orm.public.CommunityMembers.select("communityId")
+    .where((member) =>
+      and(member.status.eq("ACTIVE"), member.userId.eq(userId))
+    )
+    .all();
   return rows.map((row) => row.communityId);
+}
+
+async function communityBySlug(
+  slug: string
+): Promise<{ id: string; ownerId: string }> {
+  const community = await prisma.orm.public.Communities.select("id", "ownerId")
+    .where((candidate) => candidate.slug.eq(slug))
+    .first();
+  if (!community) {
+    throw new Error(`Community ${slug} missing`);
+  }
+  return community;
 }
 
 beforeAll(async () => {
@@ -65,18 +78,18 @@ beforeAll(async () => {
 
   // Founding is gated on standing (derived from earned ledger income), so the
   // fixture owner needs real non-milestone income before it can create.
-  await prisma.user.update({
-    data: { aura: 100_000 },
-    where: { id: OWNER_ID },
+  await prisma.orm.public.Users.where((user) =>
+    user.id.eq(OWNER_ID)
+  ).updateAndCount({
+    aura: 100_000,
   });
-  await prisma.auraLog.create({
-    data: {
-      amount: 100_000,
-      issuerId: OWNER_ID,
-      targetUserId: OWNER_ID,
-      type: "POST_CREATION",
-      userId: OWNER_ID,
-    },
+  await prisma.orm.public.AuraLogs.create({
+    _type: "COMMUNITY_JOIN",
+    amount: 100_000,
+    id: randomUUID(),
+    issuerId: OWNER_ID,
+    targetUserId: OWNER_ID,
+    userId: OWNER_ID,
   });
 
   await createCommunity({
@@ -98,22 +111,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const userIds = [OWNER_ID, MATURE_ID, FRESH_ID];
-  await prisma.auraLog.deleteMany({
-    where: { OR: [{ issuerId: { in: userIds } }, { userId: { in: userIds } }] },
-  });
-  await prisma.community.deleteMany({
-    where: { slug: { in: [PUBLIC_SLUG, RESTRICTED_SLUG] } },
-  });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  await prisma.orm.public.AuraLogs.where((log) =>
+    or(log.issuerId.in(userIds), log.userId.in(userIds))
+  ).deleteAndCount();
+  await prisma.orm.public.Communities.where((community) =>
+    community.slug.in([PUBLIC_SLUG, RESTRICTED_SLUG])
+  ).deleteAndCount();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(userIds)
+  ).deleteAndCount();
   await redis.del(`community:stats:${PUBLIC_SLUG}`);
 });
 
 describe("community join bonus", () => {
   test("a mature joiner is paid once and the owner is credited", async () => {
-    const community = await prisma.community.findUniqueOrThrow({
-      select: { id: true },
-      where: { slug: PUBLIC_SLUG },
-    });
+    const community = await communityBySlug(PUBLIC_SLUG);
 
     const before = await auraOf(MATURE_ID);
     const ownerBefore = await auraOf(OWNER_ID);
@@ -125,19 +137,18 @@ describe("community join bonus", () => {
       ownerBefore + COMMUNITY_JOIN_OWNER_AURA
     );
 
-    const marker = await prisma.communityJoinBonus.findUnique({
-      where: {
-        communityId_userId: { communityId: community.id, userId: MATURE_ID },
-      },
-    });
+    const marker = await prisma.orm.public.CommunityJoinBonuses.select(
+      "joinerAura"
+    )
+      .where((bonus) =>
+        and(bonus.communityId.eq(community.id), bonus.userId.eq(MATURE_ID))
+      )
+      .first();
     expect(marker?.joinerAura).toBe(COMMUNITY_JOIN_AURA);
   });
 
   test("leave and rejoin never pays a second time", async () => {
-    const community = await prisma.community.findUniqueOrThrow({
-      select: { id: true },
-      where: { slug: PUBLIC_SLUG },
-    });
+    const community = await communityBySlug(PUBLIC_SLUG);
 
     const before = await auraOf(MATURE_ID);
 
@@ -152,30 +163,25 @@ describe("community join bonus", () => {
   });
 
   test("a too-young account joins but is not paid", async () => {
-    const community = await prisma.community.findUniqueOrThrow({
-      select: { id: true },
-      where: { slug: PUBLIC_SLUG },
-    });
+    const community = await communityBySlug(PUBLIC_SLUG);
 
     const before = await auraOf(FRESH_ID);
     await joinCommunity(community.id, FRESH_ID);
 
     expect(await joinedCommunityIds(FRESH_ID)).toContain(community.id);
     expect(await auraOf(FRESH_ID)).toBe(before);
-    expect(
-      await prisma.communityJoinBonus.findUnique({
-        where: {
-          communityId_userId: { communityId: community.id, userId: FRESH_ID },
-        },
-      })
-    ).toBeNull();
+    const freshMarker = await prisma.orm.public.CommunityJoinBonuses.select(
+      "id"
+    )
+      .where((bonus) =>
+        and(bonus.communityId.eq(community.id), bonus.userId.eq(FRESH_ID))
+      )
+      .first();
+    expect(freshMarker).toBeNull();
   });
 
   test("the owner joining their own community is never paid", async () => {
-    const community = await prisma.community.findUniqueOrThrow({
-      select: { id: true },
-      where: { slug: PUBLIC_SLUG },
-    });
+    const community = await communityBySlug(PUBLIC_SLUG);
 
     const before = await auraOf(OWNER_ID);
     // The owner is already an ACTIVE member, so this is a no-op join; assert
@@ -185,10 +191,7 @@ describe("community join bonus", () => {
   });
 
   test("restricted communities pay on approval, not on request", async () => {
-    const community = await prisma.community.findUniqueOrThrow({
-      select: { id: true, ownerId: true },
-      where: { slug: RESTRICTED_SLUG },
-    });
+    const community = await communityBySlug(RESTRICTED_SLUG);
 
     const before = await auraOf(FRESH_ID);
     const { status } = await joinCommunity(community.id, FRESH_ID);
@@ -214,17 +217,14 @@ describe("community join bonus", () => {
       Array.from({ length: joinsAtCap + 1 }, (_, index) => {
         const slug = `jbc${RUN_ID}${index}`;
         slugs.push(slug);
-        return prisma.community
-          .create({
-            data: {
-              description: `Cap test community ${index}`,
-              name: `JBC ${index}`,
-              ownerId: OWNER_ID,
-              slug,
-              topics: ["technology"],
-            },
-          })
-          .then((created) => created.id);
+        return prisma.orm.public.Communities.create({
+          description: `Cap test community ${index}`,
+          id: randomUUID(),
+          name: `JBC ${index}`,
+          ownerId: OWNER_ID,
+          slug,
+          topics: ["technology"],
+        }).then((created) => created.id);
       })
     );
 
@@ -246,22 +246,25 @@ describe("community join bonus", () => {
         communityIds.length
       );
       // ...but total paid joiner aura cannot exceed the daily ceiling.
-      const paid = await prisma.communityJoinBonus.aggregate({
-        _sum: { joinerAura: true },
-        where: { userId: sweepId },
-      });
-      expect(paid._sum.joinerAura ?? 0).toBeLessThanOrEqual(
+      const paid = await prisma.orm.public.CommunityJoinBonuses.where((bonus) =>
+        bonus.userId.eq(sweepId)
+      ).aggregate((aggregate) => ({ total: aggregate.sum("joinerAura") }));
+      expect(paid.total ?? 0).toBeLessThanOrEqual(
         COMMUNITY_JOIN_DAILY_AURA_CAP
       );
       expect(await auraOf(sweepId)).toBeLessThanOrEqual(
         COMMUNITY_JOIN_DAILY_AURA_CAP
       );
     } finally {
-      await prisma.auraLog.deleteMany({
-        where: { OR: [{ issuerId: sweepId }, { userId: sweepId }] },
-      });
-      await prisma.community.deleteMany({ where: { slug: { in: slugs } } });
-      await prisma.user.deleteMany({ where: { id: sweepId } });
+      await prisma.orm.public.AuraLogs.where((log) =>
+        or(log.issuerId.eq(sweepId), log.userId.eq(sweepId))
+      ).deleteAndCount();
+      await prisma.orm.public.Communities.where((community) =>
+        community.slug.in(slugs)
+      ).deleteAndCount();
+      await prisma.orm.public.Users.where((user) =>
+        user.id.eq(sweepId)
+      ).deleteAndCount();
     }
   });
 
@@ -279,17 +282,14 @@ describe("community join bonus", () => {
       Array.from({ length: concurrency }, (_, index) => {
         const slug = `jbx${RUN_ID}${index}`;
         slugs.push(slug);
-        return prisma.community
-          .create({
-            data: {
-              description: `Parallel cap community ${index}`,
-              name: `JBX ${index}`,
-              ownerId: OWNER_ID,
-              slug,
-              topics: ["technology"],
-            },
-          })
-          .then((created) => created.id);
+        return prisma.orm.public.Communities.create({
+          description: `Parallel cap community ${index}`,
+          id: randomUUID(),
+          name: `JBX ${index}`,
+          ownerId: OWNER_ID,
+          slug,
+          topics: ["technology"],
+        }).then((created) => created.id);
       })
     );
 
@@ -306,22 +306,26 @@ describe("community join bonus", () => {
 
       // ...but the paid total never exceeds the ceiling, and every pair was
       // marked (capped ones with a zero payout) so a rejoin cannot revisit it.
-      const paid = await prisma.communityJoinBonus.aggregate({
-        _sum: { joinerAura: true },
-        where: { userId: racerId },
-      });
-      expect(paid._sum.joinerAura ?? 0).toBeLessThanOrEqual(
+      const paid = await prisma.orm.public.CommunityJoinBonuses.where((bonus) =>
+        bonus.userId.eq(racerId)
+      ).aggregate((aggregate) => ({ total: aggregate.sum("joinerAura") }));
+      expect(paid.total ?? 0).toBeLessThanOrEqual(
         COMMUNITY_JOIN_DAILY_AURA_CAP
       );
-      expect(
-        await prisma.communityJoinBonus.count({ where: { userId: racerId } })
-      ).toBe(concurrency);
+      const marked = await prisma.orm.public.CommunityJoinBonuses.where(
+        (bonus) => bonus.userId.eq(racerId)
+      ).aggregate((aggregate) => ({ count: aggregate.count() }));
+      expect(marked.count).toBe(concurrency);
     } finally {
-      await prisma.auraLog.deleteMany({
-        where: { OR: [{ issuerId: racerId }, { userId: racerId }] },
-      });
-      await prisma.community.deleteMany({ where: { slug: { in: slugs } } });
-      await prisma.user.deleteMany({ where: { id: racerId } });
+      await prisma.orm.public.AuraLogs.where((log) =>
+        or(log.issuerId.eq(racerId), log.userId.eq(racerId))
+      ).deleteAndCount();
+      await prisma.orm.public.Communities.where((community) =>
+        community.slug.in(slugs)
+      ).deleteAndCount();
+      await prisma.orm.public.Users.where((user) =>
+        user.id.eq(racerId)
+      ).deleteAndCount();
     }
   });
 });

@@ -2,63 +2,122 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const POST_ID = "post-1";
 const USER_ID = "user-1";
+const DEDUPE_KEY = `not_interested:${USER_ID}:${POST_ID}`;
 
-const deletedEvents: { eventType: string; postId: string; userId: string }[] =
-  [];
+interface EventExpression {
+  field: string;
+  operator: string;
+  value: unknown;
+}
+
 const createdEvents: {
   dedupeKey: string;
   eventType: string;
   postId: string;
   userId: string;
 }[] = [];
-const upsertedKeys: string[] = [];
+const deletedEvents: EventExpression[][] = [];
+const updatedEventIds: string[] = [];
 const invalidatedUsers: string[] = [];
 
+let existingDedupeKey: string | null = null;
 let postExists = true;
 
-const mockGetSession = mock((): { user: { id: string } } | null => ({
-  user: { id: USER_ID },
-}));
+function createEventAccessor(): Record<string, unknown> {
+  return new Proxy<Record<string, unknown>>(
+    {},
+    {
+      get(_target, field) {
+        if (typeof field !== "string") {
+          return;
+        }
+        return {
+          eq: (value: unknown): EventExpression => ({
+            field,
+            operator: "eq",
+            value,
+          }),
+        };
+      },
+    }
+  );
+}
+
+function getEventExpressions(
+  predicate: (model: Record<string, unknown>) => unknown
+): EventExpression[] {
+  const value = predicate(createEventAccessor());
+  return Array.isArray(value) ? (value as EventExpression[]) : [];
+}
 
 const mockPrisma = {
-  post: {
-    findUnique: (args: { where: { id: string } }) =>
-      postExists && args.where.id === POST_ID ? { id: POST_ID } : null,
-  },
-  recommendationEvent: {
-    deleteMany: (args: {
-      where: { eventType: string; postId: string; userId: string };
-    }): void => {
-      deletedEvents.push(args.where);
-    },
-    // The durable hide is an atomic upsert on the unique dedupeKey, so the mock
-    // records the create payload and the conflict key.
-    upsert: (args: {
-      create: {
-        dedupeKey: string;
-        eventType: string;
-        postId: string;
-        userId: string;
-      };
-      where: { dedupeKey: string };
-    }): void => {
-      createdEvents.push(args.create);
-      upsertedKeys.push(args.where.dedupeKey);
+  orm: {
+    public: {
+      Posts: {
+        select: () => ({
+          where: (where: { id: string }) => ({
+            first: () =>
+              Promise.resolve(
+                postExists && where.id === POST_ID ? { id: POST_ID } : null
+              ),
+          }),
+        }),
+      },
+      RecommendationEvents: {
+        create: (data: {
+          dedupeKey: string;
+          eventType: string;
+          postId: string;
+          userId: string;
+        }) => {
+          createdEvents.push(data);
+          return Promise.resolve(data);
+        },
+        select: () => ({
+          where: (where: { dedupeKey: string }) => ({
+            first: () =>
+              Promise.resolve(
+                existingDedupeKey === where.dedupeKey ? { id: "event-1" } : null
+              ),
+          }),
+        }),
+        where: (
+          predicate:
+            | ((model: Record<string, unknown>) => unknown)
+            | { id: string }
+        ) => ({
+          delete: () => {
+            const expressions = [
+              "id" in predicate ? [] : getEventExpressions(predicate),
+            ];
+            deletedEvents.push(expressions);
+            return Promise.resolve();
+          },
+          update: () => {
+            updatedEventIds.push("id" in predicate ? predicate.id : "event-1");
+            return Promise.resolve();
+          },
+        }),
+      },
     },
   },
 };
 
 mock.module("@asm/db", () => ({
+  and: (...expressions: EventExpression[]) => expressions,
   invalidateFypProfile: (userId: string): Promise<void> => {
     invalidatedUsers.push(userId);
     return Promise.resolve();
   },
-  logger: {},
   prisma: mockPrisma,
 }));
 
 mock.module("@asm/logger", () => ({
   createLogger: () => ({ error: () => {}, info: () => {}, warn: () => {} }),
+}));
+
+const mockGetSession = mock((): { user: { id: string } } | null => ({
+  user: { id: USER_ID },
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -69,29 +128,39 @@ describe("recommendation hide actions", () => {
   beforeEach(() => {
     createdEvents.length = 0;
     deletedEvents.length = 0;
-    upsertedKeys.length = 0;
+    updatedEventIds.length = 0;
     invalidatedUsers.length = 0;
+    existingDedupeKey = null;
     postExists = true;
+    mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: USER_ID } }));
   });
 
-  test("hide writes one event via an atomic upsert on the dedupe key", async () => {
+  test("hide creates the event when the dedupe key does not exist", async () => {
     const { hideRecommendationPost } = await import("./actions");
     await hideRecommendationPost(POST_ID);
 
-    // A single upsert on the unique dedupeKey is race-safe by construction: two
-    // tabs cannot both insert, so the exclusion cap is not eaten by duplicates.
     expect(createdEvents).toEqual([
       {
-        dedupeKey: `not_interested:${USER_ID}:${POST_ID}`,
+        dedupeKey: DEDUPE_KEY,
         eventType: "NOT_INTERESTED",
         postId: POST_ID,
         userId: USER_ID,
       },
     ]);
-    expect(upsertedKeys).toEqual([`not_interested:${USER_ID}:${POST_ID}`]);
-    // Hide no longer deletes first (that was the racy pattern it replaced).
+    expect(updatedEventIds).toEqual([]);
     expect(deletedEvents).toEqual([]);
+    expect(invalidatedUsers).toEqual([USER_ID]);
+  });
+
+  test("hide updates the existing event for the dedupe key", async () => {
+    const { hideRecommendationPost } = await import("./actions");
+    existingDedupeKey = DEDUPE_KEY;
+
+    await hideRecommendationPost(POST_ID);
+
+    expect(createdEvents).toEqual([]);
+    expect(updatedEventIds).toEqual(["event-1"]);
     expect(invalidatedUsers).toEqual([USER_ID]);
   });
 
@@ -118,17 +187,22 @@ describe("recommendation hide actions", () => {
     await unhideRecommendationPost(POST_ID);
 
     expect(deletedEvents).toEqual([
-      { eventType: "NOT_INTERESTED", postId: POST_ID, userId: USER_ID },
+      [
+        [
+          { field: "eventType", operator: "eq", value: "NOT_INTERESTED" },
+          { field: "postId", operator: "eq", value: POST_ID },
+          { field: "userId", operator: "eq", value: USER_ID },
+        ],
+      ],
     ]);
     expect(createdEvents).toEqual([]);
     expect(invalidatedUsers).toEqual([USER_ID]);
   });
 
-  test("unhide is a no-op write for an already-restored post", async () => {
+  test("unhide resolves when there is no dismissal to delete", async () => {
     const { unhideRecommendationPost } = await import("./actions");
-    // deleteMany matches nothing when there was no dismissal; the action still
-    // resolves and the profile is refreshed.
     await expect(unhideRecommendationPost(POST_ID)).resolves.toBeUndefined();
+    expect(deletedEvents).toHaveLength(1);
     expect(invalidatedUsers).toEqual([USER_ID]);
   });
 

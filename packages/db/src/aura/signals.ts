@@ -1,4 +1,6 @@
-import prisma from "../prisma";
+import { and } from "@prisma/orm-postgres/orm-client";
+
+import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
 import { redis } from "../redis";
 import {
   MOMENTUM_BUCKETS,
@@ -45,16 +47,20 @@ function signalCacheKey(userId: string): string {
 export async function computeAuraSignals(
   userId: string
 ): Promise<AuraSignals | null> {
-  const user = await prisma.user.findUnique({
-    select: { aura: true, createdAt: true },
-    where: { id: userId },
-  });
+  const user = await prisma.orm.public.Users.select("aura", "createdAt")
+    .where({ id: userId })
+    .first();
 
   if (!user) {
     return null;
   }
 
-  return buildSignals(user.aura, user.createdAt, new Date(), userId);
+  return buildSignals(
+    user.aura,
+    fromPrismaDateTime(user.createdAt),
+    new Date(),
+    userId
+  );
 }
 
 async function buildSignals(
@@ -66,17 +72,19 @@ async function buildSignals(
   const oldestBucketHours = MOMENTUM_BUCKETS.at(-1)?.maxAgeHours ?? 0;
   const windowStart = new Date(now.getTime() - oldestBucketHours * 3_600_000);
 
-  const entries = await prisma.auraLog.findMany({
-    select: { amount: true, createdAt: true },
-    where: { createdAt: { gte: windowStart }, userId },
-  });
+  const entries = await prisma.orm.public.AuraLogs.select("amount", "createdAt")
+    .where((log) =>
+      and(
+        log.createdAt.gte(toPrismaDateTime(windowStart)),
+        log.userId.eq(userId)
+      )
+    )
+    .all();
 
-  const momentumEntries: MomentumEntry[] = entries.map(
-    (entry: { amount: number; createdAt: Date }) => ({
-      amount: entry.amount,
-      createdAt: entry.createdAt,
-    })
-  );
+  const momentumEntries: MomentumEntry[] = entries.map((entry) => ({
+    amount: entry.amount,
+    createdAt: fromPrismaDateTime(entry.createdAt),
+  }));
 
   return {
     credibility: computeCredibility({

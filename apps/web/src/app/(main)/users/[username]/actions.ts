@@ -2,7 +2,7 @@
 
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataQuery, mapUserData, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -14,19 +14,18 @@ export async function updateUserProfile(values: UpdateUserProfileValues) {
     throw new Error("Unauthorized");
   }
 
-  const updatedUser = await prisma.user.update({
-    data: {
-      bio: validatedValues.bio,
-      customDomain: validatedValues.customDomain || null,
-      displayName: validatedValues.displayName,
-      githubUsername: validatedValues.githubUsername || null,
-      linkedinUsername: validatedValues.linkedinUsername || null,
-      redditUsername: validatedValues.redditUsername || null,
-      twitterUsername: validatedValues.twitterUsername || null,
-    },
-    select: getUserDataSelect(session.user.id),
-    where: { id: session.user.id },
+  await prisma.orm.public.Users.where({ id: session.user.id }).update({
+    bio: validatedValues.bio,
+    customDomain: validatedValues.customDomain || null,
+    displayName: validatedValues.displayName,
+    githubUsername: validatedValues.githubUsername || null,
+    linkedinUsername: validatedValues.linkedinUsername || null,
+    redditUsername: validatedValues.redditUsername || null,
+    twitterUsername: validatedValues.twitterUsername || null,
   });
+  const updatedUser = await getUserDataQuery(prisma.orm, session.user.id)
+    .where({ id: session.user.id })
+    .first();
 
-  return updatedUser;
+  return updatedUser ? mapUserData(updatedUser) : null;
 }

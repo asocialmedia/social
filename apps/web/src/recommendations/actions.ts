@@ -1,6 +1,6 @@
 "use server";
 
-import { invalidateFypProfile, prisma } from "@asm/db";
+import { and, invalidateFypProfile, prisma } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -16,10 +16,9 @@ const logger = createLogger({ serviceName: "recommendation-actions" });
 // Post existence is verified so a crafted id cannot seed rows for a post that
 // does not exist (the FK would reject it anyway, but a clean error is nicer).
 async function requirePost(postId: string): Promise<void> {
-  const post = await prisma.post.findUnique({
-    select: { id: true },
-    where: { id: postId },
-  });
+  const post = await prisma.orm.public.Posts.select("id")
+    .where({ id: postId })
+    .first();
   if (!post) {
     throw new Error("Post not found");
   }
@@ -40,11 +39,19 @@ export async function hideRecommendationPost(postId: string): Promise<void> {
   // table's existing unique column, so an upsert on it is atomic - the second
   // writer updates the (empty) row instead of inserting a duplicate.
   const dedupeKey = `not_interested:${userId}:${postId}`;
-  await prisma.recommendationEvent.upsert({
-    create: { dedupeKey, eventType: "NOT_INTERESTED", postId, userId },
-    update: {},
-    where: { dedupeKey },
-  });
+  const existing = await prisma.orm.public.RecommendationEvents.select("id")
+    .where({ dedupeKey })
+    .first();
+  await (existing
+    ? prisma.orm.public.RecommendationEvents.where({
+        id: existing.id,
+      }).update({})
+    : prisma.orm.public.RecommendationEvents.create({
+        dedupeKey,
+        eventType: "NOT_INTERESTED",
+        postId,
+        userId,
+      }));
 
   // The taste profile was built with this post's author/tags down-weighted;
   // dropping the cache lets the next feed build reflect the hide.
@@ -59,9 +66,13 @@ export async function unhideRecommendationPost(postId: string): Promise<void> {
     throw new Error("Sign in to do that");
   }
 
-  await prisma.recommendationEvent.deleteMany({
-    where: { eventType: "NOT_INTERESTED", postId, userId },
-  });
+  await prisma.orm.public.RecommendationEvents.where((event) =>
+    and(
+      event.eventType.eq("NOT_INTERESTED"),
+      event.postId.eq(postId),
+      event.userId.eq(userId)
+    )
+  ).delete();
 
   await invalidateFypProfile(userId);
   logger.info({ postId, userId }, "recommendation post unhidden");

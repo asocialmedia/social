@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 
 import {
   FYP_PROFILE_KEY_PREFIX,
@@ -9,6 +10,7 @@ import {
   invalidateFypProfile,
   prisma,
   redis,
+  toPrismaDateTime,
 } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
@@ -48,24 +50,20 @@ function embedding(text: string): number[] {
 }
 
 async function createUser(userId: string, country?: string): Promise<void> {
-  await prisma.user.create({
-    data: {
-      displayName: userId,
-      email: `${userId}@example.test`,
-      id: userId,
-      username: userId,
-    },
+  await prisma.orm.public.Users.create({
+    displayName: userId,
+    email: `${userId}@example.test`,
+    id: userId,
+    username: userId,
   });
 
   if (country) {
-    await prisma.session.create({
-      data: {
-        country,
-        expiresAt: new Date(Date.now() + 86_400_000),
-        id: `${userId}-session`,
-        token: `${userId}-token`,
-        userId,
-      },
+    await prisma.orm.public.Sessions.create({
+      country,
+      expiresAt: toPrismaDateTime(new Date(Date.now() + 86_400_000)),
+      id: `${userId}-session`,
+      token: `${userId}-token`,
+      userId,
     });
   }
 }
@@ -79,16 +77,14 @@ async function createPost(input: {
   semanticTags: string[];
   vectorText: string;
 }): Promise<void> {
-  await prisma.post.create({
-    data: {
-      content: input.content,
-      createdAt: input.createdAt,
-      embedding: embedding(input.vectorText),
-      id: input.id,
-      isGust: input.isGust ?? false,
-      semanticTags: input.semanticTags,
-      userId: input.authorId,
-    },
+  await prisma.orm.public.Posts.create({
+    content: input.content,
+    createdAt: toPrismaDateTime(input.createdAt),
+    embedding: embedding(input.vectorText),
+    id: input.id,
+    isGust: input.isGust ?? false,
+    semanticTags: input.semanticTags,
+    userId: input.authorId,
   });
   POST_IDS.push(input.id);
 }
@@ -98,18 +94,16 @@ async function createVideoAttachment(
   userId: string
 ): Promise<void> {
   const mediaId = `${postId}-video`;
-  await prisma.media.create({
-    data: {
-      id: mediaId,
-      key: `${mediaId}.mp4`,
-      mimeType: "video/mp4",
-      postId,
-      size: 1,
-      status: "READY",
-      type: "VIDEO",
-      url: "https://example.test/fixture.mp4",
-      userId,
-    },
+  await prisma.orm.public.PostMedia.create({
+    _type: "VIDEO",
+    id: mediaId,
+    key: `${mediaId}.mp4`,
+    mimeType: "video/mp4",
+    postId,
+    size: 1,
+    status: "READY",
+    url: "https://example.test/fixture.mp4",
+    userId,
   });
   MEDIA_IDS.push(mediaId);
 }
@@ -212,11 +206,9 @@ async function createFixtures(): Promise<void> {
   });
   await createVideoAttachment(gustPostId, USER_IDS.peer);
 
-  await prisma.follow.create({
-    data: {
-      followerId: USER_IDS.viewer,
-      followingId: USER_IDS.favorite,
-    },
+  await prisma.orm.public.Follows.create({
+    followerId: USER_IDS.viewer,
+    followingId: USER_IDS.favorite,
   });
 
   // Exercise the bounded 500-row retrieval pool with a larger local corpus.
@@ -230,16 +222,18 @@ async function createFixtures(): Promise<void> {
     semanticTags: index % 2 === 0 ? ["linux"] : ["gardening"],
     vectorText: index % 2 === 0 ? interestVectorText : "gardening plants soil",
   }));
-  await prisma.post.createMany({
-    data: bulkPosts.map((post) => ({
-      content: post.content,
-      createdAt: post.createdAt,
-      embedding: embedding(post.vectorText),
-      id: post.id,
-      semanticTags: post.semanticTags,
-      userId: post.authorId,
-    })),
-  });
+  await Promise.all(
+    bulkPosts.map((post) =>
+      prisma.orm.public.Posts.create({
+        content: post.content,
+        createdAt: toPrismaDateTime(post.createdAt),
+        embedding: embedding(post.vectorText),
+        id: post.id,
+        semanticTags: post.semanticTags,
+        userId: post.authorId,
+      })
+    )
+  );
   POST_IDS.push(...bulkPosts.map((post) => post.id));
 
   const responseId = `rec-it-response-${RUN_ID}`;
@@ -251,68 +245,66 @@ async function createFixtures(): Promise<void> {
     semanticTags: ["linux"],
     vectorText: interestVectorText,
   });
-  await prisma.post.update({
-    data: { parentPostId: sourcePostId, rootPostId: sourcePostId },
-    where: { id: responseId },
+  await prisma.orm.public.Posts.where((post) =>
+    post.id.eq(responseId)
+  ).updateAndCount({
+    parentPostId: sourcePostId,
+    rootPostId: sourcePostId,
   });
 
-  await prisma.vote.create({
-    data: {
-      createdAt: new Date(now - 30_000),
-      postId: socialProofPostId,
-      userId: USER_IDS.favorite,
-      value: 1,
-    },
+  await prisma.orm.public.Votes.create({
+    createdAt: toPrismaDateTime(new Date(now - 30_000)),
+    postId: socialProofPostId,
+    userId: USER_IDS.favorite,
+    value: 1,
   });
-  await prisma.comment.create({
-    data: {
-      content: "favorite found this useful",
-      createdAt: new Date(now - 20_000),
-      id: `rec-it-social-proof-comment-${RUN_ID}`,
-      postId: socialProofPostId,
-      userId: USER_IDS.favorite,
-    },
+  await prisma.orm.public.Comments.create({
+    content: "favorite found this useful",
+    createdAt: toPrismaDateTime(new Date(now - 20_000)),
+    id: `rec-it-social-proof-comment-${RUN_ID}`,
+    postId: socialProofPostId,
+    userId: USER_IDS.favorite,
   });
-  await prisma.comment.create({
-    data: {
-      content: "favorite discussed this one",
-      createdAt: new Date(now - 20_000),
-      id: `rec-it-comment-proof-${RUN_ID}`,
-      postId: commentProofPostId,
-      userId: USER_IDS.favorite,
-    },
+  await prisma.orm.public.Comments.create({
+    content: "favorite discussed this one",
+    createdAt: toPrismaDateTime(new Date(now - 20_000)),
+    id: `rec-it-comment-proof-${RUN_ID}`,
+    postId: commentProofPostId,
+    userId: USER_IDS.favorite,
   });
 
-  await prisma.recommendationEvent.createMany({
-    data: [
-      {
-        createdAt: new Date(now - 30_000),
-        durationMs: 12_000,
-        eventType: "VIEW_COMPLETE",
-        postId: sourcePostId,
-        userId: USER_IDS.viewer,
-      },
-      {
-        createdAt: new Date(now - 20_000),
-        eventType: "BOOKMARK",
-        postId: sourcePostId,
-        userId: USER_IDS.peer,
-      },
-      {
-        createdAt: new Date(now - 10_000),
-        eventType: "BOOKMARK",
-        postId: collaborativePostId,
-        userId: USER_IDS.peer,
-      },
-      {
-        createdAt: new Date(now - 5000),
-        durationMs: 12_000,
-        eventType: "VIEW_COMPLETE",
-        postId: unrelatedPostId,
-        userId: USER_IDS.viewerB,
-      },
-    ],
-  });
+  await Promise.all([
+    prisma.orm.public.RecommendationEvents.create({
+      createdAt: toPrismaDateTime(new Date(now - 30_000)),
+      durationMs: 12_000,
+      eventType: "VIEW_COMPLETE",
+      id: randomUUID(),
+      postId: sourcePostId,
+      userId: USER_IDS.viewer,
+    }),
+    prisma.orm.public.RecommendationEvents.create({
+      createdAt: toPrismaDateTime(new Date(now - 20_000)),
+      eventType: "BOOKMARK",
+      id: randomUUID(),
+      postId: sourcePostId,
+      userId: USER_IDS.peer,
+    }),
+    prisma.orm.public.RecommendationEvents.create({
+      createdAt: toPrismaDateTime(new Date(now - 10_000)),
+      eventType: "BOOKMARK",
+      id: randomUUID(),
+      postId: collaborativePostId,
+      userId: USER_IDS.peer,
+    }),
+    prisma.orm.public.RecommendationEvents.create({
+      createdAt: toPrismaDateTime(new Date(now - 5000)),
+      durationMs: 12_000,
+      eventType: "VIEW_COMPLETE",
+      id: randomUUID(),
+      postId: unrelatedPostId,
+      userId: USER_IDS.viewerB,
+    }),
+  ]);
   await invalidateFypProfile(USER_IDS.viewer);
   await invalidateFypProfile(USER_IDS.viewerB);
   await invalidateFypProfile(USER_IDS.coldStart);
@@ -334,14 +326,18 @@ async function cleanupFixtures(): Promise<void> {
   );
   await redis.del(PROFILE_KEY, SECOND_PROFILE_KEY);
   if (POST_IDS.length > 0) {
-    await prisma.post.deleteMany({ where: { id: { in: POST_IDS } } });
+    await prisma.orm.public.Posts.where((post) =>
+      post.id.in(POST_IDS)
+    ).deleteAndCount();
   }
   if (MEDIA_IDS.length > 0) {
-    await prisma.media.deleteMany({ where: { id: { in: MEDIA_IDS } } });
+    await prisma.orm.public.PostMedia.where((media) =>
+      media.id.in(MEDIA_IDS)
+    ).deleteAndCount();
   }
-  await prisma.user.deleteMany({
-    where: { id: { in: Object.values(USER_IDS) } },
-  });
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(Object.values(USER_IDS))
+  ).deleteAndCount();
   logger.info({ runId: RUN_ID }, "recommendation integration fixtures removed");
 }
 
@@ -536,12 +532,11 @@ describe("personalized feed against local Postgres and Redis", () => {
   });
 
   test("turns negative feedback into a persisted profile penalty", async () => {
-    await prisma.recommendationEvent.create({
-      data: {
-        eventType: "NOT_INTERESTED",
-        postId: collaborativePostId,
-        userId: USER_IDS.viewer,
-      },
+    await prisma.orm.public.RecommendationEvents.create({
+      eventType: "NOT_INTERESTED",
+      id: randomUUID(),
+      postId: collaborativePostId,
+      userId: USER_IDS.viewer,
     });
     await invalidateFypProfile(USER_IDS.viewer);
 

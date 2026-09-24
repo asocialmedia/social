@@ -1,6 +1,8 @@
 import {
+  and,
   awardTrendingCardPresence,
-  getUserDataSelect,
+  getUserDataQuery,
+  mapUserData,
   prisma,
   redis,
   SYSTEM_MODERATION_USER_ID,
@@ -55,26 +57,34 @@ export async function GET() {
       }
     }
 
-    const trendingUsers = await prisma.user.findMany({
-      orderBy: [
-        {
-          followers: {
-            _count: "desc",
-          },
+    const rows = await getUserDataQuery(prisma.orm, userId || "")
+      .include("follows", (follows) =>
+        follows.combine({ total: follows.count() })
+      )
+      .include("followsFollows", (follows) =>
+        follows.combine({ total: follows.count() })
+      )
+      .where((user) =>
+        and(
+          user.id.neq(userId || SYSTEM_MODERATION_USER_ID),
+          user.id.neq(SYSTEM_MODERATION_USER_ID)
+        )
+      )
+      .all();
+    const trendingUsers = rows
+      .toSorted(
+        (left, right) =>
+          right.followsFollows.length - left.followsFollows.length ||
+          right.aura - left.aura
+      )
+      .slice(0, 6)
+      .map((user) => ({
+        ...mapUserData(user),
+        _count: {
+          followers: user.followsFollows.length,
+          following: user.follows.total,
         },
-        {
-          aura: "desc",
-        },
-      ],
-      select: getUserDataSelect(userId || ""),
-      take: 6,
-      where: {
-        AND: [
-          { id: { not: userId || undefined } },
-          { id: { not: SYSTEM_MODERATION_USER_ID } },
-        ],
-      },
-    });
+      }));
 
     await payTrendingCard(trendingUsers.map((u) => u.id));
 

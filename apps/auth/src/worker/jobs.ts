@@ -1,13 +1,14 @@
 import { hackerNewsAPI } from "@asm/aggregator/hackernews";
 import {
+  and,
   cleanupExpiredPublishedNotifications,
   cleanupSinglePublishedNotification,
   deleteObject,
+  fromPrismaDateTime,
   getTrendingUserIds,
   grantShitposterBadgeIfQualified,
   listDevicePushTokens,
   listPushSubscriptions,
-  notificationsInclude,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
@@ -16,6 +17,7 @@ import {
   redis,
   sweepEarlyBadges,
   syncTrendingBadges,
+  toPrismaDateTime,
   unreadNotificationCache,
 } from "@asm/db";
 import { dispatchNotificationPush } from "@asm/notifications/server";
@@ -45,7 +47,7 @@ export async function processPostDeleted(
   await withSpan(
     "job.post-deleted",
     async () => {
-      // The web client removes attachment rows during prisma.post.delete
+      // The web client removes attachment rows while deleting a post
       // (emulated referential action), so by the time this job runs neither
       // a postId lookup nor an id lookup can discover anything. New events
       // carry every storage key pre-captured from those vanishing rows and
@@ -54,18 +56,23 @@ export async function processPostDeleted(
       const objectKeys = new Set<string>(preCapturedKeys);
 
       if (objectKeys.size === 0) {
-        const media = await prisma.media.findMany({
-          select: {
-            customThumbnailKey: true,
-            derivatives: { select: { key: true } },
-            id: true,
-            key: true,
-            originalKey: true,
-            publishedKey: true,
-            thumbnailKey: true,
-          },
-          where: mediaIds.length > 0 ? { id: { in: mediaIds } } : { postId },
-        });
+        const media = await prisma.orm.public.PostMedia.select(
+          "customThumbnailKey",
+          "id",
+          "key",
+          "originalKey",
+          "publishedKey",
+          "thumbnailKey"
+        )
+          .include("postMediaDerivatives", (derivatives) =>
+            derivatives.select("key")
+          )
+          .where((candidate) =>
+            mediaIds.length > 0
+              ? candidate.id.in(mediaIds)
+              : candidate.postId.eq(postId)
+          )
+          .all();
         for (const m of media) {
           for (const key of [
             m.customThumbnailKey,
@@ -78,7 +85,7 @@ export async function processPostDeleted(
               objectKeys.add(key);
             }
           }
-          for (const derivative of m.derivatives) {
+          for (const derivative of m.postMediaDerivatives) {
             objectKeys.add(derivative.key);
           }
         }
@@ -90,9 +97,9 @@ export async function processPostDeleted(
 
       if (mediaIds.length > 0) {
         // Rows are normally already gone; harmless no-op sweep.
-        await prisma.media.deleteMany({
-          where: { id: { in: mediaIds } },
-        });
+        await prisma.orm.public.PostMedia.where((media) =>
+          media.id.in(mediaIds)
+        ).deleteAndCount();
       }
 
       // Clear any buffered view counters for the post.
@@ -144,32 +151,61 @@ async function deliverNotificationPush(
   notificationId: string,
   log: WorkerLogger
 ): Promise<void> {
-  const notification = await prisma.notification.findUnique({
-    include: notificationsInclude,
-    where: { id: notificationId },
-  });
-  if (!notification) {
+  const selectedNotification = await prisma.orm.public.Notifications.where({
+    id: notificationId,
+  })
+    .include("issuer", (issuer) =>
+      issuer.select("avatarUrl", "displayName", "id", "username")
+    )
+    .include("post", (post) =>
+      post
+        .select("content", "id", "isGust", "parentPostId")
+        .include("community", (community) => community.select("slug"))
+    )
+    .include("comment", (comment) =>
+      comment
+        .select("id", "parentId")
+        .include("parent", (parent) => parent.select("userId"))
+    )
+    .include("community", (community) =>
+      community.select("accentColor", "id", "name", "slug")
+    )
+    .first();
+  if (!selectedNotification) {
     // Deleted (or already cleaned up) between creation and delivery.
     return;
   }
-  await dispatchNotificationPush(notification, {
-    listDeviceTokens: (userId) =>
-      listDevicePushTokens(userId).then((rows) =>
-        rows.map((row) => ({
-          platform: row.platform,
-          provider: row.provider,
-          token: row.token,
-        }))
-      ),
-    listSubscriptions: (userId) => listPushSubscriptions(userId),
-    logger: {
-      error: (message, meta) => log.error(meta ?? {}, message),
-      info: (message, meta) => log.info(meta ?? {}, message),
-      warn: (message, meta) => log.warn(meta ?? {}, message),
-    },
-    pruneDeviceTokens: (tokens) => pruneDevicePushTokens(tokens),
-    pruneSubscriptions: (endpoints) => prunePushSubscriptions(endpoints),
-  });
+  const { _type, ...notificationFields } = selectedNotification;
+  const notification = {
+    ...notificationFields,
+    createdAt: fromPrismaDateTime(selectedNotification.createdAt),
+    type: _type,
+  };
+  const { issuer } = notification;
+  if (!issuer) {
+    return;
+  }
+  await dispatchNotificationPush(
+    { ...notification, issuer },
+    {
+      listDeviceTokens: (userId) =>
+        listDevicePushTokens(userId).then((rows) =>
+          rows.map((row) => ({
+            platform: row.platform,
+            provider: row.provider,
+            token: row.token,
+          }))
+        ),
+      listSubscriptions: (userId) => listPushSubscriptions(userId),
+      logger: {
+        error: (message, meta) => log.error(meta ?? {}, message),
+        info: (message, meta) => log.info(meta ?? {}, message),
+        warn: (message, meta) => log.warn(meta ?? {}, message),
+      },
+      pruneDeviceTokens: (tokens) => pruneDevicePushTokens(tokens),
+      pruneSubscriptions: (endpoints) => prunePushSubscriptions(endpoints),
+    }
+  );
 }
 
 export async function processNotificationDeleted({
@@ -243,18 +279,17 @@ export async function processMediaCleanup(
   await withSpan(
     "job.media-cleanup",
     async () => {
-      const media = await prisma.media.findUnique({
-        select: {
-          commentId: true,
-          createdAt: true,
-          customThumbnailKey: true,
-          id: true,
-          key: true,
-          postId: true,
-          thumbnailKey: true,
-        },
-        where: { id: mediaId },
-      });
+      const media = await prisma.orm.public.PostMedia.select(
+        "commentId",
+        "createdAt",
+        "customThumbnailKey",
+        "id",
+        "key",
+        "postId",
+        "thumbnailKey"
+      )
+        .where({ id: mediaId })
+        .first();
 
       // Still orphaned after the grace period (never attached to a post or a
       // comment eddy): delete.
@@ -268,7 +303,7 @@ export async function processMediaCleanup(
         if (media.customThumbnailKey) {
           await deleteObject(media.customThumbnailKey);
         }
-        await prisma.media.delete({ where: { id: mediaId } });
+        await prisma.orm.public.PostMedia.where({ id: mediaId }).delete();
         log.info({ mediaId }, "abandoned media cleaned up");
       }
     },
@@ -287,11 +322,11 @@ export async function processExpiredTokens(
 ): Promise<{ count: number }> {
   const log = resolveLogger(logger);
   return await withSpan("job.expired-tokens", async () => {
-    const result = await prisma.passwordResetToken.deleteMany({
-      where: { expiresAt: { lt: new Date() } },
-    });
-    log.info({ deleted: result.count }, "expired reset tokens swept");
-    return { count: result.count };
+    const count = await prisma.orm.public.PasswordResetTokens.where((token) =>
+      token.expiresAt.lt(toPrismaDateTime(new Date()))
+    ).deleteAndCount();
+    log.info({ deleted: count }, "expired reset tokens swept");
+    return { count };
   });
 }
 
@@ -300,12 +335,32 @@ export async function processExpiredUsernameAliases(
 ): Promise<{ count: number }> {
   const log = resolveLogger(logger);
   return await withSpan("job.expired-username-aliases", async () => {
-    const result = await prisma.usernameAlias.deleteMany({
-      where: { expiresAt: { lte: new Date() } },
-    });
-    log.info({ deleted: result.count }, "expired username aliases swept");
-    return result;
+    const count = await prisma.orm.public.UsernameAliases.where((alias) =>
+      alias.expiresAt.lte(toPrismaDateTime(new Date()))
+    ).deleteAndCount();
+    log.info({ deleted: count }, "expired username aliases swept");
+    return { count };
   });
+}
+
+function isRestrictedUserReferenceError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const candidate = error as {
+    code?: unknown;
+    constraint?: unknown;
+    sqlState?: unknown;
+  };
+  return (
+    candidate.code === "23001" ||
+    candidate.code === "23503" ||
+    candidate.code === "P2003" ||
+    candidate.sqlState === "23001" ||
+    candidate.sqlState === "23503" ||
+    candidate.constraint === "aura_logs_userId_fkey" ||
+    candidate.constraint === "aura_logs_issuerId_fkey"
+  );
 }
 
 export async function processInactiveUsersSweep(
@@ -315,31 +370,59 @@ export async function processInactiveUsersSweep(
   return await withSpan("job.inactive-users", async () => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const batchSize = 100;
-    let totalDeleted = 0;
+    const skippedUserIds: string[] = [];
 
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop -- batched paginated sweep must await each batch
-      const batch = await prisma.user.findMany({
-        select: { id: true },
-        take: batchSize,
-        where: { createdAt: { lt: thirtyDaysAgo }, emailVerified: false },
-      });
+    const deleteBatch = async (): Promise<number> => {
+      const batch = await prisma.orm.public.Users.select("id")
+        .where((user) =>
+          and(
+            user.createdAt.lt(toPrismaDateTime(thirtyDaysAgo)),
+            user.emailVerified.eq(false),
+            ...(skippedUserIds.length > 0
+              ? [user.id.notIn(skippedUserIds)]
+              : [])
+          )
+        )
+        .limit(batchSize)
+        .all();
 
       if (batch.length === 0) {
-        break;
+        return 0;
       }
 
-      // eslint-disable-next-line no-await-in-loop -- batched paginated sweep must await each batch
-      const deleted = await prisma.user.deleteMany({
-        where: { id: { in: batch.map((user) => user.id) } },
-      });
-      totalDeleted += deleted.count;
+      const results = await Promise.allSettled(
+        batch.map((entry) =>
+          prisma.orm.public.Users.where((user) =>
+            user.id.eq(entry.id)
+          ).deleteAndCount()
+        )
+      );
+      let deletedInBatch = 0;
+      for (const [index, result] of results.entries()) {
+        if (result.status === "fulfilled") {
+          deletedInBatch += result.value;
+          continue;
+        }
+        const userId = batch[index]?.id;
+        if (!isRestrictedUserReferenceError(result.reason)) {
+          throw result.reason;
+        }
+        if (userId) {
+          skippedUserIds.push(userId);
+          log.info(
+            { constraint: "foreign_key", userId },
+            "inactive user retained because related records restrict deletion"
+          );
+        }
+      }
 
       if (batch.length < batchSize) {
-        break;
+        return deletedInBatch;
       }
-    }
+      return deletedInBatch + (await deleteBatch());
+    };
 
+    const totalDeleted = await deleteBatch();
     log.info({ deleted: totalDeleted }, "inactive user sweep finished");
     return totalDeleted;
   });

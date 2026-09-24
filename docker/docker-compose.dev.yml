@@ -41,44 +41,12 @@ services:
         psql -h postgres-dev -U postgres -d asocialmedia -c "
           CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
           CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";
+          CREATE EXTENSION IF NOT EXISTS \"pg_trgm\";
           CREATE EXTENSION IF NOT EXISTS \"pg_stat_statements\";
           ALTER DATABASE asocialmedia SET timezone TO '\''UTC'\'';
         " &&
         echo "PostgreSQL initialization complete!"
       '
-
-  prisma-migrate:
-    profiles: ["init"]
-    container_name: asmdev-schema-init
-    build:
-      context: ..
-      dockerfile: docker/prisma.dockerfile
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
-    networks:
-      - dev_network
-    depends_on:
-      postgres-dev:
-        condition: service_healthy
-    command: ["/usr/local/bin/prisma-bootstrap.sh"]
-
-  prisma-studio:
-    profiles: ["studio", "init"]
-    container_name: asmdev-prisma-studio
-    build:
-      context: ..
-      dockerfile: docker/prisma.dockerfile
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
-    ports:
-      - "5555:5555"
-    networks:
-      - dev_network
-    depends_on:
-      postgres-dev:
-        condition: service_healthy
-    command: ["/usr/local/bin/prisma-studio.sh"]
-    restart: unless-stopped
 
   redis-dev:
     container_name: asmdev-redis
@@ -201,9 +169,6 @@ services:
     container_name: asmdev-clamav
     image: clamav/clamav:latest
     environment:
-      # INSTREAM cap must exceed the largest upload (250MB default). The
-      # image's /init only honors CLAMD_CONF_<ParamName> variables; the
-      # CLAMAV_MAX_* names are silently ignored.
       CLAMD_CONF_StreamMaxLength: 300M
       CLAMD_CONF_MaxFileSize: 300M
     ports:
@@ -222,11 +187,6 @@ services:
 
   openobserve-dev:
     container_name: asmdev-openobserve
-    # Must stay on the v1.x line: the shared dev volume's metadata DB is already
-    # migrated to schema 77, and v0.40.x only knows schema 21. Starting an older
-    # image against this volume panics with "DB_SCHEMA_VERSION mismatch" and
-    # crash-loops, because the newer migrations are applied but their files do
-    # not exist in the old binary. Schema migrations are one-way.
     image: public.ecr.aws/zinclabs/openobserve-enterprise:v1.0.3
     ports:
       - "5080:5080"
@@ -241,10 +201,6 @@ services:
       - openobserve_data_dev:/data
     networks:
       - dev_network
-    # NOTE: v1.x ships a minimal image (only /openobserve + CA certs - no shell,
-    # curl, wget or busybox), so the old `curl -fsS /healthz` probe can never run
-    # and would pin the container at "unhealthy" forever. Nothing depends_on this
-    # service's health, so the probe is intentionally omitted.
     restart: unless-stopped
 
 networks:

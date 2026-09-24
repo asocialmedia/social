@@ -28,10 +28,9 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const exists = await prisma.user.findUnique({
-      select: { id: true },
-      where: { id: targetId },
-    });
+    const exists = await prisma.orm.public.Users.select("id")
+      .where({ id: targetId })
+      .first();
     if (!exists) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }

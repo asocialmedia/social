@@ -179,7 +179,7 @@ function groupCommunityRoles(
 // could never be reached.
 const UserBadge: React.FC<{
   badge?: string | null;
-  badges?: string[] | null;
+  badges?: readonly string[] | null;
   className?: string;
   // Community role rows (owner/moderator/member) to show alongside the account
   // badges. One banner per distinct role.

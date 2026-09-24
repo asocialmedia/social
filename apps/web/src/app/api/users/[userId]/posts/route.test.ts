@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { GET } from "./route";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -24,23 +26,98 @@ const mockFindMany = mock((args: unknown) => {
 
 const mockHydrateViewCounts = mock((posts: unknown[]) => posts);
 
+interface PostQuery {
+  all: () => ReturnType<typeof mockFindMany>;
+  cursor: (cursor: { id: string }) => PostQuery;
+  limit: (limit: number) => PostQuery;
+  offset: (offset: number) => PostQuery;
+  orderBy: (order: unknown) => PostQuery;
+  where: (
+    predicate: (post: {
+      createdAt: { desc: () => unknown };
+      isGust: { eq: (value: boolean) => unknown };
+      moderated: { eq: (value: boolean) => unknown };
+      postMedias: {
+        some: (
+          predicate: (media: {
+            _type: { in: (types: string[]) => unknown };
+          }) => unknown
+        ) => unknown;
+      };
+      userId: { eq: (id: string) => unknown };
+    }) => unknown
+  ) => PostQuery;
+}
+
+function createPostQuery(): PostQuery {
+  const state = {
+    cursorId: undefined as string | undefined,
+    limit: 21,
+    mediaTypes: [] as string[],
+    offset: 0,
+    where: {} as Record<string, unknown>,
+  };
+  const query: PostQuery = {
+    all: () =>
+      mockFindMany({
+        cursor: state.cursorId ? { id: state.cursorId } : undefined,
+        skip: state.offset,
+        take: state.limit,
+        where: state.where,
+      }),
+    cursor: (cursor) => {
+      state.cursorId = cursor.id;
+      return query;
+    },
+    limit: (limit) => {
+      state.limit = limit;
+      return query;
+    },
+    offset: (offset) => {
+      state.offset = offset;
+      return query;
+    },
+    orderBy: () => query,
+    where: (predicate) => {
+      const where: Record<string, unknown> = {};
+      predicate({
+        createdAt: { desc: () => ({}) },
+        isGust: { eq: (value) => (where.isGust = value) },
+        moderated: { eq: (value) => (where.moderated = value) },
+        postMedias: {
+          some: (mediaPredicate) =>
+            mediaPredicate({
+              _type: {
+                in: (types) => {
+                  state.mediaTypes = types;
+                  return {};
+                },
+              },
+            }) && {},
+        },
+        userId: { eq: (id) => (where.userId = id) },
+      });
+      if (state.mediaTypes.length > 0) {
+        where.attachments = { some: { type: { in: state.mediaTypes } } };
+      }
+      state.where = where;
+      return query;
+    },
+  };
+  return query;
+}
+
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   MediaType: {
     AUDIO: "AUDIO",
     IMAGE: "IMAGE",
     VIDEO: "VIDEO",
   },
-  communityVisibilityWhere: () => ({}),
-  getPostDataInclude: (viewerId: string) => ({
-    user: true,
-    vote: !!viewerId,
-  }),
+  communityVisibilityWhere: () => () => ({}),
+  getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrateViewCounts,
-  prisma: {
-    post: {
-      findMany: mockFindMany,
-    },
-  },
+  prisma: {},
 }));
 
 mock.module("@/lib/auth/session", () => ({

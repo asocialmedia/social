@@ -5,52 +5,60 @@ const createdNotifications: unknown[] = [];
 let existingNotificationResult: unknown = null;
 
 const fakePrisma = {
-  media: {
-    findUnique: mock((args: { where: { id: string } }) => {
-      if (args.where.id === "media-with-post") {
-        return Promise.resolve({
-          id: "media-with-post",
-          post: { id: "post-123", isGust: false, userId: "post-author-456" },
-          postId: "post-123",
-          type: "VIDEO",
-          userId: "uploader-789",
-        });
-      }
-      if (args.where.id === "media-without-post") {
-        return Promise.resolve({
-          id: "media-without-post",
-          post: null,
-          postId: null,
-          type: "AUDIO",
-          userId: "media-owner-111",
-        });
-      }
-      return Promise.resolve(null);
-    }),
-  },
-  notification: {
-    create: mock(
-      (args: {
-        data: {
-          issuerId: string;
-          postId: string | null;
-          recipientId: string;
-          type: string;
-        };
-      }) => {
-        createdNotifications.push(args);
-        return Promise.resolve({
-          id: `notif-${args.data.recipientId}`,
-          ...args.data,
-        });
-      }
-    ),
-    findFirst: mock((_args?: unknown) =>
-      Promise.resolve(existingNotificationResult)
-    ),
-  },
-  user: {
-    upsert: mock((_args?: unknown) => Promise.resolve({})),
+  orm: {
+    public: {
+      Notifications: {
+        create: mock(
+          (args: {
+            issuerId: string;
+            postId: string | null;
+            recipientId: string;
+            _type: string;
+          }) => {
+            createdNotifications.push(args);
+            return Promise.resolve({
+              id: `notif-${args.recipientId}`,
+              ...args,
+            });
+          }
+        ),
+        where: mock((_args?: unknown) => ({
+          first: () => Promise.resolve(existingNotificationResult),
+        })),
+      },
+      PostMedia: {
+        where: mock((args: { id: string }) => ({
+          first: () => {
+            if (args.id === "media-with-post") {
+              return Promise.resolve({
+                _type: "VIDEO",
+                id: "media-with-post",
+                post: {
+                  id: "post-123",
+                  isGust: false,
+                  userId: "post-author-456",
+                },
+                postId: "post-123",
+                userId: "uploader-789",
+              });
+            }
+            if (args.id === "media-without-post") {
+              return Promise.resolve({
+                _type: "AUDIO",
+                id: "media-without-post",
+                post: null,
+                postId: null,
+                userId: "media-owner-111",
+              });
+            }
+            return Promise.resolve(null);
+          },
+        })),
+      },
+      Users: {
+        upsert: mock((_args?: unknown) => Promise.resolve({})),
+      },
+    },
   },
 };
 
@@ -67,36 +75,32 @@ async function runTranscriptionNotification(
   transcription: { captionsKey?: string | null; transcript?: string | null }
 ) {
   if (transcription?.captionsKey || transcription?.transcript) {
-    const mediaWithOwner = await fakePrisma.media.findUnique({
-      where: { id: mediaId },
-    });
+    const mediaWithOwner = await fakePrisma.orm.public.PostMedia.where({
+      id: mediaId,
+    }).first();
 
     if (mediaWithOwner) {
       const recipientId = mediaWithOwner.post?.userId ?? mediaWithOwner.userId;
       if (recipientId) {
-        await fakePrisma.user.upsert({
-          where: { id: SYSTEM_MODERATION_USER_ID },
+        await fakePrisma.orm.public.Users.upsert({
+          conflictOn: { id: SYSTEM_MODERATION_USER_ID },
         });
 
         const existingNotification = mediaWithOwner.postId
-          ? await fakePrisma.notification.findFirst({
-              where: {
-                issuerId: SYSTEM_MODERATION_USER_ID,
-                postId: mediaWithOwner.postId,
-                recipientId,
-                type: "TRANSCRIPTION",
-              },
-            })
+          ? await fakePrisma.orm.public.Notifications.where({
+              _type: "TRANSCRIPTION",
+              issuerId: SYSTEM_MODERATION_USER_ID,
+              postId: mediaWithOwner.postId,
+              recipientId,
+            }).first()
           : null;
 
         if (!existingNotification) {
-          await fakePrisma.notification.create({
-            data: {
-              issuerId: SYSTEM_MODERATION_USER_ID,
-              postId: mediaWithOwner.postId ?? null,
-              recipientId,
-              type: "TRANSCRIPTION",
-            },
+          await fakePrisma.orm.public.Notifications.create({
+            _type: "TRANSCRIPTION",
+            issuerId: SYSTEM_MODERATION_USER_ID,
+            postId: mediaWithOwner.postId ?? null,
+            recipientId,
           });
           await enqueueNotificationCreated(recipientId);
         }

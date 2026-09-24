@@ -71,7 +71,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   return {
     alternates: { canonical: `/a/${community.slug}` },
     description,
-    keywords: community.topics,
+    keywords: [...(community.topics ?? [])],
     openGraph: {
       description,
       images: image ? [{ alt: title, url: image }] : [],
@@ -146,7 +146,7 @@ async function CommunityContent({ params }: PageProps) {
       url: siteConfig.url,
     },
     // Topics double as the page's subject matter for richer entity extraction.
-    keywords: community.topics.join(", ") || undefined,
+    keywords: (community.topics ?? []).join(", ") || undefined,
     name: community.name,
     // Posts published into the community, so the page's content is countable.
     numberOfItems: community._count.posts,

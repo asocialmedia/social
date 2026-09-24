@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { prisma } from "@asm/db";
+import { and, prisma, toPrismaDateTime } from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
@@ -86,15 +86,17 @@ export const resetPasswordRouter = router({
           };
         }
 
-        const user = EMAIL_REGEX.test(identifier)
-          ? await prisma.user.findUnique({
-              select: { email: true, id: true, username: true },
-              where: { email: identifier },
-            })
-          : await prisma.user.findUnique({
-              select: { email: true, id: true, username: true },
-              where: { username: identifier },
-            });
+        const user = await prisma.orm.public.Users.select(
+          "email",
+          "id",
+          "username"
+        )
+          .where(
+            EMAIL_REGEX.test(identifier)
+              ? { email: identifier }
+              : { username: identifier }
+          )
+          .first();
 
         if (!user) {
           logger.info(
@@ -162,13 +164,17 @@ export const resetPasswordRouter = router({
       const { token, newPassword } = input;
 
       try {
-        const verification = await prisma.verification.findFirst({
-          select: { id: true, userId: true },
-          where: {
-            expiresAt: { gt: new Date() },
-            value: token,
-          },
-        });
+        const verification = await prisma.orm.public.Verification.select(
+          "id",
+          "userId"
+        )
+          .where((candidate) =>
+            and(
+              candidate.expiresAt.gt(toPrismaDateTime(new Date())),
+              candidate.value.eq(token)
+            )
+          )
+          .first();
 
         if (!verification?.userId) {
           logger.warn(
@@ -183,20 +189,17 @@ export const resetPasswordRouter = router({
 
         const hashedPassword = await hashPasswordWithScrypt(newPassword);
 
-        await prisma.$transaction(async (tx) => {
-          const userId = verification.userId as string;
-          await tx.user.update({
-            data: { passwordHash: hashedPassword },
-            where: { id: userId },
+        const { userId } = verification;
+        await prisma.transaction(async (tx) => {
+          await tx.orm.public.Users.where({ id: userId }).update({
+            passwordHash: hashedPassword,
           });
 
-          await tx.verification.delete({
-            where: { id: verification.id },
-          });
+          await tx.orm.public.Verification.where({
+            id: verification.id,
+          }).delete();
 
-          await tx.session.deleteMany({
-            where: { userId },
-          });
+          await tx.orm.public.Sessions.where({ userId }).deleteAndCount();
         });
 
         logger.info(

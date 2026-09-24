@@ -1,4 +1,11 @@
-import { findVisiblePost, getPostDataInclude, prisma } from "@asm/db";
+import {
+  and,
+  findVisiblePost,
+  fromPrismaDateTime,
+  getPostDataQuery,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import type { ResponsesPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -74,12 +81,23 @@ export async function GET(
   // threadTopId = the anchor id, so one query returns the anchor plus its whole
   // sub-thread. The anchor itself is included so a permalink can render it.
   if (anchor?.parentPostId) {
-    const branch = await prisma.post.findMany({
-      include: getPostDataInclude(userId),
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: MAX_RESPONSE_BRANCH,
-      where: { OR: [{ id: postId }, { threadTopId: postId }] },
-    });
+    const responseQuery = getPostDataQuery(prisma.orm, userId).orderBy([
+      (post) => post.createdAt.asc(),
+      (post) => post.id.asc(),
+    ]);
+    const [anchorBranch, descendantBranch] = await Promise.all([
+      responseQuery.where((post) => post.id.eq(postId)).all(),
+      responseQuery.where((post) => post.threadTopId.eq(postId)).all(),
+    ]);
+    const branch = [...anchorBranch, ...descendantBranch]
+      .toSorted(
+        (left, right) =>
+          fromPrismaDateTime(left.createdAt).getTime() -
+            fromPrismaDateTime(right.createdAt).getTime() ||
+          left.id.localeCompare(right.id)
+      )
+      .slice(0, MAX_RESPONSE_BRANCH)
+      .map(mapPostData);
     const response: ResponsesPage = {
       previousCursor: null,
       responses: branch,
@@ -88,27 +106,30 @@ export async function GET(
   }
 
   // Post anchor: page the direct responses, then their descendants.
-  const topLevel = await prisma.post.findMany({
-    include: getPostDataInclude(userId),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: PAGE_SIZE + 1,
-    where: { parentPostId: postId, threadTopId: null },
-    ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
-  });
+  let topLevelQuery = getPostDataQuery(prisma.orm, userId)
+    .where((post) =>
+      and(post.parentPostId.eq(postId), post.threadTopId.isNull())
+    )
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
+  if (cursor) {
+    topLevelQuery = topLevelQuery.cursor({ id: cursor.id }).offset(1);
+  }
+  const topLevelRows = await topLevelQuery.limit(PAGE_SIZE + 1).all();
+  const topLevel = topLevelRows.map(mapPostData);
 
   const hasMore = topLevel.length > PAGE_SIZE;
   const page = hasMore ? topLevel.slice(0, PAGE_SIZE) : topLevel;
   const topLevelIds = page.map((response) => response.id);
   const lastTopLevel = page.at(-1);
 
-  const descendants =
-    topLevelIds.length > 0
-      ? await prisma.post.findMany({
-          include: getPostDataInclude(userId),
-          orderBy: { createdAt: "asc" },
-          where: { threadTopId: { in: topLevelIds } },
-        })
-      : [];
+  let descendants: ReturnType<typeof mapPostData>[] = [];
+  if (topLevelIds.length > 0) {
+    const descendantRows = await getPostDataQuery(prisma.orm, userId)
+      .where((post) => post.threadTopId.in(topLevelIds))
+      .orderBy((post) => post.createdAt.asc())
+      .all();
+    descendants = descendantRows.map(mapPostData);
+  }
 
   const response: ResponsesPage = {
     previousCursor: hasMore && lastTopLevel ? encodeCursor(lastTopLevel) : null,

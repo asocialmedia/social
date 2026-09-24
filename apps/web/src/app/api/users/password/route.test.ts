@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 const mockGetSession = mock();
 const mockAssertPasswordNotPwned = mock();
 const mockHashPasswordWithScrypt = mock();
@@ -29,6 +31,23 @@ const transactionClient = {
     findFirst: mockAccountFindFirst,
     update: mockAccountUpdate,
   },
+  orm: {
+    public: {
+      Accounts: {
+        create: (data: Record<string, unknown>) => mockAccountCreate({ data }),
+        select: () => ({ where: () => ({ first: mockAccountFindFirst }) }),
+        where: () => ({
+          update: (data: Record<string, unknown>) => mockAccountUpdate(data),
+        }),
+      },
+      Users: {
+        select: () => ({ where: () => ({ first: mockUserFindUnique }) }),
+        where: () => ({
+          update: (data: Record<string, unknown>) => mockUserUpdate(data),
+        }),
+      },
+    },
+  },
   user: {
     findUnique: mockUserFindUnique,
     update: mockUserUpdate,
@@ -52,10 +71,29 @@ mock.module("@asm/auth/core", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    $transaction: runTransaction,
-    account: transactionClient.account,
-    user: transactionClient.user,
+    orm: {
+      public: {
+        Accounts: {
+          create: (data: Record<string, unknown>) =>
+            mockAccountCreate({ data }),
+          select: () => ({
+            where: () => ({ first: mockAccountFindFirst }),
+          }),
+          where: () => ({
+            update: (data: Record<string, unknown>) => mockAccountUpdate(data),
+          }),
+        },
+        Users: {
+          select: () => ({ where: () => ({ first: mockUserFindUnique }) }),
+          where: () => ({
+            update: (data: Record<string, unknown>) => mockUserUpdate(data),
+          }),
+        },
+      },
+    },
+    transaction: runTransaction,
   },
 }));
 
@@ -131,8 +169,7 @@ describe("POST /api/users/password", () => {
       },
     });
     expect(mockUserUpdate).toHaveBeenCalledWith({
-      data: { passwordHash: "scrypt$hashed-password" },
-      where: { id: "user-1" },
+      passwordHash: "scrypt$hashed-password",
     });
   });
 

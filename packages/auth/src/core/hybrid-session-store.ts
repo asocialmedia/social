@@ -1,4 +1,4 @@
-import { prisma, redis } from "@asm/db";
+import { fromPrismaDateTime, prisma, redis, toPrismaDateTime } from "@asm/db";
 
 export interface HybridSession {
   country?: string | null;
@@ -21,27 +21,30 @@ const SESSION_TTL = 60 * 60 * 24 * 7;
 
 interface DbSessionShape {
   country?: string | null;
-  createdAt: Date;
-  expiresAt: Date;
+  createdAt: unknown;
+  expiresAt: unknown;
   id: string;
   ipAddress?: string | null;
   token: string;
-  updatedAt: Date;
+  updatedAt: unknown;
   userAgent?: string | null;
   userId: string;
 }
 
 function mapDbSessionToHybridSession(dbSession: DbSessionShape): HybridSession {
+  const createdAt = fromPrismaDateTime(dbSession.createdAt);
+  const expiresAt = fromPrismaDateTime(dbSession.expiresAt);
+  const updatedAt = fromPrismaDateTime(dbSession.updatedAt);
   return {
     country: dbSession.country,
-    createdAt: dbSession.createdAt,
-    expiresAt: dbSession.expiresAt,
+    createdAt,
+    expiresAt,
     id: dbSession.id,
     ipAddress: dbSession.ipAddress,
-    lastSyncedAt: dbSession.updatedAt,
+    lastSyncedAt: updatedAt,
     syncStatus: "active",
     token: dbSession.token,
-    updatedAt: dbSession.updatedAt,
+    updatedAt,
     userAgent: dbSession.userAgent,
     userId: dbSession.userId,
   };
@@ -50,16 +53,14 @@ function mapDbSessionToHybridSession(dbSession: DbSessionShape): HybridSession {
 async function storeInPostgreSQL(
   session: HybridSession
 ): Promise<HybridSession> {
-  const dbSession = await prisma.session.create({
-    data: {
-      country: session.country,
-      expiresAt: session.expiresAt,
-      id: session.id,
-      ipAddress: session.ipAddress,
-      token: session.token,
-      userAgent: session.userAgent,
-      userId: session.userId,
-    },
+  const dbSession = await prisma.orm.public.Sessions.create({
+    country: session.country,
+    expiresAt: toPrismaDateTime(session.expiresAt),
+    id: session.id,
+    ipAddress: session.ipAddress,
+    token: session.token,
+    userAgent: session.userAgent,
+    userId: session.userId,
   });
 
   return mapDbSessionToHybridSession(dbSession);
@@ -70,23 +71,22 @@ async function updateInPostgreSQL(
   updates: Partial<HybridSession>
 ): Promise<HybridSession | null> {
   try {
-    const dbSession = await prisma.session.update({
-      data: {
-        ...(updates.country !== undefined && { country: updates.country }),
-        ...(updates.token && { token: updates.token }),
-        ...(updates.expiresAt && { expiresAt: updates.expiresAt }),
-        ...(updates.ipAddress !== undefined && {
-          ipAddress: updates.ipAddress,
-        }),
-        ...(updates.userAgent !== undefined && {
-          userAgent: updates.userAgent,
-        }),
-        updatedAt: new Date(),
-      },
-      where: { id },
+    const dbSession = await prisma.orm.public.Sessions.where({ id }).update({
+      ...(updates.country !== undefined && { country: updates.country }),
+      ...(updates.token && { token: updates.token }),
+      ...(updates.expiresAt && {
+        expiresAt: toPrismaDateTime(updates.expiresAt),
+      }),
+      ...(updates.ipAddress !== undefined && {
+        ipAddress: updates.ipAddress,
+      }),
+      ...(updates.userAgent !== undefined && {
+        userAgent: updates.userAgent,
+      }),
+      updatedAt: toPrismaDateTime(new Date()),
     });
 
-    return mapDbSessionToHybridSession(dbSession);
+    return dbSession ? mapDbSessionToHybridSession(dbSession) : null;
   } catch {
     return null;
   }
@@ -156,9 +156,9 @@ export class HybridSessionStore {
     }
 
     try {
-      const dbSession = await prisma.session.findUnique({
-        where: { token },
-      });
+      const dbSession = await prisma.orm.public.Sessions.where({
+        token,
+      }).first();
 
       if (dbSession) {
         const session = mapDbSessionToHybridSession(dbSession);
@@ -189,9 +189,9 @@ export class HybridSessionStore {
     }
 
     try {
-      const dbSessions = await prisma.session.findMany({
-        where: { userId },
-      });
+      const dbSessions = await prisma.orm.public.Sessions.where({
+        userId,
+      }).all();
 
       const redisTokens = new Set(sessions.map((s) => s.token));
       const additionalSessions = dbSessions
@@ -245,9 +245,7 @@ export class HybridSessionStore {
     }
 
     try {
-      await prisma.session.deleteMany({
-        where: { token },
-      });
+      await prisma.orm.public.Sessions.where({ token }).deleteAndCount();
     } catch (error) {
       console.error("PostgreSQL session deletion failed:", error);
     }
@@ -261,9 +259,7 @@ export class HybridSessionStore {
     }
 
     try {
-      await prisma.session.deleteMany({
-        where: { userId },
-      });
+      await prisma.orm.public.Sessions.where({ userId }).deleteAndCount();
     } catch (error) {
       console.error("PostgreSQL user sessions deletion failed:", error);
     }

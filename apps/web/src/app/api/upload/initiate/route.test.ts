@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { POST } from "./route";
 
 const mockGetSession = mock(() => ({ user: { id: "user1" } }));
-const mockFindMember = mock(
-  (args: { where: { conversationId_userId: { conversationId: string } } }) =>
-    args.where.conversationId_userId.conversationId === "convo-1"
-      ? { conversationId: "convo-1", userId: "user1" }
-      : null
+const mockFindMember = mock((conversationId: string) =>
+  conversationId === "convo-1"
+    ? { conversationId: "convo-1", userId: "user1" }
+    : null
 );
 const mockCreateUpload = mock(
   (input: Record<string, unknown>): Promise<Record<string, unknown>> =>
@@ -25,8 +26,34 @@ mock.module("@/lib/auth/session", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   prisma: {
-    messageConversationMember: { findUnique: mockFindMember },
+    orm: {
+      public: {
+        MessageConversationMembers: {
+          select: () => ({
+            where: (
+              predicate: (member: {
+                conversationId: { eq: (id: string) => unknown };
+                userId: { eq: (id: string) => unknown };
+              }) => unknown
+            ) => {
+              let conversationId = "";
+              predicate({
+                conversationId: {
+                  eq: (id) => {
+                    conversationId = id;
+                    return {};
+                  },
+                },
+                userId: { eq: () => ({}) },
+              });
+              return { first: () => mockFindMember(conversationId) };
+            },
+          }),
+        },
+      },
+    },
   },
 }));
 

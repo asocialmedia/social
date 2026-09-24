@@ -1,10 +1,13 @@
-import { prisma, publishConversationRead, unreadMessageCache } from "@asm/db";
+import {
+  and,
+  prisma,
+  publishConversationRead,
+  toPrismaDateTime,
+  unreadMessageCache,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import {
-  getConversationForUser,
-  unreadMessageWhere,
-} from "@/lib/messages/server";
+import { getConversationForUser } from "@/lib/messages/server";
 
 export async function POST(
   _request: Request,
@@ -32,23 +35,24 @@ export async function POST(
   // Decrement the badge by exactly the number of messages that were unread.
   // Aligned with the writer: the sender never accrues a badge, and deleted
   // messages do not count, so the decrement cannot over-credit.
-  const unread = await prisma.message.count({
-    where: unreadMessageWhere({
-      conversationId: id,
-      lastReadAt: myMember.lastReadAt,
-      userId: user.id,
-    }),
-  });
+  const unreadResult = await prisma.orm.public.Messages.where((message) =>
+    and(
+      message.conversationId.eq(id),
+      message.createdAt.gt(
+        toPrismaDateTime(myMember.lastReadAt ?? new Date(0))
+      ),
+      message.deletedAt.isNull(),
+      message.senderId.notIn([user.id])
+    )
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  const unread = unreadResult.count;
   if (unread > 0) {
     await unreadMessageCache.decrement(user.id, unread);
   }
 
-  await prisma.messageConversationMember.update({
-    data: { lastReadAt: new Date() },
-    where: {
-      conversationId_userId: { conversationId: id, userId: user.id },
-    },
-  });
+  await prisma.orm.public.MessageConversationMembers.where((member) =>
+    and(member.conversationId.eq(id), member.userId.eq(user.id))
+  ).update({ lastReadAt: toPrismaDateTime(new Date()) });
 
   await publishConversationRead(id, user.id);
 

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 // oxlint-disable promise/prefer-await-to-callbacks -- Prisma interactive transactions require a callback.
 
 const USER = { id: "user-1", username: "oldhandle" };
@@ -35,9 +37,127 @@ const mockPrisma = {
   $transaction: async <T>(
     callback: (transaction: typeof mockTransaction) => Promise<T>
   ): Promise<T> => await callback(mockTransaction),
+  transaction: async <T>(
+    callback: (transaction: typeof mockTransaction) => Promise<T>
+  ): Promise<T> => await callback(mockTransaction),
 };
 
+function createUsernameOrm() {
+  return {
+    UsernameAliases: {
+      create: (data: Record<string, unknown>) =>
+        mockTransaction.usernameAlias.create({
+          data: data as Omit<Alias, "createdAt" | "id">,
+        }),
+      select: () => ({
+        where: (
+          where: Record<string, unknown> | ((value: unknown) => unknown)
+        ) => createAliasSelection(where),
+      }),
+      where: (
+        where: Record<string, unknown> | ((value: unknown) => unknown)
+      ) => {
+        if (typeof where !== "function") {
+          return {
+            delete: () =>
+              mockTransaction.usernameAlias.delete({
+                where: where as { id: string },
+              }),
+          };
+        }
+        let expiresAt = new Date(0);
+        let username = "";
+        where({
+          expiresAt: { lte: (value: Date) => (expiresAt = value) },
+          username: { ilike: (value: string) => (username = value) },
+        });
+        return {
+          delete: () =>
+            mockTransaction.usernameAlias.deleteMany({
+              where: {
+                expiresAt: { lte: expiresAt },
+                username: { equals: username },
+              },
+            }),
+        };
+      },
+    },
+    Users: {
+      select: () => ({
+        where: (
+          where: Record<string, unknown> | ((value: unknown) => unknown)
+        ) => {
+          if (typeof where === "function") {
+            let username = "";
+            where({
+              username: { ilike: (value: string) => (username = value) },
+            });
+            return {
+              first: () =>
+                mockTransaction.user.findFirst({
+                  where: { username: { equals: username } },
+                }),
+            };
+          }
+          return { first: () => mockTransaction.user.findUnique() };
+        },
+      }),
+      where: () => ({
+        update: (data: { username: string }) =>
+          mockTransaction.user.update({ data }),
+      }),
+    },
+  };
+}
+
+function createAliasSelection(
+  where: Record<string, unknown> | ((value: unknown) => unknown)
+) {
+  if (typeof where !== "function") {
+    return {
+      first: () =>
+        mockTransaction.usernameAlias.findFirst({
+          where: {
+            expiresAt: { gt: new Date(0) },
+            username: {
+              equals: String((where as { username?: string }).username ?? ""),
+            },
+          },
+        }),
+    };
+  }
+  let since = new Date(0);
+  let expiresAt = new Date(0);
+  let userId = "";
+  let username = "";
+  where({
+    createdAt: { gte: (value: Date) => (since = value) },
+    expiresAt: { gt: (value: Date) => (expiresAt = value) },
+    userId: { eq: (value: string) => (userId = value) },
+    username: { ilike: (value: string) => (username = value) },
+  });
+  const query = {
+    all: () =>
+      mockTransaction.usernameAlias.findMany({
+        where: { createdAt: { gte: since }, userId },
+      }),
+    first: () =>
+      mockTransaction.usernameAlias.findFirst({
+        where: { expiresAt: { gt: expiresAt }, username: { equals: username } },
+      }),
+    limit: (limit: number) => ({
+      all: () =>
+        mockTransaction.usernameAlias
+          .findMany({ where: { createdAt: { gte: since }, userId } })
+          .slice(0, limit),
+    }),
+    orderBy: () => query,
+  };
+  return query;
+}
+
 const mockTransaction = {
+  orm: { public: createUsernameOrm() },
   user: {
     findFirst: ({ where }: { where: { username: { equals: string } } }) => {
       const requestedUsername = where.username.equals;
@@ -111,6 +231,7 @@ const mockTransaction = {
 };
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   Prisma: {
     PrismaClientKnownRequestError: class PrismaKnownError extends Error {
       code = "";

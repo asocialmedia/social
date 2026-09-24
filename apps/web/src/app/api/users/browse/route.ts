@@ -1,12 +1,13 @@
-import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
+import {
+  and,
+  fromPrismaDateTime,
+  getUserDataQuery,
+  mapUserData,
+  prisma,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-
-type UserOrderBy =
-  | { createdAt: "asc" }
-  | { createdAt: "desc" }
-  | { followers: { _count: "desc" } }
-  | { posts: { _count: "desc" } };
 
 export async function GET(request: Request) {
   try {
@@ -18,77 +19,70 @@ export async function GET(request: Request) {
     const search = searchParams.get("search") || "";
     const sortBy = searchParams.get("sortBy") || "followers";
 
-    let orderBy: UserOrderBy = { followers: { _count: "desc" } };
-
-    switch (sortBy) {
-      case "followers": {
-        orderBy = {
-          followers: {
-            _count: "desc",
-          },
-        };
-        break;
+    const pattern = `%${search.replaceAll(/[\\%_]/g, "\\$&")}%`;
+    const [usernameRows, displayNameRows] = await Promise.all([
+      getUserDataQuery(prisma.orm, viewerId)
+        .where((user) =>
+          and(
+            user.id.neq(viewerId),
+            user.id.neq(SYSTEM_MODERATION_USER_ID),
+            user.username.ilike(pattern)
+          )
+        )
+        .include("follows", (follows) =>
+          follows.combine({ total: follows.count() })
+        )
+        .include("followsFollows", (follows) =>
+          follows.combine({ total: follows.count() })
+        )
+        .include("posts", (posts) => posts.combine({ total: posts.count() }))
+        .all(),
+      getUserDataQuery(prisma.orm, viewerId)
+        .where((user) =>
+          and(
+            user.id.neq(viewerId),
+            user.id.neq(SYSTEM_MODERATION_USER_ID),
+            user.displayName.ilike(pattern)
+          )
+        )
+        .include("follows", (follows) =>
+          follows.combine({ total: follows.count() })
+        )
+        .include("followsFollows", (follows) =>
+          follows.combine({ total: follows.count() })
+        )
+        .include("posts", (posts) => posts.combine({ total: posts.count() }))
+        .all(),
+    ]);
+    const rows = [...usernameRows, ...displayNameRows].filter(
+      (row, index, allRows) =>
+        allRows.findIndex((candidate) => candidate.id === row.id) === index
+    );
+    rows.sort((left, right) => {
+      if (sortBy === "newest") {
+        return (
+          fromPrismaDateTime(right.createdAt).getTime() -
+          fromPrismaDateTime(left.createdAt).getTime()
+        );
       }
-      case "posts": {
-        orderBy = {
-          posts: {
-            _count: "desc",
-          },
-        };
-        break;
+      if (sortBy === "oldest") {
+        return (
+          fromPrismaDateTime(left.createdAt).getTime() -
+          fromPrismaDateTime(right.createdAt).getTime()
+        );
       }
-      case "newest": {
-        orderBy = {
-          createdAt: "desc",
-        };
-        break;
+      if (sortBy === "posts") {
+        return right.posts.total - left.posts.total;
       }
-      case "oldest": {
-        orderBy = {
-          createdAt: "asc",
-        };
-        break;
-      }
-      default: {
-        orderBy = {
-          followers: {
-            _count: "desc",
-          },
-        };
-      }
-    }
-
-    const users = await prisma.user.findMany({
-      orderBy,
-      select: getUserDataSelect(viewerId),
-      take: 20,
-      where: {
-        AND: [
-          {
-            id: {
-              not: viewerId,
-            },
-          },
-          { id: { not: SYSTEM_MODERATION_USER_ID } },
-          {
-            OR: [
-              {
-                username: {
-                  contains: search,
-                  mode: "insensitive",
-                },
-              },
-              {
-                displayName: {
-                  contains: search,
-                  mode: "insensitive",
-                },
-              },
-            ],
-          },
-        ],
-      },
+      return right.followsFollows.length - left.followsFollows.length;
     });
+    const users = rows.slice(0, 20).map((user) => ({
+      ...mapUserData(user),
+      _count: {
+        followers: user.followsFollows.length,
+        following: user.follows.total,
+      },
+    }));
 
     return Response.json(users);
   } catch {

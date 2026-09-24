@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -35,13 +35,12 @@ export async function PATCH(
     );
   }
 
-  const result = await prisma.media.updateMany({
-    data: {
-      altText: parsed.data.altText.trim() || null,
-    },
-    where: { id: mediaId, userId: user.id },
+  const result = await prisma.orm.public.PostMedia.where((media) =>
+    and(media.id.eq(mediaId), media.userId.eq(user.id))
+  ).updateAndCount({
+    altText: parsed.data.altText.trim() || null,
   });
-  if (result.count === 0) {
+  if (result === 0) {
     return Response.json({ error: "Media not found" }, { status: 404 });
   }
   return NextResponse.json({
@@ -61,19 +60,18 @@ export async function GET(
   }
 
   const { mediaId } = await context.params;
-  const media = await prisma.media.findUnique({
-    select: {
-      altText: true,
-      id: true,
-      ocrText: true,
-      semanticTags: true,
-      status: true,
-      transcript: true,
-      type: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await prisma.orm.public.PostMedia.select(
+    "altText",
+    "id",
+    "ocrText",
+    "semanticTags",
+    "status",
+    "transcript",
+    "_type",
+    "userId"
+  )
+    .where({ id: mediaId })
+    .first();
 
   if (!media || media.userId !== user.id) {
     return Response.json({ error: "Media not found" }, { status: 404 });
@@ -86,12 +84,11 @@ export async function GET(
 
   // Generate suggested alt text based on available semantic enrichment
   let suggestedAlt = "";
+  const semanticTags = media.semanticTags ?? [];
   const tagsStr =
-    media.semanticTags.length > 0
-      ? media.semanticTags.slice(0, 5).join(", ")
-      : "";
+    semanticTags.length > 0 ? semanticTags.slice(0, 5).join(", ") : "";
 
-  if (media.type === "VIDEO") {
+  if (media._type === "VIDEO") {
     const cleanTranscript = media.transcript?.trim();
     if (cleanTranscript) {
       const maxLen = tagsStr ? 850 : 950;
@@ -106,7 +103,7 @@ export async function GET(
     } else if (tagsStr) {
       suggestedAlt = `Video featuring ${tagsStr}`;
     }
-  } else if (media.type === "IMAGE") {
+  } else if (media._type === "IMAGE") {
     const cleanOcr = media.ocrText?.trim();
     if (cleanOcr) {
       const maxLen = tagsStr ? 850 : 950;
@@ -121,7 +118,7 @@ export async function GET(
     } else if (tagsStr) {
       suggestedAlt = `Image depicting ${tagsStr}`;
     }
-  } else if (media.type === "AUDIO") {
+  } else if (media._type === "AUDIO") {
     const cleanTranscript = media.transcript?.trim();
     if (cleanTranscript) {
       const maxLen = 950;

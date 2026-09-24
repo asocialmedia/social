@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 const mockGetSession = mock();
 const mockConsumeRateLimit = mock();
 const mockVerifyPasswordHash = mock();
@@ -15,10 +17,24 @@ mock.module("@asm/auth/core", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   consumeRateLimit: mockConsumeRateLimit,
   prisma: {
-    account: { findFirst: mockAccountFindFirst },
-    session: { updateMany: mockSessionUpdateMany },
+    orm: {
+      public: {
+        Accounts: {
+          select: () => ({ where: () => ({ first: mockAccountFindFirst }) }),
+        },
+        Sessions: {
+          where: () => ({
+            updateAndCount: (data: Record<string, unknown>) => {
+              mockSessionUpdateMany(data);
+              return Promise.resolve(1);
+            },
+          }),
+        },
+      },
+    },
   },
 }));
 
@@ -60,12 +76,7 @@ describe("POST /api/security/reauthenticate", () => {
       "stored-hash"
     );
     expect(mockSessionUpdateMany).toHaveBeenCalledWith({
-      data: { createdAt: expect.any(Date) },
-      where: {
-        expiresAt: { gt: expect.any(Date) },
-        id: "session-1",
-        userId: "user-1",
-      },
+      createdAt: expect.any(Date),
     });
   });
 

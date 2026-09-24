@@ -1,7 +1,6 @@
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
-import type { PrivateUserData } from "@asm/db";
 import {
   Dialog,
   DialogClose,
@@ -42,6 +41,7 @@ import {
   AvatarInput,
   BannerInput,
 } from "@/components/profile/profile-media-inputs";
+import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useToast } from "@/lib/gooey-toast";
 import { croppedImageFile } from "@/lib/media/cropped-image-file";
 import type { UploadStage } from "@/lib/media/media-upload-client";

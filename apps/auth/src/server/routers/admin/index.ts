@@ -1,88 +1,173 @@
 import {
+  and,
   BADGES,
   BadgeLimitError,
+  fromPrismaDateTime,
   grantBadge,
-  Prisma,
   prisma,
   revokeBadge,
+  toPrismaDateTime,
   userCache,
 } from "@asm/db";
+import type { PrismaOrm, PrismaTransaction } from "@asm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { adminProcedure, router, t } from "../../trpc";
 import type { User } from "../../types";
 
-// Hard rule: the app runs with exactly one admin. Granting a second admin is
-// rejected, and the last remaining admin cannot be demoted (otherwise nobody
-// could ever promote anyone again and the app would be locked out).
-// Callers that must enforce this atomically pass their own transaction
-// client and run at SERIALIZABLE isolation, so two concurrent promotions
-// cannot both race past the count-then-write window.
-async function assertRoleChangeAllowed(
+type UsersCollection = PrismaOrm["public"]["Users"];
+
+interface SessionExportRow {
+  createdAt: unknown;
+  expiresAt: unknown;
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+function isSessionExportRows(value: unknown): value is SessionExportRow[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "id" in entry &&
+        typeof entry.id === "string"
+    )
+  );
+}
+
+class ConcurrentRoleChangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConcurrentRoleChangeError";
+  }
+}
+
+async function changeRole(
   userId: string,
-  newRole: string,
-  client: Pick<typeof prisma.user, "count" | "findUnique"> = prisma.user
-) {
-  if (newRole === "admin") {
-    const otherAdmins = await (client as typeof prisma.user).count({
-      where: { id: { not: userId }, role: "admin" },
-    });
-    if (otherAdmins > 0) {
+  newRole: "admin" | "user",
+  users: UsersCollection = prisma.orm.public.Users
+): Promise<boolean> {
+  const current = await users.select("role").where({ id: userId }).first();
+  if (current?.role === newRole) {
+    return false;
+  }
+
+  const otherAdmins = await users
+    .where((user) => and(user.id.neq(userId), user.role.eq("admin")))
+    .aggregate((aggregate) => ({ count: aggregate.count() }));
+
+  if (!current) {
+    if (newRole === "admin" && otherAdmins.count > 0) {
       throw new TRPCError({
         code: "CONFLICT",
         message:
           "Only one admin is allowed for the app. Demote the current admin before promoting someone else.",
       });
     }
-    return;
+    return false;
   }
 
-  const current = await (client as typeof prisma.user).findUnique({
-    select: { role: true },
-    where: { id: userId },
-  });
-  if (current?.role === "admin") {
-    const otherAdmins = await (client as typeof prisma.user).count({
-      where: { id: { not: userId }, role: "admin" },
+  if (newRole === "admin" && otherAdmins.count > 0) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "Only one admin is allowed for the app. Demote the current admin before promoting someone else.",
     });
-    if (otherAdmins === 0) {
-      throw new TRPCError({
-        code: "CONFLICT",
-        message:
-          "The app needs exactly one admin, so the last admin cannot be demoted.",
-      });
+  }
+  if (
+    newRole === "user" &&
+    current.role === "admin" &&
+    otherAdmins.count === 0
+  ) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "The app needs exactly one admin, so the last admin cannot be demoted.",
+    });
+  }
+
+  const claimed = await users
+    .where((user) => and(user.id.eq(userId), user.role.eq(current.role)))
+    .updateAndCount({ role: newRole });
+  if (claimed !== 1) {
+    throw new ConcurrentRoleChangeError("user role changed");
+  }
+  return true;
+}
+
+async function runAtomicRoleChange<T>(
+  fn: (tx: PrismaTransaction) => Promise<T>,
+  attemptsRemaining = 4
+): Promise<T> {
+  try {
+    return await prisma.transaction(fn);
+  } catch (error) {
+    const isConflict =
+      error instanceof ConcurrentRoleChangeError ||
+      (error instanceof Error &&
+        "sqlState" in error &&
+        (error.sqlState === "23505" ||
+          error.sqlState === "40001" ||
+          error.sqlState === "40P01")) ||
+      (error instanceof Error && error.message.includes("could not serialize"));
+    if (!isConflict || attemptsRemaining <= 1) {
+      throw error;
     }
+    return await runAtomicRoleChange(fn, attemptsRemaining - 1);
   }
 }
 
-// Runs a role-changing mutation with its guard inside ONE serializable
-// transaction, retrying serialization conflicts a bounded number of times.
-// This closes the theoretical race where two concurrent promotions both
-// observe zero other admins and both commit.
-async function runAtomicRoleChange<T>(
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
-): Promise<T> {
-  const MAX_ATTEMPTS = 4;
-  let lastError: unknown = new Error("role change did not run");
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    try {
-      // oxlint-disable-next-line no-await-in-loop -- conflict retries are inherently sequential
-      return await prisma.$transaction(fn, {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      });
-    } catch (error) {
-      lastError = error;
-      const isConflict =
-        (error as { code?: string })?.code === "P2034" ||
-        (error instanceof Error &&
-          error.message.includes("could not serialize"));
-      if (!isConflict || attempt === MAX_ATTEMPTS) {
-        throw error;
-      }
+interface OAuthAccountGroup {
+  count: number;
+  googleId: string | null;
+  redditId: string | null;
+}
+
+function buildOauthBreakdown(groups: OAuthAccountGroup[]) {
+  const providerCounts = new Map<string, number>();
+  for (const group of groups) {
+    let provider = "email";
+    if (group.googleId) {
+      provider = "google";
+    } else if (group.redditId) {
+      provider = "reddit";
     }
+    providerCounts.set(
+      provider,
+      (providerCounts.get(provider) ?? 0) + group.count
+    );
   }
-  throw lastError;
+  return [...providerCounts.entries()]
+    .map(([provider, count]) => ({ count, provider }))
+    .toSorted((left, right) => right.count - left.count);
+}
+
+type PrismaDateTime = Parameters<typeof fromPrismaDateTime>[0];
+
+function buildUserActivityByHour(createdAtValues: PrismaDateTime[]) {
+  const hourCounts = new Map<number, number>();
+  for (const createdAt of createdAtValues) {
+    const hour = fromPrismaDateTime(createdAt).getHours();
+    hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
+  }
+  return [...hourCounts.entries()]
+    .toSorted(([left], [right]) => left - right)
+    .map(([hour, count]) => ({ count, hour }));
+}
+
+function buildRegistrationTrends(createdAtValues: PrismaDateTime[]) {
+  const dateCounts = new Map<string, number>();
+  for (const createdAt of createdAtValues) {
+    const date = fromPrismaDateTime(createdAt).toISOString().slice(0, 10);
+    dateCounts.set(date, (dateCounts.get(date) ?? 0) + 1);
+  }
+  return [...dateCounts.entries()]
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([date, count]) => ({ count, date }));
 }
 
 const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
@@ -105,12 +190,14 @@ const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
   return next();
 });
 
-// Prisma surfaces unique constraint conflicts as P2002. A partial unique index
+// Prisma 8 surfaces unique constraint conflicts as SQLSTATE 23505. A partial unique index
 // on users(role) where role='admin' makes the "exactly one admin" rule atomic
 // at the database level, so concurrent promotions cannot race past the
 // check-then-write in assertRoleChangeAllowed.
 function isUniqueConstraintViolation(error: unknown): boolean {
-  return (error as { code?: string })?.code === "P2002";
+  return (
+    error instanceof Error && "sqlState" in error && error.sqlState === "23505"
+  );
 }
 
 function adminLimitConflict(): TRPCError {
@@ -191,37 +278,32 @@ async function fetchUsersFromDatabase(input: {
   sortOrder: "asc" | "desc";
 }): Promise<UserListResult> {
   const { limit, cursor, filters, sortBy, sortOrder } = input;
-  const where: Record<string, unknown> = {};
-
-  if (filters?.role) {
-    where.role = filters.role;
-  }
-
-  if (filters?.emailVerified !== undefined) {
-    where.emailVerified = filters.emailVerified;
-  }
-
-  if (filters?.hasEmail !== undefined) {
-    where.email = filters.hasEmail ? { not: null } : null;
-  }
-
+  const role = filters?.role;
+  const emailVerified = filters?.emailVerified;
+  const hasEmail = filters?.hasEmail;
   let searchResults: string[] | null = null;
   if (filters?.search?.trim()) {
-    const matchingUsers = await prisma.user.findMany({
-      select: { id: true },
-      take: 1000,
-      where: {
-        OR: [
-          { username: { contains: filters.search, mode: "insensitive" } },
-          { displayName: { contains: filters.search, mode: "insensitive" } },
-          {
-            displayUsername: { contains: filters.search, mode: "insensitive" },
-          },
-          { email: { contains: filters.search, mode: "insensitive" } },
-        ],
-      },
-    });
-    searchResults = matchingUsers.map((user) => user.id);
+    const search = filters.search.trim();
+    const pattern = `%${search}%`;
+    const matchingUsers = await Promise.all([
+      prisma.orm.public.Users.select("id")
+        .where((user) => user.username.ilike(pattern))
+        .limit(1000)
+        .all(),
+      prisma.orm.public.Users.select("id")
+        .where((user) => user.displayName.ilike(pattern))
+        .limit(1000)
+        .all(),
+      prisma.orm.public.Users.select("id")
+        .where((user) => user.displayUsername.ilike(pattern))
+        .limit(1000)
+        .all(),
+      prisma.orm.public.Users.select("id")
+        .where((user) => user.email.ilike(pattern))
+        .limit(1000)
+        .all(),
+    ]);
+    searchResults = [...new Set(matchingUsers.flat().map((user) => user.id))];
 
     if (searchResults.length === 0) {
       return {
@@ -231,75 +313,125 @@ async function fetchUsersFromDatabase(input: {
         users: [],
       };
     }
-    where.id = { in: searchResults };
   }
 
-  const users = await prisma.user.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
-    orderBy: {
-      [sortBy]: sortOrder,
-    },
-    select: {
-      _count: {
-        select: {
-          bookmarks: true,
-          comments: true,
-          followers: true,
-          following: true,
-          posts: true,
-          sessions: true,
-          vote: true,
-        },
+  let userQuery = prisma.orm.public.Users.select(
+    "aura",
+    "avatarUrl",
+    "banned",
+    "bio",
+    "createdAt",
+    "displayName",
+    "displayUsername",
+    "email",
+    "emailVerified",
+    "id",
+    "role",
+    "updatedAt",
+    "username"
+  )
+    .include("bookmarks", (bookmarks) => bookmarks.count())
+    .include("comments", (comments) => comments.count())
+    .include("follows", (follows) => follows.count())
+    .include("followsFollows", (followers) => followers.count())
+    .include("posts", (posts) => posts.count())
+    .include("sessionsSessions", (sessions) => sessions.count())
+    .include("votes", (votes) => votes.count())
+    .where((user) => {
+      const conditions = [];
+      if (role) {
+        conditions.push(user.role.eq(role));
+      }
+      if (emailVerified !== undefined) {
+        conditions.push(user.emailVerified.eq(emailVerified));
+      }
+      if (hasEmail !== undefined) {
+        conditions.push(
+          hasEmail ? user.email.isNotNull() : user.email.isNull()
+        );
+      }
+      if (searchResults) {
+        conditions.push(user.id.in(searchResults));
+      }
+      return and(...conditions);
+    })
+    .orderBy([
+      (user) => {
+        if (sortBy === "aura") {
+          return sortOrder === "asc" ? user.aura.asc() : user.aura.desc();
+        }
+        if (sortBy === "username") {
+          return sortOrder === "asc"
+            ? user.username.asc()
+            : user.username.desc();
+        }
+        if (sortBy === "displayName") {
+          return sortOrder === "asc"
+            ? user.displayName.asc()
+            : user.displayName.desc();
+        }
+        return sortOrder === "asc"
+          ? user.createdAt.asc()
+          : user.createdAt.desc();
       },
-      aura: true,
-      avatarUrl: true,
-      banned: true,
-      bio: true,
-      createdAt: true,
-      displayName: true,
-      displayUsername: true,
-      email: true,
-      emailVerified: true,
-      id: true,
-      role: true,
-      updatedAt: true,
-      username: true,
-    },
-    take: limit + 1,
-    where,
-  });
+      (user) => (sortOrder === "asc" ? user.id.asc() : user.id.desc()),
+    ])
+    .limit(limit + 1);
+  if (cursor) {
+    userQuery = userQuery.cursor({ id: cursor });
+  }
+  const users = await userQuery.all();
 
   const hasMore = users.length > limit;
   const usersToReturn = hasMore ? users.slice(0, -1) : users;
   const nextCursor = hasMore ? usersToReturn.at(-1)?.id : undefined;
-  const totalCount = await prisma.user.count({ where });
+  const totalCount = await prisma.orm.public.Users.where((user) => {
+    const conditions = [];
+    if (role) {
+      conditions.push(user.role.eq(role));
+    }
+    if (emailVerified !== undefined) {
+      conditions.push(user.emailVerified.eq(emailVerified));
+    }
+    if (hasEmail !== undefined) {
+      conditions.push(hasEmail ? user.email.isNotNull() : user.email.isNull());
+    }
+    if (searchResults) {
+      conditions.push(user.id.in(searchResults));
+    }
+    return and(...conditions);
+  }).aggregate((aggregate) => ({ count: aggregate.count() }));
 
-  const transformedUsers = usersToReturn.map((user) => ({
-    aura: user.aura,
-    avatarUrl: user.avatarUrl,
-    banned: user.banned ?? false,
-    bio: user.bio,
-    bookmarks: user._count.bookmarks,
-    createdAt: user.createdAt.toISOString(),
-    displayName: user.displayName,
-    displayUsername: user.displayUsername,
-    email: user.email,
-    emailVerified: user.emailVerified,
-    followers: user._count.followers,
-    following: user._count.following,
-    id: user.id,
-    joinedDate: user.createdAt.toISOString(),
-    posts: user._count.posts,
-    role: user.role as "user" | "admin",
-    sessions: user._count.sessions,
-    updatedAt: user.updatedAt.toISOString(),
-    username: user.username,
-  }));
+  const transformedUsers = usersToReturn.map((user) => {
+    const createdAt = fromPrismaDateTime(user.createdAt);
+    const updatedAt = fromPrismaDateTime(user.updatedAt);
+    return {
+      aura: user.aura,
+      avatarUrl: user.avatarUrl,
+      banned: user.banned ?? false,
+      bio: user.bio,
+      bookmarks: user.bookmarks,
+      createdAt: createdAt.toISOString(),
+      displayName: user.displayName,
+      displayUsername: user.displayUsername,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      followers: user.followsFollows,
+      following: user.follows,
+      id: user.id,
+      joinedDate: createdAt.toISOString(),
+      posts: user.posts,
+      role: user.role as "user" | "admin",
+      sessions: user.sessionsSessions,
+      updatedAt: updatedAt.toISOString(),
+      username: user.username,
+    };
+  });
 
   return {
     hasMore,
     nextCursor,
-    totalCount,
+    totalCount: totalCount.count,
     users: transformedUsers,
   } satisfies UserListResult;
 }
@@ -329,12 +461,15 @@ export const adminRouter = router({
         ? new Date(Date.now() + input.banExpiresIn * 1000)
         : null;
 
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          data: { banExpires, banReason: input.banReason, banned: true },
-          where: { id: input.userId },
+      await prisma.transaction(async (tx) => {
+        await tx.orm.public.Users.where({ id: input.userId }).update({
+          banExpires: banExpires ? toPrismaDateTime(banExpires) : null,
+          banReason: input.banReason,
+          banned: true,
         });
-        await tx.session.deleteMany({ where: { userId: input.userId } });
+        await tx.orm.public.Sessions.where({
+          userId: input.userId,
+        }).deleteAndCount();
       });
 
       await userCache.invalidateUserDetail(input.userId);
@@ -352,47 +487,68 @@ export const adminRouter = router({
     )
     .query(async ({ input }) => {
       const { userIds, format, includeSessions } = input;
-      const where = userIds ? { id: { in: userIds } } : {};
-      const users = await prisma.user.findMany({
-        orderBy: { createdAt: "desc" },
-        select: {
+      const baseQuery = prisma.orm.public.Users.select(
+        "aura",
+        "bio",
+        "createdAt",
+        "displayName",
+        "displayUsername",
+        "email",
+        "emailVerified",
+        "id",
+        "role",
+        "updatedAt",
+        "username"
+      )
+        .include("bookmarks", (bookmarks) => bookmarks.count())
+        .include("comments", (comments) => comments.count())
+        .include("follows", (follows) => follows.count())
+        .include("followsFollows", (followers) => followers.count())
+        .include("posts", (posts) => posts.count())
+        .include("votes", (votes) => votes.count())
+        .where((user) => (userIds ? user.id.in(userIds) : and()))
+        .orderBy((user) => user.createdAt.desc());
+      const boundedQuery = userIds ? baseQuery : baseQuery.limit(1000);
+      const users = includeSessions
+        ? await boundedQuery
+            .include("sessionsSessions", (sessions) =>
+              sessions
+                .select(
+                  "createdAt",
+                  "expiresAt",
+                  "id",
+                  "ipAddress",
+                  "userAgent"
+                )
+                .orderBy((session) => session.createdAt.desc())
+                .limit(5)
+            )
+            .all()
+        : await boundedQuery.all();
+      const normalizedUsers = users.map((user) => {
+        const sessionRows =
+          "sessionsSessions" in user &&
+          isSessionExportRows(user.sessionsSessions)
+            ? user.sessionsSessions
+            : [];
+        return {
+          ...user,
           _count: {
-            select: {
-              bookmarks: true,
-              comments: true,
-              followers: true,
-              following: true,
-              posts: true,
-              vote: true,
-            },
+            bookmarks: user.bookmarks,
+            comments: user.comments,
+            followers: user.followsFollows,
+            following: user.follows,
+            posts: user.posts,
+            vote: user.votes,
           },
-          aura: true,
-          bio: true,
-          createdAt: true,
-          displayName: true,
-          displayUsername: true,
-          email: true,
-          emailVerified: true,
-          id: true,
-          role: true,
-          updatedAt: true,
-          username: true,
-          ...(includeSessions && {
-            sessions: {
-              orderBy: { createdAt: "desc" },
-              select: {
-                createdAt: true,
-                expiresAt: true,
-                id: true,
-                ipAddress: true,
-                userAgent: true,
-              },
-              take: 5,
-            },
-          }),
-        },
-        take: userIds ? undefined : 1000,
-        where,
+          createdAt: fromPrismaDateTime(user.createdAt),
+          sessions: sessionRows.map((session) => ({
+            ...session,
+            createdAt: fromPrismaDateTime(session.createdAt),
+            expiresAt: fromPrismaDateTime(session.expiresAt),
+          })),
+          updatedAt: fromPrismaDateTime(user.updatedAt),
+        };
       });
 
       if (format === "csv") {
@@ -415,7 +571,7 @@ export const adminRouter = router({
           "Bio",
         ];
 
-        const csvRows = users.map((user) => [
+        const csvRows = normalizedUsers.map((user) => [
           user.id,
           user.username,
           user.displayName,
@@ -443,7 +599,7 @@ export const adminRouter = router({
 
       return {
         count: users.length,
-        data: users,
+        data: normalizedUsers,
         format: "json",
       };
     }),
@@ -501,38 +657,47 @@ export const adminRouter = router({
             // than one user at once, or promoting while another admin exists,
             // would break the "exactly one admin" invariant. Demoting every
             // current admin at once would lock the app out of admin access.
-            if (data.role === "admin") {
-              if (userIds.length > 1) {
-                throw new TRPCError({
-                  code: "CONFLICT",
-                  message: "Only one admin is allowed for the app.",
-                });
-              }
-              await assertRoleChangeAllowed(userIds[0], data.role);
-            } else {
-              const currentAdmins = await prisma.user.findMany({
-                select: { id: true },
-                where: { role: "admin" },
-              });
-              const selectedAdminIds = currentAdmins.filter((admin) =>
-                userIds.includes(admin.id)
-              );
-              if (
-                currentAdmins.length > 0 &&
-                selectedAdminIds.length === currentAdmins.length
-              ) {
-                throw new TRPCError({
-                  code: "CONFLICT",
-                  message:
-                    "The app needs exactly one admin, so the last admin cannot be demoted.",
-                });
-              }
-            }
+            result = {
+              count: await runAtomicRoleChange(async (tx) => {
+                if (data.role === "admin") {
+                  if (userIds.length > 1) {
+                    throw new TRPCError({
+                      code: "CONFLICT",
+                      message: "Only one admin is allowed for the app.",
+                    });
+                  }
+                  await changeRole(userIds[0], data.role, tx.orm.public.Users);
+                } else {
+                  const currentAdmins = await tx.orm.public.Users.select("id")
+                    .where({ role: "admin" })
+                    .all();
+                  const selectedAdminIds = currentAdmins.filter((admin) =>
+                    userIds.includes(admin.id)
+                  );
+                  if (
+                    currentAdmins.length > 0 &&
+                    selectedAdminIds.length === currentAdmins.length
+                  ) {
+                    throw new TRPCError({
+                      code: "CONFLICT",
+                      message:
+                        "The app needs exactly one admin, so the last admin cannot be demoted.",
+                    });
+                  }
+                  let roleUpdates: Promise<unknown> = Promise.resolve();
+                  for (const admin of selectedAdminIds) {
+                    roleUpdates = roleUpdates.then(() =>
+                      changeRole(admin.id, data.role, tx.orm.public.Users)
+                    );
+                  }
+                  await roleUpdates;
+                }
 
-            result = await prisma.user.updateMany({
-              data: { role: data.role },
-              where: { id: { in: userIds } },
-            });
+                return tx.orm.public.Users.where((user) =>
+                  user.id.in(userIds)
+                ).updateAndCount({ role: data.role });
+              }),
+            };
             break;
           }
 
@@ -545,13 +710,16 @@ export const adminRouter = router({
               });
             }
 
-            result = await prisma.user.updateMany({
-              data: {
+            result = {
+              count: await prisma.orm.public.Users.where((user) =>
+                user.id.in(userIds)
+              ).updateAndCount({
                 emailVerified: data.emailVerified,
-                emailVerifiedAt: data.emailVerified ? new Date() : null,
-              },
-              where: { id: { in: userIds } },
-            });
+                emailVerifiedAt: data.emailVerified
+                  ? toPrismaDateTime(new Date())
+                  : null,
+              }),
+            };
             break;
           }
 
@@ -559,9 +727,11 @@ export const adminRouter = router({
             // Soft delete by setting a deleted flag, or hard delete
             // For now, we'll do a soft delete by setting role to null or similar
             // In a real app, you might want to add a deletedAt field
-            result = await prisma.user.deleteMany({
-              where: { id: { in: userIds } },
-            });
+            result = {
+              count: await prisma.orm.public.Users.where((user) =>
+                user.id.in(userIds)
+              ).deleteAndCount(),
+            };
             break;
           }
 
@@ -622,79 +792,66 @@ export const adminRouter = router({
       const days = timeframeDays[timeframe];
       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+      const startDateValue = toPrismaDateTime(startDate);
       const [
-        totalUsers,
-        newUsers,
-        activeUsers,
-        verifiedUsers,
-        totalPosts,
-        totalAura,
-        oauthBreakdown,
+        totalUsersResult,
+        newUsersResult,
+        activeUsersResult,
+        verifiedUsersResult,
+        totalPostsResult,
+        totalAuraResult,
+        oauthAccountGroups,
         topUsersByAura,
-        userActivityByHour,
+        sessionCreatedAt,
       ] = await Promise.all([
-        prisma.user.count(),
-        prisma.user.count({
-          where: { createdAt: { gte: startDate } },
-        }),
-        prisma.user.count({
-          where: {
-            sessions: {
-              some: {
-                createdAt: { gte: startDate },
-              },
-            },
-          },
-        }),
-        prisma.user.count({
-          where: { emailVerified: true },
-        }),
-        prisma.post.count(),
-        prisma.user.aggregate({
-          _sum: { aura: true },
-        }),
-
-        prisma.$queryRaw<{ provider: string; count: number }[]>`
-          SELECT
-            CASE
-              WHEN google_id IS NOT NULL THEN 'google'
-              WHEN reddit_id IS NOT NULL THEN 'reddit'
-              ELSE 'email'
-            END as provider,
-            COUNT(*) as count
-          FROM users
-          GROUP BY provider
-          ORDER BY count DESC
-        `,
-
-        prisma.user.findMany({
-          orderBy: { aura: "desc" },
-          select: {
-            aura: true,
-            displayName: true,
-            id: true,
-            username: true,
-          },
-          take: 10,
-        }),
-
-        prisma.$queryRaw<{ hour: number; count: number }[]>`
-          SELECT
-            EXTRACT(HOUR FROM created_at) as hour,
-            COUNT(*) as count
-          FROM sessions
-          WHERE created_at >= ${startDate}
-          GROUP BY EXTRACT(HOUR FROM created_at)
-          ORDER BY hour
-        `,
+        prisma.orm.public.Users.aggregate((aggregate) => ({
+          count: aggregate.count(),
+        })),
+        prisma.orm.public.Users.where((user) =>
+          user.createdAt.gte(startDateValue)
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
+        prisma.orm.public.Users.where((user) =>
+          user.sessionsSessions.some((session) =>
+            session.createdAt.gte(startDateValue)
+          )
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
+        prisma.orm.public.Users.where({ emailVerified: true }).aggregate(
+          (aggregate) => ({ count: aggregate.count() })
+        ),
+        prisma.orm.public.Posts.aggregate((aggregate) => ({
+          count: aggregate.count(),
+        })),
+        prisma.orm.public.Users.aggregate((aggregate) => ({
+          aura: aggregate.sum("aura"),
+        })),
+        prisma.orm.public.Users.groupBy("googleId", "redditId").aggregate(
+          (aggregate) => ({ count: aggregate.count() })
+        ),
+        prisma.orm.public.Users.select("aura", "displayName", "id", "username")
+          .orderBy((user) => user.aura.desc())
+          .limit(10)
+          .all(),
+        prisma.orm.public.Sessions.select("createdAt")
+          .where((session) => session.createdAt.gte(startDateValue))
+          .all(),
       ]);
+      const totalUsers = totalUsersResult.count;
+      const newUsers = newUsersResult.count;
+      const activeUsers = activeUsersResult.count;
+      const verifiedUsers = verifiedUsersResult.count;
+      const totalPosts = totalPostsResult.count;
+      const totalAura = totalAuraResult.aura ?? 0;
+      const oauthBreakdown = buildOauthBreakdown(oauthAccountGroups);
+      const userActivityByHour = buildUserActivityByHour(
+        sessionCreatedAt.map((session) => session.createdAt)
+      );
 
       const analytics = {
-        oauthBreakdown: oauthBreakdown as { provider: string; count: number }[],
+        oauthBreakdown,
         overview: {
           activeUsers,
           newUsers,
-          totalAura: totalAura._sum.aura || 0,
+          totalAura,
           totalPosts,
           totalUsers,
           verificationRate:
@@ -702,10 +859,7 @@ export const adminRouter = router({
           verifiedUsers,
         },
         topUsersByAura,
-        userActivityByHour: userActivityByHour as {
-          hour: number;
-          count: number;
-        }[],
+        userActivityByHour,
       };
 
       await userCache.setAnalytics(timeframe, analytics);
@@ -733,17 +887,13 @@ export const adminRouter = router({
       const { days } = input;
       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-      const trends = await prisma.$queryRaw<{ date: string; count: number }[]>`
-        SELECT
-          DATE(created_at) as date,
-          COUNT(*) as count
-        FROM users
-        WHERE created_at >= ${startDate}
-        GROUP BY DATE(created_at)
-        ORDER BY DATE(created_at)
-      `;
+      const createdAtValues = await prisma.orm.public.Users.select("createdAt")
+        .where((user) => user.createdAt.gte(toPrismaDateTime(startDate)))
+        .all();
 
-      return trends;
+      return buildRegistrationTrends(
+        createdAtValues.map((user) => user.createdAt)
+      );
     }),
 
   getStats: rateLimitedAdminProcedure.query(async () => {
@@ -752,36 +902,46 @@ export const adminRouter = router({
       return cachedStats;
     }
 
+    const recentDate = toPrismaDateTime(
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    );
     const [
-      totalUsers,
-      adminUsers,
-      verifiedUsers,
-      recentUsers,
-      totalPosts,
-      totalAura,
+      totalUsersResult,
+      adminUsersResult,
+      verifiedUsersResult,
+      recentUsersResult,
+      totalPostsResult,
+      totalAuraResult,
     ] = await Promise.all([
-      prisma.user.count(),
-      prisma.user.count({ where: { role: "admin" } }),
-      prisma.user.count({ where: { emailVerified: true } }),
-      prisma.user.count({
-        where: {
-          createdAt: {
-            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-          },
-        },
-      }),
-      prisma.post.count(),
-      prisma.user.aggregate({
-        _sum: {
-          aura: true,
-        },
-      }),
+      prisma.orm.public.Users.aggregate((aggregate) => ({
+        count: aggregate.count(),
+      })),
+      prisma.orm.public.Users.where({ role: "admin" }).aggregate(
+        (aggregate) => ({ count: aggregate.count() })
+      ),
+      prisma.orm.public.Users.where({ emailVerified: true }).aggregate(
+        (aggregate) => ({ count: aggregate.count() })
+      ),
+      prisma.orm.public.Users.where((user) =>
+        user.createdAt.gte(recentDate)
+      ).aggregate((aggregate) => ({ count: aggregate.count() })),
+      prisma.orm.public.Posts.aggregate((aggregate) => ({
+        count: aggregate.count(),
+      })),
+      prisma.orm.public.Users.aggregate((aggregate) => ({
+        aura: aggregate.sum("aura"),
+      })),
     ]);
+    const totalUsers = totalUsersResult.count;
+    const adminUsers = adminUsersResult.count;
+    const verifiedUsers = verifiedUsersResult.count;
+    const recentUsers = recentUsersResult.count;
+    const totalPosts = totalPostsResult.count;
 
     const stats = {
       adminUsers,
       recentUsers,
-      totalAura: totalAura._sum.aura || 0,
+      totalAura: totalAuraResult.aura ?? 0,
       totalPosts,
       totalUsers,
       verifiedUsers,
@@ -800,45 +960,65 @@ export const adminRouter = router({
         return cachedUser;
       }
 
-      const user = await prisma.user.findUnique({
-        include: {
-          _count: {
-            select: {
-              bookmarks: true,
-              comments: true,
-              followers: true,
-              following: true,
-              posts: true,
-              vote: true,
-            },
-          },
-          accounts: {
-            select: {
-              createdAt: true,
-              providerId: true,
-            },
-          },
-          sessions: {
-            orderBy: { createdAt: "desc" },
-            select: {
-              createdAt: true,
-              expiresAt: true,
-              id: true,
-              ipAddress: true,
-              userAgent: true,
-            },
-            take: 5,
-          },
-        },
-        where: { id: userId },
-      });
+      const selectedUser = await prisma.orm.public.Users.where({ id: userId })
+        .include("bookmarks", (bookmarks) => bookmarks.count())
+        .include("comments", (comments) => comments.count())
+        .include("follows", (follows) => follows.count())
+        .include("followsFollows", (followers) => followers.count())
+        .include("posts", (posts) => posts.count())
+        .include("votes", (votes) => votes.count())
+        .include("accounts", (accounts) =>
+          accounts.select("createdAt", "providerId")
+        )
+        .include("sessionsSessions", (sessions) =>
+          sessions
+            .select("createdAt", "expiresAt", "id", "ipAddress", "userAgent")
+            .orderBy((session) => session.createdAt.desc())
+            .limit(5)
+        )
+        .first();
 
-      if (!user) {
+      if (!selectedUser) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "User not found",
         });
       }
+
+      const createdAt = fromPrismaDateTime(selectedUser.createdAt);
+      const updatedAt = fromPrismaDateTime(selectedUser.updatedAt);
+      const {
+        bookmarks,
+        comments,
+        follows,
+        followsFollows,
+        posts,
+        sessionsSessions,
+        votes,
+        ...userData
+      } = selectedUser;
+      const user = {
+        ...userData,
+        _count: {
+          bookmarks,
+          comments,
+          followers: followsFollows,
+          following: follows,
+          posts,
+          vote: votes,
+        },
+        accounts: selectedUser.accounts.map((account) => ({
+          ...account,
+          createdAt: fromPrismaDateTime(account.createdAt),
+        })),
+        createdAt,
+        sessions: sessionsSessions.map((session) => ({
+          ...session,
+          createdAt: fromPrismaDateTime(session.createdAt),
+          expiresAt: fromPrismaDateTime(session.expiresAt),
+        })),
+        updatedAt,
+      };
 
       await userCache.setUserDetail(userId, user);
       return user;
@@ -868,70 +1048,67 @@ export const adminRouter = router({
         auraSpent,
         lastActivity,
       ] = await Promise.all([
-        prisma.session.count({
-          where: {
-            createdAt: { gte: startDate },
-            userId,
-          },
-        }),
+        prisma.orm.public.Sessions.where((session) =>
+          and(
+            session.createdAt.gte(toPrismaDateTime(startDate)),
+            session.userId.eq(userId)
+          )
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
 
-        prisma.post.count({
-          where: {
-            createdAt: { gte: startDate },
-            userId,
-          },
-        }),
+        prisma.orm.public.Posts.where((post) =>
+          and(
+            post.createdAt.gte(toPrismaDateTime(startDate)),
+            post.userId.eq(userId)
+          )
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
 
-        prisma.comment.count({
-          where: {
-            createdAt: { gte: startDate },
-            userId,
-          },
-        }),
+        prisma.orm.public.Comments.where((comment) =>
+          and(
+            comment.createdAt.gte(toPrismaDateTime(startDate)),
+            comment.userId.eq(userId)
+          )
+        ).aggregate((aggregate) => ({ count: aggregate.count() })),
 
-        prisma.auraLog.aggregate({
-          _sum: { amount: true },
-          where: {
-            createdAt: { gte: startDate },
-            type: {
-              in: [
-                "POST_CREATION",
-                "POST_VOTE",
-                "COMMENT_CREATION",
-                "COMMENT_RECEIVED",
-                "FOLLOW_GAINED",
-                "FOLLOW_GIVEN",
-                "POST_BOOKMARKED",
-                "POST_BOOKMARK_RECEIVED",
-              ],
-            },
-            userId,
-          },
-        }),
+        prisma.orm.public.AuraLogs.where((log) =>
+          and(
+            log.createdAt.gte(toPrismaDateTime(startDate)),
+            log._type.in([
+              "POST_CREATION",
+              "POST_VOTE",
+              "COMMENT_CREATION",
+              "COMMENT_RECEIVED",
+              "FOLLOW_GAINED",
+              "FOLLOW_GIVEN",
+              "POST_BOOKMARKED",
+              "POST_BOOKMARK_RECEIVED",
+            ]),
+            log.userId.eq(userId)
+          )
+        ).aggregate((aggregate) => ({ amount: aggregate.sum("amount") })),
 
-        prisma.auraLog.aggregate({
-          _sum: { amount: true },
-          where: {
-            createdAt: { gte: startDate },
-            issuerId: userId,
-            type: { in: ["POST_VOTE_REMOVED"] },
-          },
-        }),
+        prisma.orm.public.AuraLogs.where((log) =>
+          and(
+            log.createdAt.gte(toPrismaDateTime(startDate)),
+            log.issuerId.eq(userId),
+            log._type.eq("POST_VOTE_REMOVED")
+          )
+        ).aggregate((aggregate) => ({ amount: aggregate.sum("amount") })),
 
-        prisma.session.findFirst({
-          orderBy: { createdAt: "desc" },
-          select: { createdAt: true },
-          where: { userId },
-        }),
+        prisma.orm.public.Sessions.select("createdAt")
+          .where({ userId })
+          .orderBy((session) => session.createdAt.desc())
+          .first(),
       ]);
 
       const activityData = {
-        auraGained: auraGained._sum.amount || 0,
-        auraSpent: Math.abs(auraSpent._sum.amount || 0),
-        commentsCount,
-        lastActivity: lastActivity?.createdAt || null,
-        postsCount,
-        sessionCount,
+        auraGained: auraGained.amount ?? 0,
+        auraSpent: Math.abs(auraSpent.amount ?? 0),
+        commentsCount: commentsCount.count,
+        lastActivity: lastActivity
+          ? fromPrismaDateTime(lastActivity.createdAt)
+          : null,
+        postsCount: postsCount.count,
+        sessionCount: sessionCount.count,
       };
 
       await userCache.setUserActivity(userId, days, activityData);
@@ -1018,18 +1195,32 @@ export const adminRouter = router({
 
   listUserSessions: rateLimitedAdminProcedure
     .input(z.object({ userId: z.string() }))
-    .query(
-      async ({ input }) =>
-        await prisma.session.findMany({
-          orderBy: { createdAt: "desc" },
-          where: { userId: input.userId },
-        })
-    ),
+    .query(async ({ input }) => {
+      const sessions = await prisma.orm.public.Sessions.where({
+        userId: input.userId,
+      })
+        .orderBy((session) => session.createdAt.desc())
+        .all();
+      return sessions.map((session) => ({
+        ...session,
+        createdAt: fromPrismaDateTime(session.createdAt),
+        expiresAt: fromPrismaDateTime(session.expiresAt),
+        updatedAt: fromPrismaDateTime(session.updatedAt),
+      }));
+    }),
 
   removeUser: rateLimitedAdminProcedure
     .input(z.object({ userId: z.string() }))
     .mutation(async ({ input }) => {
-      await prisma.user.delete({ where: { id: input.userId } });
+      const deleted = await prisma.orm.public.Users.where({
+        id: input.userId,
+      }).delete();
+      if (!deleted) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
       await userCache.invalidateUserDetail(input.userId);
       await userCache.invalidateUserList();
       await userCache.invalidateUserStats();
@@ -1039,7 +1230,9 @@ export const adminRouter = router({
   revokeUserSession: rateLimitedAdminProcedure
     .input(z.object({ sessionToken: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      await prisma.session.deleteMany({ where: { token: input.sessionToken } });
+      await prisma.orm.public.Sessions.where({
+        token: input.sessionToken,
+      }).deleteAndCount();
       await userCache.invalidateUserStats();
       return { success: true };
     }),
@@ -1047,8 +1240,10 @@ export const adminRouter = router({
   revokeUserSessions: rateLimitedAdminProcedure
     .input(z.object({ userId: z.string() }))
     .mutation(async ({ input }) => {
-      await prisma.$transaction(async (tx) => {
-        await tx.session.deleteMany({ where: { userId: input.userId } });
+      await prisma.transaction(async (tx) => {
+        await tx.orm.public.Sessions.where({
+          userId: input.userId,
+        }).deleteAndCount();
       });
 
       await userCache.invalidateUserStats();
@@ -1100,11 +1295,16 @@ export const adminRouter = router({
     .mutation(async ({ input }) => {
       try {
         await runAtomicRoleChange(async (tx) => {
-          await assertRoleChangeAllowed(input.userId, input.role, tx.user);
-          await tx.user.update({
-            data: { role: input.role },
-            where: { id: input.userId },
-          });
+          const roleChanged = await changeRole(
+            input.userId,
+            input.role,
+            tx.orm.public.Users
+          );
+          if (!roleChanged) {
+            await tx.orm.public.Users.where({ id: input.userId }).update({
+              role: input.role,
+            });
+          }
         });
 
         await userCache.invalidateUserDetail(input.userId);
@@ -1120,10 +1320,11 @@ export const adminRouter = router({
   unbanUser: rateLimitedAdminProcedure
     .input(z.object({ userId: z.string() }))
     .mutation(async ({ input }) => {
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          data: { banExpires: null, banReason: null, banned: false },
-          where: { id: input.userId },
+      await prisma.transaction(async (tx) => {
+        await tx.orm.public.Users.where({ id: input.userId }).update({
+          banExpires: null,
+          banReason: null,
+          banned: false,
         });
       });
 
@@ -1152,51 +1353,58 @@ export const adminRouter = router({
       if (data.role) {
         const nextRole = data.role;
         user = await runAtomicRoleChange(async (tx) => {
-          await assertRoleChangeAllowed(userId, nextRole, tx.user);
-          return tx.user.update({
-            data,
-            select: {
-              aura: true,
-              avatarUrl: true,
-              bio: true,
-              createdAt: true,
-              displayName: true,
-              displayUsername: true,
-              email: true,
-              emailVerified: true,
-              id: true,
-              role: true,
-              updatedAt: true,
-              username: true,
-            },
-            where: { id: userId },
-          });
+          await changeRole(userId, nextRole, tx.orm.public.Users);
+          return tx.orm.public.Users.select(
+            "aura",
+            "avatarUrl",
+            "bio",
+            "createdAt",
+            "displayName",
+            "displayUsername",
+            "email",
+            "emailVerified",
+            "id",
+            "role",
+            "updatedAt",
+            "username"
+          )
+            .where({ id: userId })
+            .update(data);
         });
       } else {
-        user = await prisma.user.update({
-          data,
-          select: {
-            aura: true,
-            avatarUrl: true,
-            bio: true,
-            createdAt: true,
-            displayName: true,
-            displayUsername: true,
-            email: true,
-            emailVerified: true,
-            id: true,
-            role: true,
-            updatedAt: true,
-            username: true,
-          },
-          where: { id: userId },
+        user = await prisma.orm.public.Users.select(
+          "aura",
+          "avatarUrl",
+          "bio",
+          "createdAt",
+          "displayName",
+          "displayUsername",
+          "email",
+          "emailVerified",
+          "id",
+          "role",
+          "updatedAt",
+          "username"
+        )
+          .where({ id: userId })
+          .update(data);
+      }
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
         });
       }
+      const updatedUser = {
+        ...user,
+        createdAt: fromPrismaDateTime(user.createdAt),
+        updatedAt: fromPrismaDateTime(user.updatedAt),
+      };
 
       await userCache.invalidateUserDetail(userId);
       await userCache.invalidateUserList();
       await userCache.invalidateUserStats();
       await userCache.invalidateSearchCache();
-      return user;
+      return updatedUser;
     }),
 });

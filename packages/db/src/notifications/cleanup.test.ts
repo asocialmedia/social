@@ -9,90 +9,165 @@ interface MockNotification {
   type: string;
 }
 
+interface MockExpression {
+  field: string;
+  operator: "eq" | "gte" | "in" | "lte";
+  value: unknown;
+}
+
+interface MockField {
+  eq: (value: unknown) => MockExpression;
+  gte: (value: unknown) => MockExpression;
+  in: (values: readonly unknown[]) => MockExpression;
+  lte: (value: unknown) => MockExpression;
+}
+
+interface MockNotificationCollection {
+  all: () => Promise<(MockNotification & { _type: string })[]>;
+  deleteAndCount: () => Promise<number>;
+  first: () => Promise<(MockNotification & { _type: string }) | null>;
+  limit: (limit: number) => MockNotificationCollection;
+  orderBy: (
+    orderBy: (notification: { createdAt: { asc: () => unknown } }) => unknown
+  ) => MockNotificationCollection;
+  select: (...fields: string[]) => MockNotificationCollection;
+  where: (
+    predicate:
+      | ((notification: {
+          createdAt: MockField;
+          id: MockField;
+          issuerId: MockField;
+          read: MockField;
+          recipientId: MockField;
+          _type: MockField;
+        }) => unknown)
+      | Record<string, unknown>
+  ) => MockNotificationCollection;
+}
+
 const mockNotifications: MockNotification[] = [];
 const decrements: { amount: number; userId: string }[] = [];
+let nextDeleteCount: number | null = null;
 
-const mockNotificationRepo = {
-  deleteMany: mock(
-    (args: {
-      where: {
-        id?: { in?: string[] } | string;
-        issuerId?: string;
-        type?: string;
-      };
-    }) => {
-      const idFilter = args.where.id;
-      let targetIds: string[] = [];
-      if (typeof idFilter === "string") {
-        targetIds = [idFilter];
-      } else if (idFilter && "in" in idFilter && Array.isArray(idFilter.in)) {
-        targetIds = idFilter.in;
-      }
+function createField(field: string): MockField {
+  return {
+    eq: (value) => ({ field, operator: "eq", value }),
+    gte: (value) => ({ field, operator: "gte", value }),
+    in: (values) => ({ field, operator: "in", value: values }),
+    lte: (value) => ({ field, operator: "lte", value }),
+  };
+}
 
-      let count = 0;
-      for (let i = mockNotifications.length - 1; i >= 0; i -= 1) {
-        const n = mockNotifications[i];
-        if (!n) {
-          continue;
+function matches(row: MockNotification, expression: MockExpression): boolean {
+  const field = expression.field === "_type" ? "type" : expression.field;
+  const value = row[field as keyof MockNotification];
+  if (expression.operator === "in") {
+    return Array.isArray(expression.value) && expression.value.includes(value);
+  }
+  if (expression.operator === "eq") {
+    return value === expression.value;
+  }
+  if (expression.operator === "gte") {
+    return (
+      value instanceof Date &&
+      expression.value instanceof Date &&
+      value >= expression.value
+    );
+  }
+  return (
+    value instanceof Date &&
+    expression.value instanceof Date &&
+    value <= expression.value
+  );
+}
+
+function createMockCollection(): MockNotificationCollection {
+  const filters: MockExpression[] = [];
+  let limit = 100;
+  const collection: MockNotificationCollection = {
+    all: () => {
+      const rows = mockNotifications
+        .filter((row) => filters.every((filter) => matches(row, filter)))
+        .toSorted(
+          (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+        )
+        .slice(0, limit)
+        .map((row) => ({ ...row, _type: row.type }));
+      return Promise.resolve(rows);
+    },
+    deleteAndCount: () => {
+      if (nextDeleteCount !== null) {
+        const count = nextDeleteCount;
+        nextDeleteCount = null;
+        return Promise.resolve(count);
+      }
+      const selected = mockNotifications.filter((row) =>
+        filters.every((filter) => matches(row, filter))
+      );
+      for (const row of selected) {
+        const index = mockNotifications.indexOf(row);
+        if (index !== -1) {
+          mockNotifications.splice(index, 1);
         }
-        if (targetIds.length > 0 && !targetIds.includes(n.id)) {
-          continue;
+      }
+      return Promise.resolve(selected.length);
+    },
+    first: () => collection.all().then((rows) => rows[0] ?? null),
+    limit: (value) => {
+      limit = value;
+      return collection;
+    },
+    orderBy: () => collection,
+    select: () => collection,
+    where: (predicate) => {
+      if (typeof predicate === "function") {
+        const model = {
+          _type: createField("_type"),
+          createdAt: createField("createdAt"),
+          id: createField("id"),
+          issuerId: createField("issuerId"),
+          read: createField("read"),
+          recipientId: createField("recipientId"),
+        };
+        const expression = predicate(model);
+        if (Array.isArray(expression)) {
+          filters.push(...(expression as MockExpression[]));
+        } else if (expression) {
+          filters.push(expression as MockExpression);
         }
-        if (args.where.issuerId && n.issuerId !== args.where.issuerId) {
-          continue;
+        return collection;
+      }
+      for (const [field, value] of Object.entries(predicate)) {
+        if (field === "id" && typeof value === "string") {
+          filters.push({ field, operator: "eq", value });
         }
-        if (args.where.type && n.type !== args.where.type) {
-          continue;
-        }
-        mockNotifications.splice(i, 1);
-        count += 1;
       }
-      return Promise.resolve({ count });
-    }
-  ),
-  findMany: mock(
-    (args: {
-      orderBy?: { createdAt?: "asc" | "desc" };
-      select?: { id?: boolean; read?: boolean; recipientId?: boolean };
-      take?: number;
-      where?: {
-        createdAt?: { lte?: Date };
-        issuerId?: string;
-        type?: string;
-      };
-    }) => {
-      let results = [...mockNotifications];
-      if (args.where?.issuerId) {
-        results = results.filter((n) => n.issuerId === args.where?.issuerId);
-      }
-      if (args.where?.type) {
-        results = results.filter((n) => n.type === args.where?.type);
-      }
-      if (args.where?.createdAt?.lte) {
-        const { lte } = args.where.createdAt;
-        results = results.filter((n) => n.createdAt <= lte);
-      }
-      if (args.take) {
-        results = results.slice(0, args.take);
-      }
-      return Promise.resolve(results);
-    }
-  ),
-  findUnique: mock((args: { where: { id: string } }) => {
-    const found = mockNotifications.find((n) => n.id === args.where.id);
-    return Promise.resolve(found ? { ...found } : null);
-  }),
-};
+      return collection;
+    },
+  };
+  return collection;
+}
 
 const mockPrisma = {
-  $transaction: <T>(
-    fn: (tx: { notification: typeof mockNotificationRepo }) => Promise<T>
-  ): Promise<T> => fn({ notification: mockNotificationRepo }),
-  notification: mockNotificationRepo,
+  transaction: <T>(
+    fn: (tx: {
+      orm: { public: { Notifications: MockNotificationCollection } };
+    }) => Promise<T>
+  ): Promise<T> =>
+    fn({
+      orm: { public: { Notifications: createMockCollection() } },
+    }),
 };
+
+mock.module("@prisma/orm-postgres/orm-client", () => ({
+  and: (...expressions: unknown[]) => expressions,
+}));
 
 mock.module("../prisma", () => ({
   default: mockPrisma,
+  fromPrismaDateTime: (value: unknown) =>
+    value instanceof Date ? value : new Date(String(value)),
+  toPrismaDateTime: (value: Date) => value,
 }));
 
 mock.module("../../queue", () => ({
@@ -113,9 +188,7 @@ describe("notification cleanup transactions", () => {
   beforeEach(() => {
     mockNotifications.length = 0;
     decrements.length = 0;
-    mockPrisma.notification.findMany.mockClear();
-    mockPrisma.notification.deleteMany.mockClear();
-    mockPrisma.notification.findUnique.mockClear();
+    nextDeleteCount = null;
   });
 
   describe("cleanupExpiredPublishedNotifications", () => {
@@ -653,9 +726,7 @@ describe("notification cleanup transactions", () => {
       });
 
       // Simulate deleteMany returning count 0 as if another worker deleted it first
-      mockNotificationRepo.deleteMany.mockImplementationOnce(() =>
-        Promise.resolve({ count: 0 })
-      );
+      nextDeleteCount = 0;
 
       const deleted = await cleanupSinglePublishedNotification("notif-race", {
         now,

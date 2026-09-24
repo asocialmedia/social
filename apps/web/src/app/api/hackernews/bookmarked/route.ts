@@ -10,10 +10,10 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const bookmarks = await prisma.hNBookmark.findMany({
-    orderBy: { createdAt: "desc" },
-    where: { userId: user.id },
-  });
+  const bookmarks = await prisma.orm.public.HNBookmark.select("storyId")
+    .where({ userId: user.id })
+    .orderBy((bookmark) => bookmark.createdAt.desc())
+    .all();
 
   const fetchedStories = await Promise.all(
     bookmarks.map((bookmark) =>
