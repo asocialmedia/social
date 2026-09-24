@@ -85,14 +85,11 @@ function findC2paDistDirs(): string[] {
 }
 
 function readElfMachine(filePath: string): number | null {
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
+  let fd: number | undefined;
   try {
-    const fd = fs.openSync(filePath, "r");
+    fd = fs.openSync(filePath, "r");
     const buf = Buffer.alloc(20);
     fs.readSync(fd, buf, 0, 20, 0);
-    fs.closeSync(fd);
 
     if (
       buf[0] === 0x7f &&
@@ -104,6 +101,14 @@ function readElfMachine(filePath: string): number | null {
     }
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch (error) {
+        void error;
+      }
+    }
   }
   return null;
 }

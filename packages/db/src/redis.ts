@@ -959,7 +959,7 @@ export const postViewsCache = {
   async getViews(postId: string): Promise<number> {
     try {
       const views = await redis.get(`${POST_VIEWS_KEY_PREFIX}${postId}`);
-      console.log(`Redis: Got views for post ${postId}: ${views}`);
+      console.log(`Redis: Got views: ${views}`);
       return Math.trunc(Number(views || "0"));
     } catch (error) {
       console.error("Error getting post views:", error);

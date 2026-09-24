@@ -12,6 +12,8 @@ on:
         required: false
         default: "true"
 
+permissions: {}
+
 jobs:
   rustfs-buckets:
     name: Ensure RustFS buckets and policies

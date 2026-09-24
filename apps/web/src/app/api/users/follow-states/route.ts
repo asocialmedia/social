@@ -2,6 +2,39 @@ import { and, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
+const MAX_FOLLOW_STATE_USER_IDS = 100;
+const MAX_FOLLOW_STATE_USER_ID_LENGTH = 128;
+
+interface FollowState {
+  followers: number;
+  isFollowedByUser: boolean;
+}
+
+function getFollowStateUserIds(payload: unknown): string[] | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const { userIds } = payload as { userIds?: unknown };
+  if (!Array.isArray(userIds) || userIds.length > MAX_FOLLOW_STATE_USER_IDS) {
+    return null;
+  }
+
+  const normalizedUserIds: string[] = [];
+  for (const userId of userIds) {
+    if (
+      typeof userId !== "string" ||
+      userId.length === 0 ||
+      userId.length > MAX_FOLLOW_STATE_USER_ID_LENGTH
+    ) {
+      return null;
+    }
+    normalizedUserIds.push(userId);
+  }
+
+  return [...new Set(normalizedUserIds)];
+}
+
 export async function POST(req: Request) {
   try {
     const session = await getSessionFromApi();
@@ -10,7 +43,11 @@ export async function POST(req: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { userIds } = await req.json();
+    const payload: unknown = await req.json();
+    const userIds = getFollowStateUserIds(payload);
+    if (!userIds) {
+      return Response.json({ error: "Invalid userIds" }, { status: 400 });
+    }
 
     const follows = await prisma.orm.public.Follows.select("followingId")
       .where((follow) =>
@@ -31,21 +68,18 @@ export async function POST(req: Request) {
         (followerCounts[follow.followingId] ?? 0) + 1;
     }
 
-    const followStates: Record<
-      string,
-      { followers: number; isFollowedByUser: boolean }
-    > = {};
-
+    const followedUserIds = new Set(
+      follows.map((follow) => follow.followingId)
+    );
+    const followStates = new Map<string, FollowState>();
     for (const userId of userIds) {
-      followStates[userId] = {
+      followStates.set(userId, {
         followers: followerCounts[userId] ?? 0,
-        isFollowedByUser: follows.some(
-          (follow) => follow.followingId === userId
-        ),
-      };
+        isFollowedByUser: followedUserIds.has(userId),
+      });
     }
 
-    return Response.json(followStates);
+    return Response.json(Object.fromEntries(followStates));
   } catch {
     return Response.json({ error: "Internal server error" }, { status: 500 });
   }
