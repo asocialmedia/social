@@ -171,7 +171,8 @@ jobs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
+      - prisma-sync
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

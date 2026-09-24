@@ -29,6 +29,7 @@ if ! bunx prisma db sign --no-advance-ref; then
   bunx prisma db sign --contract 02a928fd5ae3667e18aae17971a6d4552672bd7cc3c3141e2ea654c4f37506f1 --no-advance-ref
 fi
 
+bunx prisma db migrate --show
 bunx prisma db migrate --advance-ref db
 bunx prisma db verify
 echo "PRISMA_SYNC_OK: Prisma schema migration complete."

@@ -7,6 +7,7 @@ const PRISMA_PATHS = new Set([
   "docker/prisma-package.json",
   "docker/prisma-sync.dockerfile",
   "docker/prisma-sync.sh",
+  "scripts/ci/prisma-sync-deploy.sh",
   "scripts/sync-trending-scores.ts",
 ]);
 
@@ -17,6 +18,14 @@ const TRIGGER_FILES = new Set([
   "turbo.json",
   "tsconfig.json",
 ]);
+
+function isPrismaSyncFile(file) {
+  return (
+    PRISMA_PATHS.has(file) ||
+    PRISMA_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
+    TRIGGER_FILES.has(file)
+  );
+}
 
 module.exports = async function resolvePrismaSync({
   github,
@@ -33,12 +42,7 @@ module.exports = async function resolvePrismaSync({
     repo,
   });
 
-  const relevant = changedFiles.filter(
-    (file) =>
-      PRISMA_PATHS.has(file) ||
-      PRISMA_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
-      TRIGGER_FILES.has(file)
-  );
+  const relevant = changedFiles.filter(isPrismaSyncFile);
 
   // A capped file list could have hidden a schema change, so treat truncation as
   // "needs syncing" rather than skipping it.
@@ -55,3 +59,5 @@ module.exports = async function resolvePrismaSync({
     `Prisma sync ${shouldRun ? "needed" : "skipped"}. Changed files: ${changedFiles.join(", ")}`
   );
 };
+
+module.exports.isPrismaSyncFile = isPrismaSyncFile;
