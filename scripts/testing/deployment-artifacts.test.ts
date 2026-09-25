@@ -18,6 +18,24 @@ describe("Prisma sync deployment artifact", () => {
     expect(dockerfile).not.toContain("scripts/sync-trending-scores.ts");
   });
 
+  test("uses Prisma 8 contract emission in application Docker builds", async () => {
+    const mediaProcessingDockerfile = await Bun.file(
+      path.join(repositoryRoot, "apps/media-processing/Dockerfile")
+    ).text();
+    const webDockerfile = await Bun.file(
+      path.join(repositoryRoot, "apps/web/Dockerfile")
+    ).text();
+
+    expect(mediaProcessingDockerfile).toContain(
+      "RUN cd packages/db && bunx prisma contract emit"
+    );
+    expect(webDockerfile).toContain(
+      "RUN cd packages/db && bunx prisma contract emit"
+    );
+    expect(mediaProcessingDockerfile).not.toContain("prisma generate");
+    expect(webDockerfile).not.toContain("prisma generate");
+  });
+
   test("runs the score synchronization after verification and before the success marker", async () => {
     const entrypoint = await Bun.file(
       path.join(repositoryRoot, "docker/prisma-sync.sh")

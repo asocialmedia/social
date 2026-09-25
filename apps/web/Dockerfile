@@ -25,7 +25,7 @@ COPY package.json bun.lock ./
 COPY packages/ ./packages/
 COPY apps/web/ ./apps/web/
 RUN bun install
-RUN cd packages/db && bunx prisma generate
+RUN cd packages/db && bunx prisma contract emit
 RUN node /app/apps/web/node_modules/next/dist/bin/next build apps/web
 
 FROM node:24-alpine AS runtime
