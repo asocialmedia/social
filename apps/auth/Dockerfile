@@ -10,7 +10,7 @@ COPY package.json bun.lock ./
 COPY packages/ ./packages/
 COPY apps/auth/ ./apps/auth/
 RUN bun install
-RUN cd packages/db && bunx prisma generate
+RUN cd packages/db && bunx prisma contract emit
 WORKDIR /app/apps/auth
 
 RUN bun run build
