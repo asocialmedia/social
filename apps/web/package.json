@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.5.41",
+  "version": "1.5.42",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -84,6 +84,7 @@
     "@types/linkify-it": "^5.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "bun-types": "^1.4.0",
+    "fake-indexeddb": "^6.2.5",
     "prisma": "7.9.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"

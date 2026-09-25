@@ -28,6 +28,14 @@
 
 import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
 
+import {
+  closeOnVersionChange,
+  ensureMessagesSchema,
+  IDENTITY_STORE,
+  MESSAGES_DB_NAME,
+  MESSAGES_DB_VERSION,
+} from "./message-db";
+
 export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
 export const ACCOUNT_SECRET_LENGTH = 64;
@@ -266,6 +274,71 @@ export function generateRootKey(): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(buffer);
   globalThis.crypto.getRandomValues(bytes);
   return bytes;
+}
+
+// ---- local search index key ---------------------------------------------------
+
+// The local search index stores ids, timestamps and the tokens a user actually
+// typed, keyed by message id. Left in plaintext that is a confirmation oracle:
+// anyone holding the device database could test "does message X contain the word
+// W?" without decrypting a thing. The row table is therefore sealed under a key
+// derived from the conversation root with its own HKDF label.
+//
+// Why this cannot weaken the message scheme:
+//
+// - Separate label. `asm:index:v1` with salt `asm:index:<conversationId>` is
+//   distinct from the ratchet's `asm:msg:v1`/`asm:ratchet:...` and the wrap key's
+//   `asm:wrap:...`. HKDF is a PRF, so these are independent keys: the index key
+//   can neither be used to derive, unwrap, or recover a message key, nor be
+//   derived from one.
+// - Nothing here touches key recovery. The master key is still PBKDF2 from the
+//   stored identity row, and the conversation root is still unwrapped from that.
+//   Automatic recovery from the stored row alone is unchanged, so the first
+//   invariant in AGENTS.md holds without depending on this key at all.
+// - Loss degrades. If this key is wrong or missing — a conversation-key reset
+//   changes the root, and so changes this key — only the index becomes
+//   unreadable. It is rebuilt by walking history, which is already the recovery
+//   path. Message keys are untouched, so nothing here can brick a conversation.
+//
+// The base key is imported once per conversation and reused, matching the ratchet
+// path, because the query path needs this key on every keystroke.
+
+export function importIndexBaseKey(rootKey: Uint8Array): Promise<CryptoKey> {
+  return globalThis.crypto.subtle.importKey(
+    "raw",
+    toBufferSource(rootKey),
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+}
+
+export function deriveIndexKeyFromBase(
+  baseKey: CryptoKey,
+  conversationId: string
+): Promise<CryptoKey> {
+  return globalThis.crypto.subtle.deriveKey(
+    {
+      hash: "SHA-256",
+      info: ENC.encode("asm:index:v1"),
+      name: "HKDF",
+      salt: ENC.encode(`asm:index:${conversationId}`),
+    },
+    baseKey,
+    { length: 256, name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+export async function deriveIndexKey(
+  rootKey: Uint8Array,
+  conversationId: string
+): Promise<CryptoKey> {
+  return deriveIndexKeyFromBase(
+    await importIndexBaseKey(rootKey),
+    conversationId
+  );
 }
 
 // ---- message ratchet ---------------------------------------------------------
@@ -663,20 +736,28 @@ export async function hashAccountSecret(secret: string): Promise<string> {
 
 // The unwrapped identity private key is cached per device so the user does not
 // have to re-enter their secret every session. It never leaves this origin.
-const IDB_NAME = "asm-messages";
-const IDB_STORE = "identity-keys";
+const IDB_STORE = IDENTITY_STORE;
 const LS_KEY_PREFIX = "asm_msg_key_";
 
 function openStore(): Promise<IDBDatabase> {
   // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IDB_NAME, 1);
+    // The SHARED version, not a private one. Requesting a lower version than the
+    // database already has throws VersionError, so opening this at 1 while the
+    // search index had created the database at a higher version made identity
+    // key storage fail outright.
+    const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
     request.addEventListener("upgradeneeded", () => {
-      if (!request.result.objectStoreNames.contains(IDB_STORE)) {
-        request.result.createObjectStore(IDB_STORE);
-      }
+      // The shared schema builder, so this owner's store exists even when the
+      // search index created the database first. It is idempotent and only resets
+      // search stores on a version whose keying cannot be migrated, so an
+      // identity upgrade never costs a rebuilt index.
+      ensureMessagesSchema(request.result, { version: MESSAGES_DB_VERSION });
     });
-    request.addEventListener("success", () => resolve(request.result));
+    request.addEventListener("success", () => {
+      closeOnVersionChange(request.result);
+      resolve(request.result);
+    });
     request.addEventListener("error", () => reject(request.error));
   });
 }

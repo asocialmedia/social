@@ -16,6 +16,7 @@ import {
   wrapRootKey,
 } from "./crypto";
 import type { EncryptedBlob, EncryptedMessage, MessagePayload } from "./crypto";
+import { HistoryThrottledError } from "./history-throttle";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -101,18 +102,36 @@ export class MessagesApiError extends Error {
 async function parseError(response: Response): Promise<MessagesApiError> {
   let message = `Request failed (${response.status})`;
   let expectedIndex: number | undefined;
+  let retryAfterSeconds: number | undefined;
   try {
     const body = (await response.json()) as {
       error?: string;
       expectedIndex?: number;
+      retryAfterSeconds?: number;
     };
-    const { error: bodyError, expectedIndex: bodyExpectedIndex } = body;
+    const {
+      error: bodyError,
+      expectedIndex: bodyExpectedIndex,
+      retryAfterSeconds: bodyRetryAfter,
+    } = body;
     if (typeof bodyError === "string") {
       message = bodyError;
     }
     expectedIndex = bodyExpectedIndex;
+    if (typeof bodyRetryAfter === "number") {
+      retryAfterSeconds = bodyRetryAfter;
+    }
   } catch {
     // fall through with the generic message
+  }
+  // A throttled history read is not a failure the caller should treat as fatal:
+  // the backfill waits and retries the same page. Anything else stays a plain
+  // MessagesApiError.
+  if (response.status === 429) {
+    const headerRetry = Number(response.headers.get("retry-after"));
+    const wait =
+      retryAfterSeconds ?? (Number.isFinite(headerRetry) ? headerRetry : 1);
+    throw new HistoryThrottledError(wait);
   }
   return new MessagesApiError(message, response.status, expectedIndex);
 }
@@ -229,11 +248,72 @@ export async function fetchConversationDetail(
   return (await response.json()) as ConversationDetailResponse;
 }
 
+// The three paging axes. Mutually exclusive server-side; each carries the id it
+// pages from, so a caller can never build an ambiguous request.
+//   - older:  `cursor` is the oldest id already loaded. Omitted means "the
+//              newest page", which is how a transcript starts.
+//   - around: a window centered on one message, for jumping into history.
+//   - newer:  `cursor` is the newest id already loaded, growing upward.
+export type MessagePageAxis =
+  // `walk` marks a search backfill paging through a whole conversation for
+  // indexing. It changes nothing about the response, only which request budget
+  // applies, so it lives on the axis the walker actually uses.
+  | { cursor?: string; kind: "older"; walk?: boolean }
+  | { kind: "around"; messageId: string }
+  | { cursor: string; kind: "newer" };
+
 export async function fetchMessages(
   conversationId: string,
-  cursor?: string
+  cursor?: string,
+  limit?: number
+): Promise<MessagePage>;
+export async function fetchMessages(
+  conversationId: string,
+  axis: MessagePageAxis,
+  limit?: number
+): Promise<MessagePage>;
+export async function fetchMessages(
+  conversationId: string,
+  axisOrCursor?: string | MessagePageAxis,
+  limit?: number
 ): Promise<MessagePage> {
-  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  const params = new URLSearchParams();
+  if (typeof axisOrCursor === "string") {
+    if (axisOrCursor) {
+      params.set("cursor", axisOrCursor);
+    }
+  } else if (axisOrCursor) {
+    switch (axisOrCursor.kind) {
+      case "older": {
+        if (axisOrCursor.cursor) {
+          params.set("cursor", axisOrCursor.cursor);
+        }
+        if (axisOrCursor.walk) {
+          params.set("walk", "1");
+        }
+        break;
+      }
+      case "around": {
+        params.set("around", axisOrCursor.messageId);
+        break;
+      }
+      case "newer": {
+        params.set("after", axisOrCursor.cursor);
+        break;
+      }
+      default: {
+        // Exhaustiveness guard: a new axis variant must decide its query param
+        // here rather than silently falling back to the newest page.
+        break;
+      }
+    }
+  }
+  // Larger pages speed up full-history walks (in-conversation search indexing);
+  // the server clamps to its own maximum.
+  if (limit !== undefined) {
+    params.set("limit", String(limit));
+  }
+  const query = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(
     `/api/messages/conversations/${conversationId}/messages${query}`,
     { credentials: "same-origin" }
