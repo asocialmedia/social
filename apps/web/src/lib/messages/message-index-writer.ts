@@ -10,22 +10,25 @@
 //   transactions are the difference between indexing a conversation in seconds
 //   and in minutes.
 // - Lossless. A row that cannot be indexed yet (still decrypting, decrypt
-//   error, or its payload evicted from the decryptor LRU) is recorded as pending
-//   and retried on every later batch. The failure mode this prevents is the
-//   worst one for search: a message that exists and is silently unsearchable.
+//   error, or its payload evicted from the decryptor LRU) is recorded as pending,
+//   retried on every later batch, AND persisted so the queue survives the tab.
+//   The failure mode this prevents is the worst one for search: a message that
+//   exists and is silently unsearchable. Persistence is the part that was
+//   missing: the pending set used to live only in memory while the backfill
+//   cursor advanced past those rows regardless, so a decrypt timeout or a refused
+//   write left a permanent hole that nothing ever revisited.
 // - Idempotent. Re-indexing a row replaces its entry rather than appending, so a
 //   retried batch, an overlapping page, or a second device can never duplicate a
 //   posting. That is what makes the backfill in phase 2 safe to resume.
 
+import { extractSearchableText } from "./message-search";
+import type { SearchablePayload } from "./message-search";
 import { buildSearchIndexEntry } from "./search-index-format";
 import type { SearchIndexEntry, SearchIndexStore } from "./search-index-format";
 
 // Mirrors the decryptor's public shape; injected so the writer is testable
 // without WebCrypto or a DOM.
-export interface IndexablePayload {
-  content?: string;
-  type: "media" | "post" | "text";
-}
+export type IndexablePayload = SearchablePayload;
 
 export interface IndexableMessage {
   createdAt: Date | string;
@@ -45,6 +48,11 @@ export interface MessageIndexWriterOptions {
   // reports no progress, and the bar says "No matches yet" for a conversation
   // that is simply full. The host evicts and tells the user.
   onStorageFull?: () => void;
+  // Notified when a payload's decryptor entry changes, so pending rows are
+  // retried when their text finally arrives rather than only when the next batch
+  // happens to include them. Injected so the writer stays testable without a
+  // decryptor.
+  subscribeToPayloads?: (listener: () => void) => () => void;
   // Injected for tests; defaults are wired by the caller in the thread.
   getPayload: PayloadLookup;
   onCoverage?: (coverage: MessageIndexCoverage) => void;
@@ -64,30 +72,50 @@ export interface MessageIndexCoverage {
 // list is a backfill aid, not a source of truth, and the in-session retry set is
 // what actually drives retries.
 const MAX_TRACKED_PENDING = 5000;
+// Ceiling on the PERSISTED queue. Same reasoning as the in-memory cap: a
+// conversation where nothing decrypts must not grow an unbounded record. Rows past
+// the ceiling are genuinely unindexed, which is a real loss of coverage, so this is
+// reported through the bar's pending count rather than hidden.
+const MAX_DURABLE_PENDING = 5000;
+
+// What one flush actually achieved. `flush` used to return nothing, which left
+// the backfill with no way to tell a committed page from a page whose rows were
+// all still queued, so it advanced its cursor either way.
+export interface MessageIndexFlushResult {
+  // Rows that are now in the index.
+  committed: string[];
+  // Rows that exist but have nothing searchable (empty body, captionless media),
+  // so they are settled and removed rather than retried forever.
+  settledEmpty: string[];
+  // Rows still not searchable: payload not decrypted, or the write was refused.
+  stillPending: string[];
+  // True when either the index write or the durable pending write was refused.
+  // The backfill must not advance its cursor past a page in this state, because
+  // the rows in it are not recoverable from anywhere else.
+  failed: boolean;
+}
 
 export interface MessageIndexWriter {
   // Rows whose payload may have become available, or changed (an edit).
   consider: (messages: readonly IndexableMessage[]) => void;
   // Persist any coalesced writes immediately. Callers use this before measuring
   // coverage or when tearing the conversation down.
-  flush: () => Promise<void>;
+  flush: () => Promise<MessageIndexFlushResult>;
+  // Rows persisted as not-yet-searchable from an earlier session. The caller
+  // re-fetches and re-considers them; the writer only owns the bookkeeping.
+  durablePending: () => Promise<string[]>;
   // Deleted, globally, or hidden for this user: drop them from the index.
   remove: (messageIds: readonly string[]) => void;
   coverage: () => MessageIndexCoverage;
 }
 
-// Text used for the searchable index. Shared with the ranked list's extraction so
-// a message matches the same way whether it was indexed or indexed in-memory.
+// The indexed text, taken from the SAME extractor the ranked in-memory path uses.
+// It previously stored captions only and omitted the kind label, so a captionless
+// image matched in the transcript and vanished after a reload. One extractor
+// removes that whole class of drift: a message now matches the same way whether
+// it was found in RAM or in the persisted index.
 function payloadText(payload: IndexablePayload): string {
-  if (payload.type === "text") {
-    return payload.content ?? "";
-  }
-  // Post and media matches on their caption; the kind label ("Shared an image")
-  // is added by the ranking layer's extractor, not here, so the index stores only
-  // what the user actually typed. A captionless media message is therefore not
-  // matchable by "image" from the index, which is a deliberate trade: the index
-  // stays small and honest rather than synthesizing words nobody wrote.
-  return payload.content ?? "";
+  return extractSearchableText(payload).text;
 }
 
 // Recognises the browser's out-of-space signals. They differ by engine and by
@@ -118,8 +146,14 @@ function entrySignature(entry: SearchIndexEntry): string {
 export function createMessageIndexWriter(
   options: MessageIndexWriterOptions
 ): MessageIndexWriter {
-  const { conversationId, getPayload, onCoverage, onStorageFull, store } =
-    options;
+  const {
+    conversationId,
+    getPayload,
+    onCoverage,
+    onStorageFull,
+    store,
+    subscribeToPayloads,
+  } = options;
   // Ids whose index entry we believe is current, with the signature of the text
   // it was built from. A mismatch on the next flush is what triggers a rewrite
   // for an edited message.
@@ -131,14 +165,54 @@ export function createMessageIndexWriter(
   function notifyCoverage(): void {
     onCoverage?.({
       indexedCount: written.size,
-      pendingCount: pending.size,
+      // The durable count, not the in-memory one: a row dropped from the retry
+      // set is still a gap in coverage, and the bar has to keep saying so.
+      pendingCount: durable.size,
     });
   }
 
-  async function writeBatch(): Promise<void> {
+  // Ids known to be unsearchable, mirrored into the store so a reload does not
+  // forget them. The writer is the only writer, so a whole-set write is safe where
+  // an incremental one would only add a second consistency boundary to get wrong.
+  const durable = new Set<string>();
+  // Outcome of the most recent batch, so flush can report what actually ran
+  // rather than running a second one to obtain a value. A second pass would
+  // retry a refused write inside the same flush, which is how a test asserting
+  // "the store refused this" observed a successful write instead.
+  let lastResult: MessageIndexFlushResult = {
+    committed: [],
+    failed: false,
+    settledEmpty: [],
+    stillPending: [],
+  };
+
+  async function persistPending(): Promise<boolean> {
+    const ids = [...durable].slice(0, MAX_DURABLE_PENDING);
+    try {
+      await store.writePending(conversationId, ids);
+      return true;
+    } catch {
+      // The queue could not be persisted, so these rows are recoverable from
+      // nowhere: the backfill must not move its cursor past them.
+      return false;
+    }
+  }
+
+  async function writeBatch(): Promise<MessageIndexFlushResult> {
     scheduled = null;
+    const committed: string[] = [];
+    const settledEmpty: string[] = [];
     if (pending.size === 0) {
-      return;
+      // Still flush an emptied durable queue, so a conversation that has caught up
+      // does not leave a stale record claiming otherwise.
+      await persistPending();
+      lastResult = {
+        committed,
+        failed: false,
+        settledEmpty,
+        stillPending: [...durable],
+      };
+      return lastResult;
     }
     const batch = new Map<string, SearchIndexEntry>();
     // Collected and applied as ONE transaction after the pass. Awaiting a
@@ -154,6 +228,7 @@ export function createMessageIndexWriter(
       }
       if (message.deletedAt) {
         pending.delete(id);
+        durable.delete(id);
         toRemove.push(id);
         continue;
       }
@@ -165,7 +240,9 @@ export function createMessageIndexWriter(
       ) {
         // Still queued. Undefined means the decryptor evicted the payload (its
         // LRU), and "error" means key healing has not run yet; both are retried
-        // rather than dropped, so a message is never silently unsearchable.
+        // rather than dropped, so a message is never silently unsearchable, and
+        // both are persisted so the queue outlives this session.
+        durable.add(id);
         continue;
       }
       const built = buildSearchIndexEntry({
@@ -178,12 +255,15 @@ export function createMessageIndexWriter(
         // queued: re-checking every batch would be busy work. Any previous entry
         // goes, so an edit to empty cannot leave a stale hit behind.
         pending.delete(id);
+        durable.delete(id);
+        settledEmpty.push(id);
         toRemove.push(id);
         continue;
       }
       const signature = entrySignature(built);
       if (written.get(id) === signature) {
         pending.delete(id);
+        durable.delete(id);
         continue;
       }
       batch.set(id, built);
@@ -200,11 +280,19 @@ export function createMessageIndexWriter(
           written.set(id, entrySignature(entry));
           pending.delete(id);
         }
+        for (const id of batch.keys()) {
+          committed.push(id);
+          durable.delete(id);
+        }
       } catch (error) {
         // Storage refused. Leave the whole batch queued so a later attempt
-        // retries it rather than losing rows, and surface it once: a full disk
-        // otherwise looks exactly like a conversation with no matches, and the
-        // user has no way to tell the difference or act on it.
+        // retries it rather than losing rows, record it durably so the rows are
+        // not lost with the tab, and surface it once: a full disk otherwise looks
+        // exactly like a conversation with no matches, and the user has no way to
+        // tell the difference or act on it.
+        for (const id of batch.keys()) {
+          durable.add(id);
+        }
         if (isStorageExhausted(error)) {
           onStorageFull?.();
         }
@@ -221,18 +309,33 @@ export function createMessageIndexWriter(
         if (dropped >= excess) {
           break;
         }
+        // Dropped from the in-session RETRY set only. The id stays durable, so it
+        // is still recovered next session rather than silently lost, which was
+        // the point of the trim.
         pending.delete(id);
+        durable.add(id);
         dropped += 1;
       }
     }
 
+    // Persisted after the trim, so what survives to disk is the durable set
+    // rather than the in-memory one.
+    const persisted = await persistPending();
     notifyCoverage();
+    lastResult = {
+      committed,
+      failed: !persisted,
+      settledEmpty,
+      stillPending: [...durable],
+    };
+    return lastResult;
   }
 
   async function removeEntries(ids: string[]): Promise<void> {
     for (const id of ids) {
       written.delete(id);
       pending.delete(id);
+      durable.delete(id);
       removed.add(id);
     }
     try {
@@ -260,6 +363,29 @@ export function createMessageIndexWriter(
     })();
   }
 
+  // Pending rows are retried when their payload finally lands, not only when the
+  // next batch happens to include them. Without this a row that missed its window
+  // waited for unrelated activity, and a conversation that had gone quiet simply
+  // never caught up.
+  subscribeToPayloads?.(() => {
+    if (pending.size > 0) {
+      schedule();
+    }
+  });
+
+  // Loaded once, so a row that was unsearchable last session is retried as soon
+  // as the caller re-fetches and re-considers it.
+  void (async () => {
+    try {
+      for (const id of await store.readPending(conversationId)) {
+        durable.add(id);
+      }
+    } catch {
+      // Unreadable queue: the conversation behaves as fully indexed, which the
+      // walk repairs by re-fetching from its cursor.
+    }
+  })();
+
   return {
     consider(messages) {
       for (const message of messages) {
@@ -283,6 +409,10 @@ export function createMessageIndexWriter(
       return { indexedCount: written.size, pendingCount: pending.size };
     },
 
+    durablePending() {
+      return store.readPending(conversationId);
+    },
+
     async flush() {
       if (scheduled) {
         await scheduled;
@@ -291,9 +421,13 @@ export function createMessageIndexWriter(
         if (scheduled) {
           await scheduled;
         }
-        return;
+      } else {
+        await writeBatch();
       }
-      await writeBatch();
+      // The outcome of the work that actually ran. Running another batch here
+      // would retry a refused write inside the same flush, turning an honest
+      // "the store refused this" into a silent success.
+      return lastResult;
     },
 
     remove(messageIds) {

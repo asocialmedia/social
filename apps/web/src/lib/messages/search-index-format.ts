@@ -150,6 +150,19 @@ export interface SearchIndexStore {
     conversationId: string,
     rowIds: Uint32Array
   ) => Promise<SearchIndexRowLookup>;
+  // Rows that exist but are not searchable yet, persisted so coverage survives a
+  // reload. Without this, a row whose payload had not decrypted when it was last
+  // seen was queued in memory only: the backfill cursor moved past it and the
+  // queue died with the tab, leaving a permanent silent hole in search.
+  //
+  // Whole-set rather than incremental, because the writer is the single owner and
+  // therefore the only writer, so there is nothing to race. Incremental add and
+  // remove would only create a second consistency boundary to get wrong.
+  readPending: (conversationId: string) => Promise<string[]>;
+  writePending: (
+    conversationId: string,
+    messageIds: readonly string[]
+  ) => Promise<void>;
   // Every conversation with an index on this device, oldest access first. Backs
   // least-recently-used eviction. The meta store holds one small record per
   // conversation, so this is cheap even where a row scan would not be.

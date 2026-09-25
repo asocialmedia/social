@@ -45,6 +45,7 @@ import {
   MESSAGES_DB_VERSION,
   SEARCH_ALLOC_STORE,
   SEARCH_META_STORE,
+  SEARCH_PENDING_STORE,
   SEARCH_POSTINGS_STORE,
   SEARCH_ROW_IDS_STORE,
   SEARCH_ROWS_STORE,
@@ -87,12 +88,14 @@ const POSTINGS_STORE = SEARCH_POSTINGS_STORE;
 // let the two roll each other's state back. See SearchIndexMeta.
 const ALLOC_STORE = SEARCH_ALLOC_STORE;
 const META_STORE = SEARCH_META_STORE;
+const PENDING_STORE = SEARCH_PENDING_STORE;
 const SEARCH_STORES = [
   ROWS_STORE,
   ROW_IDS_STORE,
   POSTINGS_STORE,
   ALLOC_STORE,
   META_STORE,
+  PENDING_STORE,
 ];
 // Versions whose search keying cannot be migrated, so their stores are dropped.
 // Identity material is never in that set.
@@ -345,6 +348,11 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         await requestAsPromise(
           tx.objectStore(ALLOC_STORE).delete(conversationId)
         );
+        // Pending rows describe a conversation's gaps; leaving them behind after
+        // a clear would make the next session report rows that no longer exist.
+        await requestAsPromise(
+          tx.objectStore(PENDING_STORE).delete(conversationId)
+        );
       });
     },
 
@@ -520,6 +528,18 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
     },
 
     // The hot query read: one point lookup per typed word, not a scan.
+    readPending(conversationId) {
+      if (storageUnavailable()) {
+        return Promise.resolve([]);
+      }
+      return runTransaction([PENDING_STORE], "readonly", async (tx) => {
+        const stored = await requestAsPromise<string[] | undefined>(
+          tx.objectStore(PENDING_STORE).get(conversationId)
+        );
+        return stored ? [...stored] : [];
+      });
+    },
+
     readPostingList(conversationId, token) {
       if (storageUnavailable()) {
         return Promise.resolve(new Uint32Array(0));
@@ -652,6 +672,22 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
             meta.conversationId
           )
         );
+      });
+    },
+
+    writePending(conversationId, messageIds) {
+      if (storageUnavailable()) {
+        return Promise.resolve();
+      }
+      return runTransaction([PENDING_STORE], "readwrite", async (tx) => {
+        const store = tx.objectStore(PENDING_STORE);
+        // An empty set is a delete rather than an empty record, so a conversation
+        // that has caught up leaves nothing behind.
+        if (messageIds.length === 0) {
+          await requestAsPromise(store.delete(conversationId));
+          return;
+        }
+        await requestAsPromise(store.put([...messageIds], conversationId));
       });
     },
   };

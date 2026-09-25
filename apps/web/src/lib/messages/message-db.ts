@@ -31,6 +31,11 @@ export const SEARCH_ROW_IDS_STORE = "search-row-ids";
 export const SEARCH_POSTINGS_STORE = "search-postings";
 export const SEARCH_ALLOC_STORE = "search-alloc";
 export const SEARCH_META_STORE = "search-meta";
+// Rows that exist but are not searchable yet, persisted across sessions. Its own
+// store rather than a field on search-meta, because the backfill walk rewrites
+// meta on every page and sharing one object reintroduces the read-modify-write
+// race that forced the row allocator to be split out.
+export const SEARCH_PENDING_STORE = "search-pending";
 
 export const SEARCH_STORES = [
   SEARCH_ROWS_STORE,
@@ -38,6 +43,7 @@ export const SEARCH_STORES = [
   SEARCH_POSTINGS_STORE,
   SEARCH_ALLOC_STORE,
   SEARCH_META_STORE,
+  SEARCH_PENDING_STORE,
 ] as const;
 
 // Every store in the database, created if absent. Called from BOTH owners'

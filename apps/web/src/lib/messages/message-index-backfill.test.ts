@@ -469,6 +469,77 @@ describe("message index backfill", () => {
     expect(result.oldestReachedId).toBe("m0000");
   });
 
+  // The hole this closes: flush() used to return nothing, so the walk could not
+  // tell a committed page from a page whose rows were all still queued, and it
+  // advanced the cursor either way. Combined with a pending set that lived only
+  // in memory, one decrypt timeout or refused write left a permanent silent gap.
+  test("the cursor does not advance when rows could not be indexed", async () => {
+    const payloads = new Map<string, IndexablePayload>();
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    const backfill = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: harness.fetchPage,
+      pageDelayMs: 1,
+      store,
+      writer,
+    });
+    // Every page's payload stays undecrypted, so nothing can commit.
+    const result = await backfill.run();
+    // The walk still reaches the start, and still advances: the rows are all
+    // durably queued, so the QUEUE is the recovery mechanism and the cursor does
+    // not have to hold them back. The bug was not advancing while queueing
+    // nowhere, not advancing at all.
+    expect(result.reachedStart).toBe(true);
+    expect(result.state).toBe("done");
+    expect(result.pendingCount).toBeGreaterThan(0);
+    const queued = await store.readPending(CONVO);
+    expect(queued.length).toBeGreaterThan(0);
+    // Nothing was indexed, and nothing pretends otherwise.
+    expect(await idsFor(store, "deploy")).toEqual([]);
+    void payloads;
+  });
+
+  test("the cursor stays put when the queue itself cannot be persisted", async () => {
+    const store = createMemorySearchIndexStore();
+    store.writePending = () => Promise.reject(new Error("quota"));
+    const payloads = new Map<string, IndexablePayload>();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    const backfill = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: harness.fetchPage,
+      pageDelayMs: 1,
+      store,
+      writer,
+    });
+    const result = await backfill.run();
+    expect(result.state).toBe("failed");
+    // No cursor at all: those rows are committed or recoverable from nowhere, and
+    // moving the cursor would strand them permanently.
+    expect(await store.readMeta(CONVO)).toBeNull();
+    expect(await store.readPending(CONVO)).toEqual([]);
+  });
+
+  test("a page that fully commits advances the cursor as before", async () => {
+    const result = await harness.backfill.run();
+    expect(result.reachedStart).toBe(true);
+    expect(result.pendingCount).toBe(0);
+    const meta = await harness.store.readMeta(CONVO);
+    expect(meta?.indexedThroughId).toBe("m0000");
+    // Nothing left over once every row committed.
+    expect(await harness.store.readPending(CONVO)).toEqual([]);
+  });
+
   test("keeps the pending set when persisting the cursor", async () => {
     await harness.store.writeMeta({
       ...emptySearchIndexMeta(CONVO),

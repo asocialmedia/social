@@ -327,6 +327,212 @@ describe("message index writer", () => {
     expect(isStorageExhausted("nope")).toBe(false);
   });
 
+  // These cover the gap that made search quietly lossy: the pending set was
+  // in-memory only while the backfill advanced its cursor past those rows, so a
+  // decrypt timeout or a refused write left a permanent hole nothing revisited.
+  test("a row whose payload never arrives is persisted, not just queued", async () => {
+    harness.payloads.set("m1", "pending");
+    harness.writer.consider([message("m1")]);
+    const result = await harness.writer.flush();
+    expect(result.stillPending).toEqual(["m1"]);
+    expect(result.committed).toEqual([]);
+    // And it is on disk, not only in this process.
+    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+  });
+
+  test("a refused write is persisted so the row is not lost with the tab", async () => {
+    const store = createMemorySearchIndexStore();
+    const original = store.putEntries;
+    store.putEntries = () => Promise.reject(new Error("db closed"));
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "durable text", type: "text" }],
+    ]);
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    writer.consider([message("m1")]);
+    const result = await writer.flush();
+    expect(result.failed).toBe(false);
+    expect(result.stillPending).toEqual(["m1"]);
+    expect(await store.readPending(CONVO)).toEqual(["m1"]);
+
+    // A later session's writer loads the queue and can pick the row back up.
+    const recovered = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    expect(await recovered.durablePending()).toEqual(["m1"]);
+    store.putEntries = original;
+  });
+
+  test("a queue that cannot be persisted reports failure, so the cursor stays put", async () => {
+    const store = createMemorySearchIndexStore();
+    store.writePending = () => Promise.reject(new Error("quota"));
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "text", type: "text" }],
+    ]);
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    writer.consider([message("m1")]);
+    const result = await writer.flush();
+    // The rows committed, but the bookkeeping did not, so the backfill must not
+    // treat this page as safely covered.
+    expect(result.committed).toEqual(["m1"]);
+    expect(result.failed).toBe(true);
+  });
+
+  test("a row that commits leaves the durable queue", async () => {
+    harness.payloads.set("m1", "pending");
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+
+    harness.payloads.set("m1", { content: "finally here", type: "text" });
+    harness.writer.consider([message("m1")]);
+    const result = await harness.writer.flush();
+    expect(result.committed).toEqual(["m1"]);
+    expect(await harness.store.readPending(CONVO)).toEqual([]);
+  });
+
+  test("a deleted row leaves the durable queue", async () => {
+    harness.payloads.set("m1", "pending");
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+
+    harness.writer.remove(["m1"]);
+    await harness.writer.flush();
+    expect(await harness.store.readPending(CONVO)).toEqual([]);
+  });
+
+  test("pending rows are retried when their payload arrives", async () => {
+    let notify: (() => void) | null = null;
+    const payloads = new Map<string, IndexablePayload>();
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+      subscribeToPayloads: (listener) => {
+        notify = listener;
+        return () => {
+          notify = null;
+        };
+      },
+    });
+    writer.consider([message("m1")]);
+    await writer.flush();
+    // Nothing arrived, so nothing was written.
+    expect(await idsFor(harness.store, "nothing")).toEqual([]);
+
+    // The payload lands and the decryptor notifies. Without this the row waited
+    // for unrelated activity, and a quiet conversation never caught up.
+    payloads.set("m1", { content: "arrived late", type: "text" });
+    notify?.();
+    await writer.flush();
+    const found = await idsFor(store, "arrived");
+    expect(found).toEqual(["m1"]);
+    expect(await store.readPending(CONVO)).toEqual([]);
+  });
+
+  test("a payload notification with nothing pending does not write", async () => {
+    const store = createMemorySearchIndexStore();
+    let notify: (() => void) | null = null;
+    let writes = 0;
+    const original = store.putEntries;
+    store.putEntries = (conversationId, entries) => {
+      writes += 1;
+      return original(conversationId, entries);
+    };
+    createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "x", type: "text" }),
+      store,
+      subscribeToPayloads: (listener) => {
+        notify = listener;
+        return () => {
+          notify = null;
+        };
+      },
+    });
+    notify?.();
+    await Promise.resolve();
+    // An idle conversation must not wake the writer on every decrypt anywhere.
+    expect(writes).toBe(0);
+  });
+
+  test("coverage counts the durable queue, not the in-memory retry set", async () => {
+    harness.payloads.set("m1", "pending");
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    // A row dropped from the in-session retry set is still a gap in coverage, and
+    // the bar has to keep saying so.
+    expect(harness.writer.coverage().pendingCount).toBe(1);
+  });
+
+  // The drift B closes: the writer stored captions only while the ranked
+  // in-memory path appended a kind label, so the same message matched before a
+  // reload and not after. Both now go through one extractor.
+  test.each([
+    ["text", { content: "hello world", type: "text" as const }, "hello"],
+    [
+      "captioned post",
+      { content: "look at this", type: "post" as const },
+      "look",
+    ],
+    ["captionless post", { type: "post" as const }, "shared a post"],
+    [
+      "captionless image",
+      { kind: "image" as const, type: "media" as const },
+      "shared an image",
+    ],
+    [
+      "captionless gif",
+      { kind: "gif" as const, type: "media" as const },
+      "shared a gif",
+    ],
+    [
+      "album",
+      {
+        images: [{}, {}, {}],
+        kind: "image" as const,
+        type: "media" as const,
+      },
+      "shared 3 images",
+    ],
+    [
+      "captioned image keeps both the caption and the label",
+      {
+        content: "birthday",
+        kind: "image" as const,
+        type: "media" as const,
+      },
+      "birthday",
+    ],
+  ] as const)(
+    "the persisted index agrees with the in-memory path for %s",
+    async (_name, payload, expectedToken) => {
+      const ids = expectedToken.split(" ");
+      harness.payloads.set("m1", { ...payload });
+      harness.writer.consider([message("m1")]);
+      await harness.writer.flush();
+      // Indexed, and findable by the same words the ranked list would use.
+      // Sequential deliberately: the assertion order must match the token order,
+      // and these are point reads against an in-memory store.
+      // oxlint-disable no-await-in-loop -- ordered assertions, point reads
+      for (const token of ids) {
+        expect(await idsFor(harness.store, token)).toEqual(["m1"]);
+      }
+      // oxlint-enable no-await-in-loop
+    }
+  );
+
   test("coverage is reported so the UI can show honest progress", async () => {
     harness.payloads.set("m1", { content: "indexed now", type: "text" });
     harness.writer.consider([message("m1")]);

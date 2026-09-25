@@ -1843,6 +1843,10 @@ export function MessageThread({
         })();
       },
       store: searchIndexStore,
+      // Retries pending rows the moment their payload lands, rather than waiting
+      // for unrelated transcript activity. A conversation that had gone quiet
+      // would otherwise never catch up on rows it had already fetched.
+      subscribeToPayloads: messageDecryptor.subscribe,
     });
     searchWriterRef.current = writer;
     return () => {
@@ -1978,6 +1982,39 @@ export function MessageThread({
       return;
     }
     writer.consider(allMessages);
+  }, [allMessages, searchIndexToken]);
+
+  // Rows persisted as unsearchable by an earlier session are retried as soon as
+  // the transcript holds them again, rather than waiting for the user to scroll
+  // back to them. Rows outside the loaded window are recovered by the backfill
+  // walk instead, which re-fetches from its cursor: fetching each pending id
+  // individually would turn a 5,000-row queue into 5,000 requests.
+  useEffect(() => {
+    const writer = searchWriterRef.current;
+    if (!writer || allMessages.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    const recover = async () => {
+      let queued: string[];
+      try {
+        queued = await writer.durablePending();
+      } catch {
+        return;
+      }
+      if (cancelled || queued.length === 0) {
+        return;
+      }
+      const queuedSet = new Set(queued);
+      const retryable = allMessages.filter((row) => queuedSet.has(row.id));
+      if (retryable.length > 0) {
+        writer.consider(retryable);
+      }
+    };
+    void recover();
+    return () => {
+      cancelled = true;
+    };
   }, [allMessages, searchIndexToken]);
 
   // One search session backs both surfaces. `enabled` tracks the whole session

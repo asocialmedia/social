@@ -70,6 +70,7 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
   // Per store instance: two stores in one process must not share meta, or a test
   // would see another store's conversation state.
   const metaByConversation = new Map<string, SearchIndexMeta>();
+  const pendingByConversation = new Map<string, string[]>();
 
   const indexFor = (conversationId: string): ConversationIndex => {
     let index = byConversation.get(conversationId);
@@ -91,6 +92,7 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       // it behind would report an "indexed through" cursor for a conversation
       // with no rows, and the next backfill would skip straight past the gap.
       metaByConversation.delete(conversationId);
+      pendingByConversation.delete(conversationId);
       return Promise.resolve();
     },
 
@@ -146,6 +148,13 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
 
     readMeta(conversationId) {
       return Promise.resolve(metaByConversation.get(conversationId) ?? null);
+    },
+
+    readPending(conversationId) {
+      // A copy, so a caller cannot mutate what the store will later hand back.
+      return Promise.resolve([
+        ...(pendingByConversation.get(conversationId) ?? []),
+      ]);
     },
 
     readPostingList(conversationId, token) {
@@ -211,6 +220,14 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
         ...meta,
         pendingIds: [...meta.pendingIds],
       });
+      return Promise.resolve();
+    },
+    writePending(conversationId, messageIds) {
+      if (messageIds.length === 0) {
+        pendingByConversation.delete(conversationId);
+        return Promise.resolve();
+      }
+      pendingByConversation.set(conversationId, [...messageIds]);
       return Promise.resolve();
     },
   };

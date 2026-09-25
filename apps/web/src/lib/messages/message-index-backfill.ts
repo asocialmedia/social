@@ -22,7 +22,13 @@
 // - Degrading. A page that cannot be fetched stops the walk and keeps everything
 //   indexed so far. Messages that cannot be decrypted are still counted as
 //   covered, because the cursor means "we have seen this row", not "this row is
-//   searchable" — the writer keeps undecryptable rows pending and retries them.
+//   searchable": the writer persists those rows to a durable queue and retries
+//   them.
+//
+//   That distinction is the whole reason the cursor is trustworthy. Advancing past
+//   a page is safe only because every row in it is either committed or durably
+//   queued. When the QUEUE ITSELF cannot be written, those rows are recoverable
+//   from nowhere, so the cursor must not move and the walk stops.
 
 import type { MessageData } from "@asm/db";
 
@@ -51,6 +57,9 @@ export interface BackfillProgress {
   oldestReachedId: string | null;
   // Messages handed to the writer by this run.
   indexedCount: number;
+  // Rows this run could not index: payload not decrypted yet, or a refused write.
+  // Persisted, so they are recovered later rather than lost.
+  pendingCount: number;
   state: BackfillState;
 }
 
@@ -119,6 +128,7 @@ export function createMessageIndexBackfill(
     latestIndexedId: null,
     oldestReachedId: null,
     pageCount: 0,
+    pendingCount: 0,
     reachedStart: false,
     state: "idle",
   };
@@ -167,6 +177,7 @@ export function createMessageIndexBackfill(
 
     let pages = 0;
     let indexed = 0;
+    let pending = 0;
     let latestIndexedId: string | null = null;
     let oldestReachedId = cursor ?? null;
     let reachedStart = false;
@@ -224,8 +235,23 @@ export function createMessageIndexBackfill(
         // and retry them against a transcript that will never hold them.
         await awaitDecrypts(messages);
         writer.consider(messages);
-        await writer.flush();
+        const result = await writer.flush();
         indexed += messages.length;
+        pending = result.stillPending.length;
+        if (result.failed) {
+          // The rows committed or were queued, but the QUEUE could not be
+          // persisted, so any row that did not commit is recoverable from
+          // nowhere. Moving the cursor would strand it permanently, so the walk
+          // stops here with everything above this page intact.
+          setState("failed");
+          report({
+            indexedCount: indexed,
+            latestIndexedId,
+            pageCount: pages,
+            pendingCount: pending,
+          });
+          return progress;
+        }
         // A page arrives oldest-first (the route reverses its descending page
         // before responding), so the head is the oldest id and the tail the
         // newest. Getting this backwards persists a resume cursor pointing at
@@ -246,9 +272,11 @@ export function createMessageIndexBackfill(
         latestIndexedId,
         oldestReachedId,
         pageCount: pages,
+        pendingCount: pending,
       });
       // Persisted per page, not per run: an interrupted walk must not redo the
-      // pages it already paid for.
+      // pages it already paid for. Safe now precisely because every row in the
+      // page is committed or durably queued.
       await persistCursor(oldestReachedId);
 
       if (!previousCursor || messages.length === 0) {
@@ -272,6 +300,7 @@ export function createMessageIndexBackfill(
       indexedCount: indexed,
       latestIndexedId,
       oldestReachedId,
+      pendingCount: pending,
       reachedStart,
     });
     return progress;
