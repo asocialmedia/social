@@ -764,7 +764,20 @@ export function markMessagesDeletedInPages<
 // and the other member's public key. Memoized per conversation so the
 // expensive ECDH+HKDF only runs once per session.
 export function createRootKeyStore(privateKey: CryptoKey) {
-  const cache = new Map<string, Promise<Uint8Array[]>>();
+  // Keyed by conversation, holding the signature of the inputs that produced it.
+  //
+  // Keying on the conversation alone was wrong: a peer reset or a re-provisioned
+  // identity publishes new wraps under the SAME conversation id, so the cached
+  // roots were returned unchanged and decryption silently continued with
+  // superseded keys. The thread already detects this (it recomputes a
+  // keySignature of the wraps and the peer key), but it only clears the
+  // decryptor's own cache, not this one, so the stale entry survived. Deriving
+  // the cache key from the inputs makes invalidation self-healing instead of
+  // depending on every call site remembering to clear.
+  const cache = new Map<
+    string,
+    { promise: Promise<Uint8Array[]>; signature: string }
+  >();
 
   // Unwraps every one of my wraps for the conversation, newest epoch first, so
   // a message sent under any epoch the member can still read is decryptable. A
@@ -776,9 +789,14 @@ export function createRootKeyStore(privateKey: CryptoKey) {
     myWrappedKeys: { encryptedKey: EncryptedBlob; version: number }[],
     peerPublicKeyBase64: string
   ): Promise<Uint8Array[]> {
+    // The peer key is part of the signature because a new peer key produces
+    // different ECDH results from the same wraps.
+    const signature = `${myWrappedKeys
+      .map((wrapped) => `${wrapped.version}:${wrapped.encryptedKey.ciphertext}`)
+      .join("|")}#${peerPublicKeyBase64}`;
     const cached = cache.get(conversationId);
-    if (cached) {
-      return cached;
+    if (cached && cached.signature === signature) {
+      return cached.promise;
     }
     const promise = (async () => {
       const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
@@ -812,7 +830,9 @@ export function createRootKeyStore(privateKey: CryptoKey) {
       }
       return roots;
     })();
-    cache.set(conversationId, promise);
+    // Replacing the entry rather than adding one keeps a conversation that
+    // rotates repeatedly from growing the cache without bound.
+    cache.set(conversationId, { promise, signature });
     // A rejected derivation must not poison the cache forever: drop the entry
     // so a later call can retry, but only if this exact promise is still the
     // cached one (a newer retry may already have replaced it).
@@ -820,7 +840,7 @@ export function createRootKeyStore(privateKey: CryptoKey) {
       try {
         await promise;
       } catch {
-        if (cache.get(conversationId) === promise) {
+        if (cache.get(conversationId)?.promise === promise) {
           cache.delete(conversationId);
         }
       }

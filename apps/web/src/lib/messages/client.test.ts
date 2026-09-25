@@ -100,6 +100,116 @@ describe("createRootKeyStore", () => {
     expect(Buffer.from(unwrapped2[0]).equals(Buffer.from(rootKey))).toBe(true);
   });
 
+  // A peer reset or a re-provisioned identity publishes new wraps under the SAME
+  // conversation id. Keying the cache on the conversation alone returned the
+  // superseded roots, so decryption silently continued with keys the server had
+  // already rotated away. The thread detects the change but only cleared the
+  // decryptor's cache, not this one.
+  test("re-derives when the wraps change under the same conversation", async () => {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const firstRoot = generateRootKey();
+    const secondRoot = generateRootKey();
+
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const store = createRootKeyStore(alice.pair.privateKey);
+
+    const before = await store.getRootKeys(
+      "convo-1",
+      [
+        {
+          encryptedKey: await wrapRootKey(
+            alice.pair.privateKey,
+            bobKey,
+            "convo-1",
+            firstRoot
+          ),
+          version: 1,
+        },
+      ],
+      bob.publicKeyBase64
+    );
+    expect(Buffer.from(before[0]).equals(Buffer.from(firstRoot))).toBe(true);
+
+    // The same conversation, newly wrapped: a keys.rotated event.
+    const after = await store.getRootKeys(
+      "convo-1",
+      [
+        {
+          encryptedKey: await wrapRootKey(
+            alice.pair.privateKey,
+            bobKey,
+            "convo-1",
+            secondRoot
+          ),
+          version: 2,
+        },
+      ],
+      bob.publicKeyBase64
+    );
+    expect(Buffer.from(after[0]).equals(Buffer.from(secondRoot))).toBe(true);
+    // Explicitly not the stale answer.
+    expect(Buffer.from(after[0]).equals(Buffer.from(firstRoot))).toBe(false);
+  });
+
+  test("re-derives when the peer key changes under the same conversation", async () => {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const carol = await makeIdentity();
+    const rootKey = generateRootKey();
+
+    const store = createRootKeyStore(alice.pair.privateKey);
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const wrappedForBob = await wrapRootKey(
+      alice.pair.privateKey,
+      bobKey,
+      "convo-1",
+      rootKey
+    );
+    const carolPub = await publicKeyBase64ToJwk(carol.publicKeyBase64);
+    const carolKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      carolPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const wrappedForCarol = await wrapRootKey(
+      alice.pair.privateKey,
+      carolKey,
+      "convo-1",
+      rootKey
+    );
+
+    await store.getRootKeys(
+      "convo-1",
+      [{ encryptedKey: wrappedForBob, version: 1 }],
+      bob.publicKeyBase64
+    );
+    // A different peer key produces different ECDH results from the same wrap
+    // list, so the cached answer for Bob must not be reused for Carol.
+    const forCarol = await store.getRootKeys(
+      "convo-1",
+      [{ encryptedKey: wrappedForCarol, version: 1 }],
+      carol.publicKeyBase64
+    );
+    expect(Buffer.from(forCarol[0]).equals(Buffer.from(rootKey))).toBe(true);
+  });
+
   test("offers one root per epoch, newest first, dropping stale wraps", async () => {
     const alice = await makeIdentity();
     const bob = await makeIdentity();
