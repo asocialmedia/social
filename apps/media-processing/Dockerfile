@@ -10,7 +10,7 @@ COPY package.json bun.lock ./
 COPY packages/ ./packages/
 COPY apps/media-processing/ ./apps/media-processing/
 RUN bun install
-RUN cd packages/db && bunx prisma generate
+RUN cd packages/db && bunx prisma contract emit
 ARG TARGETARCH
 RUN bun run ./apps/media-processing/scripts/ensure-c2pa-binary.ts "$TARGETARCH"
 
