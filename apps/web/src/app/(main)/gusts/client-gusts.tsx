@@ -613,52 +613,68 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
     return (
       <div className="flex h-full w-full max-w-6xl items-center justify-center gap-4 py-0 sm:px-2 sm:py-3 md:px-6">
-        {/* Vertical Snap Stream */}
-        <div
-          className="hide-native-scrollbar h-full w-full max-w-4xl snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
-          ref={containerRef}
-        >
-          {posts.map((post, idx) => {
-            const isCurrentActive = activeIndex === idx;
-            const distance = Math.abs(idx - activeIndex);
-            const shouldMount = isCurrentActive || distance <= 1;
-
-            return (
-              <div
-                className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-                data-index={idx}
-                key={post.id}
-                ref={(el) => {
-                  itemRefs.current[idx] = el;
-                }}
-              >
-                <RecommendationTracker
-                  className="h-full w-full"
-                  postId={post.id}
-                >
-                  <GustCard
-                    interactive
-                    isActive={isCurrentActive}
-                    isMuted={isMuted}
-                    onOpenComments={() => setIsCommentsOpen(true)}
-                    onToggleMute={handleToggleMute}
-                    post={post}
-                    shouldMountVideo={shouldMount}
-                  />
-                </RecommendationTracker>
-              </div>
-            );
-          })}
-
-          {isFetchingNextPage ? (
-            <div className="flex h-24 items-center justify-center">
-              <Loader2 className="text-primary size-6 animate-spin" />
+        <div className="relative h-full w-full max-w-4xl transition-[width] duration-300 ease-out">
+          <div className="pointer-events-none absolute inset-x-0 top-1 z-30 flex h-10 items-center justify-center md:top-2">
+            <div className="pointer-events-auto flex items-center gap-2">
+              <GustTab
+                active={gustTab === "latest"}
+                label="Latest"
+                onClick={() => handleTabChange("latest")}
+              />
+              <GustTab
+                active={gustTab === "personalized"}
+                label="For you"
+                onClick={() => handleTabChange("personalized")}
+              />
             </div>
-          ) : null}
+          </div>
+          {/* Vertical Snap Stream */}
+          <div
+            className="hide-native-scrollbar h-full w-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
+            ref={containerRef}
+          >
+            {posts.map((post, idx) => {
+              const isCurrentActive = activeIndex === idx;
+              const distance = Math.abs(idx - activeIndex);
+              const shouldMount = isCurrentActive || distance <= 1;
 
-          {/* Pagination sentinel: triggers the next page even when the feed
+              return (
+                <div
+                  className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
+                  data-index={idx}
+                  key={post.id}
+                  ref={(el) => {
+                    itemRefs.current[idx] = el;
+                  }}
+                >
+                  <RecommendationTracker
+                    className="h-full w-full"
+                    postId={post.id}
+                  >
+                    <GustCard
+                      interactive
+                      isActive={isCurrentActive}
+                      isMuted={isMuted}
+                      onOpenComments={() => setIsCommentsOpen(true)}
+                      onToggleMute={handleToggleMute}
+                      post={post}
+                      shouldMountVideo={shouldMount}
+                    />
+                  </RecommendationTracker>
+                </div>
+              );
+            })}
+
+            {isFetchingNextPage ? (
+              <div className="flex h-24 items-center justify-center">
+                <Loader2 className="text-primary size-6 animate-spin" />
+              </div>
+            ) : null}
+
+            {/* Pagination sentinel: triggers the next page even when the feed
               is short, keeping the stream effectively infinite. */}
-          {hasNextPage ? <div ref={endSentinelRef} /> : null}
+            {hasNextPage ? <div ref={endSentinelRef} /> : null}
+          </div>
         </div>
 
         {isCommentsOpen && posts[activeIndex] ? (
@@ -679,23 +695,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     <>
       {/* Main Gusts Container */}
       <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden bg-[hsl(var(--background-alt))]">
-        {/* Text-only tabs, centred over the clip at every breakpoint. Nudged
-            further down on desktop where there is no floating back button. */}
-        <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex h-10 items-center justify-center md:top-8">
-          <div className="pointer-events-auto flex items-center gap-2">
-            <GustTab
-              active={gustTab === "latest"}
-              label="Latest"
-              onClick={() => handleTabChange("latest")}
-            />
-            <GustTab
-              active={gustTab === "personalized"}
-              label="For you"
-              onClick={() => handleTabChange("personalized")}
-            />
-          </div>
-        </div>
-
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"

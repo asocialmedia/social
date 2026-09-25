@@ -265,7 +265,7 @@ export default function CommentInput({
             className={cn(
               "flex min-w-0 flex-col transition-all",
               reels
-                ? "reels-input rounded-2xl py-1.5 pr-2 pl-3 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
+                ? "reels-input rounded-2xl! py-1.5 pr-2 pl-3 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
                 : "premium-input rounded-2xl py-1.5 pr-2 pl-3",
               attachments.length > 0 && "gap-2"
             )}

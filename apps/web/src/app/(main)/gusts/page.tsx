@@ -1,5 +1,6 @@
 import { prisma } from "@asm/db";
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
@@ -18,6 +19,7 @@ interface GustsPageProps {
 export async function generateMetadata(
   props: GustsPageProps
 ): Promise<Metadata> {
+  await connection();
   const searchParams = await props.searchParams;
   const gustId = searchParams.id;
 
