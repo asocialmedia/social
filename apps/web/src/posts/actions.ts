@@ -16,12 +16,16 @@ import {
   redis,
   RESPONSE_RECEIVED_POST_AURA,
   reverseExactAura,
-  unreadNotificationCache,
 } from "@asm/db";
 import { updateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getModerationSystemUserId } from "@/lib/moderation/system-moderation-user";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+  resetNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 
 const MAX_CAS_ATTEMPTS = 8;
 
@@ -115,7 +119,14 @@ export async function updatePostModeration(
   let confirmedFlaggedExplicit = false; // false -> true
   let confirmedUnflaggedExplicit = false; // true -> false
 
+  const notificationEvents = newNotificationEvents();
   const updated = await prisma.transaction(async (tx) => {
+    resetNotificationEvents(notificationEvents);
+    confirmedModerated = false;
+    confirmedUnmoderated = false;
+    confirmedFlaggedExplicit = false;
+    confirmedUnflaggedExplicit = false;
+
     // Moderated transition: conditional on the current DB value.
     if (data.moderated !== undefined) {
       const flip = await tx.orm.public.Posts.where((candidate) =>
@@ -173,32 +184,25 @@ export async function updatePostModeration(
       confirmedFlaggedExplicit ||
       confirmedUnflaggedExplicit
     ) {
-      await tx.orm.public.Notifications.create({
+      const notification = await tx.orm.public.Notifications.select(
+        "id",
+        "recipientId"
+      ).create({
         _type: "MODERATION",
         issuerId: systemUserId,
         postId: id,
         recipientId: post.userId,
+      });
+      notificationEvents.created.push({
+        notificationId: notification.id,
+        recipientId: notification.recipientId,
       });
     }
 
     return result;
   });
 
-  // Bump the unread-bell counter synchronously (not via the worker) so the
-  // count is correct the instant the mutation resolves and the sidebar/header
-  // badge can refresh immediately instead of waiting on the 60s poll.
-  if (
-    confirmedModerated ||
-    confirmedUnmoderated ||
-    confirmedFlaggedExplicit ||
-    confirmedUnflaggedExplicit
-  ) {
-    try {
-      await unreadNotificationCache.increment(post.userId);
-    } catch (error) {
-      console.error("Failed to increment unread notification count:", error);
-    }
-  }
+  flushNotificationEvents(notificationEvents, "moderation");
 
   if (confirmedModerated) {
     // Signal refresh after commit; failures only cost cache freshness.

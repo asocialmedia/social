@@ -131,7 +131,9 @@ export async function processNotificationCreated(
   await withSpan(
     "job.notification-created",
     async () => {
-      await unreadNotificationCache.increment(recipientId);
+      await (notificationId
+        ? unreadNotificationCache.incrementOnce(recipientId, notificationId)
+        : unreadNotificationCache.increment(recipientId));
       // Push fan-out is best-effort and additive: the unread counter above is
       // the durable part, so a push outage must never fail the job. The row is
       // only re-read when the producer captured its id.
@@ -185,7 +187,7 @@ async function deliverNotificationPush(
   if (!issuer) {
     return;
   }
-  await dispatchNotificationPush(
+  const result = await dispatchNotificationPush(
     { ...notification, issuer },
     {
       listDeviceTokens: (userId) =>
@@ -206,6 +208,9 @@ async function deliverNotificationPush(
       pruneSubscriptions: (endpoints) => prunePushSubscriptions(endpoints),
     }
   );
+  if (result.retryable) {
+    throw new Error("Push dispatch infrastructure unavailable");
+  }
 }
 
 export async function processNotificationDeleted({

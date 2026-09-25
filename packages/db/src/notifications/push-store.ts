@@ -66,6 +66,7 @@ export async function listPushSubscriptions(
   )
     .where({ userId })
     .orderBy((subscription) => subscription.createdAt.desc())
+    .limit(20)
     .all();
   return subscriptions;
 }
@@ -140,6 +141,7 @@ export async function listDevicePushTokens(
   )
     .where({ userId })
     .orderBy((device) => device.createdAt.desc())
+    .limit(20)
     .all();
   return tokens;
 }

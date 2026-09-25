@@ -143,10 +143,15 @@ const mockOrm = {
       }),
     },
     Notifications: {
-      create: (data: Record<string, unknown>) => {
-        notifications.push(data as (typeof notifications)[number]);
-        return Promise.resolve(data);
-      },
+      select: () => ({
+        create: (data: Record<string, unknown>) => {
+          notifications.push(data as (typeof notifications)[number]);
+          return Promise.resolve({
+            id: "notif-moderation-1",
+            recipientId: data.recipientId,
+          });
+        },
+      }),
     },
     PostMedia: {
       select: () => ({
@@ -209,7 +214,7 @@ const mockPrisma = {
 
 const mockUpdateTag = mock(() => {});
 const mockInclude = () => ({ attachments: true, user: true });
-const mockIncrementUnread = mock((userId: string) => {
+const mockEnqueueNotificationCreated = mock((userId: string) => {
   enqueuedNotificationRecipients.push(userId);
 });
 const mockNoop = mock(() => {});
@@ -252,6 +257,7 @@ mock.module("@asm/db", () => ({
   }),
   enqueueMediaProcess: () => Promise.resolve(),
   enqueueMediaScan: () => Promise.resolve(),
+  enqueueNotificationCreated: mockEnqueueNotificationCreated,
   enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
   ensureStreamGroups: () => Promise.resolve(),
@@ -302,7 +308,7 @@ mock.module("@asm/db", () => ({
     increment: () => Promise.resolve(1),
     reset: () => Promise.resolve(),
   },
-  unreadNotificationCache: { increment: mockIncrementUnread },
+  unreadNotificationCache: { increment: () => Promise.resolve(1) },
   userCache: {},
 }));
 
@@ -333,7 +339,7 @@ beforeEach(() => {
   mockDeletedPosts = [];
   mockGetSession.mockClear();
   mockUpdateTag.mockClear();
-  mockIncrementUnread.mockClear();
+  mockEnqueueNotificationCreated.mockClear();
 });
 
 describe("updatePostModeration", () => {
@@ -433,7 +439,7 @@ describe("updatePostModeration", () => {
         recipientId: AUTHOR_ID,
       },
     ]);
-    expect(mockIncrementUnread).toHaveBeenCalledWith(AUTHOR_ID);
+    expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
   });
 
   test("flagging explicit notifies the author without an aura penalty", async () => {

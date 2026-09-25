@@ -1,4 +1,5 @@
 import { Queue } from "bullmq";
+import type { JobsOptions } from "bullmq";
 
 import { keys } from "./keys";
 import { redis } from "./src/redis";
@@ -67,6 +68,7 @@ function getQueue(name: string): Queue {
 export const MEDIA_SCAN_QUEUE = "media-scan";
 export const MEDIA_PROCESS_QUEUE = "media-process";
 const CONTENT_EVENTS_QUEUE = "content-events";
+export const NOTIFICATIONS_QUEUE = "notifications";
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -119,6 +121,35 @@ export const unreadNotificationCache = {
       );
     } catch (error) {
       console.error("Error incrementing unread count:", error);
+      return 0;
+    }
+  },
+
+  async incrementOnce(
+    userId: string,
+    notificationId: string,
+    amount = 1
+  ): Promise<number> {
+    try {
+      const markerKey = `${UNREAD_NOTIFICATION_PREFIX}event:${notificationId}`;
+      const script = `
+        if redis.call('exists', KEYS[2]) == 1 then
+          return tonumber(redis.call('get', KEYS[1]) or '0')
+        end
+        local next = redis.call('incrby', KEYS[1], tonumber(ARGV[1]))
+        redis.call('set', KEYS[2], '1', 'EX', ARGV[2])
+        return next
+      `;
+      return (await redis.eval(
+        script,
+        2,
+        `${UNREAD_NOTIFICATION_PREFIX}${userId}`,
+        markerKey,
+        amount,
+        60 * 60 * 24 * 30
+      )) as number;
+    } catch (error) {
+      console.error("Error incrementing unread count once:", error);
       return 0;
     }
   },
@@ -200,14 +231,53 @@ export async function enqueuePostDeleted(
   });
 }
 
+const NOTIFICATION_JOB_DEFAULTS: JobsOptions = {
+  attempts: 5,
+  backoff: { delay: 1000, type: "exponential" },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+};
+
+function notificationJobOptions(notificationId: string): JobsOptions {
+  return {
+    ...NOTIFICATION_JOB_DEFAULTS,
+    jobId: `notification-created-${notificationId}`,
+  };
+}
+
+async function addNotificationJob(
+  queue: Queue,
+  name: string,
+  jobId: string,
+  data: Record<string, unknown>,
+  options: JobsOptions
+): Promise<void> {
+  const existing = await queue.getJob(jobId);
+  if (existing && (await existing.getState()) === "failed") {
+    await existing.remove().catch(() => {
+      /* empty */
+    });
+  }
+  await queue.add(name, data, options);
+}
+
 export async function enqueueNotificationCreated(
   recipientId: string,
   notificationId?: string
 ): Promise<void> {
-  await getQueue(CONTENT_EVENTS_QUEUE).add("notification-created", {
-    notificationId,
-    recipientId,
-  });
+  const queue = getQueue(NOTIFICATIONS_QUEUE);
+  const data = { notificationId, recipientId };
+  if (!notificationId) {
+    await queue.add("notification-created", data, NOTIFICATION_JOB_DEFAULTS);
+    return;
+  }
+  await addNotificationJob(
+    queue,
+    "notification-created",
+    `notification-created-${notificationId}`,
+    data,
+    notificationJobOptions(notificationId)
+  );
 }
 
 export async function enqueueNotificationDeleted(
@@ -300,7 +370,7 @@ async function addWithFreshId(
   name: string,
   jobId: string,
   data: Record<string, unknown>,
-  options: ReturnType<typeof mediaJobOptions>
+  options: JobsOptions
 ): Promise<void> {
   const existing = await queue.getJob(jobId);
   if (existing) {

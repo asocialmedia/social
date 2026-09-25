@@ -1,3 +1,4 @@
+import * as Notifications from "expo-notifications";
 // Wires native push into the app's lifecycle:
 // - registers/refreshes the device token whenever a user is signed in;
 // - re-registers on foreground (a token can rotate while backgrounded);
@@ -11,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
+import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import { logInfo } from "@/lib/telemetry";
 
@@ -24,6 +26,7 @@ import {
 export function PushRegistrar() {
   const router = useRouter();
   const { isPending, user } = useSessionContext();
+  const { runWithInstallToken } = useInstall();
   const userId = user?.id ?? null;
   const previousUserId = useRef<string | null>(null);
   const routerReady = useRef(false);
@@ -53,11 +56,11 @@ export function PushRegistrar() {
     // the new user (the server moves it via upsert).
     if (userId && userId !== previous) {
       resetPushRegistration();
-      void registerForPushNotifications();
+      void registerForPushNotifications(runWithInstallToken);
     }
 
     previousUserId.current = userId;
-  }, [isPending, userId]);
+  }, [isPending, runWithInstallToken, userId]);
 
   // A token can rotate while the app is backgrounded (app restore, update),
   // so re-register on each return to foreground.
@@ -67,11 +70,18 @@ export function PushRegistrar() {
     }
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
-        void registerForPushNotifications();
+        void registerForPushNotifications(runWithInstallToken);
       }
     });
-    return () => subscription.remove();
-  }, [userId]);
+    const tokenSubscription = Notifications.addPushTokenListener(() => {
+      resetPushRegistration();
+      void registerForPushNotifications(runWithInstallToken);
+    });
+    return () => {
+      subscription.remove();
+      tokenSubscription.remove();
+    };
+  }, [runWithInstallToken, userId]);
 
   return null;
 }

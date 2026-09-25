@@ -49,6 +49,37 @@ export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return output;
 }
 
+function hasMatchingVapidKey(
+  subscription: PushSubscription,
+  expectedKey: Uint8Array<ArrayBuffer>
+): boolean {
+  const currentKey = subscription.options.applicationServerKey;
+  if (!currentKey || currentKey.byteLength !== expectedKey.byteLength) {
+    return false;
+  }
+  return [...new Uint8Array(currentKey)].every(
+    (value, index) => value === expectedKey[index]
+  );
+}
+
+async function ensureCurrentPushSubscription(
+  registration: ServiceWorkerRegistration,
+  key: string
+): Promise<PushSubscription> {
+  const expectedKey = urlBase64ToUint8Array(key);
+  const existing = await registration.pushManager.getSubscription();
+  if (existing && hasMatchingVapidKey(existing, expectedKey)) {
+    return existing;
+  }
+  if (existing) {
+    await existing.unsubscribe();
+  }
+  return await registration.pushManager.subscribe({
+    applicationServerKey: expectedKey,
+    userVisibleOnly: true,
+  });
+}
+
 let cachedRegistration: ServiceWorkerRegistration | null = null;
 
 // Registers /sw.js once and resolves with an ACTIVE registration, so
@@ -116,13 +147,7 @@ export async function enableWebPush(): Promise<boolean> {
       return false;
     }
     const registration = await ensurePushServiceWorker();
-    const existing = await registration.pushManager.getSubscription();
-    const subscription =
-      existing ??
-      (await registration.pushManager.subscribe({
-        applicationServerKey: urlBase64ToUint8Array(key),
-        userVisibleOnly: true,
-      }));
+    const subscription = await ensureCurrentPushSubscription(registration, key);
     return await postSubscription("subscribe", subscription.toJSON());
   } catch {
     return false;
@@ -154,8 +179,16 @@ export async function hasActivePushSubscription(): Promise<boolean> {
   }
   try {
     const registration = await navigator.serviceWorker.getRegistration("/");
-    const subscription = await registration?.pushManager.getSubscription();
-    return Boolean(subscription);
+    const existing = await registration?.pushManager.getSubscription();
+    if (!registration || !existing) {
+      return false;
+    }
+    const key = await fetchVapidKey();
+    if (!key) {
+      return false;
+    }
+    const subscription = await ensureCurrentPushSubscription(registration, key);
+    return await postSubscription("subscribe", subscription.toJSON());
   } catch {
     return false;
   }

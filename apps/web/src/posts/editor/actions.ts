@@ -485,7 +485,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // receipt.
       const zephUserId = await getModerationSystemUserId();
       const publishedNotification = await tx.orm.public.Notifications.select(
-        "id"
+        "id",
+        "recipientId"
       ).create({
         _type: "PUBLISHED",
         issuerId: zephUserId,
@@ -493,6 +494,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         recipientId: sessionData.user.id,
       });
       publishedNotificationId = publishedNotification.id;
+      notificationEvents.created.push({
+        notificationId: publishedNotification.id,
+        recipientId: publishedNotification.recipientId,
+      });
 
       // Notify the author of the post being responded to, plus the author of
       // the thread's root post (when different), deduped and never self. The

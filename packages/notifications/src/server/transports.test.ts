@@ -167,6 +167,32 @@ describe("web push sender", () => {
     expect(result.failed).toBe(0);
   });
 
+  test("retries a transient provider failure before giving up", async () => {
+    let calls = 0;
+    const result = await sendWebPush(
+      base(),
+      [
+        {
+          auth: "a",
+          endpoint: "https://fcm.googleapis.com/fcm/send/retry",
+          p256dh: "p",
+        },
+      ],
+      {
+        sendNotification: () => {
+          calls += 1;
+          return calls === 1
+            ? Promise.reject(pushError(503))
+            : Promise.resolve({});
+        },
+        vapid: { privateKey: "k", publicKey: "v", subject: "mailto:a@b.c" },
+      }
+    );
+    expect(calls).toBe(2);
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
   test("counts a non-gone failure without aborting the batch", async () => {
     const result = await sendWebPush(
       base(),

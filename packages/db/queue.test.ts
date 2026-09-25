@@ -11,7 +11,13 @@ const mockRedis = {
     return 1;
   }),
   eval: mock(
-    (_script: string, _numkeys: number, _key: string, _amount: number) => {
+    (
+      _script: string,
+      _numkeys: number,
+      _firstKey: string,
+      _secondKey: string,
+      _amount?: number
+    ) => {
       evalResults.push(1);
       return 1;
     }
@@ -44,6 +50,21 @@ describe("unreadNotificationCache", () => {
     await unreadNotificationCache.increment("user-1", 3);
 
     expect(mockRedis.incrby).toHaveBeenCalledWith("unread:notif:user-1", 3);
+  });
+
+  test("incrementOnce uses a notification marker for retry safety", async () => {
+    const { unreadNotificationCache } = await import("./queue");
+
+    const result = await unreadNotificationCache.incrementOnce(
+      "user-1",
+      "notification-1"
+    );
+
+    expect(result).toBe(1);
+    const evalCall = mockRedis.eval.mock.calls.at(-1);
+    expect(evalCall?.[1]).toBe(2);
+    expect(evalCall?.[2]).toBe("unread:notif:user-1");
+    expect(evalCall?.[3]).toBe("unread:notif:event:notification-1");
   });
 
   test("decrement uses the clamp-to-zero Lua script", async () => {

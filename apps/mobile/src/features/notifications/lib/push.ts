@@ -70,22 +70,46 @@ async function sessionHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
+export type RunWithInstallToken = <T>(
+  action: () => Promise<T>,
+  isTokenRejected: (result: T) => boolean
+) => Promise<T | null>;
+
+type DeviceTokenRegistration =
+  | "registered"
+  | "install-token-required"
+  | "failed";
+
 async function postToken(
   token: string,
   platform: "android" | "ios"
-): Promise<boolean> {
+): Promise<DeviceTokenRegistration> {
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/push/device`, {
       body: JSON.stringify({ platform, provider: "fcm", token }),
       headers: await sessionHeaders(),
       method: "POST",
     });
-    return response.ok;
+    if (response.ok) {
+      return "registered";
+    }
+    if (response.status === 403) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      if (body?.error === "install-token-required") {
+        return "install-token-required";
+      }
+    }
+    logWarn("push.device_register_rejected", {
+      status: response.status,
+    });
+    return "failed";
   } catch (error) {
     logWarn("push.device_register_failed", {
       reason: error instanceof Error ? error.message : String(error),
     });
-    return false;
+    return "failed";
   }
 }
 
@@ -107,7 +131,9 @@ let lastRegisteredToken: string | null = null;
 // a token already registered this session is not re-sent. Returns the token,
 // or null when push is unavailable (no permission, simulator, no Firebase
 // config in the build).
-export async function registerForPushNotifications(): Promise<string | null> {
+export async function registerForPushNotifications(
+  runWithInstallToken: RunWithInstallToken
+): Promise<string | null> {
   if (!Device.isDevice) {
     // Push tokens are not issued to simulators/emulators.
     return null;
@@ -143,8 +169,11 @@ export async function registerForPushNotifications(): Promise<string | null> {
     if (token === lastRegisteredToken) {
       return token;
     }
-    const ok = await postToken(token, "android");
-    if (ok) {
+    const registration = await runWithInstallToken(
+      () => postToken(token, "android"),
+      (result) => result === "install-token-required"
+    );
+    if (registration === "registered") {
       lastRegisteredToken = token;
       logInfo("push.registered");
       return token;

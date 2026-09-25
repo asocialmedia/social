@@ -66,6 +66,15 @@ describe("worker job processors", () => {
   const mockPrisma = {
     orm: {
       public: {
+        Notifications: {
+          where: () => {
+            const builder = {
+              first: () => Promise.resolve(null),
+              include: () => builder,
+            };
+            return builder;
+          },
+        },
         PasswordResetTokens: {
           where: () => ({ deleteAndCount: mockResetDelete }),
         },
@@ -129,6 +138,7 @@ describe("worker job processors", () => {
     unreadNotificationCache: {
       decrement: mock(() => 0),
       increment: mock(() => 1),
+      incrementOnce: mock(() => 1),
     },
   }));
 
@@ -260,10 +270,16 @@ describe("worker job processors", () => {
       await import("./jobs");
     const { unreadNotificationCache } = await import("@asm/db");
 
-    await processNotificationCreated({ recipientId: "user-1" });
+    await processNotificationCreated({
+      notificationId: "notif-1",
+      recipientId: "user-1",
+    });
     await processNotificationDeleted({ recipientId: "user-1" });
 
-    expect(unreadNotificationCache.increment).toHaveBeenCalledWith("user-1");
+    expect(unreadNotificationCache.incrementOnce).toHaveBeenCalledWith(
+      "user-1",
+      "notif-1"
+    );
     expect(unreadNotificationCache.decrement).toHaveBeenCalledWith("user-1");
   });
 
