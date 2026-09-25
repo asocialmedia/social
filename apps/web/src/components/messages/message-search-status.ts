@@ -1,0 +1,109 @@
+// Status text for the search bar, kept out of the component so the wording can be
+// tested and so the honesty rules live in one place.
+//
+// The rule these encode: the bar must never claim more than it knows. A count
+// drawn from a partially indexed conversation says how many messages were
+// searched, not how many exist, and "No results" against a thread whose older
+// half has never been read is a lie the user will act on. So while coverage is
+// partial the wording says so, and only a fully indexed conversation gets a
+// plain "No results".
+
+export interface SearchStatusInput {
+  // A backfill walk is paging through older history right now.
+  indexingOlder: boolean;
+  // False while older history is known to exist but has not been indexed.
+  fullyCovered: boolean;
+  queryReady: boolean;
+}
+
+export interface SearchChatStatusInput extends SearchStatusInput {
+  activePosition: number;
+  matchCount: number;
+}
+
+export interface SearchListStatusInput extends SearchStatusInput {
+  rangeEnd: number;
+  rangeStart: number;
+  totalResults: number;
+}
+
+// Chat view: the match counter, with a qualifier when the conversation is only
+// partly searchable.
+export function searchChatStatus(input: SearchChatStatusInput): string {
+  const {
+    activePosition,
+    fullyCovered,
+    indexingOlder,
+    matchCount,
+    queryReady,
+  } = input;
+  if (!queryReady) {
+    return "";
+  }
+  if (matchCount === 0) {
+    if (indexingOlder) {
+      return "Searching…";
+    }
+    return fullyCovered ? "No results" : "No matches yet";
+  }
+  const position = `${activePosition > 0 ? activePosition : 1} of ${matchCount}`;
+  return fullyCovered ? position : `${position} so far`;
+}
+
+// List view: which slice of the ranked results is on screen, with the same
+// qualifier.
+export function searchListStatus(input: SearchListStatusInput): string {
+  const {
+    fullyCovered,
+    indexingOlder,
+    queryReady,
+    rangeEnd,
+    rangeStart,
+    totalResults,
+  } = input;
+  if (!queryReady) {
+    return "";
+  }
+  if (totalResults === 0) {
+    if (indexingOlder) {
+      return "Searching…";
+    }
+    return fullyCovered ? "No results" : "No matches yet";
+  }
+  const slice = `${rangeStart}–${rangeEnd} of ${totalResults}`;
+  return fullyCovered ? slice : `${slice} so far`;
+}
+
+// Label for the coverage control. The count is what the user has actually
+// covered, which is the only number available and the only one that would let
+// them decide whether the walk is worth starting.
+// What the bar says when the device is out of index storage, or had to drop a
+// conversation to stay inside its budget. Said in the status line rather than a
+// toast because it is a standing condition, not an event: the user needs to know
+// their results are narrower than they think.
+export function searchStorageStatus(input: {
+  evictedCount: number;
+  storageFull: boolean;
+}): string {
+  const { evictedCount, storageFull } = input;
+  if (storageFull) {
+    return "Storage full";
+  }
+  if (evictedCount > 0) {
+    return `Older indexes removed (${evictedCount})`;
+  }
+  return "";
+}
+
+export function searchCoverageLabel(input: {
+  indexedCount: number;
+  indexingOlder: boolean;
+}): string {
+  const { indexedCount, indexingOlder } = input;
+  if (indexingOlder) {
+    return "Indexing older messages";
+  }
+  return indexedCount > 0
+    ? `Index older messages (${indexedCount.toLocaleString()} indexed)`
+    : "Index older messages";
+}

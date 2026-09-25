@@ -55,6 +55,10 @@ interface MessageBubbleProps {
   position: BubblePosition;
   /** True while the transcript is in select mode (hides hover actions). */
   selectionActive: boolean;
+  // True briefly after a search jump lands on this message. Sweeps a single
+  // white shimmer across the bubble box only (see msg-jump-shimmer), leaving
+  // the rest of the row untouched.
+  jumpShimmer?: boolean;
 }
 
 export function MessageBubble({
@@ -68,6 +72,7 @@ export function MessageBubble({
   quotePending,
   position,
   selectionActive,
+  jumpShimmer,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
   // Media albums render as bare collages (their own frames), unlike text/post
@@ -354,7 +359,11 @@ export function MessageBubble({
               padding. Text/post messages keep the tinted bubble. The data
               attribute is the stable anchor for the options pane. */}
           <div
-            className={cn("relative max-w-full min-w-0", bubbleClass)}
+            className={cn(
+              "relative max-w-full min-w-0",
+              bubbleClass,
+              jumpShimmer && "msg-jump-shimmer"
+            )}
             data-message-bubble=""
           >
             {quoteBlock}

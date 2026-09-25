@@ -14,6 +14,7 @@ import {
   Check,
   KeyRound,
   Loader2,
+  Search,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -47,6 +48,9 @@ import { useMessagesIdentity } from "@/components/messages/message-identity-prov
 import { ConversationMediaViewerProvider } from "@/components/messages/message-media-viewer-context";
 import type { OpenConversationMedia } from "@/components/messages/message-media-viewer-context";
 import { MessageOptionsMenu } from "@/components/messages/message-options-menu";
+import { MessageSearchBar } from "@/components/messages/message-search-bar";
+import type { SearchView } from "@/components/messages/message-search-bar";
+import { MessageSearchResults } from "@/components/messages/message-search-results";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -64,7 +68,10 @@ import {
   removeMessagesFromPages,
   updateMessageInPages,
 } from "@/lib/messages/client";
-import type { ConversationDetailResponse } from "@/lib/messages/client";
+import type {
+  ConversationDetailResponse,
+  MessagePageAxis,
+} from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import {
   editMessagePayload,
@@ -90,6 +97,9 @@ import {
   selectionRange,
 } from "@/lib/messages/message-gestures";
 import type { PaneRect } from "@/lib/messages/message-gestures";
+import { createMessageIndexBackfill } from "@/lib/messages/message-index-backfill";
+import type { BackfillProgress } from "@/lib/messages/message-index-backfill";
+import { createMessageIndexWriter } from "@/lib/messages/message-index-writer";
 import type { PeerWatermarks } from "@/lib/messages/message-receipts";
 import {
   advanceWatermark,
@@ -97,6 +107,7 @@ import {
   getMessageReceipt,
   peerWatermarks,
 } from "@/lib/messages/message-receipts";
+import { paginateSearchResults } from "@/lib/messages/message-search";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -104,6 +115,9 @@ import {
   nextArrivalCount,
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
+import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
+import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
+import { useConversationSearch } from "@/lib/messages/use-conversation-search";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
   findMyWrappedKey,
@@ -117,6 +131,7 @@ import {
 } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
+import { waitForDecrypts } from "@/lib/messages/wait-for-decrypts";
 import { cn } from "@/lib/utils";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
@@ -124,6 +139,7 @@ import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
 import type { MessageGroupMeta } from "./message-grouping";
 import {
+  pagesToDropForTranscriptHistory,
   pagesToDropForViewerHistory,
   trimOldestPages,
 } from "./viewer-history-window";
@@ -152,6 +168,34 @@ const ROW_OVERSCAN = 6;
 // of the active image so adjacent media is discovered. Bounded, so a sparse
 // conversation cannot make the viewer decrypt the whole history at once.
 const VIEWER_DECRYPT_RADIUS = 40;
+// Rows per history page. Large enough that a full-history walk (in-conversation
+// search indexing, jump-to-message fallback) costs tens of round trips instead
+// of hundreds; small enough that one page stays a few tens of kilobytes of
+// ciphertext. Decrypt and render stay windowed regardless of page size.
+const HISTORY_PAGE_SIZE = 100;
+
+// Which way a transcript page was fetched. The transcript is an infinite query
+// in both directions: it normally loads older history going down, and once a
+// jump anchors the window mid-history it also has to grow upward. Reusing the
+// shared axis type keeps the cursor chain type-safe without restating it.
+type MessagesPageParam = MessagePageAxis;
+
+// The page param the transcript starts from: the newest page.
+const NEWEST_PAGE: MessagesPageParam = { kind: "older" };
+
+type MessagesInfiniteData = InfiniteData<MessagePage, MessagesPageParam>;
+
+// Backfill walk tuning. The page is the largest the API allows for a declared
+// walk, so covering a conversation costs as few round trips as possible. Because
+// the walk paces per REQUEST, a larger page is less server load for the same
+// politeness, not more: measured at 200k messages, 500 rows/page cuts cover time
+// from 11.1 minutes to 2.3.
+const BACKFILL_PAGE_SIZE = 500;
+const BACKFILL_PAGE_DELAY_MS = 250;
+// How long to coalesce index writes during a walk before re-reading the row
+// table. Without this, every committed page would trigger a full row-table read
+// and a 25-page walk would cost 25 of them.
+const COVERAGE_REFRESH_DEBOUNCE_MS = 1500;
 
 export function MessageThread({
   conversationId,
@@ -189,6 +233,32 @@ export function MessageThread({
   // messages have arrived since it last was (the Telegram-style badge).
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [arrivalCount, setArrivalCount] = useState(0);
+  // Chat search is one session with two view states. The search bar renders
+  // differently per view and owns every control, so the thread holds the mode
+  // plus the list's page and active row and routes one set of key handlers.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchView, setSearchView] = useState<SearchView>("chat");
+  const [searchPage, setSearchPage] = useState(0);
+  const [searchListIndex, setSearchListIndex] = useState(0);
+  // The local search index backend, resolved once per conversation. Null until
+  // it resolves, and permanently null when IndexedDB is unavailable, in which
+  // case search falls back to the rows loaded in this session.
+  const [searchIndex, setSearchIndex] = useState<{
+    refreshToken: number;
+    store: Awaited<ReturnType<typeof resolveSearchIndexStore>>["store"];
+  } | null>(null);
+  // Owned here (not inside the bar) so the Ctrl+F shortcut can pull focus back
+  // into the field while the results list holds it.
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // The current match: persistent for as long as the query is, so the bar's
+  // "n of N" counter and the stepper keep pointing at it after the flash ends.
+  const [searchActiveId, setSearchActiveId] = useState<string | null>(null);
+  // The shimmer target: transient (cleared by its own timer) and deliberately
+  // separate from the current match, so the single sweep can expire without the
+  // counter losing its position. The timer outlasts the 800ms animation by just
+  // enough to cover it, then drops the layer.
+  const [jumpTargetId, setJumpTargetId] = useState<string | null>(null);
+  const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -302,16 +372,25 @@ export function MessageThread({
   const messagesQuery = useInfiniteQuery<
     MessagePage,
     Error,
-    InfiniteData<MessagePage, string | undefined>,
+    MessagesInfiniteData,
     readonly [string, string],
-    string | undefined
+    MessagesPageParam
   >({
-    // Newer messages arrive over the SSE stream; there is no next page.
-    // oxlint-disable-next-line unicorn/no-useless-undefined -- sentinel for "no more pages"
-    getNextPageParam: () => undefined,
-    getPreviousPageParam: (firstPage) => firstPage.previousCursor,
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) => fetchMessages(conversationId, pageParam),
+    // Newer messages normally arrive over the SSE stream, so the newest read has
+    // no next page. After an anchored jump the window sits mid-history and
+    // carries a nextCursor, and growing upward is what keeps the transcript
+    // coherent when the user scrolls toward the present.
+    getNextPageParam: (firstPage) =>
+      firstPage.nextCursor
+        ? { cursor: firstPage.nextCursor, kind: "newer" }
+        : undefined,
+    getPreviousPageParam: (firstPage) =>
+      firstPage.previousCursor
+        ? { cursor: firstPage.previousCursor, kind: "older" }
+        : undefined,
+    initialPageParam: NEWEST_PAGE,
+    queryFn: ({ pageParam }) =>
+      fetchMessages(conversationId, pageParam, HISTORY_PAGE_SIZE),
     queryKey: ["messages", conversationId] as const,
     // Live updates come from the SSE stream, which folds creates/deletes
     // straight into this cache. Mount/focus/reconnect refetches therefore add
@@ -548,10 +627,11 @@ export function MessageThread({
         return;
       }
       const idSet = new Set(messageIds);
-      const previous = queryClient.getQueryData<
-        InfiniteData<MessagePage, string | undefined>
-      >(["messages", conversationId]);
-      queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+      const previous = queryClient.getQueryData<MessagesInfiniteData>([
+        "messages",
+        conversationId,
+      ]);
+      queryClient.setQueryData<MessagesInfiniteData>(
         ["messages", conversationId] as const,
         (old) => {
           if (!old) {
@@ -584,6 +664,10 @@ export function MessageThread({
         });
         return;
       }
+      // A hidden message is gone from this device's transcript, so it must also
+      // leave the local search index: otherwise the index would still surface
+      // text the user can no longer see.
+      searchWriterRef.current?.remove(messageIds);
       // Only drop the hidden rows from the selection once the hide succeeded,
       // so a failed batch keeps the user's selection for a retry (ending select
       // mode when the last ticked row goes).
@@ -602,10 +686,11 @@ export function MessageThread({
   // server), optimistically, and restore on failure.
   const deleteForEveryone = useCallback(
     async (message: MessageData) => {
-      const previous = queryClient.getQueryData<
-        InfiniteData<MessagePage, string | undefined>
-      >(["messages", conversationId]);
-      queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+      const previous = queryClient.getQueryData<MessagesInfiniteData>([
+        "messages",
+        conversationId,
+      ]);
+      queryClient.setQueryData<MessagesInfiniteData>(
         ["messages", conversationId] as const,
         (old) => {
           if (!old) {
@@ -943,7 +1028,7 @@ export function MessageThread({
         // Patch the row in place and drop the stale plaintext so the row
         // re-decrypts to the new text. The SSE echo of our own edit is deduped
         // by id, so this fold and the echo converge on the same row.
-        queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+        queryClient.setQueryData<MessagesInfiniteData>(
           ["messages", conversationId] as const,
           (old) => {
             if (!old) {
@@ -1422,8 +1507,14 @@ export function MessageThread({
 
   // Pull older history as the top of the loaded window nears the first
   // virtual row. Stable keys keep the viewport anchored on prepend.
-  const { fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage } =
-    messagesQuery;
+  const {
+    fetchNextPage,
+    fetchPreviousPage,
+    hasNextPage,
+    hasPreviousPage,
+    isFetchingNextPage,
+    isFetchingPreviousPage,
+  } = messagesQuery;
   useEffect(() => {
     // While the fullscreen viewer is open the transcript is frozen behind it,
     // and the viewer drives history loads itself. Letting the transcript's
@@ -1448,6 +1539,25 @@ export function MessageThread({
     virtualItems,
   ]);
 
+  // Grow toward the present as the user scrolls off the top of an anchored
+  // window. Only a window opened mid-history has a next page, so this is inert
+  // in the normal tail-loaded case. Fetching a newer page prepends rows above
+  // the viewport, which the virtualizer's own scroll compensation absorbs.
+  useEffect(() => {
+    if (mediaViewerKey || !hasNextPage || isFetchingNextPage) {
+      return;
+    }
+    if (virtualItems.length > 0 && virtualItems[0].index < 4) {
+      void fetchNextPage();
+    }
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    mediaViewerKey,
+    virtualItems,
+  ]);
+
   const retryDecrypt = useCallback(
     (message: MessageData) => {
       if (!detail || !rootKeyStore || !userId) {
@@ -1462,43 +1572,658 @@ export function MessageThread({
     [detail, requestDecrypt, rootKeyStore, userId, viewerScanCache]
   );
 
-  // Load one older page on demand for the viewer's "Load older images"
-  // affordance. The viewer never pages history on its own, so a long thread
-  // cannot be pulled in wholesale just by opening an image. The prepended page
-  // is decrypted explicitly: it sits above the visible window, so the normal
-  // viewport-driven decrypt effect would not reach it.
-  const loadOlderMedia = useCallback(async (): Promise<boolean> => {
+  // Batch decrypt request for rows outside the visible window (in-conversation
+  // search indexing). Unlike the viewer's loader there is no scan-cache
+  // filter: every undecrypted row is eligible, and request() itself dedupes
+  // cached, queued, and in-flight ids.
+  const requestDecryptBatch = useCallback(
+    (messages: MessageData[]) => {
+      if (!detail || !rootKeyStore || !userId) {
+        return;
+      }
+      const items = messages.flatMap((message) =>
+        message.deletedAt ? [] : [toDecryptItem(message)]
+      );
+      if (items.length > 0) {
+        messageDecryptor.request(items, { getBaseKeys });
+      }
+    },
+    [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
+  );
+
+  // Serialized older-page loader shared by in-conversation search (which walks
+  // the whole thread through the same infinite-query cache the transcript
+  // renders from) and the media viewer's on-demand loader below. Resolves with
+  // the newly prepended messages, diffed by id because the viewer history
+  // window may trim oldest pages concurrently.
+  const loadOlderMessages = useCallback(async (): Promise<MessageData[]> => {
     // Only `loadingOlderRef` gates concurrency. Dropping the `isFetching`
-    // check keeps the awaited jump loop going between fetches: query state
-    // flips asynchronously, so a render-scoped closure would report "busy" as
-    // "no more history" and stop after a single page.
+    // check keeps an awaited walk going between fetches: query state flips
+    // asynchronously, so a render-scoped closure would report "busy" as "no
+    // more history" and stop after a single page.
     if (loadingOlderRef.current || !hasPreviousPage) {
-      return false;
+      return [];
     }
     loadingOlderRef.current = true;
-    olderWalkRef.current = true;
-    // Identify the new messages by id, not by a length delta: the history
-    // window may trim oldest pages concurrently, so a length comparison would
-    // mis-slice the decrypt subset.
     const known = new Set(allMessages.map((message) => message.id));
     let result: Awaited<ReturnType<typeof fetchPreviousPage>> | null = null;
     try {
       result = await fetchPreviousPage();
     } catch {
       loadingOlderRef.current = false;
-      return false;
+      return [];
     }
     loadingOlderRef.current = false;
     const nextMessages = (result.data?.pages ?? []).flatMap(
       (page) => page.messages
     );
-    const added = nextMessages.filter((message) => !known.has(message.id));
+    return nextMessages.filter((message) => !known.has(message.id));
+  }, [allMessages, fetchPreviousPage, hasPreviousPage]);
+
+  // Jump to a search result: center the row and flash its bubble. When the row
+  // is not in the loaded window, one anchored read replaces the window with a
+  // page centered on the target — O(limit) regardless of how deep in history it
+  // sits, instead of walking every page from the newest message. The bounded
+  // older-page walk stays as a fallback for a target that has since been
+  // deleted or hidden, which an anchored read cannot land on.
+  const jumpToMessage = useCallback(
+    async (messageId: string) => {
+      const readFlat = () => {
+        const data = queryClient.getQueryData<MessagesInfiniteData>([
+          "messages",
+          conversationId,
+        ]);
+        return (data?.pages ?? []).flatMap((page) => page.messages);
+      };
+      let index = readFlat().findIndex((message) => message.id === messageId);
+      if (index === -1) {
+        try {
+          const window = await fetchMessages(
+            conversationId,
+            { kind: "around", messageId },
+            HISTORY_PAGE_SIZE
+          );
+          requestDecryptBatch(window.messages);
+          if (window.messages.length > 0) {
+            // The anchored read becomes the whole loaded window. pageParams[0]
+            // is the sentinel for "this is a window, not the newest page", and
+            // both cursors on the page drive the auto-loaders from here.
+            queryClient.setQueryData<MessagesInfiniteData>(
+              ["messages", conversationId],
+              { pageParams: [NEWEST_PAGE], pages: [window] }
+            );
+            index = readFlat().findIndex((m) => m.id === messageId);
+          }
+        } catch {
+          // Fall through to the bounded walk below: a failed anchor read must
+          // not make the jump a dead end when the target is reachable by paging.
+        }
+      }
+      // oxlint-disable no-await-in-loop -- bounded older-history walk with early exit
+      for (let walks = 0; walks < 30 && index === -1; walks += 1) {
+        const data = queryClient.getQueryData<MessagesInfiniteData>([
+          "messages",
+          conversationId,
+        ]);
+        if (!data?.pages[0]?.previousCursor) {
+          break;
+        }
+        const added = await loadOlderMessages();
+        if (added.length === 0) {
+          break;
+        }
+        requestDecryptBatch(added);
+        index = readFlat().findIndex((message) => message.id === messageId);
+      }
+      // oxlint-enable no-await-in-loop
+      if (index === -1) {
+        return;
+      }
+      if (jumpTimerRef.current) {
+        clearTimeout(jumpTimerRef.current);
+      }
+      setSearchActiveId(messageId);
+      setJumpTargetId(messageId);
+      jumpTimerRef.current = setTimeout(() => {
+        setJumpTargetId(null);
+      }, 850);
+      rowVirtualizer.scrollToIndex(index, {
+        align: "center",
+        behavior: "auto",
+      });
+      // Re-anchor on the next frame: the target row may still be at its
+      // estimated height (pending decrypt), and the first landing uses that
+      // estimate. Same pattern as the viewer's close-and-land.
+      requestAnimationFrame(() => {
+        rowVirtualizer.scrollToIndex(index, {
+          align: "center",
+          behavior: "auto",
+        });
+      });
+    },
+    [
+      conversationId,
+      loadOlderMessages,
+      queryClient,
+      requestDecryptBatch,
+      rowVirtualizer,
+    ]
+  );
+
+  // Resolve the index backend once per conversation. A failure here is not
+  // fatal: `resolveSearchIndexStore` already falls back to an in-memory store,
+  // and the caller treats null as "no index, loaded rows only".
+  useEffect(() => {
+    let cancelled = false;
+    const resolve = async () => {
+      try {
+        const resolved = await resolveSearchIndexStore();
+        if (!cancelled) {
+          setSearchIndex({ refreshToken: 0, store: resolved.store });
+        }
+      } catch {
+        // Both backends unavailable. Search still works over loaded rows.
+        if (!cancelled) {
+          setSearchIndex(null);
+        }
+      }
+    };
+    void resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
+
+  // The index writer for this conversation. Created once the store resolves and
+  // torn down on conversation change so one thread never writes another
+  // conversation's entries.
+  // Destructured out of the state object so effect dependencies reference the
+  // values themselves, which is what makes them valid dependencies.
+  const searchIndexStore = searchIndex?.store ?? null;
+  const searchIndexToken = searchIndex?.refreshToken ?? 0;
+  const searchWriterRef = useRef<ReturnType<
+    typeof createMessageIndexWriter
+  > | null>(null);
+
+  // Bumping the token re-reads the posting lists and the row table, so newly
+  // indexed history is findable without waiting for the next search session.
+  // During a backfill that read is expensive, so writes are coalesced instead.
+  const backfillRunningRef = useRef(false);
+  const coverageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bumpSearchIndex = useCallback(() => {
+    setSearchIndex((current) =>
+      current ? { ...current, refreshToken: current.refreshToken + 1 } : current
+    );
+  }, []);
+  const scheduleCoverageRefresh = useCallback(() => {
+    if (coverageTimerRef.current) {
+      return;
+    }
+    coverageTimerRef.current = setTimeout(() => {
+      coverageTimerRef.current = null;
+      bumpSearchIndex();
+    }, COVERAGE_REFRESH_DEBOUNCE_MS);
+  }, [bumpSearchIndex]);
+
+  // Keep the index inside its budget. Runs once per conversation open, which is
+  // cheap: the policy reads one small meta record per conversation and the row
+  // allocator, never the posting lists.
+  const enforceIndexBudget = useCallback(async () => {
+    if (!searchIndexStore) {
+      return 0;
+    }
+    try {
+      const summaries = await searchIndexStore.listConversations();
+      const plan = planSearchIndexEviction({
+        activeConversationId: conversationId,
+        summaries,
+      });
+      // oxlint-disable no-await-in-loop -- one clear per victim, deliberately serial
+      for (const victim of plan.evict) {
+        await searchIndexStore.clearConversation(victim);
+      }
+      return plan.evict.length;
+    } catch {
+      // Enumeration failed: storage is in a state this device cannot reason
+      // about. Search still works over whatever survived.
+      return 0;
+    }
+  }, [conversationId, searchIndexStore]);
+  // Enforce the budget as soon as a store exists, so a device that accumulated
+  // indexes over months trims on the next conversation rather than the next
+  // quota error.
+  useEffect(() => {
+    if (!searchIndexStore) {
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      const evicted = await enforceIndexBudget();
+      if (!cancelled && evicted > 0) {
+        setStoragePressure((current) => ({
+          evictedCount: current.evictedCount + evicted,
+          storageFull: current.storageFull,
+        }));
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [enforceIndexBudget, searchIndexStore]);
+
+  useEffect(() => {
+    if (!searchIndexStore) {
+      searchWriterRef.current = null;
+      return;
+    }
+    const writer = createMessageIndexWriter({
+      conversationId,
+      getPayload: (id) => messageDecryptor.get(id),
+      onCoverage: () => {
+        if (backfillRunningRef.current) {
+          scheduleCoverageRefresh();
+          return;
+        }
+        bumpSearchIndex();
+      },
+      onStorageFull: () => {
+        // A write was refused for lack of space. Evict first, then report: the
+        // walk can continue once something else has made room.
+        setStoragePressure((current) => ({ ...current, storageFull: true }));
+        void (async () => {
+          const evicted = await enforceIndexBudget();
+          if (evicted > 0) {
+            setStoragePressure((current) => ({
+              evictedCount: current.evictedCount + evicted,
+              storageFull: false,
+            }));
+            bumpSearchIndex();
+          }
+        })();
+      },
+      store: searchIndexStore,
+    });
+    searchWriterRef.current = writer;
+    return () => {
+      searchWriterRef.current = null;
+    };
+  }, [
+    bumpSearchIndex,
+    conversationId,
+    enforceIndexBudget,
+    scheduleCoverageRefresh,
+    searchIndexStore,
+  ]);
+
+  // Coverage of this device's index, and the walk that extends it. The walk is
+  // never started automatically: it is hundreds of requests over history nobody
+  // asked for, so the bar offers it and the user decides.
+  const [coverage, setCoverage] = useState<BackfillProgress | null>(null);
+  // Set when a write was refused for lack of storage, or when eviction had to drop
+  // a conversation to stay inside the budget. Surfaced rather than swallowed: a
+  // full disk used to look exactly like a conversation with no matches, with no
+  // way for the user to tell the difference or act on it.
+  const [storagePressure, setStoragePressure] = useState<{
+    evictedCount: number;
+    storageFull: boolean;
+  }>({ evictedCount: 0, storageFull: false });
+
+  const backfillRef = useRef<ReturnType<
+    typeof createMessageIndexBackfill
+  > | null>(null);
+  const backfillAbortRef = useRef<AbortController | null>(null);
+
+  const awaitBackfillDecrypts = useCallback(
+    async (messages: MessageData[]) => {
+      requestDecryptBatch(messages);
+      // The writer can only index a row whose payload it can read, so the walk
+      // waits for the decrypts rather than queueing rows it cannot use.
+      await waitForDecrypts(messages, {
+        lookup: (id) => messageDecryptor.get(id),
+        subscribe: messageDecryptor.subscribe,
+      });
+    },
+    [requestDecryptBatch]
+  );
+
+  const startIndexingOlder = useCallback(() => {
+    const writer = searchWriterRef.current;
+    if (!writer || !searchIndexStore || backfillRef.current) {
+      return;
+    }
+    const controller = new AbortController();
+    backfillAbortRef.current = controller;
+    backfillRunningRef.current = true;
+    const backfill = createMessageIndexBackfill({
+      awaitDecrypts: awaitBackfillDecrypts,
+      conversationId,
+      // Fetched directly rather than through the transcript's infinite query:
+      // the point of a backfill is to index history *without* holding it in
+      // memory, and growing the transcript would defeat that.
+      fetchPage: async (cursor) => {
+        const page = await fetchMessages(
+          conversationId,
+          { cursor, kind: "older", walk: true },
+          BACKFILL_PAGE_SIZE
+        );
+        return {
+          messages: page.messages,
+          previousCursor: page.previousCursor,
+        };
+      },
+      onProgress: (next) => {
+        setCoverage(next);
+      },
+      pageDelayMs: BACKFILL_PAGE_DELAY_MS,
+      signal: controller.signal,
+      store: searchIndexStore,
+      writer,
+    });
+    backfillRef.current = backfill;
+    // Not awaited: the walk is user-initiated background work, and the bar shows
+    // its progress. The teardown below is what the UI depends on.
+    const settle = async () => {
+      try {
+        await backfill.run();
+      } catch {
+        // The walker reports its own failures through progress; this only guards
+        // against a rejection escaping the run itself.
+      } finally {
+        backfillRef.current = null;
+        backfillAbortRef.current = null;
+        backfillRunningRef.current = false;
+        if (coverageTimerRef.current) {
+          clearTimeout(coverageTimerRef.current);
+          coverageTimerRef.current = null;
+        }
+        // One last read so the final page's rows are searchable immediately.
+        bumpSearchIndex();
+      }
+    };
+    void settle();
+  }, [
+    awaitBackfillDecrypts,
+    bumpSearchIndex,
+    conversationId,
+    searchIndexStore,
+  ]);
+
+  // Leaving the conversation, or closing search, must not leave a walk running:
+  // it would keep fetching and decrypting for a thread nobody is reading.
+  useEffect(() => {
+    if (searchOpen) {
+      return;
+    }
+    backfillRef.current?.stop();
+    backfillAbortRef.current?.abort();
+  }, [searchOpen]);
+
+  useEffect(
+    () => () => {
+      backfillRef.current?.stop();
+      backfillAbortRef.current?.abort();
+      if (coverageTimerRef.current) {
+        clearTimeout(coverageTimerRef.current);
+      }
+    },
+    []
+  );
+
+  // Feed every row the transcript holds to the writer. Coalesced inside the
+  // writer onto a microtask, so a page of 100 arriving rows is one write.
+  useEffect(() => {
+    const writer = searchWriterRef.current;
+    if (!writer || allMessages.length === 0) {
+      return;
+    }
+    writer.consider(allMessages);
+  }, [allMessages, searchIndexToken]);
+
+  // One search session backs both surfaces. `enabled` tracks the whole session
+  // (bar or list), so the list view inherits the bar's corpus, query, and
+  // paging walk instead of standing up a second one.
+  const search = useConversationSearch({
+    allMessages,
+    conversationId,
+    enabled: searchOpen,
+    hasPreviousPage: hasPreviousPage ?? false,
+    indexRefreshToken: searchIndexToken,
+    indexStore: searchIndexStore,
+    isFetchingPreviousPage,
+    loadOlderMessages,
+    requestDecryptBatch,
+  });
+  const { matchIds } = search;
+
+  // How much of this conversation the index can actually see, which is what the
+  // bar's counter has to be honest about. Two independent signals agree on
+  // coverage: a backfill that reached the start, or a transcript that paged to
+  // the start (the API returning no older page means there is no older page).
+  const fullyCovered =
+    coverage?.reachedStart === true ||
+    (hasPreviousPage === false && allMessages.length > 0);
+  const indexingOlder = coverage?.state === "running";
+  // Offered only when there is genuinely older history this device has not
+  // indexed, and only with a store to index it into.
+  const canIndexOlder =
+    Boolean(searchIndexStore) && (hasPreviousPage ?? false) && !fullyCovered;
+
+  // The list's page and its active row, resolved from the single pager helper
+  // so the bar's "1/5" and the rows on screen can never disagree.
+  const searchPageSlice = useMemo(
+    () => paginateSearchResults(search.results, searchPage),
+    [search.results, searchPage]
+  );
+  const searchListIndexClamped = Math.min(
+    searchListIndex,
+    searchPageSlice.pageResults.length - 1
+  );
+
+  // Auto-jump on commit: each newly debounced query lands on its newest match,
+  // Telegram-style. Three guards keep it honest:
+  //  - the debounced text must equal the live field, so the 150ms window after
+  //    a cleared query never jumps to the previous query's matches;
+  //  - a commit with no matches yet stays armed, because older history still
+  //    indexing can surface one after the commit;
+  //  - a landed match that leaves the match set (hidden, deleted) re-lands on
+  //    the newest match instead of leaving the counter pointing at nothing.
+  const committedQueryRef = useRef<string | null>(null);
+  const pendingAutoJumpRef = useRef(false);
+  useEffect(() => {
+    if (!searchOpen) {
+      return;
+    }
+    if (search.debouncedQuery.trim() !== search.query.trim()) {
+      return;
+    }
+    if (committedQueryRef.current !== search.debouncedQuery) {
+      committedQueryRef.current = search.debouncedQuery;
+      pendingAutoJumpRef.current = true;
+      setSearchActiveId(null);
+    }
+    // Nothing to land on yet: stay armed so the first match that resolves wins.
+    if (matchIds.length === 0) {
+      return;
+    }
+    const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
+    if (pendingAutoJumpRef.current) {
+      pendingAutoJumpRef.current = false;
+      void jumpToMessage(matchIds[0]);
+    } else if (activeIndex === -1) {
+      // The landed match is no longer a match for this query (hidden or
+      // deleted); re-anchor on the newest one so the counter stays truthful.
+      void jumpToMessage(matchIds[0]);
+    }
+  }, [
+    jumpToMessage,
+    matchIds,
+    search.debouncedQuery,
+    search.query,
+    searchActiveId,
+    searchOpen,
+  ]);
+
+  // One navigation model for the whole session, routed by view. The chat view
+  // steps matches chronologically through the transcript (wrapping, like
+  // Telegram); the list view moves a cursor through the current page's rows and
+  // stops at its edges, because paging there is an explicit control rather than
+  // something you fall into by holding a key down.
+  const stepThroughMatches = useCallback(
+    (direction: 1 | -1) => {
+      if (matchIds.length === 0) {
+        return;
+      }
+      const current = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
+      const from = current === -1 ? 0 : current;
+      const next = (from + direction + matchIds.length) % matchIds.length;
+      const id = matchIds[next];
+      if (id) {
+        void jumpToMessage(id);
+      }
+    },
+    [jumpToMessage, matchIds, searchActiveId]
+  );
+
+  const moveListCursor = useCallback(
+    (direction: 1 | -1) => {
+      setSearchListIndex((index) => {
+        const last = searchPageSlice.pageResults.length - 1;
+        return Math.min(Math.max(index + direction, 0), Math.max(last, 0));
+      });
+    },
+    [searchPageSlice.pageResults.length]
+  );
+
+  const changeSearchPage = useCallback(
+    (delta: 1 | -1) => {
+      setSearchPage((page) => {
+        const next = paginateSearchResults(search.results, page + delta);
+        return next.page;
+      });
+      setSearchListIndex(0);
+    },
+    [search.results]
+  );
+
+  const searchNext = useCallback(() => {
+    if (searchView === "list") {
+      moveListCursor(1);
+    } else {
+      stepThroughMatches(1);
+    }
+  }, [moveListCursor, searchView, stepThroughMatches]);
+
+  const searchPrevious = useCallback(() => {
+    if (searchView === "list") {
+      moveListCursor(-1);
+    } else {
+      stepThroughMatches(-1);
+    }
+  }, [moveListCursor, searchView, stepThroughMatches]);
+
+  // Enter: the list view jumps its highlighted row and returns to the chat to
+  // reveal it; the chat view is already showing the message, so Enter just
+  // steps on.
+  const searchSubmit = useCallback(() => {
+    if (searchView !== "list") {
+      stepThroughMatches(1);
+      return;
+    }
+    const result = searchPageSlice.pageResults[searchListIndexClamped];
+    if (result) {
+      setSearchView("chat");
+      void jumpToMessage(result.id);
+    }
+  }, [
+    jumpToMessage,
+    searchListIndexClamped,
+    searchPageSlice.pageResults,
+    searchView,
+    stepThroughMatches,
+  ]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchView("chat");
+    setSearchPage(0);
+    setSearchListIndex(0);
+    setSearchActiveId(null);
+    if (jumpTimerRef.current) {
+      clearTimeout(jumpTimerRef.current);
+      setJumpTargetId(null);
+    }
+    // A closed session keeps nothing: the next open starts from an empty field
+    // and a re-armed auto-jump, so it never re-lands on a stale query.
+    pendingAutoJumpRef.current = false;
+    committedQueryRef.current = null;
+    search.setQuery("");
+  }, [search]);
+
+  // Escape is a cascade: the list view is a state of the same surface, so it
+  // steps back to the chat view first, and only a second Escape closes search.
+  const dismissSearch = useCallback(() => {
+    if (searchView === "list") {
+      setSearchView("chat");
+      return;
+    }
+    closeSearch();
+  }, [closeSearch, searchView]);
+
+  const toggleSearchView = useCallback(() => {
+    setSearchView((view) => (view === "list" ? "chat" : "list"));
+    setSearchListIndex(0);
+  }, []);
+
+  // Opening resets the same refs, which matters when the previous session was
+  // closed by unmounting the thread or switching conversations.
+  const openSearch = useCallback(() => {
+    pendingAutoJumpRef.current = false;
+    committedQueryRef.current = null;
+    setSearchView("chat");
+    setSearchPage(0);
+    setSearchListIndex(0);
+    setSearchActiveId(null);
+    setSearchOpen(true);
+  }, []);
+
+  // One setter feeds both views, so a query typed in the bar is the same query
+  // the list ranks. A new query always returns to the first page.
+  const handleSearchQueryChange = useCallback(
+    (query: string) => {
+      search.setQuery(query);
+      setSearchPage(0);
+      setSearchListIndex(0);
+    },
+    [search]
+  );
+
+  // Landing on a result reveals it, so the list view hands back to the chat.
+  const jumpFromList = useCallback(
+    (messageId: string) => {
+      setSearchView("chat");
+      void jumpToMessage(messageId);
+    },
+    [jumpToMessage]
+  );
+
+  // Load one older page on demand for the viewer's "Load older images"
+  // affordance. The viewer never pages history on its own, so a long thread
+  // cannot be pulled in wholesale just by opening an image. The prepended page
+  // is decrypted explicitly: it sits above the visible window, so the normal
+  // viewport-driven decrypt effect would not reach it.
+  const loadOlderMedia = useCallback(async (): Promise<boolean> => {
+    if (!hasPreviousPage) {
+      return false;
+    }
+    olderWalkRef.current = true;
+    const added = await loadOlderMessages();
     if (added.length > 0) {
       requestDecryptMessages(added);
       return true;
     }
     return false;
-  }, [allMessages, fetchPreviousPage, hasPreviousPage, requestDecryptMessages]);
+  }, [hasPreviousPage, loadOlderMessages, requestDecryptMessages]);
 
   const handleViewerPosition = useCallback((index: number, total: number) => {
     setViewerPosition((current) =>
@@ -1531,7 +2256,7 @@ export function MessageThread({
     if (drop <= 0) {
       return;
     }
-    queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+    queryClient.setQueryData<MessagesInfiniteData>(
       ["messages", conversationId] as const,
       (old) => {
         if (!old) {
@@ -1553,6 +2278,63 @@ export function MessageThread({
     queryClient,
     viewerPosition,
     messagesQuery,
+  ]);
+
+  // Bound the transcript's own loaded history. The infinite query has no page
+  // cap, so scrolling up a long conversation retains every page ever fetched
+  // (measured ~102MB for a loaded 200k-message DM). Once the reader has moved
+  // well clear of the oldest loaded rows, those pages are dead weight and are
+  // dropped.
+  //
+  // Gated on the same conditions as the viewer's trim, for the same reason: a
+  // page dropped while the near-top auto-loader is mid-flight, or during an
+  // older walk, would be re-requested immediately and spin in a load/trim loop.
+  // Dropping pages above the viewport is absorbed by the virtualizer's scroll
+  // compensation, which is the mechanism the viewer's trim already relies on.
+  useEffect(() => {
+    if (mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
+      return;
+    }
+    const { data } = messagesQuery;
+    const [firstItem] = virtualItems;
+    if (!data || !firstItem) {
+      return;
+    }
+    const anchorMessageId = allMessages[firstItem.index]?.id ?? null;
+    const drop = pagesToDropForTranscriptHistory({
+      anchorMessageId,
+      findPageIndex: (id) =>
+        data.pages.findIndex((page) =>
+          page.messages.some((message) => message.id === id)
+        ),
+      firstVisibleIndex: firstItem.index,
+      pageCount: data.pages.length,
+    });
+    if (drop <= 0) {
+      return;
+    }
+    queryClient.setQueryData<MessagesInfiniteData>(
+      ["messages", conversationId] as const,
+      (old) => {
+        if (!old) {
+          return old;
+        }
+        const { pages, pageParams } = trimOldestPages(
+          old.pages,
+          old.pageParams,
+          drop
+        );
+        return { ...old, pageParams, pages };
+      }
+    );
+  }, [
+    allMessages,
+    conversationId,
+    isFetchingPreviousPage,
+    mediaViewerKey,
+    messagesQuery,
+    queryClient,
+    virtualItems,
   ]);
 
   // Close the viewer and land the transcript on the image the user was viewing.
@@ -1716,7 +2498,7 @@ export function MessageThread({
         return;
       }
       if (event.kind === "message.created") {
-        queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+        queryClient.setQueryData<MessagesInfiniteData>(
           ["messages", conversationId] as const,
           (old) => {
             if (!old) {
@@ -1743,7 +2525,8 @@ export function MessageThread({
           );
         }
       } else if (event.kind === "message.deleted") {
-        queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+        searchWriterRef.current?.remove([message.id]);
+        queryClient.setQueryData<MessagesInfiniteData>(
           ["messages", conversationId] as const,
           (old) => {
             if (!old) {
@@ -1764,7 +2547,7 @@ export function MessageThread({
         // sender's own PATCH fold already patched this row, so the SSE echo of
         // that same edit must not trigger a second, redundant re-decrypt.
         let ciphertextChanged = false;
-        queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+        queryClient.setQueryData<MessagesInfiniteData>(
           ["messages", conversationId] as const,
           (old) => {
             if (!old) {
@@ -1825,15 +2608,52 @@ export function MessageThread({
     )
   );
 
-  // Clear the typing timer when the thread unmounts.
+  // Clear the typing and jump-shimmer timers when the thread unmounts.
   useEffect(
     () => () => {
       if (typingTimerRef.current) {
         clearTimeout(typingTimerRef.current);
       }
+      if (jumpTimerRef.current) {
+        clearTimeout(jumpTimerRef.current);
+      }
     },
     []
   );
+
+  // Ctrl+F / Cmd+F opens this DM's own search instead of the browser's
+  // find-in-page, which is useless here: the transcript is virtualized, so most
+  // of the page's text is not even mounted. The shortcut re-focuses an already
+  // open field, so it also works as "take me back to the search box" from the
+  // results list.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      const isFind =
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "f";
+      if (!isFind) {
+        return;
+      }
+      // The fullscreen media viewer is its own surface; leave its browser
+      // find alone rather than dropping a search bar behind the overlay.
+      if (mediaViewerKey) {
+        return;
+      }
+      event.preventDefault();
+      if (searchOpen) {
+        searchInputRef.current?.focus();
+      } else {
+        openSearch();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mediaViewerKey, openSearch, searchOpen]);
 
   if (!detail) {
     return <MessageThreadSkeleton />;
@@ -1852,18 +2672,54 @@ export function MessageThread({
       })
     : null;
 
+  // 1-based counter position of the landed match, or 0 when the landed message
+  // is no longer one of the current matches (query changed, or it was hidden).
+  const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
+  const searchActivePosition = activeIndex + 1;
+
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <ThreadHeader
           conversation={detail}
           onBack={onBack}
+          onOpenSearch={openSearch}
           onToggleRail={onToggleRail}
           peer={peer}
           peerPresence={peerPresence}
           peerTyping={peerTyping}
           privateKey={privateKey}
         />
+
+        {searchOpen ? (
+          <MessageSearchBar
+            activePosition={searchActivePosition}
+            indexing={search.indexing}
+            canIndexOlder={canIndexOlder}
+            fullyCovered={fullyCovered}
+            indexedCount={search.indexedTotal}
+            indexingOlder={indexingOlder}
+            inputRef={searchInputRef}
+            matchCount={search.totalMatches}
+            onClose={dismissSearch}
+            onIndexOlder={startIndexingOlder}
+            onNext={searchNext}
+            onPage={changeSearchPage}
+            onPrevious={searchPrevious}
+            onQueryChange={handleSearchQueryChange}
+            onSubmit={searchSubmit}
+            onToggleView={toggleSearchView}
+            page={searchPageSlice.page}
+            pageCount={searchPageSlice.pageCount}
+            query={search.query}
+            storageEvictedCount={storagePressure.evictedCount}
+            storageFull={storagePressure.storageFull}
+            rangeEnd={searchPageSlice.rangeEnd}
+            rangeStart={searchPageSlice.rangeStart}
+            totalResults={search.results.length}
+            view={searchView}
+          />
+        ) : null}
 
         <div className="relative min-h-0 flex-1">
           {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
@@ -1944,6 +2800,7 @@ export function MessageThread({
                         <VirtualRow
                           conversationId={conversationId}
                           groupMeta={groupMeta}
+                          highlighted={jumpTargetId === message.id}
                           historyVersion={historyVersion}
                           message={message}
                           messagesById={messagesById}
@@ -2051,6 +2908,26 @@ export function MessageThread({
               open={deleteOpen}
             />
           ) : null}
+
+          {/* The list view is a state of the same surface, not a separate pane:
+              the bar above switches its own controls, and this only swaps the
+              body. Layering over the transcript (rather than replacing it)
+              keeps the virtualizer's measured rows and scroll anchor, so
+              jumping from a result and returning lands where it should. */}
+          {searchView === "list" ? (
+            <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
+              <MessageSearchResults
+                activeIndex={Math.max(searchListIndexClamped, 0)}
+                allMessages={allMessages}
+                indexing={search.indexing}
+                myUserId={userId ?? ""}
+                onJump={jumpFromList}
+                query={search.query}
+                results={searchPageSlice.pageResults}
+                truncated={search.truncated}
+              />
+            </div>
+          ) : null}
         </div>
 
         {selectionActive ? (
@@ -2118,6 +2995,7 @@ export function MessageThread({
 interface VirtualRowProps {
   conversationId: string;
   groupMeta: MessageGroupMeta;
+  highlighted: boolean;
   historyVersion: number;
   message: MessageData;
   messagesById: Map<string, MessageData>;
@@ -2204,6 +3082,7 @@ function MessageRowFrame({
 function VirtualRowInner({
   conversationId,
   groupMeta,
+  highlighted,
   message,
   messagesById,
   myUserId,
@@ -2446,6 +3325,7 @@ function VirtualRowInner({
       <MessageBubble
         content={payload}
         isDecrypting={false}
+        jumpShimmer={highlighted}
         message={message}
         myUserId={myUserId}
         onEdit={() => onEdit(message)}
@@ -2469,6 +3349,7 @@ const VirtualRow = memo(
   VirtualRowInner,
   (prev, next) =>
     prev.conversationId === next.conversationId &&
+    prev.highlighted === next.highlighted &&
     prev.message === next.message &&
     // Grouping depends on neighbours, so an appended message can flip the
     // previous last row's isLastInGroup — and a prepend/append can flip a row's
@@ -2493,6 +3374,7 @@ const VirtualRow = memo(
 function ThreadHeader({
   conversation,
   onBack,
+  onOpenSearch,
   onToggleRail,
   peer,
   peerPresence,
@@ -2501,6 +3383,7 @@ function ThreadHeader({
 }: {
   conversation: ConversationDetailResponse;
   onBack: () => void;
+  onOpenSearch: () => void;
   onToggleRail: () => void;
   peer:
     | ConversationDetailResponse["conversation"]["members"][number]["user"]
@@ -2631,6 +3514,16 @@ function ThreadHeader({
           {verifyIcon(keyChanged, verified)}
         </button>
       ) : null}
+
+      <button
+        aria-label="Search in conversation"
+        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+        onClick={onOpenSearch}
+        title="Search in conversation"
+        type="button"
+      >
+        <Search className="h-4 w-4" />
+      </button>
 
       <button
         aria-label="Online friends"

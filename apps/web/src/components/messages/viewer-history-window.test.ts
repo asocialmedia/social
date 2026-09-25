@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test";
 import type { MessagePage } from "@asm/db";
 
 import {
+  pagesToDropForTranscriptHistory,
   pagesToDropForViewerHistory,
+  TRANSCRIPT_HISTORY_KEEP_PAGES,
+  TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY,
   trimOldestPages,
   VIEWER_HISTORY_KEEP_PAGES,
   VIEWER_HISTORY_MIN_OLDER_ITEMS,
@@ -91,6 +94,72 @@ describe("pagesToDropForViewerHistory", () => {
         anchorMessageId: "p1",
         findPageIndex,
         pageCount: VIEWER_HISTORY_KEEP_PAGES + 1,
+      })
+    ).toBe(0);
+  });
+});
+
+describe("pagesToDropForTranscriptHistory", () => {
+  const pages = Array.from({ length: 20 }, (_, index) => page(`p${index}`));
+  const findPageIndex = (id: string) =>
+    pages.findIndex((p) => p.messages.some((m) => m.id === id));
+
+  test("keeps everything while the reader is near the oldest loaded row", () => {
+    // Right at the auto-loader's trigger band: trimming here would drop a page
+    // the near-top loader is about to ask for, and loop.
+    expect(
+      pagesToDropForTranscriptHistory({
+        anchorMessageId: "p15",
+        findPageIndex,
+        firstVisibleIndex: TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY - 1,
+        pageCount: pages.length,
+      })
+    ).toBe(0);
+  });
+
+  test("drops the oldest pages beyond the keep buffer once clear of them", () => {
+    const drop = pagesToDropForTranscriptHistory({
+      anchorMessageId: "p15",
+      findPageIndex,
+      firstVisibleIndex: TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY + 1,
+      pageCount: pages.length,
+    });
+    expect(drop).toBe(15 - TRANSCRIPT_HISTORY_KEEP_PAGES);
+    // The anchor page and everything from the keep buffer onward survive.
+    expect(pages.length - drop).toBeGreaterThanOrEqual(
+      TRANSCRIPT_HISTORY_KEEP_PAGES
+    );
+  });
+
+  test("is inert with too few pages to be worth trimming", () => {
+    const few = pages.slice(0, TRANSCRIPT_HISTORY_KEEP_PAGES + 1);
+    expect(
+      pagesToDropForTranscriptHistory({
+        anchorMessageId: "p3",
+        findPageIndex,
+        firstVisibleIndex: 5000,
+        pageCount: few.length,
+      })
+    ).toBe(0);
+  });
+
+  test("is inert before mount or for an anchor outside the loaded pages", () => {
+    expect(
+      pagesToDropForTranscriptHistory({
+        anchorMessageId: null,
+        findPageIndex,
+        firstVisibleIndex: 5000,
+        pageCount: pages.length,
+      })
+    ).toBe(0);
+    // An anchor the cache cannot place (hidden or evicted between render and
+    // effect) must not produce a blind slice.
+    expect(
+      pagesToDropForTranscriptHistory({
+        anchorMessageId: "gone",
+        findPageIndex,
+        firstVisibleIndex: 5000,
+        pageCount: pages.length,
       })
     ).toBe(0);
   });
