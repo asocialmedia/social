@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -32,6 +33,7 @@ import {
   subscribeHeaderVisibility,
 } from "@/features/feed/lib/header-visibility";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
 import {
   AVATAR_RING_SHADOWS,
@@ -95,7 +97,7 @@ export function MobileHeader({
       duration: 220,
       easing: Easing.out(Easing.cubic),
       toValue: headerHidden ? 1 : 0,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     });
     slide.start();
     return () => {
@@ -151,6 +153,7 @@ export function MobileHeader({
               >
                 <View style={styles.avatarFrame}>
                   <Image
+                    cachePolicy={imageCachePolicy(avatarUri)}
                     contentFit="cover"
                     key={avatarUri ?? "placeholder"}
                     onError={() => {
@@ -168,13 +171,13 @@ export function MobileHeader({
                     ImageStyle, so the ring rides an overlay like the web's
                     box-shadow layer does. */}
                   <View
-                    pointerEvents="none"
                     style={[
                       styles.avatarRing,
                       {
                         boxShadow: isDark
                           ? AVATAR_RING_SHADOWS_DARK
                           : AVATAR_RING_SHADOWS,
+                        pointerEvents: "none",
                       },
                     ]}
                   />
@@ -186,7 +189,7 @@ export function MobileHeader({
           {/* Full-bar centered overlay: the logo sits on the bar's centerline
             no matter how wide the side columns are (same as web). Touches
             pass through everywhere except the logo itself. */}
-          <View pointerEvents="box-none" style={styles.centerOverlay}>
+          <View style={[styles.centerOverlay, { pointerEvents: "box-none" }]}>
             <Pressable hitSlop={6} onPress={() => router.push("/")}>
               <Image
                 accessibilityLabel="asocialmedia"

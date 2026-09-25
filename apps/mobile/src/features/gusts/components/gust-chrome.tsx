@@ -351,9 +351,7 @@ export function GustsEmpty({
 }
 
 const TAB_SHADOW = {
-  textShadowColor: "rgba(0, 0, 0, 0.6)",
-  textShadowOffset: { height: 1, width: 0 },
-  textShadowRadius: 4,
+  ...({ textShadow: "0 1px 4px rgba(0, 0, 0, 0.6)" } as Record<string, string>),
 } as const;
 
 const styles = StyleSheet.create({

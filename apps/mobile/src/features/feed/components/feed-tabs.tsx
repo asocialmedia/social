@@ -6,7 +6,14 @@
 // active semibold-ink.
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { useAppTheme } from "@/theme";
 
@@ -64,7 +71,7 @@ export function FeedTabs<T extends string = HomeTab>({
     Animated.timing(indicatorX, {
       duration: 220,
       toValue: left,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     }).start();
   }, [indicatorX, layout]);
 
@@ -118,10 +125,9 @@ export function FeedTabs<T extends string = HomeTab>({
       })}
       {layout ? (
         <Animated.View
-          pointerEvents="none"
           style={[
             styles.indicator,
-            { transform: [{ translateX: indicatorX }] },
+            { pointerEvents: "none", transform: [{ translateX: indicatorX }] },
           ]}
         >
           <LinearGradient
@@ -165,9 +171,10 @@ const styles = StyleSheet.create({
   },
   trigger: {
     alignItems: "center",
+    flexShrink: 0,
     justifyContent: "center",
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   triggerFill: {
     flex: 1,

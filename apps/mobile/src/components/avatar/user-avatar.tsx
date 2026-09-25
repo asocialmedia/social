@@ -10,6 +10,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { usePopupProfile } from "@/features/home/components/use-popup-profile";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -34,6 +35,7 @@ export function UserAvatar({
     <View style={{ height: size, width: size }}>
       <Image
         accessibilityLabel=""
+        cachePolicy={imageCachePolicy(resolved)}
         contentFit="cover"
         onError={() => setFailedUrl(resolved)}
         source={showImage ? { uri: resolved } : avatarPlaceholder}

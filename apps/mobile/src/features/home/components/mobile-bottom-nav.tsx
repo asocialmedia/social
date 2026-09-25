@@ -29,6 +29,7 @@ import type { ComponentType } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -81,7 +82,7 @@ const RIGHT_ITEMS: MobileNavItem[] = [
 
 // Routes with a mobile screen behind them. Everything else renders as a
 // disabled stub until its screen lands - no dead-feeling fake navigation.
-const LIVE_ROUTES = new Set(["/", "/gusts"]);
+const LIVE_ROUTES = new Set(["/", "/gusts", "/discover", "/communities"]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
 // primary border and the inner lip, never a saturated fill. Light keys off
@@ -290,7 +291,7 @@ export function MobileBottomNav({
       duration: 220,
       easing: Easing.out(Easing.cubic),
       toValue: hidden ? 1 : 0,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     });
     travel.start();
     return () => {
@@ -357,8 +358,13 @@ export function MobileBottomNav({
 
   return (
     <View
-      pointerEvents="box-none"
-      style={[styles.dock, { bottom: bottomOffset + insets.bottom + 12 }]}
+      style={[
+        styles.dock,
+        {
+          bottom: bottomOffset + insets.bottom + 12,
+          pointerEvents: "box-none",
+        },
+      ]}
     >
       <Animated.View
         onLayout={(event) => {

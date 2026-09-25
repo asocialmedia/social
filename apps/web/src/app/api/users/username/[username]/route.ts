@@ -17,18 +17,14 @@ export async function GET(
 
   try {
     const session = await getSessionFromApi();
-    const loggedInUser = session?.user;
-
-    if (!loggedInUser) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const viewerId = session?.user?.id ?? "";
 
     const resolvedUsername = await resolveUsername(username);
     if (!resolvedUsername) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    const userRow = await getUserDataQuery(prisma.orm, loggedInUser.id)
+    const userRow = await getUserDataQuery(prisma.orm, viewerId)
       .where({ id: resolvedUsername.id })
       .first();
     const user = userRow ? mapUserData(userRow) : null;

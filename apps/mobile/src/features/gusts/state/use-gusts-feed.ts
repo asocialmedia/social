@@ -14,6 +14,7 @@ import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
 import { findUnseenItems } from "@/features/feed/lib/feed-types";
 import { HttpError, withRetry } from "@/features/media-upload/lib/retry";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import {
@@ -216,10 +217,12 @@ export function useGustsFeed(options: {
         logWarn("gusts.probe_failed", { reason: reason(error) });
       }
     };
-    const timer = setInterval(() => {
-      void probe();
-    }, PROBE_INTERVAL_MS);
-    return () => clearInterval(timer);
+    const poller = createExpoPoller({
+      intervalMs: PROBE_INTERVAL_MS,
+      onPoll: probe,
+    });
+    poller.start();
+    return () => poller.stop();
   }, [feedKey, initialId, personalized, status]);
 
   const showNewItems = useCallback(() => {

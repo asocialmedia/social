@@ -11,6 +11,7 @@ import {
   isBookmarkedByUser,
   normalizePostData,
   normalizePostsData,
+  orderByIndex,
   sortPostsNewest,
 } from "./feed-types";
 import type { FeedPost } from "./feed-types";
@@ -48,6 +49,37 @@ describe("insertionOrder", () => {
     expect(
       insertionOrder(items, (x, y) => x.rank - y.rank).map((item) => item.id)
     ).toEqual(["c", "a", "b"]);
+  });
+
+  test("orders FlatList view tokens without Array.sort or toSorted", () => {
+    const originalToSorted = Array.prototype.toSorted;
+    // oxlint-disable-next-line no-extend-native -- simulate the Hermes runtime
+    Object.defineProperty(Array.prototype, "toSorted", {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+    try {
+      const items = [
+        { id: "b", index: 2 },
+        { id: "a", index: 0 },
+        { id: "missing", index: null },
+        { id: "c", index: 1 },
+      ];
+      expect(orderByIndex(items).map((item) => item.id)).toEqual([
+        "a",
+        "missing",
+        "c",
+        "b",
+      ]);
+    } finally {
+      // oxlint-disable-next-line no-extend-native -- restore the test runtime
+      Object.defineProperty(Array.prototype, "toSorted", {
+        configurable: true,
+        value: originalToSorted,
+        writable: true,
+      });
+    }
   });
 });
 

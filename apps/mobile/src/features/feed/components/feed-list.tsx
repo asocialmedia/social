@@ -18,10 +18,9 @@ import {
   Text,
   View,
 } from "react-native";
-import type { PanResponderInstance } from "react-native";
+import type { PanResponderInstance, ViewToken } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
-import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
 import notFoundImage from "@/assets/images/notfound.png";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -30,7 +29,7 @@ import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { FeedVariant } from "../lib/feed-api";
-import { groupPostsIntoThreads } from "../lib/feed-types";
+import { groupPostsIntoThreads, orderByIndex } from "../lib/feed-types";
 import type { FeedPost, FeedThreadGroup } from "../lib/feed-types";
 import {
   HEADER_BAR_HEIGHT,
@@ -124,7 +123,7 @@ function createPullGestures(refs: {
       Animated.spring(refs.pullShift, {
         bounciness: 0,
         toValue: trigger ? PULL_PARK : 0,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web",
       }).start();
       resetPull();
     });
@@ -286,7 +285,7 @@ function FeedScrollbar({
     return null;
   }
   return (
-    <View pointerEvents="box-none" style={styles.scrollTrack}>
+    <View style={[styles.scrollTrack, { pointerEvents: "box-none" }]}>
       <LinearGradient
         colors={["#ff9500", "#e65500"]}
         end={{ x: 0.5, y: 1 }}
@@ -396,7 +395,6 @@ export function FeedList({
   const [lastDismissed, setLastDismissed] = useState<string | null>(null);
   const {
     dismissPost,
-    error,
     fetchNext,
     hasMore,
     newItems,
@@ -531,6 +529,25 @@ export function FeedList({
     []
   );
 
+  const handleViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<FeedThreadGroup>[] }) => {
+      const ids = new Set<string>();
+      let autoplayPostId: string | null = null;
+      const ordered = orderByIndex(viewableItems);
+      for (const item of ordered) {
+        const group = item.item as FeedThreadGroup | undefined;
+        for (const post of group?.posts ?? []) {
+          ids.add(post.id);
+          if (!autoplayPostId && hasVideoAttachment(post)) {
+            autoplayPostId = post.id;
+          }
+        }
+      }
+      publishVisibleIds(ids, autoplayPostId);
+    },
+    [publishVisibleIds]
+  );
+
   // Account-only tabs. For you is ranked from the viewer's own signals and
   // Following is their people, so neither means anything without an account;
   // the tab stays tappable (a guest discovers the feature) but the feed is
@@ -571,28 +588,20 @@ export function FeedList({
   if (status === "error" && posts.length === 0) {
     return (
       <View style={styles.centerWrap}>
-        <Image
-          contentFit="contain"
-          source={errorImage}
-          style={styles.emptyArt}
-        />
-        <Text style={[styles.errorTitle, { color: "#dc2626" }]}>
-          An error occurred while loading posts.
-        </Text>
-        <Text style={[styles.errorBody, { color: theme.dividerText }]}>
-          {error ?? "Please try again."}
-        </Text>
-        {__DEV__ ? (
-          <Text style={[styles.errorBody, { color: theme.dividerText }]}>
-            Dev build? Run `bun run dev:android --reverse-only` - the emulator
-            loses its localhost ports on reboot.
+        <View style={styles.errorWrap}>
+          <Text
+            selectable
+            style={[styles.errorTitle, { color: theme.errorBannerText }]}
+          >
+            An error occurred while loading posts.
           </Text>
-        ) : null}
-        <Pressable hitSlop={8} onPress={refresh} style={styles.retryRow}>
-          <Text style={[styles.retryText, { color: theme.auxLink }]}>
-            Try again
+          <Text
+            selectable
+            style={[styles.errorBody, { color: theme.dividerText }]}
+          >
+            Please try refreshing the page.
           </Text>
-        </Pressable>
+        </View>
       </View>
     );
   }
@@ -718,28 +727,7 @@ export function FeedList({
                 pullRef.current = 0;
                 pullUpdateRef.current?.(0);
               }}
-              onViewableItemsChanged={({ viewableItems }) => {
-                const ids = new Set<string>();
-                let autoplayPostId: string | null = null;
-                // Sorted so the "topmost visible" pick is deterministic; RN
-                // does not promise an order for viewableItems.
-                const ordered = [...viewableItems].toSorted(
-                  (a, b) => (a.index ?? 0) - (b.index ?? 0)
-                );
-                for (const item of ordered) {
-                  const group = item.item as FeedThreadGroup | undefined;
-                  for (const post of group?.posts ?? []) {
-                    ids.add(post.id);
-                    // The owner is the first visible post that actually has a
-                    // video; a text-only post at the top must not blank out
-                    // playback for the video just below it.
-                    if (!autoplayPostId && hasVideoAttachment(post)) {
-                      autoplayPostId = post.id;
-                    }
-                  }
-                }
-                publishVisibleIds(ids, autoplayPostId);
-              }}
+              onViewableItemsChanged={handleViewableItemsChanged}
               ref={listRef}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
@@ -783,7 +771,7 @@ export function FeedList({
               duration: 240,
               easing: Easing.bezier(0.32, 0.72, 0, 1),
               toValue: 0,
-              useNativeDriver: true,
+              useNativeDriver: Platform.OS !== "web",
             }).start();
           }}
           refreshing={refreshing}
@@ -805,7 +793,7 @@ export function FeedList({
           />
         ) : null}
         {lastDismissed ? (
-          <View style={styles.undoWrap} pointerEvents="box-none">
+          <View style={[styles.undoWrap, { pointerEvents: "box-none" }]}>
             <View
               style={[
                 styles.undoBar,
@@ -901,18 +889,25 @@ const styles = StyleSheet.create({
     paddingVertical: 56,
   },
   errorBody: {
+    alignSelf: "stretch",
     fontFamily: "SofiaProReg",
     fontSize: 12,
     fontWeight: "normal",
     marginTop: 8,
+    maxWidth: 420,
     textAlign: "center",
   },
   errorTitle: {
     fontFamily: "SofiaProMed",
     fontSize: 14,
     fontWeight: "normal",
-    marginTop: 12,
     textAlign: "center",
+  },
+  errorWrap: {
+    alignItems: "center",
+    maxWidth: 520,
+    paddingHorizontal: 16,
+    width: "100%",
   },
   footer: {
     paddingVertical: 20,
@@ -959,14 +954,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "normal",
     textAlign: "center",
-  },
-  retryRow: {
-    marginTop: 12,
-  },
-  retryText: {
-    fontFamily: "SofiaProMed",
-    fontSize: 14,
-    fontWeight: "normal",
   },
   scrollThumb: {
     borderRadius: 9999,

@@ -46,6 +46,7 @@ import {
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -154,6 +155,7 @@ export function PostDetailCard({
               style={[styles.railStub, { backgroundColor: theme.cardBorder }]}
             />
             <Image
+              cachePolicy={imageCachePolicy(avatarUri)}
               contentFit="cover"
               onError={() => setAvatarFailed(true)}
               source={
@@ -231,6 +233,7 @@ export function PostDetailCard({
         <View>
           <View style={styles.detailHead}>
             <Image
+              cachePolicy={imageCachePolicy(avatarUri)}
               contentFit="cover"
               onError={() => setAvatarFailed(true)}
               source={

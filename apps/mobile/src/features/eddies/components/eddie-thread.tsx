@@ -50,6 +50,8 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getShortPostId } from "@/features/post/lib/post-path";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
+import { imageCachePolicy } from "@/lib/image-cache";
 import { logError, logWarn } from "@/lib/telemetry";
 import { LOGIN_BUTTON_SHADOWS, useAppTheme } from "@/theme";
 
@@ -141,6 +143,10 @@ function EddieImage({
     <View style={styles.attachment}>
       <Image
         accessibilityLabel="Eddie attachment"
+        cachePolicy={imageCachePolicy(
+          eddieImageUrl(apiBase, media),
+          media.mimeType === "image/gif"
+        )}
         contentFit="contain"
         onError={() => setFailed(true)}
         source={failed ? noMediaImage : { uri: eddieImageUrl(apiBase, media) }}
@@ -447,8 +453,9 @@ export function EddieThread({
     if (!pagesInPlace) {
       return;
     }
-    const timer = setInterval(() => {
-      void (async () => {
+    const poller = createExpoPoller({
+      intervalMs: POLL_MS,
+      onPoll: async () => {
         try {
           const cookie = await authClient.getCookie();
           const page = await fetchCommentsPage(postId, null, {
@@ -459,11 +466,10 @@ export function EddieThread({
         } catch {
           // Polling is best-effort; the next tick tries again.
         }
-      })();
-    }, POLL_MS);
-    return () => {
-      clearInterval(timer);
-    };
+      },
+    });
+    poller.start();
+    return () => poller.stop();
   }, [apiBase, pagesInPlace, postId]);
 
   const loadMore = async () => {

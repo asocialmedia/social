@@ -8,6 +8,7 @@
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
 
 import {
   fetchUnreadCount,
@@ -22,8 +23,7 @@ type Listener = (count: number) => void;
 class UnreadCountStore {
   private count = 0;
   private listeners = new Set<Listener>();
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private started = false;
+  private poller: ReturnType<typeof createExpoPoller> | null = null;
   // A session change (sign in / out) must stop a poll loop that was started
   // for the previous identity.
   private identity: string | null = null;
@@ -70,11 +70,11 @@ class UnreadCountStore {
   // Starts polling for `identity` (the user id, or "guest" so the loop still
   // re-keys on sign-in). Idempotent per identity; call `stop` on sign-out.
   start(identity: string | null): void {
-    if (this.started && this.identity === identity) {
+    if (this.poller && this.identity === identity) {
       return;
     }
-    this.stop();
-    this.started = true;
+    this.poller?.stop();
+    this.poller = null;
     this.identity = identity;
     // Guests have no notifications; skip the initial fetch and timer until a
     // signed-in identity arrives.
@@ -82,19 +82,17 @@ class UnreadCountStore {
       this.set(0);
       return;
     }
-    void this.refresh();
-    this.timer = setInterval(() => {
-      void this.refresh();
-    }, UNREAD_POLL_INTERVAL_MS);
+    this.poller = createExpoPoller({
+      intervalMs: UNREAD_POLL_INTERVAL_MS,
+      onPoll: () => this.refresh(),
+    });
+    this.poller.start();
   }
 
   stop(): void {
-    this.started = false;
+    this.poller?.stop();
+    this.poller = null;
     this.identity = null;
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
   }
 
   // Marks everything read and zeroes the badge in one call.

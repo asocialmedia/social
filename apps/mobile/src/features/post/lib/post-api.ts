@@ -14,6 +14,7 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { FeedApiError } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
+import { getWithTimeout } from "@/lib/http-get";
 
 function callPostApi(
   path: string,
@@ -27,11 +28,17 @@ function callPostApi(
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  return baseFetch(`${options.apiBase}${path}`, {
+  const request = {
     body: options.body,
     headers,
     method: options.method ?? "GET",
-  });
+  } satisfies RequestInit;
+  return (options.method ?? "GET").toUpperCase() === "GET"
+    ? getWithTimeout(`${options.apiBase}${path}`, request, {
+        baseFetch,
+        timeoutMs: options.timeoutMs,
+      })
+    : baseFetch(`${options.apiBase}${path}`, request);
 }
 
 async function readJson(response: Response): Promise<unknown> {

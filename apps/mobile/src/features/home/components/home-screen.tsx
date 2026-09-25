@@ -1,11 +1,12 @@
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 // Root home page: mobile header, the four-tab feed (For you / Latest /
 // Trending / Following) with swipe navigation, and the guest auth bar docked
 // at the bottom. Ports web ClientHome's tab mechanics: the remembered tab
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
 // keeps its own cached pages and scroll position.
-import { useCallback, useEffect, useState } from "react";
-import { Animated, Easing, StyleSheet, View } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
@@ -28,6 +29,7 @@ import { MobileHeader, headerSlide } from "./mobile-header";
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();
+  const router = useRouter();
   const { isPending, user } = useSessionContext();
   // While the session is still resolving, `user` is null for everyone. Treating
   // that as "guest" flashes the Log in pill at signed-in users, so neither the
@@ -35,7 +37,9 @@ export default function HomeScreen() {
   const showUser = !isPending && Boolean(user);
   const isLoggedIn = showUser;
   const memoryReady = useHomeTabMemoryReady();
-  const storedHome = useTabStore((state) => state.home);
+  const storedHome = useTabStore((state) =>
+    user?.id ? state.homeByUserId[user.id] : state.home
+  );
   const setHomeTab = useTabStore((state) => state.setHomeTab);
   // The bell badge polls here (the header is present on every signed-in
   // surface); the notifications screen reads the same store.
@@ -67,7 +71,7 @@ export default function HomeScreen() {
       duration: 220,
       easing: Easing.out(Easing.cubic),
       toValue: dockHidden ? 0 : 1,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     });
     anim.start();
     return () => {
@@ -86,19 +90,19 @@ export default function HomeScreen() {
 
   const handleTabChange = useCallback(
     (next: HomeTab) => {
-      setHomeTab(next);
+      setHomeTab(next, user?.id);
     },
-    [setHomeTab]
+    [setHomeTab, user?.id]
   );
 
   const handleIndexChange = useCallback(
     (index: number) => {
       const def = HOME_TAB_DEFS[index];
       if (def && def.value !== tab) {
-        setHomeTab(def.value);
+        setHomeTab(def.value, user?.id);
       }
     },
-    [setHomeTab, tab]
+    [setHomeTab, tab, user?.id]
   );
 
   // Hide-on-scroll follow: tabs + feed translate by the bar height on the
@@ -116,6 +120,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
+        onSearchPress={() => router.push("/search")}
         unreadCount={unreadCount}
         user={
           showUser && user
@@ -173,10 +178,10 @@ export default function HomeScreen() {
           onLayout={(event) => {
             setBannerHeight(event.nativeEvent.layout.height);
           }}
-          pointerEvents="box-none"
           style={{
             bottom: 0,
             left: 0,
+            pointerEvents: "box-none",
             position: "absolute",
             right: 0,
             transform: [{ translateY: bannerTranslate }],

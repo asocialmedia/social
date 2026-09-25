@@ -14,6 +14,7 @@ import {
   Animated,
   Dimensions,
   PanResponder,
+  Platform,
   StyleSheet,
   View,
 } from "react-native";
@@ -61,7 +62,7 @@ export function FeedPager({
       Animated.timing(translateX, {
         duration: 220,
         toValue: -next * pageWidth,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web",
       }).start(({ finished }) => {
         if (finished) {
           if (next !== activeIndex) {

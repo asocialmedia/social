@@ -867,9 +867,10 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProBold",
     fontSize: 12,
     letterSpacing: -0.3,
-    textShadowColor: "rgba(0, 0, 0, 0.2)",
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 1,
+    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
+      string,
+      string
+    >),
   },
   root: {
     gap: 20,

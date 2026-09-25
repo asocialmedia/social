@@ -14,6 +14,7 @@ import { useEvent, useEventListener } from "expo";
 // player at all (the source is null otherwise).
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
   ArrowBigDown,
@@ -184,6 +185,7 @@ export function GustCard({
   const burstIdRef = useRef(0);
   const moreRef = useRef<View>(null);
 
+  const router = useRouter();
   const vote = useGustVote(post, viewerId, isActive);
   const bookmark = useGustBookmark(post, viewerId, isActive);
   const follow = useGustFollow(post, viewerId);
@@ -403,6 +405,16 @@ export function GustCard({
 
   const { user } = post;
   const name = user?.displayName || user?.username || "Unknown";
+  const openAuthor = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    if (!user?.username) {
+      return;
+    }
+    router.push({
+      params: { username: user.username },
+      pathname: "/users/[username]",
+    });
+  };
   const avatarUri = user?.avatarUrl
     ? resolveProfileImageUrl(user.avatarUrl, apiBase)
     : null;
@@ -512,22 +524,42 @@ export function GustCard({
         ) : null}
 
         <View style={styles.authorRow}>
-          <Image
-            accessibilityLabel={`${name}'s avatar`}
-            contentFit="cover"
-            source={avatarUri ? { uri: avatarUri } : avatarPlaceholder}
-            style={styles.avatar}
-          />
+          <Pressable
+            accessibilityLabel={`Open ${name}'s profile`}
+            accessibilityRole="link"
+            disabled={!user?.username}
+            onPress={openAuthor}
+          >
+            <Image
+              accessibilityLabel={`${name}'s avatar`}
+              contentFit="cover"
+              source={avatarUri ? { uri: avatarUri } : avatarPlaceholder}
+              style={styles.avatar}
+            />
+          </Pressable>
           <View style={styles.authorCopy}>
             <View style={styles.nameRow}>
-              <Text numberOfLines={1} style={styles.name}>
-                {name}
-              </Text>
-              <UserBadge
-                badge={user?.badge ?? null}
-                badges={user?.badges ?? null}
-                communityRoles={user?.communityMemberships ?? null}
-              />
+              <Pressable
+                accessibilityLabel={`Open ${name}'s profile`}
+                accessibilityRole="link"
+                disabled={!user?.username}
+                onPress={openAuthor}
+                style={styles.authorIdentity}
+              >
+                <Text numberOfLines={1} style={styles.name}>
+                  {name}
+                </Text>
+                <UserBadge
+                  badge={user?.badge ?? null}
+                  badges={user?.badges ?? null}
+                  communityRoles={user?.communityMemberships ?? null}
+                />
+                {user?.username ? (
+                  <Text numberOfLines={1} style={styles.handle}>
+                    @{user.username}
+                  </Text>
+                ) : null}
+              </Pressable>
               {follow.visible ? (
                 <FollowButton
                   following={follow.following}
@@ -536,11 +568,6 @@ export function GustCard({
                 />
               ) : null}
             </View>
-            {user?.username ? (
-              <Text numberOfLines={1} style={styles.handle}>
-                @{user.username}
-              </Text>
-            ) : null}
           </View>
         </View>
 
@@ -736,9 +763,10 @@ export function GustCard({
 }
 
 const TEXT_SHADOW = {
-  textShadowColor: "rgba(0, 0, 0, 0.45)",
-  textShadowOffset: { height: 1, width: 0 },
-  textShadowRadius: 3,
+  ...({ textShadow: "0 1px 3px rgba(0, 0, 0, 0.45)" } as Record<
+    string,
+    string
+  >),
 } as const;
 
 const styles = StyleSheet.create({
@@ -791,6 +819,13 @@ const styles = StyleSheet.create({
   },
   authorCopy: {
     flexShrink: 1,
+  },
+  authorIdentity: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 6,
+    minWidth: 0,
   },
   authorRow: {
     alignItems: "center",

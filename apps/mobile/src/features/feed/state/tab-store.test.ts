@@ -7,6 +7,7 @@ import {
   isTabValue,
   HOME_TABS,
   resolveExploreTab,
+  resolveGustResumeTab,
   resolveHomeTab,
   resolveProfileTab,
   TAB_MEMORY_TTL_MS,
@@ -125,6 +126,29 @@ describe("tab memory store", () => {
     expect(store.getState().home?.value).toBe("trending");
     store.getState().resetTabMemory();
     expect(store.getState().home).toBeNull();
+  });
+
+  test("remembers per-user home and gust tabs", () => {
+    const store = createTabMemoryStore(storage);
+    store.getState().setHomeTab("trending", "user-1");
+    store.getState().setGustTab("user-1", "latest");
+    expect(store.getState().homeByUserId["user-1"]?.value).toBe("trending");
+    expect(store.getState().gustByUserId["user-1"]?.value).toBe("latest");
+    store.getState().clearResumeTabs("user-1");
+    expect(store.getState().homeByUserId["user-1"]).toBeUndefined();
+    expect(store.getState().gustByUserId["user-1"]).toBeUndefined();
+  });
+
+  test("resolves the remembered gust tab per user", () => {
+    expect(
+      resolveGustResumeTab(
+        null,
+        true,
+        { updatedAt: Date.now(), value: "latest" },
+        true
+      )
+    ).toBe("latest");
+    expect(resolveGustResumeTab(null, false, null, true)).toBe("latest");
   });
 
   test("sanitizes hostile persisted payloads", async () => {

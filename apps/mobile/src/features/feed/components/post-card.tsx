@@ -6,16 +6,17 @@
 // action bar (vote | eddies | respond | views | share + bookmark).
 //
 // Card taps open the post detail screen (/posts/[postId]), mirroring web's
-// card-wide navigation (interactive controls, the composer and eddies opt
-// out by sitting outside the tap region). Profile links stay static text
-// and Respond shows its count without opening the skipped composer.
+// card-wide navigation. Profile identity controls explicitly stop the press
+// event before routing to /users/[username], so they never open the post.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
+import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -183,6 +184,16 @@ export function PostCard({
     const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
     router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
   };
+  const openAuthor = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    if (!author?.username) {
+      return;
+    }
+    router.push({
+      params: { username: author.username },
+      pathname: "/users/[username]",
+    });
+  };
 
   const inline = useMemo(
     () => extractInlineMeta(post.content ?? ""),
@@ -241,49 +252,66 @@ export function PostCard({
               hasThreadChild={hasThreadChild}
               hasThreadParent={hasThreadParent}
             />
-            <Image
-              contentFit="cover"
-              onError={() => setAvatarFailed(true)}
-              source={
-                avatarUri && !avatarFailed
-                  ? { uri: avatarUri }
-                  : avatarPlaceholder
-              }
-              style={[styles.avatar, { backgroundColor: theme.cardBg }]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                styles.avatarRing,
-                {
-                  boxShadow: isDark
-                    ? AVATAR_RING_SHADOWS_DARK
-                    : AVATAR_RING_SHADOWS,
-                },
-              ]}
-            />
+            <Pressable
+              accessibilityLabel={`Open ${author?.displayName || username}'s profile`}
+              accessibilityRole="link"
+              disabled={!author?.username}
+              onPress={openAuthor}
+              style={styles.avatarLink}
+            >
+              <Image
+                cachePolicy={imageCachePolicy(avatarUri)}
+                contentFit="cover"
+                onError={() => setAvatarFailed(true)}
+                source={
+                  avatarUri && !avatarFailed
+                    ? { uri: avatarUri }
+                    : avatarPlaceholder
+                }
+                style={[styles.avatar, { backgroundColor: theme.cardBg }]}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.avatarRing,
+                  {
+                    boxShadow: isDark
+                      ? AVATAR_RING_SHADOWS_DARK
+                      : AVATAR_RING_SHADOWS,
+                  },
+                ]}
+              />
+            </Pressable>
           </View>
 
           <View style={styles.content}>
             <View style={styles.headerRow}>
               <View style={styles.headerLeft}>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.name, { color: theme.inputText }]}
+                <Pressable
+                  accessibilityLabel={`Open ${displayName}'s profile`}
+                  accessibilityRole="link"
+                  disabled={!author?.username}
+                  onPress={openAuthor}
+                  style={styles.authorIdentity}
                 >
-                  {displayName}
-                </Text>
-                <UserBadge
-                  badge={author?.badge}
-                  badges={author?.badges}
-                  communityRoles={author?.communityMemberships}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={[styles.handle, { color: theme.dividerText }]}
-                >
-                  @{username}
-                </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.name, { color: theme.inputText }]}
+                  >
+                    {displayName}
+                  </Text>
+                  <UserBadge
+                    badge={author?.badge}
+                    badges={author?.badges}
+                    communityRoles={author?.communityMemberships}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.handle, { color: theme.dividerText }]}
+                  >
+                    @{username}
+                  </Text>
+                </Pressable>
                 <Text style={[styles.dot, { color: theme.dividerText }]}>
                   ·
                 </Text>
@@ -480,11 +508,22 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     minWidth: 0,
   },
+  authorIdentity: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 6,
+    minWidth: 0,
+  },
   avatar: {
     borderRadius: 12,
     height: 36,
     width: 36,
     zIndex: 1,
+  },
+  avatarLink: {
+    height: 36,
+    width: 36,
   },
   avatarRing: {
     borderRadius: 12,

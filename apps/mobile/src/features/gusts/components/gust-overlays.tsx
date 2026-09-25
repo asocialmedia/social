@@ -341,9 +341,10 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
-    textShadowColor: "rgba(0, 0, 0, 0.5)",
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 3,
+    ...({ textShadow: "0 1px 3px rgba(0, 0, 0, 0.5)" } as Record<
+      string,
+      string
+    >),
   },
   captionBox: {
     backgroundColor: "rgba(0, 0, 0, 0.85)",
@@ -430,9 +431,10 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
-    textShadowColor: "rgba(0, 0, 0, 0.15)",
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 1,
+    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.15)" } as Record<
+      string,
+      string
+    >),
   },
   gateCenter: {
     alignItems: "center",

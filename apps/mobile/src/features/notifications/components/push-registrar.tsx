@@ -1,4 +1,3 @@
-import * as Notifications from "expo-notifications";
 // Wires native push into the app's lifecycle:
 // - registers/refreshes the device token whenever a user is signed in;
 // - re-registers on foreground (a token can rotate while backgrounded);
@@ -10,7 +9,7 @@ import * as Notifications from "expo-notifications";
 // affects the app.
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -19,6 +18,7 @@ import { logInfo } from "@/lib/telemetry";
 import {
   registerForPushNotifications,
   resetPushRegistration,
+  subscribeToPushTokenChanges,
   subscribeToPushTaps,
   unregisterPushNotifications,
 } from "../lib/push";
@@ -41,6 +41,9 @@ export function PushRegistrar() {
   }, [router]);
 
   useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
     if (isPending) {
       return;
     }
@@ -65,6 +68,9 @@ export function PushRegistrar() {
   // A token can rotate while the app is backgrounded (app restore, update),
   // so re-register on each return to foreground.
   useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
     if (!userId) {
       return;
     }
@@ -73,7 +79,7 @@ export function PushRegistrar() {
         void registerForPushNotifications(runWithInstallToken);
       }
     });
-    const tokenSubscription = Notifications.addPushTokenListener(() => {
+    const tokenSubscription = subscribeToPushTokenChanges(() => {
       resetPushRegistration();
       void registerForPushNotifications(runWithInstallToken);
     });

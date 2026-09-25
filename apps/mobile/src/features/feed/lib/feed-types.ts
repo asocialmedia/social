@@ -153,6 +153,16 @@ export function insertionOrder<T>(
   return ordered;
 }
 
+interface IndexedItem {
+  index?: number | null;
+}
+
+// FlatList does not guarantee viewableItems order. Keep the callback on the
+// Hermes-safe insertion path instead of Array.sort/toSorted.
+export function orderByIndex<T extends IndexedItem>(items: readonly T[]): T[] {
+  return insertionOrder(items, (a, b) => (a.index ?? 0) - (b.index ?? 0));
+}
+
 function countOf(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

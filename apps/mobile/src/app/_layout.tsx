@@ -98,10 +98,19 @@ export default function RootLayout() {
             >
               <Stack.Screen name="index" />
               <Stack.Screen name="notifications" />
+              <Stack.Screen name="search" />
+              <Stack.Screen name="bookmarks" />
               <Stack.Screen
                 name="gusts"
                 options={{ contentStyle: { backgroundColor: "#000000" } }}
               />
+              <Stack.Screen name="users/[username]" />
+              <Stack.Screen name="users/[username]/followers" />
+              <Stack.Screen name="users/[username]/following" />
+              <Stack.Screen name="discover" />
+              <Stack.Screen name="communities" />
+              <Stack.Screen name="communities/create" />
+              <Stack.Screen name="a/[slug]" />
               <Stack.Screen name="(auth)" />
             </Stack>
             {/* Shown only when a mutating request needs the install credential
