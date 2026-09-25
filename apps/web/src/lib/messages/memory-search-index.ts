@@ -10,6 +10,7 @@ import {
   emptySearchIndexRowList,
   emptySearchIndexRowTable,
   internRows,
+  intersectPostingLists,
   rowListAdd,
   rowListRemove,
   rowListToArray,
@@ -22,6 +23,8 @@ import type {
   SearchIndexRowTable,
   SearchIndexStore,
 } from "./search-index-format";
+import { encodeRowTable, projectRowTable } from "./search-index-vault";
+import type { SealedRowTable } from "./search-index-vault";
 
 interface ConversationIndex {
   posting: Map<string, SearchIndexRowList>;
@@ -60,8 +63,30 @@ const removeFromToken = (
   }
 };
 
+// Projects the in-memory conversation table into the sealed table shape, which is
+// what the codec and the query path actually consume. Every row here is live: the
+// in-memory backend drops removed rows outright rather than tombstoning them,
+// because its lifetime is a single session and the tombstone exists to stop an
+// older DEVICE resurrecting a deletion.
+function toSealedRowTable(index: ConversationIndex): SealedRowTable {
+  const rowCount = index.table.messageIdByRow.length;
+  return {
+    createdAtByRow: [...index.table.createdAtByRow],
+    messageIdByRow: [...index.table.messageIdByRow],
+    presentByRow: Array.from({ length: rowCount }, () => true),
+    senderIdByRow: [...index.table.senderIdByRow],
+    tokensByRow: Array.from({ length: rowCount }, (_, row) => [
+      ...(index.tokensByRow.get(row) ?? []),
+    ]),
+  };
+}
+
 export function createMemorySearchIndexStore(): SearchIndexStore & {
   conversations: () => string[];
+  readPostingList: (
+    conversationId: string,
+    token: string
+  ) => Promise<Uint32Array>;
   // Test affordance: the live posting map, for structural assertions.
   postingFor: (conversationId: string) => Map<string, SearchIndexRowList>;
   tokenCount: (conversationId: string) => number;
@@ -138,6 +163,34 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return Promise.resolve();
     },
 
+    // The reference implementation of the query path, run through the real codec
+    // so the persistent backend has an exact model rather than a parallel one:
+    // the table is encoded, the posting lists are intersected, and the matched
+    // rows are projected out of the encoded form rather than read off the
+    // in-memory structures. A query therefore exercises the same projection the
+    // sealed backend will.
+    //
+    // Postings stay keyed by token TEXT here. Interning them to dictionary ids is
+    // a storage detail: it exists so the persistent backend never writes a token
+    // into an IndexedDB key, where it would be plaintext at rest. In memory there
+    // is nothing to hide and nothing to look up by id.
+    query(conversationId, tokens, limit) {
+      const index = indexFor(conversationId);
+      const lists = tokens.map((token) => {
+        const list = index.posting.get(token);
+        return list ? rowListToArray(list) : new Uint32Array(0);
+      });
+      const { rows, totalMatched } = intersectPostingLists(lists, limit);
+      if (rows.length === 0) {
+        return Promise.resolve({ rows: new Map(), totalMatched });
+      }
+      const encoded = encodeRowTable(toSealedRowTable(index));
+      return Promise.resolve({
+        rows: projectRowTable(encoded, rows),
+        totalMatched,
+      });
+    },
+
     readAllPostingLists(conversationId) {
       const out = new Map<string, Uint32Array>();
       for (const [token, list] of indexFor(conversationId).posting) {
@@ -157,7 +210,9 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       ]);
     },
 
-    readPostingList(conversationId, token) {
+    // A test affordance, not part of the store contract: the query path goes
+    // through `query` because a caller cannot resolve token ids without the table.
+    readPostingList(conversationId: string, token: string) {
       const list = indexFor(conversationId).posting.get(token);
       // Materialized into a fresh array, so a caller cannot mutate the store's
       // list by accident.

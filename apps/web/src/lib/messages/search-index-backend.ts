@@ -10,19 +10,21 @@
 // browser or an IndexedDB shim.
 
 import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
+import type { SearchIndexKeyResolver } from "./indexeddb-search-index";
 import { createMemorySearchIndexStore } from "./memory-search-index";
 import type { SearchIndexStore } from "./search-index-format";
 
 export type SearchIndexBackend = "indexeddb" | "memory";
 
-let resolved: { backend: SearchIndexBackend; store: SearchIndexStore } | null =
-  null;
-
-async function tryIndexedDb(): Promise<SearchIndexStore | null> {
+async function tryIndexedDb(
+  resolveKey: SearchIndexKeyResolver
+): Promise<SearchIndexStore | null> {
   if (typeof indexedDB === "undefined") {
     return null;
   }
-  const store = createIndexedDbSearchIndexStore();
+  // The store takes its sealing key per conversation, because the key is derived
+  // from a conversation root that only the thread holding it can supply.
+  const store = createIndexedDbSearchIndexStore({ resolveKey });
   try {
     // Prove the database actually opens before committing to it. A denied or
     // corrupt store throws here, which is exactly the case to catch: a backend
@@ -40,21 +42,26 @@ export interface ResolvedSearchIndex {
   store: SearchIndexStore;
 }
 
-// Resolves once per session and caches the result, so a denied database is
-// probed once rather than on every keystroke batch.
-export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
-  if (resolved) {
-    return resolved;
-  }
-  const persistent = await tryIndexedDb();
-  resolved = persistent
+// Resolves the backend and returns a fresh store.
+//
+// Deliberately not cached. A cached store would capture the first call's key
+// resolver and reuse it for every later caller, so opening a second conversation
+// would try to read and write its index with the FIRST conversation's sealing
+// key -- the two conversations would be unable to open each other's tables, and
+// the failure would look like a corrupt index rather than a wiring mistake. The
+// store resolves its key per operation, so the probe cost is paid once per
+// conversation open rather than per keystroke.
+export async function resolveSearchIndexStore(
+  resolveKey: SearchIndexKeyResolver
+): Promise<ResolvedSearchIndex> {
+  const persistent = await tryIndexedDb(resolveKey);
+  return persistent
     ? { backend: "indexeddb", store: persistent }
     : { backend: "memory", store: createMemorySearchIndexStore() };
-  return resolved;
 }
 
-// Test seam: drops the cached resolution so a test can exercise the fallback
-// with a different availability probe.
+// Test seam. There is no cached state left to clear, so this only exists as one
+// place to change if a caching decision is ever revisited.
 export function resetSearchIndexStoreForTests(): void {
-  resolved = null;
+  // No cached state to clear.
 }

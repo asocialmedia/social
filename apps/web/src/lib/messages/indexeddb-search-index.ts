@@ -4,37 +4,31 @@
 // search-index-format.ts (pure, tested) and in the store contract, so the
 // browser backend cannot drift from the tested in-memory reference.
 //
-// Schema, and why it is shaped this way:
+// Schema (current):
 //
-//   rows      [conversationId, row]      -> { messageId, createdAt, senderId, tokens }
-//   row-ids   [conversationId, messageId] -> row
-//   postings  [conversationId, token]     -> Uint32Array of row ids
-//   alloc     conversationId              -> next row id to hand out
-//   meta      conversationId              -> coverage cursor
+//   tables    conversationId -> { generation, instanceId, revision, sealed: Uint8Array }
+//   postings  [conversationId, tokenId] -> Uint32Array of row ids
+//   alloc     conversationId -> next row id
+//   meta      conversationId -> coverage cursor
+//   pending   conversationId -> ids not searchable yet
 //
-// Two decisions carry the performance:
+// The row table is ONE sealed AEAD record per conversation rather than one record
+// per row, for a reason that was measured: WebCrypto costs about 0.2ms per
+// operation and a query resolves up to 2,000 rows, so per-row encryption is
+// roughly 400ms per keystroke. Sealing the table once costs a few milliseconds of
+// AES (measured 1.3ms to project 2,000 rows from a 200k-row table) and is what
+// makes the index unreadable to anyone holding the device database without also
+// holding the identity key.
 //
-// - Rows are keyed by ROW ID, not by message id. A query intersects posting lists
-//   to get row ids and then resolves exactly those rows, so answering a search
-//   costs O(results) instead of O(conversation). Keying by message id is what
-//   previously forced a full scan of every row on each search, which held 76MB in
-//   memory for a 200k-message conversation. The write path still needs to go from
-//   a message id to its row, which is all `row-ids` is for.
-// - Postings are keyed by token, so a query is one point read per typed word.
-//   Loading every posting list cost ~146MB of RAM on 200k messages.
+// Two consequences, both deliberate:
 //
-// Message ids are stored once, in `rows`. Postings hold small integers, which is
-// what keeps the index smaller than the messages it indexes.
-//
-// NOT YET SEALED: the row table is plaintext at rest, so `messageId -> tokens` is
-// a confirmation oracle for anyone holding the device database. The primitives to
-// close that are built and tested (see search-index-vault.ts and the index key
-// derivation in crypto.ts): an AES-GCM seal plus a compact row-table codec, keyed
-// by HKDF(root, "asm:index:<conversationId>") so the key is a sibling of the
-// ratchet and wrap keys and cannot weaken message recovery. What is missing is
-// swapping this file's row storage for one sealed record per conversation, which
-// re-seals the whole table per write batch. That is a focused change and is
-// deliberately not landed half-finished.
+// - Posting keys are token IDs, never token text. A token in an IndexedDB key is
+//   plaintext at rest, and the table's own dictionary is what turns the user's
+//   words into those ids.
+// - `query` is one operation, not three. The token dictionary lives inside the
+//   ciphertext, so a caller cannot resolve words to posting keys at all without
+//   the table; and doing the steps separately could read the table and the posting
+//   lists from different commits.
 //
 // Fail-tolerant: a denied or corrupt database rejects, and every caller reads that
 // as "not indexed" rather than letting it reach the transcript.
@@ -47,11 +41,12 @@ import {
   SEARCH_META_STORE,
   SEARCH_PENDING_STORE,
   SEARCH_POSTINGS_STORE,
-  SEARCH_ROW_IDS_STORE,
-  SEARCH_ROWS_STORE,
+  SEARCH_TABLES_STORE,
 } from "./message-db";
 import {
-  emptySearchIndexRowList,
+  emptySearchIndexMeta,
+  intersectPostingLists,
+  SearchIndexRevisionConflictError,
   rowListAdd,
   rowListRemove,
   rowListRemoveMany,
@@ -62,10 +57,18 @@ import {
 import type {
   SearchIndexConversationSummary,
   SearchIndexMeta,
-  SearchIndexRowList,
-  SearchIndexRowLookup,
   SearchIndexStore,
 } from "./search-index-format";
+import {
+  decodeRowTable,
+  emptySealedRowTable,
+  encodeRowTable,
+  projectRowTable,
+  readTokenDictionary,
+  seal,
+  unseal,
+} from "./search-index-vault";
+import type { SealedRowTable, SealContext } from "./search-index-vault";
 
 // Name and version are shared with the identity key store, which opens the same
 // database. See message-db.ts: disagreeing versions throw VersionError, and the
@@ -75,13 +78,11 @@ import type {
 // allocator out of meta. v5 re-keys rows by row id, which is what lets a query
 // resolve only its own matches.
 //
-// The v3/v4 row store is reset rather than migrated: its records are keyed by
-// message id, and reading one under the new key would hand back a message id
-// where a row id is expected. A mixture is worse than an empty index, and the
+// Search layouts before the sealed table are reset rather than migrated: their
+// records use incompatible keys, and a mixture is worse than an empty index. The
 // index is rebuildable by walking history, so the honest move on upgrade is to
 // drop it and re-index.
-const ROWS_STORE = SEARCH_ROWS_STORE;
-const ROW_IDS_STORE = SEARCH_ROW_IDS_STORE;
+const TABLES_STORE = SEARCH_TABLES_STORE;
 const POSTINGS_STORE = SEARCH_POSTINGS_STORE;
 // The row-id allocator, kept out of `search-meta` on purpose: the backfill walk
 // rewrites meta on every page, and sharing one object with the write path would
@@ -90,16 +91,14 @@ const ALLOC_STORE = SEARCH_ALLOC_STORE;
 const META_STORE = SEARCH_META_STORE;
 const PENDING_STORE = SEARCH_PENDING_STORE;
 const SEARCH_STORES = [
-  ROWS_STORE,
-  ROW_IDS_STORE,
+  TABLES_STORE,
   POSTINGS_STORE,
   ALLOC_STORE,
   META_STORE,
   PENDING_STORE,
 ];
-// Versions whose search keying cannot be migrated, so their stores are dropped.
-// Identity material is never in that set.
-const RESET_BELOW_VERSION = 5;
+// Bound retries to keep a hot conflict from turning into an unbounded loop.
+const MAX_RETRIES = 3;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 // Set when another tab's version change closed our connection. The next read
@@ -127,13 +126,10 @@ async function openDatabase(): Promise<IDBDatabase> {
   // eslint-disable-next-line promise/avoid-new -- IndexedDB open lifecycle is event-based
   const pending = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
-    request.addEventListener("upgradeneeded", () => {
+    request.addEventListener("upgradeneeded", (event) => {
       // The shared schema builder, so the search stores exist even when the
       // identity store created this database first.
-      ensureMessagesSchema(request.result, {
-        resetSearchStoresBelow: RESET_BELOW_VERSION,
-        version: MESSAGES_DB_VERSION,
-      });
+      ensureMessagesSchema(request.result, event.oldVersion);
     });
     request.addEventListener("success", () => {
       request.result.onversionchange = () => {
@@ -269,12 +265,14 @@ function postingKey(conversationId: string, token: string): [string, string] {
   return [conversationId, token];
 }
 
-function rowKey(conversationId: string, row: number): [string, string] {
-  return [conversationId, row.toString()];
-}
-
-function rowIdKey(conversationId: string, messageId: string): [string, string] {
-  return [conversationId, messageId];
+// A posting list is keyed by the token's DICTIONARY ID, never by its text: a
+// token in an IndexedDB key is plaintext at rest, which is the exact leak sealing
+// the table exists to close.
+function postingKeyForId(
+  conversationId: string,
+  tokenId: number
+): [string, string] {
+  return [conversationId, `t${tokenId}`];
 }
 
 // Range over a conversation's entries in a store keyed [conversationId, string].
@@ -285,74 +283,233 @@ function stringKeyRange(conversationId: string): IDBKeyRange {
   );
 }
 
-// Range over a conversation's entries in the row store, whose second key is the
-// row id rendered as a string.
-function rowKeyRange(conversationId: string): IDBKeyRange {
-  return IDBKeyRange.bound(
-    rowKey(conversationId, 0),
-    rowKey(conversationId, Number.MAX_SAFE_INTEGER)
-  );
-}
-
-interface StoredRow {
-  createdAt: number;
-  messageId: string;
-  row: number;
-  senderId: string;
-  tokens: string[];
+// The stored record: the sealed table plus what cannot live inside the
+// ciphertext. The generation is in the clear so a store can detect a rotated
+// conversation's key without attempting a decrypt that cannot succeed.
+interface SealedTableRecord {
+  generation: string;
+  instanceId: string;
+  revision: number;
+  sealed: Uint8Array;
   version: number;
 }
 
-function isCurrentVersion(value: unknown): value is StoredRow {
+interface ReadableSealedTable {
+  generation: string;
+  instanceId: string;
+  plaintext: Uint8Array;
+  record: SealedTableRecord;
+  revision: number;
+  sealing: SearchIndexSealingKey;
+}
+
+type SealedTableRead =
+  | { kind: "missing" }
+  | { kind: "unavailable" }
+  | { kind: "unusable"; record: unknown; sealing: SearchIndexSealingKey }
+  | { kind: "usable"; current: ReadableSealedTable };
+
+function isCurrentVersion(value: unknown): value is { version: number } {
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as StoredRow).version === SEARCH_INDEX_FORMAT_VERSION
+    "version" in value &&
+    value.version === SEARCH_INDEX_FORMAT_VERSION
   );
 }
 
-async function readMetaFor(
-  tx: IDBTransaction,
-  conversationId: string
-): Promise<SearchIndexMeta | null> {
-  const stored = await requestAsPromise<SearchIndexMeta | undefined>(
-    tx.objectStore(META_STORE).get(conversationId)
+function isSealedTableRecord(value: unknown): value is SealedTableRecord {
+  return (
+    isCurrentVersion(value) &&
+    "generation" in value &&
+    typeof value.generation === "string" &&
+    "instanceId" in value &&
+    typeof value.instanceId === "string" &&
+    "revision" in value &&
+    typeof value.revision === "number" &&
+    "sealed" in value &&
+    value.sealed instanceof Uint8Array
   );
-  if (!stored || stored.version !== SEARCH_INDEX_FORMAT_VERSION) {
-    return null;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
   }
-  return stored;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
-export function createIndexedDbSearchIndexStore(): SearchIndexStore {
+function storedRecordMatches(observed: unknown, latest: unknown): boolean {
+  if (observed === undefined || latest === undefined) {
+    return observed === latest;
+  }
+  if (isSealedTableRecord(observed) && isSealedTableRecord(latest)) {
+    return (
+      observed.generation === latest.generation &&
+      observed.instanceId === latest.instanceId &&
+      observed.revision === latest.revision &&
+      observed.version === latest.version &&
+      bytesEqual(observed.sealed, latest.sealed)
+    );
+  }
+  try {
+    return JSON.stringify(observed) === JSON.stringify(latest);
+  } catch {
+    return false;
+  }
+}
+
+function currentRecordMatches(
+  expected: SealedTableRecord,
+  latest: unknown
+): boolean {
+  return (
+    isSealedTableRecord(latest) &&
+    expected.generation === latest.generation &&
+    expected.instanceId === latest.instanceId &&
+    expected.revision === latest.revision &&
+    expected.version === latest.version &&
+    bytesEqual(expected.sealed, latest.sealed)
+  );
+}
+
+function newTableInstanceId(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// Where the sealing key comes from. Null when the conversation's root is not
+// available yet — a cold load, or before identity unlock. That is not a failure:
+// the index simply cannot be read or written, and the caller falls back to
+// in-memory search rather than writing anything in the clear.
+export interface SearchIndexSealingKey {
+  generation: string;
+  key: CryptoKey;
+}
+
+export type SearchIndexKeyResolver = (
+  conversationId: string
+) => Promise<SearchIndexSealingKey | null>;
+
+// Raised when no key is available. Callers read this as "not indexed".
+export class SearchIndexKeyUnavailableError extends Error {
+  constructor(conversationId: string) {
+    super(`search index key unavailable for ${conversationId}`);
+    this.name = "SearchIndexKeyUnavailableError";
+  }
+}
+
+// The next row id for a conversation. Zero for one that has never allocated a
+// row: to the only caller, absent and zero mean the same thing -- a conversation
+// starting its numbering.
+function readAllocator(conversationId: string): Promise<number> {
+  if (storageUnavailable()) {
+    return Promise.resolve(0);
+  }
+  return runTransaction([ALLOC_STORE], "readonly", async (tx) => {
+    const value = await requestAsPromise<number | undefined>(
+      tx.objectStore(ALLOC_STORE).get(conversationId)
+    );
+    return value ?? 0;
+  });
+}
+
+// Reads and decrypts a conversation's table.
+//
+// Two transactions, not one, and the reason is not a preference: an IndexedDB
+// transaction commits as soon as its request queue drains, and WebCrypto
+// `deriveKey`/`decrypt` resolve in a later task rather than a microtask. Awaiting
+// a key or a seal inside a transaction therefore lets the transaction go inactive
+// before the next request is issued, and every such call rejects. So the record is
+// fetched, the transaction completes, and the AEAD work happens with no
+// transaction open.
+async function readSealedTable(
+  conversationId: string,
+  resolveKey: SearchIndexKeyResolver
+): Promise<SealedTableRead> {
+  if (storageUnavailable()) {
+    return { kind: "unavailable" };
+  }
+  const record = await runTransaction([TABLES_STORE], "readonly", (tx) =>
+    requestAsPromise<unknown>(tx.objectStore(TABLES_STORE).get(conversationId))
+  );
+  if (record === undefined) {
+    return { kind: "missing" };
+  }
+  const sealing = await resolveKey(conversationId);
+  if (!sealing) {
+    return { kind: "unavailable" };
+  }
+  if (
+    !isSealedTableRecord(record) ||
+    record.generation !== sealing.generation
+  ) {
+    return { kind: "unusable", record, sealing };
+  }
+  let plaintext: Uint8Array;
+  try {
+    plaintext = await unseal(sealing.key, record.sealed, {
+      conversationId,
+      keyGeneration: sealing.generation,
+    });
+  } catch {
+    // Wrong key for this table, or corrupt bytes. Reads as "not indexed" rather
+    // than throwing into the transcript: search is an enhancement, and the index
+    // rebuilds by walking history.
+    return { kind: "unusable", record, sealing };
+  }
+  try {
+    decodeRowTable(plaintext);
+  } catch {
+    return { kind: "unusable", record, sealing };
+  }
+  return {
+    current: {
+      generation: sealing.generation,
+      instanceId: record.instanceId,
+      plaintext,
+      record,
+      revision: record.revision,
+      sealing,
+    },
+    kind: "usable",
+  };
+}
+
+export function createIndexedDbSearchIndexStore({
+  resolveKey,
+}: {
+  resolveKey: SearchIndexKeyResolver;
+}): SearchIndexStore {
   return {
     clearConversation(conversationId) {
       if (storageUnavailable()) {
         return Promise.resolve();
       }
       return runTransaction(SEARCH_STORES, "readwrite", async (tx) => {
-        await requestAsPromise(
-          tx.objectStore(ROWS_STORE).delete(rowKeyRange(conversationId))
-        );
-        await requestAsPromise(
-          tx.objectStore(ROW_IDS_STORE).delete(stringKeyRange(conversationId))
-        );
-        await requestAsPromise(
-          tx.objectStore(POSTINGS_STORE).delete(stringKeyRange(conversationId))
-        );
-        await requestAsPromise(
-          tx.objectStore(META_STORE).delete(conversationId)
-        );
-        // Dropped with everything else: a stale allocator would skip row ids
-        // and leave gaps in the posting lists, which is harmless but wasteful.
-        await requestAsPromise(
-          tx.objectStore(ALLOC_STORE).delete(conversationId)
-        );
-        // Pending rows describe a conversation's gaps; leaving them behind after
-        // a clear would make the next session report rows that no longer exist.
-        await requestAsPromise(
-          tx.objectStore(PENDING_STORE).delete(conversationId)
-        );
+        // A handful of sequential range deletes: Promise.all cannot be used
+        // because requests issued on a transaction outside its callback's
+        // lifetime are rejected, and these are all issued here.
+        // oxlint-disable no-await-in-loop
+        for (const name of SEARCH_STORES) {
+          const store = tx.objectStore(name);
+          const keyedByConversationAlone =
+            name === TABLES_STORE ||
+            name === ALLOC_STORE ||
+            name === META_STORE ||
+            name === PENDING_STORE;
+          await requestAsPromise(
+            keyedByConversationAlone
+              ? store.delete(conversationId)
+              : store.delete(stringKeyRange(conversationId))
+          );
+        }
+        // oxlint-enable no-await-in-loop
       });
     },
 
@@ -406,255 +563,562 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       if (storageUnavailable() || entries.size === 0) {
         return Promise.resolve();
       }
-      return runTransaction(
-        [ROWS_STORE, ROW_IDS_STORE, POSTINGS_STORE, ALLOC_STORE],
-        "readwrite",
-        async (tx) => {
-          const rowsStore = tx.objectStore(ROWS_STORE);
-          const rowIdsStore = tx.objectStore(ROW_IDS_STORE);
-          const postingsStore = tx.objectStore(POSTINGS_STORE);
-          let nextRow =
-            (await requestAsPromise<number | undefined>(
-              tx.objectStore(ALLOC_STORE).get(conversationId)
-            )) ?? 0;
+      // Decrypt, mutate and re-encrypt with no transaction open -- WebCrypto
+      // resolves in a later task, and an IDB transaction that waits on it has
+      // already committed by then. The revision and instance token read here are
+      // checked again inside the write transaction.
+      const write = async (): Promise<boolean> => {
+        const read = await readSealedTable(conversationId, resolveKey);
+        if (read.kind === "unavailable") {
+          const sealing = await resolveKey(conversationId);
+          if (!sealing) {
+            throw new SearchIndexKeyUnavailableError(conversationId);
+          }
+          return false;
+        }
+        let current: ReadableSealedTable | null = null;
+        let observedRecord: unknown;
+        let reset = false;
+        let sealing: SearchIndexSealingKey;
+        if (read.kind === "missing") {
+          observedRecord = undefined;
+          const resolved = await resolveKey(conversationId);
+          if (!resolved) {
+            throw new SearchIndexKeyUnavailableError(conversationId);
+          }
+          sealing = resolved;
+        } else if (read.kind === "unusable") {
+          const { sealing: unusableSealing } = read;
+          observedRecord = read.record;
+          reset = true;
+          sealing = unusableSealing;
+        } else {
+          const { current: readCurrent } = read;
+          const { record, sealing: currentSealing } = readCurrent;
+          current = readCurrent;
+          observedRecord = record;
+          sealing = currentSealing;
+        }
+        const context: SealContext = {
+          conversationId,
+          keyGeneration: sealing.generation,
+        };
+        const table: SealedRowTable = current
+          ? decodeRowTable(current.plaintext)
+          : emptySealedRowTable();
 
-          // Posting lists are read once per token and written once per token,
-          // not once per message. Indexing a 200k-message conversation one
-          // message at a time would rewrite a common token's 80k-row list 80k
-          // times, which is the difference between seconds and minutes.
-          const dirty = new Map<string, SearchIndexRowList>();
-          const listFor = async (token: string) => {
-            const existing = dirty.get(token);
-            if (existing) {
-              return existing;
+        // The dictionary is append-only: token ids are what the posting keys are,
+        // so an existing id must never move.
+        const dictionary = [...(table.tokenDictionary ?? [])];
+        const tokenIdByText = new Map(
+          dictionary.map((token, id) => [token, id])
+        );
+        const rowByMessageId = new Map<string, number>();
+        for (const [row, messageId] of table.messageIdByRow.entries()) {
+          rowByMessageId.set(messageId, row);
+        }
+        const rowMutations: {
+          droppedTokenIds: number[];
+          row: number;
+          tokenIds: number[];
+        }[] = [];
+
+        const nextRow = reset ? 0 : await readAllocator(conversationId);
+        let nextRowId = nextRow;
+        for (const [messageId, entry] of entries) {
+          let row = rowByMessageId.get(messageId);
+          if (row === undefined) {
+            row = nextRowId;
+            nextRowId += 1;
+            rowByMessageId.set(messageId, row);
+            table.messageIdByRow[row] = messageId;
+            table.createdAtByRow[row] = entry.createdAt;
+            table.senderIdByRow[row] = entry.senderId;
+            table.presentByRow[row] = true;
+            table.tokensByRow[row] = [];
+          } else if (table.presentByRow[row] === false) {
+            // A tombstone must not be revived by a stale device's re-index.
+            continue;
+          }
+          const previousTokens = table.tokensByRow[row] ?? [];
+          for (const token of entry.tokens) {
+            if (!tokenIdByText.has(token)) {
+              tokenIdByText.set(token, dictionary.length);
+              dictionary.push(token);
             }
-            const stored = await requestAsPromise<Uint32Array | undefined>(
-              postingsStore.get(postingKey(conversationId, token))
-            );
-            const list = stored
-              ? searchIndexRowListFrom(stored)
-              : emptySearchIndexRowList();
-            dirty.set(token, list);
-            return list;
-          };
-
-          // Sequential on purpose: each entry's row id and prior tokens must be
-          // known before its posting lists are updated, and the whole batch is one
-          // transaction so the work is atomic rather than concurrent.
-          // oxlint-disable no-await-in-loop -- one entry at a time inside one transaction
-          for (const [messageId, entry] of entries) {
-            const idKey = rowIdKey(conversationId, messageId);
-            const existingRow = await requestAsPromise<number | undefined>(
-              rowIdsStore.get(idKey)
-            );
-            const row = existingRow ?? nextRow;
-            if (existingRow === undefined) {
-              nextRow += 1;
+          }
+          // A token the rewrite dropped must leave the posting list too, or the
+          // message would keep matching a word it no longer contains. Resolved
+          // through the append-only dictionary, so a dropped token still maps to
+          // the id its posting list is keyed by.
+          const droppedTokenIds: number[] = [];
+          for (const oldToken of previousTokens) {
+            if (entry.tokens.includes(oldToken)) {
+              continue;
             }
-            // The stored row carries its own tokens, which is the reverse index
-            // that makes a rewrite touch only the lists it actually changed.
-            const previous = await requestAsPromise<unknown>(
-              rowsStore.get(rowKey(conversationId, row))
-            );
-            const { tokens: oldTokens } = isCurrentVersion(previous)
-              ? previous
-              : { tokens: [] as string[] };
+            const oldId = tokenIdByText.get(oldToken);
+            if (oldId !== undefined) {
+              droppedTokenIds.push(oldId);
+            }
+          }
+          table.tokensByRow[row] = [...entry.tokens];
+          rowMutations.push({
+            droppedTokenIds,
+            row,
+            tokenIds: entry.tokens.map(
+              (token) => tokenIdByText.get(token) ?? 0
+            ),
+          });
+        }
+        if (rowMutations.length === 0) {
+          return true;
+        }
+        table.tokenDictionary = dictionary;
+        const sealed = await seal(sealing.key, encodeRowTable(table), context);
+        const instanceId =
+          reset || current === null ? newTableInstanceId() : current.instanceId;
 
-            for (const token of oldTokens) {
-              if (!entry.tokens.includes(token)) {
-                rowListRemove(await listFor(token), row);
+        await runTransaction(
+          [TABLES_STORE, POSTINGS_STORE, ALLOC_STORE, META_STORE],
+          "readwrite",
+          async (tx) => {
+            const tablesStore = tx.objectStore(TABLES_STORE);
+            const latest = await requestAsPromise<unknown>(
+              tablesStore.get(conversationId)
+            );
+            if (!storedRecordMatches(observedRecord, latest)) {
+              throw new SearchIndexRevisionConflictError(conversationId);
+            }
+            const postingsStore = tx.objectStore(POSTINGS_STORE);
+            const allocStore = tx.objectStore(ALLOC_STORE);
+            const metaStore = tx.objectStore(META_STORE);
+            if (reset) {
+              await requestAsPromise(tablesStore.delete(conversationId));
+              await requestAsPromise(
+                postingsStore.delete(stringKeyRange(conversationId))
+              );
+              await requestAsPromise(allocStore.delete(conversationId));
+              await requestAsPromise(
+                metaStore.put(
+                  emptySearchIndexMeta(conversationId),
+                  conversationId
+                )
+              );
+            }
+            // oxlint-disable no-await-in-loop -- sequential point reads and writes; Promise.all cannot batch requests issued on one transaction
+            for (const mutation of rowMutations) {
+              for (const tokenId of mutation.tokenIds) {
+                const key = postingKeyForId(conversationId, tokenId);
+                const list = searchIndexRowListFrom(
+                  (await requestAsPromise<Uint32Array | undefined>(
+                    postingsStore.get(key)
+                  )) ?? new Uint32Array(0)
+                );
+                rowListAdd(list, mutation.row);
+                await writePostingList(
+                  postingsStore,
+                  key,
+                  rowListToArray(list)
+                );
+              }
+              for (const tokenId of mutation.droppedTokenIds) {
+                const key = postingKeyForId(conversationId, tokenId);
+                const existing = await requestAsPromise<
+                  Uint32Array | undefined
+                >(postingsStore.get(key));
+                if (!existing) {
+                  continue;
+                }
+                const list = searchIndexRowListFrom(existing);
+                rowListRemove(list, mutation.row);
+                await writePostingList(
+                  postingsStore,
+                  key,
+                  rowListToArray(list)
+                );
               }
             }
-            for (const token of entry.tokens) {
-              rowListAdd(await listFor(token), row);
-            }
-
-            const stored: StoredRow = {
-              createdAt: entry.createdAt,
-              messageId,
-              row,
-              senderId: entry.senderId,
-              tokens: entry.tokens,
-              version: SEARCH_INDEX_FORMAT_VERSION,
-            };
+            // oxlint-enable no-await-in-loop
             await requestAsPromise(
-              rowsStore.put(stored, rowKey(conversationId, row))
+              tablesStore.put(
+                {
+                  generation: sealing.generation,
+                  instanceId,
+                  revision: current === null ? 1 : current.revision + 1,
+                  sealed,
+                  version: SEARCH_INDEX_FORMAT_VERSION,
+                },
+                conversationId
+              )
             );
-            await requestAsPromise(rowIdsStore.put(row, idKey));
+            await requestAsPromise(allocStore.put(nextRowId, conversationId));
           }
-
-          for (const [token, list] of dirty) {
-            await writePostingList(
-              postingsStore,
-              postingKey(conversationId, token),
-              rowListToArray(list)
-            );
+        );
+        return true;
+      };
+      return (async () => {
+        // Retry here so every caller benefits: the writer treats a generic
+        // rejection as still pending, and a one-shot conflict would let its
+        // cursor advance past a page that was never written.
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+          try {
+            // oxlint-disable-next-line no-await-in-loop -- retries must re-read and recompute sequentially
+            if (await write()) {
+              return;
+            }
+          } catch (error) {
+            if (
+              !(error instanceof SearchIndexRevisionConflictError) ||
+              attempt === MAX_RETRIES - 1
+            ) {
+              throw error;
+            }
           }
-
-          // Same transaction as the rows and postings it allocates for, so the
-          // allocator can never advance past rows that were not committed.
-          await requestAsPromise(
-            tx.objectStore(ALLOC_STORE).put(nextRow, conversationId)
-          );
         }
-      );
+      })();
     },
 
-    readAllPostingLists(conversationId) {
+    // One operation for the whole query, because the token dictionary lives inside
+    // the ciphertext: a caller cannot turn words into posting keys without the
+    // table. The second transaction checks the table snapshot before reading
+    // postings, so a writer cannot mix two revisions during one keystroke.
+    query(conversationId, tokens, limit) {
+      if (storageUnavailable() || tokens.length === 0) {
+        return Promise.resolve({ rows: new Map(), totalMatched: 0 });
+      }
+      return (async () => {
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+          try {
+            // oxlint-disable-next-line no-await-in-loop -- retries must re-read and recompute sequentially
+            const read = await readSealedTable(conversationId, resolveKey);
+            if (read.kind !== "usable") {
+              return { rows: new Map(), totalMatched: 0 };
+            }
+            const { current } = read;
+            // The dictionary is the only part of the table a query must read in full;
+            // the rows themselves are projected afterwards.
+            const tokenIdByText = new Map(
+              readTokenDictionary(current.plaintext).map((token, id) => [
+                token,
+                id,
+              ])
+            );
+            const wanted: number[] = [];
+            // Every token must be known. The words are ANDed, so one word the index
+            // has never seen means the message cannot contain all of them: dropping
+            // the unknown word instead would turn `deploy zzz` into `deploy` and
+            // return a false positive, which is the worst possible failure for a
+            // search box. It also means the posting store is never touched.
+            let unknownToken = false;
+            for (const token of tokens) {
+              const id = tokenIdByText.get(token);
+              if (id === undefined) {
+                unknownToken = true;
+                break;
+              }
+              wanted.push(id);
+            }
+            if (unknownToken || wanted.length === 0) {
+              return { rows: new Map(), totalMatched: 0 };
+            }
+            // oxlint-disable-next-line no-await-in-loop -- a checked snapshot is retried sequentially
+            const lists = await runTransaction(
+              [TABLES_STORE, POSTINGS_STORE],
+              "readonly",
+              async (tx) => {
+                const tablesStore = tx.objectStore(TABLES_STORE);
+                const latest = await requestAsPromise<unknown>(
+                  tablesStore.get(conversationId)
+                );
+                if (!currentRecordMatches(current.record, latest)) {
+                  throw new SearchIndexRevisionConflictError(conversationId);
+                }
+                const postingsStore = tx.objectStore(POSTINGS_STORE);
+                // oxlint-disable no-await-in-loop -- sequential point reads on one transaction; Promise.all would issue requests outside its lifetime
+                const out: Uint32Array[] = [];
+                for (const id of wanted) {
+                  out.push(
+                    (await requestAsPromise<Uint32Array | undefined>(
+                      postingsStore.get(postingKeyForId(conversationId, id))
+                    )) ?? new Uint32Array(0)
+                  );
+                }
+                // oxlint-enable no-await-in-loop
+                return out;
+              }
+            );
+            const { rows, totalMatched } = intersectPostingLists(lists, limit);
+            return {
+              rows: projectRowTable(current.plaintext, rows),
+              totalMatched,
+            };
+          } catch (error) {
+            if (
+              !(error instanceof SearchIndexRevisionConflictError) ||
+              attempt === MAX_RETRIES - 1
+            ) {
+              throw error;
+            }
+          }
+        }
+        throw new Error("search index query retry limit reached");
+      })();
+    },
+
+    // Bulk read for deliberate structural tests and whole-index accounting,
+    // never the keystroke path. It uses the same checked snapshot as query.
+    // Keyed by token TEXT, resolved back through the table's dictionary.
+    readAllPostingLists(conversationId: string) {
       if (storageUnavailable()) {
         return Promise.resolve(new Map<string, Uint32Array>());
       }
-      return runTransaction([POSTINGS_STORE], "readonly", async (tx) => {
+      const readAll = async (): Promise<Map<string, Uint32Array>> => {
+        const tableRead = await readSealedTable(conversationId, resolveKey);
+        if (tableRead.kind !== "usable") {
+          return new Map<string, Uint32Array>();
+        }
+        const { current } = tableRead;
+        const dictionary = readTokenDictionary(current.plaintext);
         const out = new Map<string, Uint32Array>();
-        await drainCursor(
-          tx
-            .objectStore(POSTINGS_STORE)
-            .openCursor(stringKeyRange(conversationId)),
-          (key, value) => {
-            out.set(key[1], value as Uint32Array);
+        if (dictionary.length === 0) {
+          return out;
+        }
+        const lists = await runTransaction(
+          [TABLES_STORE, POSTINGS_STORE],
+          "readonly",
+          async (tx) => {
+            const tablesStore = tx.objectStore(TABLES_STORE);
+            const latest = await requestAsPromise<unknown>(
+              tablesStore.get(conversationId)
+            );
+            if (!currentRecordMatches(current.record, latest)) {
+              throw new SearchIndexRevisionConflictError(conversationId);
+            }
+            const postingsStore = tx.objectStore(POSTINGS_STORE);
+            // oxlint-disable no-await-in-loop -- sequential point reads on one transaction
+            const listsById: Uint32Array[] = [];
+            for (const id of dictionary.keys()) {
+              listsById.push(
+                (await requestAsPromise<Uint32Array | undefined>(
+                  postingsStore.get(postingKeyForId(conversationId, id))
+                )) ?? new Uint32Array(0)
+              );
+            }
+            // oxlint-enable no-await-in-loop
+            return listsById;
           }
         );
+        for (const [id, list] of lists.entries()) {
+          const token = dictionary[id];
+          if (token !== undefined && list.length > 0) {
+            out.set(token, list);
+          }
+        }
         return out;
-      });
+      };
+      return (async () => {
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+          try {
+            // oxlint-disable-next-line no-await-in-loop -- retries must re-read and recompute sequentially
+            return await readAll();
+          } catch (error) {
+            if (
+              !(error instanceof SearchIndexRevisionConflictError) ||
+              attempt === MAX_RETRIES - 1
+            ) {
+              throw error;
+            }
+          }
+        }
+        throw new Error("search index posting-list retry limit reached");
+      })();
     },
 
     readMeta(conversationId) {
       if (storageUnavailable()) {
         return Promise.resolve(null);
       }
-      return runTransaction([META_STORE], "readonly", (tx) =>
-        readMetaFor(tx, conversationId)
-      );
+      return runTransaction([META_STORE], "readonly", async (tx) => {
+        const value = await requestAsPromise<SearchIndexMeta | undefined>(
+          tx.objectStore(META_STORE).get(conversationId)
+        );
+        if (
+          !value ||
+          !isCurrentVersion(value) ||
+          value.conversationId !== conversationId
+        ) {
+          // A record this build cannot read is treated as absent, so the
+          // conversation re-walks from scratch rather than trusting a shape it
+          // does not understand.
+          return null;
+        }
+        // A copy, so a caller mutating the result cannot corrupt what is stored.
+        return { ...value, pendingIds: [...value.pendingIds] };
+      });
     },
 
-    // The hot query read: one point lookup per typed word, not a scan.
     readPending(conversationId) {
       if (storageUnavailable()) {
         return Promise.resolve([]);
       }
       return runTransaction([PENDING_STORE], "readonly", async (tx) => {
-        const stored = await requestAsPromise<string[] | undefined>(
+        const value = await requestAsPromise<string[] | undefined>(
           tx.objectStore(PENDING_STORE).get(conversationId)
         );
-        return stored ? [...stored] : [];
+        return value ?? [];
       });
     },
 
-    readPostingList(conversationId, token) {
-      if (storageUnavailable()) {
-        return Promise.resolve(new Uint32Array(0));
-      }
-      return runTransaction([POSTINGS_STORE], "readonly", async (tx) => {
-        const list = await requestAsPromise<Uint32Array | undefined>(
-          tx.objectStore(POSTINGS_STORE).get(postingKey(conversationId, token))
-        );
-        return list ?? new Uint32Array(0);
-      });
-    },
-
-    // Resolves exactly the rows a query matched. One point read per result, so
-    // search memory is bounded by the result cap rather than by the
-    // conversation, and no cursor is involved at all.
+    // Resolves only requested rows. The keystroke path uses query, which does
+    // this projection as part of its checked snapshot.
     readRows(conversationId, rowIds) {
       if (storageUnavailable() || rowIds.length === 0) {
         return Promise.resolve(new Map());
       }
-      return runTransaction([ROWS_STORE], "readonly", async (tx) => {
-        const rowsStore = tx.objectStore(ROWS_STORE);
-        const out: SearchIndexRowLookup = new Map();
-        // oxlint-disable no-await-in-loop -- one transaction, one store, order irrelevant
-        for (const row of rowIds) {
-          const stored = await requestAsPromise<unknown>(
-            rowsStore.get(rowKey(conversationId, row))
-          );
-          if (isCurrentVersion(stored)) {
-            out.set(row, {
-              createdAt: stored.createdAt,
-              messageId: stored.messageId,
-              senderId: stored.senderId,
-            });
-          }
-        }
-        return out;
-      });
+      return (async () => {
+        const read = await readSealedTable(conversationId, resolveKey);
+        return read.kind === "usable"
+          ? projectRowTable(read.current.plaintext, rowIds)
+          : new Map();
+      })();
     },
 
+    // One point read of the allocator's high-water mark. No key derivation or
+    // table decryption is needed for this cumulative coverage count.
     readStats(conversationId) {
-      if (storageUnavailable()) {
-        return Promise.resolve({ indexedRowCount: 0 });
-      }
-      return runTransaction([ALLOC_STORE], "readonly", async (tx) => {
-        const next = await requestAsPromise<number | undefined>(
-          tx.objectStore(ALLOC_STORE).get(conversationId)
-        );
-        return { indexedRowCount: next ?? 0 };
-      });
+      return readAllocator(conversationId).then((indexedRowCount) => ({
+        indexedRowCount,
+      }));
     },
 
     removeEntries(conversationId, messageIds) {
       if (storageUnavailable() || messageIds.length === 0) {
         return Promise.resolve();
       }
-      return runTransaction(
-        [ROWS_STORE, ROW_IDS_STORE, POSTINGS_STORE],
-        "readwrite",
-        async (tx) => {
-          const rowsStore = tx.objectStore(ROWS_STORE);
-          const rowIdsStore = tx.objectStore(ROW_IDS_STORE);
-          const postingsStore = tx.objectStore(POSTINGS_STORE);
-          // Resolve rows first: deleting them would lose the only record of
-          // which posting lists to clean. Each list is then read and written once
-          // for the whole batch, not once per removed message.
-          const rowsByToken = new Map<string, number[]>();
-          let removedAny = false;
-          for (const messageId of messageIds) {
-            const idKey = rowIdKey(conversationId, messageId);
-            const row = await requestAsPromise<number | undefined>(
-              rowIdsStore.get(idKey)
-            );
-            if (row === undefined) {
-              continue;
-            }
-            const stored = await requestAsPromise<unknown>(
-              rowsStore.get(rowKey(conversationId, row))
-            );
-            if (isCurrentVersion(stored)) {
-              for (const token of stored.tokens) {
-                const list = rowsByToken.get(token);
-                if (list) {
-                  list.push(row);
-                } else {
-                  rowsByToken.set(token, [row]);
-                }
+      const remove = async (): Promise<void> => {
+        const read = await readSealedTable(conversationId, resolveKey);
+        if (read.kind === "missing" || read.kind === "unavailable") {
+          return;
+        }
+        if (read.kind === "unusable") {
+          await runTransaction(
+            [TABLES_STORE, POSTINGS_STORE, ALLOC_STORE, META_STORE],
+            "readwrite",
+            async (tx) => {
+              const tablesStore = tx.objectStore(TABLES_STORE);
+              const latest = await requestAsPromise<unknown>(
+                tablesStore.get(conversationId)
+              );
+              if (!storedRecordMatches(read.record, latest)) {
+                throw new SearchIndexRevisionConflictError(conversationId);
               }
+              const metaStore = tx.objectStore(META_STORE);
+              await requestAsPromise(tablesStore.delete(conversationId));
+              await requestAsPromise(
+                tx
+                  .objectStore(POSTINGS_STORE)
+                  .delete(stringKeyRange(conversationId))
+              );
+              await requestAsPromise(
+                tx.objectStore(ALLOC_STORE).delete(conversationId)
+              );
+              await requestAsPromise(
+                metaStore.put(
+                  emptySearchIndexMeta(conversationId),
+                  conversationId
+                )
+              );
             }
-            removedAny = true;
+          );
+          return;
+        }
+        const { current } = read;
+        const table = decodeRowTable(current.plaintext);
+        const rowByMessageId = new Map<string, number>();
+        for (const [row, messageId] of table.messageIdByRow.entries()) {
+          rowByMessageId.set(messageId, row);
+        }
+        const removedRows: number[] = [];
+        for (const messageId of messageIds) {
+          const row = rowByMessageId.get(messageId);
+          if (row === undefined || table.presentByRow[row] === false) {
+            continue;
+          }
+          removedRows.push(row);
+          // A tombstone, not a hole. Dropping the row outright would let an older
+          // device's table refill it, resurfacing a deleted message as a search
+          // result.
+          table.presentByRow[row] = false;
+          table.tokensByRow[row] = [];
+        }
+        if (removedRows.length === 0) {
+          return;
+        }
+        const tokenIds = (table.tokenDictionary ?? []).map((_, id) => id);
+        const sealed = await seal(current.sealing.key, encodeRowTable(table), {
+          conversationId,
+          keyGeneration: current.generation,
+        });
+        const rowsToRemove = new Set(removedRows);
+        await runTransaction(
+          [TABLES_STORE, POSTINGS_STORE],
+          "readwrite",
+          async (tx) => {
+            const tablesStore = tx.objectStore(TABLES_STORE);
+            const latest = await requestAsPromise<unknown>(
+              tablesStore.get(conversationId)
+            );
+            if (!storedRecordMatches(current.record, latest)) {
+              throw new SearchIndexRevisionConflictError(conversationId);
+            }
+            const postingsStore = tx.objectStore(POSTINGS_STORE);
+            // oxlint-disable no-await-in-loop -- sequential point reads and writes on one transaction
+            for (const id of tokenIds) {
+              const key = postingKeyForId(conversationId, id);
+              const existing = await requestAsPromise<Uint32Array | undefined>(
+                postingsStore.get(key)
+              );
+              if (!existing) {
+                continue;
+              }
+              const list = searchIndexRowListFrom(existing);
+              rowListRemoveMany(list, rowsToRemove);
+              await writePostingList(postingsStore, key, rowListToArray(list));
+            }
+            // oxlint-enable no-await-in-loop
             await requestAsPromise(
-              rowsStore.delete(rowKey(conversationId, row))
+              tablesStore.put(
+                {
+                  generation: current.generation,
+                  instanceId: current.instanceId,
+                  revision: current.revision + 1,
+                  sealed,
+                  version: SEARCH_INDEX_FORMAT_VERSION,
+                },
+                conversationId
+              )
             );
-            await requestAsPromise(rowIdsStore.delete(idKey));
           }
-          if (!removedAny) {
+        );
+      };
+      return (async () => {
+        // Keep conflict recovery inside the store so delete callers cannot skip
+        // a tombstone or advance past a page that was not actually written.
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+          try {
+            // oxlint-disable-next-line no-await-in-loop -- retries must re-read and recompute sequentially
+            await remove();
             return;
-          }
-          for (const [token, rows] of rowsByToken) {
-            const postingKeyForToken = postingKey(conversationId, token);
-            const stored = await requestAsPromise<Uint32Array | undefined>(
-              postingsStore.get(postingKeyForToken)
-            );
-            if (!stored) {
-              continue;
+          } catch (error) {
+            if (
+              !(error instanceof SearchIndexRevisionConflictError) ||
+              attempt === MAX_RETRIES - 1
+            ) {
+              throw error;
             }
-            const list = searchIndexRowListFrom(stored);
-            rowListRemoveMany(list, new Set(rows));
-            await writePostingList(
-              postingsStore,
-              postingKeyForToken,
-              rowListToArray(list)
-            );
           }
         }
-      );
+      })();
     },
 
     writeMeta(meta) {
@@ -697,9 +1161,17 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
 // starts from a genuinely empty store. The close has to happen first: an open
 // connection blocks deleteDatabase, and the delete would then hang rather than
 // fail.
+//
+// Bounded: more than a couple of attempts means a connection that is never
+// closing, which a retry loop should not paper over by spinning.
+
 export async function resetIndexedDbSearchIndexStoreForTests(): Promise<void> {
   const open = dbPromise;
   dbPromise = null;
+  // Cleared alongside the handle. A `true` left over from a previous delete would
+  // make the next open discard a perfectly good connection and reopen, which is
+  // harmless on its own but hides the real reason a test wanted a fresh one.
+  staleConnection = false;
   if (open) {
     try {
       const db = await open;
@@ -718,6 +1190,8 @@ export async function resetIndexedDbSearchIndexStoreForTests(): Promise<void> {
     // A failure or a block still ends the wait: the next open recreates the
     // stores, which is all a test needs.
     request.addEventListener("error", () => resolve());
-    request.addEventListener("blocked", () => resolve());
+    request.addEventListener("blocked", () => {
+      resolve();
+    });
   });
 }

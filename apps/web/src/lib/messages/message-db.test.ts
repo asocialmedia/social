@@ -16,15 +16,19 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { deriveIndexKeyFromBase } from "./crypto";
 import {
   createIndexedDbSearchIndexStore,
   resetIndexedDbSearchIndexStoreForTests,
 } from "./indexeddb-search-index";
+import type { SearchIndexKeyResolver } from "./indexeddb-search-index";
 import {
   ensureMessagesSchema,
   IDENTITY_STORE,
   MESSAGES_DB_NAME,
   MESSAGES_DB_VERSION,
+  SEARCH_META_STORE,
+  SEARCH_POSTINGS_STORE,
   SEARCH_STORES,
 } from "./message-db";
 import { buildSearchIndexEntry } from "./search-index-format";
@@ -42,10 +46,40 @@ function entry(text: string, createdAt: number): SearchIndexEntry {
   return built;
 }
 
+// A real per-conversation index key, derived from a throwaway base key. These
+// tests are about schema coordination, not cryptography, but they must go through
+// the same sealing path the app uses: a resolver that returned a constant key
+// would let a cross-conversation bug pass unnoticed.
+let testBaseKey: CryptoKey | null = null;
+
+const testResolver: SearchIndexKeyResolver = async (conversationId) => {
+  if (!testBaseKey) {
+    testBaseKey = await globalThis.crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(32).fill(11),
+      "HKDF",
+      false,
+      ["deriveKey"]
+    );
+  }
+  return {
+    generation: "gen-1",
+    key: await deriveIndexKeyFromBase(testBaseKey, conversationId),
+  };
+};
+
+function createTestStore() {
+  return createIndexedDbSearchIndexStore({ resolveKey: testResolver });
+}
+
+// Requests the shared version explicitly. A bare `indexedDB.open(name)` on a
+// database that does not exist yet creates it at version 1 with no object stores,
+// which would make every store assertion below fail for a reason that has nothing
+// to do with what this file is testing.
 function openRaw(): Promise<IDBDatabase> {
   // oxlint-disable-next-line promise/avoid-new -- IndexedDB open lifecycle is event-based
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(MESSAGES_DB_NAME);
+    const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
     request.addEventListener("success", () => {
       request.result.onversionchange = () => {
         request.result.close();
@@ -57,12 +91,72 @@ function openRaw(): Promise<IDBDatabase> {
 }
 
 async function deleteDatabase(): Promise<void> {
-  // oxlint-disable-next-line promise/avoid-new -- IndexedDB delete lifecycle is event-based
+  // oxlint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
   await new Promise<void>((resolve) => {
     const request = indexedDB.deleteDatabase(MESSAGES_DB_NAME);
     request.addEventListener("success", () => resolve());
     request.addEventListener("error", () => resolve());
     request.addEventListener("blocked", () => resolve());
+  });
+}
+
+const PREVIOUS_SHIPPED_SEARCH_VERSION = 6;
+const IDENTITY_USER_ID = "user-a";
+
+function identitySentinel() {
+  return {
+    crv: "P-256",
+    ext: true,
+    key_ops: ["deriveBits"],
+    kty: "EC",
+    x: "identity-x",
+    y: "identity-y",
+  };
+}
+
+function createDatabaseAtVersion(
+  version: number,
+  seed: (transaction: IDBTransaction) => void
+): Promise<void> {
+  // oxlint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(MESSAGES_DB_NAME, version);
+    request.addEventListener("upgradeneeded", () => {
+      const db = request.result;
+      for (const name of [IDENTITY_STORE, ...SEARCH_STORES]) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name);
+        }
+      }
+      const { transaction } = request;
+      if (!transaction) {
+        reject(new Error("IndexedDB upgrade transaction missing"));
+        return;
+      }
+      seed(transaction);
+    });
+    request.addEventListener("success", () => {
+      request.result.close();
+      resolve();
+    });
+    request.addEventListener("error", () => reject(request.error));
+    request.addEventListener("blocked", () =>
+      reject(new Error("IndexedDB upgrade blocked"))
+    );
+  });
+}
+
+function readRawValue(
+  db: IDBDatabase,
+  storeName: string,
+  key: IDBValidKey
+): Promise<unknown> {
+  // oxlint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([storeName], "readonly");
+    const request = transaction.objectStore(storeName).get(key);
+    request.addEventListener("success", () => resolve(request.result));
+    request.addEventListener("error", () => reject(request.error));
   });
 }
 
@@ -75,35 +169,102 @@ describe("shared messages database", () => {
   // Whichever owner opens first must leave a schema the other can use, because
   // upgradeneeded only runs for the opener that raises the version.
   test("the search index's open creates the identity store too", async () => {
-    const store = createIndexedDbSearchIndexStore();
+    const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     const db = await openRaw();
-    expect(db.objectStoreNames.contains(IDENTITY_STORE)).toBe(true);
-    for (const name of SEARCH_STORES) {
-      expect(db.objectStoreNames.contains(name)).toBe(true);
+    try {
+      expect(db.objectStoreNames.contains(IDENTITY_STORE)).toBe(true);
+      for (const name of SEARCH_STORES) {
+        expect(db.objectStoreNames.contains(name)).toBe(true);
+      }
+    } finally {
+      db.close();
     }
-    db.close();
   });
 
   // The regression itself: a second open at the shared version must succeed
   // rather than throw VersionError, which is what broke identity key reads.
   test("reopening at the shared version does not throw", async () => {
-    const store = createIndexedDbSearchIndexStore();
+    const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     const db = await openRaw();
-    expect(db.version).toBe(MESSAGES_DB_VERSION);
-    db.close();
+    try {
+      expect(db.version).toBe(MESSAGES_DB_VERSION);
+    } finally {
+      db.close();
+    }
     // And a fresh store instance still reads what the first one wrote.
-    const reopened = createIndexedDbSearchIndexStore();
-    const list = await reopened.readPostingList("c1", "deploy");
-    expect([...list]).toEqual([0]);
+    const reopened = createTestStore();
+    const found = await reopened.query("c1", ["deploy"], 10);
+    expect(found.totalMatched).toBe(1);
+    expect([...found.rows.values()].map((row) => row.messageId)).toEqual([
+      "m1",
+    ]);
   });
 
   // A search schema bump costs a rebuilt index and must never cost identity
   // material, which is the recovery anchor for every message.
-  test("resetting the search stores leaves identity material alone", () => {
-    expect(ensureMessagesSchema.toString()).toBeTruthy();
-    expect(SEARCH_STORES).not.toContain(IDENTITY_STORE);
+  test("resetting the search stores leaves identity material alone", async () => {
+    const identityRecord = identitySentinel();
+    await createDatabaseAtVersion(
+      PREVIOUS_SHIPPED_SEARCH_VERSION,
+      (transaction) => {
+        transaction
+          .objectStore(IDENTITY_STORE)
+          .put(identityRecord, IDENTITY_USER_ID);
+      }
+    );
+
+    const store = createTestStore();
+    await store.readStats("c1");
+    const db = await openRaw();
+    try {
+      expect(await readRawValue(db, IDENTITY_STORE, IDENTITY_USER_ID)).toEqual(
+        identityRecord
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("the previous search layout is upgraded without retaining plaintext postings", async () => {
+    const identityRecord = identitySentinel();
+    await createDatabaseAtVersion(
+      PREVIOUS_SHIPPED_SEARCH_VERSION,
+      (transaction) => {
+        transaction
+          .objectStore(IDENTITY_STORE)
+          .put(identityRecord, IDENTITY_USER_ID);
+        transaction
+          .objectStore(SEARCH_POSTINGS_STORE)
+          .put(new Uint32Array([0]), ["c1", "plaintext-token"]);
+        transaction.objectStore(SEARCH_META_STORE).put(
+          {
+            conversationId: "c1",
+            indexedThroughId: "old-cursor",
+            lastAccessedAt: 1,
+            pendingIds: [],
+            updatedAt: 1,
+            version: 3,
+          },
+          "c1"
+        );
+      }
+    );
+
+    const store = createTestStore();
+    await store.readStats("c1");
+    const db = await openRaw();
+    try {
+      expect(
+        await readRawValue(db, SEARCH_POSTINGS_STORE, ["c1", "plaintext-token"])
+      ).toBeUndefined();
+      expect(await readRawValue(db, IDENTITY_STORE, IDENTITY_USER_ID)).toEqual(
+        identityRecord
+      );
+    } finally {
+      db.close();
+    }
   });
 
   // Another tab raising the version fires versionchange and closes our handle.
@@ -114,13 +275,13 @@ describe("shared messages database", () => {
   // hanging or serving wrong results. The stale handle is not reused either way,
   // which is what `staleConnection` is for.
   test("a version bump by another tab degrades instead of hanging", async () => {
-    const store = createIndexedDbSearchIndexStore();
+    const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     // oxlint-disable-next-line promise/avoid-new -- IndexedDB open lifecycle is event-based
     await new Promise<void>((resolve) => {
       const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION + 1);
-      request.addEventListener("upgradeneeded", () => {
-        ensureMessagesSchema(request.result);
+      request.addEventListener("upgradeneeded", (event) => {
+        ensureMessagesSchema(request.result, event.oldVersion);
       });
       request.addEventListener("success", () => {
         request.result.close();
@@ -133,7 +294,7 @@ describe("shared messages database", () => {
     // rejection is a VersionError the caller can treat as "not indexed".
     let rejected = false;
     try {
-      await store.readPostingList("c1", "deploy");
+      await store.query("c1", ["deploy"], 10);
     } catch (error) {
       rejected = (error as { name?: string })?.name === "VersionError";
     }

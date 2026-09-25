@@ -792,7 +792,10 @@ export function createRootKeyStore(privateKey: CryptoKey) {
     // The peer key is part of the signature because a new peer key produces
     // different ECDH results from the same wraps.
     const signature = `${myWrappedKeys
-      .map((wrapped) => `${wrapped.version}:${wrapped.encryptedKey.ciphertext}`)
+      .map(
+        (wrapped) =>
+          `${wrapped.version}:${wrapped.encryptedKey.ciphertext}:${wrapped.encryptedKey.iv}`
+      )
       .join("|")}#${peerPublicKeyBase64}`;
     const cached = cache.get(conversationId);
     if (cached && cached.signature === signature) {
@@ -883,7 +886,7 @@ function conversationKeySignature(
 ): string {
   const wraps = conversation.keys
     .filter((key) => key.ownerUserId === myUserId)
-    .map((key) => `${key.version ?? 1}:${key.encryptedKey}`)
+    .map((key) => `${key.version ?? 1}:${key.encryptedKey}:${key.iv}`)
     .toSorted()
     .join("|");
   const peer = conversation.members.find(

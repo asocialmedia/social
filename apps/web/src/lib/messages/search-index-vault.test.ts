@@ -16,6 +16,7 @@ import {
 import { SEARCH_INDEX_QUERY_LIMIT } from "./search-index-format";
 import {
   decodeRowTable,
+  emptySealedRowTable,
   encodeRowTable,
   projectRowTable,
   seal,
@@ -185,12 +186,20 @@ describe("search index key separation", () => {
 function table(overrides: Partial<SealedRowTable> = {}): SealedRowTable {
   const rowCount = overrides.messageIdByRow?.length ?? 0;
   return {
-    createdAtByRow: overrides.createdAtByRow ?? [],
+    createdAtByRow:
+      overrides.createdAtByRow ?? Array.from({ length: rowCount }, () => 0),
     messageIdByRow: overrides.messageIdByRow ?? [],
     presentByRow:
       overrides.presentByRow ?? Array.from({ length: rowCount }, () => true),
-    senderIdByRow: overrides.senderIdByRow ?? [],
-    tokensByRow: overrides.tokensByRow ?? [],
+    senderIdByRow:
+      overrides.senderIdByRow ?? Array.from({ length: rowCount }, () => "u"),
+    // Absent by default so the encoder derives a sorted dictionary, which is
+    // what a table that is not yet persisted wants. An empty array is NOT the
+    // same thing: it is a real, empty dictionary, and every token would then fail
+    // to resolve.
+    tokenDictionary: overrides.tokenDictionary,
+    tokensByRow:
+      overrides.tokensByRow ?? Array.from({ length: rowCount }, () => []),
   };
 }
 
@@ -200,7 +209,14 @@ describe("row table codec", () => {
   // lists to clear, and tombstones, so a deletion leaves a marker rather than a
   // hole an older device would refill.
   test("round-trips an empty table", () => {
-    expect(decodeRowTable(encodeRowTable(table()))).toEqual(table());
+    // A persisted table always carries its dictionary, so that is the shape a
+    // round-trip must reproduce exactly.
+    const empty = table({ tokenDictionary: [] });
+    expect(decodeRowTable(encodeRowTable(empty))).toEqual(empty);
+  });
+
+  test("an empty table derives an empty dictionary", () => {
+    expect(decodeRowTable(encodeRowTable(table())).tokenDictionary).toEqual([]);
   });
 
   test("round-trips ids, timestamps, senders, and tokens", () => {
@@ -226,6 +242,48 @@ describe("row table codec", () => {
     });
     expect(decodeRowTable(encodeRowTable(original)).tokensByRow).toEqual([
       ["zebra", "alpha", "mango"],
+    ]);
+  });
+
+  test("rejects a token outside the supplied dictionary", () => {
+    expect(() =>
+      encodeRowTable(
+        table({
+          messageIdByRow: ["m1"],
+          senderIdByRow: ["u"],
+          tokenDictionary: ["known"],
+          tokensByRow: [["secret-token"]],
+        })
+      )
+    ).toThrow("index vault: row 0 references a token outside the dictionary");
+  });
+
+  test("rejects a parallel array with a different length", () => {
+    expect(() =>
+      encodeRowTable(
+        table({
+          messageIdByRow: ["m1"],
+          senderIdByRow: ["u"],
+          tokensByRow: [["known"], []],
+        })
+      )
+    ).toThrow("index vault: tokensByRow length does not match messageIdByRow");
+  });
+
+  test("writes a missing present value as not present", () => {
+    const presentByRow: boolean[] = [true];
+    presentByRow[2] = true;
+    const original = {
+      createdAtByRow: [1, 2, 3],
+      messageIdByRow: ["m1", "m2", "m3"],
+      presentByRow,
+      senderIdByRow: ["u", "u", "u"],
+      tokensByRow: [[], [], []],
+    };
+    expect(decodeRowTable(encodeRowTable(original)).presentByRow).toEqual([
+      true,
+      false,
+      true,
     ]);
   });
 
@@ -286,6 +344,33 @@ describe("row table codec", () => {
 
   // Canonical encoding is what lets the store's mutation CAS tell a real change
   // from a re-save of identical content.
+  // Token ids are what the persistent backend keys its posting lists by, so a
+  // dictionary that reorders would silently point every list at the wrong rows.
+  test("a supplied dictionary keeps its order, so ids never shift", () => {
+    const original = table({
+      messageIdByRow: ["m1", "m2"],
+      senderIdByRow: ["u", "u"],
+      // Deliberately NOT sorted. "zebra" is id 0, "alpha" is id 1.
+      tokenDictionary: ["zebra", "alpha"],
+      tokensByRow: [["zebra"], ["alpha"]],
+    });
+    const decoded = decodeRowTable(encodeRowTable(original));
+    expect(decoded.tokenDictionary).toEqual(["zebra", "alpha"]);
+    // Re-encoding the decoded table reproduces the same ids.
+    expect([...encodeRowTable(decoded)]).toEqual([...encodeRowTable(original)]);
+  });
+
+  test("a derived dictionary is sorted, which is deterministic for equal content", () => {
+    const withoutDictionary = table({
+      messageIdByRow: ["m1"],
+      senderIdByRow: ["u"],
+      tokensByRow: [["zebra", "alpha"]],
+    });
+    expect(
+      decodeRowTable(encodeRowTable(withoutDictionary)).tokenDictionary
+    ).toEqual(["alpha", "zebra"]);
+  });
+
   test("re-encoding identical content is byte-identical", () => {
     const original = table({
       messageIdByRow: ["m1", "m2"],
@@ -300,28 +385,6 @@ describe("row table codec", () => {
     ]);
   });
 
-  test("senders are not reordered, so a re-encode is still stable", () => {
-    // Tokens sort (a dictionary), senders do not: there are one or two, and
-    // insertion order keeps the encoding cheap to reproduce incrementally.
-    const first = encodeRowTable(
-      table({
-        messageIdByRow: ["m1"],
-        senderIdByRow: ["zeta"],
-        tokensByRow: [["b", "a"]],
-      })
-    );
-    const second = encodeRowTable(
-      table({
-        messageIdByRow: ["m1"],
-        senderIdByRow: ["zeta"],
-        tokensByRow: [["a", "b"]],
-      })
-    );
-    // Different row order means different bytes, which is correct: the row's
-    // token order is meaningful to the write path.
-    expect([...first]).not.toEqual([...second]);
-  });
-
   test("rejects a truncated table rather than reading garbage", () => {
     const encoded = encodeRowTable(
       table({
@@ -334,23 +397,17 @@ describe("row table codec", () => {
     expect(() => decodeRowTable(new Uint8Array(4))).toThrow();
   });
 
-  test("rejects a directory pointing outside the buffer", () => {
-    const encoded = encodeRowTable(
-      table({
-        messageIdByRow: ["m1", "m2"],
-        senderIdByRow: ["u", "u"],
-        tokensByRow: [["a"], ["b"]],
-      })
-    );
+  test("rejects a row count that overruns the buffer", () => {
+    const encoded = encodeRowTable(table({ tokenDictionary: [] }));
     const view = new DataView(
       encoded.buffer,
       encoded.byteOffset,
       encoded.byteLength
     );
-    // The rowCount field sits just before the directory offset.
-    const rowCountOffset = 2 + 2 + 4;
-    view.setUint32(rowCountOffset, 9999, false);
-    expect(() => decodeRowTable(encoded)).toThrow();
+    view.setUint32(6, 9999, false);
+    expect(() => decodeRowTable(encoded)).toThrow(
+      "index vault: row directory is out of range"
+    );
   });
 
   test("sealed row tables round-trip through the vault", async () => {
@@ -413,7 +470,6 @@ describe("projectRowTable", () => {
   test("resolves only the requested rows", () => {
     const encoded = encodeRowTable({
       createdAtByRow: [1, 2, 3],
-      keyGeneration: "gen-1",
       messageIdByRow: ["m1", "m2", "m3"],
       presentByRow: [true, true, true],
       senderIdByRow: ["a", "b", "a"],
@@ -430,7 +486,6 @@ describe("projectRowTable", () => {
   test("skips tombstoned rows without decoding their id", () => {
     const encoded = encodeRowTable({
       createdAtByRow: [1, 2],
-      keyGeneration: "gen-1",
       messageIdByRow: ["m1", "gone"],
       presentByRow: [true, false],
       senderIdByRow: ["a", "a"],
@@ -445,7 +500,6 @@ describe("projectRowTable", () => {
   test("ignores out-of-range and negative rows", () => {
     const encoded = encodeRowTable({
       createdAtByRow: [1],
-      keyGeneration: "gen-1",
       messageIdByRow: ["m1"],
       presentByRow: [true],
       senderIdByRow: ["a"],
@@ -457,7 +511,6 @@ describe("projectRowTable", () => {
   test("agrees with a full decode for every live row", () => {
     const original = {
       createdAtByRow: [5, 6, 7, 8],
-      keyGeneration: "gen-1",
       messageIdByRow: ["a", "b", "c", "d"],
       presentByRow: [true, false, true, true],
       senderIdByRow: ["u1", "u2", "u1", "u2"],
@@ -475,22 +528,18 @@ describe("projectRowTable", () => {
 
   // A projection is on the keystroke path, where throwing would surface as a
   // broken search bar. A malformed table yields no rows and the caller rebuilds.
-  test("a malformed table projects to nothing rather than throwing", () => {
+  test("a malformed directory offset projects to nothing rather than throwing", () => {
     expect(projectRowTable(new Uint8Array(4), [0]).size).toBe(0);
-    const encoded = encodeRowTable({
-      createdAtByRow: [1, 2],
-      keyGeneration: "gen-1",
-      messageIdByRow: ["m1", "m2"],
-      presentByRow: [true, true],
-      senderIdByRow: ["a", "a"],
-      tokensByRow: [["x"], ["y"]],
-    });
+    const encoded = encodeRowTable(table({ tokenDictionary: [] }));
     const view = new DataView(
       encoded.buffer,
       encoded.byteOffset,
       encoded.byteLength
     );
-    view.setUint32(2 + 2 + 4, 5000, false);
+    view.setUint32(14, 5000, false);
+    expect(() => decodeRowTable(encoded)).toThrow(
+      "index vault: row directory is out of range"
+    );
     expect(projectRowTable(encoded, [0]).size).toBe(0);
   });
 });
@@ -519,6 +568,35 @@ function corpus(rows: number): SealedRowTable {
     ]),
   };
 }
+
+describe("row table codec at the token-id boundary", () => {
+  test("round-trips more than 65,535 packed token references", () => {
+    const original = corpus(20_000);
+    original.tokenDictionary = [
+      ...new Set(original.tokensByRow.flat()),
+    ].toSorted();
+    expect(decodeRowTable(encodeRowTable(original))).toEqual(original);
+  });
+
+  test("round-trips a dictionary with more than 65,535 entries", () => {
+    const tokenDictionary = Array.from(
+      { length: 65_537 },
+      (_, id) => `token-${id}`
+    );
+    const original = table({
+      messageIdByRow: ["m1", "m2"],
+      senderIdByRow: ["user-a", "user-a"],
+      tokenDictionary,
+      tokensByRow: [
+        tokenDictionary.slice(0, 65_535),
+        tokenDictionary.slice(65_535),
+      ],
+    });
+    expect(decodeRowTable(encodeRowTable(original)).tokensByRow).toEqual(
+      original.tokensByRow
+    );
+  });
+});
 
 describe("row table fixture", () => {
   // These numbers replace the estimate the rest of the work was planned against.
@@ -559,5 +637,46 @@ describe("row table fixture", () => {
     // cheap enough to store at all.
     const wire = ROWS * 493;
     expect(encoded.length).toBeLessThan(wire / 4);
+  });
+});
+
+describe("emptySealedRowTable", () => {
+  // Regression: the factory used to shallow-spread a module-level constant, so
+  // every "empty" table handed back the SAME array instances. The write path
+  // mutates those arrays in place, which made one conversation's rows visible to
+  // the next conversation's fresh table -- a cross-conversation leak that also
+  // corrupted row numbering. It surfaced only when several tables existed in one
+  // process, which is why a single-table test could never have caught it.
+  test("two empty tables share no mutable state", () => {
+    const first = emptySealedRowTable();
+    const second = emptySealedRowTable();
+    first.messageIdByRow[0] = "m1";
+    first.createdAtByRow[0] = 1;
+    first.senderIdByRow[0] = "u";
+    first.presentByRow[0] = true;
+    first.tokensByRow[0] = ["deploy"];
+    first.tokenDictionary?.push("deploy");
+    expect(second.messageIdByRow).toEqual([]);
+    expect(second.createdAtByRow).toEqual([]);
+    expect(second.senderIdByRow).toEqual([]);
+    expect(second.presentByRow).toEqual([]);
+    expect(second.tokensByRow).toEqual([]);
+    expect(second.tokenDictionary).toEqual([]);
+  });
+
+  test("a fresh empty table encodes as empty and decodes back to empty", () => {
+    expect([...encodeRowTable(emptySealedRowTable())]).toEqual([
+      ...encodeRowTable({
+        createdAtByRow: [],
+        messageIdByRow: [],
+        presentByRow: [],
+        senderIdByRow: [],
+        tokenDictionary: [],
+        tokensByRow: [],
+      }),
+    ]);
+    expect(
+      projectRowTable(encodeRowTable(emptySealedRowTable()), [0]).size
+    ).toBe(0);
   });
 });

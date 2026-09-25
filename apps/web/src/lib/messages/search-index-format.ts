@@ -28,7 +28,8 @@
 
 import { normalizeSearchText, searchQueryTokens } from "./message-search";
 
-export const SEARCH_INDEX_FORMAT_VERSION = 2;
+// The packed token-id width changed; existing indexes are dropped and rebuilt by walking history.
+export const SEARCH_INDEX_FORMAT_VERSION = 4;
 
 // A row's immutable facts. `messageId` is stored here, once, instead of being
 // repeated in every posting list.
@@ -53,6 +54,14 @@ export interface SearchIndexRowFacts {
 }
 
 export type SearchIndexRowLookup = Map<number, SearchIndexRowFacts>;
+
+// What one query returns: the matched rows' facts, and the exact total. The total
+// is computed over the full intersection and is deliberately not capped, because
+// the bar renders "n of N" and a capped N would silently under-report.
+export interface SearchIndexQueryResult {
+  rows: SearchIndexRowLookup;
+  totalMatched: number;
+}
 
 // What eviction needs to know about a conversation without reading its rows.
 export interface SearchIndexConversationSummary {
@@ -131,21 +140,29 @@ export interface SearchIndexStore {
     entries: Map<string, SearchIndexEntry>
   ) => Promise<void>;
   readMeta: (conversationId: string) => Promise<SearchIndexMeta | null>;
-  // Reads one token's posting list for a conversation. This is the query path's
-  // only hot read, and it is deliberately per token: a search for two words
-  // loads two lists, not the whole index.
-  readPostingList: (
+  // Answers a query end to end: maps the typed tokens to the table's internal
+  // token ids, intersects their posting lists, and projects the matched rows.
+  //
+  // One operation rather than three, for two reasons that only appear once the
+  // table is sealed. The token dictionary lives INSIDE the ciphertext, so a
+  // caller cannot turn words into posting keys at all without the table in hand.
+  // And doing the steps separately would let the table and the posting lists come
+  // from different commits, producing results that match rows the table no longer
+  // contains. A single call bounds both: one AEAD operation and one consistent
+  // revision per keystroke.
+  query: (
     conversationId: string,
-    token: string
-  ) => Promise<Uint32Array>;
-  // Reads every token at once. Used by tests and by whole-index operations
-  // (eviction accounting), never by the keystroke path.
+    tokens: string[],
+    limit: number
+  ) => Promise<SearchIndexQueryResult>;
+  // Reads every token at once, keyed by token TEXT. Used by tests and by
+  // whole-index operations (eviction accounting), never by the keystroke path,
+  // which goes through `query`.
   readAllPostingLists: (
     conversationId: string
   ) => Promise<Map<string, Uint32Array>>;
-  // Resolves only the rows a query matched. The hot read: bounded by the result
-  // cap rather than by the conversation, so search memory is flat as a
-  // conversation grows.
+  // Resolves specific rows. Used by tests and by whole-table operations, never by
+  // the keystroke path.
   readRows: (
     conversationId: string,
     rowIds: Uint32Array
@@ -167,10 +184,9 @@ export interface SearchIndexStore {
   // least-recently-used eviction. The meta store holds one small record per
   // conversation, so this is cheap even where a row scan would not be.
   listConversations: () => Promise<SearchIndexConversationSummary[]>;
-  // One point read, for the coverage label. Deliberately cheap and deliberately
-  // NOT the allocator: a persistent backend tracks rows ever interned, so this
-  // is cumulative coverage rather than a current row count, which is the more
-  // honest number for "how much of this conversation have I searched".
+  // One point read, for the coverage label. It comes from the allocator's
+  // high-water mark, so it is cheap and cumulative: it reports rows ever interned
+  // rather than decrypting the full table for a count.
   readStats: (conversationId: string) => Promise<{ indexedRowCount: number }>;
   removeEntries: (
     conversationId: string,
@@ -411,4 +427,16 @@ export function intersectPostingLists(
   // Candidates ascend by row id, so the newest-indexed are at the end and the
   // cap is a slice rather than a sort.
   return { rows: candidates.slice(-limit).toReversed(), totalMatched };
+}
+
+// Raised when a write computed from revision N finds revision N+1 already sealed.
+// The backend must re-read and recompute rather than overwrite: a table built
+// from a stale read would silently drop the other writer's rows. Lives here
+// rather than in the IndexedDB backend so the revision semantics and the error
+// that reports them stay in one file.
+export class SearchIndexRevisionConflictError extends Error {
+  constructor(conversationId: string) {
+    super(`search index revision conflict for ${conversationId}`);
+    this.name = "SearchIndexRevisionConflictError";
+  }
 }

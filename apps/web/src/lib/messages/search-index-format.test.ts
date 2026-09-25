@@ -40,25 +40,21 @@ function entry(
   return built;
 }
 
-// Runs a query exactly the way the hook does: one posting-list read per token,
-// intersected against the row table. Testing through this path is deliberate, so
-// a change that only works against a whole-index load cannot pass.
+// The production keystroke path: store.query owns token resolution, the posting
+// intersection, and row projection as one operation. The direct posting-list
+// reads below are retained only for tests that deliberately inspect storage.
 async function queryStore(
   store: SearchIndexStore,
   conversationId: string,
   tokens: string[],
   limit = SEARCH_INDEX_QUERY_LIMIT
 ): Promise<{ ids: string[]; totalMatched: number }> {
-  const lists = await Promise.all(
-    tokens.map((token) => store.readPostingList(conversationId, token))
-  );
-  const { rows, totalMatched } = intersectPostingLists(lists, limit);
-  const resolved = await store.readRows(conversationId, Uint32Array.from(rows));
+  const result = await store.query(conversationId, tokens, limit);
   return {
-    ids: [...resolved.values()]
+    ids: [...result.rows.values()]
       .toSorted((left, right) => right.createdAt - left.createdAt)
       .map((facts) => facts.messageId),
-    totalMatched,
+    totalMatched: result.totalMatched,
   };
 }
 
@@ -379,10 +375,11 @@ describe("memory search index store", () => {
       "c1",
       new Map([entryPair("m1", "alpha beta"), entryPair("m2", "alpha")])
     );
+    // Deliberate structural inspection of the stored posting records; the
+    // production query path below never uses this whole-index read.
     const all = await store.readAllPostingLists("c1");
     const one = await store.readPostingList("c1", "alpha");
     expect(all.size).toBe(2);
-    // The point of the format: the keystroke path pays for one list, not two.
     expect([...one].length).toBe(2);
   });
 
@@ -482,12 +479,40 @@ describe("memory search index store", () => {
   }
 });
 
+// Removes `indexedDB` for the duration of a test and puts it back.
+//
+// The absence of IndexedDB cannot be inferred from the environment: the two
+// IDB suites in this directory install `fake-indexeddb/auto`, and they share a
+// process, so by the time this file runs the global usually EXISTS. Relying on
+// that made the fallback test pass or fail purely on file ordering. Removing the
+// global explicitly states the precondition the test is about, so it is
+// order-independent.
+async function withoutIndexedDb<T>(run: () => Promise<T>): Promise<T> {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+  try {
+    return await run();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(globalThis, "indexedDB", descriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "indexedDB");
+    }
+  }
+}
+
 describe("search index backend selection", () => {
   test("falls back to memory when IndexedDB is absent", async () => {
     resetSearchIndexStoreForTests();
-    // Bun has no IndexedDB, so the probe must choose the memory backend rather
-    // than throw. This is the private-mode / embedded-webview path.
-    const resolved = await resolveSearchIndexStore();
+    // This is the private-mode / embedded-webview path: the probe must choose the
+    // memory backend rather than throw.
+    const resolved = await withoutIndexedDb(() =>
+      resolveSearchIndexStore(() => Promise.resolve(null))
+    );
     expect(resolved.backend).toBe("memory");
     // The fallback is still a working store, not a stub.
     await resolved.store.putEntries(
@@ -499,11 +524,16 @@ describe("search index backend selection", () => {
     resetSearchIndexStoreForTests();
   });
 
-  test("resolution is cached for the session", async () => {
+  // The backend is deliberately NOT cached across calls. A cached store would
+  // capture the first call's key resolver and hand it to every later caller, so
+  // opening a second conversation would try to read and write its index with the
+  // first conversation's sealing key. The store re-resolves per operation
+  // instead, so identity comes from the caller each time.
+  test("each resolution gets its own store, so no conversation inherits another's key", async () => {
     resetSearchIndexStoreForTests();
-    const first = await resolveSearchIndexStore();
-    const second = await resolveSearchIndexStore();
-    expect(second.store).toBe(first.store);
+    const first = await resolveSearchIndexStore(() => Promise.resolve(null));
+    const second = await resolveSearchIndexStore(() => Promise.resolve(null));
+    expect(second.store).not.toBe(first.store);
     resetSearchIndexStoreForTests();
   });
 });
@@ -577,28 +607,15 @@ describe("query performance budget", () => {
     }
   });
 
-  test("a query reads only the tokens and rows it needs", async () => {
+  test("the production query returns only result rows while keeping the full total", async () => {
     const store = await buildIndex();
-    let postingReads = 0;
-    let rowsRequested = 0;
-    const counting: SearchIndexStore = {
-      ...store,
-      readPostingList(conversationId, token) {
-        postingReads += 1;
-        return store.readPostingList(conversationId, token);
-      },
-      readRows(conversationId, rowIds) {
-        rowsRequested += rowIds.length;
-        return store.readRows(conversationId, rowIds);
-      },
-    };
-    await queryStore(counting, "c1", ["deploy", "latency"]);
-    // Two words, two posting reads. The 200k regression was one read per token in
-    // the conversation, which is the whole reason for the per-token layout.
-    expect(postingReads).toBe(2);
-    // And rows are resolved per RESULT, never per conversation. This is the read
-    // that used to walk all 20,000 rows and hold them in memory.
-    expect(rowsRequested).toBeLessThanOrEqual(SEARCH_INDEX_QUERY_LIMIT);
+    const result = await store.query(
+      "c1",
+      ["deploy", "latency"],
+      SEARCH_INDEX_QUERY_LIMIT
+    );
+    expect(result.rows.size).toBeLessThanOrEqual(SEARCH_INDEX_QUERY_LIMIT);
+    expect(result.totalMatched).toBeGreaterThan(0);
   });
 
   test("a query does not scale with the size of the conversation", async () => {
@@ -612,8 +629,10 @@ describe("query performance budget", () => {
     const smallMs = Math.min(await timeOne(small), await timeOne(small));
     const largeMs = Math.min(await timeOne(large), await timeOne(large));
     // 10x the conversation must not mean anything like 10x the query: the read
-    // is bounded by the posting lists and the result cap, not by row count.
-    expect(largeMs).toBeLessThan(Math.max(20, smallMs * 4));
+    // is bounded by the posting lists and the result cap, not by row count. The
+    // fallback's production query also projects through the sealed row codec, so
+    // its absolute floor is higher than the old readRows-only helper.
+    expect(largeMs).toBeLessThan(Math.max(50, smallMs * 4));
   });
 
   test("a single insert does not scale with the size of the index", async () => {

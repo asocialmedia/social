@@ -747,12 +747,12 @@ function openStore(): Promise<IDBDatabase> {
     // search index had created the database at a higher version made identity
     // key storage fail outright.
     const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
-    request.addEventListener("upgradeneeded", () => {
+    request.addEventListener("upgradeneeded", (event) => {
       // The shared schema builder, so this owner's store exists even when the
       // search index created the database first. It is idempotent and only resets
       // search stores on a version whose keying cannot be migrated, so an
       // identity upgrade never costs a rebuilt index.
-      ensureMessagesSchema(request.result, { version: MESSAGES_DB_VERSION });
+      ensureMessagesSchema(request.result, event.oldVersion);
     });
     request.addEventListener("success", () => {
       closeOnVersionChange(request.result);

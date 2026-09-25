@@ -72,8 +72,8 @@ import type {
   ConversationDetailResponse,
   MessagePageAxis,
 } from "@/lib/messages/client";
-import type { MessagePayload } from "@/lib/messages/crypto";
 import {
+  deriveIndexKeyFromBase,
   editMessagePayload,
   exportPublicKeyJwk,
   generateFingerprint,
@@ -82,6 +82,7 @@ import {
   importRatchetBaseKey,
   publicKeyBase64ToJwk,
 } from "@/lib/messages/crypto";
+import type { MessagePayload } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import { messageDecryptor } from "@/lib/messages/decryptor";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
@@ -1343,7 +1344,10 @@ export function MessageThread({
       return "";
     }
     const wraps = findMyWrappedKeys(detail.keys, userId)
-      .map((key) => `${key.version}:${key.encryptedKey.ciphertext}`)
+      .map(
+        (key) =>
+          `${key.version}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}`
+      )
       .join("|");
     return `${wraps}#${findPeerPublicKey(detail.conversation, userId) ?? ""}`;
   }, [detail, userId]);
@@ -1710,6 +1714,58 @@ export function MessageThread({
     ]
   );
 
+  // The search index is sealed under a key derived from the CURRENT conversation
+  // root. The generation is a signature of exactly the inputs that key depends on,
+  // so a root rotation or a peer key change yields a different generation and the
+  // store treats the existing table as unreadable and rebuilds by walking history.
+  // It never falls back to an old root: that would keep a table encrypted under a
+  // key the server has rotated away.
+  const indexKeySignature = useMemo(() => {
+    if (!detail || !userId) {
+      return "";
+    }
+    return JSON.stringify([
+      conversationId,
+      findMyWrappedKeys(detail.keys, userId).map((wrapped) =>
+        JSON.stringify({
+          encryptedKey: wrapped.encryptedKey,
+          version: wrapped.version,
+        })
+      ),
+      findPeerPublicKey(detail.conversation, userId) ?? "",
+    ]);
+  }, [conversationId, detail, userId]);
+
+  const resolveSearchIndexSealingKey = useCallback(
+    async (targetConversationId: string) => {
+      if (indexKeySignature === "" || targetConversationId !== conversationId) {
+        return null;
+      }
+      const baseKeys = await getBaseKeys(targetConversationId);
+      // Newest root first. One key per query: the table is sealed under the root
+      // in force when it was written, and a rotation makes it unreadable.
+      const [baseKey] = baseKeys;
+      if (!baseKey) {
+        return null;
+      }
+      return {
+        generation: indexKeySignature,
+        key: await deriveIndexKeyFromBase(baseKey, targetConversationId),
+      };
+    },
+    [conversationId, getBaseKeys, indexKeySignature]
+  );
+
+  // The store is resolved once per conversation, but it must still see the LATEST
+  // resolver. Capturing the callback directly would pin the first render's root
+  // key and silently stop indexing after a rotation; putting it in the effect
+  // dependencies instead would tear down and rebuild the store on every rotation.
+  // A ref-backed trampoline gets both: stable identity, current value.
+  const sealingKeyResolverRef = useRef(resolveSearchIndexSealingKey);
+  useEffect(() => {
+    sealingKeyResolverRef.current = resolveSearchIndexSealingKey;
+  }, [resolveSearchIndexSealingKey]);
+
   // Resolve the index backend once per conversation. A failure here is not
   // fatal: `resolveSearchIndexStore` already falls back to an in-memory store,
   // and the caller treats null as "no index, loaded rows only".
@@ -1717,7 +1773,9 @@ export function MessageThread({
     let cancelled = false;
     const resolve = async () => {
       try {
-        const resolved = await resolveSearchIndexStore();
+        const resolved = await resolveSearchIndexStore((target) =>
+          sealingKeyResolverRef.current(target)
+        );
         if (!cancelled) {
           setSearchIndex({ refreshToken: 0, store: resolved.store });
         }

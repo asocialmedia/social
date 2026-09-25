@@ -140,15 +140,13 @@ export interface SealedRowTable {
   // message was deleted or hidden, and the id is retained so the deletion is not
   // undone by a stale device. Tombstoned rows contribute no tokens.
   presentByRow: boolean[];
+  // The token dictionary, in STABLE id order. A persistent backend keys its
+  // posting lists by these ids, so the order must not shift: deriving a sorted
+  // dictionary per encode would renumber every list the moment a word sorting
+  // earlier was first used, silently corrupting the index. Absent means "derive
+  // one", which is only correct for a table that is not yet persisted.
+  tokenDictionary?: string[];
 }
-
-const EMPTY_TABLE: SealedRowTable = {
-  createdAtByRow: [],
-  messageIdByRow: [],
-  presentByRow: [],
-  senderIdByRow: [],
-  tokensByRow: [],
-};
 
 const ENCODER = new TextEncoder();
 const DECODER = new TextDecoder();
@@ -157,7 +155,7 @@ const DECODER = new TextDecoder();
 // written by one build is byte-comparable by another.
 //
 //   u16 senderCount          then senderCount * (u16 len + utf8)
-//   u16 tokenCount           then tokenCount  * (u16 len + utf8)
+//   u32 tokenCount           then tokenCount * (u16 len + utf8)
 //   u32 rowCount
 //   u32 packedTokenCount     (so the vector's length is known without walking
 //                             the directory)
@@ -170,10 +168,14 @@ const DECODER = new TextDecoder();
 //     u32 messageId offset
 //     f64 createdAt
 //     u16 sender index
-//     u16 token offset (index into the per-row token-id vector)
+//     u32 token offset (index into the per-row token-id vector)
 //     u16 token count
-//   u32 perRowTokenCount     then rowCount * perRowTokenCount * u16 token ids
-//   variable message ids, in row order
+//   packedTokenCount * 4 bytes (the u32 token-id vector)
+//   variable-length message ids, in row order
+//
+// The dictionary count and each token reference are u32: a dictionary can
+// exceed 65,535 distinct tokens, and the count is a whole-table quantity. The
+// offsets are u32 because they are whole-table quantities.
 //
 // The fixed directory is what lets a query resolve 2,000 rows without decoding
 // 200,000: the projection reads the directory, gathers the requested message ids
@@ -183,14 +185,36 @@ const DIRECTORY_ENTRY_BYTES = 24;
 // the two counts precede them, and the row count, packed-token count and
 // directory offset follow. Sizing it as one block under-counted the buffer by
 // twelve bytes and every non-empty table overran its own allocation.
-const HEADER_PREFIX_BYTES = 4; // u16 senderCount + u16 tokenCount
+const HEADER_PREFIX_BYTES = 6; // u16 senderCount + u32 tokenCount
 const HEADER_TAIL_BYTES = 12; // u32 rowCount + u32 packedTokenCount + u32 offset
 
 export function encodeRowTable(table: SealedRowTable): Uint8Array {
-  // Dictionaries. Senders keep insertion order because there are one or two of
-  // them; tokens are sorted so that re-encoding identical content produces
-  // identical bytes, which is what the store's mutation CAS relies on to tell a
-  // real change from a re-save.
+  const rowCount = table.messageIdByRow.length;
+  if (table.createdAtByRow.length !== rowCount) {
+    throw new Error(
+      "index vault: createdAtByRow length does not match messageIdByRow"
+    );
+  }
+  if (table.senderIdByRow.length !== rowCount) {
+    throw new Error(
+      "index vault: senderIdByRow length does not match messageIdByRow"
+    );
+  }
+  if (table.presentByRow.length !== rowCount) {
+    throw new Error(
+      "index vault: presentByRow length does not match messageIdByRow"
+    );
+  }
+  if (table.tokensByRow.length !== rowCount) {
+    throw new Error(
+      "index vault: tokensByRow length does not match messageIdByRow"
+    );
+  }
+
+  // Senders keep insertion order: there are one or two of them. Tokens come from
+  // the table's own dictionary when it has one, so a stored index's ids are
+  // stable across re-encodes; otherwise a sorted dictionary is derived, which is
+  // deterministic and therefore still byte-stable for the same content.
   const senders: string[] = [];
   const senderIndex = new Map<string, number>();
   for (const senderId of table.senderIdByRow) {
@@ -199,7 +223,14 @@ export function encodeRowTable(table: SealedRowTable): Uint8Array {
       senders.push(senderId);
     }
   }
-  const tokenText = [...new Set(table.tokensByRow.flat())].toSorted();
+  const tokenText =
+    table.tokenDictionary ?? [...new Set(table.tokensByRow.flat())].toSorted();
+  if (senders.length > 0xff_ff) {
+    throw new Error("index vault: sender count exceeds u16 capacity");
+  }
+  if (tokenText.length > 0xff_ff_ff_ff) {
+    throw new Error("index vault: token count exceeds u32 capacity");
+  }
   const tokenIndex = new Map<string, number>();
   for (const [index, token] of tokenText.entries()) {
     tokenIndex.set(token, index);
@@ -212,14 +243,19 @@ export function encodeRowTable(table: SealedRowTable): Uint8Array {
   // the directory.
   const packedTokens: number[] = [];
   const packedOffsetByRow: number[] = [];
-  for (const tokens of table.tokensByRow) {
+  for (const [row, tokens] of table.tokensByRow.entries()) {
     packedOffsetByRow.push(packedTokens.length);
     for (const token of tokens) {
-      packedTokens.push(tokenIndex.get(token) ?? 0);
+      const tokenId = tokenIndex.get(token);
+      if (tokenId === undefined) {
+        throw new Error(
+          `index vault: row ${row} references a token outside the dictionary`
+        );
+      }
+      packedTokens.push(tokenId);
     }
   }
 
-  const rowCount = table.messageIdByRow.length;
   // The directory follows the whole header, so its absolute offset is always past
   // it. An earlier layout pointed the directory-offset field at itself and placed
   // the packed token vector where the directory began, so an empty table had two
@@ -233,7 +269,7 @@ export function encodeRowTable(table: SealedRowTable): Uint8Array {
   }
   size += HEADER_TAIL_BYTES;
   size += rowCount * DIRECTORY_ENTRY_BYTES;
-  size += packedTokens.length * 2;
+  size += packedTokens.length * 4;
   for (const bytes of messageIdBytes) {
     size += bytes.length;
   }
@@ -250,8 +286,8 @@ export function encodeRowTable(table: SealedRowTable): Uint8Array {
     out.set(bytes, offset);
     offset += bytes.length;
   }
-  view.setUint16(offset, tokenBytes.length, false);
-  offset += 2;
+  view.setUint32(offset, tokenBytes.length, false);
+  offset += 4;
   for (const bytes of tokenBytes) {
     view.setUint16(offset, bytes.length, false);
     offset += 2;
@@ -273,12 +309,12 @@ export function encodeRowTable(table: SealedRowTable): Uint8Array {
   // No count field in the body any more: it moved into the header, so this is
   // simply the directory plus the packed vector. Leaving a stray +4 here pushed
   // every message id four bytes past the end of its own buffer.
-  let messageIdOffset = packedTokensOffset + packedTokens.length * 2;
+  let messageIdOffset = packedTokensOffset + packedTokens.length * 4;
 
   for (let row = 0; row < rowCount; row += 1) {
     const base = directoryOffset + row * DIRECTORY_ENTRY_BYTES;
     const idBytes = messageIdBytes[row] ?? new Uint8Array(0);
-    out[base] = table.presentByRow[row] === false ? 0 : 1;
+    out[base] = table.presentByRow[row] === true ? 1 : 0;
     out[base + 1] = 0;
     view.setUint16(base + 2, idBytes.length, false);
     view.setUint32(base + 4, messageIdOffset, false);
@@ -288,16 +324,16 @@ export function encodeRowTable(table: SealedRowTable): Uint8Array {
       senderIndex.get(table.senderIdByRow[row] ?? "") ?? 0,
       false
     );
-    view.setUint16(base + 18, packedOffsetByRow[row] ?? 0, false);
-    view.setUint16(base + 20, table.tokensByRow[row]?.length ?? 0, false);
+    view.setUint32(base + 18, packedOffsetByRow[row] ?? 0, false);
+    view.setUint16(base + 22, table.tokensByRow[row]?.length ?? 0, false);
     out.set(idBytes, messageIdOffset);
     messageIdOffset += idBytes.length;
   }
 
   let cursor = packedTokensOffset;
   for (const id of packedTokens) {
-    view.setUint16(cursor, id, false);
-    cursor += 2;
+    view.setUint32(cursor, id, false);
+    cursor += 4;
   }
   return out;
 }
@@ -314,6 +350,9 @@ function readHeader(
   view: DataView,
   total: number
 ): TableHeader & { dictionaries: { senders: string[]; tokens: string[] } } {
+  if (total < HEADER_PREFIX_BYTES + HEADER_TAIL_BYTES) {
+    throw new Error("index vault: row table too short");
+  }
   let offset = 0;
   const senderCount = view.getUint16(offset, false);
   offset += 2;
@@ -331,8 +370,8 @@ function readHeader(
     );
     offset += length;
   }
-  const tokenCount = view.getUint16(offset, false);
-  offset += 2;
+  const tokenCount = view.getUint32(offset, false);
+  offset += 4;
   const tokens: string[] = [];
   for (let index = 0; index < tokenCount; index += 1) {
     const length = view.getUint16(offset, false);
@@ -355,7 +394,7 @@ function readHeader(
   offset += 4;
   if (
     directoryOffset !== offset ||
-    directoryOffset + rowCount * DIRECTORY_ENTRY_BYTES + packedTokenCount * 2 >
+    directoryOffset + rowCount * DIRECTORY_ENTRY_BYTES + packedTokenCount * 4 >
       total
   ) {
     throw new Error("index vault: row directory is out of range");
@@ -370,8 +409,20 @@ function readHeader(
   };
 }
 
+export function readTokenDictionary(bytes: Uint8Array): string[] {
+  if (bytes.length < 16) {
+    return [];
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    return readHeader(view, bytes.length).dictionaries.tokens;
+  } catch {
+    return [];
+  }
+}
+
 export function decodeRowTable(bytes: Uint8Array): SealedRowTable {
-  if (bytes.length < 12) {
+  if (bytes.length < 16) {
     throw new Error("index vault: row table too short");
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -396,8 +447,8 @@ export function decodeRowTable(bytes: Uint8Array): SealedRowTable {
     const idOffset = view.getUint32(base + 4, false);
     const createdAt = view.getFloat64(base + 8, false);
     const senderIndex = view.getUint16(base + 16, false);
-    const tokenOffset = view.getUint16(base + 18, false);
-    const tokenCountForRow = view.getUint16(base + 20, false);
+    const tokenOffset = view.getUint32(base + 18, false);
+    const tokenCountForRow = view.getUint16(base + 22, false);
     if (idOffset + idLength > bytes.length) {
       throw new Error("index vault: message id overruns buffer");
     }
@@ -417,8 +468,8 @@ export function decodeRowTable(bytes: Uint8Array): SealedRowTable {
     presentByRow.push(present);
     const tokens: string[] = [];
     for (let index = 0; index < tokenCountForRow; index += 1) {
-      const tokenId = view.getUint16(
-        packedCursor + (tokenOffset + index) * 2,
+      const tokenId = view.getUint32(
+        packedCursor + (tokenOffset + index) * 4,
         false
       );
       const token = dictionaries.tokens[tokenId];
@@ -435,6 +486,7 @@ export function decodeRowTable(bytes: Uint8Array): SealedRowTable {
     messageIdByRow,
     presentByRow,
     senderIdByRow,
+    tokenDictionary: header.dictionaries.tokens,
     tokensByRow,
   };
 }
@@ -450,11 +502,10 @@ export interface ProjectedRow {
 
 export function projectRowTable(
   bytes: Uint8Array,
-  rowIds: Iterable<number>,
-  keyGeneration = ""
+  rowIds: Iterable<number>
 ): Map<number, ProjectedRow> {
   const out = new Map<number, ProjectedRow>();
-  if (bytes.length < 12) {
+  if (bytes.length < 16) {
     return out;
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -492,7 +543,6 @@ export function projectRowTable(
       senderId: dictionaries.senders[senderIndex] ?? "",
     });
   }
-  void keyGeneration;
   return out;
 }
 
@@ -501,8 +551,22 @@ export function projectRowTable(
 // under one root is refused under another. Repeating it inside the ciphertext
 // would add a field that can never be trusted, since the whole point is that the
 // bytes are only readable after the AEAD check.
+//
+// Every array must be fresh. A shallow spread of a module-level constant hands
+// back the SAME array instances to every caller, and the write path mutates them
+// in place (`table.messageIdByRow[row] = ...`). One conversation's first write
+// would then be visible to the next conversation's "empty" table, in the same
+// session and across tests, which is both a cross-conversation leak and a
+// corruption of row numbering.
 export function emptySealedRowTable(): SealedRowTable {
-  return { ...EMPTY_TABLE, tokensByRow: [] };
+  return {
+    createdAtByRow: [],
+    messageIdByRow: [],
+    presentByRow: [],
+    senderIdByRow: [],
+    tokenDictionary: [],
+    tokensByRow: [],
+  };
 }
 
 // Seals a row table, so callers deal in one opaque record.

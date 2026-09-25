@@ -21,10 +21,7 @@ import {
   searchQueryTokens,
 } from "./message-search";
 import type { RankedSearchResult, SearchCandidate } from "./message-search";
-import {
-  intersectPostingLists,
-  SEARCH_INDEX_QUERY_LIMIT,
-} from "./search-index-format";
+import { SEARCH_INDEX_QUERY_LIMIT } from "./search-index-format";
 import type {
   SearchIndexRowLookup,
   SearchIndexStore,
@@ -271,25 +268,22 @@ export function useConversationSearch(
     let cancelled = false;
     const load = async () => {
       try {
-        const lists = await Promise.all(
-          tokens.map((token) =>
-            indexStore.readPostingList(conversationId, token)
-          )
-        );
-        // Intersect first, then resolve only the rows that survived. Doing it in
-        // this order is the whole point: the rows are not known until the
-        // intersection is done, so resolving first meant resolving the entire
-        // conversation.
-        const { rows, totalMatched } = intersectPostingLists(
-          lists,
+        // One call for the whole query. It cannot be three: the token dictionary
+        // lives inside the sealed table, so a caller cannot turn words into
+        // posting keys at all, and separate steps could read the table and the
+        // posting lists from different commits. The store owns both halves so a
+        // keystroke costs one AEAD operation and one consistent revision.
+        const result = await indexStore.query(
+          conversationId,
+          tokens,
           SEARCH_INDEX_QUERY_LIMIT
         );
-        const resolved = await indexStore.readRows(
-          conversationId,
-          Uint32Array.from(rows)
-        );
         if (!cancelled && requestedAt === latestTokenRef.current) {
-          setIndexMatches({ rows: resolved, tokens, totalMatched });
+          setIndexMatches({
+            rows: result.rows,
+            tokens,
+            totalMatched: result.totalMatched,
+          });
         }
       } catch {
         if (!cancelled) {

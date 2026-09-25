@@ -20,14 +20,16 @@
 
 export const MESSAGES_DB_NAME = "asm-messages";
 
-// Bump for any change to either owner's schema. Owners reset their OWN stores on
-// the version they own and never touch the other's, so a bump costs a rebuilt
-// index and never lost identity material.
-export const MESSAGES_DB_VERSION = 5;
+// The sealed row-table layout changed; existing search indexes are dropped and
+// rebuilt by walking history, while identity material is never reset.
+export const MESSAGES_DB_VERSION = 8;
+export const RESET_SEARCH_STORES_BELOW_VERSION = MESSAGES_DB_VERSION;
 
 export const IDENTITY_STORE = "identity-keys";
-export const SEARCH_ROWS_STORE = "search-rows";
-export const SEARCH_ROW_IDS_STORE = "search-row-ids";
+// One sealed record per conversation: the complete row table, its key generation,
+// and a revision. Replaces the per-row stores, because the table is encrypted as a
+// single AEAD blob and per-row records would mean ~400ms of WebCrypto per query.
+export const SEARCH_TABLES_STORE = "search-tables";
 export const SEARCH_POSTINGS_STORE = "search-postings";
 export const SEARCH_ALLOC_STORE = "search-alloc";
 export const SEARCH_META_STORE = "search-meta";
@@ -37,9 +39,14 @@ export const SEARCH_META_STORE = "search-meta";
 // race that forced the row allocator to be split out.
 export const SEARCH_PENDING_STORE = "search-pending";
 
+export const OBSOLETE_SEARCH_STORES = [
+  "search-entries",
+  "search-rows",
+  "search-row-ids",
+];
+
 export const SEARCH_STORES = [
-  SEARCH_ROWS_STORE,
-  SEARCH_ROW_IDS_STORE,
+  SEARCH_TABLES_STORE,
   SEARCH_POSTINGS_STORE,
   SEARCH_ALLOC_STORE,
   SEARCH_META_STORE,
@@ -50,34 +57,35 @@ export const SEARCH_STORES = [
 // upgradeneeded handlers: the one that opens first builds the whole schema, so
 // the other never depends on being the upgrader.
 //
-// `resetStores` is passed only by the search owner, and only for versions whose
-// search keying cannot be migrated. Identity material is never in that list, so a
-// schema bump can cost a rebuilt index and nothing else.
+// The reset decision uses the versionchange event's oldVersion, not the version
+// being requested. The shared builder is unconditional, so either owner can win
+// an upgrade and still drop search data whose keying predates the sealed layout.
+// IDENTITY_STORE is deliberately never reset: identity material must survive
+// every search-index rebuild.
 export function ensureMessagesSchema(
   db: IDBDatabase,
-  options?: { resetSearchStoresBelow?: number; version: number }
+  oldVersion: number
 ): void {
-  const resetSearchStoresBelow = options?.resetSearchStoresBelow;
-  const version = options?.version ?? MESSAGES_DB_VERSION;
-  if (
-    resetSearchStoresBelow !== undefined &&
-    version < resetSearchStoresBelow
-  ) {
+  if (oldVersion < RESET_SEARCH_STORES_BELOW_VERSION) {
     for (const name of SEARCH_STORES) {
       if (db.objectStoreNames.contains(name)) {
         db.deleteObjectStore(name);
       }
     }
   }
-  for (const name of [
-    IDENTITY_STORE,
-    ...SEARCH_STORES,
-    // Superseded shapes, dropped so they cannot be mistaken for a valid index.
-    "search-entries",
-  ]) {
+  // Current stores are created if absent, so whichever owner opens first builds a
+  // schema the other can use.
+  for (const name of [IDENTITY_STORE, ...SEARCH_STORES]) {
     if (!db.objectStoreNames.contains(name)) {
       db.createObjectStore(name);
-    } else if (name === "search-entries") {
+    }
+  }
+  // Superseded shapes are dropped so they cannot be mistaken for a valid index.
+  // `search-rows` and `search-row-ids` are the v5 per-row stores: the current
+  // sealed table is keyed by conversation, so a leftover row record read under
+  // that key would hand back a row id where a sealed table is expected.
+  for (const name of OBSOLETE_SEARCH_STORES) {
+    if (db.objectStoreNames.contains(name)) {
       db.deleteObjectStore(name);
     }
   }
