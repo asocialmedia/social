@@ -6,8 +6,6 @@
 // helpers stay pure (no React, no decryptor) so they are unit-testable and
 // reusable by any future surface (e.g. a cross-conversation index).
 
-import type { MessagePayload } from "./crypto";
-
 // Queries shorter than this never run: single characters match almost every
 // row and would flash the whole thread on every keystroke.
 export const MIN_SEARCH_QUERY_LENGTH = 2;
@@ -52,16 +50,33 @@ export function searchQueryTokens(normalizedQuery: string): string[] {
 
 export type SearchableMessageKind = "media" | "post" | "text";
 
+// The structural subset extraction needs. Deliberately looser than MessagePayload:
+// the persistent index's writer sees a decrypted payload without the attachment
+// and post references, and both paths must extract the SAME text, or a message
+// would match before a reload and not after (or the reverse). A real
+// MessagePayload satisfies this shape, so nothing is lost by widening it.
+export interface SearchablePayload {
+  content?: string;
+  images?: number | readonly unknown[];
+  kind?: "gif" | "image";
+  type: SearchableMessageKind;
+}
+
 // The human-visible text a payload contributes to the index: the typed body
 // for text, the caption plus a kind label otherwise. The label keeps
 // captionless rows findable ("gif" matches a captionless GIF) without ever
 // inventing body text that is not there.
-export function extractSearchableText(payload: MessagePayload): {
+//
+// Shared by the ranked in-memory path and the persistent index writer. When the
+// two disagreed, a captionless image was findable in the transcript and invisible
+// after a reload, because the writer stored captions only and deliberately
+// omitted the label.
+export function extractSearchableText(payload: SearchablePayload): {
   kind: SearchableMessageKind;
   text: string;
 } {
   if (payload.type === "text") {
-    return { kind: "text", text: payload.content };
+    return { kind: "text", text: payload.content ?? "" };
   }
   if (payload.type === "post") {
     const label = "Shared a post";
@@ -71,7 +86,15 @@ export function extractSearchableText(payload: MessagePayload): {
       text: caption.length > 0 ? `${caption} ${label}` : label,
     };
   }
-  const images = "images" in payload ? payload.images.length : 1;
+  // The attachment reference is absent from the writer's structural view, so the
+  // count falls back to the single-image form rather than treating it as zero.
+  const { images: attachmentCount } = payload;
+  let images = 1;
+  if (Array.isArray(attachmentCount)) {
+    images = attachmentCount.length;
+  } else if (typeof attachmentCount === "number") {
+    images = attachmentCount;
+  }
   let label: string;
   if (payload.kind === "gif") {
     label = "Shared a GIF";
