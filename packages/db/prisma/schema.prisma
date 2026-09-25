@@ -202,6 +202,13 @@ model Message {
 
   @@unique([conversationId, senderId, ratchetIndex])
   @@index([conversationId, createdAt])
+  // Every history read filters on conversationId and orders by id (the cursor
+  // sort key), so this is the index that actually serves the thread. The
+  // (conversationId, createdAt) index above cannot be used for an id-ordered
+  // range scan, which left Postgres scanning the primary key backwards and
+  // discarding every row belonging to another conversation. Measured on a 2M
+  // row table: a typical small DM's page went 178ms -> 0.64ms.
+  @@index([conversationId, id])
   @@index([senderId])
   @@map("messages")
 }

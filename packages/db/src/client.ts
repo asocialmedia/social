@@ -408,7 +408,16 @@ export type MessageData = Prisma.MessageGetPayload<{
 }>;
 
 export interface MessagePage {
+  // Index of the requested anchor inside `messages` (oldest-first), set only on
+  // an anchored (`?around=`) read. -1 means the anchor is no longer visible to
+  // this user — deleted, or hidden with "delete for me" — and the caller got
+  // the nearest older window instead.
+  anchorIndex?: number;
   messages: MessageData[];
+  // Cursor for paging newer. Absent on the default read (new messages arrive
+  // over the realtime stream), present once a window has been anchored in the
+  // middle of history and the transcript has to grow upward as well as down.
+  nextCursor?: string | null;
   previousCursor: string | null;
 }
 
