@@ -19,6 +19,9 @@ describe("Prisma sync deployment artifact", () => {
   });
 
   test("uses Prisma 8 contract emission in application Docker builds", async () => {
+    const authDockerfile = await Bun.file(
+      path.join(repositoryRoot, "apps/auth/Dockerfile")
+    ).text();
     const mediaProcessingDockerfile = await Bun.file(
       path.join(repositoryRoot, "apps/media-processing/Dockerfile")
     ).text();
@@ -26,12 +29,16 @@ describe("Prisma sync deployment artifact", () => {
       path.join(repositoryRoot, "apps/web/Dockerfile")
     ).text();
 
+    expect(authDockerfile).toContain(
+      "RUN cd packages/db && bunx prisma contract emit"
+    );
     expect(mediaProcessingDockerfile).toContain(
       "RUN cd packages/db && bunx prisma contract emit"
     );
     expect(webDockerfile).toContain(
       "RUN cd packages/db && bunx prisma contract emit"
     );
+    expect(authDockerfile).not.toContain("prisma generate");
     expect(mediaProcessingDockerfile).not.toContain("prisma generate");
     expect(webDockerfile).not.toContain("prisma generate");
   });
