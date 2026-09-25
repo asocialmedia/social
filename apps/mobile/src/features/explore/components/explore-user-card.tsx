@@ -1,15 +1,30 @@
 import { Image } from "expo-image";
-import { Flame, Sparkles, UserPlus, Users } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Flame, Sparkles, Users } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { ReactNode } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
+import {
+  FOLLOW_BUTTON_SHADOWS,
+  FOLLOW_BUTTON_SHADOWS_LIGHT,
+  HIGHLIGHT_SHADOWS,
+  HIGHLIGHT_SHADOWS_DARK,
+  SURFACE_SHADOWS,
+  SURFACE_SHADOWS_DARK,
+  useAppTheme,
+} from "@/theme";
 
 import type { ExploreUser } from "../lib/explore-api";
 
-function bannerFor(avatarUrl: string | null, apiBase: string): string | null {
+function bannerFor(
+  avatarUrl: string | null | undefined,
+  apiBase: string
+): string | null {
   if (!avatarUrl) {
     return null;
   }
@@ -41,9 +56,63 @@ export function ExploreUserCard({
   const { isDark, theme } = useAppTheme();
   const [following, setFollowing] = useState(user.isFollowing);
   const [pending, setPending] = useState(false);
+  const [bannerFailed, setBannerFailed] = useState(false);
   const apiBase = getApiBaseUrl();
-  const bannerUrl = bannerFor(user.bannerUrl ?? user.avatarUrl, apiBase);
+  const bannerUrl = bannerFor(user.bannerUrl, apiBase);
+  const avatarUrl = bannerFor(user.avatarUrl, apiBase);
+  const hasBanner = Boolean(bannerUrl) && !bannerFailed;
   const resolvedReason = reason ?? user.reason ?? user.reasons?.[0];
+  let cardBackground = theme.cardBg;
+  let { cardBorder } = theme;
+  let cardShadow = isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS;
+  let avatarRing = theme.containerBg;
+  if (highlight) {
+    if (isDark) {
+      cardBackground = "#3a1a0c";
+      cardBorder = "rgba(251, 146, 60, 0.16)";
+      cardShadow = HIGHLIGHT_SHADOWS_DARK;
+      avatarRing = "#3a1a0c";
+    } else {
+      cardBackground = "#ffedd5";
+      cardBorder = "rgba(234, 88, 12, 0.18)";
+      cardShadow = HIGHLIGHT_SHADOWS;
+      avatarRing = "#ffedd5";
+    }
+  }
+  const followShadows = isDark
+    ? FOLLOW_BUTTON_SHADOWS
+    : FOLLOW_BUTTON_SHADOWS_LIGHT;
+  let bannerContent: ReactNode;
+  if (hasBanner && bannerUrl) {
+    bannerContent = (
+      <Image
+        cachePolicy="memory-disk"
+        contentFit="cover"
+        onError={() => setBannerFailed(true)}
+        source={{ uri: bannerUrl }}
+        style={styles.bannerImage}
+      />
+    );
+  } else if (avatarUrl) {
+    bannerContent = (
+      <Image
+        blurRadius={Platform.OS === "android" ? 14 : 20}
+        cachePolicy="memory-disk"
+        contentFit="cover"
+        source={{ uri: avatarUrl }}
+        style={[styles.bannerImage, styles.bannerFallbackImage]}
+      />
+    );
+  } else {
+    bannerContent = (
+      <LinearGradient
+        colors={["rgba(249, 115, 22, 0.42)", "rgba(230, 85, 0, 0.2)"]}
+        end={{ x: 1, y: 1 }}
+        start={{ x: 0, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+    );
+  }
 
   const handleFollow = () => {
     if (pending) {
@@ -70,21 +139,27 @@ export function ExploreUserCard({
       style={({ pressed }) => [
         styles.card,
         {
-          backgroundColor: theme.cardBg,
-          borderColor: theme.cardBorder,
-          boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
+          backgroundColor: cardBackground,
+          borderColor: cardBorder,
+          boxShadow: cardShadow,
           opacity: pressed ? 0.88 : 1,
         },
       ]}
     >
       <View style={[styles.banner, { backgroundColor: theme.dividerLine }]}>
-        {bannerUrl ? (
-          <Image
-            contentFit="cover"
-            source={{ uri: bannerUrl }}
-            style={styles.bannerImage}
-          />
-        ) : null}
+        {bannerContent}
+        <LinearGradient
+          colors={["rgba(249, 115, 22, 0.35)", "transparent"]}
+          end={{ x: 1, y: 0.5 }}
+          start={{ x: 0, y: 0.5 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <LinearGradient
+          colors={["transparent", theme.containerBg]}
+          end={{ x: 0.5, y: 1 }}
+          start={{ x: 0.5, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
         {highlight ? (
           <View style={styles.recommended}>
             <Sparkles color="#f97316" fill="#f97316" size={11} />
@@ -94,16 +169,28 @@ export function ExploreUserCard({
       </View>
       <View style={styles.content}>
         <View
-          style={[styles.avatarOverlap, { borderColor: theme.containerBg }]}
+          style={[
+            styles.avatarOverlap,
+            {
+              borderColor: avatarRing,
+            },
+          ]}
         >
           <UserAvatar size={56} url={user.avatarUrl} />
         </View>
-        <Text
-          numberOfLines={1}
-          style={[styles.name, { color: theme.inputText }]}
-        >
-          {user.displayName ?? user.username}
-        </Text>
+        <View style={styles.nameRow}>
+          <Text
+            numberOfLines={1}
+            style={[styles.name, { color: theme.inputText }]}
+          >
+            {user.displayName ?? user.username}
+          </Text>
+          <UserBadge
+            badge={user.badge}
+            badges={user.badges}
+            communityRoles={user.communityMemberships}
+          />
+        </View>
         <Text
           numberOfLines={1}
           style={[styles.username, { color: theme.dividerText }]}
@@ -158,22 +245,19 @@ export function ExploreUserCard({
             }}
             style={({ pressed }) => [
               styles.follow,
-              following && styles.following,
-              pressed && styles.pressed,
+              { opacity: pressed ? 0.88 : 1 },
             ]}
           >
-            <UserPlus
-              color={following ? theme.inputText : "#ffffff"}
-              size={14}
-            />
-            <Text
-              style={[
-                styles.followText,
-                { color: following ? theme.inputText : "#ffffff" },
-              ]}
+            <Gradient3D
+              colors={["#ff9500", "#e65500"]}
+              radius={9999}
+              shadows={followShadows}
+              style={styles.followSurface}
             >
-              {followLabel(pending, following)}
-            </Text>
+              <Text style={styles.followText}>
+                {followLabel(pending, following)}
+              </Text>
+            </Gradient3D>
           </Pressable>
         ) : null}
       </View>
@@ -183,7 +267,7 @@ export function ExploreUserCard({
 
 const styles = StyleSheet.create({
   avatarOverlap: {
-    borderRadius: 24,
+    borderRadius: 18,
     borderWidth: 4,
     marginTop: -28,
     zIndex: 2,
@@ -193,6 +277,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     width: "100%",
+  },
+  bannerFallbackImage: {
+    opacity: 0.68,
+    transform: [{ scale: 1.15 }],
   },
   bannerImage: { height: "100%", width: "100%" },
   bio: {
@@ -208,20 +296,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     overflow: "hidden",
   },
-  content: { padding: 12, paddingTop: 0 },
+  content: { flex: 1, padding: 12, paddingTop: 0 },
   follow: {
     alignItems: "center",
-    backgroundColor: "#f97316",
-    borderRadius: 8,
-    flexDirection: "row",
-    gap: 5,
-    justifyContent: "center",
     marginTop: 12,
-    minHeight: 32,
-    paddingHorizontal: 11,
+    width: "100%",
   },
-  followText: { fontFamily: "SofiaProMed", fontSize: 12 },
-  following: { backgroundColor: "rgba(128,128,128,0.2)" },
+  followSurface: {
+    alignItems: "center",
+    borderRadius: 9999,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 12,
+    width: "100%",
+  },
+  followText: {
+    color: "#ffffff",
+    fontFamily: "SofiaProBold",
+    fontSize: 12,
+  },
   metric: { alignItems: "center", flexDirection: "row", gap: 4 },
   metricLabel: { fontFamily: "SofiaProReg", fontSize: 12 },
   metricStrong: { fontFamily: "SofiaProMed", fontSize: 12 },
@@ -231,8 +324,8 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
   },
-  name: { fontFamily: "SofiaProBold", fontSize: 15, marginTop: 8 },
-  pressed: { opacity: 0.65 },
+  name: { fontFamily: "SofiaProBold", fontSize: 15 },
+  nameRow: { alignItems: "center", flexDirection: "row", gap: 4, marginTop: 8 },
   reason: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 6 },
   recommended: {
     alignItems: "center",

@@ -4,7 +4,6 @@
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
@@ -23,6 +22,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import noFeedImage from "@/assets/images/nofeed.png";
 import notFoundImage from "@/assets/images/notfound.png";
+import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -352,7 +352,6 @@ export function FeedList({
   variant,
 }: FeedListProps) {
   const { theme } = useAppTheme();
-  const router = useRouter();
   const { user } = useSessionContext();
   const listRef = useRef<FlatList<FeedThreadGroup>>(null);
   const metricsRef = useRef<ScrollMetrics>({
@@ -555,28 +554,16 @@ export function FeedList({
   if ((variant === "following" || variant === "personalized") && !user) {
     const copy = EMPTY_COPY[variant];
     return (
-      <View style={styles.centerWrap}>
-        <View
-          style={[
-            styles.prompt,
-            { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
-          ]}
-        >
-          <Text style={[styles.promptTitle, { color: theme.inputText }]}>
-            {variant === "personalized"
+      <View style={[styles.centerWrap, { paddingBottom: bottomInset }]}>
+        <AuthPromptCard
+          description={copy.description}
+          imageSize={128}
+          title={
+            variant === "personalized"
               ? "Log in for a feed made for you"
-              : "Log in to see your feed"}
-          </Text>
-          <Text style={[styles.promptBody, { color: theme.dividerText }]}>
-            {copy.description}
-          </Text>
-          <Pressable
-            onPress={() => router.push("/(auth)/login")}
-            style={styles.promptBtn}
-          >
-            <Text style={styles.promptBtnText}>Log in</Text>
-          </Pressable>
-        </View>
+              : "Log in to see your feed"
+          }
+        />
       </View>
     );
   }
@@ -921,39 +908,6 @@ const styles = StyleSheet.create({
   listWrap: {
     flex: 1,
     position: "relative",
-  },
-  prompt: {
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-    maxWidth: 340,
-    padding: 20,
-    width: "100%",
-  },
-  promptBody: {
-    fontFamily: "SofiaProReg",
-    fontSize: 13,
-    fontWeight: "normal",
-    textAlign: "center",
-  },
-  promptBtn: {
-    alignItems: "center",
-    backgroundColor: "#ff9500",
-    borderRadius: 9999,
-    marginTop: 8,
-    paddingVertical: 10,
-  },
-  promptBtnText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 14,
-    fontWeight: "normal",
-  },
-  promptTitle: {
-    fontFamily: "SofiaProBold",
-    fontSize: 16,
-    fontWeight: "normal",
-    textAlign: "center",
   },
   scrollThumb: {
     borderRadius: 9999,

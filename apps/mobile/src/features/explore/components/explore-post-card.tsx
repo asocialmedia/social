@@ -144,7 +144,7 @@ export function ExplorePostCard({
               </Text>
             ) : null}
             <View style={styles.authorRow}>
-              <UserAvatar size={28} url={post.user?.avatarUrl} />
+              <UserAvatar size={32} url={post.user?.avatarUrl} />
               <View style={styles.authorCopy}>
                 <View style={styles.authorNameRow}>
                   <Text
@@ -233,6 +233,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.62)",
     borderRadius: 20,
+    boxShadow: "0 2px 4px rgba(0, 0, 0, 0.24)",
     height: 40,
     justifyContent: "center",
     width: 40,

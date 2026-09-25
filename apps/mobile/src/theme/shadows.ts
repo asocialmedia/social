@@ -76,6 +76,18 @@ export const NAV_ACTIVE_SHADOWS =
 export const NAV_ACTIVE_SHADOWS_DARK =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2)";
 
+export const HIGHLIGHT_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 1px 2px rgba(255, 255, 255, 0.95), inset 0 -1px 2px rgba(154, 52, 18, 0.05), 0 1px 2px rgba(154, 52, 18, 0.05), 0 3px 8px rgba(154, 52, 18, 0.06)";
+
+export const HIGHLIGHT_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 2px rgba(255, 255, 255, 0.04), inset 0 -1px 2px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.15)";
+
+export const FOLLOW_BUTTON_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+export const FOLLOW_BUTTON_SHADOWS_LIGHT =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+
 // `.premium-error`
 export const ERROR_SHADOWS =
   "inset 0 0 0 1px rgba(255, 120, 100, 0.18), inset 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.04), 0 0 0 1px rgba(180, 180, 180, 0.35), 0 1px 1px rgba(255, 255, 255, 0.04), 0 3px 6px rgba(0, 0, 0, 0.3)";

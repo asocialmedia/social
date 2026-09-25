@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { useAppTheme } from "@/theme";
+import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
 import type { CommunityData } from "../lib/communities-api";
 import { CommunityAvatar } from "./community-avatar";
@@ -50,7 +50,7 @@ export function CommunityCard({
   onPress: () => void;
   width?: number;
 }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const [bannerFailed, setBannerFailed] = useState(false);
   const bannerUri = resolveProfileImageUrl(
     community.bannerUrl,
@@ -66,6 +66,7 @@ export function CommunityCard({
         {
           backgroundColor: theme.cardBg,
           borderColor: theme.cardBorder,
+          boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
           opacity: pressed ? 0.88 : 1,
           width,
         },

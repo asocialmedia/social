@@ -530,7 +530,7 @@ export function ExploreScreen() {
       <FlatList
         ListEmptyComponent={empty}
         ListHeaderComponent={header}
-        columnWrapperStyle={styles.columns}
+        columnWrapperStyle={activeTab === "people" ? undefined : styles.columns}
         contentContainerStyle={[
           styles.content,
           { paddingBottom: showGuestBar ? 176 : 96 },
@@ -540,6 +540,7 @@ export function ExploreScreen() {
         keyExtractor={(item) =>
           `${item.kind}-${item.kind === "post" ? item.post.id : item.user.id}`
         }
+        key={activeTab === "people" ? "explore-people" : "explore-grid"}
         ListFooterComponent={
           loadingMore ? (
             <ActivityIndicator color="#f97316" style={styles.footerLoader} />
