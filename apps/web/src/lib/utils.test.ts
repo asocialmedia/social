@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatNumber, truncateUsername } from "./utils";
+import { formatNumber, isEditableTarget, truncateUsername } from "./utils";
 
 describe("truncateUsername", () => {
   test("leaves a username within the budget untouched", () => {
@@ -23,6 +23,34 @@ describe("truncateUsername", () => {
     expect(truncateUsername("nova", -3)).toBe("");
     // maxLength 1 can hold only the ellipsis, never a negative slice.
     expect(truncateUsername("nova", 1)).toBe("…");
+  });
+});
+
+describe("isEditableTarget", () => {
+  test("detects form controls and contenteditable descendants", () => {
+    expect(isEditableTarget({ tagName: "INPUT" } as EventTarget)).toBe(true);
+    expect(isEditableTarget({ tagName: "TEXTAREA" } as EventTarget)).toBe(true);
+    expect(
+      isEditableTarget({
+        isContentEditable: true,
+        tagName: "DIV",
+      } as EventTarget)
+    ).toBe(true);
+    expect(
+      isEditableTarget({
+        closest: () => ({}),
+        tagName: "SPAN",
+      } as unknown as EventTarget)
+    ).toBe(true);
+  });
+
+  test("does not classify ordinary controls as editable", () => {
+    expect(
+      isEditableTarget({
+        closest: () => null,
+        tagName: "BUTTON",
+      } as unknown as EventTarget)
+    ).toBe(false);
   });
 });
 

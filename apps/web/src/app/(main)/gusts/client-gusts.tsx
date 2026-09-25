@@ -40,7 +40,7 @@ import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
-import { cn } from "@/lib/utils";
+import { cn, isEditableTarget } from "@/lib/utils";
 import { useComposerStore } from "@/store/composer-store";
 
 interface ClientGustsProps {
@@ -490,10 +490,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   // gusts, m to toggle mute.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in input/textarea
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        e.defaultPrevented ||
+        e.altKey ||
+        e.ctrlKey ||
+        e.metaKey ||
+        isEditableTarget(e.target)
       ) {
         return;
       }

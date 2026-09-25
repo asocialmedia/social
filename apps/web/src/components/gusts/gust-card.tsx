@@ -761,7 +761,10 @@ export const GustCard: React.FC<GustCardProps> = ({
             <button
               aria-label="View comments"
               className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
-              onClick={onOpenComments}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenComments();
+              }}
               type="button"
             >
               <MessageSquare
