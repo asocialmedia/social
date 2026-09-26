@@ -7,6 +7,7 @@
 // is dropped rather than rendered as a broken row.
 
 export interface HistoryUser {
+  aura?: number;
   avatarUrl?: string | null;
   displayName?: string | null;
   id: string;
@@ -14,10 +15,19 @@ export interface HistoryUser {
 }
 
 export interface HistoryPost {
+  aura?: number;
+  authorAvatarUrl?: string | null;
   authorUsername?: string | null;
   content: string;
   createdAt: string;
+  explicitContent?: boolean;
   id: string;
+  previewMedia?: {
+    id: string;
+    thumbnailKey: string | null;
+    type: string;
+  } | null;
+  viewCount?: number;
 }
 
 export type SearchHistoryItem =
@@ -48,12 +58,16 @@ function parseUser(value: unknown): HistoryUser | null {
   if (!id || !username) {
     return null;
   }
-  return {
+  const result: HistoryUser = {
     avatarUrl: textOf(user?.avatarUrl),
     displayName: textOf(user?.displayName),
     id,
     username,
   };
+  if (typeof user?.aura === "number" && Number.isFinite(user.aura)) {
+    result.aura = user.aura;
+  }
+  return result;
 }
 
 function parsePost(value: unknown): HistoryPost | null {
@@ -63,17 +77,43 @@ function parsePost(value: unknown): HistoryPost | null {
   if (!id || !content) {
     return null;
   }
-  return {
-    authorUsername: textOf(post?.authorUsername),
+  const result: HistoryPost = {
     content,
     // A stored post without a usable date still has to render, so it falls back
     // to the epoch rather than producing an invalid Date.
     createdAt: textOf(post?.createdAt) ?? new Date(0).toISOString(),
     id,
   };
+  const authorUsername = textOf(post?.authorUsername);
+  if (authorUsername !== null) {
+    result.authorUsername = authorUsername;
+  }
+  if (typeof post?.aura === "number" && Number.isFinite(post.aura)) {
+    result.aura = post.aura;
+  }
+  const authorAvatarUrl = textOf(post?.authorAvatarUrl);
+  if (authorAvatarUrl !== null) {
+    result.authorAvatarUrl = authorAvatarUrl;
+  }
+  if (post?.explicitContent === true) {
+    result.explicitContent = true;
+  }
+  const preview = objectOf(post?.previewMedia);
+  if (preview && typeof preview.id === "string") {
+    result.previewMedia = {
+      id: preview.id,
+      thumbnailKey: textOf(preview.thumbnailKey),
+      type: textOf(preview.type) ?? "IMAGE",
+    };
+  }
+  if (typeof post?.viewCount === "number" && Number.isFinite(post.viewCount)) {
+    result.viewCount = post.viewCount;
+  }
+
+  return result;
 }
 
-/** Decodes one raw history entry, or null when it cannot be rendered. */
+// Decodes one raw history entry, or null when it cannot be rendered.
 export function parseHistoryItem(raw: unknown): SearchHistoryItem | null {
   const source = objectOf(raw) ?? decodeString(raw);
   if (!source) {
@@ -118,7 +158,7 @@ function decodeString(raw: unknown): Record<string, unknown> | null {
   }
 }
 
-/** Parses a whole history page, dropping entries that cannot be rendered. */
+// Parses a whole history page, dropping entries that cannot be rendered.
 export function parseSearchHistory(payload: unknown): SearchHistoryItem[] {
   if (!Array.isArray(payload)) {
     return [];
@@ -129,11 +169,9 @@ export function parseSearchHistory(payload: unknown): SearchHistoryItem[] {
   });
 }
 
-/**
- * The opaque key the server matches a removal against. It is the entry's own
- * serialized form, so the client has to send back exactly what it received
- * rather than reconstructing it.
- */
+// The opaque key the server matches a removal against. It is the entry's own
+// serialized form, so the client has to send back exactly what it received
+// rather than reconstructing it.
 export function historyItemKey(item: SearchHistoryItem, raw?: unknown): string {
   const text = textOf(raw);
   if (text) {
@@ -142,7 +180,7 @@ export function historyItemKey(item: SearchHistoryItem, raw?: unknown): string {
   return JSON.stringify({ searchedAt: item.searchedAt, type: item.type });
 }
 
-/** The label a history row shows, matching web's row copy. */
+// The label a history row shows, matching web's row copy.
 export function historyItemLabel(item: SearchHistoryItem): string {
   if (item.type === "query") {
     return item.query;
@@ -151,4 +189,43 @@ export function historyItemLabel(item: SearchHistoryItem): string {
     return item.user.displayName || item.user.username;
   }
   return `@${item.post.authorUsername ?? "someone"}`;
+}
+
+// Relative search timestamp matching web's formatSearchTime (lib/utils.ts).
+export function formatSearchTime(date?: Date | string | number | null): string {
+  if (!date) {
+    return "";
+  }
+  try {
+    const dateObj =
+      typeof date === "number" || typeof date === "string"
+        ? new Date(date)
+        : date;
+    if (Number.isNaN(dateObj.getTime())) {
+      return "";
+    }
+    const currentDate = new Date();
+    const diffMs = currentDate.getTime() - dateObj.getTime();
+    if (diffMs < 60 * 1000) {
+      return "searched just now";
+    }
+    const diffMinutes = Math.floor(diffMs / (60 * 1000));
+    if (diffMinutes < 60) {
+      return `searched ${diffMinutes}m ago`;
+    }
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) {
+      return `searched ${diffHours}h ago`;
+    }
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) {
+      return `searched ${diffDays}d ago`;
+    }
+    return `searched on ${dateObj.toLocaleDateString("en-US", {
+      day: "numeric",
+      month: "short",
+    })}`;
+  } catch {
+    return "";
+  }
 }

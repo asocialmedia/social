@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 // Root home page: mobile header, the four-tab feed (For you / Latest /
 // Trending / Following) with swipe navigation, and the guest auth bar docked
@@ -22,6 +21,7 @@ import {
   useTabStore,
 } from "@/features/feed/state/tab-store-native";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
+import { useSearchStore } from "@/features/search/state/search-store";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
@@ -30,7 +30,7 @@ import { MobileHeader, headerSlide } from "./mobile-header";
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();
-  const router = useRouter();
+
   const { isPending, user } = useSessionContext();
   // While the session is still resolving, `user` is null for everyone. Treating
   // that as "guest" flashes the Log in pill at signed-in users, so neither the
@@ -121,7 +121,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
-        onSearchPress={() => router.push("/search")}
+        onSearchPress={() => useSearchStore.getState().open()}
         unreadCount={unreadCount}
         user={
           showUser && user

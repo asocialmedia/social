@@ -259,7 +259,13 @@ export function recordSearchQuery(
 }
 
 export function recordSearchUser(
-  user: { displayName?: string | null; id: string; username: string },
+  user: {
+    aura?: number;
+    avatarUrl?: string | null;
+    displayName?: string | null;
+    id: string;
+    username: string;
+  },
   options: ApiCallOptions
 ): Promise<boolean> {
   return searchWrite(
@@ -271,7 +277,21 @@ export function recordSearchUser(
 }
 
 export function recordSearchPost(
-  post: { content: string; createdAt: string; id: string },
+  post: {
+    aura?: number;
+    authorAvatarUrl?: string | null;
+    authorUsername?: string;
+    content: string;
+    createdAt: string;
+    explicitContent?: boolean;
+    id: string;
+    previewMedia?: {
+      id: string;
+      thumbnailKey: string | null;
+      type: string;
+    } | null;
+    viewCount?: number;
+  },
   options: ApiCallOptions
 ): Promise<boolean> {
   return searchWrite(

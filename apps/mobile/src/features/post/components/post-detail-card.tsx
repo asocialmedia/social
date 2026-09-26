@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import {
   BookmarkToggle,
   CommentButton,
@@ -62,7 +63,7 @@ interface PostDetailCardProps {
   // Web parity (isJoined switches Card vs plain div on web); native
   // renders one surface either way.
   joined?: boolean;
-  onMore: (post: FeedPost) => void;
+  onMore: (post: FeedPost, anchor: MenuAnchor) => void;
   onOpenMedia: (index: number) => void;
   onShare: (post: FeedPost) => void;
   onToggleEddies: () => void;
@@ -227,7 +228,7 @@ export function PostDetailCard({
                 </Text>
               </View>
               <View style={styles.moreFix}>
-                <MoreButton onPress={() => onMore(post)} />
+                <MoreButton onPress={(anchor) => onMore(post, anchor)} />
               </View>
             </View>
             <DetailBody
@@ -304,7 +305,7 @@ export function PostDetailCard({
               </Text>
             </View>
             <View style={styles.detailMore}>
-              <MoreButton onPress={() => onMore(post)} />
+              <MoreButton onPress={(anchor) => onMore(post, anchor)} />
               <BookmarkToggle
                 initialBookmarked={isBookmarkedByUser(post, viewerId)}
                 onRequireLogin={requireLogin}

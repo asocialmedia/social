@@ -60,6 +60,13 @@ import { LOGIN_BUTTON_SHADOWS, useAppTheme } from "@/theme";
 
 import { subscribeEddieCreated } from "../lib/eddie-events";
 import {
+  AVATAR_CENTER,
+  computeEddieRailGeometry,
+  RAIL_LEFT,
+  RAIL_STROKE,
+  REPLY_INDENT,
+} from "../lib/eddie-rail";
+import {
   buildEddieTree,
   MAX_EDDIE_DEPTH,
   mergeEddies,
@@ -71,21 +78,7 @@ import { useEddieComposerStore } from "../state/eddie-composer-store";
 import { DeleteEddieDialog } from "./delete-eddie-dialog";
 import { EddieComposer } from "./eddie-composer";
 
-// Avatar geometry for the rail connectors: 40px avatar, 10px row padding,
-// so the avatar center sits at 30px; the rail channel centers at 16px.
-const AVATAR_CENTER = 30;
-const RAIL_X = 16;
-const REPLY_INDENT = 32;
 const POLL_MS = 8000;
-
-// The 2px rail is centred on RAIL_X, so its left edge sits half a stroke over.
-// Both segments are derived from this, so the corner they share cannot drift.
-const RAIL_STROKE = 2;
-const RAIL_LEFT = RAIL_X - RAIL_STROKE / 2;
-// The turn is a quarter-arc of CURVE_RADIUS, drawn inside a box one stroke
-// larger so the stroke's bleed is never clipped at the SVG viewport edge.
-const CURVE_RADIUS = 16;
-const CURVE_BOX = CURVE_RADIUS + RAIL_STROKE;
 
 // First-paint guess for the avatar's centre, refined by onLayout. Keeping the
 // constant here documents the expected geometry without the rail depending on it.
@@ -126,6 +119,7 @@ function EddieRail({
 }) {
   const { theme } = useAppTheme();
   const color = theme.cardBorder;
+  const geometry = computeEddieRailGeometry(avatarCenter, isLast);
   return (
     <>
       {/* Vertical run into the turn. A last sibling stops at the turn; one that
@@ -136,25 +130,22 @@ function EddieRail({
         style={[
           styles.railVertical,
           { backgroundColor: color },
-          isLast ? { height: avatarCenter } : { bottom: 0 },
+          isLast ? { height: geometry.verticalHeight ?? 0 } : { bottom: 0 },
         ]}
       />
       {/* The turn, in a box sized to hold the arc plus half a stroke of bleed
           on every side, so the stroke is never clipped at the SVG viewport. */}
       <Svg
-        height={CURVE_BOX}
+        height={geometry.curveBox}
         pointerEvents="none"
-        style={[
-          styles.railCurve,
-          { top: avatarCenter - CURVE_RADIUS - RAIL_STROKE / 2 },
-        ]}
-        width={CURVE_BOX}
+        style={[styles.railCurve, { top: geometry.curveTop }]}
+        width={geometry.curveBox}
       >
         <Path
-          d={`M ${RAIL_STROKE / 2} ${RAIL_STROKE / 2} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${CURVE_BOX - 1} ${CURVE_BOX - 1}`}
+          d={`M ${geometry.railStroke / 2} ${geometry.railStroke / 2} A ${geometry.curveRadius} ${geometry.curveRadius} 0 0 0 ${geometry.curveBox - 1} ${geometry.curveBox - 1}`}
           fill="none"
           stroke={color}
-          strokeWidth={RAIL_STROKE}
+          strokeWidth={geometry.railStroke}
         />
       </Svg>
       {/* Short run from the end of the arc into the avatar, tucked under its
@@ -163,7 +154,7 @@ function EddieRail({
         pointerEvents="none"
         style={[
           styles.railTail,
-          { backgroundColor: color, top: avatarCenter - RAIL_STROKE / 2 },
+          { backgroundColor: color, top: geometry.tailTop },
         ]}
       />
     </>
@@ -308,17 +299,15 @@ function EddieRow({
 
   return (
     <View style={[depth > 0 && !beyondCap && styles.nested]}>
-      {depth > 0 ? (
+      {depth > 0 && !beyondCap ? (
         <EddieRail avatarCenter={rail.avatarCenter} isLast={isLast} />
       ) : null}
       <View onLayout={handleCommentLayout} style={styles.comment}>
         {/* Stub: hangs this comment's avatar down to where its replies begin, so
-            the thread line reads as dropping off the parent. It must be scoped
-            to the comment content - as a sibling of the children its bottom: 0
-            reaches the end of the whole thread and the line trails past the last
-            reply, which is what web avoids by nesting the stub inside the
-            content block. */}
-        {depth === 0 && (hasChildren || replying) ? (
+            the thread line reads as dropping off the parent. Scoped to the
+            comment content block, its bottom: 0 terminates cleanly at the start
+            of this comment's replies rather than trailing past the thread. */}
+        {hasChildren || replying ? (
           <View
             pointerEvents="none"
             style={[styles.stub, { backgroundColor: theme.cardBorder }]}
@@ -1137,11 +1126,12 @@ const styles = StyleSheet.create({
   // Web's stub is `top-6` against its own AVATAR_CENTER of 24, i.e. the line
   // drops from the centre of the avatar. Native's AVATAR_CENTER is 30, so the
   // same relationship is expressed with the constant rather than a stale 24.
+  // RAIL_LEFT centers the 2px stroke on RAIL_X, matching railVertical.
   stub: {
     bottom: 0,
-    left: RAIL_X,
+    left: RAIL_LEFT,
     position: "absolute",
     top: AVATAR_CENTER,
-    width: 2,
+    width: RAIL_STROKE,
   },
 });

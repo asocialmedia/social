@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { FossBanner } from "@/components/misc/foss-banner";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useAppTheme } from "@/theme";
 
@@ -129,6 +130,9 @@ export function SettingsScreen() {
         <AccountTab facts={facts} onChanged={onChanged} />
       ) : null}
       {tab === "security" ? <SecurityTab /> : null}
+      <View style={styles.fossSlot}>
+        <FossBanner />
+      </View>
     </View>
   );
 }
@@ -137,6 +141,7 @@ export default SettingsScreen;
 
 const styles = StyleSheet.create({
   content: { gap: 14, padding: 16, paddingBottom: 40 },
+  fossSlot: { paddingHorizontal: 16, paddingTop: 8 },
   leadAction: { paddingVertical: 6 },
   leadActionText: {
     color: "#ff9500",

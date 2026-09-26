@@ -12,6 +12,12 @@ import type { ErrorInfo, ReactNode } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 
 import errorImage from "@/assets/images/error.png";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  ORANGE_BUTTON_SHADOWS,
+  ORANGE_GRADIENT,
+  ORANGE_PRESSED_GRADIENT,
+} from "@/components/surface/recipes";
 import { logError } from "@/lib/telemetry";
 
 import { StatusScreen } from "./status-screen";
@@ -65,37 +71,78 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 
 function ErrorFallback({ error, retry }: { error: Error; retry: () => void }) {
+  // The message is logged, not shown. A thrown message is written for a
+  // developer ("Changing numColumns on the fly is not supported...") and
+  // putting it in front of a reader tells them nothing they can act on while
+  // leaking internals about the surface they hit.
+  logError("ui.error_shown", error);
   return (
     <StatusScreen
-      action={
-        <Pressable
-          accessibilityLabel="Try again"
-          accessibilityRole="button"
-          onPress={retry}
-          style={({ pressed }) => [
-            styles.retry,
-            { opacity: pressed ? 0.82 : 1 },
-          ]}
-        >
-          <Text style={styles.retryText}>Try Again</Text>
-        </Pressable>
-      }
-      // Web shows a generic description here. The real message is more useful
-      // and is already safe to display, since it is the text a developer wrote.
-      description={error.message || "An unexpected error occurred."}
+      action={<TryAgainButton onPress={retry} />}
+      description="An unexpected error occurred. Try again, and let us know if it keeps happening."
       image={errorImage}
       title="Something went wrong"
     />
   );
 }
 
+/**
+ * Web's `.btn-3d`, which is a dual border by construction: a light inset lip
+ * over a dark outer ring, on an orange gradient. React Native's boxShadow has
+ * no inset, so the lip is a real border on the gradient and the ring is a
+ * second view behind it, which is the same two edges rather than a flat fill.
+ */
+function TryAgainButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityLabel="Try again"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={styles.ring}
+    >
+      {({ pressed }) => (
+        <Gradient3D
+          colors={pressed ? ORANGE_PRESSED_GRADIENT : ORANGE_GRADIENT}
+          radius={9999}
+          shadows={ORANGE_BUTTON_SHADOWS}
+          style={styles.retry}
+        >
+          <Text style={styles.retryText}>Try Again</Text>
+        </Gradient3D>
+      )}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   retry: {
-    backgroundColor: "#f97316",
+    alignItems: "center",
+    // The light lip, which is the inset half of the dual border.
+    borderColor: "rgba(255, 255, 255, 0.3)",
     borderCurve: "continuous",
     borderRadius: 9999,
+    borderWidth: 1,
+    justifyContent: "center",
     paddingHorizontal: 24,
     paddingVertical: 12,
   },
-  retryText: { color: "#ffffff", fontFamily: "SofiaProBold", fontSize: 15 },
+  retryText: {
+    color: "#ffffff",
+    fontFamily: "SofiaProBold",
+    fontSize: 15,
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { height: 1, width: 0 },
+    textShadowRadius: 1,
+  },
+  // The dark outer ring, one pixel proud of the gradient on every side. This
+  // plus the gradient's light lip is the pair web's .btn-3d draws with an inset
+  // shadow and an outer ring in a single box-shadow, which React Native cannot
+  // express because its boxShadow has no inset.
+  ring: {
+    borderColor: "rgba(170, 60, 0, 0.95)",
+    borderCurve: "continuous",
+    borderRadius: 9999,
+    borderWidth: 1,
+    padding: 1,
+  },
 });

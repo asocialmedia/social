@@ -32,6 +32,7 @@ import {
   HEADER_BAR_HEIGHT,
   subscribeHeaderVisibility,
 } from "@/features/feed/lib/header-visibility";
+import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
@@ -259,7 +260,9 @@ export function MobileHeader({
                   accessibilityLabel="Search"
                   accessibilityRole="button"
                   hitSlop={6}
-                  onPress={onSearchPress}
+                  onPress={
+                    onSearchPress ?? (() => useSearchStore.getState().open())
+                  }
                 >
                   {({ pressed }) => (
                     <View

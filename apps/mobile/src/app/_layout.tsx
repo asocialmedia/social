@@ -15,6 +15,7 @@ import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
 import { ComposerModal } from "@/features/composer/components/composer-modal";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
+import { SpotlightModal } from "@/features/search/components/spotlight-modal";
 import { UpdateGate } from "@/features/update/components/update-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
@@ -96,7 +97,6 @@ export default function RootLayout() {
               >
                 <Stack.Screen name="index" />
                 <Stack.Screen name="notifications" />
-                <Stack.Screen name="search" />
                 <Stack.Screen name="bookmarks" />
                 <Stack.Screen
                   name="gusts"
@@ -123,6 +123,8 @@ export default function RootLayout() {
               {/* The post composer (opened from the dock's + and Respond) and
                   the app-wide toast stack. */}
               <ComposerModal />
+              {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
+              <SpotlightModal />
               <Toaster />
               {/* Last so it covers the navigator and every overlay above: it
                   holds the platform splash until the session is known, then

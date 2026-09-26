@@ -538,6 +538,7 @@ export function ProfileFeed({
     [router]
   );
   // Both grid tabs are two columns; only the column spacing differs.
+  const twoColumns = gustsGrid || isMediaFeed(feed);
   let columnStyle: ViewStyle | undefined;
   if (gustsGrid) {
     columnStyle = styles.gustRow;
@@ -615,7 +616,11 @@ export function ProfileFeed({
     <>
       <FlatList
         data={items}
-        key={isMediaFeed(feed) ? "profile-media" : "profile-list"}
+        // FlatList cannot change numColumns after mount, so the key carries
+        // the column count. The old key only separated media from the rest,
+        // which left the gusts grid switching out of a single column and
+        // throwing an invariant violation the error boundary caught.
+        key={twoColumns ? "grid" : "list"}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         onEndReached={feed.hasMore ? feed.fetchNext : undefined}
@@ -633,7 +638,7 @@ export function ProfileFeed({
           feed.status === "success" ? <EmptyProfileTab tab={tab} /> : null
         }
         ListFooterComponent={renderFooter}
-        numColumns={gustsGrid || isMediaFeed(feed) ? 2 : 1}
+        numColumns={twoColumns ? 2 : 1}
         columnWrapperStyle={columnStyle}
       />
       <ShareSheet

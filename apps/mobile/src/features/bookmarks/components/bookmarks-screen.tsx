@@ -18,6 +18,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import { PostCard } from "@/features/feed/components/post-card";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
+import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -157,7 +158,7 @@ export function BookmarksScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
-        onSearchPress={() => router.push("/search")}
+        onSearchPress={() => useSearchStore.getState().open()}
         user={
           user
             ? {

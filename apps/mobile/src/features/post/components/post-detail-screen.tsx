@@ -33,12 +33,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
 import notFoundImage from "@/assets/images/notfound.png";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FloatingEddieBar } from "@/features/eddies/components/floating-eddie-bar";
+import {
+  buildMoreEntries,
+  MoreMenu,
+} from "@/features/feed/components/more-menu";
+import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import { PostCard } from "@/features/feed/components/post-card";
 import { PostComments } from "@/features/feed/components/post-comments";
 import { ShareSheet } from "@/features/feed/components/share-sheet";
+import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
@@ -147,14 +154,33 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     []
   );
 
-  // v1 more action (see header comment): toggle ALT when the post carries a
-  // described attachment, otherwise fall through to share. Full menu lands
-  // once MoreMenu's migration settles.
-  const handleMore = useCallback((target: FeedPost) => {
-    const describable = (target.attachments ?? []).some(
-      (media) => media?.altText
-    );
-    if (describable) {
+  // The shared overflow menu, the same one the feed uses. This screen used to
+  // carry a local variant that could only toggle ALT or fall through to share,
+  // which is why moderation, delete and edit tags were unreachable from a post
+  // page even though the routes existed.
+  const overflow = usePostOverflow({
+    onDeleted: () => {
+      // The post is gone, so the page has nothing left to show.
+      router.back();
+    },
+    onHide: () => {
+      toast({
+        description: "This post won't appear in your feed.",
+        title: "Post hidden",
+      });
+    },
+    onModerated: (mutatedId, next) => {
+      setPost((current) =>
+        current && current.id === mutatedId ? { ...current, ...next } : current
+      );
+    },
+    onTagsSaved: () => {
+      toast({
+        description: "Tags updated",
+        title: "Saved",
+      });
+    },
+    onToggleAlt: (target) => {
       setAltVisibleIds((current) => {
         const next = new Set(current);
         if (next.has(target.id)) {
@@ -164,9 +190,16 @@ export function PostDetailScreen({ postId }: { postId: string }) {
         }
         return next;
       });
-      return;
-    }
-    setSharePost(target);
+    },
+    viewerId: viewerId ?? null,
+  });
+
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+  const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
+
+  const handleMore = useCallback((target: FeedPost, anchor: MenuAnchor) => {
+    setMenuAnchor(anchor);
+    setMenuPost(target);
   }, []);
 
   const handleShare = useCallback((target: FeedPost) => {
@@ -577,6 +610,32 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       />
       {showEddies && viewerId ? <FloatingEddieBar postId={post.id} /> : null}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
+      <MoreMenu
+        anchor={menuAnchor}
+        entries={
+          menuPost
+            ? buildMoreEntries({
+                post: menuPost,
+                showCaptions: false,
+                showingAlt: altVisibleIds.has(menuPost.id),
+                viewerId,
+              })
+            : []
+        }
+        onAction={(action) => {
+          const target = menuPost;
+          setMenuAnchor(null);
+          setMenuPost(null);
+          if (target) {
+            overflow.onAction(action, target);
+          }
+        }}
+        onClose={() => {
+          setMenuAnchor(null);
+          setMenuPost(null);
+        }}
+      />
+      {overflow.dialogs}
     </View>
   );
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  formatSearchTime,
   historyItemKey,
   historyItemLabel,
   parseHistoryItem,
@@ -82,6 +83,68 @@ describe("parseHistoryItem", () => {
         content: "hello",
         createdAt: new Date(0).toISOString(),
         id: "p1",
+      },
+      searchedAt: undefined,
+      type: "post",
+    });
+  });
+
+  test("decodes rich user and post metadata when provided", () => {
+    const userItem = parseHistoryItem({
+      type: "user",
+      user: {
+        aura: 150,
+        avatarUrl: "/avatar.png",
+        displayName: "Ada Lovelace",
+        id: "u1",
+        username: "ada",
+      },
+    });
+    expect(userItem).toEqual({
+      searchedAt: undefined,
+      type: "user",
+      user: {
+        aura: 150,
+        avatarUrl: "/avatar.png",
+        displayName: "Ada Lovelace",
+        id: "u1",
+        username: "ada",
+      },
+    });
+
+    const postItem = parseHistoryItem({
+      post: {
+        aura: 42,
+        authorAvatarUrl: "/author.png",
+        authorUsername: "ada",
+        content: "rich content",
+        createdAt: "2026-09-26T12:00:00.000Z",
+        explicitContent: true,
+        id: "p1",
+        previewMedia: {
+          id: "m1",
+          thumbnailKey: "thumb.jpg",
+          type: "VIDEO",
+        },
+        viewCount: 1200,
+      },
+      type: "post",
+    });
+    expect(postItem).toEqual({
+      post: {
+        aura: 42,
+        authorAvatarUrl: "/author.png",
+        authorUsername: "ada",
+        content: "rich content",
+        createdAt: "2026-09-26T12:00:00.000Z",
+        explicitContent: true,
+        id: "p1",
+        previewMedia: {
+          id: "m1",
+          thumbnailKey: "thumb.jpg",
+          type: "VIDEO",
+        },
+        viewCount: 1200,
       },
       searchedAt: undefined,
       type: "post",
@@ -182,5 +245,21 @@ describe("historyItemLabel", () => {
   test("labels a post with no author without printing undefined", () => {
     const item = parsed({ post: { content: "hi", id: "p1" }, type: "post" });
     expect(historyItemLabel(item)).toBe("@someone");
+  });
+});
+
+describe("formatSearchTime", () => {
+  test("returns empty string for missing or invalid dates", () => {
+    expect(formatSearchTime(null)).toBe("");
+    expect(formatSearchTime()).toBe("");
+    expect(formatSearchTime("invalid-date")).toBe("");
+  });
+
+  test("formats relative search times accurately", () => {
+    const now = Date.now();
+    expect(formatSearchTime(now - 10_000)).toBe("searched just now");
+    expect(formatSearchTime(now - 5 * 60 * 1000)).toBe("searched 5m ago");
+    expect(formatSearchTime(now - 3 * 3600 * 1000)).toBe("searched 3h ago");
+    expect(formatSearchTime(now - 2 * 86_400 * 1000)).toBe("searched 2d ago");
   });
 });

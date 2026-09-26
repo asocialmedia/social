@@ -25,17 +25,21 @@ import type { ComponentType } from "react";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   UserAvatar,
   useViewerAvatarUrl,
 } from "@/components/avatar/user-avatar";
+import { AnimatedWordCounter } from "@/components/feedback/animated-word-counter";
 import { toast } from "@/components/feedback/toast";
 import { GifPicker, reelsPanel } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
@@ -87,6 +91,10 @@ export const POST_SCOPE = "post";
 
 const GUST_CAPTION_MAX_WORDS = 150;
 const GUST_CAPTION_MAX_CHARS = 900;
+const MORE_MENU_WIDTH = 176;
+const MORE_MENU_HEIGHT = 86;
+const MORE_SIDE_OFFSET = 4;
+const MORE_EDGE_MARGIN = 8;
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -260,6 +268,8 @@ export function PostEditor({
   variant?: "feed" | "modal";
 }) {
   const { isDark, theme } = useAppTheme();
+  const window = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const text = themeText(isDark);
   const viewerAvatar = useViewerAvatarUrl();
   const mode = useComposerStore((state) => state.mode);
@@ -280,11 +290,49 @@ export function PostEditor({
     start: number;
   } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreAnchor, setMoreAnchor] = useState<{
+    height: number;
+    width: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const moreAnchorRef = useRef<View>(null);
   const [altTarget, setAltTarget] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   // One key per composed post, reused across retries of that post.
   const idempotencyKeyRef = useRef<string | null>(null);
+
+  const toggleMore = () => {
+    if (moreAnchor) {
+      setMoreAnchor(null);
+      return;
+    }
+    moreAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      setMoreAnchor({ height, width, x, y });
+    });
+  };
+
+  const moreBelow =
+    (moreAnchor?.y ?? 0) + (moreAnchor?.height ?? 0) + MORE_SIDE_OFFSET;
+  const moreRoomBelow =
+    window.height -
+    insets.bottom -
+    MORE_EDGE_MARGIN -
+    (moreBelow + MORE_MENU_HEIGHT);
+  const moreMenuTop =
+    moreRoomBelow >= 0
+      ? moreBelow
+      : Math.max(
+          insets.top + MORE_EDGE_MARGIN,
+          (moreAnchor?.y ?? 0) - MORE_SIDE_OFFSET - MORE_MENU_HEIGHT
+        );
+  const moreMenuLeft = Math.max(
+    MORE_EDGE_MARGIN,
+    Math.min(
+      moreAnchor?.x ?? 0,
+      window.width - MORE_MENU_WIDTH - MORE_EDGE_MARGIN
+    )
+  );
 
   const isGust = mode === "gust";
   const isResponse = replyTo !== null;
@@ -370,7 +418,7 @@ export function PostEditor({
   };
 
   const openAudio = async () => {
-    setMoreOpen(false);
+    setMoreAnchor(null);
     try {
       addPicked(await pickAudioFile());
     } catch {
@@ -619,15 +667,15 @@ export function PostEditor({
           ) : null}
 
           {gustNearLimit ? (
-            <Text
-              style={[
-                styles.counter,
-                { color: gustExceeded ? text.destructive : text.muted },
-              ]}
-            >
-              {words}/{GUST_CAPTION_MAX_WORDS} words · {draft.text.length}/
-              {GUST_CAPTION_MAX_CHARS} chars
-            </Text>
+            <View style={styles.counterRow}>
+              <AnimatedWordCounter
+                current={words}
+                max={GUST_CAPTION_MAX_WORDS}
+              />
+              <Text style={[styles.counter, { color: text.muted }]}>
+                {draft.text.length}/{GUST_CAPTION_MAX_CHARS} chars
+              </Text>
+            </View>
           ) : null}
 
           {!isGust && attachments.length > 0 ? (
@@ -709,78 +757,107 @@ export function PostEditor({
                 }}
               />
               {isGust ? null : (
-                <View>
-                  <ToolbarButton
-                    active={moreOpen}
-                    disabled={capacityFull}
-                    icon={MoreHorizontal}
-                    label="More attachment options"
-                    onPress={() => setMoreOpen((open) => !open)}
-                  />
-                  {moreOpen ? (
-                    <View
-                      style={[
-                        styles.moreMenu,
-                        {
-                          backgroundColor: panel.background,
-                          borderColor: panel.border,
-                          boxShadow: panel.shadows,
-                        },
-                      ]}
+                <>
+                  <View collapsable={false} ref={moreAnchorRef}>
+                    <ToolbarButton
+                      active={moreAnchor !== null}
+                      disabled={capacityFull}
+                      icon={MoreHorizontal}
+                      label="More attachment options"
+                      onPress={toggleMore}
+                    />
+                  </View>
+                  {moreAnchor ? (
+                    <Modal
+                      animationType="none"
+                      navigationBarTranslucent
+                      onRequestClose={() => setMoreAnchor(null)}
+                      statusBarTranslucent
+                      transparent
+                      visible
                     >
                       <Pressable
-                        accessibilityRole="button"
-                        disabled={attachments.length > 0}
-                        onPress={() => {
-                          setMoreOpen(false);
-                          setGifOpen((open) => !open);
-                        }}
-                        style={({ pressed }) => [
-                          styles.moreItem,
-                          pressed && {
-                            backgroundColor: isDark ? "#303030" : "#e8e8e8",
+                        accessibilityLabel="Close attachment options"
+                        onPress={() => setMoreAnchor(null)}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View
+                        onStartShouldSetResponder={() => true}
+                        style={[
+                          styles.moreMenu,
+                          {
+                            backgroundColor: panel.background,
+                            borderColor: panel.border,
+                            boxShadow: panel.shadows,
+                            left: moreMenuLeft,
+                            top: moreMenuTop,
                           },
-                          attachments.length > 0 && styles.disabled,
                         ]}
                       >
-                        <Clapperboard color={text.muted} size={18} />
-                        <Text
-                          style={[styles.moreText, { color: text.foreground }]}
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={attachments.length > 0}
+                          onPress={() => {
+                            setMoreAnchor(null);
+                            setGifOpen((open) => !open);
+                          }}
+                          style={({ pressed }) => [
+                            styles.moreItem,
+                            pressed && {
+                              backgroundColor: isDark ? "#303030" : "#e8e8e8",
+                            },
+                            attachments.length > 0 && styles.disabled,
+                          ]}
                         >
-                          GIFs
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
-                        disabled={attachments.length > 0}
-                        onPress={() => {
-                          void openAudio();
-                        }}
-                        style={({ pressed }) => [
-                          styles.moreItem,
-                          pressed && {
-                            backgroundColor: isDark ? "#303030" : "#e8e8e8",
-                          },
-                          attachments.length > 0 && styles.disabled,
-                        ]}
-                      >
-                        <FileAudio color={text.muted} size={18} />
-                        <Text
-                          style={[styles.moreText, { color: text.foreground }]}
+                          <Clapperboard color={text.muted} size={18} />
+                          <Text
+                            style={[
+                              styles.moreText,
+                              { color: text.foreground },
+                            ]}
+                          >
+                            GIFs
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={attachments.length > 0}
+                          onPress={() => {
+                            setMoreAnchor(null);
+                            void openAudio();
+                          }}
+                          style={({ pressed }) => [
+                            styles.moreItem,
+                            pressed && {
+                              backgroundColor: isDark ? "#303030" : "#e8e8e8",
+                            },
+                            attachments.length > 0 && styles.disabled,
+                          ]}
                         >
-                          Audio Files
-                        </Text>
-                      </Pressable>
-                    </View>
+                          <FileAudio color={text.muted} size={18} />
+                          <Text
+                            style={[
+                              styles.moreText,
+                              { color: text.foreground },
+                            ]}
+                          >
+                            Audio Files
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </Modal>
                   ) : null}
-                </View>
+                </>
               )}
             </View>
             <View style={styles.toolbarRight}>
               <ModeToggle
                 disabled={modeLocked}
                 isGust={isGust}
-                onChange={(gust) => setMode(gust ? "gust" : "post")}
+                onChange={(gust) => {
+                  setMoreAnchor(null);
+                  setMode(gust ? "gust" : "post");
+                }}
               />
               <PublishButton
                 disabled={!canPublish}
@@ -828,6 +905,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     marginTop: 8,
   },
+  counterRow: { alignItems: "center", flexDirection: "row", gap: 8 },
   dimmed: {
     opacity: 0.5,
   },
@@ -876,16 +954,12 @@ const styles = StyleSheet.create({
   moreMenu: {
     borderRadius: 12,
     borderWidth: 1,
-    // Android needs elevation to lift this above the feed rows behind it; on
-    // iOS the zIndex alone is enough. Only the inline variant can overlap
-    // content (the modal variant floats over a backdrop).
+    // Rendered inside an anchored Modal overlay to float above all FlatList
+    // rows and avoid being painted over or clipped on Android.
     elevation: 8,
-    left: 0,
-    minWidth: 176,
+    minWidth: MORE_MENU_WIDTH,
     padding: 6,
     position: "absolute",
-    top: 38,
-    zIndex: 30,
   },
   moreText: {
     fontFamily: "SofiaProMed",
