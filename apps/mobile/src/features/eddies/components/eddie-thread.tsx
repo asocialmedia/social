@@ -16,7 +16,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { CornerDownRight } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -209,10 +209,38 @@ function EddieImage({
 
 interface RowHandlers {
   onDelete: (commentId: string) => void;
+  onLayoutRow: (commentId: string, yWithinParent: number) => void;
   onMore: (commentId: string, anchor: MenuAnchor) => void;
+  /** Opens the given author's profile, as web's linked name and avatar do. */
+  onOpenAuthor: (username: string) => void;
   onReply: (node: EddieNode) => void;
   onRequireLogin: () => void;
 }
+
+/** Summed y from `node` down to `targetId`, or null when it is not below. */
+function offsetWithin(
+  nodes: readonly EddieNode[],
+  targetId: string,
+  parentY = 0
+): number | null {
+  for (const node of nodes) {
+    const ownY = rowOffsetRegistry.get(node.comment.id);
+    const absolute = parentY + (ownY ?? 0);
+    if (node.comment.id === targetId) {
+      return absolute;
+    }
+    const found = offsetWithin(node.children, targetId, absolute);
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
+
+// Rows publish their offset here as they lay out. Module scope because the
+// offsets describe the tree, not any one mount, and a remount with the same
+// comments should resolve to the same answer.
+const rowOffsetRegistry = new Map<string, number>();
 
 function EddieRow({
   apiBase,
@@ -234,6 +262,7 @@ function EddieRow({
   viewerId: string | undefined;
 }) {
   const { theme } = useAppTheme();
+  const { onLayoutRow, onOpenAuthor } = handlers;
   const { comment, depth } = node;
   const commentUser = comment.user ?? null;
   const username = commentUser?.username || "unknown";
@@ -257,12 +286,16 @@ function EddieRow({
   // Seeded with AVATAR_CENTER so the first paint is already close, and each
   // handler no-ops when the value has not moved, so stable layouts cost nothing.
   const [rail, setRail] = useState(RAIL_GEOMETRY_SEED);
-  const handleCommentLayout = useCallback((event: LayoutChangeEvent) => {
-    const { y } = event.nativeEvent.layout;
-    setRail((current) =>
-      current.commentTop === y ? current : { ...current, commentTop: y }
-    );
-  }, []);
+  const handleCommentLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { y } = event.nativeEvent.layout;
+      setRail((current) =>
+        current.commentTop === y ? current : { ...current, commentTop: y }
+      );
+      onLayoutRow(node.comment.id, y);
+    },
+    [node.comment.id, onLayoutRow]
+  );
   const handleAvatarLayout = useCallback((event: LayoutChangeEvent) => {
     const { height, y } = event.nativeEvent.layout;
     setRail((current) => {
@@ -291,9 +324,18 @@ function EddieRow({
             style={[styles.stub, { backgroundColor: theme.cardBorder }]}
           />
         ) : null}
-        <View onLayout={handleAvatarLayout} style={styles.avatarWrap}>
+        <Pressable
+          accessibilityLabel={`Open ${name}'s profile`}
+          accessibilityRole="link"
+          disabled={!username || username === "unknown"}
+          onPress={() => onOpenAuthor(username)}
+          style={styles.avatarWrap}
+          // The rail is drawn from this wrapper's measured box, so the layout
+          // pass has to stay on the wrapper rather than moving inside it.
+          onLayout={handleAvatarLayout}
+        >
           <UserAvatar radius={12} size={40} url={commentUser?.avatarUrl} />
-        </View>
+        </Pressable>
         <View style={styles.commentBody}>
           <View style={styles.commentHeadRow}>
             <View style={styles.commentHead}>
@@ -307,6 +349,7 @@ function EddieRow({
                 <>
                   <Text
                     numberOfLines={1}
+                    onPress={() => onOpenAuthor(username)}
                     style={[styles.commentName, { color: theme.inputText }]}
                   >
                     {name}
@@ -438,6 +481,8 @@ function EddieSkeleton() {
 }
 
 export interface EddieThreadProps {
+  /** Fires once the deep-scroll target's offset inside this thread is known. */
+  onCommentOffset?: (commentId: string, yInThread: number) => void;
   postId: string;
   // Threaded cards carry tighter card padding, so the gap above the
   // border matches web's thread rhythm (pb-2) instead of the full pb-4.
@@ -447,10 +492,14 @@ export interface EddieThreadProps {
   // refetch while the drawer is open.
   variant?: "card" | "page" | "reels";
   viewerId: string | undefined;
+  /** Web's ?comment= deep scroll: the eddie to bring into view. */
+  scrollToCommentId?: string | null;
 }
 
 export function EddieThread({
+  onCommentOffset,
   postId,
+  scrollToCommentId = null,
   tight = false,
   variant = "card",
   viewerId,
@@ -606,9 +655,58 @@ export function EddieThread({
     router.push("/(auth)/login");
   };
 
+  // Rows report their offset within their own parent, and a reply's absolute
+  // position is its parent's plus its own, so the deep-scroll target can be
+  // turned into a scroll offset without measuring the whole tree at once.
+  const rowOffsets = useRef(new Map<string, number>());
+  const [rowsVersion, setRowsVersion] = useState(0);
+  const reportRowOffset = useCallback((commentId: string, y: number) => {
+    const current = rowOffsets.current.get(commentId);
+    if (current === y) {
+      return;
+    }
+    rowOffsets.current.set(commentId, y);
+    // The tree reads offsets from the module registry, so a new offset means a
+    // deep-scroll target may now resolve that it could not before.
+    rowOffsetRegistry.set(commentId, y);
+    setRowsVersion((value) => value + 1);
+  }, []);
+
+  // Deep scroll: rows land their offsets asynchronously, so the target is
+  // resolved from an effect that re-runs as the tree grows. Resolving to null
+  // tells the surface the eddie is not in this thread (paged out, or deleted),
+  // which is what stops a scroll to a guessed position.
+  useEffect(() => {
+    if (!scrollToCommentId || status !== "ready") {
+      return;
+    }
+    const y = offsetWithin(buildEddieTree(comments), scrollToCommentId);
+    onCommentOffset?.(scrollToCommentId, y ?? 0);
+    if (y === null) {
+      // The comment id is unique on its own, so this diagnostic does not need
+      // the post id, and leaving it out keeps the dependency list honest.
+      logWarn("eddies.scroll_target_missing", {
+        commentId: scrollToCommentId,
+      });
+    }
+    // rowsVersion is the trigger and is deliberately not read in the body: it
+    // ticks whenever a row lands its offset, which is exactly the moment the
+    // target may start resolving. The compiler cannot infer that, so it reads
+    // as an extra dependency.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [comments, onCommentOffset, rowsVersion, scrollToCommentId, status]);
+
   const handlers: RowHandlers = {
     onDelete: (commentId) => setDeleteTarget(commentId),
+    onLayoutRow: reportRowOffset,
     onMore: (commentId, anchor) => setMenu({ anchor, commentId }),
+    onOpenAuthor: (username) => {
+      if (!viewerId) {
+        requireLogin();
+        return;
+      }
+      router.push(`/users/${username}` as "/");
+    },
     onReply: (node) => {
       if (!viewerId) {
         requireLogin();

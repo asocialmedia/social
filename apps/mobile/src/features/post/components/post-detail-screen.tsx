@@ -10,16 +10,12 @@
 // - "View more content" + "View all posts" row + related rail
 // - floating bottom nav with the guest bar docked above it, like HomeScreen
 //
-// Deltas vs web (documented, REST-only): no PostAuthorSidebar (desktop
-// only), no ?comment= deep scroll (PostComments has no id anchors yet),
-// no swipe-to-profile (profile screens don't exist yet), Respond stays a
-// static count (composer doesn't exist yet), and the more menu is the v1
-// local variant (toggle ALT when describable, else share) until MoreMenu's
-// in-flight API migration settles - FeedList currently calls the old
-// (post/showingAlt) signature while more-menu.tsx exports the new
-// (anchor/entries) one, so this screen deliberately does not import it.
+// Deltas vs web: no PostAuthorSidebar, which is a desktop-only aside and has
+// no place in a single column. Everything else this comment used to list as
+// missing is not: the more menu is the shared MoreMenu, the composer exists,
+// profile screens exist, and the thread carries id offsets for ?comment=.
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,6 +28,7 @@ import {
   Text,
   View,
 } from "react-native";
+import type { LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
@@ -48,7 +45,7 @@ import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -120,6 +117,35 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   });
   const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : 0;
   const scrollRef = useRef<ScrollView>(null);
+  // Web's ?comment= deep scroll: the thread reports where the eddie sits
+  // inside itself, and the thread's own offset inside this scroll view turns
+  // that into a scroll position. Both are measured, never guessed, so a
+  // missing or paged-out eddie lands nowhere rather than at a wrong place.
+  const params = useLocalSearchParams<{ comment?: string | string[] }>();
+  const commentParam = Array.isArray(params.comment)
+    ? (params.comment[0] ?? null)
+    : (params.comment ?? null);
+  const threadY = useRef(0);
+  const scrolledTo = useRef<string | null>(null);
+  const handleThreadLayout = useCallback((event: LayoutChangeEvent) => {
+    threadY.current = event.nativeEvent.layout.y;
+  }, []);
+  const handleCommentOffset = useCallback(
+    (commentId: string, yInThread: number) => {
+      if (scrolledTo.current === commentId) {
+        return;
+      }
+      scrolledTo.current = commentId;
+      // A little air above the row so its header is not flush with the
+      // screen edge once it arrives.
+      scrollRef.current?.scrollTo({
+        animated: true,
+        y: threadY.current + yInThread - 24,
+      });
+      logInfo("post_detail.comment_deep_scroll", { commentId });
+    },
+    []
+  );
 
   // v1 more action (see header comment): toggle ALT when the post carries a
   // described attachment, otherwise fall through to share. Full menu lands
@@ -483,7 +509,15 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       >
         {renderThread()}
         {showEddies ? (
-          <PostComments postId={post.id} variant="page" viewerId={viewerId} />
+          <View onLayout={handleThreadLayout} style={styles.threadWrap}>
+            <PostComments
+              onCommentOffset={handleCommentOffset}
+              postId={post.id}
+              scrollToCommentId={commentParam}
+              variant="page"
+              viewerId={viewerId}
+            />
+          </View>
         ) : null}
         <View style={styles.moreRow}>
           <Text style={[styles.moreTitle, { color: theme.inputText }]}>
@@ -663,4 +697,5 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  threadWrap: { width: "100%" },
 });
