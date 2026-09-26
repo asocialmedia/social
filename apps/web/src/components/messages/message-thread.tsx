@@ -479,6 +479,12 @@ export function MessageThread({
   // React has re-rendered with the new state, and reading render-scoped state
   // there is exactly how a second fetch got issued while a jump owned the loader.
   const jumpActivityRef = useRef<JumpActivity>(null);
+  // Whether a jump is in flight AT ALL, as distinct from whether it currently owns
+  // the history loader. The two come apart during a text wait, where the jump
+  // deliberately hands the loader back so the badge can say what it is waiting
+  // for -- and that gap is exactly when the automatic fill used to become
+  // eligible and issue its own page request on the same cursor.
+  const jumpInFlightRef = useRef(false);
   const [jumpActivity, setJumpActivity] = useState<JumpActivity>(null);
   const claimJumpActivity = useCallback((activity: JumpActivity) => {
     jumpActivityRef.current = activity;
@@ -1852,7 +1858,12 @@ export function MessageThread({
     // badge switched off, the effect saw "not fetching, near the top, more
     // history exists" and issued its own. Two loaders on one cursor is a
     // duplicate request, and the repeated badge was that effect firing.
-    if (jumpActivityRef.current !== null) {
+    //
+    // The IN-FLIGHT ref rather than the ownership ref, because a jump hands the
+    // loader back for the length of its text wait -- correctly, since the badge
+    // should say it is waiting on text and not on history -- and the fill used to
+    // treat that handover as "nobody is reading" and step in underneath.
+    if (jumpInFlightRef.current) {
       return;
     }
     if (autoFillFailedRecently()) {
@@ -1898,9 +1909,9 @@ export function MessageThread({
     if (mediaViewerKey || !hasNextPage || isFetchingNextPage) {
       return;
     }
-    // Same owner check as the older-direction loader: growing toward the present
-    // is still the same cursor the jump is walking.
-    if (jumpActivityRef.current !== null) {
+    // Same check as the older-direction loader: growing toward the present is
+    // still the same cursor the jump is walking.
+    if (jumpInFlightRef.current) {
       return;
     }
     // Same failure stand-down as the older-direction loader above: without it
@@ -2213,6 +2224,7 @@ export function MessageThread({
       // did nothing" half of the glitchy-loading report.
       setJumpLoading(true);
       setJumpTextPending(false);
+      jumpInFlightRef.current = true;
       claimJumpActivity("anchor");
       // And the history endpoint, for the jump's whole life -- the anchored read
       // AND the bounded walk behind it are one operation, and the backfill has to
@@ -2226,6 +2238,10 @@ export function MessageThread({
       // if the newer jump never finishes.
       const settle = () => {
         historyReads.release(readToken);
+        // Unconditional, like the token: a superseded jump's settle is skipped for
+        // the UI's sake, and leaving this set would stand the automatic fill down
+        // for the rest of the session.
+        jumpInFlightRef.current = false;
         if (epoch === jumpEpochRef.current) {
           setJumpLoading(false);
           setJumpTextPending(false);
@@ -2993,6 +3009,7 @@ export function MessageThread({
     // fill suppressed for the next session, and leaving the text wait set leaves
     // the transcript badge up with no jump behind it.
     jumpActivityRef.current = null;
+    jumpInFlightRef.current = false;
     setJumpActivity(null);
     setJumpLoading(false);
     setJumpTextPending(false);
