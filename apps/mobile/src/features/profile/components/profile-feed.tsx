@@ -1,7 +1,9 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { Clapperboard, Eye, Flame } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import type { ViewStyle } from "react-native";
 
 import noMediaImage from "@/assets/images/nomedia.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -28,8 +30,10 @@ import {
   mediaPosterUrl,
 } from "@/features/feed/lib/media-url";
 import { BioContent } from "@/features/home/components/bio-content";
+import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { formatNumber } from "@/lib/format-number";
 import { useAppTheme } from "@/theme";
 
 import type { ProfileViewTab } from "../lib/profile-tab-memory";
@@ -132,6 +136,82 @@ function EmptyProfileTab({ tab }: { tab: ProfileViewTab }) {
           : "There is nothing to show here yet."}
       </Text>
     </View>
+  );
+}
+
+// Web's profile Gusts tab is a 9:16 poster grid (two columns, three from the
+// sm breakpoint) rather than a feed of post cards: each tile carries the Gust
+// chip, a two-line content clamp over a bottom scrim, and the view and aura
+// counts. Tapping opens the reel at that gust rather than the post page, the
+// same target the media tab uses, so a tap never dead-ends on a still image.
+function GustGridTile({
+  onOpen,
+  post,
+}: {
+  onOpen: (post: FeedPost) => void;
+  post: FeedPost;
+}) {
+  const apiBase = getApiBaseUrl();
+  const video = post.attachments?.find(
+    (attachment) => attachment.type === "VIDEO"
+  );
+  const image = post.attachments?.find(
+    (attachment) => attachment.type !== "VIDEO"
+  );
+  const flame = getAuraFlameStyle(post.aura ?? 0);
+  const author = post.user?.displayName || post.user?.username || "this Gust";
+  let source: { uri: string } | null = null;
+  if (video) {
+    source = { uri: mediaPosterUrl(apiBase, video.id) };
+  } else if (image) {
+    source = { uri: mediaImageUrl(apiBase, image) };
+  }
+  return (
+    <Pressable
+      accessibilityLabel={`Open Gust by ${author}`}
+      accessibilityRole="button"
+      onPress={() => onOpen(post)}
+      style={styles.gustGridTile}
+    >
+      {source ? (
+        <Image
+          contentFit="cover"
+          source={source}
+          style={styles.gustGridImage}
+        />
+      ) : (
+        <View style={[styles.gustGridImage, styles.gustGridFallback]} />
+      )}
+      <View style={styles.gustGridChip}>
+        <Clapperboard color="#f97316" size={11} />
+        <Text style={styles.gustGridChipText}>Gust</Text>
+      </View>
+      <View pointerEvents="none" style={styles.gustGridScrim}>
+        {post.content ? (
+          <Text numberOfLines={2} style={styles.gustGridContent}>
+            {post.content}
+          </Text>
+        ) : null}
+        <View style={styles.gustGridMetrics}>
+          <View style={styles.gustGridMetric}>
+            <Eye color="rgba(255,255,255,0.85)" size={11} />
+            <Text style={styles.gustGridMetricText}>
+              {formatNumber(post.viewCount ?? 0)}
+            </Text>
+          </View>
+          <View style={styles.gustGridMetric}>
+            <Flame
+              color={flame.color}
+              fill={flame.filled ? flame.color : "none"}
+              size={11}
+            />
+            <Text style={styles.gustGridMetricText}>
+              {formatNumber(post.aura ?? 0)}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -244,6 +324,8 @@ export function ProfileFeed({
 }) {
   const router = useRouter();
   const { theme } = useAppTheme();
+  // The gusts tab is a two-column poster grid; every other tab is one column.
+  const gustsGrid = tab === "gusts";
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
@@ -303,6 +385,21 @@ export function ProfileFeed({
       });
     }
   }, []);
+  // A gust tile holds a still frame, so it opens the reel at that gust rather
+  // than the post page, matching the media tab and the Explore gust tiles.
+  const openGust = useCallback(
+    (post: FeedPost) => {
+      router.push({ params: { id: post.id }, pathname: "/gusts" });
+    },
+    [router]
+  );
+  // Both grid tabs are two columns; only the column spacing differs.
+  let columnStyle: ViewStyle | undefined;
+  if (gustsGrid) {
+    columnStyle = styles.gustRow;
+  } else if (isMediaFeed(feed)) {
+    columnStyle = styles.mediaRow;
+  }
   const renderItem = useCallback(
     ({ item }: { item: ProfileFeedItem }) => {
       if (item.kind === "media") {
@@ -310,6 +407,9 @@ export function ProfileFeed({
       }
       if (item.kind === "reply") {
         return <ReplyRow item={item.value} onOpenPost={openPost} />;
+      }
+      if (gustsGrid && item.value.isGust) {
+        return <GustGridTile onOpen={openGust} post={item.value} />;
       }
       return (
         <PostCard
@@ -323,7 +423,7 @@ export function ProfileFeed({
         />
       );
     },
-    [onMore, onShare, openMedia, openPost, viewerId]
+    [gustsGrid, onMore, onShare, openGust, openMedia, openPost, viewerId]
   );
   const keyExtractor = useCallback(
     (item: ProfileFeedItem) => `${item.kind}:${item.value.id}`,
@@ -370,8 +470,8 @@ export function ProfileFeed({
           feed.status === "success" ? <EmptyProfileTab tab={tab} /> : null
         }
         ListFooterComponent={renderFooter}
-        numColumns={isMediaFeed(feed) ? 2 : 1}
-        columnWrapperStyle={isMediaFeed(feed) ? styles.mediaRow : undefined}
+        numColumns={gustsGrid || isMediaFeed(feed) ? 2 : 1}
+        columnWrapperStyle={columnStyle}
       />
       <ShareSheet
         description="Share this post with your network"
@@ -411,6 +511,60 @@ const styles = StyleSheet.create({
   emptyImage: { height: 92, width: 92 },
   emptyTitle: { fontFamily: "SofiaProBold", fontSize: 18 },
   footer: { alignItems: "center", paddingVertical: 18 },
+  // Web: grid-cols-2 gap-3 p-4, tiles aspect-[9/16] rounded-2xl. The chip and
+  // the scrim sit inside the rounded shape, so neither can square off a corner.
+  gustGridChip: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 4,
+    left: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    position: "absolute",
+    top: 10,
+  },
+  gustGridChipText: {
+    color: "#ffffff",
+    fontFamily: "SofiaProMed",
+    fontSize: 11,
+  },
+  gustGridContent: {
+    color: "rgba(255,255,255,0.9)",
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+  },
+  gustGridFallback: { backgroundColor: "rgba(128,128,128,0.2)" },
+  gustGridImage: { height: "100%", width: "100%" },
+  gustGridMetric: { alignItems: "center", flexDirection: "row", gap: 4 },
+  gustGridMetricText: {
+    color: "rgba(255,255,255,0.85)",
+    fontFamily: "SofiaProMed",
+    fontSize: 11,
+  },
+  gustGridMetrics: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  gustGridScrim: {
+    bottom: 0,
+    left: 0,
+    paddingBottom: 12,
+    paddingHorizontal: 12,
+    paddingTop: 24,
+    position: "absolute",
+    right: 0,
+  },
+  gustGridTile: {
+    aspectRatio: 9 / 16,
+    borderRadius: 16,
+    flex: 1,
+    overflow: "hidden",
+    position: "relative",
+  },
+  gustRow: { gap: 12, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 28 },
   loading: {
     alignItems: "center",
