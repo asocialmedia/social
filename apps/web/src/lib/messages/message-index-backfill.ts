@@ -11,6 +11,13 @@
 // - Resumable. The oldest id reached is persisted to meta after every committed
 //   page, so closing the tab mid-walk resumes where it stopped instead of
 //   starting over. An interrupted walk is the common case, not the exception.
+// - Self-verifying. The walk only ever descends, so a resume cursor pointing
+//   below uncovered history would strand everything above it while reporting
+//   steady progress. Each run therefore re-verifies the top page instead of
+//   trusting the hint, and every page is checked for existing coverage before
+//   any decrypt is spent on it: covered pages advance the cursor for the cost
+//   of one fetch, and a run that verifies the bottom sets the flag that lets
+//   future sessions skip the walk entirely.
 // - Bounded. A single run walks at most `maxPages` pages and then yields, so a
 //   200k-message conversation cannot turn into one request storm. The caller
 //   starts another run when it wants to keep going.
@@ -55,7 +62,8 @@ export interface BackfillProgress {
   latestIndexedId: string | null;
   // Oldest id reached, persisted so the next run resumes here.
   oldestReachedId: string | null;
-  // Messages handed to the writer by this run.
+  // Messages covered by this run: indexed just now, or verified as already
+  // indexed and skipped past without spending decrypts or a commit on them.
   indexedCount: number;
   // Rows this run could not index: payload not decrypted yet, or a refused write.
   // Persisted, so they are recovered later rather than lost.
@@ -68,9 +76,9 @@ export interface MessageIndexBackfillOptions {
   // Resolves when the page's payloads are decrypted, or when the wait is given up
   // on. Injected so this module stays free of crypto and WebCrypto.
   awaitDecrypts: (messages: MessageData[]) => Promise<void>;
-  // Fetches one page older than `cursor`. `cursor` is undefined for the first
-  // page, which starts from the newest indexed message.
-  fetchPage: (cursor: string | undefined) => Promise<BackfillPage>;
+  // Fetches one page older than `cursor`. Omitted for the first page, which
+  // starts from the newest message.
+  fetchPage: (cursor?: string) => Promise<BackfillPage>;
   onProgress?: (progress: BackfillProgress) => void;
   onStateChange?: (state: BackfillState) => void;
   // Aborts the walk between pages. Already-committed pages stay indexed.
@@ -146,14 +154,20 @@ export function createMessageIndexBackfill(
 
   // The cursor only ever moves forward through committed pages, so a failed or
   // aborted page leaves the persisted position pointing at real indexed history.
-  async function persistCursor(oldestReachedId: string | null): Promise<void> {
+  async function persistCursor(
+    oldestReachedId: string | null,
+    reachedStart: boolean,
+    chainVerified: boolean
+  ): Promise<void> {
     try {
       const existing =
         (await store.readMeta(conversationId)) ??
         emptySearchIndexMeta(conversationId);
       await store.writeMeta({
         ...existing,
+        cursorVerified: chainVerified,
         indexedThroughId: oldestReachedId,
+        reachedStart,
         updatedAt: Date.now(),
       });
     } catch {
@@ -162,17 +176,127 @@ export function createMessageIndexBackfill(
     }
   }
 
+  // One run's abort signal. `stop()` trips it so a walk waiting out the decrypt
+  // timeout (up to 5s per page) ends promptly instead of finishing a wait for a
+  // thread nobody is reading. Re-created per run: a stale aborted signal must
+  // never cancel the next run.
+  let runController: AbortController | null = null;
+
+  // Waits for a page's decrypts. False means the wait was abandoned midway --
+  // stopped or aborted while waiting -- as opposed to completed. Either way
+  // the page itself still processes: "stop ends the walk after the current
+  // page", so a stop abandons the WAIT, never the rows already fetched. The
+  // decryptor itself cannot be cancelled; rows still unresolved after the
+  // wait go through the writer's durable pending queue as usual.
+  async function waitForPageDecrypts(
+    messages: MessageData[],
+    signal: AbortSignal | undefined
+  ): Promise<boolean> {
+    if (messages.length === 0) {
+      return true;
+    }
+    if (stopped || signal?.aborted || runController?.signal.aborted) {
+      return false;
+    }
+    let onAbort: (() => void) | null = null;
+    // oxlint-disable-next-line promise/avoid-new -- resolves only from abort events, which have no async form
+    const aborted = new Promise<false>((resolve) => {
+      onAbort = () => resolve(false);
+      runController?.signal.addEventListener("abort", onAbort, {
+        once: true,
+      });
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    // Awaiting the call rather than chaining it: some callers return void
+    // instead of a promise, and `.then` on void is a TypeError. A wait that
+    // throws is treated like one that timed out -- the page processes with
+    // whatever resolved, and the rest stays pending -- because ending the
+    // whole walk on a wait error would strand coverage behind one bad page.
+    const ready = (async (): Promise<true> => {
+      try {
+        await awaitDecrypts(messages);
+      } catch {
+        // Settles as waited-out: see above.
+      }
+      return true;
+    })();
+    try {
+      const outcome = await Promise.race([ready, aborted]);
+      return outcome;
+    } finally {
+      if (onAbort) {
+        runController?.signal.removeEventListener("abort", onAbort);
+        signal?.removeEventListener("abort", onAbort);
+      }
+    }
+  }
+
   async function walk(
     signal: AbortSignal | undefined
   ): Promise<BackfillProgress> {
     setState("running");
+    runController = new AbortController();
     let cursor: string | undefined;
+    let chainVerified: boolean;
     try {
       const meta = await store.readMeta(conversationId);
       cursor = meta?.indexedThroughId ?? undefined;
+      // No cursor means descending from the top, which verifies itself; a
+      // cursor is only as trustworthy as the mark left with it (absent on
+      // legacy rows, which heal by descending once).
+      chainVerified = cursor === undefined || meta?.cursorVerified === true;
     } catch {
       // Unreadable meta means no resume point; walk from the newest indexed row.
       cursor = undefined;
+      chainVerified = true;
+    }
+    // Rows already queued as unsearchable, read once per run. A page holding
+    // only these needs no decrypt or commit -- the queue outlives the run and
+    // the writer retries it -- but the cursor still advances past it.
+    let durableSnapshot = new Set<string>();
+    try {
+      durableSnapshot = new Set(await store.readPending(conversationId));
+    } catch {
+      // Unreadable queue: pages fall back to decrypting and deciding per row.
+    }
+    // Rows this run queued but could not index yet. Together with the snapshot
+    // above, the set of ids the run knows are covered without re-reading.
+    const pendingThisRun = new Set<string>();
+    if (cursor !== undefined) {
+      // Trust-but-verify the resume hint. The walk only ever descends, so a
+      // cursor pointing below uncovered history -- new arrivals above it, a
+      // stale row from another era or store version -- would strand everything
+      // above it forever while reporting steady progress. The hint is kept
+      // only when the newest page is covered AND a previous verifying run
+      // vouched for the chain; otherwise the run descends from the top,
+      // re-covering old ground idempotently on the way down (the per-page
+      // check below skips it for one fetch per page, no decrypts).
+      try {
+        const top = await fetchPage();
+        const topIds = top.messages.map((row) => row.id);
+        if (topIds.length > 0) {
+          const indexedTop = await store.hasIndexedMessages(
+            conversationId,
+            topIds
+          );
+          const topCovered = topIds.every(
+            (id) =>
+              indexedTop.has(id) ||
+              durableSnapshot.has(id) ||
+              pendingThisRun.has(id)
+          );
+          if (!topCovered || !chainVerified) {
+            cursor = undefined;
+          }
+        }
+      } catch {
+        // A failed probe must not kill the run; fall back to the resume hint
+        // and let the normal per-page checks do what they can.
+      }
+      // Whatever follows -- a kept hint from a vouched chain, or a fresh
+      // descent from the top -- verifies its way down from here, so the cursor
+      // this run persists is vouched for the next one.
+      chainVerified = true;
     }
 
     let pages = 0;
@@ -229,15 +353,43 @@ export function createMessageIndexBackfill(
       }
 
       const { messages, previousCursor } = fetched;
+      let waitedOut = true;
       if (messages.length > 0) {
-        // Decrypt first: the writer can only index a row whose payload it can
-        // read, and handing it undecrypted rows would just queue them as pending
-        // and retry them against a transcript that will never hold them.
-        await awaitDecrypts(messages);
-        writer.consider(messages);
+        // Skip pages the device already covered: no decrypts to wait for, no
+        // commit to make. The cursor still advances past them, so a resumed or
+        // reordered walk fast-forwards over old ground instead of re-paying
+        // for it -- while still verifying every page, so a gap can never hide
+        // behind a trusted cursor again.
+        const pageIds = messages.map((row) => row.id);
+        const indexedPage = await store.hasIndexedMessages(
+          conversationId,
+          pageIds
+        );
+        const uncovered = messages.filter(
+          (row) =>
+            !indexedPage.has(row.id) &&
+            !durableSnapshot.has(row.id) &&
+            !pendingThisRun.has(row.id)
+        );
+        if (uncovered.length === 0) {
+          // Nothing to do: the cursor and counts advance through the shared
+          // tail below, and the flush still runs so transcript-queued rows
+          // commit on the walk's cadence rather than their own.
+        } else {
+          // Decrypt first: the writer can only index a row whose payload it can
+          // read, and handing it undecrypted rows would just queue them as pending
+          // and retry them against a transcript that will never hold them.
+          // A stop lands here as an abandoned wait, not a skipped page: the
+          // fetched rows still commit below, and the halt happens after them.
+          waitedOut = await waitForPageDecrypts(uncovered, signal);
+          writer.consider(uncovered);
+        }
         const result = await writer.flush();
         indexed += messages.length;
         pending = result.stillPending.length;
+        for (const id of result.stillPending) {
+          pendingThisRun.add(id);
+        }
         if (result.failed) {
           // The rows committed or were queued, but the QUEUE could not be
           // persisted, so any row that did not commit is recoverable from
@@ -277,8 +429,13 @@ export function createMessageIndexBackfill(
       // Persisted per page, not per run: an interrupted walk must not redo the
       // pages it already paid for. Safe now precisely because every row in the
       // page is committed or durably queued.
-      await persistCursor(oldestReachedId);
+      await persistCursor(oldestReachedId, false, chainVerified);
 
+      if (!waitedOut || stopped || signal?.aborted) {
+        // Stopped mid-page: the fetched rows committed above, so the cursor is
+        // current; halt before fetching a page nobody will read.
+        break;
+      }
       if (!previousCursor || messages.length === 0) {
         // No older page, or a page that repeated: either way there is nothing
         // older to fetch and the walk is complete.
@@ -295,6 +452,7 @@ export function createMessageIndexBackfill(
     // ended without error. That is what `reachedStart` distinguishes: the UI
     // keeps offering "index older messages" until it is true.
     // oxlint-enable no-await-in-loop
+    await persistCursor(oldestReachedId, reachedStart, chainVerified);
     setState(stopped || signal?.aborted ? "stopped" : "done");
     report({
       indexedCount: indexed,
@@ -330,6 +488,7 @@ export function createMessageIndexBackfill(
 
     stop() {
       stopped = true;
+      runController?.abort();
     },
   };
 }

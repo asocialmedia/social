@@ -157,9 +157,10 @@ describe("message index backfill", () => {
   test("a second run resumes instead of re-walking", async () => {
     await harness.backfill.run();
     expect(harness.fetches).toHaveLength(10);
-    // Nothing older remains, so the resumed run fetches once and stops.
+    // Nothing older remains, so the resumed run probes the top, resumes from
+    // the cursor, fetches once, and stops.
     const result = await harness.backfill.run();
-    expect(harness.fetches).toHaveLength(11);
+    expect(harness.fetches).toHaveLength(12);
     expect(result.reachedStart).toBe(true);
     expect(result.indexedCount).toBe(0);
   });
@@ -167,17 +168,103 @@ describe("message index backfill", () => {
   test("resumes from a cursor left by an interrupted run", async () => {
     await harness.store.writeMeta({
       ...emptySearchIndexMeta(CONVO),
-      // Pretend a previous run got four pages in.
+      // Pretend a previous verifying run got four pages in: the vouched chain
+      // is what makes the hint resumable rather than restartable.
+      cursorVerified: true,
       indexedThroughId: "m0011",
     });
+    // ...and covered the top page some other way, so the probe passes and the
+    // hint is trusted. Without covered ground above it, the run would abandon
+    // the hint and walk from the top instead (see below).
+    for (const row of harness.all.slice(0, 2)) {
+      harness.payloads.set(row.id, {
+        content: `deploy note ${row.id}`,
+        type: "text",
+      });
+    }
+    harness.writer.consider(
+      harness.all.slice(0, 2).map((row) => message(row.id, row.createdAt))
+    );
+    await harness.writer.flush();
     const result = await harness.backfill.run();
-    expect(harness.fetches[0]).toBe("m0011");
+    // Top probe first, then the resume cursor: the covered top is not
+    // decrypted or committed again.
+    expect(harness.fetches[0]).toBeUndefined();
+    expect(harness.fetches[1]).toBe("m0011");
     // Only the rows older than the cursor are walked; the ones already covered
     // are not fetched again.
     const cursorAt = harness.all.findIndex((row) => row.id === "m0011");
     const remaining = harness.all.length - cursorAt - 1;
     expect(result.indexedCount).toBe(remaining);
     expect(result.reachedStart).toBe(true);
+    expect(harness.decrypted.flat()).not.toContain("m0019");
+  });
+
+  test("abandons a resume hint the top page disproves", async () => {
+    await harness.store.writeMeta({
+      ...emptySearchIndexMeta(CONVO),
+      // A stale hint pointing deep, with nothing above it covered.
+      indexedThroughId: "m0011",
+    });
+    const result = await harness.backfill.run();
+    // Probe, then the top page itself (not the hint): the run descends from
+    // the top and covers everything, healing the stale cursor on the way.
+    expect(harness.fetches[0]).toBeUndefined();
+    expect(harness.fetches[1]).toBeUndefined();
+    expect(result.indexedCount).toBe(harness.all.length);
+    expect(result.reachedStart).toBe(true);
+    const meta = await harness.store.readMeta(CONVO);
+    expect(meta?.indexedThroughId).toBe("m0000");
+  });
+
+  // The fixture-shaped case: a legacy cursor no verifying run ever vouched
+  // for, pointing below covered ground. Even with the top page covered, the
+  // hint is abandoned -- resuming from it would strand everything above --
+  // and the run earns the mark by descending from the top.
+  test("abandons an unvouched cursor even when the top is covered", async () => {
+    for (const row of harness.all.slice(0, 2)) {
+      harness.payloads.set(row.id, {
+        content: `deploy note ${row.id}`,
+        type: "text",
+      });
+    }
+    harness.writer.consider(
+      harness.all.slice(0, 2).map((row) => message(row.id, row.createdAt))
+    );
+    await harness.writer.flush();
+    await harness.store.writeMeta({
+      ...emptySearchIndexMeta(CONVO),
+      indexedThroughId: "m0011",
+    });
+    const result = await harness.backfill.run();
+    expect(harness.fetches[0]).toBeUndefined();
+    expect(harness.fetches[1]).toBeUndefined();
+    expect(result.indexedCount).toBe(harness.all.length);
+    expect(result.reachedStart).toBe(true);
+    const meta = await harness.store.readMeta(CONVO);
+    expect(meta?.cursorVerified).toBe(true);
+  });
+
+  test("skips covered pages without decrypting or committing them", async () => {
+    // Cover everything up front through the writer, leaving no cursor: the
+    // run still sweeps top to bottom, but every page is a verified skip.
+    for (const row of harness.all) {
+      harness.payloads.set(row.id, {
+        content: `deploy note ${row.id}`,
+        type: "text",
+      });
+    }
+    harness.writer.consider(
+      harness.all.map((row) => message(row.id, row.createdAt))
+    );
+    await harness.writer.flush();
+    const result = await harness.backfill.run();
+    expect(result.reachedStart).toBe(true);
+    expect(result.indexedCount).toBe(harness.all.length);
+    // Ten page fetches, zero decrypts: coverage was verified per page, never
+    // assumed and never repaid.
+    expect(harness.fetches).toHaveLength(10);
+    expect(harness.decrypted).toHaveLength(0);
   });
 
   test("stops on its page budget and reports the conversation is not covered", async () => {
@@ -425,6 +512,55 @@ describe("message index backfill", () => {
   // the oldest id in the last page indexed. Persisting the newest instead makes
   // every resumed walk re-fetch that page, because paging from a newer id returns
   // rows that were already covered.
+  // Stopping mid-page used to wait out the whole decrypt timeout (up to 5s)
+  // for a thread nobody is reading. The wait is now raced against the abort,
+  // so closing search or pressing Stop ends the run promptly -- after the
+  // fetched page still commits, per the stop-after-current-page contract.
+  test("stop() during the decrypt wait ends the run promptly", async () => {
+    let release!: () => void;
+    // oxlint-disable-next-line promise/avoid-new -- models a decrypt that only finishes on abort
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const hanging = createMessageIndexBackfill({
+      awaitDecrypts: () => gate,
+      conversationId: CONVO,
+      fetchPage: harness.fetchPage,
+      signal: controller.signal,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const run = hanging.run();
+    // Wait until the run is inside the decrypt wait: the fetch resolves
+    // immediately, so the first observed fetch means the wait started.
+    // oxlint-disable no-await-in-loop -- polling sequentially for a state change; parallel awaits would not poll
+    for (let i = 0; i < 100 && harness.fetches.length === 0; i += 1) {
+      // oxlint-disable-next-line promise/avoid-new -- a timer has no async/await form
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1);
+      });
+    }
+    // oxlint-enable no-await-in-loop
+    const started = performance.now();
+    hanging.stop();
+    controller.abort();
+    const progress = await run;
+    expect(progress.state).toBe("stopped");
+    expect(progress.pageCount).toBe(1);
+    expect(performance.now() - started).toBeLessThan(1000);
+    release();
+  });
+
+  test("reaching the start is persisted so reopening search skips the probe", async () => {
+    const small = makeHarness({ pageSize: 2, pages: 2 });
+    const done = await small.backfill.run();
+    expect(done.reachedStart).toBe(true);
+    const meta = await small.store.readMeta(CONVO);
+    expect(meta?.reachedStart).toBe(true);
+    expect(meta?.indexedThroughId).toBe("m0000");
+  });
+
   test("persists the oldest id of the last page, not the newest", async () => {
     await harness.backfill.run();
     const meta = await harness.store.readMeta(CONVO);
@@ -448,7 +584,9 @@ describe("message index backfill", () => {
     // One page of two: the cursor is the older of the two ids in it.
     expect(afterFirstPage?.indexedThroughId).toBe("m0018");
 
-    // Resuming must not re-fetch m0019/m0018.
+    // Resuming re-fetches the top page once, as a probe with no decrypt or
+    // commit behind it, then continues after the cursor without touching the
+    // covered rows again.
     harness.fetches.length = 0;
     const resumed = createMessageIndexBackfill({
       awaitDecrypts: async () => {},
@@ -460,7 +598,8 @@ describe("message index backfill", () => {
       writer: harness.writer,
     });
     await resumed.run();
-    expect(harness.fetches[0]).toBe("m0018");
+    expect(harness.fetches[0]).toBeUndefined();
+    expect(harness.fetches[1]).toBe("m0018");
   });
 
   test("reports the newest and oldest ids it covered", async () => {
