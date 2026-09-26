@@ -383,7 +383,10 @@ export function buildRankedResults(
 // One snapshot's worth of matches from the persistent index, as the hook holds it.
 export interface IndexMatchSnapshot {
   // Message id -> facts, for the capped match set only.
-  rows: ReadonlyMap<number, { createdAt: number; messageId: string }>;
+  rows: ReadonlyMap<
+    number,
+    { createdAt: number; messageId: string; preview: string }
+  >;
   tokens: readonly string[];
   totalMatched: number;
 }
@@ -391,6 +394,11 @@ export interface IndexMatchSnapshot {
 export interface MergedSearchSnapshot {
   // Every match id, newest first, for sequential navigation.
   matchIds: string[];
+  // Message id -> timestamp for every id navigation knows. Timestamps ride
+  // along across merges (createdAt never changes for a message), so replacing
+  // the loaded window -- as every anchored jump does -- cannot demote ids the
+  // new window no longer holds to the epoch and reshuffle navigation.
+  createdAtById: Map<string, number>;
   // In-memory matches with snippets, then index-only matches, both already
   // ordered for display.
   ranked: RankedSearchResult[];
@@ -398,6 +406,26 @@ export interface MergedSearchSnapshot {
   indexOnlyIds: string[];
   // The counter. A single number derived from ONE pair of inputs.
   totalMatches: number;
+}
+
+// Newest first, with the id as a deterministic tiebreak. Timestamp ties are
+// real (same-millisecond messages), and without the tiebreak a tied block
+// follows whatever input order the current window happened to arrive in --
+// navigation positions inside the block would wander on every merge.
+function compareMatchesNewestFirst(
+  left: string,
+  right: string,
+  createdAtById: ReadonlyMap<string, number>
+): number {
+  const byTime =
+    (createdAtById.get(right) ?? 0) - (createdAtById.get(left) ?? 0);
+  if (byTime !== 0) {
+    return byTime;
+  }
+  if (left < right) {
+    return -1;
+  }
+  return left > right ? 1 : 0;
 }
 
 // Merges the two sources of truth into one snapshot.
@@ -433,7 +461,12 @@ export function mergeSearchSnapshot(
   const scoredRows = scoreSearchCandidates(corpus, query);
   const inMemoryIds = scoredRowIdsNewestFirst(scoredRows);
   if (!query.trim()) {
+    const createdAtById = new Map<string, number>();
+    for (const row of scoredRows) {
+      createdAtById.set(row.candidate.id, row.candidate.createdAt);
+    }
     return {
+      createdAtById,
       indexOnlyIds: [],
       matchIds: inMemoryIds,
       ranked: [],
@@ -450,14 +483,26 @@ export function mergeSearchSnapshot(
   let indexOnlyIds: string[] = [];
   let indexOnlyTotal = 0;
   let matchedTokens: readonly string[] = [];
+  // Stored previews for the capped index rows, so index-only hits render real
+  // context instead of the matched tokens.
+  const previewById = new Map<string, string>();
   if (index) {
     for (const facts of index.rows.values()) {
       if (!seen.has(facts.messageId)) {
         createdAtById.set(facts.messageId, facts.createdAt);
+        previewById.set(facts.messageId, facts.preview);
       }
     }
     indexOnlyIds = [...index.rows.values()]
-      .toSorted((left, right) => right.createdAt - left.createdAt)
+      .toSorted((left, right) => {
+        if (right.createdAt !== left.createdAt) {
+          return right.createdAt - left.createdAt;
+        }
+        if (left.messageId < right.messageId) {
+          return -1;
+        }
+        return left.messageId > right.messageId ? 1 : 0;
+      })
       .map((facts) => facts.messageId)
       .filter((id) => !seen.has(id));
     // Exact for the window that can be observed: the capped rows memory already
@@ -470,16 +515,23 @@ export function mergeSearchSnapshot(
     );
     matchedTokens = index.tokens;
   }
-  const freshIds = [...inMemoryIds, ...indexOnlyIds].toSorted(
-    (left, right) =>
-      (createdAtById.get(right) ?? 0) - (createdAtById.get(left) ?? 0)
+  const freshIds = [...inMemoryIds, ...indexOnlyIds].toSorted((left, right) =>
+    compareMatchesNewestFirst(left, right, createdAtById)
   );
   // Sticky navigation: union with the previous snapshot's ids so an id that
   // was reachable stays reachable for the session. Timestamps ride along from
-  // whichever side saw the id last (createdAt never changes for a message, so
-  // there is nothing to conflict). Fresh ids order first on ties? No ties are
-  // possible: one map, one order, newest first.
-  const knownCreatedAt = new Map<string, number>(createdAtById);
+  // the previous snapshot's own facts first (createdAt never changes for a
+  // message, so there is nothing to conflict): the ranked display list is
+  // truncated, so its scan alone forgets every in-memory hit past the cap,
+  // and the next merge after a jump would otherwise demote those ids to the
+  // epoch and teleport the counter to the end of the list. Fresh facts
+  // overlay (same values), the ranked scan covers snapshots built without the
+  // map, and the epoch fallback stays as a last resort a merge must never
+  // lose navigation to a bookkeeping gap.
+  const knownCreatedAt = new Map<string, number>(prev?.createdAtById);
+  for (const [id, createdAt] of createdAtById) {
+    knownCreatedAt.set(id, createdAt);
+  }
   if (prev) {
     for (const row of prev.ranked) {
       if (!knownCreatedAt.has(row.id)) {
@@ -497,22 +549,27 @@ export function mergeSearchSnapshot(
   }
   const matchIds = [
     ...new Set([...freshIds, ...(prev?.matchIds ?? [])]),
-  ].toSorted(
-    (left, right) =>
-      (knownCreatedAt.get(right) ?? 0) - (knownCreatedAt.get(left) ?? 0)
+  ].toSorted((left, right) =>
+    compareMatchesNewestFirst(left, right, knownCreatedAt)
   );
   // The list leads with rows that can be shown in full; index-only hits follow in
   // the same order the counter uses, so the two views agree. Deliberately NOT
   // sticky: the list shows what matches NOW, while navigation above stays put.
 
   const tail = indexOnlyIds.map((id) =>
-    indexOnlyResult(id, createdAtById.get(id) ?? 0, matchedTokens)
+    indexOnlyResult(
+      id,
+      createdAtById.get(id) ?? 0,
+      previewById.get(id) ?? "",
+      matchedTokens
+    )
   );
   const totalMatches = Math.max(
     prev?.totalMatches ?? 0,
     inMemoryIds.length + indexOnlyTotal
   );
   return {
+    createdAtById: knownCreatedAt,
     indexOnlyIds,
     matchIds,
     ranked: [...buildRankedResults(scoredRows, query), ...tail],
@@ -520,28 +577,119 @@ export function mergeSearchSnapshot(
   };
 }
 
-// Builds a list-view row for a match that exists only in the persistent index,
-// with no decrypted row loaded to show a snippet from.
+// Builds the ranked rows for a list page that came from the index on demand,
+// past the window the head snapshot could resolve.
 //
-// The index deliberately stores ids and tokens only, never message text, so there
-// is no snippet to render yet. Showing the tokens that matched is honest and still
-// tells the reader what was found; the full text appears once the row is loaded
+// The head and a paged window are kept deliberately separate. The head merges
+// the loaded transcript with the index's first window and keeps that logic in one
+// place; a paged window holds index hits only, so this does the same per-row work
+// the head does for its index tail (stored preview, real highlight ranges) and
+// sorts the page by real timestamps before rendering.
+//
+// `corpus` supplies full text for rows the transcript happens to hold, so a page
+// that lands on loaded messages shows the whole message rather than the stored
+// prefix. That substitution is per page, not global: two passes would rank a
+// loaded row differently from the identical row on the head page.
+export function buildPagedResults(input: {
+  // Message id -> decrypted text, for the loaded rows only.
+  corpusById: ReadonlyMap<string, SearchCandidate>;
+  // The window's rows, as the store projected them.
+  rows: ReadonlyMap<
+    number,
+    { createdAt: number; messageId: string; preview: string }
+  >;
+  query: string;
+  tokens: readonly string[];
+}): RankedSearchResult[] {
+  const scored: ScoredSearchRow[] = [];
+  for (const facts of input.rows.values()) {
+    const loaded = input.corpusById.get(facts.messageId);
+    if (loaded) {
+      // A row the transcript holds is scored by the same function the head uses,
+      // so a loaded message ranks and snippets identically on either page.
+      scored.push(...scoreSearchCandidates([loaded], input.query));
+      continue;
+    }
+    const text = facts.preview;
+    if (text.length === 0) {
+      continue;
+    }
+    const ranges = findMatchRanges(text, [...input.tokens]);
+    scored.push({
+      candidate: {
+        createdAt: facts.createdAt,
+        id: facts.messageId,
+        text,
+      },
+      firstMatchStart: ranges[0]?.start ?? 0,
+      score: 0,
+    });
+  }
+  // Newest first inside the page, with the same total order the head uses, so
+  // turning a page never reorders rows relative to their neighbours.
+  scored.sort((left, right) => {
+    if (right.candidate.createdAt !== left.candidate.createdAt) {
+      return right.candidate.createdAt - left.candidate.createdAt;
+    }
+    if (left.candidate.id < right.candidate.id) {
+      return -1;
+    }
+    return left.candidate.id > right.candidate.id ? 1 : 0;
+  });
+  return buildRankedResults(scored, input.query);
+}
+
+// Builds a list-view row for a match that exists only in the persistent index,
+// with no decrypted row loaded. The stored preview renders real context with
+// real highlight ranges, computed exactly the way in-memory rows are ranked,
+// so the two halves of the list are indistinguishable. A match past the stored
+// prefix still resolves through the postings; its row shows the prefix without
+// a highlight rather than match-centered context. Only an empty preview falls
+// back to the matched tokens, and the full text appears once the row is loaded
 // (which the jump does). Rows already in memory are ranked normally above these.
 export function indexOnlyResult(
   id: string,
   createdAt: number,
+  preview: string,
   tokens: readonly string[]
 ): RankedSearchResult {
-  const text = tokens.join(" ");
+  if (preview.length === 0) {
+    const text = tokens.join(" ");
+    return {
+      createdAt,
+      firstMatchStart: 0,
+      id,
+      // No highlight ranges: the preview is the matched tokens themselves.
+      ranges: [],
+      score: 0,
+      snippet: { offset: 0, text },
+      text,
+    };
+  }
+  const ranges = findMatchRanges(preview, [...tokens]);
+  const firstMatchStart = ranges[0]?.start ?? 0;
+  const snippet = buildSearchSnippet(preview, firstMatchStart);
+  // Rebased onto the snippet, the same clipping buildRankedResults applies, so
+  // the list's highlight renderer (which slices snippet text by these ranges)
+  // never reads past the window.
+  const rebased = ranges
+    .map((range) => ({
+      end: range.end - snippet.offset,
+      start: range.start - snippet.offset,
+    }))
+    .filter((range) => range.end > 0 && range.start < snippet.text.length)
+    .map((range) => ({
+      end: Math.min(range.end, snippet.text.length),
+      start: Math.max(range.start, 0),
+    }));
   return {
     createdAt,
-    firstMatchStart: 0,
+    firstMatchStart,
     id,
-    // No highlight ranges: the preview is the matched tokens themselves.
-    ranges: [],
+    ranges: rebased,
     score: 0,
-    snippet: { offset: 0, text },
-    text,
+    snippet,
+    text: preview,
   };
 }
 
@@ -588,24 +736,57 @@ export interface SearchPage {
 // Slices one page out of the ranked results. Pure so the pager's edge cases
 // (empty list, out-of-range page, non-integer page) are unit-tested rather than
 // guarded ad hoc in the bar and the list.
+//
+// `totalCount` is the size of the whole result set, which is NOT
+// `results.length` once results are paged: the hook holds one page at a time, so
+// slicing the array would cap the pager at one page. Pass the exact count
+// (SEARCH_INDEX_QUERY_LIMIT-independent: it is the full intersection) and the
+// bounds describe a position in the conversation, not in the loaded rows.
+//
+// `pageResults` is still whatever the caller actually has for this page, so a
+// page that has not been read yet yields an empty slice with honest bounds --
+// the bar can show the range while the list shows its loading state.
 export function paginateSearchResults(
   results: RankedSearchResult[],
   requestedPage: number,
-  pageSize = SEARCH_PAGE_SIZE
+  pageSize = SEARCH_PAGE_SIZE,
+  totalCount = results.length
 ): SearchPage {
   const size = Math.max(1, Math.trunc(pageSize));
-  const pageCount = Math.max(1, Math.ceil(results.length / size));
+  const total = Math.max(
+    0,
+    Math.trunc(Number.isFinite(totalCount) ? totalCount : 0)
+  );
+  const pageCount = Math.max(1, Math.ceil(total / size));
   const requested = Number.isFinite(requestedPage)
     ? Math.trunc(requestedPage)
     : 0;
   const page = Math.min(Math.max(requested, 0), pageCount - 1);
   const start = page * size;
-  const end = Math.min(start + size, results.length);
+  const end = Math.min(start + size, total);
+  // The rows for this page are the ones the caller holds when it is holding this
+  // page's slice. When the total exceeds the loaded rows (paging), the loaded
+  // rows ARE the current page, so the page-relative offset is what applies.
+  const pageOffset = total > results.length ? 0 : start;
+  const rows = results.slice(pageOffset, pageOffset + size);
+  const rangeStart = total === 0 ? 0 : start + 1;
+  // The upper bound is the last row the page actually holds, not the last slot
+  // its position allows: a sticky total that undercounts the real match set (the
+  // last known count, kept while a fresh index read is in flight) would
+  // otherwise print a range longer than the page, or a range the rows do not
+  // fill. An empty page keeps its nominal position instead -- the window is
+  // still on its way, and the bar says "loading" rather than a range.
+  let rangeEnd = end;
+  if (total > 0 && rows.length > 0) {
+    rangeEnd = start + rows.length;
+  } else if (total === 0) {
+    rangeEnd = 0;
+  }
   return {
     page,
     pageCount,
-    pageResults: results.slice(start, end),
-    rangeEnd: end,
-    rangeStart: results.length === 0 ? 0 : start + 1,
+    pageResults: rows,
+    rangeEnd,
+    rangeStart,
   };
 }

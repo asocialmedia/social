@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildPagedResults,
   buildRankedResults,
   buildSearchSnippet,
   extractSearchableText,
@@ -300,6 +301,77 @@ describe("paginateSearchResults", () => {
       paginateSearchResults(results, 0, 0).pageResults.length
     ).toBeGreaterThan(0);
   });
+
+  // The reported bug: the pager was sized from the rows the hook happened to
+  // hold, so a 24,261-match query offered a few pages and the rest of the
+  // conversation was unreachable. The total is the denominator now, and the
+  // rows are one page's worth.
+  describe("paged results", () => {
+    const TOTAL = 24_261;
+    const onePage = results.slice(0, SEARCH_PAGE_SIZE);
+
+    test("the pager spans the total, not the rows in hand", () => {
+      const page = paginateSearchResults(onePage, 0, SEARCH_PAGE_SIZE, TOTAL);
+      expect(page.pageCount).toBe(Math.ceil(TOTAL / SEARCH_PAGE_SIZE));
+      expect(page.pageCount).toBe(1214);
+      // Page 0 renders the rows it was handed, not a slice of the total.
+      expect(page.pageResults).toHaveLength(SEARCH_PAGE_SIZE);
+    });
+
+    test("a deep page reports its position in the whole set", () => {
+      const page = paginateSearchResults(onePage, 500, SEARCH_PAGE_SIZE, TOTAL);
+      expect(page.page).toBe(500);
+      expect(page.rangeStart).toBe(500 * SEARCH_PAGE_SIZE + 1);
+      expect(page.rangeEnd).toBe(501 * SEARCH_PAGE_SIZE);
+      // The rows are the page's own window wherever in the set it sits.
+      expect(page.pageResults).toHaveLength(SEARCH_PAGE_SIZE);
+      expect(page.pageResults[0]).toBe(onePage[0]);
+    });
+
+    test("an unread page is empty but keeps honest bounds", () => {
+      // Before the window lands: the bounds must already describe the position,
+      // or the bar would read "1–20 of 20" for page 500.
+      const page = paginateSearchResults([], 500, SEARCH_PAGE_SIZE, TOTAL);
+      expect(page.pageResults).toEqual([]);
+      expect(page.rangeStart).toBe(500 * SEARCH_PAGE_SIZE + 1);
+    });
+
+    test("clamps a page past the end of the total", () => {
+      const page = paginateSearchResults(
+        onePage,
+        9999,
+        SEARCH_PAGE_SIZE,
+        TOTAL
+      );
+      expect(page.page).toBe(1213);
+    });
+
+    test("a zero total is one empty page", () => {
+      const page = paginateSearchResults([], 3, SEARCH_PAGE_SIZE, 0);
+      expect(page.pageCount).toBe(1);
+      expect(page.page).toBe(0);
+      expect(page.rangeStart).toBe(0);
+    });
+
+    // The count the pager uses is sticky per query so a re-read cannot shrink
+    // the page under the user's cursor, and it can lag the live match set in
+    // the other direction too: a page that resolved more rows than the sticky
+    // total has room for. The range describes rows on screen, so it must follow
+    // the rows and let the bar raise the denominator to meet it.
+    test("the range follows the rows, not a total that undercounts them", () => {
+      const STALE = 25;
+      const page = paginateSearchResults(onePage, 1, SEARCH_PAGE_SIZE, STALE);
+      expect(page.pageResults).toHaveLength(SEARCH_PAGE_SIZE);
+      expect(page.rangeStart).toBe(SEARCH_PAGE_SIZE + 1);
+      expect(page.rangeEnd).toBe(2 * SEARCH_PAGE_SIZE);
+    });
+
+    test("a resolved page that fills its slot reports the same bounds as before", () => {
+      const page = paginateSearchResults(onePage, 0, SEARCH_PAGE_SIZE, TOTAL);
+      expect(page.rangeStart).toBe(1);
+      expect(page.rangeEnd).toBe(SEARCH_PAGE_SIZE);
+    });
+  });
 });
 
 // One scoring pass feeds both surfaces. These pin the property the refactor
@@ -370,16 +442,21 @@ describe("scoreSearchCandidates", () => {
 });
 
 // A minimal index snapshot, so these tests describe the merge contract without a
-// store or a decryptor.
+// store or a decryptor. Rows carry no preview unless given one, which keeps the
+// long-standing cases on the token-join fallback while new cases pass real text.
 function indexSnapshot(
-  rows: [number, string, number][],
-  totalMatched: number
+  rows: [number, string, number, string?][],
+  totalMatched: number,
+  tokens: readonly string[] = ["deploy"]
 ): IndexMatchSnapshot {
   return {
     rows: new Map(
-      rows.map(([row, messageId, createdAt]) => [row, { createdAt, messageId }])
+      rows.map(([row, messageId, createdAt, preview]) => [
+        row,
+        { createdAt, messageId, preview: preview ?? "" },
+      ])
     ),
-    tokens: ["deploy"],
+    tokens,
     totalMatched,
   };
 }
@@ -593,5 +670,251 @@ describe("mergeSearchSnapshot", () => {
     // x1 (90) still leads the newer m-new (50): order follows timestamps,
     // not arrival.
     expect(second.matchIds).toEqual(["x1", "m-new"]);
+  });
+
+  // The reported teleport bug: with a query matching more rows than the
+  // ranked display holds, landing on a match replaces the loaded window with
+  // a small anchored page. The next merge then knows timestamps only for the
+  // rows still loaded (plus the capped index rows and the truncated display
+  // list), so every other id sinks to the epoch and the counter jumps to the
+  // end of the list -- 2203 of 2203 -- while the arrows walk a reshuffled
+  // order. Falling back to the previous snapshot's own facts keeps every
+  // known id exactly where it was.
+  test("replacing the loaded window never reorders known ids", () => {
+    const full: SearchCandidate[] = Array.from({ length: 250 }, (_, row) => ({
+      createdAt: row + 1,
+      id: `c${row}`,
+      text: `deploy ${row}`,
+    }));
+    const first = mergeSearchSnapshot({
+      corpus: full,
+      index: null,
+      query: "deploy",
+    });
+    expect(first.matchIds).toHaveLength(250);
+    expect(first.matchIds[0]).toBe("c249");
+    // Only the landed row is still loaded: the jumped window.
+    const landed: SearchCandidate = {
+      createdAt: 101,
+      id: "c100",
+      text: "deploy 100",
+    };
+    const second = mergeSearchSnapshot(
+      { corpus: [landed], index: null, query: "deploy" },
+      first
+    );
+    expect(second.matchIds).toEqual(first.matchIds);
+    expect(second.matchIds.indexOf("c100")).toBe(
+      first.matchIds.indexOf("c100")
+    );
+  });
+
+  test("older matches surfacing mid-session slot in chronologically", () => {
+    const full: SearchCandidate[] = Array.from({ length: 250 }, (_, row) => ({
+      createdAt: row + 1,
+      id: `c${row}`,
+      text: `deploy ${row}`,
+    }));
+    const first = mergeSearchSnapshot({
+      corpus: full,
+      index: null,
+      query: "deploy",
+    });
+    const landed: SearchCandidate = {
+      createdAt: 101,
+      id: "c100",
+      text: "deploy 100",
+    };
+    // Indexing lands an older hit the corpus never held while the window is
+    // still the small jumped page.
+    const second = mergeSearchSnapshot(
+      {
+        corpus: [landed],
+        index: indexSnapshot([[300, "zz-old", 0]], 251),
+        query: "deploy",
+      },
+      first
+    );
+    expect(second.matchIds.slice(0, 250)).toEqual(first.matchIds);
+    expect(second.matchIds.at(-1)).toBe("zz-old");
+  });
+
+  test("same-timestamp ids order deterministically, not by arrival", () => {
+    const forward: SearchCandidate[] = ["a", "b", "c"].map((id) => ({
+      createdAt: 42,
+      id,
+      text: "deploy tie",
+    }));
+    const backward = [...forward].toReversed();
+    const first = mergeSearchSnapshot({
+      corpus: forward,
+      index: null,
+      query: "deploy",
+    });
+    const second = mergeSearchSnapshot(
+      { corpus: backward, index: null, query: "deploy" },
+      first
+    );
+    expect(second.matchIds).toEqual(first.matchIds);
+  });
+
+  // The reported list-view complaint: typing "zar" showed every index-only hit
+  // as the bare word "zar" instead of the message. Stored previews render real
+  // context with real highlight ranges, built the same way in-memory rows are.
+  test("index-only hits render the stored preview, not the matched tokens", () => {
+    const merged = mergeSearchSnapshot({
+      corpus: [],
+      index: indexSnapshot(
+        [[100, "m1", 90, "can anyone find the zarquon thread?"]],
+        1,
+        ["zarquon"]
+      ),
+      query: "zarquon",
+    });
+    const [row] = merged.ranked;
+    expect(row?.text).toBe("can anyone find the zarquon thread?");
+    expect(row?.snippet.text).toContain("zarquon");
+    expect(row?.ranges.length).toBeGreaterThan(0);
+    // Ranges are rebased onto the snippet window for the renderer.
+    for (const range of row?.ranges ?? []) {
+      expect(row?.snippet.text.slice(range.start, range.end)).toBe("zarquon");
+    }
+  });
+
+  test("a preview without the match still shows the prefix, unhighlighted", () => {
+    // The row matched on text past the stored prefix: postings resolve it, but
+    // the prefix holds no highlight. The row still shows real text -- the
+    // message start with an ellipsis -- rather than the bare token, so every
+    // list row reads as a message.
+    const merged = mergeSearchSnapshot({
+      corpus: [],
+      index: indexSnapshot([[100, "m1", 90, "unrelated leading words"]], 1),
+      query: "deploy",
+    });
+    const [row] = merged.ranked;
+    expect(row?.text).toBe("unrelated leading words");
+    expect(row?.ranges).toEqual([]);
+  });
+
+  test("an empty preview falls back to the matched tokens", () => {
+    const merged = mergeSearchSnapshot({
+      corpus: [],
+      index: indexSnapshot([[100, "x1", 90]], 1),
+      query: "deploy",
+    });
+    const [row] = merged.ranked;
+    expect(row?.text).toBe("deploy");
+    expect(row?.snippet).toEqual({ offset: 0, text: "deploy" });
+  });
+});
+
+// A list page read on demand. The rows come from the index (previews only, no
+// loaded row), so these pin what the list shows for a page the keystroke path
+// never resolved.
+describe("buildPagedResults", () => {
+  const window = new Map([
+    [7, { createdAt: 70, messageId: "m7", preview: "deploy the seventh" }],
+    [8, { createdAt: 80, messageId: "m8", preview: "deploy the eighth" }],
+  ]);
+
+  test("renders the stored preview with real highlight ranges", () => {
+    // Both rows match, as they must: the store filtered this window, so a paged
+    // row is trusted to match the way the head trusts its index rows.
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      query: "deploy",
+      rows: window,
+      tokens: ["deploy"],
+    });
+    expect(results).toHaveLength(2);
+    for (const result of results) {
+      for (const range of result.ranges) {
+        expect(result.snippet.text.slice(range.start, range.end)).toBe(
+          "deploy"
+        );
+      }
+    }
+  });
+
+  test("orders the page newest first, by real timestamps", () => {
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      query: "deploy",
+      rows: window,
+      tokens: ["deploy"],
+    });
+    expect(results.map((row) => row.id)).toEqual(["m8", "m7"]);
+  });
+
+  // The overlay matters: a row the transcript happens to hold should show the
+  // WHOLE message, not the stored prefix, and must score exactly as it would on
+  // the head page.
+  test("a loaded row shows its full text, not the stored prefix", () => {
+    const full = "deploy the eighth, plus a lot more text after the prefix";
+    const results = buildPagedResults({
+      corpusById: new Map([["m8", { createdAt: 80, id: "m8", text: full }]]),
+      query: "eighth",
+      rows: window,
+      tokens: ["eighth"],
+    });
+    const loaded = results.find((row) => row.id === "m8");
+    expect(loaded?.text).toBe(full);
+    // The highlight is still on the matched word, inside the full text.
+    for (const range of loaded?.ranges ?? []) {
+      expect(loaded?.snippet.text.slice(range.start, range.end)).toBe("eighth");
+    }
+  });
+
+  test("a loaded row scores the same as it does on the head page", () => {
+    const candidate = { createdAt: 80, id: "m8", text: "deploy the eighth" };
+    const head = mergeSearchSnapshot({
+      corpus: [candidate],
+      index: null,
+      query: "eighth",
+    });
+    const [paged] = buildPagedResults({
+      corpusById: new Map([["m8", candidate]]),
+      query: "eighth",
+      rows: new Map([
+        [8, { createdAt: 80, messageId: "m8", preview: "deploy the eighth" }],
+      ]),
+      tokens: ["eighth"],
+    });
+    const [fromHead] = head.ranked;
+    expect(paged?.score).toBe(fromHead?.score);
+    expect(paged?.snippet.text).toBe(fromHead?.snippet.text);
+    expect(paged?.ranges).toEqual(fromHead?.ranges);
+  });
+
+  test("a row with no stored preview and no loaded text is skipped", () => {
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      query: "deploy",
+      rows: new Map([[3, { createdAt: 3, messageId: "m3", preview: "" }]]),
+      tokens: ["deploy"],
+    });
+    expect(results).toEqual([]);
+  });
+
+  test("same-timestamp rows order deterministically", () => {
+    const tied = new Map([
+      [1, { createdAt: 42, messageId: "b", preview: "deploy b" }],
+      [2, { createdAt: 42, messageId: "a", preview: "deploy a" }],
+    ]);
+    const first = buildPagedResults({
+      corpusById: new Map(),
+      query: "deploy",
+      rows: tied,
+      tokens: ["deploy"],
+    });
+    const reversed = new Map([...tied].toReversed());
+    const second = buildPagedResults({
+      corpusById: new Map(),
+      query: "deploy",
+      rows: reversed,
+      tokens: ["deploy"],
+    });
+    expect(first.map((row) => row.id)).toEqual(["a", "b"]);
+    expect(second.map((row) => row.id)).toEqual(first.map((row) => row.id));
   });
 });
