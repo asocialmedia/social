@@ -21,6 +21,16 @@ import { runPublishFlow } from "./publish-flow";
 
 export interface CreatePostPayload {
   communityId?: string;
+  communitySharePostId?: string;
+  hnStory?: {
+    by?: string | null;
+    descendants?: number | null;
+    score?: number | null;
+    storyId: string;
+    time?: number | null;
+    title: string;
+    url?: string | null;
+  };
   content: string;
   dismissedEmbedUrls?: string[];
   isGust?: boolean;

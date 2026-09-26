@@ -1,24 +1,29 @@
-import * as Linking from "expo-linking";
 // Web's `components/hackernews/hn-story-card.tsx`, ported row for row: the Y
 // badge with the "Hacker News" label, the relative time and the save control on
 // the top line, the title with its domain chip, then the by / points / comments
-// chips, and finally the two row actions (reshare into a post, copy the link).
+// chips, and finally the two row actions ("Reshare as fleet" into the composer
+// and "Copy" of the link).
 //
 // The orange wash web applies on hover has no native equivalent, so the row
 // carries the resting state only rather than faking a hover it cannot detect.
+import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
 import {
   Bookmark,
+  Copy,
   Link2,
   MessageCircle,
+  Share2,
   ThumbsUp,
   User,
 } from "lucide-react-native";
 import { useCallback } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { RAIL_ACTIVE, metaChip } from "@/components/surface/recipes";
+import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import type { HnStory } from "../lib/hackernews-api";
@@ -61,9 +66,26 @@ export function timeAgo(unixSeconds: number, now: number): string {
   return `${years} year${years === 1 ? "" : "s"} ago`;
 }
 
+/** Opens a link, reporting the one failure mode a reader can act on. */
+function openExternal(url: string): void {
+  const open = async () => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      toast({
+        description: "Couldn't open that link",
+        title: "No luck",
+        variant: "destructive",
+      });
+    }
+  };
+  void open();
+}
+
 export function HnStoryCard({
   bookmarked,
   now,
+  onReshare,
   onToggleBookmark,
   onVisit,
   story,
@@ -72,25 +94,50 @@ export function HnStoryCard({
   // Passed in rather than read from the clock during render: the relative time
   // is then stable for a re-render, and the screen decides when it ticks.
   now: number;
+  onReshare: (story: HnStory) => void;
   onToggleBookmark: (story: HnStory) => void;
   onVisit: (story: HnStory) => void;
   story: HnStory;
 }) {
   const { isDark, theme } = useAppTheme();
   const chip = metaChip(isDark);
+  // Web links the title to the story and the comments chip to the discussion.
+  // The port had both pointing at the story, under a label that said
+  // "discussion", so the chip went somewhere other than where it claimed.
   const target = story.url ?? hnItemUrl(story.id);
+  const discussionUrl = hnItemUrl(story.id);
 
-  const copy = useCallback(async () => {
+  // Web's Copy uses the platform share sheet where there is one and falls
+  // back to the clipboard. This was previously a function called `copy` that
+  // only opened the story URL, so the row action it fed did the wrong thing.
+  const copyLink = useCallback(async () => {
     try {
-      await Linking.openURL(target);
+      // The platform sheet is the richer affordance and is what web prefers,
+      // but it can be unavailable or refused, so the clipboard is the fallback
+      // rather than an either/or decided up front.
+      await Share.share({ message: target, title: story.title, url: target });
     } catch {
+      // The sheet was unavailable or refused, so the clipboard is the
+      // fallback rather than an either/or decided up front.
+      try {
+        await Clipboard.setStringAsync(target);
+      } catch (error) {
+        logWarn("hackernews.copy_failed", {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        toast({
+          description: "Couldn't copy that link",
+          title: "No luck",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
-        description: "Couldn't open that link",
-        title: "No luck",
-        variant: "destructive",
+        description: "Link copied, paste it anywhere",
+        title: "Link Copied",
       });
     }
-  }, [target]);
+  }, [story.title, target]);
 
   return (
     <View
@@ -212,7 +259,7 @@ export function HnStoryCard({
           accessibilityLabel={`Open the HackerNews discussion, ${story.comments} comments`}
           accessibilityRole="link"
           onPress={() => {
-            void copy();
+            openExternal(discussionUrl);
           }}
           style={[
             styles.chip,
@@ -225,11 +272,51 @@ export function HnStoryCard({
           </Text>
         </Pressable>
       </View>
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityLabel="Reshare this story as a fleet"
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={() => onReshare(story)}
+          style={styles.action}
+        >
+          <Share2 color={chip.color} size={14} />
+          <Text style={[styles.actionText, { color: chip.color }]}>
+            Reshare as fleet
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Copy the link to this story"
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={() => {
+            void copyLink();
+          }}
+          style={[styles.action, styles.actionEnd]}
+        >
+          <Copy color={chip.color} size={14} />
+          <Text style={[styles.actionText, { color: chip.color }]}>Copy</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  action: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 6,
+  },
+  actionEnd: { marginLeft: "auto" },
+  actionText: { fontFamily: "SofiaProMed", fontSize: 12 },
+  actions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    paddingTop: 2,
+  },
   brand: { alignItems: "center", flexDirection: "row", gap: 8, minWidth: 0 },
   brandText: {
     fontFamily: "SofiaProBold",

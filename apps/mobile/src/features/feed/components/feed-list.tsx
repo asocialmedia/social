@@ -51,6 +51,7 @@ import type { PillAuthor } from "./new-content-pill";
 import { PostCard } from "./post-card";
 import { PULL_THRESHOLD, PullLoader } from "./pull-loader";
 import { ShareSheet } from "./share-sheet";
+import { usePostOverflow } from "./use-post-overflow";
 
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
@@ -448,27 +449,47 @@ export function FeedList({
     };
   }, []);
 
+  const overflow = usePostOverflow({
+    onDeleted: (postId) => {
+      // A deleted post leaves the feed the same way a hidden one does, but
+      // with no undo: there is nothing left to bring back.
+      dismissPost(postId);
+    },
+    onHide: (post) => {
+      dismissPost(post.id);
+      setLastDismissed(post.id);
+    },
+    onModerated: (postId, next) => {
+      feedCache.updatePostEverywhere(postId, next);
+    },
+    onTagsSaved: (postId, tags) => {
+      feedCache.updatePostEverywhere(postId, {
+        tags: tags.map((name) => ({ id: name, name })),
+      });
+    },
+    onToggleAlt: (post) => {
+      setAltVisibleIds((current) => {
+        const next = new Set(current);
+        if (next.has(post.id)) {
+          next.delete(post.id);
+        } else {
+          next.add(post.id);
+        }
+        return next;
+      });
+    },
+    onToggleCaptions: () => {
+      toggleCaptions();
+    },
+    viewerId: user?.id ?? null,
+  });
+
   const handleMoreAction = (action: MoreAction) => {
     const morePost = moreTarget?.post;
     if (!morePost) {
       return;
     }
-    if (action.type === "hide") {
-      dismissPost(morePost.id);
-      setLastDismissed(morePost.id);
-    } else if (action.type === "toggle-captions") {
-      toggleCaptions();
-    } else if (action.type === "toggle-alt") {
-      setAltVisibleIds((current) => {
-        const next = new Set(current);
-        if (next.has(morePost.id)) {
-          next.delete(morePost.id);
-        } else {
-          next.add(morePost.id);
-        }
-        return next;
-      });
-    }
+    overflow.onAction(action, morePost);
   };
 
   useEffect(() => {
@@ -882,6 +903,7 @@ export function FeedList({
           onAction={handleMoreAction}
           onClose={() => setMoreTarget(null)}
         />
+        {overflow.dialogs}
       </View>
     </GestureDetector>
   );

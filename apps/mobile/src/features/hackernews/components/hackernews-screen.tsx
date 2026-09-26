@@ -19,6 +19,7 @@ import {
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { useComposerStore } from "@/features/composer/state/composer-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -38,6 +39,36 @@ export function HackerNewsScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
   const { user } = useSessionContext();
+  const openComposer = useComposerStore((state) => state.open);
+  const setDraft = useComposerStore((state) => state.setDraft);
+
+  // Web's "Reshare as fleet" opens the composer carrying the story, which the
+  // publish sends as hnStory so the server records the share.
+  const reshare = (story: HnStory) => {
+    if (!user) {
+      router.push("/(auth)/login");
+      return;
+    }
+    setDraft({
+      hnStory: {
+        by: story.by,
+        // HnStory names it `comments`; the publish shape names it
+        // `descendants`, which is the field the Hacker News API uses.
+        descendants: story.comments,
+        score: story.score,
+        // HnStory.id is a number, and the publish shape wants a string.
+        storyId: String(story.id),
+        time: story.time,
+        title: story.title,
+        url: story.url,
+      },
+    });
+    openComposer("post", null);
+    toast({
+      description: "Add your thoughts and share it with your followers!",
+      title: "Story Ready",
+    });
+  };
   const params = useLocalSearchParams<{ sort?: string | string[] }>();
   const initialSort = Array.isArray(params.sort) ? params.sort[0] : params.sort;
 
@@ -347,6 +378,7 @@ export function HackerNewsScreen() {
           <HnStoryCard
             bookmarked={bookmarks[item.id] ?? false}
             now={now}
+            onReshare={reshare}
             onToggleBookmark={toggleBookmark}
             // A HackerNews story is not a post on this platform, so the row
             // opens the story's own link, falling back to its discussion.

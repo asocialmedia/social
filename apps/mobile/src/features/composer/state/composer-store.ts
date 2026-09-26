@@ -25,7 +25,25 @@ export interface ReplyTarget {
 // The in-progress text and autocomplete picks survive closing the composer
 // (web keeps its attachments across a close the same way); publishing or
 // discarding clears them.
+/** The Hacker News story a composer was opened to share, as web sends it. */
+export interface HnShareDraft {
+  by?: string | null;
+  descendants?: number | null;
+  score?: number | null;
+  storyId: string;
+  time?: number | null;
+  title: string;
+  url?: string | null;
+}
+
 export interface ComposerDraft {
+  // Set when the composer was opened by "Share to feed". The publish carries
+  // communitySharePostId so the server records the share side row, and a pure
+  // reshare is allowed to have no caption of its own.
+  communityId?: string;
+  communitySharePostId?: string;
+  // Set by the Hacker News card's "Reshare as fleet".
+  hnStory?: HnShareDraft;
   mentions: MentionPick[];
   tags: string[];
   text: string;

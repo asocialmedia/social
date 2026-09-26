@@ -27,6 +27,7 @@ import {
   ShareSheet,
   getSharePostUrl,
 } from "@/features/feed/components/share-sheet";
+import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import {
   isAudioMedia,
@@ -496,21 +497,38 @@ export function ProfileFeed({
         viewerId,
       })
     : [];
-  const onAction = useCallback((action: MoreAction) => {
-    setMenuAnchor(null);
-    setMenuPost(null);
-    if (action.type === "hide") {
+  const overflow = usePostOverflow({
+    onDeleted: () => {
+      // The tab reloads rather than patching one row, because a deleted post
+      // can be the last item on a page and the cursor has to close behind it.
+      feed.reload();
+    },
+    onHide: () => {
       toast({
         description: "This post won't appear in your feed.",
         title: "Post hidden",
       });
-    } else {
-      toast({
-        description: "That option is not available for this post yet.",
-        title: "Post options",
-      });
-    }
-  }, []);
+    },
+    onModerated: () => {
+      feed.reload();
+    },
+    onTagsSaved: () => {
+      feed.reload();
+    },
+    viewerId,
+  });
+
+  const onAction = useCallback(
+    (action: MoreAction) => {
+      const target = menuPost;
+      setMenuAnchor(null);
+      setMenuPost(null);
+      if (target) {
+        overflow.onAction(action, target);
+      }
+    },
+    [menuPost, overflow]
+  );
   // A gust tile holds a still frame, so it opens the reel at that gust rather
   // than the post page, matching the media tab and the Explore gust tiles.
   const openGust = useCallback(
@@ -634,6 +652,7 @@ export function ProfileFeed({
           setMenuPost(null);
         }}
       />
+      {overflow.dialogs}
     </>
   );
 }

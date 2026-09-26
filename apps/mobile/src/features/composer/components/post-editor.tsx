@@ -432,7 +432,12 @@ export function PostEditor({
     try {
       await publishPost(
         {
+          // A pure community reshare has no caption of its own: the server
+          // allows that only because communitySharePostId is present.
+          communityId: draft.communityId,
+          communitySharePostId: draft.communitySharePostId,
           content: trimmed,
+          hnStory: draft.hnStory,
           isGust: isResponse ? false : isGust,
           mediaIds,
           mentions: relations.mentions,

@@ -15,8 +15,8 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { CornerDownRight, Trash2 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { CornerDownRight } from "lucide-react-native";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -24,6 +24,7 @@ import {
   Text,
   View,
 } from "react-native";
+import type { LayoutChangeEvent } from "react-native";
 import { Path, Svg } from "react-native-svg";
 
 import noCommentsImage from "@/assets/images/nocomments.png";
@@ -34,7 +35,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { ORANGE_GRADIENT } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { deleteEddie } from "@/features/composer/lib/publish-api";
-import { MoreMenu } from "@/features/feed/components/more-menu";
+import { ACTION_ICONS, MoreMenu } from "@/features/feed/components/more-menu";
 import type {
   MenuAnchor,
   MoreMenuEntry,
@@ -74,55 +75,97 @@ import { EddieComposer } from "./eddie-composer";
 // so the avatar center sits at 30px; the rail channel centers at 16px.
 const AVATAR_CENTER = 30;
 const RAIL_X = 16;
-const CURVE_RADIUS = 16;
 const REPLY_INDENT = 32;
 const POLL_MS = 8000;
 
+// The 2px rail is centred on RAIL_X, so its left edge sits half a stroke over.
+// Both segments are derived from this, so the corner they share cannot drift.
+const RAIL_STROKE = 2;
+const RAIL_LEFT = RAIL_X - RAIL_STROKE / 2;
+// The turn is a quarter-arc of CURVE_RADIUS, drawn inside a box one stroke
+// larger so the stroke's bleed is never clipped at the SVG viewport edge.
+const CURVE_RADIUS = 16;
+const CURVE_BOX = CURVE_RADIUS + RAIL_STROKE;
+
+// First-paint guess for the avatar's centre, refined by onLayout. Keeping the
+// constant here documents the expected geometry without the rail depending on it.
+const RAIL_GEOMETRY_SEED = { avatarCenter: AVATAR_CENTER, commentTop: 0 };
+
+// The entry list is pure data so it can be unit tested, which means the glyph
+// lives with the panel. This row is the one place that hand-builds a single
+// entry, so it takes the glyph from the same map.
 const DELETE_ENTRY: MoreMenuEntry[] = [
   {
     action: { type: "delete" },
     destructive: true,
-    icon: Trash2,
+    icon: ACTION_ICONS.delete,
     label: "Delete",
   },
 ];
 
-function EddieRail({ isLast }: { isLast: boolean }) {
+// The reply connector: a vertical run down the parent's avatar column that
+// curves right into this reply's avatar, like web's rail.
+//
+// Split into three parts because neither shape alone can do the job in Yoga.
+// The curve is an SVG, which is the only thing here that can draw an arc. But
+// the rail has to run on to the bottom of the row for a non-last sibling, and a
+// percentage height does not resolve against a content-sized parent - which is
+// what truncated the original SVG and left the line hanging in space. So the
+// run is a View (top/bottom, always resolves) and the SVG carries ONLY the
+// fixed-size turn, with no percentage dimension and no negative origin to be
+// clipped at the viewport edge.
+function EddieRail({
+  avatarCenter,
+  isLast,
+}: {
+  // Where the avatar's centre line actually landed, measured by the row. The
+  // rail is drawn against this rather than a computed constant, so it cannot
+  // drift from the avatar when padding, avatar size or nesting changes.
+  avatarCenter: number;
+  isLast: boolean;
+}) {
   const { theme } = useAppTheme();
   const color = theme.cardBorder;
   return (
     <>
-      {/* The through-rail for a non-last sibling. A View anchored top/bottom,
-          NOT an SVG at height "100%": a percentage height against a
-          content-sized parent does not resolve in Yoga, which is what left the
-          line broken or missing on native. Same construction as the depth-0
-          stub, and it lines up with the elbow drawn below. */}
-      {isLast ? null : (
-        <View
-          pointerEvents="none"
-          style={[styles.railLine, { backgroundColor: color }]}
-        />
-      )}
-      {/* The elbow into this reply's avatar. Always a fixed-size box so the SVG
-          never needs a percentage dimension; `isLast` adds the short vertical
-          stub above the curve, since no through-rail continues past it. */}
-      <Svg
-        height={AVATAR_CENTER + 4}
+      {/* Vertical run into the turn. A last sibling stops at the turn; one that
+          still has replies below carries on to the bottom of the row, so the
+          whole thread reads as one unbroken channel. */}
+      <View
         pointerEvents="none"
-        style={styles.railSvg}
-        width={REPLY_INDENT + 4}
+        style={[
+          styles.railVertical,
+          { backgroundColor: color },
+          isLast ? { height: avatarCenter } : { bottom: 0 },
+        ]}
+      />
+      {/* The turn, in a box sized to hold the arc plus half a stroke of bleed
+          on every side, so the stroke is never clipped at the SVG viewport. */}
+      <Svg
+        height={CURVE_BOX}
+        pointerEvents="none"
+        style={[
+          styles.railCurve,
+          { top: avatarCenter - CURVE_RADIUS - RAIL_STROKE / 2 },
+        ]}
+        width={CURVE_BOX}
       >
         <Path
-          d={
-            isLast
-              ? `M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
-              : `M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
-          }
+          d={`M ${RAIL_STROKE / 2} ${RAIL_STROKE / 2} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${CURVE_BOX - 1} ${CURVE_BOX - 1}`}
           fill="none"
           stroke={color}
-          strokeWidth={2}
+          strokeWidth={RAIL_STROKE}
         />
       </Svg>
+      {/* Short run from the end of the arc into the avatar, tucked under its
+          edge so no seam can open at the join. */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.railTail,
+          { backgroundColor: color, top: avatarCenter - RAIL_STROKE / 2 },
+        ]}
+      />
     </>
   );
 }
@@ -206,18 +249,49 @@ function EddieRow({
       media && (media.type === "IMAGE" || media.mimeType?.startsWith("image/"))
   );
 
+  // The rail is drawn from the avatar's real measured centre rather than a
+  // computed constant, so it cannot drift from the avatar. Measured from
+  // avatarWrap with alignSelf: "flex-start", which keeps it sized to the avatar
+  // instead of stretched to the row - a stretched box reports the comment's
+  // full height and threw the turn far below the avatar.
+  // Seeded with AVATAR_CENTER so the first paint is already close, and each
+  // handler no-ops when the value has not moved, so stable layouts cost nothing.
+  const [rail, setRail] = useState(RAIL_GEOMETRY_SEED);
+  const handleCommentLayout = useCallback((event: LayoutChangeEvent) => {
+    const { y } = event.nativeEvent.layout;
+    setRail((current) =>
+      current.commentTop === y ? current : { ...current, commentTop: y }
+    );
+  }, []);
+  const handleAvatarLayout = useCallback((event: LayoutChangeEvent) => {
+    const { height, y } = event.nativeEvent.layout;
+    setRail((current) => {
+      const avatarCenter = current.commentTop + y + height / 2;
+      return current.avatarCenter === avatarCenter
+        ? current
+        : { ...current, avatarCenter };
+    });
+  }, []);
+
   return (
     <View style={[depth > 0 && !beyondCap && styles.nested]}>
-      {depth > 0 ? <EddieRail isLast={isLast} /> : null}
-      {/* Stub hanging off a top-level avatar down to its replies. */}
-      {depth === 0 && (hasChildren || replying) ? (
-        <View
-          pointerEvents="none"
-          style={[styles.stub, { backgroundColor: theme.cardBorder }]}
-        />
+      {depth > 0 ? (
+        <EddieRail avatarCenter={rail.avatarCenter} isLast={isLast} />
       ) : null}
-      <View style={styles.comment}>
-        <View style={styles.avatarWrap}>
+      <View onLayout={handleCommentLayout} style={styles.comment}>
+        {/* Stub: hangs this comment's avatar down to where its replies begin, so
+            the thread line reads as dropping off the parent. It must be scoped
+            to the comment content - as a sibling of the children its bottom: 0
+            reaches the end of the whole thread and the line trails past the last
+            reply, which is what web avoids by nesting the stub inside the
+            content block. */}
+        {depth === 0 && (hasChildren || replying) ? (
+          <View
+            pointerEvents="none"
+            style={[styles.stub, { backgroundColor: theme.cardBorder }]}
+          />
+        ) : null}
+        <View onLayout={handleAvatarLayout} style={styles.avatarWrap}>
           <UserAvatar radius={12} size={40} url={commentUser?.avatarUrl} />
         </View>
         <View style={styles.commentBody}>
@@ -307,7 +381,7 @@ function EddieRow({
 
       {replying && !isDeleted ? (
         <View style={styles.replyComposer}>
-          <EddieRail isLast={!hasChildren} />
+          <EddieRail avatarCenter={rail.avatarCenter} isLast={!hasChildren} />
           <EddieComposer
             autoFocus
             inline
@@ -737,18 +811,26 @@ const styles = StyleSheet.create({
     height: 288,
     width: "100%",
   },
+  // alignSelf stops the default row stretch from inflating this box to the full
+  // comment height. The rail measures it to find the avatar's centre, and a
+  // stretched box reports the row height, which threw the connector's turn well
+  // below the avatar. Sized to its content it is exactly the avatar, so the
+  // measurement is the avatar's real centre.
   avatarWrap: {
+    alignSelf: "flex-start",
     position: "relative",
     zIndex: 1,
   },
   // paddingBottom is tighter than paddingTop: the actions row already carries
   // its own height, so equal padding left a visibly large gap under every
-  // eddie before the next one (or the divider) began.
+  // eddie before the next one (or the divider) began. relative anchors the
+  // depth-0 stub to the content block rather than the whole thread.
   comment: {
     flexDirection: "row",
     gap: 10,
     paddingBottom: 6,
     paddingTop: 10,
+    position: "relative",
   },
   commentActions: {
     alignItems: "center",
@@ -859,17 +941,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textDecorationLine: "underline",
   },
-  railLine: {
-    bottom: 0,
-    left: RAIL_X,
+  // The turn. Positioned so the arc's start sits on the vertical run's axis and
+  // its end lands on the avatar's centre line at REPLY_INDENT: the box's top is
+  // one radius above AVATAR_CENTER (where the run hands off) and its left is
+  // the rail's own left edge, so all three parts share one origin.
+  railCurve: {
+    left: RAIL_LEFT,
     position: "absolute",
-    top: 0,
-    width: 2,
   },
-  railSvg: {
-    left: 0,
+  // From the end of the arc into the avatar's left edge, overlapping by a
+  // stroke so the join can never show a seam. The vertical position comes from
+  // the measured avatar, so it is not set here.
+  railTail: {
+    height: RAIL_STROKE,
+    left: REPLY_INDENT - RAIL_STROKE,
+    position: "absolute",
+    width: RAIL_STROKE * 2,
+  },
+  railVertical: {
+    left: RAIL_LEFT,
     position: "absolute",
     top: 0,
+    width: RAIL_STROKE,
   },
   replyBtn: {
     alignItems: "center",
@@ -943,11 +1036,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 32,
   },
+  // Web's stub is `top-6` against its own AVATAR_CENTER of 24, i.e. the line
+  // drops from the centre of the avatar. Native's AVATAR_CENTER is 30, so the
+  // same relationship is expressed with the constant rather than a stale 24.
   stub: {
     bottom: 0,
     left: RAIL_X,
     position: "absolute",
-    top: 24,
+    top: AVATAR_CENTER,
     width: 2,
   },
 });
