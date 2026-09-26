@@ -11,6 +11,8 @@ import {
 import type { RankedSearchResult } from "@/lib/messages/message-search";
 import { cn } from "@/lib/utils";
 
+import { searchListEmptyState } from "./message-search-status";
+
 // The list half of chat search, rendered as a full surface inside the DM. It is
 // deliberately chrome-free: the search bar above already owns the mode toggle,
 // the pager, the status, and the close. This is rows and nothing else, so the
@@ -22,10 +24,24 @@ interface MessageSearchResultsProps {
   activeIndex: number;
   allMessages: MessageData[];
   indexing: boolean;
+  // A backfill walk is paging through older history right now. Told apart from
+  // `indexing` (the transcript's own fill) because an empty page means something
+  // different while a walk is running: more matches may still surface.
+  indexingOlder: boolean;
+  // A page turn is reading its window from the index. Shown in place of the rows
+  // so a page turn reads as a read, not as an empty result set.
+  listPageLoading: boolean;
+  // A page turn failed. Rendered as a message rather than swallowed, so a failed
+  // read is visible instead of a silently empty page.
+  listPageError: string | null;
   myUserId: string;
   onJump: (messageId: string) => void;
   query: string;
   results: RankedSearchResult[];
+  // The exact total over the whole result set, which can exceed the rows on
+  // hand: the list pages one window at a time, so an empty page with a nonzero
+  // total is "nothing resolved here", never "nothing matches".
+  totalMatches: number;
   truncated: boolean;
 }
 
@@ -33,10 +49,14 @@ export function MessageSearchResults({
   activeIndex,
   allMessages,
   indexing,
+  indexingOlder,
+  listPageError,
+  listPageLoading,
   myUserId,
   onJump,
   query,
   results,
+  totalMatches,
   truncated,
 }: MessageSearchResultsProps) {
   const activeRowRef = useRef<HTMLButtonElement | null>(null);
@@ -57,7 +77,19 @@ export function MessageSearchResults({
   }, [activeIndex]);
 
   const queryReady = query.trim().length >= MIN_SEARCH_QUERY_LENGTH;
-  const showNoResults = queryReady && results.length === 0 && !indexing;
+  // One empty state for the three ways a page can be empty: still reading,
+  // failed to read, or resolved with nothing on it. The helper keeps the body's
+  // wording and the bar's counter from contradicting each other -- an empty
+  // page beside "29 matches" used to read "No messages match this search".
+  const emptyState = searchListEmptyState({
+    indexing,
+    indexingOlder,
+    listPageError,
+    listPageLoading,
+    queryReady,
+    resultCount: results.length,
+    totalMatches,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -80,9 +112,12 @@ export function MessageSearchResults({
             result={result}
           />
         ))}
-        {showNoResults ? (
-          <p className="text-muted-foreground px-4 py-8 text-center text-sm">
-            No messages match this search.
+        {emptyState ? (
+          <p
+            aria-live="polite"
+            className="text-muted-foreground px-4 py-8 text-center text-sm"
+          >
+            {emptyState}
           </p>
         ) : null}
         {queryReady ? null : (

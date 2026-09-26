@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   searchChatStatus,
   searchCoverageLabel,
+  searchListEmptyState,
   searchListStatus,
   searchStorageStatus,
 } from "./message-search-status";
@@ -75,6 +76,7 @@ describe("searchListStatus", () => {
         ...COVERED,
         rangeEnd: 20,
         rangeStart: 1,
+        resultCount: 20,
         totalResults: 87,
       })
     ).toBe("1–20 of 87");
@@ -86,6 +88,7 @@ describe("searchListStatus", () => {
         ...PARTIAL,
         rangeEnd: 20,
         rangeStart: 1,
+        resultCount: 20,
         totalResults: 87,
       })
     ).toBe("1–20 of 87 so far");
@@ -97,6 +100,7 @@ describe("searchListStatus", () => {
         ...PARTIAL,
         rangeEnd: 0,
         rangeStart: 0,
+        resultCount: 0,
         totalResults: 0,
       })
     ).toBe("No matches yet");
@@ -108,9 +112,52 @@ describe("searchListStatus", () => {
         ...WALKING,
         rangeEnd: 0,
         rangeStart: 0,
+        resultCount: 0,
         totalResults: 0,
       })
     ).toBe("Searching…");
+  });
+
+  // The reported contradiction: a fresh profile showed "1-20 of 29" beside an
+  // empty list. The count was real, the rows were not in hand yet, and the bar
+  // claimed a slice the page could not show.
+  test("never claims a slice over a page with no rows", () => {
+    expect(
+      searchListStatus({
+        ...COVERED,
+        rangeEnd: 20,
+        rangeStart: 1,
+        resultCount: 0,
+        totalResults: 29,
+      })
+    ).toBe("Loading matches…");
+  });
+
+  test("says the same while a walk is still filling the page", () => {
+    expect(
+      searchListStatus({
+        ...WALKING,
+        rangeEnd: 20,
+        rangeStart: 1,
+        resultCount: 0,
+        totalResults: 29,
+      })
+    ).toBe("Loading matches…");
+  });
+
+  // The mirror of the above: a sticky total can lag the live match set low, and
+  // a range that runs past the stated total is as self-contradictory as one over
+  // no rows at all.
+  test("raises the total to meet a range that outruns it", () => {
+    expect(
+      searchListStatus({
+        ...COVERED,
+        rangeEnd: 40,
+        rangeStart: 21,
+        resultCount: 20,
+        totalResults: 25,
+      })
+    ).toBe("21–40 of 40");
   });
 });
 
@@ -176,5 +223,75 @@ describe("searchCoverageLabel", () => {
         indexingOlder: false,
       })
     ).toBe("Retry indexing older messages");
+  });
+});
+
+describe("searchListEmptyState", () => {
+  const BASE = {
+    indexing: false,
+    indexingOlder: false,
+    listPageError: null,
+    listPageLoading: false,
+    queryReady: true,
+    resultCount: 0,
+    totalMatches: 0,
+  };
+
+  test("says nothing until the query is worth searching", () => {
+    expect(
+      searchListEmptyState({ ...BASE, queryReady: false, totalMatches: 29 })
+    ).toBeNull();
+  });
+
+  test("says nothing while rows are on screen", () => {
+    expect(
+      searchListEmptyState({ ...BASE, resultCount: 20, totalMatches: 29 })
+    ).toBeNull();
+  });
+
+  test("a failed page reports the failure, never an empty result set", () => {
+    expect(
+      searchListEmptyState({
+        ...BASE,
+        listPageError: "This page could not be loaded. Go back and retry.",
+        totalMatches: 29,
+      })
+    ).toBe("This page could not be loaded. Go back and retry.");
+  });
+
+  test("a page still reading reads as a read", () => {
+    expect(
+      searchListEmptyState({
+        ...BASE,
+        listPageLoading: true,
+        totalMatches: 29,
+      })
+    ).toBe("Loading results…");
+  });
+
+  // The reported bug: an empty page beside "29 matches" read "No messages
+  // match this search" while the bar beside it counted 29. The body must agree
+  // that matches exist and say where they are instead.
+  test("an empty page with matches says the matches are elsewhere", () => {
+    expect(searchListEmptyState({ ...BASE, totalMatches: 29 })).toBe(
+      "Matches exist outside the loaded page."
+    );
+  });
+
+  test("an empty page during a walk says more matches may surface", () => {
+    expect(
+      searchListEmptyState({
+        ...BASE,
+        indexingOlder: true,
+        totalMatches: 29,
+      })
+    ).toBe("More matches are still indexing.");
+  });
+
+  test("a genuinely empty result set says so only once settled", () => {
+    expect(searchListEmptyState(BASE)).toBe("No messages match this search.");
+    // While the transcript is still filling, emptiness is provisional.
+    expect(searchListEmptyState({ ...BASE, indexing: true })).toBeNull();
+    expect(searchListEmptyState({ ...BASE, indexingOlder: true })).toBeNull();
   });
 });

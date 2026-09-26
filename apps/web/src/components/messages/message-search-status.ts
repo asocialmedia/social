@@ -22,6 +22,11 @@ export interface SearchChatStatusInput extends SearchStatusInput {
 }
 
 export interface SearchListStatusInput extends SearchStatusInput {
+  // Rows the current page actually holds. A page whose window has not landed
+  // yet, or whose read failed, holds none while the total still counts them:
+  // printing a range over zero rows is the "1-20 of 29" beside an empty body
+  // that made the two halves of one answer disagree.
+  resultCount: number;
   rangeEnd: number;
   rangeStart: number;
   totalResults: number;
@@ -57,6 +62,7 @@ export function searchListStatus(input: SearchListStatusInput): string {
     fullyCovered,
     indexingOlder,
     queryReady,
+    resultCount,
     rangeEnd,
     rangeStart,
     totalResults,
@@ -70,8 +76,68 @@ export function searchListStatus(input: SearchListStatusInput): string {
     }
     return fullyCovered ? "No results" : "No matches yet";
   }
-  const slice = `${rangeStart}–${rangeEnd} of ${totalResults}`;
+  if (resultCount === 0) {
+    // Matches are counted, this page is not in hand. Says so instead of
+    // borrowing a range; the body explains which of reading/indexing it is.
+    return "Loading matches…";
+  }
+  // The range describes the rows on screen, so the denominator is raised to
+  // meet it: a sticky total that undercounts the live match set would otherwise
+  // claim fewer matches than the page visibly shows.
+  const total = Math.max(totalResults, rangeEnd);
+  const slice = `${rangeStart}–${rangeEnd} of ${total}`;
   return fullyCovered ? slice : `${slice} so far`;
+}
+
+export interface SearchListEmptyInput {
+  indexing: boolean;
+  indexingOlder: boolean;
+  listPageError: string | null;
+  listPageLoading: boolean;
+  queryReady: boolean;
+  // Rows actually on screen, which can be fewer than the matches: the list
+  // pages one window at a time, so an empty page with a nonzero total is "not
+  // here", never "does not exist".
+  resultCount: number;
+  totalMatches: number;
+}
+
+// The list body's empty state. Kept here with the other wording so the rule is
+// testable: the counter and the body must never contradict each other. An empty
+// page beside a nonzero total used to read "No messages match this search"
+// while the bar beside it counted 29 -- the two halves of one answer
+// disagreeing. Now the empty body says which of the three is true: still
+// reading, failed to read, matches elsewhere, or genuinely nothing.
+export function searchListEmptyState(
+  input: SearchListEmptyInput
+): string | null {
+  const {
+    indexing,
+    indexingOlder,
+    listPageError,
+    listPageLoading,
+    queryReady,
+    resultCount,
+    totalMatches,
+  } = input;
+  if (!queryReady || resultCount > 0) {
+    return null;
+  }
+  if (listPageError) {
+    return listPageError;
+  }
+  if (listPageLoading) {
+    return "Loading results…";
+  }
+  if (totalMatches > 0) {
+    return indexingOlder || indexing
+      ? "More matches are still indexing."
+      : "Matches exist outside the loaded page.";
+  }
+  if (indexing || indexingOlder) {
+    return null;
+  }
+  return "No messages match this search.";
 }
 
 // Label for the coverage control. The count is what the user has actually

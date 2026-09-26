@@ -107,7 +107,10 @@ import {
   getMessageReceipt,
   peerWatermarks,
 } from "@/lib/messages/message-receipts";
-import { paginateSearchResults } from "@/lib/messages/message-search";
+import {
+  paginateSearchResults,
+  SEARCH_PAGE_SIZE,
+} from "@/lib/messages/message-search";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -203,6 +206,13 @@ const TOP_COVERAGE_PEEK_SIZE = 5;
 // table. Without this, every committed page would trigger a full row-table read
 // and a 25-page walk would cost 25 of them.
 const COVERAGE_REFRESH_DEBOUNCE_MS = 1500;
+// How long the transcript's automatic fill stands down after a failed page
+// before trying again. Failures settle with fetching false and unchanged
+// cursors -- the exact shape that refires the auto-loaders -- so the pause is
+// what keeps one rate-limit rejection from becoming a self-sustaining storm.
+// Explicit jumps are unaffected and their success ends the pause early via the
+// failure-count reset.
+const AUTO_FILL_STAND_DOWN_MS = 5000;
 
 export function MessageThread({
   conversationId,
@@ -286,6 +296,26 @@ export function MessageThread({
   // enough to cover it, then drops the layer.
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null);
   const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The last jump that could not land anywhere: anchor read and bounded walk
+  // both missed. Rendered in the bar so a failed jump reads as a failure, not
+  // as a transcript that stopped loading. Cleared by the next attempt, which is
+  // itself the retry.
+  const [jumpError, setJumpError] = useState<string | null>(null);
+  // A jump is in flight right now: an anchored read, or the bounded walk behind
+  // it. The bar's loader is driven by this alongside the transcript's own page
+  // fetches, so a slow jump shows as work instead of as a frozen bar.
+  const [jumpLoading, setJumpLoading] = useState(false);
+  // Monotonic generation for jump requests. Jumps are async (anchored reads,
+  // then a bounded older-page walk), and a second press while the first is
+  // still fetching used to let both completions land: the earlier one arrived
+  // last and yanked the view back to a superseded target, which reads as the
+  // transcript teleporting on its own. Only the newest generation may move the
+  // viewport or the current match; older ones still fetch (their pages are
+  // usable data) but stay silent.
+  const jumpEpochRef = useRef(0);
+  // Aborts the anchored read of a superseded jump. Declared beside the epoch
+  // because the two advance together: every new jump claims both.
+  const jumpAbortRef = useRef<AbortController | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1540,17 +1570,50 @@ export function MessageThread({
   const {
     fetchNextPage,
     fetchPreviousPage,
+    failureCount: messagesFailureCount,
     hasNextPage,
     hasPreviousPage,
     isFetchingNextPage,
     isFetchingPreviousPage,
   } = messagesQuery;
+  // Whether the transcript is actually fetching right now. Passed to the search
+  // UI as `indexing` instead of the hook's structural flag (older history
+  // exists and is under the cap): that flag is true for the whole session on a
+  // deep conversation, so the bar's loader would spin forever and every empty
+  // list would read as "still loading". A loader must mean a load.
+  const transcriptFetching = isFetchingPreviousPage || isFetchingNextPage;
+  // Timestamp until which the automatic fill stands down after a failed page,
+  // plus the failure count last observed. A failed page settles with fetching
+  // false and unchanged cursors -- exactly the shape that refires the loaders
+  // below -- so without a stand-down every rate-limit or auth failure becomes
+  // a hot retry loop that hammers the limiter harder and keeps every jump
+  // stuck on "loading". `failureCount` (not `isError`: with cached data a
+  // failed background fetch keeps a success status) resets on success, so
+  // recovery resumes automatic filling on its own; explicit jumps still fetch
+  // (they call through directly) at any time.
+  const autoFillStandDownUntilRef = useRef(0);
+  const autoFillSeenFailuresRef = useRef(0);
+  const autoFillFailedRecently = useCallback(() => {
+    if (messagesFailureCount !== autoFillSeenFailuresRef.current) {
+      const failed = messagesFailureCount > autoFillSeenFailuresRef.current;
+      autoFillSeenFailuresRef.current = messagesFailureCount;
+      if (failed) {
+        autoFillStandDownUntilRef.current =
+          Date.now() + AUTO_FILL_STAND_DOWN_MS;
+        return true;
+      }
+    }
+    return Date.now() < autoFillStandDownUntilRef.current;
+  }, [messagesFailureCount]);
   useEffect(() => {
     // While the fullscreen viewer is open the transcript is frozen behind it,
     // and the viewer drives history loads itself. Letting the transcript's
     // near-top auto-loader fire here would race the viewer's window trim
     // (prepend, then immediately drop the same pages).
     if (mediaViewerKey) {
+      return;
+    }
+    if (autoFillFailedRecently()) {
       return;
     }
     if (
@@ -1562,6 +1625,7 @@ export function MessageThread({
       void fetchPreviousPage();
     }
   }, [
+    autoFillFailedRecently,
     fetchPreviousPage,
     hasPreviousPage,
     isFetchingPreviousPage,
@@ -1577,10 +1641,17 @@ export function MessageThread({
     if (mediaViewerKey || !hasNextPage || isFetchingNextPage) {
       return;
     }
+    // Same failure stand-down as the older-direction loader above: without it
+    // a failed newer-page fetch refires immediately and the pair of loaders
+    // takes turns hammering the limiter.
+    if (autoFillFailedRecently()) {
+      return;
+    }
     if (virtualItems.length > 0 && virtualItems[0].index < 4) {
       void fetchNextPage();
     }
   }, [
+    autoFillFailedRecently,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -1650,6 +1721,86 @@ export function MessageThread({
     return nextMessages.filter((message) => !known.has(message.id));
   }, [allMessages, fetchPreviousPage, hasPreviousPage]);
 
+  const readFlat = useCallback((): MessageData[] => {
+    const data = queryClient.getQueryData<MessagesInfiniteData>([
+      "messages",
+      conversationId,
+    ]);
+    return (data?.pages ?? []).flatMap((page) => page.messages);
+  }, [conversationId, queryClient]);
+
+  // A bounded older-page drain, shared by every jump that needs one.
+  //
+  // Each press used to start its own walk, and one walk is two requests (the
+  // previous page, and the next-page read the infinite query pairs with it), so
+  // six quick presses spent twelve requests inside one rate-limit window and
+  // tripped it. One drain per burst costs what one press costs, and every target
+  // pressed into it is checked against the window it grows -- so stepping
+  // through matches that the anchored read cannot land on still walks history
+  // once, together, instead of once per press.
+  const olderDrainRef = useRef<{
+    targets: Set<string>;
+    promise: Promise<void>;
+  } | null>(null);
+  const runOlderDrain = useCallback(
+    (messageId: string): Promise<void> => {
+      const running = olderDrainRef.current;
+      if (running) {
+        running.targets.add(messageId);
+        return running.promise;
+      }
+      const targets = new Set([messageId]);
+      const drain: NonNullable<typeof olderDrainRef.current> = {
+        promise: Promise.resolve(),
+        targets,
+      };
+      const run = async (): Promise<void> => {
+        // oxlint-disable no-await-in-loop -- one older page in flight at a time; that is the pacing this fallback exists for
+        for (let walks = 0; walks < 30 && targets.size > 0; walks += 1) {
+          const data = queryClient.getQueryData<MessagesInfiniteData>([
+            "messages",
+            conversationId,
+          ]);
+          if (!data?.pages[0]?.previousCursor) {
+            break;
+          }
+          const added = await loadOlderMessages();
+          if (added.length === 0) {
+            break;
+          }
+          requestDecryptBatch(added);
+          const flat = readFlat();
+          for (const id of targets) {
+            if (flat.some((message) => message.id === id)) {
+              targets.delete(id);
+            }
+          }
+        }
+        // oxlint-enable no-await-in-loop
+      };
+      drain.promise = (async () => {
+        try {
+          await run();
+        } finally {
+          // Cleared only if this drain is still the current one, so a drain that
+          // started after this one cannot be dropped by this one's teardown.
+          if (olderDrainRef.current === drain) {
+            olderDrainRef.current = null;
+          }
+        }
+      })();
+      olderDrainRef.current = drain;
+      return drain.promise;
+    },
+    [
+      conversationId,
+      loadOlderMessages,
+      queryClient,
+      readFlat,
+      requestDecryptBatch,
+    ]
+  );
+
   // Jump to a search result: center the row and flash its bubble. When the row
   // is not in the loaded window, one anchored read replaces the window with a
   // page centered on the target — O(limit) regardless of how deep in history it
@@ -1658,12 +1809,31 @@ export function MessageThread({
   // deleted or hidden, which an anchored read cannot land on.
   const jumpToMessage = useCallback(
     async (messageId: string) => {
-      const readFlat = () => {
-        const data = queryClient.getQueryData<MessagesInfiniteData>([
-          "messages",
-          conversationId,
-        ]);
-        return (data?.pages ?? []).flatMap((page) => page.messages);
+      // Claim the generation first: anything already in flight is superseded
+      // from here on and must not move the viewport when it settles.
+      const epoch = jumpEpochRef.current + 1;
+      jumpEpochRef.current = epoch;
+      // A superseded jump's request is aborted, not just ignored on landing:
+      // without this, mashing the arrows stacks one slow anchored read per
+      // press, and each keeps the rate-limit budget tripped a little longer.
+      jumpAbortRef.current?.abort();
+      const controller = new AbortController();
+      jumpAbortRef.current = controller;
+      // A new attempt clears the previous failure: the press itself is the retry.
+      setJumpError(null);
+      // The bar's loader tracks real work, and a jump is the slowest of it: an
+      // anchored read plus up to thirty walk pages, each a full request. Without
+      // this the bar sits idle through a multi-second wait, which is the "it
+      // did nothing" half of the glitchy-loading report.
+      setJumpLoading(true);
+      // Cleared only by the jump that still owns the epoch. A superseded attempt
+      // that cleared it would switch the loader off mid-flight for the jump
+      // that replaced it, and one that did not clear it would strand the loader
+      // if the newer jump never finishes.
+      const settle = () => {
+        if (epoch === jumpEpochRef.current) {
+          setJumpLoading(false);
+        }
       };
       let index = readFlat().findIndex((message) => message.id === messageId);
       if (index === -1) {
@@ -1671,7 +1841,8 @@ export function MessageThread({
           const window = await fetchMessages(
             conversationId,
             { kind: "around", messageId },
-            HISTORY_PAGE_SIZE
+            HISTORY_PAGE_SIZE,
+            { signal: controller.signal }
           );
           requestDecryptBatch(window.messages);
           if (window.messages.length > 0) {
@@ -1687,26 +1858,40 @@ export function MessageThread({
         } catch {
           // Fall through to the bounded walk below: a failed anchor read must
           // not make the jump a dead end when the target is reachable by paging.
+          // A superseded jump stops here instead of walking: its target no
+          // longer matters, and each walk page is another request against the
+          // same budget the new jump needs.
+          if (controller.signal.aborted || epoch !== jumpEpochRef.current) {
+            settle();
+            return;
+          }
         }
       }
-      // oxlint-disable no-await-in-loop -- bounded older-history walk with early exit
-      for (let walks = 0; walks < 30 && index === -1; walks += 1) {
-        const data = queryClient.getQueryData<MessagesInfiniteData>([
-          "messages",
-          conversationId,
-        ]);
-        if (!data?.pages[0]?.previousCursor) {
-          break;
-        }
-        const added = await loadOlderMessages();
-        if (added.length === 0) {
-          break;
-        }
-        requestDecryptBatch(added);
-        index = readFlat().findIndex((message) => message.id === messageId);
-      }
-      // oxlint-enable no-await-in-loop
       if (index === -1) {
+        // The target is reachable only by paging: an anchored read cannot land
+        // on a row the transcript will not serve, and the shared drain walks
+        // older pages until this target is in the window. A newer press joins
+        // the same drain rather than starting another one.
+        await runOlderDrain(messageId);
+        index = readFlat().findIndex((m) => m.id === messageId);
+      }
+      if (index === -1) {
+        // Nothing reachable: anchor missed and the bounded walk found nothing.
+        // Said out loud in the bar. A silent return leaves the transcript
+        // exactly where it was with the spinner running, which reads as a hang
+        // rather than a miss -- the report that produced the "glitchy loading"
+        // complaint. Superseded jumps stay silent: a newer press owns the UI.
+        settle();
+        if (epoch === jumpEpochRef.current) {
+          setJumpError("Couldn't load that message.");
+        }
+        return;
+      }
+      // A superseded jump stays silent: a newer press already owns the
+      // viewport, and landing here would yank the view back to a target the
+      // user has moved past. The fetched pages stay in the cache regardless.
+      if (epoch !== jumpEpochRef.current) {
+        settle();
         return;
       }
       if (jumpTimerRef.current) {
@@ -1723,20 +1908,27 @@ export function MessageThread({
       });
       // Re-anchor on the next frame: the target row may still be at its
       // estimated height (pending decrypt), and the first landing uses that
-      // estimate. Same pattern as the viewer's close-and-land.
+      // estimate. Same pattern as the viewer's close-and-land. Gated on the
+      // generation for the same reason as the landing above: a newer jump may
+      // have claimed the viewport in the meantime.
       requestAnimationFrame(() => {
+        if (epoch !== jumpEpochRef.current) {
+          return;
+        }
         rowVirtualizer.scrollToIndex(index, {
           align: "center",
           behavior: "auto",
         });
       });
+      settle();
     },
     [
       conversationId,
-      loadOlderMessages,
       queryClient,
+      readFlat,
       requestDecryptBatch,
       rowVirtualizer,
+      runOlderDrain,
     ]
   );
 
@@ -2022,7 +2214,12 @@ export function MessageThread({
         const page = await fetchMessages(
           conversationId,
           { cursor, kind: "older", walk: true },
-          BACKFILL_PAGE_SIZE
+          BACKFILL_PAGE_SIZE,
+          // The run's signal reaches the in-flight request, not just the walk's
+          // between-page waits: closing search or hiding the tab ends the fetch
+          // that is hanging, instead of waiting out a 30s page that nobody
+          // will read.
+          { signal: controller.signal }
         );
         return {
           messages: page.messages,
@@ -2173,6 +2370,7 @@ export function MessageThread({
     () => () => {
       backfillRef.current?.stop();
       backfillAbortRef.current?.abort();
+      jumpAbortRef.current?.abort();
       if (coverageTimerRef.current) {
         clearTimeout(coverageTimerRef.current);
       }
@@ -2233,9 +2431,30 @@ export function MessageThread({
     hasPreviousPage: hasPreviousPage ?? false,
     indexRefreshToken: searchIndexToken,
     indexStore: searchIndexStore,
+    listPage: searchView === "list" ? searchPage : 0,
     requestDecryptBatch,
   });
   const { matchIds } = search;
+
+  // A jump outlives the session that asked for it unless the session ends here.
+  // Closing search, switching conversations, or committing a new query all
+  // supersede the in-flight target: the next jump claims the epoch anyway, but
+  // the walk's own page requests belong to the old target and are the ones
+  // worth cancelling. Clearing the loader here matters as much as the abort --
+  // a bar that reopens mid-flight would otherwise spin forever. Keyed on the
+  // DEBOUNCED query, not the field: typing must not cancel a jump, but the
+  // commit that puts the results on screen must.
+  useEffect(() => {
+    jumpAbortRef.current?.abort();
+    jumpAbortRef.current = null;
+    // The drain walks THIS conversation's transcript, so a drain left over from
+    // the last one would page the new conversation looking for a target from the
+    // old one. Its targets are dropped, which ends the loop at the next check.
+    if (olderDrainRef.current) {
+      olderDrainRef.current.targets.clear();
+    }
+    setJumpLoading(false);
+  }, [conversationId, search.debouncedQuery, searchOpen]);
 
   // How much of this conversation the index can actually see, which is what the
   // bar's counter has to be honest about. Three signals agree on coverage: a
@@ -2253,11 +2472,25 @@ export function MessageThread({
   const canIndexOlder =
     Boolean(searchIndexStore) && (hasPreviousPage ?? false) && !fullyCovered;
 
-  // The list's page and its active row, resolved from the single pager helper
-  // so the bar's "1/5" and the rows on screen can never disagree.
+  // The list's page and its active row.
+  //
+  // The pager is sized by the TOTAL, not by the rows on hand. That is the whole
+  // point of paging: `search.results` holds one page (or the head's capped
+  // window), so slicing it would cap the pager at that page count -- a 24k-match
+  // query would offer "1/101" and the rest of the conversation would be
+  // unreachable. Bounds come from `totalMatches`, which is the exact count over
+  // the full intersection, and the rows are whatever the hook resolved for the
+  // page. A page the hook has not resolved yet is reported as such rather than
+  // as a short or empty page.
   const searchPageSlice = useMemo(
-    () => paginateSearchResults(search.results, searchPage),
-    [search.results, searchPage]
+    () =>
+      paginateSearchResults(
+        search.results,
+        searchPage,
+        SEARCH_PAGE_SIZE,
+        search.totalMatches
+      ),
+    [search.results, search.totalMatches, searchPage]
   );
   const searchListIndexClamped = Math.min(
     searchListIndex,
@@ -2318,6 +2551,14 @@ export function MessageThread({
       if (matchIds.length === 0) {
         return;
       }
+      // Frozen while the field runs ahead of the results. The arrows step the
+      // debounced query's matches, so pressing them mid-word would walk matches
+      // for a query the user has visibly left -- the "zarquan" field stepping
+      // through "zarq" ghosts. The 150ms debounce re-arms stepping almost
+      // immediately; dropping the press beats landing somewhere inexplicable.
+      if (search.query.trim() !== search.debouncedQuery.trim()) {
+        return;
+      }
       const current = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
       const from = current === -1 ? 0 : current;
       const next = (from + direction + matchIds.length) % matchIds.length;
@@ -2326,7 +2567,13 @@ export function MessageThread({
         void jumpToMessage(id);
       }
     },
-    [jumpToMessage, matchIds, searchActiveId]
+    [
+      jumpToMessage,
+      matchIds,
+      search.debouncedQuery,
+      search.query,
+      searchActiveId,
+    ]
   );
 
   const moveListCursor = useCallback(
@@ -2342,12 +2589,20 @@ export function MessageThread({
   const changeSearchPage = useCallback(
     (delta: 1 | -1) => {
       setSearchPage((page) => {
-        const next = paginateSearchResults(search.results, page + delta);
-        return next.page;
+        // Clamped against the TOTAL, so the pager spans the whole result set
+        // rather than the page currently in hand. Without this the last page
+        // would read as page 0 of 1 for any query whose rows the hook has not
+        // loaded yet.
+        const size = Math.max(1, SEARCH_PAGE_SIZE);
+        const reachablePages = Math.max(
+          1,
+          Math.ceil(search.totalMatches / size)
+        );
+        return Math.min(Math.max(page + delta, 0), reachablePages - 1);
       });
       setSearchListIndex(0);
     },
-    [search.results]
+    [search.totalMatches]
   );
 
   const searchNext = useCallback(() => {
@@ -2401,6 +2656,7 @@ export function MessageThread({
     // and a re-armed auto-jump, so it never re-lands on a stale query.
     pendingAutoJumpRef.current = false;
     committedQueryRef.current = null;
+    setJumpError(null);
     search.setQuery("");
   }, [search]);
 
@@ -2428,6 +2684,7 @@ export function MessageThread({
     setSearchPage(0);
     setSearchListIndex(0);
     setSearchActiveId(null);
+    setJumpError(null);
     setSearchOpen(true);
   }, []);
 
@@ -2438,6 +2695,7 @@ export function MessageThread({
       search.setQuery(query);
       setSearchPage(0);
       setSearchListIndex(0);
+      setJumpError(null);
     },
     [search]
   );
@@ -2938,13 +3196,17 @@ export function MessageThread({
         {searchOpen ? (
           <MessageSearchBar
             activePosition={searchActivePosition}
-            indexing={search.indexing}
+            // Jump in flight counts as work: the anchored read and the walk
+            // behind it are the slowest requests this bar can be waiting on.
+            indexing={transcriptFetching || jumpLoading}
             canIndexOlder={canIndexOlder}
             fullyCovered={fullyCovered}
             indexedCount={search.indexedTotal}
             indexFailed={coverage?.state === "failed"}
             indexingOlder={indexingOlder}
             inputRef={searchInputRef}
+            jumpError={jumpError}
+            listPageError={search.listPageError}
             matchCount={search.totalMatches}
             onClose={dismissSearch}
             onIndexOlder={startIndexingOlder}
@@ -2961,7 +3223,8 @@ export function MessageThread({
             storageFull={storagePressure.storageFull}
             rangeEnd={searchPageSlice.rangeEnd}
             rangeStart={searchPageSlice.rangeStart}
-            totalResults={search.results.length}
+            resultCount={searchPageSlice.pageResults.length}
+            totalResults={search.totalMatches}
             view={searchView}
           />
         ) : null}
@@ -3164,11 +3427,15 @@ export function MessageThread({
               <MessageSearchResults
                 activeIndex={Math.max(searchListIndexClamped, 0)}
                 allMessages={allMessages}
-                indexing={search.indexing}
+                indexing={transcriptFetching}
+                indexingOlder={indexingOlder}
+                listPageError={search.listPageError}
+                listPageLoading={search.listPageLoading}
                 myUserId={userId ?? ""}
                 onJump={jumpFromList}
                 query={search.query}
                 results={searchPageSlice.pageResults}
+                totalMatches={search.totalMatches}
                 truncated={search.truncated}
               />
             </div>

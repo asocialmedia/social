@@ -53,6 +53,17 @@ export interface MessageSearchBarProps {
   canIndexOlder: boolean;
   // The whole conversation has been indexed, so counts are trustworthy.
   fullyCovered: boolean;
+  // The last jump landed nowhere: anchor read and bounded walk both missed.
+  // Shown in place of the counter so a failed jump reads as a failure rather
+  // than a hang. Cleared by the next attempt, which is itself the retry.
+  jumpError: string | null;
+  // The current result window is being read, or could not be. Carried into the
+  // status line for the same reason as jumpError: a page that never arrives must
+  // not leave the bar counting rows nobody can see.
+  listPageError: string | null;
+  // Rows the current page holds, which the list status needs to tell an
+  // unresolved window from a short page.
+  resultCount: number;
   // Owned by the thread so the Ctrl+F shortcut can pull focus back here.
   inputRef: React.RefObject<HTMLInputElement | null>;
   matchCount: number;
@@ -88,6 +99,8 @@ export function MessageSearchBar({
   indexFailed,
   indexingOlder,
   inputRef,
+  jumpError,
+  listPageError,
   matchCount,
   onClose,
   onIndexOlder,
@@ -104,6 +117,7 @@ export function MessageSearchBar({
   storageFull,
   rangeEnd,
   rangeStart,
+  resultCount,
   totalResults,
   view,
 }: MessageSearchBarProps) {
@@ -121,6 +135,32 @@ export function MessageSearchBar({
     indexedCount,
     indexingOlder,
   });
+  // A failed jump replaces the counter: the miss must read as a miss, not as a
+  // hang, and the next attempt (which clears it) is the retry.
+  const statusText =
+    jumpError ??
+    listPageError ??
+    (searchStorageStatus({
+      evictedCount: storageEvictedCount,
+      storageFull,
+    }) ||
+      (listView
+        ? searchListStatus({
+            fullyCovered,
+            indexingOlder,
+            queryReady,
+            rangeEnd,
+            rangeStart,
+            resultCount,
+            totalResults,
+          })
+        : searchChatStatus({
+            activePosition,
+            fullyCovered,
+            indexingOlder,
+            matchCount,
+            queryReady,
+          })));
 
   return (
     <div className="border-border/60 flex h-12 shrink-0 items-center gap-2 border-b px-3 md:px-4">
@@ -167,26 +207,7 @@ export function MessageSearchBar({
         aria-live="polite"
         className="text-muted-foreground min-w-16 shrink-0 text-right text-xs tabular-nums"
       >
-        {searchStorageStatus({
-          evictedCount: storageEvictedCount,
-          storageFull,
-        }) ||
-          (listView
-            ? searchListStatus({
-                fullyCovered,
-                indexingOlder,
-                queryReady,
-                rangeEnd,
-                rangeStart,
-                totalResults,
-              })
-            : searchChatStatus({
-                activePosition,
-                fullyCovered,
-                indexingOlder,
-                matchCount,
-                queryReady,
-              }))}
+        {statusText}
       </span>
 
       {listView ? (
