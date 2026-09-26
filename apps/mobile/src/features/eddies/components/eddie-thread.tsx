@@ -48,7 +48,9 @@ import { fetchCommentsPage } from "@/features/feed/lib/feed-api";
 import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { applyCountDelta } from "@/features/post/lib/comment-count-deltas";
 import { getShortPostId } from "@/features/post/lib/post-path";
+import { usePostStream } from "@/features/post/lib/use-post-stream";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { createExpoPoller } from "@/lib/expo-poller";
 import { imageCachePolicy } from "@/lib/image-cache";
@@ -454,6 +456,28 @@ export function EddieThread({
       }),
     [postId]
   );
+
+  // Web holds an SSE connection open for the thread and applies created and
+  // deleted events as they land, so an eddie posted elsewhere appears without
+  // waiting for a tick. The poll below stays as the fallback: the stream and
+  // the poll both re-read on reconnect, so they cannot disagree.
+  usePostStream({
+    enabled: pagesInPlace,
+    kind: "comments",
+    onCountDelta: (delta, eventPostId) => {
+      applyCountDelta({ field: "comments", postId: eventPostId }, delta);
+    },
+    onEvent: (event) => {
+      setComments((current) => {
+        if (event.kind === "created") {
+          return withCreatedEddie(current, event.payload as FeedComment);
+        }
+        return withDeletedEddie(current, (event.payload as FeedComment).id);
+      });
+      setStatus("ready");
+    },
+    postId,
+  });
 
   // Web polls the post page's thread (and the open gust drawer) every 8s.
   useEffect(() => {

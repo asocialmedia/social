@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { Clapperboard, Eye, Flame } from "lucide-react-native";
+import { Clapperboard, Eye, Flame, Trash2 } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ViewStyle } from "react-native";
@@ -9,6 +9,8 @@ import noMediaImage from "@/assets/images/nomedia.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
+import { deleteEddie } from "@/features/composer/lib/publish-api";
+import { DeleteEddieDialog } from "@/features/eddies/components/delete-eddie-dialog";
 import {
   MoreMenu,
   buildMoreEntries,
@@ -18,7 +20,9 @@ import type {
   MoreAction,
   MoreMenuEntry,
 } from "@/features/feed/components/more-menu";
+import { MoreButton } from "@/features/feed/components/post-actions";
 import { PostCard } from "@/features/feed/components/post-card";
+import { PostLinkEmbeds } from "@/features/feed/components/post-link-embeds";
 import {
   ShareSheet,
   getSharePostUrl,
@@ -30,6 +34,7 @@ import {
   mediaImageUrl,
   mediaPosterUrl,
 } from "@/features/feed/lib/media-url";
+import { useLinkPreviews } from "@/features/feed/lib/use-link-previews";
 import { BioContent } from "@/features/home/components/bio-content";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
@@ -280,69 +285,141 @@ function MediaTile({
   );
 }
 
+// Web's profile Eddies tab resolves links in each body through
+// /api/link-preview and offers a per-row more menu (delete when the reader
+// wrote it), the same two pieces its comment and reply rows carry.
+const DELETE_EDDIE_ENTRY: MoreMenuEntry[] = [
+  {
+    action: { type: "delete" },
+    destructive: true,
+    icon: Trash2,
+    label: "Delete",
+  },
+];
+
 function ReplyRow({
   item,
   onOpenPost,
+  onDeleted,
+  viewerId,
 }: {
   item: ProfileReply;
+  onDeleted: () => void;
   onOpenPost: (post: FeedPost) => void;
+  viewerId: string | null;
 }) {
   const { theme } = useAppTheme();
   const author = item.user;
   const displayName = author?.displayName || author?.username || "Unknown";
+  const { embeds } = useLinkPreviews(item.content);
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const ownEddie = Boolean(viewerId) && author?.id === viewerId;
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    const ok = await deleteEddie(item.id).then(
+      () => true,
+      () => false
+    );
+    setDeleting(false);
+    if (ok) {
+      setDeleteOpen(false);
+      onDeleted();
+      return;
+    }
+    toast({
+      description: "We couldn't delete that. Try again in a moment.",
+      title: "Delete failed",
+    });
+  };
+
   return (
-    <Pressable
-      accessibilityLabel={`Open parent post for eddie by ${displayName}`}
-      accessibilityRole="link"
-      onPress={() => onOpenPost(item.post)}
-      style={styles.replyRow}
-    >
-      <View style={styles.replyHeader}>
-        <UserAvatar size={38} url={author?.avatarUrl ?? null} />
-        <View style={styles.replyIdentity}>
-          <View style={styles.replyNameRow}>
-            <Text style={[styles.replyName, { color: theme.inputText }]}>
-              {displayName}
-            </Text>
-            {author ? (
-              <UserBadge badge={author.badge} badges={author.badges} />
+    <View style={styles.replyRow}>
+      <Pressable
+        accessibilityLabel={`Open parent post for eddie by ${displayName}`}
+        accessibilityRole="link"
+        onPress={() => onOpenPost(item.post)}
+      >
+        <View style={styles.replyHeader}>
+          <UserAvatar size={38} url={author?.avatarUrl ?? null} />
+          <View style={styles.replyIdentity}>
+            <View style={styles.replyNameRow}>
+              <Text style={[styles.replyName, { color: theme.inputText }]}>
+                {displayName}
+              </Text>
+              {author ? (
+                <UserBadge badge={author.badge} badges={author.badges} />
+              ) : null}
+            </View>
+            {author?.username ? (
+              <Text style={[styles.replyHandle, { color: theme.dividerText }]}>
+                @{author.username}
+              </Text>
             ) : null}
           </View>
-          {author?.username ? (
-            <Text style={[styles.replyHandle, { color: theme.dividerText }]}>
-              @{author.username}
-            </Text>
-          ) : null}
+          <Text style={[styles.replyDate, { color: theme.dividerText }]}>
+            {new Date(item.createdAt).toLocaleDateString()}
+          </Text>
         </View>
-        <Text style={[styles.replyDate, { color: theme.dividerText }]}>
-          {new Date(item.createdAt).toLocaleDateString()}
-        </Text>
-      </View>
-      {item.parent?.user?.username ? (
-        <Text style={[styles.replyContext, { color: theme.dividerText }]}>
-          Replying to @{item.parent.user.username}
-        </Text>
+        {item.parent?.user?.username ? (
+          <Text style={[styles.replyContext, { color: theme.dividerText }]}>
+            Replying to @{item.parent.user.username}
+          </Text>
+        ) : null}
+        {item.content ? (
+          <BioContent
+            apiBase={getApiBaseUrl()}
+            bio={item.content}
+            textSize={{ fontSize: 15, lineHeight: 22 }}
+          />
+        ) : null}
+        {item.attachments.length > 0 ? (
+          <View style={styles.replyAttachments}>
+            {item.attachments.map((attachment) => (
+              <Image
+                contentFit="cover"
+                key={attachment.id}
+                source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
+                style={styles.replyAttachment}
+              />
+            ))}
+          </View>
+        ) : null}
+        {embeds.length > 0 ? (
+          <View style={styles.replyEmbeds}>
+            <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
+          </View>
+        ) : null}
+      </Pressable>
+      {ownEddie ? (
+        <>
+          <View style={styles.replyMore}>
+            <MoreButton onPress={(anchor) => setMenuAnchor(anchor)} />
+          </View>
+          <MoreMenu
+            anchor={menuAnchor}
+            entries={menuAnchor ? DELETE_EDDIE_ENTRY : []}
+            onAction={(action) => {
+              setMenuAnchor(null);
+              if (action.type === "delete") {
+                setDeleteOpen(true);
+              }
+            }}
+            onClose={() => setMenuAnchor(null)}
+          />
+          <DeleteEddieDialog
+            deleting={deleting}
+            onCancel={() => setDeleteOpen(false)}
+            onConfirm={() => {
+              void confirmDelete();
+            }}
+            open={deleteOpen}
+          />
+        </>
       ) : null}
-      {item.content ? (
-        <BioContent
-          apiBase={getApiBaseUrl()}
-          bio={item.content}
-          textSize={{ fontSize: 15, lineHeight: 22 }}
-        />
-      ) : null}
-      {item.attachments.length > 0 ? (
-        <View style={styles.replyAttachments}>
-          {item.attachments.map((attachment) => (
-            <Image
-              contentFit="cover"
-              key={attachment.id}
-              source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
-              style={styles.replyAttachment}
-            />
-          ))}
-        </View>
-      ) : null}
-    </Pressable>
+    </View>
   );
 }
 
@@ -449,13 +526,23 @@ export function ProfileFeed({
   } else if (isMediaFeed(feed)) {
     columnStyle = styles.mediaRow;
   }
+  // A deleted eddie is gone from the profile, so the tab reloads rather
+  // than leaving a row that leads nowhere.
+  const onReplyDeleted = useCallback(() => feed.reload(), [feed]);
   const renderItem = useCallback(
     ({ item }: { item: ProfileFeedItem }) => {
       if (item.kind === "media") {
         return <MediaTile item={item.value} onOpen={openMedia} />;
       }
       if (item.kind === "reply") {
-        return <ReplyRow item={item.value} onOpenPost={openPost} />;
+        return (
+          <ReplyRow
+            item={item.value}
+            onDeleted={onReplyDeleted}
+            onOpenPost={openPost}
+            viewerId={viewerId}
+          />
+        );
       }
       if (gustsGrid && item.value.isGust) {
         return <GustGridTile onOpen={openGust} post={item.value} />;
@@ -472,7 +559,16 @@ export function ProfileFeed({
         />
       );
     },
-    [gustsGrid, onMore, onShare, openGust, openMedia, openPost, viewerId]
+    [
+      gustsGrid,
+      onMore,
+      onReplyDeleted,
+      onShare,
+      openGust,
+      openMedia,
+      openPost,
+      viewerId,
+    ]
   );
   const keyExtractor = useCallback(
     (item: ProfileFeedItem) => `${item.kind}:${item.value.id}`,
@@ -664,9 +760,11 @@ const styles = StyleSheet.create({
   },
   replyContext: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 10 },
   replyDate: { fontFamily: "SofiaProReg", fontSize: 11 },
+  replyEmbeds: { marginTop: 10 },
   replyHandle: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 1 },
   replyHeader: { alignItems: "center", flexDirection: "row", gap: 9 },
   replyIdentity: { flex: 1 },
+  replyMore: { padding: 4, position: "absolute", right: 0, top: 0 },
   replyName: { fontFamily: "SofiaProBold", fontSize: 14 },
   replyNameRow: { alignItems: "center", flexDirection: "row", gap: 6 },
   replyRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 14 },

@@ -367,6 +367,7 @@ export function useProfileFeed({
   const base = {
     error: resource.error,
     hasMore: Boolean(resource.data?.nextCursor),
+    reload: retry,
     status: feedStatus(isLoadingMore, resource),
   };
 

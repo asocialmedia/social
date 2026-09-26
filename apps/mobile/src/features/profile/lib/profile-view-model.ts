@@ -76,6 +76,9 @@ interface ProfileFeedViewBase {
   error: string | null;
   fetchNext: () => void;
   hasMore: boolean;
+  // Re-runs the tab's first page from scratch, used after a mutation that
+  // removes a row (a deleted eddie) so the list cannot keep a dead entry.
+  reload: () => void;
   posts: FeedPost[];
   status: ProfileFeedStatus;
   tab: ProfileViewTab;

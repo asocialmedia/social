@@ -6,7 +6,7 @@
 // media column behind the explicit gate, and the mobile action bar.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
@@ -45,6 +45,10 @@ import {
 } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
+import {
+  subscribeCountDeltas,
+  withCountDelta,
+} from "@/features/post/lib/comment-count-deltas";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
 import {
@@ -113,8 +117,26 @@ export function PostDetailCard({
     [post.embeds]
   );
   const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
-  const commentCount = post._count?.comments ?? 0;
-  const responseCount = post._count?.responses ?? 0;
+  // The delta store is module-level, so this card has to be nudged to
+  // re-read it when an event lands on any post.
+  const [, setDeltaTick] = useState(0);
+  useEffect(
+    () => subscribeCountDeltas(() => setDeltaTick((value) => value + 1)),
+    []
+  );
+
+  // Counts move as stream events land, without waiting for a refetch, so the
+  // number under the comment icon agrees with the thread above it.
+  const commentCount = withCountDelta(
+    post.id,
+    "comments",
+    post._count?.comments ?? 0
+  );
+  const responseCount = withCountDelta(
+    post.id,
+    "responses",
+    post._count?.responses ?? 0
+  );
 
   return (
     <View

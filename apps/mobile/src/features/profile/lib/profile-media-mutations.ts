@@ -167,12 +167,12 @@ export async function updateProfileMedia(
   return result ?? { kind: "cancelled" };
 }
 
-type UploadOutcome =
+export type UploadOutcome =
   | { kind: "failed"; message: string }
   | { kind: "rejected"; reason: string | null }
   | { kind: "uploaded"; mediaId: string };
 
-async function uploadImage(
+export async function uploadImage(
   source: UploadSource,
   purpose: UploadPurpose,
   callbacks: ProfileMediaCallbacks,
