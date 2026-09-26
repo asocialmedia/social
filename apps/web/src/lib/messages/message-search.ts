@@ -392,6 +392,12 @@ export interface IndexMatchSnapshot {
 }
 
 export interface MergedSearchSnapshot {
+  // In-memory matches only, newest first, UNcapped. `ranked` is capped at
+  // MAX_SEARCH_RESULTS, so this is the only place the loaded matches past that
+  // cap are still addressable -- and while the persistent index is still
+  // catching up, they exist nowhere else: an index-window page cannot see a row
+  // the writer has not committed yet.
+  loadedMatchIds: string[];
   // Every match id, newest first, for sequential navigation.
   matchIds: string[];
   // Message id -> timestamp for every id navigation knows. Timestamps ride
@@ -468,6 +474,7 @@ export function mergeSearchSnapshot(
     return {
       createdAtById,
       indexOnlyIds: [],
+      loadedMatchIds: inMemoryIds,
       matchIds: inMemoryIds,
       ranked: [],
       totalMatches: inMemoryIds.length,
@@ -571,11 +578,17 @@ export function mergeSearchSnapshot(
   return {
     createdAtById: knownCreatedAt,
     indexOnlyIds,
+    loadedMatchIds: inMemoryIds,
     matchIds,
     ranked: [...buildRankedResults(scoredRows, query), ...tail],
     totalMatches,
   };
 }
+
+// How many loaded matches a single index page may carry alongside its own
+// window. Enough that a page is never empty while decoded matches exist, small
+// enough that the keyset page keeps reading as a page.
+const MAX_EXTRA_LOADED_PER_PAGE = 20;
 
 // Builds the ranked rows for a list page that came from the index on demand,
 // past the window the head snapshot could resolve.
@@ -593,6 +606,23 @@ export function mergeSearchSnapshot(
 export function buildPagedResults(input: {
   // Message id -> decrypted text, for the loaded rows only.
   corpusById: ReadonlyMap<string, SearchCandidate>;
+  // Loaded matches the head page cannot show, already scored against this
+  // query. Undefined means "this page is index-only".
+  //
+  // The caller scores them separately rather than reusing the head's pass,
+  // because the head's scored rows are truncated at MAX_SEARCH_RESULTS and only
+  // what survives that cap is retained. Scored rows are ordered by the caller
+  // anyway, so the scores only break ties within the page.
+  //
+  // These exist because an index window can only serve rows the writer has
+  // committed, and the writer defers for the duration of a walk. On a device
+  // that just started indexing, a query can match hundreds of DECRYPTED loaded
+  // messages that no index page can return, so every one of them past the head's
+  // own cap was previously unreachable -- the list offered a dozen pages of
+  // nothing while the text sat in the transcript. Carrying them here is what
+  // makes "clicking the list shows me the loaded messages with my query" true
+  // while coverage is still partial.
+  extraLoaded?: readonly ScoredSearchRow[];
   // The window's rows, as the store projected them.
   rows: ReadonlyMap<
     number,
@@ -602,6 +632,7 @@ export function buildPagedResults(input: {
   tokens: readonly string[];
 }): RankedSearchResult[] {
   const scored: ScoredSearchRow[] = [];
+  const inWindow = new Set<string>();
   for (const facts of input.rows.values()) {
     const loaded = input.corpusById.get(facts.messageId);
     if (loaded) {
@@ -624,6 +655,21 @@ export function buildPagedResults(input: {
       firstMatchStart: ranges[0]?.start ?? 0,
       score: 0,
     });
+  }
+  for (const facts of input.rows.values()) {
+    inWindow.add(facts.messageId);
+  }
+  // Taken after the window, and never in place of it: the keyset that produced
+  // the window orders index rows alone, so the window stays the page's spine and
+  // a loaded row cannot be spliced into a position whose boundary it would then
+  // contradict. They are folded into the page's own newest-first order below, so
+  // the page still reads as one list, and bounded so it cannot balloon.
+  const extras = (input.extraLoaded ?? []).slice(0, MAX_EXTRA_LOADED_PER_PAGE);
+  for (const entry of extras) {
+    if (inWindow.has(entry.candidate.id)) {
+      continue;
+    }
+    scored.push(entry);
   }
   // Newest first inside the page, with the same total order the head uses, so
   // turning a page never reorders rows relative to their neighbours.

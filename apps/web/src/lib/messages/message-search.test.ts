@@ -575,6 +575,41 @@ describe("mergeSearchSnapshot", () => {
     expect(merged.indexOnlyIds).toEqual([]);
   });
 
+  // `ranked` is capped at MAX_SEARCH_RESULTS, so the snapshot carries the loaded
+  // match order uncapped as well. Without it, a query matching more loaded
+  // messages than the head can display has no record of the ones past the cap
+  // anywhere -- and those are exactly the rows an index page cannot serve while
+  // the writer is still catching up.
+  test("loadedMatchIds carries every loaded match past the display cap", () => {
+    const rows: SearchCandidate[] = Array.from(
+      { length: MAX_SEARCH_RESULTS + 25 },
+      (_, index) => ({
+        createdAt: MAX_SEARCH_RESULTS + 25 - index,
+        id: `m${index}`,
+        text: "deploy note",
+      })
+    );
+    const merged = mergeSearchSnapshot({
+      corpus: rows,
+      index: null,
+      query: "deploy",
+    });
+    expect(merged.ranked).toHaveLength(MAX_SEARCH_RESULTS);
+    expect(merged.loadedMatchIds).toHaveLength(MAX_SEARCH_RESULTS + 25);
+    // Newest first, the same order navigation uses.
+    expect(merged.loadedMatchIds[0]).toBe("m0");
+    expect(merged.matchIds).toEqual(merged.loadedMatchIds);
+  });
+
+  test("an empty query reports no loaded matches to carry", () => {
+    const merged = mergeSearchSnapshot({
+      corpus: [{ createdAt: 1, id: "m1", text: "deploy" }],
+      index: null,
+      query: "   ",
+    });
+    expect(merged.loadedMatchIds).toEqual([]);
+  });
+
   test("matchIds are newest first across both sources", () => {
     const index = indexSnapshot([[100, "u1", 999]], 1);
     const merged = mergeSearchSnapshot({ corpus, index, query: "deploy" });
@@ -839,6 +874,102 @@ describe("buildPagedResults", () => {
   test("orders the page newest first, by real timestamps", () => {
     const results = buildPagedResults({
       corpusById: new Map(),
+      query: "deploy",
+      rows: window,
+      tokens: ["deploy"],
+    });
+    expect(results.map((row) => row.id)).toEqual(["m8", "m7"]);
+  });
+
+  // The reported gap: a query can match hundreds of DECRYPTED loaded messages
+  // that the writer has not committed yet, and the head can only display
+  // MAX_SEARCH_RESULTS of them. Those rows are in no index window and off the
+  // head, so they were reachable from nowhere -- the list offered pages of
+  // nothing while the text sat in the transcript. Carried alongside the window.
+  test("carries loaded matches the index window cannot know about", () => {
+    const extra: ScoredSearchRow[] = [
+      {
+        candidate: { createdAt: 90, id: "loaded-1", text: "deploy the first" },
+        firstMatchStart: 0,
+        score: 1,
+      },
+      {
+        candidate: {
+          createdAt: 85,
+          id: "loaded-2",
+          text: "deploy the second",
+        },
+        firstMatchStart: 0,
+        score: 1,
+      },
+    ];
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      extraLoaded: extra,
+      query: "deploy",
+      rows: window,
+      tokens: ["deploy"],
+    });
+    // Selected after the window, but ordered with it: the page reads newest
+    // first like every other page, which is what the reader expects to see.
+    expect(results.map((row) => row.id)).toEqual([
+      "loaded-1",
+      "loaded-2",
+      "m8",
+      "m7",
+    ]);
+  });
+
+  // Dedup: a loaded row the window already covers is the SAME message, and
+  // showing it twice would put one message on two pages.
+  test("never repeats a loaded row the window already covers", () => {
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      extraLoaded: [
+        {
+          candidate: { createdAt: 80, id: "m8", text: "deploy the eighth" },
+          firstMatchStart: 0,
+          score: 1,
+        },
+        {
+          candidate: { createdAt: 70, id: "m7", text: "deploy the seventh" },
+          firstMatchStart: 0,
+          score: 1,
+        },
+      ],
+      query: "deploy",
+      rows: window,
+      tokens: ["deploy"],
+    });
+    expect(results.map((row) => row.id)).toEqual(["m8", "m7"]);
+  });
+
+  // Bounded, or a query matching thousands of loaded messages turns one page
+  // into the whole list and the pager stops meaning anything.
+  test("bounds how many loaded matches one page may carry", () => {
+    const extra: ScoredSearchRow[] = Array.from({ length: 60 }, (_, index) => ({
+      candidate: {
+        createdAt: 1000 - index,
+        id: `loaded-${index}`,
+        text: "deploy note",
+      },
+      firstMatchStart: 0,
+      score: 1,
+    }));
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      extraLoaded: extra,
+      query: "deploy",
+      rows: window,
+      tokens: ["deploy"],
+    });
+    expect(results.length).toBeLessThanOrEqual(20 + 2);
+  });
+
+  test("an index-only page is unchanged when there is nothing loaded to add", () => {
+    const results = buildPagedResults({
+      corpusById: new Map(),
+      extraLoaded: [],
       query: "deploy",
       rows: window,
       tokens: ["deploy"],

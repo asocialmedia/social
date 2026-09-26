@@ -15,8 +15,10 @@ import {
   buildPagedResults,
   extractSearchableText,
   MAX_SEARCH_INDEX_MESSAGES,
+  MAX_SEARCH_RESULTS,
   MERGE_THROTTLE_MS,
   mergeSearchSnapshot,
+  scoreSearchCandidates,
   SEARCH_DEBOUNCE_MS,
   SEARCH_PAGE_SIZE,
   splitSearchTokens,
@@ -31,6 +33,7 @@ import type {
   SearchIndexRowLookup,
   SearchIndexStore,
 } from "./search-index-format";
+import { decidePageRead, headPageBoundary } from "./search-page-refresh";
 
 export interface ConversationSearchInput {
   allMessages: MessageData[];
@@ -73,6 +76,10 @@ export interface ConversationSearch {
   // The last page window that failed to load. Rendering this is what keeps a
   // failed read retryable instead of leaving a blank page.
   listPageError: string | null;
+  // The current page's window was read at an index generation older than the
+  // one on hand, so more matches for it may exist. This is the ONLY condition
+  // under which "still indexing" is a truthful thing to say about a page.
+  listPageStale: boolean;
   // Every matching message id, newest first. Merges the persistent index with
   // rows decrypted this session, so it spans the whole conversation rather than
   // just the loaded window. Drives sequential in-chat navigation.
@@ -90,6 +97,10 @@ export interface ConversationSearch {
 }
 
 const EMPTY_CORPUS: SearchCandidate[] = [];
+// Floor between two on-demand page reads while the index is being written. A
+// commit storm must not turn into a read storm; one re-read per window is enough
+// to keep a page current, and the trailing tick guarantees it happens.
+const PAGE_REFRESH_MIN_INTERVAL_MS = 400;
 // Shared empty result for a closed search, so the common case allocates nothing
 // and the inline bar's `matchIds` identity stays stable while idle.
 const EMPTY_MATCH_IDS: string[] = [];
@@ -111,6 +122,9 @@ interface PageWindow {
   // Null when the window came back empty, so a page past the last match cannot
   // silently re-serve the previous one.
   afterRowId: number | null;
+  // The index generation this window was read at, so the UI can say "still
+  // indexing" only while a newer generation exists that this window predates.
+  indexToken: number;
   query: string;
   // The window's row facts, so the page renders from one read and so navigation
   // order can learn their timestamps. The rendered rows are derived from these
@@ -192,11 +206,14 @@ export function useConversationSearch(
     conversationId,
     enabled,
     hasPreviousPage,
-    indexRefreshToken,
     indexStore,
     listPage = 0,
     requestDecryptBatch,
   } = input;
+  // A definite generation. The input treats it as optional so a caller with no
+  // index wiring still compiles; for an on-demand page read it is load-bearing,
+  // so a missing one is simply generation zero.
+  const indexGeneration = input.indexRefreshToken ?? 0;
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [indexedTotal, setIndexedTotal] = useState(0);
@@ -206,6 +223,21 @@ export function useConversationSearch(
   const [pageWindow, setPageWindow] = useState<PageWindow | null>(null);
   const [pageWindowLoading, setPageWindowLoading] = useState(false);
   const [pageWindowError, setPageWindowError] = useState<string | null>(null);
+  // The index generation each page's last completed read used, and when it ran.
+  // A page read that is not allowed to follow commits is how "the list is empty
+  // while indexing" happens: the window was read early in the walk, the walk
+  // kept committing, and the page kept showing the answer to a question about
+  // an index that no longer exists.
+  const pageReadTokenRef = useRef<Map<number, number>>(new Map());
+  const pageReadAtRef = useRef<Map<number, number>>(new Map());
+  // Commits arrive far faster than a page turn is worth re-reading, so a page
+  // that is already current is left alone until this much time has passed. The
+  // trailing tick below is what brings it back, so a burst of commits costs one
+  // re-read rather than one per commit.
+  const [pageRefreshTick, setPageRefreshTick] = useState(0);
+  const pageRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   // Keyset cursor per page: the last row id that page ended on. A stack rather
   // than one cursor, because the pager steps by one in either direction and
   // going back must re-read the SAME rows the same way, not a window offset
@@ -274,7 +306,7 @@ export function useConversationSearch(
     // wrong. The linter's heuristic assumes a dependency is read in the body,
     // which is not true of a re-read trigger.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-read on every commit
-  }, [conversationId, enabled, indexStore, indexRefreshToken]);
+  }, [conversationId, enabled, indexGeneration, indexStore]);
 
   // Read this query's posting lists. One point read per typed word, which is
   // cheap enough to redo after every debounce; a whole-index load is not.
@@ -339,7 +371,7 @@ export function useConversationSearch(
     // Deliberate, for the same reason as the coverage read above: results must
     // track the index, and a superseded load is already prevented by `cancelled`.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-query on every commit
-  }, [conversationId, debouncedQuery, enabled, indexRefreshToken, indexStore]);
+  }, [conversationId, debouncedQuery, enabled, indexGeneration, indexStore]);
 
   // Ask for decrypts of loaded rows the visible-window prefetcher never
   // reached. Requests are idempotent in the decryptor, and rows that resolve
@@ -385,157 +417,6 @@ export function useConversationSearch(
     }
     return map;
   }, [corpus]);
-  const headLastRowId = useMemo(() => {
-    if (!indexMatches) {
-      return null;
-    }
-    let last: number | null = null;
-    for (const row of indexMatches.rows.keys()) {
-      if (last === null || row < last) {
-        last = row;
-      }
-    }
-    return last;
-  }, [indexMatches]);
-  useEffect(() => {
-    const seed = enabled ? `${conversationId}\u0000${debouncedQuery}` : null;
-    if (keysetSeedRef.current !== seed) {
-      keysetSeedRef.current = seed;
-      // Before the guards below on purpose: page 0 renders the merged head, but
-      // the next page turn pages from boundaries this query has to re-derive.
-      cursorsRef.current.clear();
-      pageReadsRef.current.clear();
-    }
-    // Only for pages past the head. Page 0 renders the merged snapshot, which
-    // already carries the full text of loaded rows and the index's first window.
-    if (!enabled || listPage <= 0 || !indexStore) {
-      return;
-    }
-    const { exact, prefix } = splitSearchTokens(debouncedQuery);
-    if (exact.length === 0 && prefix === null) {
-      return;
-    }
-    const tokens = prefix === null ? exact : [...exact, prefix];
-    // Page 1 hangs off the head's boundary; deeper pages off their own boundary.
-    const afterRowId =
-      listPage === 1
-        ? headLastRowId
-        : (cursorsRef.current.get(listPage - 1) ?? null);
-    if (listPage > 1 && afterRowId === null) {
-      if (pageReadsRef.current.get(listPage - 1) === "loading") {
-        // The page before is still being read. Clicking faster than the reads
-        // land is ordinary, not a failure: wait for its boundary and let the
-        // cursor epoch re-run this effect. Reporting an error here is what made
-        // fast paging a dead end with a retry message nobody had broken.
-        setPageWindowLoading(true);
-        return;
-      }
-      // The page before is not coming: it read as empty, or its read failed.
-      // Reporting that beats fetching the head window again and showing it as a
-      // deeper page.
-      setPageWindowError("This page could not be loaded. Go back and retry.");
-      setPageWindowLoading(false);
-      return;
-    }
-    let cancelled = false;
-    pageReadsRef.current.set(listPage, "loading");
-    setPageWindowLoading(true);
-    setPageWindowError(null);
-    const load = async () => {
-      let result: Awaited<ReturnType<typeof indexStore.query>> | null = null;
-      try {
-        result = await indexStore.query(
-          conversationId,
-          exact,
-          SEARCH_PAGE_SIZE,
-          prefix === null
-            ? { afterRowId: afterRowId ?? undefined }
-            : { afterRowId: afterRowId ?? undefined, prefix }
-        );
-      } catch {
-        pageReadsRef.current.set(listPage, "failed");
-        if (!cancelled) {
-          setPageWindowLoading(false);
-          setPageWindowError(
-            "This page could not be loaded. Go back and retry."
-          );
-        }
-        return;
-      }
-      let lastRowId: number | null = null;
-      for (const row of result.rows.keys()) {
-        if (lastRowId === null || row < lastRowId) {
-          lastRowId = row;
-        }
-      }
-      // The boundary is recorded even for a superseded read, because the page
-      // the user is on now pages from THIS page's boundary. Dropping it on
-      // cancellation is what stranded the next page with nothing to start from.
-      // The wake is guarded on the boundary actually changing: bumping on every
-      // read would re-run this effect on its own result and read the same page
-      // forever.
-      const recorded = cursorsRef.current.get(listPage);
-      if (lastRowId === null) {
-        // An empty window ends the paging: without a boundary the next page
-        // would have nowhere to start from.
-        if (recorded !== undefined) {
-          cursorsRef.current.delete(listPage);
-          pageReadsRef.current.delete(listPage);
-          setCursorEpoch((epoch) => epoch + 1);
-        }
-      } else if (recorded !== lastRowId) {
-        cursorsRef.current.set(listPage, lastRowId);
-        pageReadsRef.current.set(listPage, "loaded");
-        setCursorEpoch((epoch) => epoch + 1);
-      }
-      if (cancelled) {
-        return;
-      }
-      setPageWindow({
-        afterRowId: lastRowId,
-        query: debouncedQuery,
-        rows: result.rows,
-        tokens,
-      });
-      setPageWindowLoading(false);
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    conversationId,
-    // A re-run signal rather than a value the body reads: a boundary landing
-    // under a page that is waiting for it is what brings this effect back, and
-    // a ref write cannot trigger that on its own.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-    cursorEpoch,
-    debouncedQuery,
-    enabled,
-    headLastRowId,
-    indexStore,
-    listPage,
-  ]);
-
-  // The window's rows, rendered. Derived rather than fetched, which is what
-  // keeps the read keyed to the query and the page alone: the corpus snapshot
-  // changes identity on every decrypt completion batch, so a corpus-keyed read
-  // would re-query the index hundreds of times while a walk runs behind the page
-  // the user is reading. Deriving instead means a row whose full text decrypts
-  // after the window landed upgrades from its stored preview to the whole
-  // message, with no read at all.
-  const pageWindowResults = useMemo(() => {
-    if (!pageWindow) {
-      return null;
-    }
-    return buildPagedResults({
-      corpusById,
-      query: pageWindow.query,
-      rows: pageWindow.rows,
-      tokens: pageWindow.tokens,
-    });
-  }, [corpusById, pageWindow]);
-
   // The two sources of truth, merged ONCE per consistent pair of inputs.
   //
   // The counter used to be a sum of two independently-moving terms: matches over
@@ -656,11 +537,277 @@ export function useConversationSearch(
       if (foldTimerRef.current !== null) {
         clearTimeout(foldTimerRef.current);
       }
+      // The page-refresh trailer's own timer. It exists to re-read a page once
+      // the floor has passed, and search may well be closed by then: left armed
+      // it fires into a torn-down session and schedules a read nobody is waiting
+      // for.
+      if (pageRefreshTimerRef.current !== null) {
+        clearTimeout(pageRefreshTimerRef.current);
+        pageRefreshTimerRef.current = null;
+      }
     },
     []
   );
-  const { matchIds, ranked, totalMatches } =
+  // One snapshot for everything the session shows. The head's rows, the counter
+  // and the rows a deeper page may carry all have to come from the SAME fold:
+  // reading the head from `sticky` and the extras from `fresh` let the two
+  // disagree mid-churn, which is how a loaded match could appear on page 1 and
+  // again on a deeper page.
+  const { loadedMatchIds, matchIds, ranked, totalMatches } =
     sticky && sticky.query === debouncedQuery ? sticky.snapshot : fresh;
+  // The ids page 0 actually displays, which is what a deeper page must not
+  // repeat. Derived from the same slice the pager slices, not from a parallel
+  // computation that can drift.
+  const headShownIds = useMemo(
+    () => new Set(ranked.slice(0, SEARCH_PAGE_SIZE).map((row) => row.id)),
+    [ranked]
+  );
+
+  // The keyset boundary for page 1: the lowest index row ALREADY SHOWN on page
+  // 0, because the query walks rows downward from it.
+  //
+  // This used to be the lowest row in the whole head window, which is wrong in a
+  // way that only shows up once the two numbers differ. The head holds up to
+  // SEARCH_INDEX_QUERY_LIMIT rows but displays SEARCH_PAGE_SIZE of them, so
+  // hanging page 1 below the WINDOW skipped every match between the page-0 slice
+  // and the end of the window -- up to two thousand messages, reachable from
+  // nowhere, with the pager cheerfully offering pages that led only to empty ones.
+  // Below the displayed slice instead, and the pages tile the match sequence.
+  const headBoundaryRowId = useMemo(() => {
+    if (!indexMatches) {
+      return null;
+    }
+    // From the same slice the reader is looking at, so the boundary cannot drift
+    // from what page 0 shows.
+    return headPageBoundary({
+      shownMessageIds: headShownIds,
+      windowRows: indexMatches.rows,
+    });
+  }, [headShownIds, indexMatches]);
+  useEffect(() => {
+    const seed = enabled ? `${conversationId}\u0000${debouncedQuery}` : null;
+    if (keysetSeedRef.current !== seed) {
+      keysetSeedRef.current = seed;
+      // Before the guards below on purpose: page 0 renders the merged head, but
+      // the next page turn pages from boundaries this query has to re-derive.
+      cursorsRef.current.clear();
+      pageReadsRef.current.clear();
+      pageReadTokenRef.current.clear();
+      pageReadAtRef.current.clear();
+      if (pageRefreshTimerRef.current !== null) {
+        clearTimeout(pageRefreshTimerRef.current);
+        pageRefreshTimerRef.current = null;
+      }
+    }
+    // Only for pages past the head. Page 0 renders the merged snapshot, which
+    // already carries the full text of loaded rows and the index's first window.
+    if (!enabled || listPage <= 0 || !indexStore) {
+      return;
+    }
+    const { exact, prefix } = splitSearchTokens(debouncedQuery);
+    if (exact.length === 0 && prefix === null) {
+      return;
+    }
+    const tokens = prefix === null ? exact : [...exact, prefix];
+    // Page 1 hangs off the head's boundary; deeper pages off their own boundary.
+    const afterRowId =
+      listPage === 1
+        ? headBoundaryRowId
+        : (cursorsRef.current.get(listPage - 1) ?? null);
+    if (listPage > 1 && afterRowId === null) {
+      if (pageReadsRef.current.get(listPage - 1) === "loading") {
+        // The page before is still being read. Clicking faster than the reads
+        // land is ordinary, not a failure: wait for its boundary and let the
+        // cursor epoch re-run this effect. Reporting an error here is what made
+        // fast paging a dead end with a retry message nobody had broken.
+        setPageWindowLoading(true);
+        return;
+      }
+      // The page before is not coming: it read as empty, or its read failed.
+      // Reporting that beats fetching the head window again and showing it as a
+      // deeper page.
+      setPageWindowError("This page could not be loaded. Go back and retry.");
+      setPageWindowLoading(false);
+      return;
+    }
+    // Whether this page owes a read: never read, behind the index, or waiting out
+    // the floor between two reads. A window already read at this generation is
+    // the answer, and re-reading it is a no-op the effect would otherwise repeat
+    // for reasons that have nothing to do with the index.
+    const decision = decidePageRead({
+      generation: indexGeneration,
+      minIntervalMs: PAGE_REFRESH_MIN_INTERVAL_MS,
+      now: Date.now(),
+      readAt: pageReadAtRef.current.get(listPage),
+      readGeneration: pageReadTokenRef.current.get(listPage),
+    });
+    if (decision.kind === "current") {
+      return;
+    }
+    if (decision.kind === "wait") {
+      if (pageRefreshTimerRef.current !== null) {
+        clearTimeout(pageRefreshTimerRef.current);
+      }
+      pageRefreshTimerRef.current = setTimeout(() => {
+        pageRefreshTimerRef.current = null;
+        setPageRefreshTick((tick) => tick + 1);
+      }, decision.waitMs);
+      return;
+    }
+    let cancelled = false;
+    pageReadTokenRef.current.delete(listPage);
+    pageReadsRef.current.set(listPage, "loading");
+    setPageWindowLoading(true);
+    setPageWindowError(null);
+    const load = async () => {
+      let result: Awaited<ReturnType<typeof indexStore.query>> | null = null;
+      try {
+        result = await indexStore.query(
+          conversationId,
+          exact,
+          SEARCH_PAGE_SIZE,
+          prefix === null
+            ? { afterRowId: afterRowId ?? undefined }
+            : { afterRowId: afterRowId ?? undefined, prefix }
+        );
+      } catch {
+        pageReadTokenRef.current.delete(listPage);
+        pageReadsRef.current.set(listPage, "failed");
+        if (!cancelled) {
+          setPageWindowLoading(false);
+          setPageWindowError(
+            "This page could not be loaded. Go back and retry."
+          );
+        }
+        return;
+      }
+      let lastRowId: number | null = null;
+      for (const row of result.rows.keys()) {
+        if (lastRowId === null || row < lastRowId) {
+          lastRowId = row;
+        }
+      }
+      // The boundary is recorded even for a superseded read, because the page
+      // the user is on now pages from THIS page's boundary. Dropping it on
+      // cancellation is what stranded the next page with nothing to start from.
+      // The wake is guarded on the boundary actually changing: bumping on every
+      // read would re-run this effect on its own result and read the same page
+      // forever.
+      const recorded = cursorsRef.current.get(listPage);
+      if (lastRowId === null) {
+        // An empty window ends the paging: without a boundary the next page
+        // would have nowhere to start from.
+        if (recorded !== undefined) {
+          cursorsRef.current.delete(listPage);
+          pageReadsRef.current.delete(listPage);
+          setCursorEpoch((epoch) => epoch + 1);
+        }
+      } else if (recorded !== lastRowId) {
+        cursorsRef.current.set(listPage, lastRowId);
+        pageReadsRef.current.set(listPage, "loaded");
+        setCursorEpoch((epoch) => epoch + 1);
+      }
+      pageReadAtRef.current.set(listPage, Date.now());
+      if (cancelled) {
+        return;
+      }
+      // Recorded for a superseded read too: the boundary is this page's whether
+      // or not the window is still wanted, and the generation is what the NEXT
+      // reader compares against.
+      pageReadTokenRef.current.set(listPage, indexGeneration);
+      setPageWindow({
+        afterRowId: lastRowId,
+        indexToken: indexGeneration,
+        query: debouncedQuery,
+        rows: result.rows,
+        tokens,
+      });
+      setPageWindowLoading(false);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    conversationId,
+    // A re-run signal rather than a value the body reads: a boundary landing
+    // under a page that is waiting for it is what brings this effect back, and
+    // a ref write cannot trigger that on its own.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+    cursorEpoch,
+    debouncedQuery,
+    enabled,
+    headBoundaryRowId,
+    // indexRefreshToken is a re-read trigger, not a value the body reads: an
+    // on-demand page has to follow the index or it keeps answering a question
+    // about a snapshot that has since moved.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+    indexGeneration,
+    indexStore,
+    listPage,
+    // The trailing half of the throttle above: a page told to wait comes back
+    // through a tick rather than by re-reading on the next commit.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+    pageRefreshTick,
+  ]);
+
+  // The window's rows, rendered. Derived rather than fetched, which is what
+  // keeps the read keyed to the query and the page alone: the corpus snapshot
+  // changes identity on every decrypt completion batch, so a corpus-keyed read
+  // would re-query the index hundreds of times while a walk runs behind the page
+  // the user is reading. Deriving instead means a row whose full text decrypts
+  // after the window landed upgrades from its stored preview to the whole
+  // message, with no read at all.
+
+  // Loaded matches past the head's own display cap, so an index page can carry
+  // them without re-walking the corpus.
+  //
+  // Two exclusions, both about never showing one message twice. The slice skips
+  // the head's first MAX_SEARCH_RESULTS, which is exactly what page 0 displays;
+  // and the head's DISPLAYED slice is excluded again below, because a folded
+  // snapshot can rank a loaded row differently from the fresh one these come
+  // from, and the row that moved down into the tail would otherwise appear on
+  // page 0 and on a deeper page.
+  const extraLoadedRows = useMemo(() => {
+    if (debouncedQuery.trim().length === 0) {
+      return [];
+    }
+    const beyond = loadedMatchIds.slice(MAX_SEARCH_RESULTS);
+    if (beyond.length === 0) {
+      return [];
+    }
+    const unseen = beyond.filter((id) => !headShownIds.has(id));
+    if (unseen.length === 0) {
+      return [];
+    }
+    const candidates: SearchCandidate[] = [];
+    for (const id of unseen) {
+      const candidate = corpusById.get(id);
+      if (candidate) {
+        candidates.push(candidate);
+      }
+    }
+    if (candidates.length === 0) {
+      return [];
+    }
+    // Scored here rather than reusing the head's pass: the head's rows are not
+    // retained past `ranked`, and re-scoring a handful of rows is cheaper than
+    // widening the snapshot to keep them. The page sorts them anyway, so the
+    // scores only decide order within a tie.
+    return scoreSearchCandidates(candidates, debouncedQuery);
+  }, [corpusById, debouncedQuery, headShownIds, loadedMatchIds]);
+  const pageWindowResults = useMemo(() => {
+    if (!pageWindow) {
+      return null;
+    }
+    return buildPagedResults({
+      corpusById,
+      extraLoaded: extraLoadedRows,
+      query: pageWindow.query,
+      rows: pageWindow.rows,
+      tokens: pageWindow.tokens,
+    });
+  }, [corpusById, extraLoadedRows, pageWindow]);
 
   // Which rows the list view renders. Page 0 is the merged head; deeper pages are
   // the on-demand window, and only once it belongs to this query -- a window from
@@ -683,6 +830,11 @@ export function useConversationSearch(
     enabled && listPage > 0 && !windowIsCurrent && pageWindowLoading;
   const listPageError =
     enabled && listPage > 0 && !windowIsCurrent ? pageWindowError : null;
+  const listPageStale =
+    enabled &&
+    listPage > 0 &&
+    windowIsCurrent &&
+    (pageWindow?.indexToken ?? indexGeneration) < indexGeneration;
 
   // Deliberately NO history loading here.
   //
@@ -712,6 +864,7 @@ export function useConversationSearch(
     indexing,
     listPageError,
     listPageLoading,
+    listPageStale,
     matchIds: enabled ? matchIds : EMPTY_MATCH_IDS,
     query,
     results: listResults,

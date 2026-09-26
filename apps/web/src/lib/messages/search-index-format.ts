@@ -136,14 +136,19 @@ export interface SearchIndexQueryOptions {
   // (newest-indexed first). Strictly "less than", never "at or after", so a
   // page turn can never repeat the boundary row.
   //
-  // A keyset rather than a numeric offset because the order is an approximation
-  // (row ids are handed out in insertion order, `createdAt` is only resolved for
-  // a capped window), and the caller's displayed head is re-sorted by real
-  // timestamps. A numeric offset would count positions in the index's order while
-  // the seam between page one and page two sits in the caller's re-sorted order,
-  // which can duplicate or skip rows exactly at the seam. The keyset follows the
-  // index's own order, so the seam is exact whatever the caller does with the rows
-  // it already has.
+  // A keyset rather than a numeric offset, which is still the right shape: an
+  // offset would count positions in the index's order while the seam between page
+  // one and page two sits in the caller's timestamp order, and a numeric position
+  // is only stable while the set beneath it is unchanged -- which a backfill
+  // guarantees it is not.
+  //
+  // It is NOT yet a correct seam, and the defect is the ordering key rather than
+  // the keyset. This assumes row ids ascend with message age; see the ordering
+  // note on `intersectPostingLists`, which measures the opposite on a real
+  // conversation. Until that is fixed, callers must treat a paged window as best
+  // effort: exact totals, but no guarantee of no-duplicate or no-gap across a
+  // seam, and no guarantee that "the next page" continues the list the reader is
+  // looking at.
   afterRowId?: number;
   // The word still being typed, matched by prefix against the dictionary.
   prefix?: string;
@@ -509,15 +514,33 @@ export function unionPostingLists(lists: Uint32Array[]): Uint32Array {
 // so `totalMatched` is exact on every page -- the counter never depends on which
 // window was asked for.
 //
-// Ordering: descending row id, which is newest-indexed-first, because row ids are
-// handed out in insertion order and a conversation is normally indexed oldest
-// first. Timestamps are deliberately NOT used here. The caller cannot know which
-// rows survived until this returns, and resolving timestamps for the whole
-// conversation to sort a capped result is what made search memory grow with the
-// conversation. So this returns the window and the caller reorders those few rows
-// once it has resolved their facts — exact for a chronologically indexed
-// conversation, and for a backfill interleaved with live traffic it may keep a
-// slightly different slice of a query matching more than `limit` messages.
+// Ordering: descending row id, on the assumption that row ids ascend with time,
+// because they are handed out in insertion order. That assumption is WRONG for
+// this index, and the consequence is not subtle.
+//
+// A conversation is not indexed oldest-first here. The backfill walk descends
+// from the NEWEST page, and the writer interns the newest loaded rows as the
+// transcript loads, so the first row interned is the newest message and row ids
+// DESCEND with time. Measured on the 200k fixture: row 975 is the newest message
+// and row 44416 the oldest, exactly inverting the assumption.
+//
+// Two things break, and both are the reports this comment used to hide:
+//  - The capped head takes the `limit` HIGHEST row ids, which are the OLDEST
+//    matches, not the newest. Display re-sorts the window by timestamp so the
+//    order looks right, which masks the problem until a query matches more than
+//    `limit` messages and the newest matches are not in the window at all.
+//  - Keyset paging walks `row < afterRowId`, i.e. toward HIGHER row ids, which is
+//    toward OLDER messages in reality. The boundary for the first paged page is
+//    the newest match, there is nothing above it, and every page after the head
+//    comes back empty -- which is the "page 1 is fine and page 2 onward shows
+//    nothing" report.
+//
+// Timestamps are still not resolved here, and that part is right: a whole-
+// conversation timestamp sort is what made search memory grow with the
+// conversation. The fix is to make the ORDERING KEY time-based rather than
+// allocation-based -- carry `createdAt` in the posting lists and keyset on
+// (createdAt, row) -- which is a format change with a re-walk, not a patch here.
+// Until then, treat every row-id ordering claim in this file as unverified.
 export function intersectPostingLists(
   lists: Uint32Array[],
   limit: number,
