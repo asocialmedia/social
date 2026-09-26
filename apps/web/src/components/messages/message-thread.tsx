@@ -136,7 +136,10 @@ import {
 } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
-import { waitForDecrypts } from "@/lib/messages/wait-for-decrypts";
+import {
+  isDecryptSettled,
+  waitForDecrypts,
+} from "@/lib/messages/wait-for-decrypts";
 import { cn } from "@/lib/utils";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
@@ -213,6 +216,79 @@ const COVERAGE_REFRESH_DEBOUNCE_MS = 1500;
 // Explicit jumps are unaffected and their success ends the pause early via the
 // failure-count reset.
 const AUTO_FILL_STAND_DOWN_MS = 5000;
+
+// What a search jump is currently doing with the transcript. One owner, so the
+// automatic history fill can stand down while a jump is using that loader, and
+// so the loading badge is tied to an operation rather than to a network flag that
+// flickers off between the sequential requests of one walk.
+type JumpActivity = "anchor" | "drain" | null;
+
+// How long a jump waits for a message it can already SEE to decrypt before it
+// stops waiting and says so. Long enough for a burst of keys to arrive, short
+// enough that a row whose key is unrecoverable reports itself instead of
+// spinning.
+const JUMP_TEXT_WAIT_MS = 4000;
+// A drain that finds the history loader busy waits for it rather than declaring
+// the target unreachable. Both are small because the common case is a single
+// auto-fill request finishing.
+const DRAIN_BUSY_RETRIES = 4;
+const DRAIN_BUSY_RETRY_MS = 120;
+
+// What a wait for one message's text concluded. Three outcomes, not two: a
+// boolean said "false" for both a row that is not loaded and a row that is loaded
+// but still encrypted, and the caller reported the first as a decrypt failure.
+type JumpTextOutcome = "settled" | "unsettled";
+
+// What the bar says when a jump could not show its target's text. Only a
+// DECRYPT problem is named as one; an unsettled wait is still a wait, and saying
+// "could not be decrypted" there is a claim the decryptor never made.
+export function jumpTextErrorCopy(
+  outcome: JumpTextOutcome,
+  decryptState: unknown
+): string {
+  if (outcome === "settled") {
+    return "";
+  }
+  return decryptState === "error"
+    ? "That message's text could not be decrypted."
+    : "That message's text is still loading.";
+}
+
+// Which read can satisfy a jump target.
+//
+// Exported because the ORDERING it encodes was a real bug, and the ordering is
+// the whole fix: the anchored read used to look the target up in the loaded
+// transcript BEFORE inserting the window it had just fetched, concluded "not
+// found" for the row it was holding in its hands, and then scrolled onto a
+// bubble whose text had not decrypted. Answering from the fetched window first
+// is what makes the anchored read usable at all.
+export function jumpTargetSource(input: {
+  // Ids of the window an anchored read returned, or null before it has run.
+  fetchedMessageIds: readonly string[] | null;
+  // Ids the transcript already holds.
+  loadedMessageIds: readonly string[];
+  targetId: string;
+}): "fetched" | "loaded" | "absent" {
+  if (input.fetchedMessageIds?.includes(input.targetId)) {
+    return "fetched";
+  }
+  return input.loadedMessageIds.includes(input.targetId) ? "loaded" : "absent";
+}
+
+// The transcript's loading prompt. Two strings, not one per mechanism: every
+// read of history says the same thing to the reader, and the only genuinely
+// different wait is a message whose text is still decrypting. Exported so the
+// wording is testable without a transcript.
+export function transcriptLoadingCopy(input: {
+  isFetchingPreviousPage: boolean;
+  jumpActivity: JumpActivity;
+  jumpTextPending: boolean;
+}): string {
+  if (input.jumpTextPending) {
+    return "Loading message text";
+  }
+  return "Loading older messages";
+}
 
 export function MessageThread({
   conversationId,
@@ -305,6 +381,40 @@ export function MessageThread({
   // it. The bar's loader is driven by this alongside the transcript's own page
   // fetches, so a slow jump shows as work instead of as a frozen bar.
   const [jumpLoading, setJumpLoading] = useState(false);
+  // What the current jump is waiting for, when the answer is not "reading
+  // history". A jump onto a message that is already in the transcript spends its
+  // whole time waiting for that message's TEXT to decrypt, which is a different
+  // failure from a read that never came back and used to be reported as one.
+  const [jumpTextPending, setJumpTextPending] = useState(false);
+  // The single owner of "a search jump is using the transcript's history loader".
+  // A REF first, because the automatic fill is an effect that reads this before
+  // React has re-rendered with the new state, and reading render-scoped state
+  // there is exactly how a second fetch got issued while a jump owned the loader.
+  const jumpActivityRef = useRef<JumpActivity>(null);
+  const [jumpActivity, setJumpActivity] = useState<JumpActivity>(null);
+  const claimJumpActivity = useCallback((activity: JumpActivity) => {
+    jumpActivityRef.current = activity;
+    setJumpActivity(activity);
+  }, []);
+  // Releases the loader, but only for the jump that still owns it AND only for
+  // the claim that jump made. Both checks are load-bearing: without the epoch a
+  // superseded jump switches the loader off mid-flight for its replacement, and
+  // without the claim a drain's teardown clears a jump that is still reading.
+  const releaseJumpActivity = useCallback(
+    (epoch: number, claim: JumpActivity = null) => {
+      if (jumpEpochRef.current !== epoch) {
+        // A newer jump owns the loader now; its own release will clear it.
+        return;
+      }
+      if (claim !== null && jumpActivityRef.current !== claim) {
+        // Someone else has the loader.
+        return;
+      }
+      jumpActivityRef.current = null;
+      setJumpActivity(null);
+    },
+    []
+  );
   // Monotonic generation for jump requests. Jumps are async (anchored reads,
   // then a bounded older-page walk), and a second press while the first is
   // still fetching used to let both completions land: the earlier one arrived
@@ -1582,6 +1692,25 @@ export function MessageThread({
   // deep conversation, so the bar's loader would spin forever and every empty
   // list would read as "still loading". A loader must mean a load.
   const transcriptFetching = isFetchingPreviousPage || isFetchingNextPage;
+  // What the transcript's loading prompt says, and whether it shows at all.
+  //
+  // Tied to the OWNING operation rather than to `isFetchingPreviousPage`, which is
+  // false in the gap between a walk's sequential pages: the prompt vanished and
+  // came back for every page of a single jump, which is exactly the repeated
+  // "Loading older messages" of the report. Named for the work, not the
+  // mechanism -- a drain and an anchored read are both "loading older messages"
+  // to the reader, and only a text wait is something else.
+  // The media viewer takes the full surface and drives its own history loads, so
+  // a transcript prompt under it is noise. The old condition carried that
+  // exclusion; the new one has to keep it, because a jump can still own the
+  // loader while the viewer is open.
+  const transcriptBusy =
+    !mediaViewerKey && (jumpActivity !== null || isFetchingPreviousPage);
+  const transcriptLoadingLabel = transcriptLoadingCopy({
+    isFetchingPreviousPage,
+    jumpActivity,
+    jumpTextPending,
+  });
   // Timestamp until which the automatic fill stands down after a failed page,
   // plus the failure count last observed. A failed page settles with fetching
   // false and unchanged cursors -- exactly the shape that refires the loaders
@@ -1613,6 +1742,15 @@ export function MessageThread({
     if (mediaViewerKey) {
       return;
     }
+    // A search jump owns the history loader while it reads. The auto-loader used
+    // to fire anyway, because `isFetchingPreviousPage` is false in the gap
+    // BETWEEN a walk's sequential pages: the jump's own page request finished, the
+    // badge switched off, the effect saw "not fetching, near the top, more
+    // history exists" and issued its own. Two loaders on one cursor is a
+    // duplicate request, and the repeated badge was that effect firing.
+    if (jumpActivityRef.current !== null) {
+      return;
+    }
     if (autoFillFailedRecently()) {
       return;
     }
@@ -1639,6 +1777,11 @@ export function MessageThread({
   // the viewport, which the virtualizer's own scroll compensation absorbs.
   useEffect(() => {
     if (mediaViewerKey || !hasNextPage || isFetchingNextPage) {
+      return;
+    }
+    // Same owner check as the older-direction loader: growing toward the present
+    // is still the same cursor the jump is walking.
+    if (jumpActivityRef.current !== null) {
       return;
     }
     // Same failure stand-down as the older-direction loader above: without it
@@ -1754,7 +1897,18 @@ export function MessageThread({
         promise: Promise.resolve(),
         targets,
       };
+      // The drain owns the history loader for its whole run, not one request at
+      // a time. The badge and the automatic fill both read this.
+      claimJumpActivity("drain");
+      // The epoch this drain was started for. A later jump supersedes it, and
+      // then this drain's own release must not clear the newer jump's claim.
+      const drainEpoch = jumpEpochRef.current;
       const run = async (): Promise<void> => {
+        // Bounded on pages, and separately on "the loader was busy". An empty
+        // page used to end the walk outright, which is how a jump whose first
+        // attempt collided with an in-flight auto-fill reported "Couldn't load
+        // that message" for a target that was one page away.
+        let busy = 0;
         // oxlint-disable no-await-in-loop -- one older page in flight at a time; that is the pacing this fallback exists for
         for (let walks = 0; walks < 30 && targets.size > 0; walks += 1) {
           const data = queryClient.getQueryData<MessagesInfiniteData>([
@@ -1766,8 +1920,17 @@ export function MessageThread({
           }
           const added = await loadOlderMessages();
           if (added.length === 0) {
-            break;
+            if (busy >= DRAIN_BUSY_RETRIES) {
+              break;
+            }
+            busy += 1;
+            // oxlint-disable-next-line promise/avoid-new -- a bare delay, which has no library form
+            await new Promise((resolve) => {
+              setTimeout(resolve, DRAIN_BUSY_RETRY_MS);
+            });
+            continue;
           }
+          busy = 0;
           requestDecryptBatch(added);
           const flat = readFlat();
           for (const id of targets) {
@@ -1786,6 +1949,12 @@ export function MessageThread({
           // started after this one cannot be dropped by this one's teardown.
           if (olderDrainRef.current === drain) {
             olderDrainRef.current = null;
+            // Releases its OWN claim only. Comparing the value was not enough:
+            // a newer jump that has already settled leaves "drain" in the ref,
+            // and this teardown would then clear the loader while that jump was
+            // still reading -- the auto-loader becomes eligible mid-jump, which
+            // is the double-fetch this ownership exists to prevent.
+            releaseJumpActivity(drainEpoch, "drain");
           }
         }
       })();
@@ -1793,10 +1962,12 @@ export function MessageThread({
       return drain.promise;
     },
     [
+      claimJumpActivity,
       conversationId,
       loadOlderMessages,
       queryClient,
       readFlat,
+      releaseJumpActivity,
       requestDecryptBatch,
     ]
   );
@@ -1826,6 +1997,8 @@ export function MessageThread({
       // this the bar sits idle through a multi-second wait, which is the "it
       // did nothing" half of the glitchy-loading report.
       setJumpLoading(true);
+      setJumpTextPending(false);
+      claimJumpActivity("anchor");
       // Cleared only by the jump that still owns the epoch. A superseded attempt
       // that cleared it would switch the loader off mid-flight for the jump
       // that replaced it, and one that did not clear it would strand the loader
@@ -1833,9 +2006,73 @@ export function MessageThread({
       const settle = () => {
         if (epoch === jumpEpochRef.current) {
           setJumpLoading(false);
+          setJumpTextPending(false);
+          releaseJumpActivity(epoch);
         }
       };
+      // Waits for a SPECIFIC row's text, and reports which of the three things
+      // happened. It took the row as an argument rather than looking it up
+      // because the anchored read used to call this BEFORE putting the fetched
+      // window in the cache -- so the lookup could not see the very row it had
+      // just fetched, and the jump landed on text that was still encrypted. It
+      // also used to answer `false` for both "not loaded" and "not decrypted",
+      // and the caller reported the first as a decrypt failure.
+      const awaitTargetText = async (
+        target: MessageData
+      ): Promise<JumpTextOutcome> => {
+        requestDecryptBatch([target]);
+        if (isDecryptSettled(messageDecryptor.get(target.id))) {
+          return "settled";
+        }
+        // No history request is in flight while only text is being waited on, so
+        // this jump's own claim is released: the prompt changes to the text wait
+        // rather than sitting on "Loading older messages" for four seconds.
+        // Released BY CLAIM, not unconditionally -- a concurrent jump's drain
+        // owns the loader here, and clearing the shared ref would hand the
+        // auto-loader a free hand mid-walk.
+        releaseJumpActivity(jumpEpochRef.current, "anchor");
+        setJumpTextPending(true);
+        await waitForDecrypts([target], {
+          lookup: (id) => messageDecryptor.get(id),
+          subscribe: messageDecryptor.subscribe,
+          timeoutMs: JUMP_TEXT_WAIT_MS,
+        });
+        return isDecryptSettled(messageDecryptor.get(target.id))
+          ? "settled"
+          : "unsettled";
+      };
+      // The loaded row for the target, or null. Read on demand because every
+      // call site cares about the window as it is NOW, not as it was when the
+      // jump started.
+      const loadedTarget = (): MessageData | null =>
+        readFlat().find((message) => message.id === messageId) ?? null;
       let index = readFlat().findIndex((message) => message.id === messageId);
+      if (index !== -1) {
+        // Already on screen. The only thing that can be missing is its text, and
+        // that is a decrypt wait rather than a history read -- the old code went
+        // straight to the anchored read here, replaced the whole window with one
+        // centred on a message already in it, and reported failure whenever the
+        // replacement did not contain the row.
+        const target = loadedTarget();
+        // Absent now, though it was on screen a moment ago: the window was
+        // replaced underneath this jump. Fall through to the anchored read
+        // rather than reporting a decrypt problem for a row nobody has.
+        if (target) {
+          const outcome = await awaitTargetText(target);
+          if (epoch !== jumpEpochRef.current) {
+            settle();
+            return;
+          }
+          if (outcome !== "settled") {
+            settle();
+            setJumpError(
+              jumpTextErrorCopy(outcome, messageDecryptor.get(messageId))
+            );
+            return;
+          }
+          index = readFlat().findIndex((m) => m.id === messageId);
+        }
+      }
       if (index === -1) {
         try {
           const window = await fetchMessages(
@@ -1844,15 +2081,35 @@ export function MessageThread({
             HISTORY_PAGE_SIZE,
             { signal: controller.signal }
           );
-          requestDecryptBatch(window.messages);
           if (window.messages.length > 0) {
-            // The anchored read becomes the whole loaded window. pageParams[0]
-            // is the sentinel for "this is a window, not the newest page", and
-            // both cursors on the page drive the auto-loaders from here.
+            // The window becomes the loaded transcript BEFORE the text wait, so
+            // the wait has a row to look at: it used to run first, against a
+            // cache that did not contain the row it had just fetched, and then
+            // its "not found" answer was ignored -- leaving the jump to scroll
+            // onto a bubble whose text had not decrypted yet.
+            //
+            // pageParams[0] is the sentinel for "this is a window, not the
+            // newest page", and both cursors on the page drive the auto-loaders
+            // from here.
+            // Asked of the fetched window explicitly, before the cache swap
+            // below decides anything: this is the answer that used to be taken
+            // from the cache and came back "not found".
+            const source = jumpTargetSource({
+              fetchedMessageIds: window.messages.map((message) => message.id),
+              loadedMessageIds: readFlat().map((message) => message.id),
+              targetId: messageId,
+            });
             queryClient.setQueryData<MessagesInfiniteData>(
               ["messages", conversationId],
               { pageParams: [NEWEST_PAGE], pages: [window] }
             );
+            requestDecryptBatch(window.messages);
+            if (source !== "absent") {
+              const landed = loadedTarget();
+              if (landed) {
+                await awaitTargetText(landed);
+              }
+            }
             index = readFlat().findIndex((m) => m.id === messageId);
           }
         } catch {
@@ -1929,6 +2186,8 @@ export function MessageThread({
       requestDecryptBatch,
       rowVirtualizer,
       runOlderDrain,
+      claimJumpActivity,
+      releaseJumpActivity,
     ]
   );
 
@@ -2453,7 +2712,13 @@ export function MessageThread({
     if (olderDrainRef.current) {
       olderDrainRef.current.targets.clear();
     }
+    // The activity claim as well: leaving it set keeps the automatic history
+    // fill suppressed for the next session, and leaving the text wait set leaves
+    // the transcript badge up with no jump behind it.
+    jumpActivityRef.current = null;
+    setJumpActivity(null);
     setJumpLoading(false);
+    setJumpTextPending(false);
   }, [conversationId, search.debouncedQuery, searchOpen]);
 
   // How much of this conversation the index can actually see, which is what the
@@ -3207,6 +3472,7 @@ export function MessageThread({
             inputRef={searchInputRef}
             jumpError={jumpError}
             listPageError={search.listPageError}
+            listPageStale={search.listPageStale}
             matchCount={search.totalMatches}
             onClose={dismissSearch}
             onIndexOlder={startIndexingOlder}
@@ -3333,11 +3599,11 @@ export function MessageThread({
             )}
           </div>
 
-          {isFetchingPreviousPage && !mediaViewerKey ? (
+          {transcriptBusy ? (
             <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
               <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Loading older messages
+                {transcriptLoadingLabel}
               </span>
             </div>
           ) : null}
@@ -3431,6 +3697,7 @@ export function MessageThread({
                 indexingOlder={indexingOlder}
                 listPageError={search.listPageError}
                 listPageLoading={search.listPageLoading}
+                listPageStale={search.listPageStale}
                 myUserId={userId ?? ""}
                 onJump={jumpFromList}
                 query={search.query}
