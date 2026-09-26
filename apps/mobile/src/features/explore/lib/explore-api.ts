@@ -244,10 +244,17 @@ export async function fetchExplorePage(
   return { ...postsPage, users: usersPage.users };
 }
 
+/**
+ * `refresh` bypasses the server's suggestion cache. Web's People tab sends it
+ * when the reader asks for a new set, so the button actually produces a
+ * different list; without it the same cached page is returned every time and
+ * the control does nothing.
+ */
 export async function fetchExplorePeople(
   query: string,
   viewerLoggedIn: boolean,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  refresh = false
 ): Promise<ExplorePage> {
   const trimmedQuery = query.trim();
   if (trimmedQuery) {
@@ -259,7 +266,7 @@ export async function fetchExplorePeople(
     return parseExplorePage(await readJson(response), "search");
   }
   const path = viewerLoggedIn
-    ? "/api/users/suggested?limit=12"
+    ? `/api/users/suggested?limit=12${refresh ? "&refresh=1" : ""}`
     : "/api/users/trending";
   const response = await get(path, options);
   requireOk(response, "Explore people");

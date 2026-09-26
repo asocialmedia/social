@@ -102,6 +102,42 @@ describe("explore requests", () => {
     expect(page.users[0]?.username).toBe("alice");
   });
 
+  test("Refresh asks the server for a fresh suggestion set", async () => {
+    // Web sends refresh=1 here. Without it the endpoint replays its cached
+    // page and the control looks like it works while changing nothing.
+    let requested = "";
+    const options = {
+      apiBase: API,
+      baseFetch: ((input: RequestInfo | URL) => {
+        requested = String(input);
+        return Promise.resolve(Response.json([{ id: "u1" }]));
+      }) as unknown as typeof fetch,
+    };
+    await fetchExplorePeople("", true, options);
+    expect(requested).toBe(`${API}/api/users/suggested?limit=12`);
+    await fetchExplorePeople("", true, options, true);
+    expect(requested).toBe(`${API}/api/users/suggested?limit=12&refresh=1`);
+  });
+
+  test("signed-out refresh keeps the trending endpoint", async () => {
+    let requested = "";
+    await fetchExplorePeople(
+      "",
+      false,
+      {
+        apiBase: API,
+        baseFetch: ((input: RequestInfo | URL) => {
+          requested = String(input);
+          return Promise.resolve(Response.json([{ id: "u1" }]));
+        }) as unknown as typeof fetch,
+      },
+      true
+    );
+    // /api/users/trending is already uncached, so the flag must not be smuggled
+    // onto an endpoint that does not accept it.
+    expect(requested).toBe(`${API}/api/users/trending`);
+  });
+
   test("surfaces follow failures for the install-token gate", async () => {
     await expect(
       mutateExploreFollow("user-1", true, {

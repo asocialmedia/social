@@ -15,6 +15,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -40,6 +41,9 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { CommunityAvatar } from "@/features/communities/components/community-avatar";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import type { FeedTabDef } from "@/features/feed/components/feed-tabs";
+import { NewContentPill } from "@/features/feed/components/new-content-pill";
+import type { PillAuthor } from "@/features/feed/components/new-content-pill";
+import { findUnseenItems } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
 import {
@@ -56,6 +60,8 @@ import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
+import { logInfo, logWarn } from "@/lib/telemetry";
 import {
   LOGIN_BUTTON_SHADOWS,
   LOGIN_BUTTON_SHADOWS_LIGHT,
@@ -76,6 +82,9 @@ import {
 import type { ExploreCommunityResult, ExploreUser } from "../lib/explore-api";
 import { ExplorePostCard } from "./explore-post-card";
 import { ExploreUserCard } from "./explore-user-card";
+
+// Matches web's useNewContentProbe cadence on the Explore feeds.
+const PROBE_INTERVAL_MS = 45_000;
 
 const TAB_DEFS: readonly FeedTabDef<ExploreTab>[] = [
   { label: "For you", value: "for-you" },
@@ -122,10 +131,11 @@ export function ExploreScreen() {
     "loading"
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [newItems, setNewItems] = useState<FeedPost[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(
-    async (cursor: string | null, append: boolean) => {
+    async (cursor: string | null, append: boolean, refresh = false) => {
       if (!viewerId && activeTab === "for-you") {
         return;
       }
@@ -133,7 +143,12 @@ export function ExploreScreen() {
       const options = { apiBase: getApiBaseUrl(), cookie };
       const [page, topGusts] = await Promise.all([
         activeTab === "people"
-          ? fetchExplorePeople(deferredSearch, Boolean(viewerId), options)
+          ? fetchExplorePeople(
+              deferredSearch,
+              Boolean(viewerId),
+              options,
+              refresh
+            )
           : fetchExplorePage(activeTab, deferredSearch, cursor, options),
         !append && (activeTab === "for-you" || activeTab === "trending")
           ? fetchExploreTopGusts(options)
@@ -214,15 +229,24 @@ export function ExploreScreen() {
     };
   }, [activeTab, deferredSearch, viewerId]);
 
+  // Changing the query changes which posts are on screen, so anything the
+  // probe found for the previous identity is dropped here rather than in an
+  // effect, where it would cost an extra render.
+  const handleSearch = useCallback((value: string) => {
+    setSearch(value);
+    setNewItems([]);
+  }, []);
+
   const selectTab = useCallback(
     (next: ExploreTab) => {
       if (!EXPLORE_TABS.has(next) || next === activeTab) {
         return;
       }
       setExploreTab(next);
+      handleSearch("");
       router.setParams({ tab: next });
     },
-    [activeTab, router, setExploreTab]
+    [activeTab, handleSearch, router, setExploreTab]
   );
 
   const handleFollow = useCallback(
@@ -258,10 +282,83 @@ export function ExploreScreen() {
     [router, runWithInstallToken, viewerId]
   );
 
+  // Web polls each Explore feed every 45s and offers the new posts behind a
+  // pill, so a reader who has sat on the tab sees arrivals without pulling to
+  // refresh. The probe diffs the head against what is already on screen and
+  // never rewrites the list on its own; tapping the pill prepends.
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const probeKeyRef = useRef("");
+  const probeTab = activeTab;
+  const probeSearch = deferredSearch;
+
+  useEffect(() => {
+    knownIdsRef.current = new Set(posts.map((post) => post.id));
+  }, [posts]);
+
+  useEffect(() => {
+    if (status !== "success" || probeTab === "people" || probeSearch) {
+      return;
+    }
+    const key = `${probeTab}:${probeSearch}`;
+    probeKeyRef.current = key;
+    const probe = async () => {
+      try {
+        const head = await fetchExplorePage(probeTab, "", null, {
+          apiBase: getApiBaseUrl(),
+          cookie: await authClient.getCookie(),
+        });
+        if (probeKeyRef.current !== key || knownIdsRef.current.size === 0) {
+          return;
+        }
+        setNewItems(findUnseenItems(head.posts, knownIdsRef.current));
+      } catch (error) {
+        logWarn("explore.probe_failed", {
+          reason: error instanceof Error ? error.message : String(error),
+          tab: probeTab,
+        });
+      }
+    };
+    const poller = createExpoPoller({
+      intervalMs: PROBE_INTERVAL_MS,
+      onPoll: probe,
+    });
+    poller.start();
+    return () => poller.stop();
+  }, [probeTab, probeSearch, status]);
+
+  const showNewItems = useCallback(() => {
+    if (newItems.length === 0) {
+      return;
+    }
+    logInfo("explore.new_shown", { count: newItems.length, tab: activeTab });
+    setPosts((current) => [
+      ...newItems,
+      ...current.filter(
+        (post) => !newItems.some((item) => item.id === post.id)
+      ),
+    ]);
+    setNewItems([]);
+  }, [activeTab, newItems, setNewItems]);
+
+  const newItemAuthors: PillAuthor[] = [
+    ...new Map(
+      newItems.map((post) => [
+        post.userId,
+        {
+          avatarUrl: post.user?.avatarUrl,
+          id: post.userId,
+          username: post.user?.username,
+        },
+      ])
+    ).values(),
+  ];
+
+  // Only the People tab has a Refresh control, and only that endpoint honours
+  // a cache bypass, so the flag rides along with the reload.
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await load(null, false);
+      await load(null, false, activeTab === "people");
     } catch {
       setStatus("error");
       setRefreshing(false);
@@ -333,10 +430,9 @@ export function ExploreScreen() {
         return (
           <ExploreGustTile
             onPress={() =>
-              router.push({
-                params: { postId: item.post.id },
-                pathname: "/posts/[postId]",
-              })
+              // Web opens the reel positioned at this gust rather than the
+              // post page, so the tap lands on the video it came from.
+              router.push({ params: { id: item.post.id }, pathname: "/gusts" })
             }
             post={item.post}
           />
@@ -385,11 +481,25 @@ export function ExploreScreen() {
     <View>
       <MobileHeader user={mobileHeaderUser} />
       <FeedTabs active={activeTab} onChange={selectTab} tabs={TAB_DEFS} />
+      {newItems.length > 0 ? (
+        <NewContentPill
+          authors={newItemAuthors}
+          count={newItems.length}
+          onPress={showNewItems}
+        />
+      ) : null}
+      {activeTab === "for-you" || activeTab === "trending" ? (
+        <ExplorePostSearch
+          onSearch={handleSearch}
+          search={search}
+          tab={activeTab}
+        />
+      ) : null}
       {activeTab === "people" ? (
         <ExplorePeopleHeader
           loggedIn={Boolean(viewerId)}
           onRefresh={refresh}
-          onSearch={setSearch}
+          onSearch={handleSearch}
           search={search}
         />
       ) : null}
@@ -487,10 +597,7 @@ export function ExploreScreen() {
               <ExploreGustTile
                 key={post.id}
                 onPress={() =>
-                  router.push({
-                    params: { postId: post.id },
-                    pathname: "/posts/[postId]",
-                  })
+                  router.push({ params: { id: post.id }, pathname: "/gusts" })
                 }
                 post={post}
               />
@@ -844,6 +951,62 @@ function ExplorePeopleHeader({
         {loggedIn ? (
           <Pressable onPress={onRefresh} style={styles.refreshButton}>
             <Text style={styles.refreshText}>Refresh</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+// Web searches the post feeds too: the input is shown on For you and Trending
+// (not Gusts, which has nothing to search, and not People, which owns its own
+// header above). The same query already flows through fetchExplorePage, so the
+// field only had to be surfaced.
+function ExplorePostSearch({
+  onSearch,
+  search,
+  tab,
+}: {
+  onSearch: (value: string) => void;
+  search: string;
+  tab: ExploreTab;
+}) {
+  const { isDark, theme } = useAppTheme();
+  const label =
+    tab === "trending"
+      ? "Search trending posts"
+      : "Search posts, people and communities";
+  return (
+    <View style={styles.peopleHeader}>
+      <View
+        style={[
+          styles.peopleSearch,
+          {
+            backgroundColor: theme.inputBg,
+            borderColor: theme.inputBorder,
+            boxShadow: isDark
+              ? SEARCH_PANEL_SHADOWS_DARK
+              : SEARCH_PANEL_SHADOWS,
+          },
+        ]}
+      >
+        <Search color={theme.dividerText} size={16} />
+        <TextInput
+          accessibilityLabel={label}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={onSearch}
+          placeholder={label}
+          placeholderTextColor={theme.inputPlaceholder}
+          style={[styles.peopleSearchInput, { color: theme.inputText }]}
+          value={search}
+        />
+        {search ? (
+          <Pressable
+            accessibilityLabel="Clear post search"
+            onPress={() => onSearch("")}
+          >
+            <X color={theme.dividerText} size={16} />
           </Pressable>
         ) : null}
       </View>
