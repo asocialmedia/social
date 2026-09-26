@@ -36,9 +36,14 @@ import {
 import {
   buildSearchIndexEntry,
   emptySearchIndexMeta,
+  windowCursor,
   SEARCH_INDEX_FORMAT_VERSION,
 } from "./search-index-format";
-import type { SearchIndexEntry, SearchIndexStore } from "./search-index-format";
+import type {
+  SearchIndexCursor,
+  SearchIndexEntry,
+  SearchIndexStore,
+} from "./search-index-format";
 
 const HEADER_STORE = SEARCH_HEADER_STORE;
 const META_STORE = SEARCH_META_STORE;
@@ -190,7 +195,26 @@ async function rawKeyList(storeName: string): Promise<string[]> {
 // narrows by construction rather than by assertion.
 async function rawRowList(key: IDBValidKey): Promise<number[]> {
   const stored = await readRaw(POSTINGS_STORE, key);
-  return stored instanceof Uint32Array ? [...stored] : [];
+  // Two shapes on purpose: a current record carries rows beside their times, and
+  // a bare Uint32Array is what a previous format left behind. A test that seeds
+  // the old shape has to be able to assert the new one replaced it.
+  if (stored instanceof Uint32Array) {
+    return [...stored];
+  }
+  const rows = rawField(stored, "rows");
+  return rows instanceof Uint32Array ? [...rows] : [];
+}
+
+// A resolved window as the index's own match list: row id plus creation time.
+// The paging cursor is built from this, and the whole point of the v7 keyset is
+// that it is built from the TIME rather than from the row id.
+function cursorOf(
+  rows: ReadonlyMap<number, { createdAt: number }>
+): { createdAt: number; row: number }[] {
+  return [...rows].map(([row, facts]) => ({
+    createdAt: facts.createdAt,
+    row,
+  }));
 }
 
 function rawField(value: unknown, key: string): unknown {
@@ -380,9 +404,17 @@ describe("indexeddb search index store", () => {
     const poisoned = await store.query("c1", ["absent"], 100, {
       prefix: "deplo",
     });
-    expect(poisoned).toEqual({ rows: new Map(), totalMatched: 0 });
+    expect(poisoned).toEqual({
+      hasMore: false,
+      rows: new Map(),
+      totalMatched: 0,
+    });
     const unknown = await store.query("c1", [], 100, { prefix: "zzz" });
-    expect(unknown).toEqual({ rows: new Map(), totalMatched: 0 });
+    expect(unknown).toEqual({
+      hasMore: false,
+      rows: new Map(),
+      totalMatched: 0,
+    });
   });
 
   // The walk's skip check: which ids already occupy a row, so covered pages
@@ -750,9 +782,14 @@ describe("indexeddb search index store", () => {
     expect(capped.totalMatched).toBe(40);
   });
 
-  // The reported bug: the chat counter said 24k, the list stopped at 2,000. The
-  // persistent backend is the one that has to serve those pages, so the seam
-  // exactness is asserted here rather than only against the in-memory fallback.
+  // The reported bug: the chat counter said 24k, the list stopped at 2,000, and
+  // every page after the first came back empty. The persistent backend is the one
+  // that has to serve those pages, so the seam exactness is asserted here rather
+  // than only against the in-memory fallback.
+  //
+  // Rows are interned in Map order, so row ids run OPPOSITE to the timestamps:
+  // the newest message holds the LOWEST row. That is the inversion a row-id
+  // keyset cannot see, and this fixture is the one that says so.
   test("pages through every match with no duplicate or gap at the seam", async () => {
     const batch = new Map<string, SearchIndexEntry>();
     for (let index = 0; index < 40; index += 1) {
@@ -760,11 +797,11 @@ describe("indexeddb search index store", () => {
     }
     await store.putEntries("c1", batch);
     const seen: string[] = [];
-    let cursor: number | undefined;
-    // oxlint-disable no-await-in-loop -- paging IS sequential: each window's keyset cursor is the previous window's last row, so parallel reads would defeat the test
+    let cursor: SearchIndexCursor | undefined;
+    // oxlint-disable no-await-in-loop -- paging IS sequential: each window's keyset cursor is the previous window's oldest row, so parallel reads would defeat the test
     for (let page = 0; page < 10; page += 1) {
       const result = await store.query("c1", ["deploy"], 7, {
-        afterRowId: cursor,
+        afterMatch: cursor,
       });
       // Exact on every page: the counter does not depend on the window asked for.
       expect(result.totalMatched).toBe(40);
@@ -773,13 +810,16 @@ describe("indexeddb search index store", () => {
         break;
       }
       seen.push(...ids);
-      cursor = Math.min(...result.rows.keys());
+      // The OLDEST row in the window by TIME, which is not the lowest row id.
+      cursor = windowCursor(cursorOf(result.rows));
+      if (!result.hasMore) {
+        break;
+      }
     }
     // oxlint-enable no-await-in-loop
     expect(seen).toHaveLength(40);
     expect(new Set(seen).size).toBe(40);
-    // Newest first, and contiguous: page by page down the row-id order with
-    // nothing repeated and nothing missing.
+    // Newest first by timestamp, with nothing repeated and nothing missing.
     expect(seen[0]).toBe("m39");
     expect(seen[39]).toBe("m0");
   });
@@ -793,10 +833,43 @@ describe("indexeddb search index store", () => {
       ])
     );
     const last = await store.query("c1", ["deploy"], 20);
-    expect([...last.rows.keys()].toSorted((a, b) => b - a)).toEqual([1, 0]);
-    const past = await store.query("c1", ["deploy"], 20, { afterRowId: 0 });
+    expect(last.hasMore).toBe(false);
+    const past = await store.query("c1", ["deploy"], 20, {
+      afterMatch: windowCursor(cursorOf(last.rows)),
+    });
     expect(past.rows.size).toBe(0);
     expect(past.totalMatched).toBe(2);
+    expect(past.hasMore).toBe(false);
+  });
+
+  // The exact shape of the empty-page-2 report, at the storage layer: a
+  // conversation indexed newest-first, paged with a cursor built from the
+  // NEWEST match. A row-id keyset treats that as the top of the set and returns
+  // nothing; a time keyset walks older and finds the rest.
+  test("a page below the NEWEST match finds the rest of the conversation", async () => {
+    const batch = new Map<string, SearchIndexEntry>();
+    // Newest first, as the transcript hands a page over.
+    for (let index = 0; index < 6; index += 1) {
+      batch.set(`m${index}`, entry("deploy", 1000 - index));
+    }
+    await store.putEntries("c1", batch);
+    // A one-row head, so the boundary the next page pages from IS the newest
+    // match in the conversation -- which is precisely the cursor the old keyset
+    // treated as the top of the set.
+    const head = await store.query("c1", ["deploy"], 1);
+    expect([...head.rows.values()].map((facts) => facts.messageId)).toEqual([
+      "m0",
+    ]);
+    expect(head.hasMore).toBe(true);
+    const [newest] = cursorOf(head.rows);
+    const second = await store.query("c1", ["deploy"], 2, {
+      afterMatch: newest,
+    });
+    expect([...second.rows.values()].map((facts) => facts.messageId)).toEqual([
+      "m1",
+      "m2",
+    ]);
+    expect(second.hasMore).toBe(true);
   });
 
   test("a paged window resolves previews, so a deep page renders real text", async () => {
@@ -808,11 +881,25 @@ describe("indexeddb search index store", () => {
       ])
     );
     // Past the head's window: only the older row is left below the cursor.
-    const deep = await store.query("c1", ["deploy"], 20, { afterRowId: 1 });
+    const deep = await store.query("c1", ["deploy"], 20, {
+      afterMatch: { createdAt: 2, row: 1 },
+    });
     const facts = [...deep.rows.values()];
     expect(facts).toHaveLength(1);
     expect(facts[0]?.messageId).toBe("m0");
     expect(facts[0]?.preview).toBe("deploy the very first note");
+  });
+
+  // A rewrite must not be able to move a message in time. The row's original
+  // creation time is what the posting list holds, and an edit carries a stale
+  // device's idea of when the message happened.
+  test("an edit keeps the row's original time in its posting lists", async () => {
+    await store.putEntries("c1", new Map([["m0", entry("deploy", 100)]]));
+    await store.putEntries("c1", new Map([["m0", entry("deploy again", 999)]]));
+    const result = await store.query("c1", ["deploy"], 10);
+    expect([...result.rows.values()][0]?.createdAt).toBe(100);
+    const again = await store.query("c1", ["again"], 10);
+    expect([...again.rows.values()][0]?.createdAt).toBe(100);
   });
 
   // Writes are linear (measured ~10k msgs/s in the shim). Whole-conversation
@@ -1040,6 +1127,59 @@ describe("indexeddb schema versioning", () => {
       "dictionary"
     );
     expect(header).toEqual(["recovered"]);
+  });
+
+  // The v6 -> v7 shape change, stated as the upgrade it is. A v6 posting list is
+  // a bare Uint32Array of row ids: it has no times, so there is nothing to order
+  // a page by, and a reader that adopted it would order messages by each other's
+  // creation times. The header's version stamp catches it first, and the write
+  // path resets the conversation so the walk rebuilds it -- no migration, because
+  // the index is derived data and history is on the server.
+  test("a v6 index is reset and rebuilt rather than read", async () => {
+    const store = createTestStore();
+    await store.readMeta("c1");
+    // A complete v6 conversation: header, row-id map, row records, and posting
+    // lists with no times beside them.
+    await writeRaw(HEADER_STORE, "c1", {
+      dictionary: ["deploy"],
+      nextRow: 2,
+      version: SEARCH_INDEX_FORMAT_VERSION - 1,
+    });
+    const v6Rows = ["m0", "m1"].map((messageId, index) =>
+      writeRaw(ROWS_STORE, ["c1", String(index)], {
+        createdAt: 100 - index,
+        messageId,
+        present: true,
+        preview: `deploy note ${index}`,
+        senderId: "user-a",
+        tokenIds: [0],
+        version: SEARCH_INDEX_FORMAT_VERSION - 1,
+      })
+    );
+    await Promise.all(v6Rows);
+    await Promise.all([
+      writeRaw(ROW_IDS_STORE, ["c1", "m0"], 0),
+      writeRaw(ROW_IDS_STORE, ["c1", "m1"], 1),
+    ]);
+    await writeRaw(POSTINGS_STORE, ["c1", "t0"], new Uint32Array([0, 1]));
+
+    // A read cannot see any of it: the header is another build's.
+    expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+      ids: [],
+      totalMatched: 0,
+    });
+    // And the first write replaces it outright.
+    await store.putEntries("c1", new Map([["m2", entry("deploy fresh", 50)]]));
+    const rebuilt = await queryStore(store, "c1", ["deploy"]);
+    expect(rebuilt.ids).toEqual(["m2"]);
+    expect(rebuilt.totalMatched).toBe(1);
+    // Numbering restarted, so the old rows 0 and 1 cannot be adopted by the
+    // rebuilt dictionary's id 0.
+    const stats = await store.readStats("c1");
+    expect(stats.indexedRowCount).toBe(1);
+    expect(await rawRowList(["c1", "t0"])).toEqual([0]);
+    const rebuiltRow = await readRaw(ROWS_STORE, ["c1", "0"]);
+    expect(rawField(rebuiltRow, "version")).toBe(SEARCH_INDEX_FORMAT_VERSION);
   });
 
   test("meta written by another format version reads as absent", async () => {

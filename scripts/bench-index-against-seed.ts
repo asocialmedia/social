@@ -46,8 +46,11 @@ import {
 } from "../apps/web/src/lib/messages/crypto";
 import { createMemorySearchIndexStore } from "../apps/web/src/lib/messages/memory-search-index";
 import { extractSearchableText } from "../apps/web/src/lib/messages/message-search";
-import { intersectPostingLists } from "../apps/web/src/lib/messages/search-index-format";
-import { buildSearchIndexEntry } from "../apps/web/src/lib/messages/search-index-format";
+import {
+  buildSearchIndexEntry,
+  intersectPostingLists,
+  selectNewestFirstWindow,
+} from "../apps/web/src/lib/messages/search-index-format";
 import type { SearchIndexEntry } from "../apps/web/src/lib/messages/search-index-format";
 
 function flag(argv: string[], name: string): string | undefined {
@@ -401,29 +404,40 @@ async function main(): Promise<void> {
   const tokenId = dictionary.indexOf(probeWord);
   const postingList = await store.readPostingList(conversationId, probeWord);
 
+  const benchList = {
+    rows: postingList,
+    times: await store.readPostingTimes(conversationId, probeWord),
+  };
   const intersectSamples: number[] = [];
   for (let run = 0; run < 3; run += 1) {
     const started = performance.now();
-    intersectPostingLists([postingList], 50);
+    intersectPostingLists([benchList]);
     intersectSamples.push(performance.now() - started);
   }
   intersectSamples.sort((left, right) => left - right);
   const intersectMs = intersectSamples[1] ?? 0;
-  const intersection = intersectPostingLists([postingList], 50);
+  // Intersect, then order and cut the window: the two halves a keystroke pays.
+  const { matches } = intersectPostingLists([benchList]);
+  const orderStarted = performance.now();
+  const window = selectNewestFirstWindow(matches, 50);
+  const orderMs = performance.now() - orderStarted;
 
   const projectStarted = performance.now();
   const projected = await store.readRows(
     conversationId,
-    Uint32Array.from(intersection.rows)
+    Uint32Array.from(window.window.map((match) => match.row))
   );
   const projectMs = performance.now() - projectStarted;
 
   console.log(`    posting intersect       ${intersectMs.toFixed(2)}ms`);
   console.log(
-    `    resolve ${intersection.rows.length} capped rows   ${projectMs.toFixed(2)}ms`
+    `    order ${matches.length} matches     ${orderMs.toFixed(2)}ms`
   );
   console.log(
-    `    cpu per query           ${(intersectMs + projectMs).toFixed(2)}ms`
+    `    resolve ${window.window.length} window rows     ${projectMs.toFixed(2)}ms`
+  );
+  console.log(
+    `    cpu per query           ${(intersectMs + orderMs + projectMs).toFixed(2)}ms`
   );
   console.log(
     `    (sanity: token id ${tokenId}, resolved ${projected.size} rows for "${probeWord}", dictionary ${dictionary.length} entries)`

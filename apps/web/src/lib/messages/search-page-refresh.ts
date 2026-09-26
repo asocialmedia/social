@@ -8,6 +8,8 @@
 // with edge cases worth pinning, and because a hook test here would need a React
 // harness this package does not have.
 
+import type { SearchIndexCursor } from "./search-index-format";
+
 export type PageReadDecision =
   // Read now.
   | { kind: "read" }
@@ -41,9 +43,8 @@ export function decidePageRead(input: {
   return waitMs > 0 ? { kind: "wait", waitMs } : { kind: "read" };
 }
 
-// The keyset boundary for the first on-demand page: the extreme row id among the
-// index rows ALREADY SHOWN on the page before it, in the direction the page read
-// walks.
+// The keyset boundary for the first on-demand page: the OLDEST match already
+// SHOWN on the page before it, in the index's own order.
 //
 // Correct in shape, and it fixes one real gap: this used to be the lowest row of
 // the whole head WINDOW, which is only right when the head displays every row it
@@ -53,36 +54,52 @@ export function decidePageRead(input: {
 // messages reachable from nowhere, behind a pager offering page after page of
 // nothing.
 //
-// Its RESULT is still not trustworthy, and the caller must know that. The
-// direction below is the index's own descending-row-id order, which is NOT
-// newest-first for a backfilled conversation -- see the ordering note on
-// `intersectPostingLists`, which measures the inversion. With the direction
-// unverified, "lowest" can be the newest match, and the boundary is then the top
-// of the set with nothing above it, which is exactly the empty-page-2 report.
-// Fixing the ordering key is the prerequisite; this function is the piece that
-// will then be right without further change.
+// The order is (createdAt, row), newest first, and that is no longer a caveat.
+// This used to walk row ids, on the assumption that they ascend with message age.
+// They do not: a backfill descends from the newest page, so LOW row ids are the
+// NEWEST messages (measured on the 200k fixture, row 975 is the newest message and
+// row 44416 the oldest), which made "lowest" the newest match and the boundary
+// the top of the set with nothing above it. That is the empty-page-2 report, and
+// `selectNewestFirstWindow` is where the ordering key is fixed.
 //
 // `shownMessageIds` is the id set the head actually renders; `windowRows` is the
-// window's row -> message mapping.
-export function headPageBoundary(input: {
+// window's row -> message mapping. Falling back to the oldest row in the WHOLE
+// window matters: the head's displayed slice can be entirely in-memory matches
+// that this index window does not hold, and with no boundary page 1 would have
+// nowhere to start and would silently re-serve the head.
+export function headPageCursor(input: {
   shownMessageIds: ReadonlySet<string>;
   windowRows: ReadonlyMap<
     number,
     { createdAt: number; messageId: string; preview: string }
   >;
-}): number | null {
-  let lowestShown: number | null = null;
-  let highest: number | null = null;
+}): SearchIndexCursor | null {
+  let oldestShown: SearchIndexCursor | null = null;
+  let oldestInWindow: SearchIndexCursor | null = null;
   for (const [row, facts] of input.windowRows) {
-    if (highest === null || row > highest) {
-      highest = row;
+    const cursor: SearchIndexCursor = {
+      createdAt: facts.createdAt,
+      row,
+    };
+    if (oldestInWindow === null || isOlder(cursor, oldestInWindow)) {
+      oldestInWindow = cursor;
     }
     if (
       input.shownMessageIds.has(facts.messageId) &&
-      (lowestShown === null || row < lowestShown)
+      (oldestShown === null || isOlder(cursor, oldestShown))
     ) {
-      lowestShown = row;
+      oldestShown = cursor;
     }
   }
-  return lowestShown ?? highest;
+  return oldestShown ?? oldestInWindow;
+}
+
+// Which of two cursors is the OLDER message -- the one a page turn starts below.
+function isOlder(left: SearchIndexCursor, right: SearchIndexCursor): boolean {
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt < right.createdAt;
+  }
+  // Same millisecond. The higher row id is older, matching the order
+  // `selectNewestFirstWindow` sorts by.
+  return left.row > right.row;
 }

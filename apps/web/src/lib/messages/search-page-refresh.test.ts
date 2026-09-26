@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { decidePageRead, headPageBoundary } from "./search-page-refresh";
+import { decidePageRead, headPageCursor } from "./search-page-refresh";
 
 // The reported bug: page 2 onward of the results list did not change while the
 // walk kept indexing, so it read as "no results here" for the whole session. The
@@ -88,77 +88,103 @@ describe("decidePageRead", () => {
 // match. Until the ordering key is time-based, these cases describe arithmetic
 // over an ordering that has been measured to be inverted. A test asserting
 // "page 1 reaches 98 and then 50" would be asserting the bug.
-function facts(messageId: string) {
-  return { createdAt: 0, messageId, preview: "" };
+//
+// Every fixture below deliberately makes the ROW order the REVERSE of the time
+// order, which is what a backfill descending from the newest page produces. The
+// old boundary walked row ids and read "lowest" as the extreme to hang the next
+// page below; on this shape that is the NEWEST match, so page 2 had nothing above
+// it to return. The cursor is a position in time now, and these say so.
+function facts(messageId: string, createdAt: number) {
+  return { createdAt, messageId, preview: "" };
 }
 
-describe("headPageBoundary", () => {
-  test("no window means no boundary", () => {
+describe("headPageCursor", () => {
+  test("no window means no cursor", () => {
     expect(
-      headPageBoundary({ shownMessageIds: new Set(), windowRows: new Map() })
+      headPageCursor({ shownMessageIds: new Set(), windowRows: new Map() })
     ).toBeNull();
   });
 
   // The regression, in shape. The head window holds far more than one page, so a
   // boundary taken from the WINDOW ignores every match between the displayed
-  // slice and the end of the window. Taken from the displayed slice, the window's
-  // own tail is at least accounted for.
+  // slice and the end of the window -- up to two thousand messages reachable from
+  // nowhere. Taken from the displayed slice, the window's own tail is at least
+  // accounted for.
   test("reads the displayed slice, not the whole window", () => {
     const windowRows = new Map([
-      [100, facts("m100")],
-      [99, facts("m99")],
-      [98, facts("m98")],
-      [50, facts("m50")],
-      [49, facts("m49")],
+      [100, facts("m100", 500)],
+      [99, facts("m99", 400)],
+      [98, facts("m98", 300)],
+      [50, facts("m50", 200)],
+      [49, facts("m49", 100)],
     ]);
-    // The head shows rows 100 and 99. The boundary is 99 -- the extreme shown
-    // row -- rather than 49, the window's own extreme, which would account for
-    // neither 98 nor 50.
+    // The head shows the two newest. The cursor is the older of them -- row 99 at
+    // time 400 -- not the window's own oldest, which would account for neither
+    // row 98 nor row 50.
     expect(
-      headPageBoundary({
+      headPageCursor({
         shownMessageIds: new Set(["m100", "m99"]),
         windowRows,
       })
-    ).toBe(99);
+    ).toEqual({ createdAt: 400, row: 99 });
   });
 
-  test("takes the lowest shown row when the slice interleaves the window", () => {
+  // The inversion, stated as a test. Rows ascend here while the messages get
+  // OLDER, and the cursor has to follow the message.
+  test("the cursor follows time, not the row id", () => {
     const windowRows = new Map([
-      [10, facts("m10")],
-      [9, facts("m9")],
-      [8, facts("m8")],
+      [5, facts("newest", 900)],
+      [6, facts("middle", 800)],
+      [7, facts("oldest", 700)],
     ]);
     expect(
-      headPageBoundary({
+      headPageCursor({
+        shownMessageIds: new Set(["newest", "middle", "oldest"]),
+        windowRows,
+      })
+    ).toEqual({ createdAt: 700, row: 7 });
+  });
+
+  test("takes the oldest shown match when the slice interleaves the window", () => {
+    const windowRows = new Map([
+      [10, facts("m10", 300)],
+      [9, facts("m9", 200)],
+      [8, facts("m8", 100)],
+    ]);
+    expect(
+      headPageCursor({
         shownMessageIds: new Set(["m10", "m8", "loaded-row"]),
         windowRows,
       })
-    ).toBe(8);
+    ).toEqual({ createdAt: 100, row: 8 });
   });
 
   // A head page of decoded transcript text the writer has not committed shows no
   // indexed row at all. With nothing shown, the rule falls back to the window's
-  // own extreme rather than reporting no boundary and leaving the pager stuck.
-  test("falls back to the window extreme when nothing indexed is shown", () => {
+  // own oldest rather than reporting no cursor and leaving the pager stuck.
+  test("falls back to the window's oldest when nothing indexed is shown", () => {
     const windowRows = new Map([
-      [7, facts("m7")],
-      [6, facts("m6")],
+      [7, facts("m7", 200)],
+      [6, facts("m6", 100)],
     ]);
     expect(
-      headPageBoundary({
+      headPageCursor({
         shownMessageIds: new Set(["loaded-1", "loaded-2"]),
         windowRows,
       })
-    ).toBe(7);
+    ).toEqual({ createdAt: 100, row: 6 });
   });
 
-  test("a row shown twice in the window resolves to its lowest instance", () => {
+  // Same-millisecond sends are ordinary. Without the row tiebreak the cursor is
+  // ambiguous inside the tie group, and a pager over an ambiguous order repeats
+  // and drops rows.
+  test("breaks a same-millisecond tie by row, oldest first", () => {
     const windowRows = new Map([
-      [12, facts("m12")],
-      [11, facts("m11")],
+      [12, facts("m12", 100)],
+      [11, facts("m11", 100)],
     ]);
     expect(
-      headPageBoundary({ shownMessageIds: new Set(["m11"]), windowRows })
-    ).toBe(11);
+      headPageCursor({ shownMessageIds: new Set(["m12", "m11"]), windowRows })
+    ).toEqual({ createdAt: 100, row: 12 });
   });
 });

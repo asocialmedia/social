@@ -30,10 +30,11 @@ import type {
 } from "./message-search";
 import { SEARCH_INDEX_QUERY_LIMIT } from "./search-index-format";
 import type {
+  SearchIndexCursor,
   SearchIndexRowLookup,
   SearchIndexStore,
 } from "./search-index-format";
-import { decidePageRead, headPageBoundary } from "./search-page-refresh";
+import { decidePageRead, headPageCursor } from "./search-page-refresh";
 
 export interface ConversationSearchInput {
   allMessages: MessageData[];
@@ -118,10 +119,14 @@ interface IndexQueryMatches {
 
 // One on-demand page window, resolved and ready to render.
 interface PageWindow {
-  // Last row id in the window, which is the keyset cursor for the next page.
+  // Where the page BELOW this one starts, in the index's (createdAt, row) order.
   // Null when the window came back empty, so a page past the last match cannot
   // silently re-serve the previous one.
-  afterRowId: number | null;
+  cursor: SearchIndexCursor | null;
+  // Whether the index holds matches past this window, read from the same pass
+  // that cut it. The pager uses this to stop without spending a speculative read
+  // to discover there is nothing past the last page.
+  hasMore: boolean;
   // The index generation this window was read at, so the UI can say "still
   // indexing" only while a newer generation exists that this window predates.
   indexToken: number;
@@ -238,12 +243,18 @@ export function useConversationSearch(
   const pageRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  // Keyset cursor per page: the last row id that page ended on. A stack rather
-  // than one cursor, because the pager steps by one in either direction and
-  // going back must re-read the SAME rows the same way, not a window offset
-  // applied to a different starting point. Page 0 has no cursor: it is the
-  // merged head, and the head's last index row is the keyset below it.
-  const cursorsRef = useRef<Map<number, number>>(new Map());
+  // Keyset cursor per page: the oldest match that page ended on, in the index's
+  // (createdAt, row) order. A stack rather than one cursor, because the pager
+  // steps by one in either direction and going back must re-read the SAME rows
+  // the same way, not a window offset applied to a different starting point.
+  // Page 0 has no cursor: it is the merged head, and the head's oldest DISPLAYED
+  // match is the keyset below it.
+  const cursorsRef = useRef<Map<number, SearchIndexCursor>>(new Map());
+  // Whether each page's own read found more matches past it. Kept beside the
+  // cursors because it is what tells the pager "this is the last page" without a
+  // read, and because it is the only thing that can end paging at a page which
+  // came back empty.
+  const pageHasMoreRef = useRef<Map<number, boolean>>(new Map());
   // How each page's own read ended. Needed because a missing cursor has two very
   // different causes -- the page before is still loading, or it failed -- and
   // the pager can only tell them apart by what the read did, not by the
@@ -563,8 +574,8 @@ export function useConversationSearch(
     [ranked]
   );
 
-  // The keyset boundary for page 1: the lowest index row ALREADY SHOWN on page
-  // 0, because the query walks rows downward from it.
+  // The keyset boundary for page 1: the oldest match ALREADY SHOWN on page 0,
+  // because the query walks older from there.
   //
   // This used to be the lowest row in the whole head window, which is wrong in a
   // way that only shows up once the two numbers differ. The head holds up to
@@ -573,13 +584,19 @@ export function useConversationSearch(
   // and the end of the window -- up to two thousand messages, reachable from
   // nowhere, with the pager cheerfully offering pages that led only to empty ones.
   // Below the displayed slice instead, and the pages tile the match sequence.
-  const headBoundaryRowId = useMemo(() => {
+  //
+  // It also used to be a row id, which is not a position in time on this index --
+  // see the ordering note on `selectNewestFirstWindow`. On a backfilled
+  // conversation the newest matches hold the LOWEST row ids, so the boundary was
+  // the top of the set and every page after the head came back empty. That is the
+  // "page 1 is fine and page 2 shows nothing" report.
+  const headCursor = useMemo(() => {
     if (!indexMatches) {
       return null;
     }
     // From the same slice the reader is looking at, so the boundary cannot drift
     // from what page 0 shows.
-    return headPageBoundary({
+    return headPageCursor({
       shownMessageIds: headShownIds,
       windowRows: indexMatches.rows,
     });
@@ -591,6 +608,7 @@ export function useConversationSearch(
       // Before the guards below on purpose: page 0 renders the merged head, but
       // the next page turn pages from boundaries this query has to re-derive.
       cursorsRef.current.clear();
+      pageHasMoreRef.current.clear();
       pageReadsRef.current.clear();
       pageReadTokenRef.current.clear();
       pageReadAtRef.current.clear();
@@ -610,11 +628,30 @@ export function useConversationSearch(
     }
     const tokens = prefix === null ? exact : [...exact, prefix];
     // Page 1 hangs off the head's boundary; deeper pages off their own boundary.
-    const afterRowId =
+    const afterMatch =
       listPage === 1
-        ? headBoundaryRowId
+        ? headCursor
         : (cursorsRef.current.get(listPage - 1) ?? null);
-    if (listPage > 1 && afterRowId === null) {
+    // A page the page before it already proved empty, from a read that is still
+    // CURRENT, is not read again. Without this the reader is charged a round trip
+    // and a visible "Loading this page…" to learn something already known -- which
+    // is what a last page looked like on every conversation.
+    //
+    // Gated on the predecessor's read being current, and that gate is the whole
+    // correctness of the shortcut. On a fresh index a page read early in a walk
+    // legitimately finds nothing past it, and the walk then fills that space: a
+    // verdict from a stale read would strand every match the walk had not reached
+    // yet, which is the same unreachable-tail defect in a new place.
+    if (
+      listPage > 1 &&
+      pageHasMoreRef.current.get(listPage - 1) === false &&
+      pageReadTokenRef.current.get(listPage - 1) === indexGeneration
+    ) {
+      setPageWindowLoading(false);
+      setPageWindowError(null);
+      return;
+    }
+    if (listPage > 1 && afterMatch === null) {
       if (pageReadsRef.current.get(listPage - 1) === "loading") {
         // The page before is still being read. Clicking faster than the reads
         // land is ordinary, not a failure: wait for its boundary and let the
@@ -666,9 +703,10 @@ export function useConversationSearch(
           conversationId,
           exact,
           SEARCH_PAGE_SIZE,
-          prefix === null
-            ? { afterRowId: afterRowId ?? undefined }
-            : { afterRowId: afterRowId ?? undefined, prefix }
+          {
+            afterMatch: afterMatch ?? undefined,
+            ...(prefix === null ? {} : { prefix }),
+          }
         );
       } catch {
         pageReadTokenRef.current.delete(listPage);
@@ -681,10 +719,22 @@ export function useConversationSearch(
         }
         return;
       }
-      let lastRowId: number | null = null;
-      for (const row of result.rows.keys()) {
-        if (lastRowId === null || row < lastRowId) {
-          lastRowId = row;
+      // The oldest match in the window, which is the keyset for the page below.
+      // Derived from the resolved facts rather than from row ids, because row ids
+      // are allocation order on this index and the seam has to be a position in
+      // TIME. The window arrives already ordered newest-first, so its last entry
+      // is the oldest -- but it is picked by comparison rather than by position so
+      // a backend that orders differently cannot silently produce a cursor that
+      // points into the middle of the page.
+      let oldest: SearchIndexCursor | null = null;
+      for (const [row, facts] of result.rows) {
+        const cursor: SearchIndexCursor = { createdAt: facts.createdAt, row };
+        if (
+          oldest === null ||
+          cursor.createdAt < oldest.createdAt ||
+          (cursor.createdAt === oldest.createdAt && cursor.row > oldest.row)
+        ) {
+          oldest = cursor;
         }
       }
       // The boundary is recorded even for a superseded read, because the page
@@ -694,19 +744,26 @@ export function useConversationSearch(
       // read would re-run this effect on its own result and read the same page
       // forever.
       const recorded = cursorsRef.current.get(listPage);
-      if (lastRowId === null) {
+      const sameCursor =
+        recorded !== undefined &&
+        oldest !== null &&
+        recorded.createdAt === oldest.createdAt &&
+        recorded.row === oldest.row;
+      if (oldest === null) {
         // An empty window ends the paging: without a boundary the next page
         // would have nowhere to start from.
         if (recorded !== undefined) {
           cursorsRef.current.delete(listPage);
+          pageHasMoreRef.current.delete(listPage);
           pageReadsRef.current.delete(listPage);
           setCursorEpoch((epoch) => epoch + 1);
         }
-      } else if (recorded !== lastRowId) {
-        cursorsRef.current.set(listPage, lastRowId);
+      } else if (!sameCursor) {
+        cursorsRef.current.set(listPage, oldest);
         pageReadsRef.current.set(listPage, "loaded");
         setCursorEpoch((epoch) => epoch + 1);
       }
+      pageHasMoreRef.current.set(listPage, result.hasMore);
       pageReadAtRef.current.set(listPage, Date.now());
       if (cancelled) {
         return;
@@ -716,7 +773,8 @@ export function useConversationSearch(
       // reader compares against.
       pageReadTokenRef.current.set(listPage, indexGeneration);
       setPageWindow({
-        afterRowId: lastRowId,
+        cursor: oldest,
+        hasMore: result.hasMore,
         indexToken: indexGeneration,
         query: debouncedQuery,
         rows: result.rows,
@@ -737,7 +795,7 @@ export function useConversationSearch(
     cursorEpoch,
     debouncedQuery,
     enabled,
-    headBoundaryRowId,
+    headCursor,
     // indexRefreshToken is a re-read trigger, not a value the body reads: an
     // on-demand page has to follow the index or it keeps answering a question
     // about a snapshot that has since moved.

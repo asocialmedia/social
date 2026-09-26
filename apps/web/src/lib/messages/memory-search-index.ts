@@ -14,11 +14,13 @@ import {
   intersectPostingLists,
   rowListAdd,
   rowListRemove,
-  rowListToArray,
+  rowListToArrays,
+  selectNewestFirstWindow,
   unionPostingLists,
 } from "./search-index-format";
 import type {
   SearchIndexConversationSummary,
+  SearchIndexPostingList,
   SearchIndexMeta,
   SearchIndexRowList,
   SearchIndexRowLookup,
@@ -69,6 +71,13 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
     conversationId: string,
     token: string
   ) => Promise<Uint32Array>;
+  // The creation time beside each row of a stored posting list, for the same
+  // callers as `readPostingList`. Split rather than one accessor because almost
+  // every caller wants only the rows.
+  readPostingTimes: (
+    conversationId: string,
+    token: string
+  ) => Promise<Float64Array>;
   // Test affordance: the live posting map, for structural assertions.
   postingFor: (conversationId: string) => Map<string, SearchIndexRowList>;
   tokenCount: (conversationId: string) => number;
@@ -151,7 +160,13 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
           }
         }
         for (const token of tokens) {
-          rowListAdd(listFor(index, token), row);
+          // A rewrite keeps the row's original creation time: it is a fact about
+          // the message, not about the text currently indexed, and re-deriving it
+          // from the incoming entry would let a stale device reorder history.
+          const createdAt = index.table.createdAtByRow[row];
+          if (createdAt !== undefined) {
+            rowListAdd(listFor(index, token), row, createdAt);
+          }
         }
         index.tokensByRow.set(row, tokens);
         // internRows only fills the preview for new rows; an edit rewrites the
@@ -175,51 +190,63 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
     // key is a stored field. In memory there is nothing to look up by id.
     query(conversationId, tokens, limit, options) {
       const index = indexFor(conversationId);
+      const empty: SearchIndexPostingList = {
+        rows: new Uint32Array(0),
+        times: new Float64Array(0),
+      };
       const lists = tokens.map((token) => {
         const list = index.posting.get(token);
-        return list ? rowListToArray(list) : new Uint32Array(0);
+        return list ? rowListToArrays(list) : empty;
       });
       const prefix = options?.prefix;
       if (prefix !== undefined) {
         const expansions = expandPrefixTerm([...index.posting.keys()], prefix);
         if (expansions.length === 0) {
-          return Promise.resolve({ rows: new Map(), totalMatched: 0 });
+          return Promise.resolve({
+            hasMore: false,
+            rows: new Map(),
+            totalMatched: 0,
+          });
         }
         lists.push(
           unionPostingLists(
             expansions.map((term) => {
               const list = index.posting.get(term);
-              return list ? rowListToArray(list) : new Uint32Array(0);
+              return list ? rowListToArrays(list) : empty;
             })
           )
         );
       }
-      const { rows, totalMatched } = intersectPostingLists(
-        lists,
+      const { matches, totalMatched } = intersectPostingLists(lists);
+      const { hasMore, window } = selectNewestFirstWindow(
+        matches,
         limit,
-        options?.afterRowId
+        options?.afterMatch
       );
       const { table } = index;
+      // Only the WINDOW is resolved to facts, never the whole match set: row
+      // resolution is the expensive half of a keystroke, and the cap is what
+      // bounds it. The total above is exact regardless.
       const resolved: SearchIndexRowLookup = new Map();
-      for (const row of rows) {
-        const messageId = table.messageIdByRow[row];
+      for (const match of window) {
+        const messageId = table.messageIdByRow[match.row];
         if (messageId === undefined) {
           continue;
         }
-        resolved.set(row, {
-          createdAt: table.createdAtByRow[row] ?? 0,
+        resolved.set(match.row, {
+          createdAt: table.createdAtByRow[match.row] ?? match.createdAt,
           messageId,
-          preview: table.previewByRow[row] ?? "",
-          senderId: table.senderIdByRow[row] ?? "",
+          preview: table.previewByRow[match.row] ?? "",
+          senderId: table.senderIdByRow[match.row] ?? "",
         });
       }
-      return Promise.resolve({ rows: resolved, totalMatched });
+      return Promise.resolve({ hasMore, rows: resolved, totalMatched });
     },
 
     readAllPostingLists(conversationId) {
       const out = new Map<string, Uint32Array>();
       for (const [token, list] of indexFor(conversationId).posting) {
-        out.set(token, rowListToArray(list));
+        out.set(token, rowListToArrays(list).rows);
       }
       return Promise.resolve(out);
     },
@@ -241,7 +268,16 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       const list = indexFor(conversationId).posting.get(token);
       // Materialized into a fresh array, so a caller cannot mutate the store's
       // list by accident.
-      return Promise.resolve(list ? rowListToArray(list) : new Uint32Array(0));
+      return Promise.resolve(
+        list ? rowListToArrays(list).rows : new Uint32Array(0)
+      );
+    },
+
+    readPostingTimes(conversationId: string, token: string) {
+      const list = indexFor(conversationId).posting.get(token);
+      return Promise.resolve(
+        list ? rowListToArrays(list).times : new Float64Array(0)
+      );
     },
 
     // Resolves only the requested rows. The in-memory backend happens to hold the

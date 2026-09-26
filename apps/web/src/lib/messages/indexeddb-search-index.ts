@@ -9,7 +9,15 @@
 //   header    conversationId                -> { dictionary, nextRow, version }
 //   rows      [conversationId, rowIdString] -> { createdAt, messageId, present, preview, senderId, tokenIds, version }
 //   row-ids   [conversationId, messageId]   -> row id
-//   postings  [conversationId, "t" + tokenId] -> Uint32Array of row ids
+//   postings  [conversationId, "t" + tokenId] -> { rows, times, version } per token
+//
+// A posting list is a PAIR of parallel arrays, not a flat list of row ids. The
+// time is what a page is ordered by: row ids are handed out in the order this
+// device interned rows, and on a conversation indexed by a backfill descending
+// from the newest page that order is INVERTED with respect to time (measured on
+// the 200k fixture: row 975 is the newest message, row 44416 the oldest). Carrying
+// the time beside the row is what makes the pager's keyset a real seam; see
+// `selectNewestFirstWindow`.
 //   meta      conversationId                -> coverage cursor
 //   pending   conversationId                -> ids not searchable yet
 //
@@ -61,15 +69,17 @@ import {
   intersectPostingLists,
   rowListAdd,
   rowListRemoveMany,
-  rowListToArray,
+  rowListToArrays,
   searchIndexRowListFrom,
   SEARCH_INDEX_FORMAT_VERSION,
+  selectNewestFirstWindow,
   unionPostingLists,
 } from "./search-index-format";
 import type {
   SearchIndexConversationSummary,
   SearchIndexEntry,
   SearchIndexMeta,
+  SearchIndexPostingList,
   SearchIndexQueryResult,
   SearchIndexRowFacts,
   SearchIndexRowLookup,
@@ -267,6 +277,7 @@ function drainCursor(
 // One row's effect on the index: the token ids it now belongs to, and the ones it
 // no longer does.
 export interface TokenRowMutation {
+  createdAt: number;
   droppedTokenIds: number[];
   row: number;
   tokenIds: number[];
@@ -290,7 +301,7 @@ export interface TokenListUpdate {
 // backfill's own next read queued behind it and never ran. Per distinct token the
 // same page is ~120 requests.
 //
-// Rows are sorted ascending because that is what `rowListToArray` would produce
+// Rows are sorted ascending because that is what `rowListToArrays` would produce
 // anyway, so the stored bytes are unchanged, and because appending in order keeps
 // `rowListAdd`'s O(1) path instead of falling back to its duplicate scan.
 //
@@ -348,13 +359,18 @@ export function planTokenListUpdates(
 async function writePostingList(
   store: IDBObjectStore,
   key: [string, string],
-  list: Uint32Array
+  list: SearchIndexPostingList
 ): Promise<void> {
-  if (list.length === 0) {
+  if (list.rows.length === 0) {
     await requestAsPromise(store.delete(key));
     return;
   }
-  await requestAsPromise(store.put(list, key));
+  const record: StoredPostingList = {
+    rows: list.rows,
+    times: list.times,
+    version: SEARCH_INDEX_FORMAT_VERSION,
+  };
+  await requestAsPromise(store.put(record, key));
 }
 
 // ---- stored records ----------------------------------------------------------
@@ -448,6 +464,39 @@ function isStoredMeta(value: unknown): value is SearchIndexMeta {
   );
 }
 
+// A stored posting list: the rows, and the creation time of each.
+//
+// Both arrays travel in one record because they must agree. Split across two
+// records, a write that died between them would leave a list whose times belong
+// to a different set of rows, and the pager would order messages by each other's
+// creation times -- wrong results with nothing visibly broken.
+interface StoredPostingList {
+  rows: Uint32Array;
+  times: Float64Array;
+  version: number;
+}
+
+function isStoredPostingList(value: unknown): value is StoredPostingList {
+  return (
+    isCurrentVersion(value) &&
+    "rows" in value &&
+    value.rows instanceof Uint32Array &&
+    "times" in value &&
+    value.times instanceof Float64Array
+  );
+}
+
+// Reads a stored posting list, or an empty one when the record is absent or is a
+// shape this build cannot interpret. Empty rather than an error: a v6 list is a
+// bare Uint32Array with no times at all, and the write path resets the whole
+// conversation for those, so a read only has to not crash on one.
+function postingListFrom(stored: unknown): SearchIndexPostingList {
+  if (!isStoredPostingList(stored)) {
+    return EMPTY_POSTING_LIST;
+  }
+  return { rows: stored.rows, times: stored.times };
+}
+
 function isConversationKey(key: IDBValidKey): key is string {
   return typeof key === "string";
 }
@@ -461,8 +510,13 @@ function emptyHeader(): StoredHeader {
 }
 
 function emptyQueryResult(): SearchIndexQueryResult {
-  return { rows: new Map(), totalMatched: 0 };
+  return { hasMore: false, rows: new Map(), totalMatched: 0 };
 }
+
+const EMPTY_POSTING_LIST: SearchIndexPostingList = {
+  rows: new Uint32Array(0),
+  times: new Float64Array(0),
+};
 
 // ---- keys --------------------------------------------------------------------
 
@@ -747,7 +801,11 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
               droppedTokenIds.push(oldTokenId);
             }
           }
-          mutations.push({ droppedTokenIds, row, tokenIds });
+          // The row's ORIGINAL creation time, not the incoming entry's: an edit
+          // carries the same message, and a stale device must not be able to
+          // reorder history by rewriting a row with a different timestamp.
+          const createdAt = previous?.createdAt ?? entry.createdAt;
+          mutations.push({ createdAt, droppedTokenIds, row, tokenIds });
           // A rewrite carries the row's current preview: the facts cache may
           // hold the previous text, and removals already invalidate, so a
           // write that changes facts must too.
@@ -784,19 +842,21 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         for (const [tokenId, update] of plans) {
           const key = postingKeyForId(conversationId, tokenId);
           const list = searchIndexRowListFrom(
-            (await requestAsPromise<Uint32Array | undefined>(
-              postingsStore.get(key)
-            )) ?? new Uint32Array(0)
+            postingListFrom(
+              await requestAsPromise<unknown>(postingsStore.get(key))
+            )
           );
           // Drops before adds, so a row that both leaves and rejoins the same
           // token in one batch ends up a member.
           if (update.drop.length > 0) {
             rowListRemoveMany(list, new Set(update.drop));
           }
-          for (const row of update.add) {
-            rowListAdd(list, row);
+          for (const mutation of mutations) {
+            if (update.add.includes(mutation.row)) {
+              rowListAdd(list, mutation.row, mutation.createdAt);
+            }
           }
-          await writePostingList(postingsStore, key, rowListToArray(list));
+          await writePostingList(postingsStore, key, rowListToArrays(list));
         }
         // oxlint-enable no-await-in-loop
         if (allocatorMoved || dictionaryGrew) {
@@ -985,7 +1045,7 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
           async (tx) => {
             const read = await readHeader(tx, conversationId);
             if (read.kind !== "usable") {
-              return { rows: [], totalMatched: 0 };
+              return { hasMore: false, totalMatched: 0, windowRows: [] };
             }
             const { header } = read;
             const tokenIdByText = new Map(
@@ -1000,27 +1060,29 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
             for (const token of tokens) {
               const tokenId = tokenIdByText.get(token);
               if (tokenId === undefined) {
-                return { rows: [], totalMatched: 0 };
+                return { hasMore: false, totalMatched: 0, windowRows: [] };
               }
               wanted.push(tokenId);
             }
             const postingsStore = tx.objectStore(POSTINGS_STORE);
-            const lists: Uint32Array[] = [];
+            const lists: SearchIndexPostingList[] = [];
             // oxlint-disable no-await-in-loop -- sequential point reads on one transaction; Promise.all would issue requests outside its lifetime
             for (const tokenId of wanted) {
               lists.push(
-                (await requestAsPromise<Uint32Array | undefined>(
-                  postingsStore.get(postingKeyForId(conversationId, tokenId))
-                )) ?? new Uint32Array(0)
+                postingListFrom(
+                  await requestAsPromise<unknown>(
+                    postingsStore.get(postingKeyForId(conversationId, tokenId))
+                  )
+                )
               );
             }
             const prefix = options?.prefix;
             if (prefix !== undefined) {
               const expansions = expandPrefixTerm(header.dictionary, prefix);
               if (expansions.length === 0) {
-                return { rows: [], totalMatched: 0 };
+                return { hasMore: false, totalMatched: 0, windowRows: [] };
               }
-              const expansionLists: Uint32Array[] = [];
+              const expansionLists: SearchIndexPostingList[] = [];
               for (const term of expansions) {
                 // Came from the dictionary just read, so the id exists; the
                 // posting itself may still be absent for a term added but never
@@ -1028,24 +1090,42 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
                 const tokenId = tokenIdByText.get(term) ?? -1;
                 expansionLists.push(
                   tokenId < 0
-                    ? new Uint32Array(0)
-                    : ((await requestAsPromise<Uint32Array | undefined>(
-                        postingsStore.get(
-                          postingKeyForId(conversationId, tokenId)
+                    ? EMPTY_POSTING_LIST
+                    : postingListFrom(
+                        await requestAsPromise<unknown>(
+                          postingsStore.get(
+                            postingKeyForId(conversationId, tokenId)
+                          )
                         )
-                      )) ?? new Uint32Array(0))
+                      )
                 );
               }
               lists.push(unionPostingLists(expansionLists));
             }
             // oxlint-enable no-await-in-loop
-            return intersectPostingLists(lists, limit, options?.afterRowId);
+            // Intersect first, then cut the window. Both run inside this one
+            // transaction, so the window and the total it is reported beside come
+            // from the same snapshot of the dictionary and the posting lists: a
+            // dictionary that moved between them would adopt another word's list
+            // and inflate the count.
+            const { matches, totalMatched } = intersectPostingLists(lists);
+            const { hasMore, window } = selectNewestFirstWindow(
+              matches,
+              limit,
+              options?.afterMatch
+            );
+            return {
+              hasMore,
+              totalMatched,
+              windowRows: window.map((match) => match.row),
+            };
           }
         );
-        if (intersection.rows.length === 0) {
+        if (intersection.windowRows.length === 0) {
           // The count is the FULL intersection, and it survives an empty page of
           // resolved rows: the result bar renders "n of N" from it.
           return {
+            hasMore: intersection.hasMore,
             rows: new Map<number, SearchIndexRowFacts>(),
             totalMatched: intersection.totalMatched,
           };
@@ -1054,8 +1134,15 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         // transaction with the posting reads. A row deleted between the two is
         // simply absent from `rows`: it was already on its way out, and the
         // matched rows' own facts cannot change.
-        const rows = await resolveRowFacts(conversationId, intersection.rows);
-        return { rows, totalMatched: intersection.totalMatched };
+        const rows = await resolveRowFacts(
+          conversationId,
+          intersection.windowRows
+        );
+        return {
+          hasMore: intersection.hasMore,
+          rows,
+          totalMatched: intersection.totalMatched,
+        };
       })();
     },
 
@@ -1079,11 +1166,13 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
           const out = new Map<string, Uint32Array>();
           // oxlint-disable no-await-in-loop -- sequential point reads on one transaction
           for (const [tokenId, token] of header.dictionary.entries()) {
-            const list = await requestAsPromise<Uint32Array | undefined>(
-              postingsStore.get(postingKeyForId(conversationId, tokenId))
+            const list = postingListFrom(
+              await requestAsPromise<unknown>(
+                postingsStore.get(postingKeyForId(conversationId, tokenId))
+              )
             );
-            if (list && list.length > 0) {
-              out.set(token, list);
+            if (list.rows.length > 0) {
+              out.set(token, list.rows);
             }
           }
           // oxlint-enable no-await-in-loop
@@ -1201,15 +1290,15 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
           const rowsToRemove = new Set(removedRows);
           for (const tokenId of affectedTokenIds) {
             const key = postingKeyForId(conversationId, tokenId);
-            const existing = await requestAsPromise<Uint32Array | undefined>(
-              postingsStore.get(key)
+            const existing = postingListFrom(
+              await requestAsPromise<unknown>(postingsStore.get(key))
             );
-            if (!existing) {
+            if (existing.rows.length === 0) {
               continue;
             }
             const list = searchIndexRowListFrom(existing);
             rowListRemoveMany(list, rowsToRemove);
-            await writePostingList(postingsStore, key, rowListToArray(list));
+            await writePostingList(postingsStore, key, rowListToArrays(list));
           }
           // oxlint-enable no-await-in-loop
         }

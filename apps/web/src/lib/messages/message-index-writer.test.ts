@@ -9,7 +9,10 @@ import type {
   IndexableMessage,
   IndexablePayload,
 } from "./message-index-writer";
-import { intersectPostingLists } from "./search-index-format";
+import {
+  intersectPostingLists,
+  selectNewestFirstWindow,
+} from "./search-index-format";
 import type { SearchIndexStore } from "./search-index-format";
 
 const CONVO = "c1";
@@ -51,8 +54,13 @@ async function idsFor(
   token: string
 ): Promise<string[]> {
   const list = await store.readPostingList(CONVO, token);
-  const { rows } = intersectPostingLists([list], 1000);
-  const resolved = await store.readRows(CONVO, Uint32Array.from(rows));
+  const times = await store.readPostingTimes(CONVO, token);
+  const { matches } = intersectPostingLists([{ rows: list, times }]);
+  const { window } = selectNewestFirstWindow(matches, 1000);
+  const resolved = await store.readRows(
+    CONVO,
+    Uint32Array.from(window.map((match) => match.row))
+  );
   return [...resolved.values()].map((facts) => facts.messageId);
 }
 

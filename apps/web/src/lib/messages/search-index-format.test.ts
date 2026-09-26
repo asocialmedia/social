@@ -17,14 +17,20 @@ import {
   rowListAdd,
   rowListRemove,
   rowListRemoveMany,
-  rowListToArray,
+  rowListToArrays,
   searchIndexRowListFrom,
+  selectNewestFirstWindow,
+  windowCursor,
   SEARCH_INDEX_FORMAT_VERSION,
   SEARCH_INDEX_PREVIEW_LENGTH,
   SEARCH_INDEX_QUERY_LIMIT,
   unionPostingLists,
 } from "./search-index-format";
-import type { SearchIndexEntry, SearchIndexStore } from "./search-index-format";
+import type {
+  SearchIndexPostingList,
+  SearchIndexEntry,
+  SearchIndexStore,
+} from "./search-index-format";
 
 type Store = SearchIndexStore & {
   conversations: () => string[];
@@ -159,69 +165,107 @@ describe("internRows", () => {
   });
 });
 
+// A stored posting list, as a reader gets it. `times` defaults to a value derived
+// from the row so a test that only cares about membership does not have to invent
+// timestamps -- and, importantly, so the DEFAULT is a time order that DISAGREES
+// with the row order. Every ordering bug this index had was a row id standing in
+// for a timestamp, and a fixture where the two agree cannot catch one.
+function postingList(rows: number[], times?: number[]): SearchIndexPostingList {
+  return {
+    rows: Uint32Array.from(rows),
+    times: Float64Array.from(times ?? rows.map((row) => 5000 - row)),
+  };
+}
+
 describe("posting list growth", () => {
   test("appends in order and stays sorted", () => {
     const list = emptySearchIndexRowList();
-    rowListAdd(list, 1);
-    rowListAdd(list, 3);
-    rowListAdd(list, 2);
-    expect([...rowListToArray(list)]).toEqual([1, 2, 3]);
+    rowListAdd(list, 1, 1000 + 1);
+    rowListAdd(list, 3, 1000 + 3);
+    rowListAdd(list, 2, 1000 + 2);
+    expect([...rowListToArrays(list).rows]).toEqual([1, 2, 3]);
     expect(list.sorted).toBe(true);
   });
 
   test("ignores a row it already holds, so a retried batch cannot duplicate", () => {
     const list = emptySearchIndexRowList();
-    rowListAdd(list, 4);
-    rowListAdd(list, 4);
-    expect([...rowListToArray(list)]).toEqual([4]);
+    rowListAdd(list, 4, 1000 + 4);
+    rowListAdd(list, 4, 1000 + 4);
+    expect([...rowListToArrays(list).rows]).toEqual([4]);
   });
 
   test("removes a row and compacts the rest", () => {
     const list = emptySearchIndexRowList();
     for (const row of [5, 6, 7]) {
-      rowListAdd(list, row);
+      rowListAdd(list, row, 1000 + row);
     }
     rowListRemove(list, 6);
-    expect([...rowListToArray(list)]).toEqual([5, 7]);
+    expect([...rowListToArrays(list).rows]).toEqual([5, 7]);
   });
 
   test("ignores a removal of a row it never held", () => {
-    const list = searchIndexRowListFrom(new Uint32Array([1, 2]));
+    const list = searchIndexRowListFrom(postingList([1, 2]));
     rowListRemove(list, 9);
-    expect([...rowListToArray(list)]).toEqual([1, 2]);
+    expect([...rowListToArrays(list).rows]).toEqual([1, 2]);
   });
 
   test("sorts a list that was built out of order", () => {
     const list = emptySearchIndexRowList();
-    rowListAdd(list, 9);
-    rowListAdd(list, 2);
+    rowListAdd(list, 9, 1000 + 9);
+    rowListAdd(list, 2, 1000 + 2);
     expect(list.sorted).toBe(false);
-    expect([...rowListToArray(list)]).toEqual([2, 9]);
+    expect([...rowListToArrays(list).rows]).toEqual([2, 9]);
     expect(list.sorted).toBe(true);
   });
 
   test("removes many rows in one pass", () => {
     const list = emptySearchIndexRowList();
     for (let row = 0; row < 10; row += 1) {
-      rowListAdd(list, row);
+      rowListAdd(list, row, 1000 + row);
     }
     rowListRemoveMany(list, new Set([2, 5, 9]));
-    expect([...rowListToArray(list)]).toEqual([0, 1, 3, 4, 6, 7, 8]);
+    expect([...rowListToArrays(list).rows]).toEqual([0, 1, 3, 4, 6, 7, 8]);
   });
 
   test("a bulk removal of rows it never held changes nothing", () => {
-    const list = searchIndexRowListFrom(new Uint32Array([1, 2]));
+    const list = searchIndexRowListFrom(postingList([1, 2]));
     rowListRemoveMany(list, new Set([7, 8]));
-    expect([...rowListToArray(list)]).toEqual([1, 2]);
+    expect([...rowListToArrays(list).rows]).toEqual([1, 2]);
   });
 
   test("adopts a stored list and notices when it was not sorted", () => {
-    expect(searchIndexRowListFrom(new Uint32Array([1, 2, 3])).sorted).toBe(
-      true
-    );
-    expect(searchIndexRowListFrom(new Uint32Array([3, 1, 2])).sorted).toBe(
-      false
-    );
+    expect(searchIndexRowListFrom(postingList([1, 2, 3])).sorted).toBe(true);
+    expect(searchIndexRowListFrom(postingList([3, 1, 2])).sorted).toBe(false);
+  });
+
+  // A stored list whose two arrays disagree cannot be repaired without guessing
+  // which half is authoritative, and guessing attributes one message's creation
+  // time to another message. It reads as empty, which costs a re-index; a wrong
+  // read costs wrong results with nothing visibly broken.
+  test("a list whose rows and times disagree in length reads as empty", () => {
+    const truncated = searchIndexRowListFrom({
+      rows: Uint32Array.from([1, 2, 3]),
+      times: Float64Array.from([10]),
+    });
+    expect(truncated.length).toBe(1);
+    const missingTimes = searchIndexRowListFrom({
+      rows: Uint32Array.from([1, 2]),
+      times: new Float64Array(0),
+    });
+    expect(missingTimes.length).toBe(0);
+  });
+
+  // The invariant every other ordering guarantee rests on: a time never leaves
+  // the row it belongs to.
+  test("removal and re-sorting keep every time with its own row", () => {
+    const list = emptySearchIndexRowList();
+    rowListAdd(list, 7, 700);
+    rowListAdd(list, 2, 200);
+    rowListAdd(list, 5, 500);
+    rowListRemove(list, 2);
+    const { rows, times } = rowListToArrays(list);
+    expect([...rows]).toEqual([5, 7]);
+    expect([...times]).toEqual([500, 700]);
   });
 
   // The quadratic-write regression: a posting list is a typed array, so an
@@ -234,7 +278,7 @@ describe("posting list growth", () => {
     const list = emptySearchIndexRowList();
     const TOTAL = 10_000;
     for (let row = 0; row < TOTAL; row += 1) {
-      rowListAdd(list, row);
+      rowListAdd(list, row, 1000 + row);
     }
     expect(list.length).toBe(TOTAL);
     expect(list.values.length).toBeGreaterThanOrEqual(TOTAL);
@@ -246,7 +290,7 @@ describe("posting list growth", () => {
     const list = emptySearchIndexRowList();
     const start = performance.now();
     for (let row = 0; row < 10_000; row += 1) {
-      rowListAdd(list, row);
+      rowListAdd(list, row, 1000 + row);
     }
     // Copying per add costs ~50M element copies here, which is seconds. The
     // bound is loose enough for a loaded CI box and still catches a regression.
@@ -291,116 +335,200 @@ describe("expandPrefixTerm", () => {
 
 describe("unionPostingLists", () => {
   test("unions with de-duplication in ascending order", () => {
-    expect(
-      unionPostingLists([
-        Uint32Array.from([1, 4, 9]),
-        Uint32Array.from([4, 5]),
-        Uint32Array.from([]),
-      ])
-    ).toEqual(Uint32Array.from([1, 4, 5, 9]));
+    const union = unionPostingLists([
+      postingList([1, 4, 9], [100, 400, 900]),
+      postingList([4, 5], [400, 500]),
+      postingList([]),
+    ]);
+    expect([...union.rows]).toEqual([1, 4, 5, 9]);
+  });
+
+  // A row's time has to travel WITH it through the union. Pairing row ids from
+  // one list with times from another would produce a list that looks right and
+  // orders the page by the wrong messages' times.
+  test("every row keeps its own time through the union", () => {
+    const union = unionPostingLists([
+      postingList([1, 4, 9], [100, 400, 900]),
+      postingList([4, 5], [4400, 500]),
+    ]);
+    expect([...union.rows]).toEqual([1, 4, 5, 9]);
+    // 400, not 4400: the first occurrence of a row wins, and the two agree on
+    // every row they share in a correct index.
+    expect([...union.times]).toEqual([100, 400, 500, 900]);
   });
 
   test("empty in, empty out", () => {
-    expect(unionPostingLists([])).toEqual(new Uint32Array(0));
+    const union = unionPostingLists([]);
+    expect(union.rows.length).toBe(0);
+    expect(union.times.length).toBe(0);
+  });
+});
+
+describe("selectNewestFirstWindow", () => {
+  // Row ids DESCEND with message age here, which is the shape the backfill
+  // produces: the newest page is indexed first, so the newest message holds the
+  // LOWEST row. This is the inversion the old row-id keyset assumed away, and it
+  // is why every fixture here deliberately disagrees between the two orders.
+  const matches = [
+    { createdAt: 100, row: 0 },
+    { createdAt: 300, row: 2 },
+    { createdAt: 200, row: 1 },
+  ];
+
+  test("orders by time, not by row id", () => {
+    const { window } = selectNewestFirstWindow(matches, 10);
+    expect(window).toEqual([
+      { createdAt: 300, row: 2 },
+      { createdAt: 200, row: 1 },
+      { createdAt: 100, row: 0 },
+    ]);
+  });
+
+  test("a cursor pages strictly older, never repeating the boundary", () => {
+    const first = selectNewestFirstWindow(matches, 2);
+    expect(first.window).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+    const cursor = windowCursor(first.window);
+    const second = selectNewestFirstWindow(matches, 2, cursor ?? undefined);
+    expect(second.window).toEqual([{ createdAt: 100, row: 0 }]);
+    expect(second.hasMore).toBe(false);
+    // Strictly past: the boundary is not re-served.
+    expect(second.window).not.toContain(cursor);
+  });
+
+  test("walking every page covers the set exactly once", () => {
+    const many = Array.from({ length: 25 }, (_, index) => ({
+      // Reversed against the row id on purpose.
+      createdAt: 1000 - index,
+      row: 24 - index,
+    }));
+    const seen: number[] = [];
+    let cursor: SearchIndexCursor | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const { hasMore, window } = selectNewestFirstWindow(many, 10, cursor);
+      seen.push(...window.map((match) => match.row));
+      cursor = windowCursor(window) ?? undefined;
+      if (!hasMore) {
+        break;
+      }
+    }
+    expect(seen).toHaveLength(25);
+    expect(new Set(seen).size).toBe(25);
+  });
+
+  // Same-millisecond sends are ordinary, and an order that is not total cannot be
+  // keyed: a cursor landing inside a tie group would be ambiguous, and a pager
+  // over an ambiguous order repeats and drops rows.
+  test("same-millisecond messages are ordered by row and never split across a page", () => {
+    const tied = [
+      { createdAt: 100, row: 0 },
+      { createdAt: 100, row: 1 },
+      { createdAt: 100, row: 2 },
+    ];
+    const first = selectNewestFirstWindow(tied, 2);
+    expect(first.window).toEqual([
+      { createdAt: 100, row: 0 },
+      { createdAt: 100, row: 1 },
+    ]);
+    const second = selectNewestFirstWindow(
+      tied,
+      2,
+      windowCursor(first.window) ?? undefined
+    );
+    expect(second.window).toEqual([{ createdAt: 100, row: 2 }]);
+    expect(second.hasMore).toBe(false);
+  });
+
+  test("a cursor past the oldest match yields an empty page", () => {
+    const result = selectNewestFirstWindow(matches, 10, {
+      createdAt: 50,
+      row: 99,
+    });
+    expect(result.window).toEqual([]);
+    expect(result.hasMore).toBe(false);
+  });
+
+  test("an empty match set or a non-positive limit yields nothing", () => {
+    expect(selectNewestFirstWindow([], 10)).toEqual({
+      hasMore: false,
+      window: [],
+    });
+    expect(selectNewestFirstWindow(matches, 0)).toEqual({
+      hasMore: false,
+      window: [],
+    });
+  });
+
+  test("a window's cursor is its OLDEST row, and an empty window has none", () => {
+    expect(windowCursor(selectNewestFirstWindow(matches, 2).window)).toEqual({
+      createdAt: 200,
+      row: 1,
+    });
+    expect(windowCursor([])).toBeNull();
   });
 });
 
 describe("intersectPostingLists", () => {
-  // Row ids ascend with insertion order, so descending row id is
-  // newest-indexed-first. Timestamps are no longer this function's concern: the
-  // rows are not known until it returns, and the caller reorders once it has
-  // resolved their facts.
-  const deploy = new Uint32Array([0, 1, 2]);
-  const latency = new Uint32Array([0, 2]);
+  // No ordering and no cap here any more, deliberately. This used to return the
+  // `limit` highest row ids, which was only the newest matches if row ids
+  // ascend with message age -- and on a conversation indexed by a backfill
+  // descending from the newest page they DESCEND with time, so the "newest" page
+  // was the oldest 2,000 matches and every page after it was empty or a repeat.
+  // The time now rides in the list, and `selectNewestFirstWindow` below owns both
+  // the order and the cut.
+  const deploy = postingList([0, 1, 2], [300, 200, 100]);
+  const latency = postingList([0, 2], [300, 100]);
 
-  test("returns the newest-indexed matches first", () => {
-    const { rows } = intersectPostingLists([deploy], 100);
-    expect(rows).toEqual([2, 1, 0]);
-  });
-
-  test("intersects multiple tokens (AND semantics)", () => {
-    const { rows } = intersectPostingLists([deploy, latency], 100);
-    expect(rows).toEqual([2, 0]);
-  });
-
-  test("returns nothing for an unknown token", () => {
-    expect(intersectPostingLists([new Uint32Array(0)], 100)).toEqual({
-      rows: [],
-      totalMatched: 0,
-    });
-  });
-
-  test("returns nothing for an empty token list or a non-positive limit", () => {
-    expect(intersectPostingLists([], 100)).toEqual({
-      rows: [],
-      totalMatched: 0,
-    });
-    expect(intersectPostingLists([deploy], 0)).toEqual({
-      rows: [],
-      totalMatched: 0,
-    });
-  });
-
-  test("reports the full total even when the rows are capped", () => {
-    const { rows, totalMatched } = intersectPostingLists([deploy], 2);
-    // The bar renders "n of N", so a capped scan must not report a capped N.
-    expect(rows.length).toBe(2);
+  test("returns every match, carrying each row's time", () => {
+    const { matches, totalMatched } = intersectPostingLists([deploy]);
+    expect(matches).toEqual([
+      { createdAt: 300, row: 0 },
+      { createdAt: 200, row: 1 },
+      { createdAt: 100, row: 2 },
+    ]);
     expect(totalMatched).toBe(3);
   });
 
-  test("the cap keeps the newest-indexed rows", () => {
-    const { rows } = intersectPostingLists([deploy], 1);
-    expect(rows).toEqual([2]);
+  test("intersects multiple tokens (AND semantics)", () => {
+    const { matches } = intersectPostingLists([deploy, latency]);
+    expect(matches).toEqual([
+      { createdAt: 300, row: 0 },
+      { createdAt: 100, row: 2 },
+    ]);
   });
 
-  // The paging keyset. The reported bug was a list capped at 2,000 while the
-  // counter read 24k: the head query is bounded by what the keystroke path can
-  // afford to resolve, so pages past it have to be read on demand. These pin the
-  // two properties that makes that safe -- no row repeated across a seam, and no
-  // row skipped -- plus the exact total on every page.
-  test("afterRowId pages strictly below the cursor, never repeating a row", () => {
-    const first = intersectPostingLists([deploy], 2);
-    expect(first.rows).toEqual([2, 1]);
-    const cursor = first.rows.at(-1);
-    const second = intersectPostingLists([deploy], 2, cursor);
-    expect(second.rows).toEqual([0]);
-    // Strictly below: the boundary row is not re-served.
-    expect(second.rows).not.toContain(cursor);
+  test("returns nothing for an unknown token", () => {
+    expect(intersectPostingLists([postingList([])])).toEqual({
+      matches: [],
+      totalMatched: 0,
+    });
   });
 
-  test("walking every page covers the whole set exactly once", () => {
-    const seen: number[] = [];
-    let cursor: number | undefined;
-    for (let page = 0; page < 5; page += 1) {
-      const result = intersectPostingLists([deploy], 2, cursor);
-      seen.push(...result.rows);
-      // The total never changes with the window asked for.
-      expect(result.totalMatched).toBe(3);
-      const last = result.rows.at(-1);
-      if (last === undefined) {
-        break;
-      }
-      cursor = last;
-    }
-    expect(seen.toSorted((left, right) => left - right)).toEqual([0, 1, 2]);
+  test("returns nothing for an empty token list", () => {
+    expect(intersectPostingLists([])).toEqual({
+      matches: [],
+      totalMatched: 0,
+    });
   });
 
-  test("a cursor below the oldest row yields an empty page and the full total", () => {
-    // This is the last page: its boundary is the oldest match, so the next page
-    // finds nothing below it. Empty rows with the full total is what tells the
-    // pager it has reached the end instead of showing a blank middle page.
-    const result = intersectPostingLists([deploy], 20, 0);
-    expect(result.rows).toEqual([]);
-    expect(result.totalMatched).toBe(3);
+  test("the total is over the full intersection, not the window", () => {
+    const { matches, totalMatched } = intersectPostingLists([deploy, latency]);
+    const { window } = selectNewestFirstWindow(matches, 1);
+    expect(window).toHaveLength(1);
+    // The bar renders "n of N", so a windowed scan must not report a windowed N.
+    expect(totalMatched).toBe(2);
   });
 
   test("the keyset applies after the intersection, not before it", () => {
-    // `deploy` is [0,1,2] and the second list is [0,2], so the intersection is
-    // [0,2]. Cutting the candidate list before intersecting would report a total
-    // of 1 for a page that should report 2 with one row on it.
-    const second = Uint32Array.from([0, 2]);
-    const result = intersectPostingLists([deploy, second], 2, 1);
-    expect(result.rows).toEqual([0]);
+    // `deploy` holds [0,1,2] and the second list [0,2], so the intersection is
+    // two rows. Cutting the candidate list before intersecting would report a
+    // total of 1 for a page that should report 2 with one row on it.
+    const result = intersectPostingLists([deploy, latency]);
+    const { window } = selectNewestFirstWindow(result.matches, 1, {
+      createdAt: 200,
+      row: 1,
+    });
+    expect(window).toEqual([{ createdAt: 100, row: 2 }]);
     expect(result.totalMatched).toBe(2);
   });
 });
@@ -449,6 +577,14 @@ describe("memory search index store", () => {
   // The reported list-view bug: 24k matches in the counter, a list that stopped
   // at 2,000. The store has to serve windows on demand for paging to reach the
   // rest, and the seam has to be exact or rows would repeat or vanish.
+  // The reported list-view bug, in the shape that caused it: 24k matches in the
+  // counter and a list that stopped at 2,000. The store has to serve windows on
+  // demand for paging to reach the rest, and the seam has to be exact or rows
+  // repeat or vanish.
+  //
+  // `putEntries` interns in Map order, so row ids run OPPOSITE to the timestamps
+  // here -- the newest message gets row 0. A row-id keyset would page into
+  // nothing; this is the fixture that says so.
   test("pages through every match with no duplicate or gap at the seam", async () => {
     const entries = new Map<string, SearchIndexEntry>();
     for (let row = 0; row < 25; row += 1) {
@@ -456,12 +592,12 @@ describe("memory search index store", () => {
     }
     await store.putEntries("c1", entries);
     const seen: string[] = [];
-    let cursor: number | undefined;
+    let cursor: SearchIndexCursor | undefined;
     let total = 0;
     // oxlint-disable no-await-in-loop -- paging IS sequential: each window's keyset cursor is the previous window's last row, so there is nothing to parallelize and running them together would defeat the test
     for (let page = 0; page < 10; page += 1) {
       const result = await store.query("c1", ["deploy"], 10, {
-        afterRowId: cursor,
+        afterMatch: cursor,
       });
       // The total is the full set on every page, whatever window was asked for.
       total = result.totalMatched;
@@ -470,8 +606,19 @@ describe("memory search index store", () => {
         break;
       }
       seen.push(...ids);
-      const rows = [...result.rows.keys()];
-      cursor = Math.min(...rows);
+      // The OLDEST row in the window, by time. The rows map is keyed by row id
+      // and this is exactly where picking the lowest row id instead of the oldest
+      // message re-appears.
+      cursor =
+        windowCursor(
+          [...result.rows].map(([row, facts]) => ({
+            createdAt: facts.createdAt,
+            row,
+          }))
+        ) ?? undefined;
+      if (!result.hasMore) {
+        break;
+      }
     }
     // oxlint-enable no-await-in-loop
     expect(total).toBe(25);
@@ -479,6 +626,10 @@ describe("memory search index store", () => {
     expect(new Set(seen).size).toBe(25);
     expect(seen.toSorted()).toEqual(
       Array.from({ length: 25 }, (_, row) => `m${row}`).toSorted()
+    );
+    // And in time order, newest first, which is the order the list renders.
+    expect(seen).toEqual(
+      Array.from({ length: 25 }, (_, row) => `m${row}`).toReversed()
     );
   });
 
