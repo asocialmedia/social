@@ -82,7 +82,14 @@ const RIGHT_ITEMS: MobileNavItem[] = [
 
 // Routes with a mobile screen behind them. Everything else renders as a
 // disabled stub until its screen lands - no dead-feeling fake navigation.
-const LIVE_ROUTES = new Set(["/", "/gusts", "/discover", "/communities"]);
+// /messages is the only one still stubbed; HackerNews now has a screen.
+const LIVE_ROUTES = new Set([
+  "/",
+  "/gusts",
+  "/discover",
+  "/communities",
+  "/hackernews",
+]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
 // primary border and the inner lip, never a saturated fill. Light keys off
