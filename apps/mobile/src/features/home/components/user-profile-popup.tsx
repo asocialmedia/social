@@ -494,19 +494,23 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                     <Text style={styles.actionText}>View Profile</Text>
                   </LinearGradient>
                 </Pressable>
-                <View
-                  accessibilityLabel="Open settings (coming soon)"
+                <Pressable
+                  accessibilityLabel="Open settings"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => {
+                    router.push("/settings");
+                  }}
                   style={[
                     styles.iconBtn,
                     {
                       backgroundColor: theme.passkeyBg,
                       boxShadow: iconShadows,
                     },
-                    styles.stub,
                   ]}
                 >
                   <Settings2 color={theme.passkeyIcon} size={16} />
-                </View>
+                </Pressable>
                 <Pressable
                   accessibilityLabel="Log out"
                   accessibilityRole="button"

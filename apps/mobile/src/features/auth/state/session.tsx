@@ -68,6 +68,13 @@ interface SessionContextValue {
   signIn: (identifier: string, password: string) => Promise<SignInResult>;
   signInSocial: (provider: SocialProvider) => Promise<SocialResult>;
   signInPasskey: () => Promise<SignInResult>;
+  /**
+   * Re-reads the session. Anything that changes the signed-in user from
+   * outside the sign-in flows (a username or email change in settings, an
+   * unlinked provider) has to call this, or every surface that reads `user`
+   * keeps rendering the old identity until the app restarts.
+   */
+  refresh: () => Promise<void>;
   signOut: () => Promise<void>;
   user: SessionUser | null;
 }
@@ -114,8 +121,18 @@ async function withRedirectCapture<T>(
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { data, isPending } = authClient.useSession();
+  const { data, isPending, refetch } = authClient.useSession();
   const { runWithInstallToken } = useInstall();
+
+  const refresh = useCallback(async () => {
+    try {
+      await refetch();
+    } catch (error) {
+      // A failed revalidation leaves the previous identity in place, which is
+      // better than signing the user out over a transient network error.
+      logError("auth.session_refresh_failed", error);
+    }
+  }, [refetch]);
 
   const signIn = useCallback(
     async (identifier: string, password: string): Promise<SignInResult> => {
@@ -322,13 +339,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const sessionUser = rawUser as SessionUser | undefined;
     return {
       isPending,
+      refresh,
       signIn,
       signInPasskey,
       signInSocial,
       signOut,
       user: sessionUser ?? null,
     };
-  }, [data, isPending, signIn, signInPasskey, signInSocial, signOut]);
+  }, [data, isPending, refresh, signIn, signInPasskey, signInSocial, signOut]);
 
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

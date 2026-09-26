@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.74",
+  "version": "0.0.76",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {

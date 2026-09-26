@@ -7,7 +7,6 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import {
   AlertCircle,
   ArrowLeft,
@@ -702,9 +701,16 @@ export default function SignupScreen() {
                           I agree to the{" "}
                           <Text
                             onPress={() => {
-                              void WebBrowser.openBrowserAsync(
-                                "https://asocialmedia.cc/toc"
-                              );
+                              // In-app rather than the system browser: the
+                              // checkbox the user is ticking is part of the
+                              // signup flow, and both stores require the terms
+                              // to be readable without leaving the app. The
+                              // route resolves the document from the configured
+                              // API base, so a dev build reads dev's copy.
+                              router.push({
+                                params: { document: "terms" },
+                                pathname: "/legal/[document]",
+                              });
                             }}
                             style={[styles.fontMedium, { color: "#ff9500" }]}
                           >
@@ -713,9 +719,10 @@ export default function SignupScreen() {
                           and{" "}
                           <Text
                             onPress={() => {
-                              void WebBrowser.openBrowserAsync(
-                                "https://asocialmedia.cc/privacy"
-                              );
+                              router.push({
+                                params: { document: "privacy" },
+                                pathname: "/legal/[document]",
+                              });
                             }}
                             style={[styles.fontMedium, { color: "#ff9500" }]}
                           >

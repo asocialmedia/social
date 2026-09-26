@@ -109,6 +109,9 @@ export default function RootLayout() {
                 <Stack.Screen name="communities" />
                 <Stack.Screen name="communities/create" />
                 <Stack.Screen name="a/[slug]" />
+                <Stack.Screen name="legal/[document]" />
+                <Stack.Screen name="hashtag/[tag]" />
+                <Stack.Screen name="settings" />
                 <Stack.Screen name="(auth)" />
               </Stack>
               {/* Shown only when a mutating request needs the install credential
