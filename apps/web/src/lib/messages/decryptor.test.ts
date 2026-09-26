@@ -583,3 +583,157 @@ describe("message decryptor", () => {
     });
   });
 });
+
+// The urgent lane. On a fresh device the search backfill queues 500 rows every
+// 250ms and a search jump then asks for exactly one row -- the one the user is
+// looking at. Under a single FIFO queue that row waits behind hundreds of rows
+// nobody is waiting on, and the jump's own text budget expires while it sits
+// there. These pin the promotion.
+describe("decryptor urgent lane", () => {
+  test("an urgent request is served before everything already queued", async () => {
+    const started: string[] = [];
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        started.push(decryptItem.message.id);
+        // The first item holds the single slot so the queue behind it is real.
+        return started.length === 1 ? gate.promise : Promise.resolve(TEXT);
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+
+    decryptor.request([item("bg-1"), item("bg-2")], keys);
+    await settle(2);
+    expect(started).toEqual(["bg-1"]);
+
+    decryptor.requestUrgent([item("wanted")], keys);
+    gate.resolve(TEXT);
+    await settle();
+    // Straight past both queued rows.
+    expect(started).toEqual(["bg-1", "wanted", "bg-2"]);
+  });
+
+  // The row is already in the queue, so "requesting it again" must MOVE it rather
+  // than skip it as a duplicate or decrypt it twice.
+  test("an urgent request promotes a row that is already queued", async () => {
+    const started: string[] = [];
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        started.push(decryptItem.message.id);
+        return started.length === 1 ? gate.promise : Promise.resolve(TEXT);
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+
+    decryptor.request([item("bg-1"), item("bg-2"), item("target")], keys);
+    await settle(2);
+    expect(decryptor.get("target")).toBe("pending");
+    expect(started).toEqual(["bg-1"]);
+
+    decryptor.requestUrgent([item("target")], keys);
+    gate.resolve(TEXT);
+    await settle();
+    // Decrypted exactly once, and served before the two rows ahead of it.
+    expect(started).toEqual(["bg-1", "target", "bg-2"]);
+  });
+
+  test("a multi-row urgent request keeps the order it was asked in", async () => {
+    const started: string[] = [];
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        started.push(decryptItem.message.id);
+        return started.length === 1 ? gate.promise : Promise.resolve(TEXT);
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+
+    decryptor.request([item("bg")], keys);
+    await settle(2);
+    decryptor.requestUrgent([item("u1"), item("u2"), item("u3")], keys);
+    gate.resolve(TEXT);
+    await settle();
+    expect(started).toEqual(["bg", "u1", "u2", "u3"]);
+  });
+
+  test("an urgent request for a row already decrypting changes nothing", async () => {
+    const started: string[] = [];
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        started.push(decryptItem.message.id);
+        return gate.promise;
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+
+    decryptor.request([item("a")], keys);
+    await settle(2);
+    let notified = 0;
+    decryptor.subscribe(() => {
+      notified += 1;
+    });
+    decryptor.requestUrgent([item("a")], keys);
+    gate.resolve(TEXT);
+    await settle();
+    // Not re-queued, and no spurious notification for work that did not change.
+    expect(started).toEqual(["a"]);
+    expect(notified).toBe(1);
+  });
+
+  test("an urgent request for an already-decrypted row is a no-op", async () => {
+    const decryptor = createDecryptor({ decrypt: () => Promise.resolve(TEXT) });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toEqual(TEXT);
+    decryptor.requestUrgent([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toEqual(TEXT);
+  });
+
+  test("a re-queued background row does not jump the urgent lane", async () => {
+    const started: string[] = [];
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        started.push(decryptItem.message.id);
+        return started.length === 1 ? gate.promise : Promise.resolve(TEXT);
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+
+    decryptor.request([item("bg-1")], keys);
+    await settle(2);
+    decryptor.requestUrgent([item("wanted")], keys);
+    gate.resolve(TEXT);
+    await settle();
+    // An edit to a row that already decrypted: it is re-queued, and the urgent
+    // row still outranks it rather than being pushed back behind it.
+    decryptor.retry("bg-1");
+    decryptor.request([item("bg-1")], keys);
+    await settle();
+    expect(started).toEqual(["bg-1", "wanted", "bg-1"]);
+  });
+
+  test("a scope change drops urgent work with the rest of the queue", async () => {
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: () => gate.promise,
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("bg")], keys);
+    await settle(2);
+    decryptor.requestUrgent([item("wanted")], keys);
+    decryptor.configureScope("other-user");
+    expect(decryptor.get("bg")).toBeUndefined();
+    expect(decryptor.get("wanted")).toBeUndefined();
+  });
+});

@@ -85,6 +85,12 @@ import type { MessagePayload } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import { messageDecryptor } from "@/lib/messages/decryptor";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
+import { createHistoryReadCoordinator } from "@/lib/messages/history-read-coordinator";
+import type { HistoryReadToken } from "@/lib/messages/history-read-coordinator";
+import {
+  isHistoryThrottled,
+  isHistoryUnauthorized,
+} from "@/lib/messages/history-throttle";
 import {
   chunkMessageIds,
   messageDeleteCopy,
@@ -233,6 +239,64 @@ const JUMP_TEXT_WAIT_MS = 4000;
 // auto-fill request finishing.
 const DRAIN_BUSY_RETRIES = 4;
 const DRAIN_BUSY_RETRY_MS = 120;
+// Delay between a drain's own pages, and the page ceiling.
+//
+// The drain used to issue its pages back to back with nothing in between, and
+// each page is TWO requests (the previous page, and the next-page read the
+// infinite query pairs with it). Thirty of those is sixty requests inside one
+// rate-limit window, with the search backfill's own 500-row stream running
+// underneath -- so the fallback that exists to rescue a jump was itself what
+// tripped the limiter and turned "one anchored read away" into "Couldn't load
+// that message". Paced like the walk, and bounded lower: a target the anchored
+// read missed is nearly always already deleted, not thirty pages deep.
+const DRAIN_PAGE_DELAY_MS = 150;
+const DRAIN_MAX_PAGES = 8;
+// One more full drain when the endpoint throttled us, after the server's own
+// advice. Without it a single 429 on the last attempt ended the walk, and the
+// reader was told the message does not exist.
+const DRAIN_THROTTLE_RETRIES = 1;
+
+// What a bounded walk concluded, so the bar can say something true.
+//
+// "unreachable" is a claim about the MESSAGE -- the walk ran its whole bounded
+// budget over real pages and the row was not in any of them -- so it is only ever
+// reported when no read failed. Every other outcome is about the network or the
+// session, and reporting those as a missing message is the lie that made a
+// throttled read look like a deleted row.
+type JumpOutcome =
+  | "landed"
+  | "read-failed"
+  | "throttled"
+  | "unauthorized"
+  | "unreachable";
+
+// Classifies a history read that failed, so a jump can tell the reader what
+// actually happened instead of reporting a missing message.
+function jumpOutcomeForError(error: unknown): JumpOutcome {
+  if (isHistoryThrottled(error)) {
+    return "throttled";
+  }
+  if (isHistoryUnauthorized(error)) {
+    return "unauthorized";
+  }
+  return "read-failed";
+}
+
+// The server's own throttle advice, bounded so a hostile or mistaken header
+// cannot park a jump for minutes. The walk honours it exactly; this fallback
+// bounds it because the user is waiting on a single row.
+function throttleRetryMs(error: unknown): number {
+  const asked = isHistoryThrottled(error) ? error.retryAfterSeconds : 1;
+  return Math.min(asked, 5) * 1000;
+}
+
+// A bare delay. A timer has no async/await form, and this is the only place in
+// the jump path that needs one.
+const delay = (ms: number) =>
+  // oxlint-disable-next-line promise/avoid-new -- a timer has no async/await form
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 // What a wait for one message's text concluded. Three outcomes, not two: a
 // boolean said "false" for both a row that is not loaded and a row that is loaded
@@ -252,6 +316,30 @@ export function jumpTextErrorCopy(
   return decryptState === "error"
     ? "That message's text could not be decrypted."
     : "That message's text is still loading.";
+}
+
+// What the bar says when a jump could not land its target, given how the read
+// actually ended. A throttled or unauthorized read is about this device's
+// network and session, not about the message, so it must not be reported as a
+// message that does not exist.
+export function jumpReadErrorCopy(outcome: JumpOutcome): string {
+  switch (outcome) {
+    case "landed": {
+      return "";
+    }
+    case "throttled": {
+      return "Too many requests. Try again in a moment.";
+    }
+    case "unauthorized": {
+      return "Couldn't load that message. Your session may have expired.";
+    }
+    case "read-failed": {
+      return "Couldn't load that message. Check your connection and retry.";
+    }
+    default: {
+      return "Couldn't load that message.";
+    }
+  }
 }
 
 // Which read can satisfy a jump target.
@@ -447,6 +535,15 @@ export function MessageThread({
   // would race the cursor. Deliberately a ref (not query state) so the awaited
   // jump loop never sees a stale `isFetching` closure and bails after one page.
   const loadingOlderRef = useRef(false);
+  // Who owns the conversation's history endpoint. The search backfill reads the
+  // same one, 500 rows every 250ms, from the first keystroke on a fresh device --
+  // so a jump's single anchored read used to land inside a stream that was
+  // already spending the rate-limit budget. The walk stands aside while a token
+  // is held. Created once per mount: the readers are effects and async loops
+  // that run before React re-rendered anything, and reading render-scoped state
+  // there is exactly how two loaders end up on one cursor.
+  // eslint-disable-next-line react/hook-use-state -- one-time instance; the setter is intentionally unused
+  const [historyReads] = useState(() => createHistoryReadCoordinator());
   // True while the user is walking older history. The viewer's history trim is
   // suppressed during a walk, because dropping the freshly loaded pages would
   // make the walk retread the same ground (a load/trim loop). It resets when
@@ -1449,8 +1546,10 @@ export function MessageThread({
 
   // Decrypt an explicit list of messages (already-resolved objects, so callers
   // are not tied to `allMessages` indices). Used for freshly prepended pages.
+  // `urgent` serves the batch ahead of queued background work, for a caller that
+  // a person is actively waiting on.
   const requestDecryptMessages = useCallback(
-    (messages: MessageData[]) => {
+    (messages: MessageData[], options?: { urgent?: boolean }) => {
       if (!detail || !rootKeyStore || !userId) {
         return;
       }
@@ -1461,9 +1560,14 @@ export function MessageThread({
           pendingScanRef.current.add(message.id);
         }
       }
-      if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKeys });
+      if (items.length === 0) {
+        return;
       }
+      if (options?.urgent) {
+        messageDecryptor.requestUrgent(items, { getBaseKeys });
+        return;
+      }
+      messageDecryptor.request(items, { getBaseKeys });
     },
     [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId, viewerScanCache]
   );
@@ -1760,12 +1864,27 @@ export function MessageThread({
       hasPreviousPage &&
       !isFetchingPreviousPage
     ) {
-      void fetchPreviousPage();
+      // A token for the fill, so the search backfill stands aside for it too: the
+      // fill is the transcript reading history on the user's behalf, and letting
+      // the walk compete with it is how a single page turn becomes a throttled
+      // one. Released whatever happens, because a leaked token freezes the walk.
+      void (async () => {
+        const token = historyReads.acquire();
+        try {
+          await fetchPreviousPage();
+        } catch {
+          // The failure counter above owns reporting this; the fill's own
+          // stand-down is what keeps it from refiring.
+        } finally {
+          historyReads.release(token);
+        }
+      })();
     }
   }, [
     autoFillFailedRecently,
     fetchPreviousPage,
     hasPreviousPage,
+    historyReads,
     isFetchingPreviousPage,
     mediaViewerKey,
     virtualItems,
@@ -1791,12 +1910,22 @@ export function MessageThread({
       return;
     }
     if (virtualItems.length > 0 && virtualItems[0].index < 4) {
-      void fetchNextPage();
+      void (async () => {
+        const token = historyReads.acquire();
+        try {
+          await fetchNextPage();
+        } catch {
+          // Owned by the failure stand-down, as above.
+        } finally {
+          historyReads.release(token);
+        }
+      })();
     }
   }, [
     autoFillFailedRecently,
     fetchNextPage,
     hasNextPage,
+    historyReads,
     isFetchingNextPage,
     mediaViewerKey,
     virtualItems,
@@ -1820,8 +1949,15 @@ export function MessageThread({
   // search indexing). Unlike the viewer's loader there is no scan-cache
   // filter: every undecrypted row is eligible, and request() itself dedupes
   // cached, queued, and in-flight ids.
+  //
+  // `urgent` puts the batch at the FRONT of the decryptor's queue instead of the
+  // back. The background users of this function are the search backfill -- 500
+  // rows a page, every 250ms -- and the corpus sweep, so a jump's own row lands
+  // behind hundreds of rows nobody is waiting for and spends its four-second
+  // text budget in the queue. That is the "chevron moved, no text" report on a
+  // fresh index, and it is a queue-position problem, not a crypto one.
   const requestDecryptBatch = useCallback(
-    (messages: MessageData[]) => {
+    (messages: MessageData[], options?: { urgent?: boolean }) => {
       if (!detail || !rootKeyStore || !userId) {
         return;
       }
@@ -1829,6 +1965,10 @@ export function MessageThread({
         message.deletedAt ? [] : [toDecryptItem(message)]
       );
       if (items.length > 0) {
+        if (options?.urgent) {
+          messageDecryptor.requestUrgent(items, { getBaseKeys });
+          return;
+        }
         messageDecryptor.request(items, { getBaseKeys });
       }
     },
@@ -1840,28 +1980,43 @@ export function MessageThread({
   // renders from) and the media viewer's on-demand loader below. Resolves with
   // the newly prepended messages, diffed by id because the viewer history
   // window may trim oldest pages concurrently.
-  const loadOlderMessages = useCallback(async (): Promise<MessageData[]> => {
+  //
+  // The error travels with the result rather than being logged away, because the
+  // two callers need opposite things from the same failure: a viewer paging
+  // forward wants to try again, while a search jump has to tell "the endpoint
+  // throttled us" apart from "this message is not here" before it claims the
+  // message does not exist.
+  const loadOlderMessages = useCallback(async (): Promise<{
+    added: MessageData[];
+    error: unknown;
+  }> => {
     // Only `loadingOlderRef` gates concurrency. Dropping the `isFetching`
     // check keeps an awaited walk going between fetches: query state flips
     // asynchronously, so a render-scoped closure would report "busy" as "no
     // more history" and stop after a single page.
     if (loadingOlderRef.current || !hasPreviousPage) {
-      return [];
+      return { added: [], error: null };
     }
     loadingOlderRef.current = true;
     const known = new Set(allMessages.map((message) => message.id));
     let result: Awaited<ReturnType<typeof fetchPreviousPage>> | null = null;
+    let failure: unknown = null;
     try {
       result = await fetchPreviousPage();
-    } catch {
-      loadingOlderRef.current = false;
-      return [];
+    } catch (error) {
+      failure = error;
     }
     loadingOlderRef.current = false;
-    const nextMessages = (result.data?.pages ?? []).flatMap(
+    if (failure !== null) {
+      return { added: [], error: failure };
+    }
+    const nextMessages = (result?.data?.pages ?? []).flatMap(
       (page) => page.messages
     );
-    return nextMessages.filter((message) => !known.has(message.id));
+    return {
+      added: nextMessages.filter((message) => !known.has(message.id)),
+      error: null,
+    };
   }, [allMessages, fetchPreviousPage, hasPreviousPage]);
 
   const readFlat = useCallback((): MessageData[] => {
@@ -1881,12 +2036,16 @@ export function MessageThread({
   // pressed into it is checked against the window it grows -- so stepping
   // through matches that the anchored read cannot land on still walks history
   // once, together, instead of once per press.
+  //
+  // It reports WHY it stopped, because "the endpoint refused us" and "the message
+  // is not in this conversation" are different facts and the bar used to collapse
+  // them into the second one.
   const olderDrainRef = useRef<{
     targets: Set<string>;
-    promise: Promise<void>;
+    promise: Promise<JumpOutcome>;
   } | null>(null);
   const runOlderDrain = useCallback(
-    (messageId: string): Promise<void> => {
+    (messageId: string): Promise<JumpOutcome> => {
       const running = olderDrainRef.current;
       if (running) {
         running.targets.add(messageId);
@@ -1894,23 +2053,40 @@ export function MessageThread({
       }
       const targets = new Set([messageId]);
       const drain: NonNullable<typeof olderDrainRef.current> = {
-        promise: Promise.resolve(),
+        promise: Promise.resolve<JumpOutcome>("unreachable"),
         targets,
       };
       // The drain owns the history loader for its whole run, not one request at
       // a time. The badge and the automatic fill both read this.
       claimJumpActivity("drain");
+      // And the endpoint for its whole run, so the search backfill stands aside
+      // instead of spending the rate-limit budget this fallback is walking
+      // through. Released unconditionally in the teardown below: a superseded
+      // drain still holds a token, and a hold that is never released is exactly
+      // what would freeze the walk for the rest of the session.
+      const readToken: HistoryReadToken = historyReads.acquire();
       // The epoch this drain was started for. A later jump supersedes it, and
       // then this drain's own release must not clear the newer jump's claim.
       const drainEpoch = jumpEpochRef.current;
-      const run = async (): Promise<void> => {
+      const run = async (): Promise<JumpOutcome> => {
         // Bounded on pages, and separately on "the loader was busy". An empty
         // page used to end the walk outright, which is how a jump whose first
         // attempt collided with an in-flight auto-fill reported "Couldn't load
         // that message" for a target that was one page away.
         let busy = 0;
+        let throttles = 0;
+        let lastError: unknown = null;
         // oxlint-disable no-await-in-loop -- one older page in flight at a time; that is the pacing this fallback exists for
-        for (let walks = 0; walks < 30 && targets.size > 0; walks += 1) {
+        for (
+          let walks = 0;
+          walks < DRAIN_MAX_PAGES && targets.size > 0;
+          walks += 1
+        ) {
+          if (drainEpoch !== jumpEpochRef.current) {
+            // A newer press owns the target now. Its own page budget is its
+            // business, and this walk's pages would be requests nobody reads.
+            return "unreachable";
+          }
           const data = queryClient.getQueryData<MessagesInfiniteData>([
             "messages",
             conversationId,
@@ -1918,16 +2094,32 @@ export function MessageThread({
           if (!data?.pages[0]?.previousCursor) {
             break;
           }
-          const added = await loadOlderMessages();
+          const { added, error } = await loadOlderMessages();
+          if (error !== null) {
+            lastError = error;
+            if (
+              isHistoryThrottled(error) &&
+              throttles < DRAIN_THROTTLE_RETRIES
+            ) {
+              throttles += 1;
+              // The server's own advice, honoured rather than replaced. A 429 on
+              // the first attempt used to end the walk outright, which is how a
+              // throttled read was reported as a message that does not exist.
+              // oxlint-disable-next-line no-await-in-loop -- one bounded backoff inside the same page budget
+              await delay(throttleRetryMs(error));
+              // Spent a page of the budget on the wait rather than a request.
+              walks -= 1;
+              continue;
+            }
+            break;
+          }
           if (added.length === 0) {
             if (busy >= DRAIN_BUSY_RETRIES) {
               break;
             }
             busy += 1;
-            // oxlint-disable-next-line promise/avoid-new -- a bare delay, which has no library form
-            await new Promise((resolve) => {
-              setTimeout(resolve, DRAIN_BUSY_RETRY_MS);
-            });
+            await delay(DRAIN_BUSY_RETRY_MS);
+            walks -= 1;
             continue;
           }
           busy = 0;
@@ -1938,13 +2130,35 @@ export function MessageThread({
               targets.delete(id);
             }
           }
+          if (targets.size > 0 && walks < DRAIN_MAX_PAGES - 1) {
+            // The pacing. Back to back, thirty pages is sixty requests against a
+            // limiter the search backfill is already spending; with this between
+            // them the same fallback costs one request per 150ms and stops
+            // tripping on the way.
+            // oxlint-disable-next-line no-await-in-loop -- the pacing this loop exists for
+            await delay(DRAIN_PAGE_DELAY_MS);
+          }
         }
         // oxlint-enable no-await-in-loop
+        if (targets.size > 0) {
+          // The walk ran out without finding the target, so the reason it stopped
+          // decides what the bar is allowed to say.
+          if (isHistoryThrottled(lastError)) {
+            return "throttled";
+          }
+          if (lastError !== null) {
+            return isHistoryUnauthorized(lastError)
+              ? "unauthorized"
+              : "read-failed";
+          }
+        }
+        return "unreachable";
       };
-      drain.promise = (async () => {
+      drain.promise = (async (): Promise<JumpOutcome> => {
         try {
-          await run();
+          return await run();
         } finally {
+          historyReads.release(readToken);
           // Cleared only if this drain is still the current one, so a drain that
           // started after this one cannot be dropped by this one's teardown.
           if (olderDrainRef.current === drain) {
@@ -1964,6 +2178,7 @@ export function MessageThread({
     [
       claimJumpActivity,
       conversationId,
+      historyReads,
       loadOlderMessages,
       queryClient,
       readFlat,
@@ -1999,11 +2214,18 @@ export function MessageThread({
       setJumpLoading(true);
       setJumpTextPending(false);
       claimJumpActivity("anchor");
+      // And the history endpoint, for the jump's whole life -- the anchored read
+      // AND the bounded walk behind it are one operation, and the backfill has to
+      // stay out of the budget for both. Released by `settle` unconditionally:
+      // the epoch guard below is about the UI, and a superseded jump whose token
+      // is never dropped would hold the walk off for the rest of the session.
+      const readToken: HistoryReadToken = historyReads.acquire();
       // Cleared only by the jump that still owns the epoch. A superseded attempt
       // that cleared it would switch the loader off mid-flight for the jump
       // that replaced it, and one that did not clear it would strand the loader
       // if the newer jump never finishes.
       const settle = () => {
+        historyReads.release(readToken);
         if (epoch === jumpEpochRef.current) {
           setJumpLoading(false);
           setJumpTextPending(false);
@@ -2020,7 +2242,10 @@ export function MessageThread({
       const awaitTargetText = async (
         target: MessageData
       ): Promise<JumpTextOutcome> => {
-        requestDecryptBatch([target]);
+        // Urgent, and for the same reason the anchored window below is: this is
+        // the one row the user is waiting on, and the background lane is a
+        // backfill page deep.
+        requestDecryptBatch([target], { urgent: true });
         if (isDecryptSettled(messageDecryptor.get(target.id))) {
           return "settled";
         }
@@ -2047,6 +2272,11 @@ export function MessageThread({
       const loadedTarget = (): MessageData | null =>
         readFlat().find((message) => message.id === messageId) ?? null;
       let index = readFlat().findIndex((message) => message.id === messageId);
+      // Whether the anchored read below failed, and why. Collected rather than
+      // swallowed so a jump that cannot land can say something true: the fallback
+      // has to know the anchor was refused by the network rather than genuinely
+      // missing the row, and the bar has to be able to say so.
+      let anchorError: unknown = null;
       if (index !== -1) {
         // Already on screen. The only thing that can be missing is its text, and
         // that is a decrypt wait rather than a history read -- the old code went
@@ -2103,16 +2333,38 @@ export function MessageThread({
               ["messages", conversationId],
               { pageParams: [NEWEST_PAGE], pages: [window] }
             );
-            requestDecryptBatch(window.messages);
+            // The window's own decrypts are urgent: this jump is about to wait on
+            // one of them, and on a fresh device the backfill has hundreds queued
+            // ahead of it.
+            requestDecryptBatch(window.messages, { urgent: true });
             if (source !== "absent") {
               const landed = loadedTarget();
               if (landed) {
-                await awaitTargetText(landed);
+                // The outcome is USED, which it was not: the anchored path
+                // discarded it and scrolled onto a bubble whose text had not
+                // decrypted, with no badge and no message. That is the "chevron
+                // with no text" report. A row that is genuinely undecryptable now
+                // says so, and one that is merely slow lands and fills in when
+                // its payload resolves.
+                const outcome = await awaitTargetText(landed);
+                if (outcome !== "settled") {
+                  settle();
+                  if (epoch === jumpEpochRef.current) {
+                    setJumpError(
+                      jumpTextErrorCopy(
+                        outcome,
+                        messageDecryptor.get(messageId)
+                      )
+                    );
+                  }
+                  return;
+                }
               }
             }
             index = readFlat().findIndex((m) => m.id === messageId);
           }
-        } catch {
+        } catch (error) {
+          anchorError = error;
           // Fall through to the bounded walk below: a failed anchor read must
           // not make the jump a dead end when the target is reachable by paging.
           // A superseded jump stops here instead of walking: its target no
@@ -2124,23 +2376,34 @@ export function MessageThread({
           }
         }
       }
+      let drainOutcome: JumpOutcome = "unreachable";
       if (index === -1) {
         // The target is reachable only by paging: an anchored read cannot land
         // on a row the transcript will not serve, and the shared drain walks
         // older pages until this target is in the window. A newer press joins
         // the same drain rather than starting another one.
-        await runOlderDrain(messageId);
+        drainOutcome = await runOlderDrain(messageId);
         index = readFlat().findIndex((m) => m.id === messageId);
       }
       if (index === -1) {
-        // Nothing reachable: anchor missed and the bounded walk found nothing.
-        // Said out loud in the bar. A silent return leaves the transcript
-        // exactly where it was with the spinner running, which reads as a hang
-        // rather than a miss -- the report that produced the "glitchy loading"
-        // complaint. Superseded jumps stay silent: a newer press owns the UI.
+        // Nothing landed. Said out loud in the bar, and said TRUE: a walk that
+        // stopped because the endpoint throttled us or the session expired is not
+        // evidence that the message is gone, and reporting it as one is what made
+        // a rate-limited read look like a deleted row. A silent return is worse
+        // still -- the transcript sits where it was with the spinner gone, which
+        // reads as a hang. Superseded jumps stay silent: a newer press owns the UI.
         settle();
         if (epoch === jumpEpochRef.current) {
-          setJumpError("Couldn't load that message.");
+          setJumpError(
+            jumpReadErrorCopy(
+              // The drain's own verdict wins: it is the one that walked the
+              // pages. The anchor's error only speaks for the anchor, and the
+              // fallback may well have recovered from it.
+              drainOutcome === "unreachable" && anchorError !== null
+                ? jumpOutcomeForError(anchorError)
+                : drainOutcome
+            )
+          );
         }
         return;
       }
@@ -2187,6 +2450,7 @@ export function MessageThread({
       rowVirtualizer,
       runOlderDrain,
       claimJumpActivity,
+      historyReads,
       releaseJumpActivity,
     ]
   );
@@ -2465,6 +2729,14 @@ export function MessageThread({
     writer.setDeferring(true);
     const backfill = createMessageIndexBackfill({
       awaitDecrypts: awaitBackfillDecrypts,
+      // The walk stands aside for a user-initiated read. It shares this
+      // conversation's history endpoint, and on a fresh device it owns the
+      // rate-limit budget from the first keystroke: 500-row pages, 250ms apart,
+      // for as long as search stays open. Without this the user's single anchored
+      // read arrives into that stream, is throttled, and falls back to a bounded
+      // walk that then spends thirty more requests against the same limiter --
+      // which is the "loading messages" that eventually gives up on its own.
+      beforePage: () => historyReads.whenIdle(controller.signal),
       conversationId,
       // Fetched directly rather than through the transcript's infinite query:
       // the point of a backfill is to index history *without* holding it in
@@ -2533,6 +2805,7 @@ export function MessageThread({
     awaitBackfillDecrypts,
     bumpSearchIndex,
     conversationId,
+    historyReads,
     searchIndexStore,
   ]);
 
@@ -2630,11 +2903,15 @@ export function MessageThread({
       backfillRef.current?.stop();
       backfillAbortRef.current?.abort();
       jumpAbortRef.current?.abort();
+      // Every holder is gone with the component, and their teardowns will never
+      // run. A token left behind would hold the backfill off for the rest of the
+      // session -- and this instance outlives nothing, so nothing would clear it.
+      historyReads.reset();
       if (coverageTimerRef.current) {
         clearTimeout(coverageTimerRef.current);
       }
     },
-    []
+    [historyReads]
   );
 
   // Feed every row the transcript holds to the writer. Coalesced inside the
@@ -2719,7 +2996,13 @@ export function MessageThread({
     setJumpActivity(null);
     setJumpLoading(false);
     setJumpTextPending(false);
-  }, [conversationId, search.debouncedQuery, searchOpen]);
+    // The history-read tokens as well, for the same reason plus one more: the
+    // holders' teardowns are skipped on a supersede (that is what keeps a stale
+    // jump from clearing a newer one), so a token taken for a query the user has
+    // already left would otherwise hold the walk off until the component unmounts
+    // -- which, mid-session, is never.
+    historyReads.reset();
+  }, [conversationId, historyReads, search.debouncedQuery, searchOpen]);
 
   // How much of this conversation the index can actually see, which is what the
   // bar's counter has to be honest about. Three signals agree on coverage: a
@@ -2984,9 +3267,12 @@ export function MessageThread({
       return false;
     }
     olderWalkRef.current = true;
-    const added = await loadOlderMessages();
+    // Urgent decrypts, and a history-read token: this is a person asking for
+    // more images, so it must not queue behind a search backfill's decrypts or
+    // spend the rate-limit budget the walk is already using.
+    const { added } = await loadOlderMessages();
     if (added.length > 0) {
-      requestDecryptMessages(added);
+      requestDecryptMessages(added, { urgent: true });
       return true;
     }
     return false;

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   jumpTargetSource,
+  jumpReadErrorCopy,
   jumpTextErrorCopy,
   transcriptLoadingCopy,
 } from "./message-thread";
@@ -151,5 +152,49 @@ describe("jumpTargetSource", () => {
         targetId,
       })
     ).toBe("loaded");
+  });
+});
+
+// A jump that could not land its target has to say which of two very different
+// things happened. "The endpoint throttled us" and "this message is not in the
+// conversation" are both a missing bubble on screen, and reporting the first as
+// the second is what made a rate-limited read look like a deleted row.
+describe("jumpReadErrorCopy", () => {
+  test("a landed jump says nothing", () => {
+    expect(jumpReadErrorCopy("landed")).toBe("");
+  });
+
+  test("a throttled read is never reported as a missing message", () => {
+    expect(jumpReadErrorCopy("throttled")).toBe(
+      "Too many requests. Try again in a moment."
+    );
+  });
+
+  test("an expired session is named as such", () => {
+    expect(jumpReadErrorCopy("unauthorized")).toContain("session");
+  });
+
+  test("a dropped read is a network problem, not a missing row", () => {
+    expect(jumpReadErrorCopy("read-failed")).toContain("connection");
+  });
+
+  // The only outcome that may claim the message is gone, and it reads as the
+  // plain miss it is.
+  test("an exhausted walk reports a plain miss", () => {
+    expect(jumpReadErrorCopy("unreachable")).toBe(
+      "Couldn't load that message."
+    );
+  });
+
+  test("no read-failure copy claims the message does not exist", () => {
+    for (const outcome of [
+      "throttled",
+      "unauthorized",
+      "read-failed",
+    ] as const) {
+      expect(jumpReadErrorCopy(outcome)).not.toBe(
+        "Couldn't load that message."
+      );
+    }
   });
 });

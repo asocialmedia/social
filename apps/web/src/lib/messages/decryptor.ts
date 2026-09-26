@@ -98,6 +98,19 @@ export interface MessageDecryptor {
   // the same id would only race the first's write.
   invalidate: (id: string) => void;
   request: (items: DecryptItem[], keys: DecryptorKeySource) => void;
+  // Same as `request`, but the batch is served before everything already queued.
+  //
+  // The queue is otherwise strictly first-in-first-out, and the biggest producer
+  // on a fresh device is the search backfill: 500 rows a page, 250ms apart,
+  // indefinitely. A search jump then asks for exactly one row -- the one the user
+  // is staring at -- and it goes to the back of that stream. The jump's own text
+  // budget is a few seconds, so the row can time out while sitting in a queue
+  // nobody is waiting on, and the transcript shows a bubble with no text and no
+  // explanation.
+  //
+  // An id already queued in the background lane is PROMOTED rather than dropped
+  // and re-added, so a promotion cannot decrypt a row twice or lose it.
+  requestUrgent: (items: DecryptItem[], keys: DecryptorKeySource) => void;
   retry: (id: string) => void;
   subscribe: (listener: () => void) => () => void;
 }
@@ -133,7 +146,10 @@ export function createDecryptor(
   // self-heal then re-requests and decrypts the rewritten bytes.
   const staleInFlight = new Set<string>();
   const queued = new Set<string>();
+  // Two lanes, drained urgent-first. One FIFO queue could not express "the user
+  // is waiting on this one row"; see `requestUrgent`.
   const queue: DecryptItem[] = [];
+  const urgentQueue: DecryptItem[] = [];
   // Imported HKDF base keys, one per conversation: skips the importKey
   // round-trip for every message after the first without changing the
   // derived keys. Scoped to the identity generation like the payloads.
@@ -217,7 +233,9 @@ export function createDecryptor(
         }
       }
       if (victim === undefined) {
-        const workPending = queued.size > 0 || inFlight.size > 0;
+        const workPending =
+          queued.size > 0 || urgentQueue.length > 0 || inFlight.size > 0;
+
         if (workPending && entries.size <= cacheCap + EVICT_HARD_OVERSHOOT) {
           break;
         }
@@ -241,8 +259,11 @@ export function createDecryptor(
     if (!lastKeys) {
       return;
     }
-    while (active < concurrency && queue.length > 0) {
-      const item = queue.shift();
+    while (active < concurrency) {
+      const item =
+        urgentQueue.length > 0
+          ? urgentQueue.shift()
+          : (queue.shift() ?? undefined);
       if (!item) {
         break;
       }
@@ -257,6 +278,24 @@ export function createDecryptor(
       active += 1;
       void run(item, generation);
     }
+  }
+
+  // Claims a batch as pending and enqueues it in the background lane. Returns
+  // whether anything was newly claimed, so a caller knows whether a notification
+  // is owed.
+  function enqueue(items: DecryptItem[]): boolean {
+    let marked = false;
+    for (const item of items) {
+      const { id } = item.message;
+      if (entries.has(id) || queued.has(id) || inFlight.has(id)) {
+        continue;
+      }
+      entries.set(id, "pending");
+      queued.add(id);
+      queue.push(item);
+      marked = true;
+    }
+    return marked;
   }
 
   async function run(item: DecryptItem, runGeneration: number): Promise<void> {
@@ -390,6 +429,7 @@ export function createDecryptor(
       conversationById.clear();
       queued.clear();
       queue.length = 0;
+      urgentQueue.length = 0;
       baseKeys.clear();
       // Runs still in flight belong to the old generation; their completions
       // are dropped by the generation guard in run(). Clearing the bookkeeping
@@ -432,18 +472,53 @@ export function createDecryptor(
 
     request(items: DecryptItem[], keys: DecryptorKeySource): void {
       lastKeys = keys;
-      let marked = false;
+      if (enqueue(items)) {
+        notify();
+      }
+      pump();
+    },
+
+    requestUrgent(items: DecryptItem[], keys: DecryptorKeySource): void {
+      lastKeys = keys;
+      // Collected and unshifted as one batch rather than per item, so a multi-row
+      // urgent request keeps the order it was asked in.
+      const promoted: DecryptItem[] = [];
       for (const item of items) {
         const { id } = item.message;
-        if (entries.has(id) || queued.has(id) || inFlight.has(id)) {
+        // Already decrypting: nothing to move, and a second run would race the
+        // first's write.
+        if (inFlight.has(id)) {
+          continue;
+        }
+        if (queued.has(id)) {
+          // Waiting in the background lane. The splice is linear and runs once
+          // per row a user is actually waiting on, against a queue bounded by a
+          // backfill page rather than by the conversation. The alternative -- a
+          // lazily-compacted queue -- would make every pump iteration scan it,
+          // which is quadratic in the decrypts.
+          const at = queue.findIndex((waiting) => waiting.message.id === id);
+          if (at === -1) {
+            // Defensive: `queued` and the array disagreeing would otherwise drop
+            // the row silently, leaving it pending forever.
+            continue;
+          }
+          const [moved] = queue.splice(at, 1);
+          if (moved) {
+            promoted.push(moved);
+          }
+          continue;
+        }
+        if (entries.has(id)) {
+          // Already terminal (decrypted or failed). Asking again must not
+          // re-decrypt it, and must not resurrect a failure as "pending".
           continue;
         }
         entries.set(id, "pending");
         queued.add(id);
-        queue.push(item);
-        marked = true;
+        promoted.push(item);
       }
-      if (marked) {
+      if (promoted.length > 0) {
+        urgentQueue.unshift(...promoted);
         notify();
       }
       pump();

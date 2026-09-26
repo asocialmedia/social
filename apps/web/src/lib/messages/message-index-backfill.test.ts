@@ -17,6 +17,23 @@ import type { SearchIndexStore } from "./search-index-format";
 
 const CONVO = "c1";
 
+// A promise the test opens by hand. Used where the property under test is that
+// nothing proceeds until something ELSE decides it may.
+function gate() {
+  let open!: () => void;
+  // oxlint-disable-next-line promise/avoid-new -- a test gate the test resolves
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { open, promise };
+}
+
+// A gate that never opens, for the case where only a stop may end the run.
+function forever() {
+  // oxlint-disable-next-line promise/avoid-new -- deliberately never settles
+  return new Promise<void>(() => {});
+}
+
 function message(id: string, createdAt: number): MessageData {
   return {
     conversationId: CONVO,
@@ -575,6 +592,124 @@ describe("message index backfill", () => {
     expect(result.state).toBe("stopped");
   });
 
+  // The walk and the transcript share one rate-limit budget. Without a way to
+  // stand aside, a user jump's single anchored read lands inside the walk's
+  // steady 500-row stream, gets throttled, and falls back to its own bounded
+  // walk against the same tripped limiter.
+  test("waits for the transcript before asking for a page", async () => {
+    const order: string[] = [];
+    // A gate the test opens by hand, which is the whole point: the walk must not
+    // request anything until the transcript lets go.
+    const held = gate();
+    let asks = 0;
+    const yielding = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      beforePage: async () => {
+        order.push("yield");
+        await held.promise;
+      },
+      conversationId: CONVO,
+      fetchPage: () => {
+        asks += 1;
+        order.push("fetch");
+        return {
+          messages: [message(`yield${asks}`, asks)],
+          previousCursor: asks < 3 ? `c${asks}` : null,
+        };
+      },
+      pageDelayMs: 1,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const running = yielding.run();
+    await Bun.sleep(30);
+    // Not one page requested: the transcript holds the endpoint.
+    expect(asks).toBe(0);
+    held.open();
+    const result = await running;
+    expect(result.pageCount).toBe(3);
+    expect(order[0]).toBe("yield");
+    expect(order.filter((entry) => entry === "fetch").length).toBe(3);
+  });
+
+  // Re-checked per attempt, not once per page: a throttle wait is when a jump is
+  // most likely to be mid-read, and the first attempt after a backoff would
+  // otherwise spend itself inside someone's anchored read.
+  test("waits again before a throttled page's retry", async () => {
+    let attempts = 0;
+    let yields = 0;
+    let throttled = true;
+    const retrying = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      beforePage: () => {
+        yields += 1;
+      },
+      conversationId: CONVO,
+      fetchPage: () => {
+        attempts += 1;
+        if (throttled) {
+          throttled = false;
+          throw new HistoryThrottledError(0);
+        }
+        return { messages: [message("after-retry", 1)], previousCursor: null };
+      },
+      pageDelayMs: 1,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const result = await retrying.run();
+    expect(result.state).toBe("done");
+    expect(attempts).toBe(2);
+    expect(yields).toBe(2);
+  });
+
+  test("a rejection from the yield pauses the walk without failing it", async () => {
+    let asks = 0;
+    const refusing = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      beforePage: () => {
+        throw new Error("conversation changed");
+      },
+      conversationId: CONVO,
+      fetchPage: () => {
+        asks += 1;
+        return { messages: [message("never", asks)], previousCursor: null };
+      },
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const result = await refusing.run();
+    // Silent and resumable: the cursor only ever moves past committed pages, so
+    // a pause costs nothing and the next run continues.
+    expect(asks).toBe(0);
+    expect(result.pageCount).toBe(0);
+    expect(result.state).not.toBe("failed");
+  });
+
+  test("stopping while the walk is yielding halts before the next page", async () => {
+    let asks = 0;
+    const waiting = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      // Never opens: only the stop below can end this run, which is the point --
+      // a yield hook that only settles on a release would hang the teardown for
+      // as long as the transcript held the endpoint.
+      beforePage: () => forever(),
+      conversationId: CONVO,
+      fetchPage: () => {
+        asks += 1;
+        return { messages: [message("never", asks)], previousCursor: null };
+      },
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const running = waiting.run();
+    await Bun.sleep(20);
+    waiting.stop();
+    const result = await running;
+    expect(asks).toBe(0);
+    expect(result.state).toBe("stopped");
+  });
+
   test("a page that repeats does not loop forever", async () => {
     let calls = 0;
     const looping = createMessageIndexBackfill({
@@ -666,14 +801,11 @@ describe("message index backfill", () => {
   // so closing search or pressing Stop ends the run promptly -- after the
   // fetched page still commits, per the stop-after-current-page contract.
   test("stop() during the decrypt wait ends the run promptly", async () => {
-    let release!: () => void;
-    // oxlint-disable-next-line promise/avoid-new -- models a decrypt that only finishes on abort
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    // Models a decrypt that only finishes on abort.
+    const decrypting = gate();
     const controller = new AbortController();
     const hanging = createMessageIndexBackfill({
-      awaitDecrypts: () => gate,
+      awaitDecrypts: () => decrypting.promise,
       conversationId: CONVO,
       fetchPage: harness.fetchPage,
       signal: controller.signal,
@@ -698,7 +830,7 @@ describe("message index backfill", () => {
     expect(progress.state).toBe("stopped");
     expect(progress.pageCount).toBe(1);
     expect(performance.now() - started).toBeLessThan(1000);
-    release();
+    decrypting.open();
   });
 
   test("reaching the start is persisted so reopening search skips the probe", async () => {

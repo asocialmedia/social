@@ -81,6 +81,22 @@ export interface MessageIndexBackfillOptions {
   // Resolves when the page's payloads are decrypted, or when the wait is given up
   // on. Injected so this module stays free of crypto and WebCrypto.
   awaitDecrypts: (messages: MessageData[]) => Promise<void>;
+  // Resolves before the walk is allowed to ask for a page.
+  //
+  // The walk and the transcript share one rate-limit budget, and on a fresh
+  // device the walk owns it from the first keystroke: 500-row pages, 250ms apart,
+  // while the user is trying to LAND on a search match through the same endpoint.
+  // Nothing stopped the walk, so the user's single anchored read arrived into an
+  // already-throttled budget, failed, and fell back to the bounded older-page
+  // walk -- which then spent thirty unpaced requests against the same limiter and
+  // reported the target unreachable. Waiting here is what makes a user-initiated
+  // read cost one request instead of thirty.
+  //
+  // Optional, and a rejection is not a failure: the walk treats a throw the same
+  // as an abort and abandons the page it had not requested yet, which is a pause
+  // the next run continues from. The cursor only ever moves past committed pages,
+  // so waiting cannot cost coverage.
+  beforePage?: () => Promise<void>;
   // Fetches one page older than `cursor`. Omitted for the first page, which
   // starts from the newest message.
   fetchPage: (cursor?: string) => Promise<BackfillPage>;
@@ -176,6 +192,7 @@ export function createMessageIndexBackfill(
     store,
     writer,
   } = options;
+  const { beforePage } = options;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   const pageDelayMs = options.pageDelayMs ?? DEFAULT_PAGE_DELAY_MS;
   const retryDelayMs = options.retryDelayMs ?? TRANSIENT_RETRY_DELAY_MS;
@@ -283,6 +300,77 @@ export function createMessageIndexBackfill(
     }
   }
 
+  // Resolves false as soon as ANY of the walk's own stop signals trips, without
+  // waiting for the raced work. Extracted because the yield below needs it for
+  // the same reason the decrypt wait does: a hook that only resolves on a
+  // release would otherwise make `stop()` hang until the transcript happened to
+  // let go.
+  //
+  // A distinct sentinel rather than a boolean, because the raced work resolves
+  // to whatever it resolves to and a hook that happens to settle with `true`
+  // would otherwise read as an abort.
+  const ABANDONED = Symbol("abandoned");
+  async function abortedFirst(
+    signal: AbortSignal | undefined,
+    work: Promise<unknown>
+  ): Promise<boolean> {
+    let onAbort: (() => void) | null = null;
+    // oxlint-disable-next-line promise/avoid-new -- resolves only from abort events, which have no async form
+    const aborted = new Promise<typeof ABANDONED>((resolve) => {
+      onAbort = () => {
+        resolve(ABANDONED);
+      };
+      runController?.signal.addEventListener("abort", onAbort, { once: true });
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      const outcome = await Promise.race([work, aborted]);
+      return outcome === ABANDONED;
+    } catch {
+      // The hook itself failed. Treated as abandoned: the walk has no opinion
+      // about why, and a pause the next run continues from is the safe reading.
+      return true;
+    } finally {
+      if (onAbort) {
+        runController?.signal.removeEventListener("abort", onAbort);
+        signal?.removeEventListener("abort", onAbort);
+      }
+    }
+  }
+
+  // Waits for the transcript to stop reading history before the walk asks for a
+  // page. False means the walk must not request anything: the caller was
+  // stopped, the run's signal tripped, or the wait itself was abandoned.
+  //
+  // The abort signals are re-checked after the wait rather than inside it,
+  // because the hook resolves on an abort as well as on a release: a resolved
+  // wait alone does not say whether the endpoint is free or the walk is finished.
+  async function yieldToTranscriptReads(
+    signal: AbortSignal | undefined
+  ): Promise<boolean> {
+    if (stopped || signal?.aborted || runController?.signal.aborted) {
+      return false;
+    }
+    if (!beforePage) {
+      return true;
+    }
+    // Called inside the try as well as awaited there, so a hook that throws
+    // SYNCHRONOUSLY -- a conversation that changed under it, a store that is
+    // gone -- is the same pause as one that rejects. A synchronous throw would
+    // otherwise escape before the race was set up and take the whole run with it.
+    let work: Promise<unknown>;
+    try {
+      work = Promise.resolve(beforePage());
+    } catch {
+      return false;
+    }
+    const abandoned = await abortedFirst(signal, work);
+    if (abandoned) {
+      return false;
+    }
+    return !(stopped || signal?.aborted || runController?.signal.aborted);
+  }
+
   async function walk(
     signal: AbortSignal | undefined
   ): Promise<BackfillProgress> {
@@ -324,6 +412,9 @@ export function createMessageIndexBackfill(
       // re-covering old ground idempotently on the way down (the per-page
       // check below skips it for one fetch per page, no decrypts).
       try {
+        if (!(await yieldToTranscriptReads(signal))) {
+          return progress;
+        }
         const top = await fetchPage();
         const topIds = top.messages.map((row) => row.id);
         if (topIds.length > 0) {
@@ -369,6 +460,15 @@ export function createMessageIndexBackfill(
       let abandoned = false;
       for (let attempt = 0; attempt <= MAX_THROTTLE_RETRIES; attempt += 1) {
         if (stopped || signal?.aborted) {
+          abandoned = true;
+          break;
+        }
+        // Asked for before the FIRST attempt and again after every backoff, not
+        // once per page: a throttle wait is exactly when a user jump is most
+        // likely to be mid-read, and re-checking is what stops the walk from
+        // spending the first request of its next attempt inside someone's
+        // anchored read.
+        if (!(await yieldToTranscriptReads(signal))) {
           abandoned = true;
           break;
         }
