@@ -776,7 +776,7 @@ const MediaViewer = ({
         </div>
         <div className="flex items-center gap-2">
           <ShareButton
-            className="h-9 w-9"
+            className="h-9! w-9!"
             description={post.content}
             dialogDescription="Share this media with your network"
             dialogTitle="Share Media"
@@ -786,7 +786,7 @@ const MediaViewer = ({
             title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
           />
           <BookmarkButton
-            className="h-9 w-9"
+            className="h-9! w-9!"
             initialState={{
               isBookmarkedByUser: isBookmarkedByUser(post, sessionUser?.id),
             }}
@@ -1084,7 +1084,7 @@ const MediaViewer = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <ShareButton
-                    className="h-9 w-9"
+                    className="h-9! w-9!"
                     description={post.content}
                     dialogDescription="Share this media with your network"
                     dialogTitle="Share Media"
@@ -1094,7 +1094,7 @@ const MediaViewer = ({
                     title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                   />
                   <BookmarkButton
-                    className="h-9 w-9"
+                    className="h-9! w-9!"
                     initialState={{
                       isBookmarkedByUser: isBookmarkedByUser(
                         post,
@@ -1565,7 +1565,7 @@ const MediaViewer = ({
                   </span>
                 </span>
                 <ShareButton
-                  className="h-9 w-9"
+                  className="h-9! w-9!"
                   description={post.content}
                   dialogDescription="Share this media with your network"
                   dialogTitle="Share Media"
@@ -1575,7 +1575,7 @@ const MediaViewer = ({
                   title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                 />
                 <BookmarkButton
-                  className="h-9 w-9"
+                  className="h-9! w-9!"
                   initialState={{
                     isBookmarkedByUser: isBookmarkedByUser(
                       post,
