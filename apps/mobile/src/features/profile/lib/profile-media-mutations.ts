@@ -14,7 +14,7 @@ import { uploadMedia } from "@/features/media-upload/lib/upload-client";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
-import { pickProfileImage } from "./profile-media";
+import { pickProfileImage, stabilizePickedImage } from "./profile-media";
 import type { ProfileImageKind } from "./profile-media";
 
 export interface ProfileMediaCallbacks {
@@ -129,6 +129,9 @@ export async function updateProfileMedia(
   if (!picked) {
     return { kind: "cancelled" };
   }
+  // Copy out of the picker's temporary URI before the upload starts, so a
+  // provider-backed path revoked mid-transfer cannot fail the transfer.
+  const stable = stabilizePickedImage(picked);
 
   const result = await runWithInstallToken(
     async (): Promise<ProfileMediaResult> => {
@@ -137,8 +140,8 @@ export async function updateProfileMedia(
         cookie: await authClient.getCookie(),
       };
       const outcome = await uploadImage(
-        picked.source,
-        picked.purpose,
+        stable.source,
+        stable.purpose,
         callbacks,
         options
       );

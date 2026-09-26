@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.0.72",
+  "version": "0.0.73",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -37,7 +37,6 @@
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.3",
     "expo-image": "~57.0.5",
-    "expo-image-manipulator": "^57.0.20",
     "expo-image-picker": "~57.0.19",
     "expo-intent-launcher": "^57.0.1",
     "expo-linear-gradient": "^57.0.2",

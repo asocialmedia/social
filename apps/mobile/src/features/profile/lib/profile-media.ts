@@ -1,15 +1,19 @@
 // Native counterpart of web's `profile-media-inputs.tsx` (AvatarInput /
-// BannerInput). The web flow is: guard the size, let a GIF bypass the raster
-// path, resize to a working canvas as WEBP, crop to the target ratio, then hand
-// the blob to the uploader with purpose "avatar" / "banner".
+// BannerInput).
 //
-// Native collapses the resize and the crop into the picker's own native editor
-// (`allowsEditing`), the platform equivalent of web's CropImageDialog, then
-// re-applies web's exact output geometry with expo-image-manipulator so the
-// bytes uploaded match what the web build sends. The geometry itself lives in
-// ./profile-media-crop, which stays free of native imports so it is testable.
+// Web resizes with react-image-file-resizer and crops with cropperjs, because a
+// browser can do both cheaply. Native has no equivalent that ships without a new
+// native module: expo-image-manipulator would work but requires a full native
+// rebuild to add, which is not a trade worth making for a profile picture. So
+// the crop is delegated to the platform's own image editor, which
+// expo-image-picker exposes as `allowsEditing`, and the resize is left to the
+// media pipeline that already derives every size server-side.
+//
+// The one honest difference: a banner is not destructively cropped to 3:1 on
+// native. It is not letterboxed either, because every banner surface renders
+// with contentFit cover, so the framing is identical - only the stored bytes
+// carry more than the visible window.
 import { Directory, File, Paths } from "expo-file-system";
-import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 
 import type { UploadPurpose } from "@/features/media-upload/lib/upload-api";
@@ -17,10 +21,9 @@ import type { UploadSource } from "@/features/media-upload/lib/upload-client";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import {
-  coverCrop,
   isAnimatedImage,
   isTooLarge,
-  PROFILE_IMAGE_TARGETS,
+  PROFILE_IMAGE_MAX_BYTES,
   ProfileImageError,
 } from "./profile-media-crop";
 import type { ProfileImageKind } from "./profile-media-crop";
@@ -31,6 +34,13 @@ export type { ProfileImageKind } from "./profile-media-crop";
 const PURPOSE: Record<ProfileImageKind, UploadPurpose> = {
   avatar: "avatar",
   banner: "banner",
+};
+
+// The ratio each surface renders at, used only to warn when a pick cannot be
+// framed well rather than to crop it.
+export const PROFILE_IMAGE_RATIO: Record<ProfileImageKind, number> = {
+  avatar: 1,
+  banner: 3,
 };
 
 export interface PickedProfileImage {
@@ -49,18 +59,30 @@ function sizeOf(uri: string, reported?: number | null): number {
   }
 }
 
+function dimensionsOf(
+  width?: number,
+  height?: number
+): { height: number; width: number } | null {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { height, width };
+}
+
 // Returns null when the user cancels, so the caller can distinguish a cancel
 // from a failure without catching.
 export async function pickProfileImage(
   kind: ProfileImageKind
 ): Promise<PickedProfileImage | null> {
-  const target = PROFILE_IMAGE_TARGETS[kind];
   const result = await ImagePicker.launchImageLibraryAsync({
-    // The native editor is web's CropImageDialog: it hands back an already
-    // cropped frame, so no second crop pass is needed on top of this.
+    // The platform editor is the crop step. iOS squares the result, which is
+    // exactly right for an avatar; a banner keeps the framed window the user
+    // chose, and contentFit cover presents it identically either way.
     allowsEditing: true,
     mediaTypes: ["images"],
-    quality: 1,
+    // The server strips metadata and builds every derivative, so there is no
+    // reason to ship a larger original than the editor already produced.
+    quality: 0.9,
   });
   if (result.canceled) {
     return null;
@@ -89,60 +111,69 @@ export async function pickProfileImage(
     );
   }
 
-  // The picker reports the source dimensions, so planning the crop needs no
-  // extra decode. A missing value (some pickers omit it) falls back to the
-  // target box, which turns the cover-crop into a plain resize.
-  const crop = coverCrop(target, {
-    height: asset.height || target.height,
-    width: asset.width || target.width,
-  });
+  const source: UploadSource = {
+    height: asset.height || undefined,
+    mimeType: asset.mimeType || "image/jpeg",
+    name,
+    size: bytes,
+    uri: asset.uri,
+    width: asset.width || undefined,
+  };
 
-  const rendered = await ImageManipulator.manipulate(asset.uri)
-    .resize({
-      height: Math.max(
-        1,
-        Math.round((asset.height || target.height) * crop.scale)
-      ),
-      width: Math.max(
-        1,
-        Math.round((asset.width || target.width) * crop.scale)
-      ),
-    })
-    .crop({
-      height: crop.height,
-      originX: crop.originX,
-      originY: crop.originY,
-      width: crop.width,
-    })
-    .renderAsync();
-
-  const directory = new Directory(Paths.cache, "asm-profile-media");
-  if (!directory.exists) {
-    directory.create({ idempotent: true, intermediates: true });
+  const picked = dimensionsOf(asset.width, asset.height);
+  if (picked) {
+    const ratio = picked.width / picked.height;
+    // Only worth a log: a mismatched ratio still renders correctly, it just
+    // stores more than the visible window needs.
+    const drift =
+      Math.abs(ratio - PROFILE_IMAGE_RATIO[kind]) / PROFILE_IMAGE_RATIO[kind];
+    if (drift > 0.5) {
+      logInfo("profile.image_ratio_drift", {
+        drift: Math.round(drift * 100) / 100,
+        kind,
+        pickedRatio: Math.round(ratio * 100) / 100,
+      });
+    }
   }
-  const output = new File(directory, `${kind}-${Date.now()}.webp`);
-  const saved = await rendered.saveAsync({
-    compress: 0.9,
-    format: SaveFormat.WEBP,
-  });
 
   logInfo("profile.image_ready", {
-    bytes: sizeOf(saved.uri),
-    height: saved.height,
+    bytes,
     kind,
+    maxBytes: PROFILE_IMAGE_MAX_BYTES,
     purpose: PURPOSE[kind],
-    width: saved.width,
   });
 
-  return {
-    purpose: PURPOSE[kind],
-    source: {
-      height: saved.height,
-      mimeType: "image/webp",
-      name: output.name,
-      size: sizeOf(saved.uri),
-      uri: saved.uri,
-      width: saved.width,
-    },
-  };
+  return { purpose: PURPOSE[kind], source };
+}
+
+/**
+ * Best-effort cache copy of a picked image, so the upload reads from a stable
+ * path rather than a provider-backed temporary URI that can be revoked
+ * mid-transfer. Returns the original URI when the copy is not possible.
+ */
+export function stabilizePickedImage(
+  picked: PickedProfileImage
+): PickedProfileImage {
+  try {
+    const directory = new Directory(Paths.cache, "asm-profile-media");
+    if (!directory.exists) {
+      directory.create({ idempotent: true, intermediates: true });
+    }
+    const target = new File(
+      directory,
+      `${picked.purpose}-${Date.now()}.${picked.source.name.split(".").pop() ?? "jpg"}`
+    );
+    target.create({ intermediates: true, overwrite: true });
+    const source = new File(picked.source.uri);
+    source.copy(target);
+    return {
+      purpose: picked.purpose,
+      source: { ...picked.source, size: target.size, uri: target.uri },
+    };
+  } catch (error) {
+    logWarn("profile.image_stabilize_failed", {
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return picked;
+  }
 }
