@@ -40,6 +40,9 @@ export interface MessageSearchBarProps {
   indexedCount: number;
   // True while older history is still paging in for the transcript itself.
   indexing: boolean;
+  // The last walk ended in failure. Rendered as a retry rather than an idle
+  // offer, so a transient failure does not silently strand coverage.
+  indexFailed: boolean;
   // Conversations dropped to stay inside the index budget, or a write refused for
   // lack of storage. Rendered in the status line so a narrower result set is
   // never silent.
@@ -82,6 +85,7 @@ export function MessageSearchBar({
   fullyCovered,
   indexedCount,
   indexing,
+  indexFailed,
   indexingOlder,
   inputRef,
   matchCount,
@@ -112,6 +116,11 @@ export function MessageSearchBar({
 
   const listView = view === "list";
   const queryReady = query.trim().length >= MIN_SEARCH_QUERY_LENGTH;
+  const coverageLabel = searchCoverageLabel({
+    indexFailed,
+    indexedCount,
+    indexingOlder,
+  });
 
   return (
     <div className="border-border/60 flex h-12 shrink-0 items-center gap-2 border-b px-3 md:px-4">
@@ -143,7 +152,11 @@ export function MessageSearchBar({
         value={query}
       />
 
-      {indexing ? (
+      {/* Transcript window state, not index state: once the index covers the
+          whole conversation, matches are found over everything regardless of
+          how much history happens to be loaded, so a loader here would imply
+          search is still working when it is done. */}
+      {indexing && !fullyCovered ? (
         <Loader2
           aria-label="Loading older messages"
           className="text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin"
@@ -231,22 +244,28 @@ export function MessageSearchBar({
       )}
 
       {/* Offered only when there is something older to cover. While the walk
-          runs it stays in place as a spinner, so progress is visible in the row
-          the user is already looking at rather than in a toast. */}
-      {canIndexOlder || indexingOlder ? (
+          runs it stays in place as a progress indicator -- hovering reads the
+          live indexed count -- in the row the user is already looking at
+          rather than in a toast. Indexing starts and stops itself, so the
+          indicator takes no clicks. */}
+      {indexingOlder ? (
+        <span
+          aria-label={coverageLabel}
+          className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+          title={coverageLabel}
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        </span>
+      ) : null}
+      {!indexingOlder && canIndexOlder ? (
         <button
-          aria-label={searchCoverageLabel({ indexedCount, indexingOlder })}
+          aria-label={coverageLabel}
           className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:pointer-events-none disabled:opacity-60"
-          disabled={indexingOlder}
           onClick={onIndexOlder}
-          title={searchCoverageLabel({ indexedCount, indexingOlder })}
+          title={coverageLabel}
           type="button"
         >
-          {indexingOlder ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <History className="h-3.5 w-3.5" />
-          )}
+          <History className="h-3.5 w-3.5" />
         </button>
       ) : null}
 

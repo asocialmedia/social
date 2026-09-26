@@ -26,6 +26,12 @@ export const MAX_SEARCH_INDEX_MESSAGES = 3000;
 export const SEARCH_PAGE_SIZE = 20;
 // Keystroke debounce before a query runs against the corpus.
 export const SEARCH_DEBOUNCE_MS = 150;
+// Fastest the merged snapshot (navigation ids and counter) re-folds while one
+// query's inputs churn underneath it. Decrypt storms change the inputs dozens
+// of times per second; applying every change schedules a render per churn
+// event, and under a storm that cascade trips React's nested-update guard.
+// New queries bypass the throttle and apply immediately.
+export const MERGE_THROTTLE_MS = 250;
 // Characters of context kept on each side of the first match in a snippet.
 export const SEARCH_SNIPPET_RADIUS = 60;
 // Upper bound on highlighted ranges per result so a pathological
@@ -46,6 +52,35 @@ export function normalizeSearchText(value: string): string {
 // Splits a normalized query into AND-ed tokens.
 export function searchQueryTokens(normalizedQuery: string): string[] {
   return normalizedQuery.split(/\s+/).filter((token) => token.length > 0);
+}
+
+// Bounds for trailing-token prefix matching. Typing narrows live: the last
+// token is matched by prefix so "zarq" already finds "zarquon", instead of
+// flashing empty until the word is complete.
+export const MIN_PREFIX_LENGTH = 2;
+export const MAX_PREFIX_EXPANSION = 64;
+
+export interface SplitSearchTokens {
+  // Every token but the last: matched exactly, AND-ed as before.
+  exact: string[];
+  // The trailing token, matched by prefix -- null when the query ends in
+  // whitespace (the word is finished, so everything is exact) or is empty.
+  prefix: string | null;
+}
+
+// Splits a raw query the way the keystroke path needs it: completed words go
+// exact, the word still being typed goes prefix. "deploy zarq" becomes
+// exact ["deploy"] plus prefix "zarq"; "deploy " (trailing space) is all
+// exact; "" is neither.
+export function splitSearchTokens(query: string): SplitSearchTokens {
+  const tokens = searchQueryTokens(normalizeSearchText(query));
+  if (tokens.length === 0) {
+    return { exact: [], prefix: null };
+  }
+  if (/\s$/.test(query)) {
+    return { exact: tokens, prefix: null };
+  }
+  return { exact: tokens.slice(0, -1), prefix: tokens.at(-1) ?? null };
 }
 
 export type SearchableMessageKind = "media" | "post" | "text";
@@ -249,23 +284,33 @@ export interface RankedSearchResult extends SearchCandidate {
   snippet: SearchSnippet;
 }
 
-// Ranks candidates for one query: AND token match, score desc, then newest
-// first, sliced to MAX_SEARCH_RESULTS. Snippet + ranges are computed only for
-// survivors so a huge corpus never pays highlight costs for rows nobody sees.
-export function rankSearchResults(
-  candidates: SearchCandidate[],
+// One pass over the corpus per query, shared by both surfaces.
+//
+// `rankSearchResults` and `findMatchingIds` used to each normalize and score
+// every row independently, so one evaluation of a query against a 3,000-row
+// transcript normalized every message body twice. That is a full extra pass over
+// the whole corpus on the keystroke path. Evaluating once and deriving both
+// answers from the same result also makes the ranked list and the "n of N"
+// counter agree by construction rather than by two functions happening to share
+// a predicate.
+export interface ScoredSearchRow {
+  candidate: SearchCandidate;
+  firstMatchStart: number;
+  score: number;
+}
+
+// Rows matching every token, ordered by score desc then newest first. The order
+// is total, so the ranked list and the counter are two views of one list.
+export function scoreSearchCandidates(
+  candidates: readonly SearchCandidate[],
   query: string
-): RankedSearchResult[] {
+): ScoredSearchRow[] {
   const normalizedQuery = normalizeSearchText(query.trim());
   if (normalizedQuery.length < MIN_SEARCH_QUERY_LENGTH) {
     return [];
   }
   const tokens = searchQueryTokens(normalizedQuery);
-  const scored: {
-    candidate: SearchCandidate;
-    firstMatchStart: number;
-    score: number;
-  }[] = [];
+  const scored: ScoredSearchRow[] = [];
   for (const candidate of candidates) {
     const normalized = normalizeSearchText(candidate.text);
     const score = scoreSearchMatch(normalized, tokens, normalizedQuery);
@@ -273,9 +318,6 @@ export function rankSearchResults(
       continue;
     }
     const firstMatchStart = normalized.indexOf(tokens[0] ?? "");
-    // Only the derived numbers are retained: the normalized text is dropped
-    // immediately, so a large corpus does not pin a second copy of every
-    // message body while it sorts.
     scored.push({
       candidate,
       firstMatchStart: firstMatchStart === -1 ? 0 : firstMatchStart,
@@ -288,6 +330,29 @@ export function rankSearchResults(
     }
     return right.candidate.createdAt - left.candidate.createdAt;
   });
+  return scored;
+}
+
+// Ranks candidates for one query: AND token match, score desc, then newest
+// first, sliced to MAX_SEARCH_RESULTS. Snippet + ranges are computed only for
+// survivors so a huge corpus never pays highlight costs for rows nobody sees.
+export function rankSearchResults(
+  candidates: SearchCandidate[],
+  query: string
+): RankedSearchResult[] {
+  return buildRankedResults(scoreSearchCandidates(candidates, query), query);
+}
+
+// Materializes snippets and highlight ranges for already-scored rows. Split out
+// from rankSearchResults so a caller that scored the corpus once for the counter
+// can build the list from that same scoring without walking the corpus again.
+export function buildRankedResults(
+  scored: readonly ScoredSearchRow[],
+  query: string
+): RankedSearchResult[] {
+  // Once per call, not once per row: normalizing the query inside the map would
+  // reintroduce the per-row cost this function's refactor exists to remove.
+  const tokens = searchQueryTokens(normalizeSearchText(query.trim()));
   return scored.slice(0, MAX_SEARCH_RESULTS).map((entry) => {
     const snippet = buildSearchSnippet(
       entry.candidate.text,
@@ -315,6 +380,171 @@ export function rankSearchResults(
   });
 }
 
+// One snapshot's worth of matches from the persistent index, as the hook holds it.
+export interface IndexMatchSnapshot {
+  // Message id -> facts, for the capped match set only.
+  rows: ReadonlyMap<number, { createdAt: number; messageId: string }>;
+  tokens: readonly string[];
+  totalMatched: number;
+}
+
+export interface MergedSearchSnapshot {
+  // Every match id, newest first, for sequential navigation.
+  matchIds: string[];
+  // In-memory matches with snippets, then index-only matches, both already
+  // ordered for display.
+  ranked: RankedSearchResult[];
+  // Index hits that no in-memory row accounts for, newest first.
+  indexOnlyIds: string[];
+  // The counter. A single number derived from ONE pair of inputs.
+  totalMatches: number;
+}
+
+// Merges the two sources of truth into one snapshot.
+//
+// Both terms used to be computed independently and added, which is what made the
+// counter wander. The loaded-transcript term is a SLIDING window (older pages push
+// rows out of it) and the index term jumps on every flush, so a static query could
+// report 269, then 316, then 289 with nothing deleted. Making this a pure function
+// of its two inputs means one snapshot is one number: it can still grow as
+// coverage lands, but it cannot wobble for a reason the reader cannot see, and that
+// property is testable without React.
+//
+// `prev` carries the previous snapshot for the SAME query, and makes two things
+// sticky across recomputes. First, match ids never drop: during active indexing
+// the capped index window slides and jumps replace the whole transcript window,
+// so a match the user already landed on would vanish mid-session and the arrows
+// would yank them back to the newest hit -- teleporting through random positions
+// on every press. Second, the total never drops: the same churn that drops ids
+// swings the count (31, then 23, then 31 again). Both stay monotonic for the
+// session and reset on the next query. The price is explicit: a row hidden or
+// deleted mid-search lingers in navigation and count until the query changes,
+// which is strictly less wrong than teleporting through a live conversation.
+// The displayed list (`ranked`) stays fresh -- only navigation and count stick.
+export function mergeSearchSnapshot(
+  input: {
+    corpus: readonly SearchCandidate[];
+    index: IndexMatchSnapshot | null;
+    query: string;
+  },
+  prev: MergedSearchSnapshot | null = null
+): MergedSearchSnapshot {
+  const { corpus, index, query } = input;
+  const scoredRows = scoreSearchCandidates(corpus, query);
+  const inMemoryIds = scoredRowIdsNewestFirst(scoredRows);
+  if (!query.trim()) {
+    return {
+      indexOnlyIds: [],
+      matchIds: inMemoryIds,
+      ranked: [],
+      totalMatches: inMemoryIds.length,
+    };
+  }
+  const seen = new Set(inMemoryIds);
+  // Timestamp facts for the capped index rows, so the merge can order them
+  // without the intersect having to resolve the whole conversation.
+  const createdAtById = new Map<string, number>();
+  for (const row of scoredRows) {
+    createdAtById.set(row.candidate.id, row.candidate.createdAt);
+  }
+  let indexOnlyIds: string[] = [];
+  let indexOnlyTotal = 0;
+  let matchedTokens: readonly string[] = [];
+  if (index) {
+    for (const facts of index.rows.values()) {
+      if (!seen.has(facts.messageId)) {
+        createdAtById.set(facts.messageId, facts.createdAt);
+      }
+    }
+    indexOnlyIds = [...index.rows.values()]
+      .toSorted((left, right) => right.createdAt - left.createdAt)
+      .map((facts) => facts.messageId)
+      .filter((id) => !seen.has(id));
+    // Exact for the window that can be observed: the capped rows memory already
+    // accounts for are subtracted, so the two sources are never double counted
+    // there. Above the cap the overlap is genuinely unobservable, which the bar
+    // communicates through its coverage wording rather than by inventing a number.
+    indexOnlyTotal = Math.max(
+      0,
+      index.totalMatched - (index.rows.size - indexOnlyIds.length)
+    );
+    matchedTokens = index.tokens;
+  }
+  const freshIds = [...inMemoryIds, ...indexOnlyIds].toSorted(
+    (left, right) =>
+      (createdAtById.get(right) ?? 0) - (createdAtById.get(left) ?? 0)
+  );
+  // Sticky navigation: union with the previous snapshot's ids so an id that
+  // was reachable stays reachable for the session. Timestamps ride along from
+  // whichever side saw the id last (createdAt never changes for a message, so
+  // there is nothing to conflict). Fresh ids order first on ties? No ties are
+  // possible: one map, one order, newest first.
+  const knownCreatedAt = new Map<string, number>(createdAtById);
+  if (prev) {
+    for (const row of prev.ranked) {
+      if (!knownCreatedAt.has(row.id)) {
+        knownCreatedAt.set(row.id, row.createdAt);
+      }
+    }
+    for (const id of prev.matchIds) {
+      if (!knownCreatedAt.has(id)) {
+        // An id the previous display knew without facts (should not happen --
+        // every match id ships inside ranked -- but a merge must never lose
+        // navigation to a bookkeeping gap). Order it at the epoch start.
+        knownCreatedAt.set(id, 0);
+      }
+    }
+  }
+  const matchIds = [
+    ...new Set([...freshIds, ...(prev?.matchIds ?? [])]),
+  ].toSorted(
+    (left, right) =>
+      (knownCreatedAt.get(right) ?? 0) - (knownCreatedAt.get(left) ?? 0)
+  );
+  // The list leads with rows that can be shown in full; index-only hits follow in
+  // the same order the counter uses, so the two views agree. Deliberately NOT
+  // sticky: the list shows what matches NOW, while navigation above stays put.
+
+  const tail = indexOnlyIds.map((id) =>
+    indexOnlyResult(id, createdAtById.get(id) ?? 0, matchedTokens)
+  );
+  const totalMatches = Math.max(
+    prev?.totalMatches ?? 0,
+    inMemoryIds.length + indexOnlyTotal
+  );
+  return {
+    indexOnlyIds,
+    matchIds,
+    ranked: [...buildRankedResults(scoredRows, query), ...tail],
+    totalMatches,
+  };
+}
+
+// Builds a list-view row for a match that exists only in the persistent index,
+// with no decrypted row loaded to show a snippet from.
+//
+// The index deliberately stores ids and tokens only, never message text, so there
+// is no snippet to render yet. Showing the tokens that matched is honest and still
+// tells the reader what was found; the full text appears once the row is loaded
+// (which the jump does). Rows already in memory are ranked normally above these.
+export function indexOnlyResult(
+  id: string,
+  createdAt: number,
+  tokens: readonly string[]
+): RankedSearchResult {
+  const text = tokens.join(" ");
+  return {
+    createdAt,
+    firstMatchStart: 0,
+    id,
+    // No highlight ranges: the preview is the matched tokens themselves.
+    ranges: [],
+    score: 0,
+    snippet: { offset: 0, text },
+    text,
+  };
+}
+
 // Matching message ids for one query, newest first, with no display cap and no
 // scoring. This is the in-chat navigation corpus: unlike the ranked list view,
 // every hit must be reachable by the up/down chevrons, so the Telegram-style
@@ -325,20 +555,23 @@ export function findMatchingIds(
   candidates: SearchCandidate[],
   query: string
 ): string[] {
-  const normalizedQuery = normalizeSearchText(query.trim());
-  if (normalizedQuery.length < MIN_SEARCH_QUERY_LENGTH) {
-    return [];
-  }
-  const tokens = searchQueryTokens(normalizedQuery);
-  const matches: SearchCandidate[] = [];
-  for (const candidate of candidates) {
-    const normalized = normalizeSearchText(candidate.text);
-    if (scoreSearchMatch(normalized, tokens, normalizedQuery) !== null) {
-      matches.push(candidate);
-    }
-  }
-  matches.sort((left, right) => right.createdAt - left.createdAt);
-  return matches.map((candidate) => candidate.id);
+  return scoredRowIdsNewestFirst(scoreSearchCandidates(candidates, query));
+}
+
+// The same navigation ordering over rows the caller has already scored, so a
+// caller that scored once for the counter does not walk the corpus again.
+//
+// Deliberately a separate function rather than an overloaded `findMatchingIds`:
+// both shapes are arrays, so a runtime union check cannot tell a scored row from a
+// candidate and silently scored the wrong thing.
+export function scoredRowIdsNewestFirst(
+  scored: readonly ScoredSearchRow[]
+): string[] {
+  return [...scored]
+    .toSorted(
+      (left, right) => right.candidate.createdAt - left.candidate.createdAt
+    )
+    .map((row) => row.candidate.id);
 }
 
 export interface SearchPage {

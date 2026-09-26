@@ -98,10 +98,21 @@ export function searchStorageStatus(input: {
 export function searchCoverageLabel(input: {
   indexedCount: number;
   indexingOlder: boolean;
+  // A run ended in failure (throttled past its retries, storage refused, a
+  // request failed). The button must say so: an idle-looking bar after a
+  // failure reads as "done" and nobody retries, stranding coverage silently.
+  indexFailed?: boolean;
 }): string {
-  const { indexedCount, indexingOlder } = input;
+  const { indexedCount, indexingOlder, indexFailed = false } = input;
   if (indexingOlder) {
-    return "Indexing older messages";
+    // While the walk runs, the label carries the live count: hovering the
+    // spinner reads how much of the conversation is indexed so far.
+    return indexedCount > 0
+      ? `Indexing older messages (${indexedCount.toLocaleString()} indexed)`
+      : "Indexing older messages";
+  }
+  if (indexFailed) {
+    return "Retry indexing older messages";
   }
   return indexedCount > 0
     ? `Index older messages (${indexedCount.toLocaleString()} indexed)`

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createMemorySearchIndexStore } from "./memory-search-index";
+import { MAX_PREFIX_EXPANSION } from "./message-search";
 import {
   resetSearchIndexStoreForTests,
   resolveSearchIndexStore,
@@ -10,6 +11,7 @@ import {
   emptySearchIndexMeta,
   emptySearchIndexRowList,
   emptySearchIndexRowTable,
+  expandPrefixTerm,
   internRows,
   intersectPostingLists,
   rowListAdd,
@@ -19,6 +21,7 @@ import {
   searchIndexRowListFrom,
   SEARCH_INDEX_FORMAT_VERSION,
   SEARCH_INDEX_QUERY_LIMIT,
+  unionPostingLists,
 } from "./search-index-format";
 import type { SearchIndexEntry, SearchIndexStore } from "./search-index-format";
 
@@ -47,9 +50,10 @@ async function queryStore(
   store: SearchIndexStore,
   conversationId: string,
   tokens: string[],
-  limit = SEARCH_INDEX_QUERY_LIMIT
+  limit = SEARCH_INDEX_QUERY_LIMIT,
+  options?: { prefix?: string }
 ): Promise<{ ids: string[]; totalMatched: number }> {
-  const result = await store.query(conversationId, tokens, limit);
+  const result = await store.query(conversationId, tokens, limit, options);
   return {
     ids: [...result.rows.values()]
       .toSorted((left, right) => right.createdAt - left.createdAt)
@@ -82,9 +86,11 @@ describe("emptySearchIndexMeta", () => {
   test("starts unindexed at the current format version", () => {
     expect(emptySearchIndexMeta("c1")).toEqual({
       conversationId: "c1",
+      cursorVerified: false,
       indexedThroughId: null,
       lastAccessedAt: 0,
       pendingIds: [],
+      reachedStart: false,
       updatedAt: 0,
       version: SEARCH_INDEX_FORMAT_VERSION,
     });
@@ -220,6 +226,57 @@ describe("posting list growth", () => {
   });
 });
 
+describe("expandPrefixTerm", () => {
+  const dictionary = ["deploy", "deployment", "deploys", "zarquon"];
+  test("fans a fragment out to every term starting with it", () => {
+    expect(expandPrefixTerm(dictionary, "depl")).toEqual([
+      "deploy",
+      "deployment",
+      "deploys",
+    ]);
+  });
+
+  test("a complete word matches itself with no variants", () => {
+    expect(expandPrefixTerm(dictionary, "zarquon")).toEqual(["zarquon"]);
+  });
+
+  test("a short fragment only ever matches itself exactly", () => {
+    expect(expandPrefixTerm(["a", "apple"], "a")).toEqual(["a"]);
+    expect(expandPrefixTerm(["apple"], "a")).toEqual([]);
+  });
+
+  test("an unknown fragment matches nothing", () => {
+    expect(expandPrefixTerm(dictionary, "zzz")).toEqual([]);
+  });
+
+  test("an expansion wider than the cap matches nothing, not partially", () => {
+    const wide = Array.from(
+      { length: MAX_PREFIX_EXPANSION + 1 },
+      (_, i) => `term${i}`
+    );
+    expect(expandPrefixTerm(wide, "term")).toEqual([]);
+    expect(
+      expandPrefixTerm(wide.slice(0, MAX_PREFIX_EXPANSION), "term")
+    ).toHaveLength(MAX_PREFIX_EXPANSION);
+  });
+});
+
+describe("unionPostingLists", () => {
+  test("unions with de-duplication in ascending order", () => {
+    expect(
+      unionPostingLists([
+        Uint32Array.from([1, 4, 9]),
+        Uint32Array.from([4, 5]),
+        Uint32Array.from([]),
+      ])
+    ).toEqual(Uint32Array.from([1, 4, 5, 9]));
+  });
+
+  test("empty in, empty out", () => {
+    expect(unionPostingLists([])).toEqual(new Uint32Array(0));
+  });
+});
+
 describe("intersectPostingLists", () => {
   // Row ids ascend with insertion order, so descending row id is
   // newest-indexed-first. Timestamps are no longer this function's concern: the
@@ -298,6 +355,66 @@ describe("memory search index store", () => {
     expect(inOne.ids).toEqual(["m1"]);
     expect(inTwo.ids).toEqual(["m9"]);
     expect(store.conversations().toSorted()).toEqual(["c1", "c2"]);
+  });
+
+  // The keystroke path: the trailing token fans out by prefix so typing
+  // narrows live instead of flashing empty until the word completes.
+  test("a trailing prefix matches every term starting with it", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("deployment checklist", 2)],
+        ["m3", entry("unrelated words here", 3)],
+      ])
+    );
+    expect(await queryStore(store, "c1", [], 100, { prefix: "deplo" })).toEqual(
+      {
+        ids: ["m2", "m1"],
+        totalMatched: 2,
+      }
+    );
+  });
+
+  test("a prefix ANDs with the exact tokens", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("deployment checklist", 2)],
+      ])
+    );
+    expect(
+      await queryStore(store, "c1", ["service"], 100, { prefix: "deplo" })
+    ).toEqual({ ids: ["m1"], totalMatched: 1 });
+    // ...and an unknown exact token still poisons the whole query.
+    expect(
+      await queryStore(store, "c1", ["absent"], 100, { prefix: "deplo" })
+    ).toEqual({ ids: [], totalMatched: 0 });
+  });
+
+  test("an unknown or over-wide prefix matches nothing", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([["m1", entry("deploy the service", 1)]])
+    );
+    expect(await queryStore(store, "c1", [], 100, { prefix: "zzz" })).toEqual({
+      ids: [],
+      totalMatched: 0,
+    });
+  });
+
+  test("a complete word with no longer variants behaves exactly", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("unrelated words here", 2)],
+      ])
+    );
+    expect(
+      await queryStore(store, "c1", [], 100, { prefix: "deploy" })
+    ).toEqual({ ids: ["m1"], totalMatched: 1 });
   });
 
   test("an empty batch is a no-op", async () => {
@@ -510,9 +627,7 @@ describe("search index backend selection", () => {
     resetSearchIndexStoreForTests();
     // This is the private-mode / embedded-webview path: the probe must choose the
     // memory backend rather than throw.
-    const resolved = await withoutIndexedDb(() =>
-      resolveSearchIndexStore(() => Promise.resolve(null))
-    );
+    const resolved = await withoutIndexedDb(() => resolveSearchIndexStore());
     expect(resolved.backend).toBe("memory");
     // The fallback is still a working store, not a stub.
     await resolved.store.putEntries(
@@ -524,15 +639,13 @@ describe("search index backend selection", () => {
     resetSearchIndexStoreForTests();
   });
 
-  // The backend is deliberately NOT cached across calls. A cached store would
-  // capture the first call's key resolver and hand it to every later caller, so
-  // opening a second conversation would try to read and write its index with the
-  // first conversation's sealing key. The store re-resolves per operation
-  // instead, so identity comes from the caller each time.
-  test("each resolution gets its own store, so no conversation inherits another's key", async () => {
+  // The backend is deliberately NOT cached across calls. A cached store would hand
+  // one conversation's index to the next caller, and a failure there would look
+  // like a corrupt index rather than a wiring mistake.
+  test("each resolution gets its own store", async () => {
     resetSearchIndexStoreForTests();
-    const first = await resolveSearchIndexStore(() => Promise.resolve(null));
-    const second = await resolveSearchIndexStore(() => Promise.resolve(null));
+    const first = await resolveSearchIndexStore();
+    const second = await resolveSearchIndexStore();
     expect(second.store).not.toBe(first.store);
     resetSearchIndexStoreForTests();
   });

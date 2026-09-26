@@ -6,77 +6,51 @@
 // shim is imported at the top of this file only.
 //
 // The behaviours worth testing are the ones the in-memory reference cannot
-// demonstrate: that data survives a new store instance, that a pre-sealed-layout
-// database is reset rather than misread, that a query resolves only its own rows, and -- the
-// reason this backend exists at all -- that nothing readable is left on disk.
+// demonstrate: that data survives a new store instance, that a pre-current-layout
+// database is reset rather than misread, that a query resolves only its own rows,
+// that a rewrite touches only the posting lists it changed, and that a removed
+// row's id is never handed out again.
 import "fake-indexeddb/auto";
 // The promises in this file are IndexedDB's event-based lifecycle, which has no
 // async/await form.
 // oxlint-disable promise/avoid-new -- IndexedDB request and open lifecycles are event-based
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { deriveIndexKeyFromBase } from "./crypto";
 import {
   createIndexedDbSearchIndexStore,
+  planTokenListUpdates,
   resetIndexedDbSearchIndexStoreForTests,
+  runTransaction,
 } from "./indexeddb-search-index";
-import type { SearchIndexKeyResolver } from "./indexeddb-search-index";
-import { MESSAGES_DB_VERSION } from "./message-db";
+import {
+  MESSAGES_DB_NAME,
+  MESSAGES_DB_VERSION,
+  OBSOLETE_SEARCH_STORES,
+  SEARCH_HEADER_STORE,
+  SEARCH_META_STORE,
+  SEARCH_PENDING_STORE,
+  SEARCH_POSTINGS_STORE,
+  SEARCH_ROW_IDS_STORE,
+  SEARCH_ROWS_STORE,
+} from "./message-db";
 import {
   buildSearchIndexEntry,
   emptySearchIndexMeta,
   SEARCH_INDEX_FORMAT_VERSION,
 } from "./search-index-format";
 import type { SearchIndexEntry, SearchIndexStore } from "./search-index-format";
-import { seal } from "./search-index-vault";
 
-const DB_NAME = "asm-messages";
-const TABLES_STORE = "search-tables";
-const POSTINGS_STORE = "search-postings";
-const ALLOC_STORE = "search-alloc";
-const META_STORE = "search-meta";
-const PENDING_STORE = "search-pending";
-
-// A real AES-GCM index key, derived the way the app derives it. Tests use the
-// real thing rather than a stand-in so a change that weakened the derivation
-// (a reused salt, a dropped AAD binding) would fail here.
-let testMasterKey: CryptoKey | null = null;
-
-async function testIndexKey(conversationId: string): Promise<CryptoKey> {
-  if (!testMasterKey) {
-    const raw = new Uint8Array(32).fill(7);
-    testMasterKey = await globalThis.crypto.subtle.importKey(
-      "raw",
-      raw,
-      "HKDF",
-      false,
-      ["deriveKey"]
-    );
-  }
-  return deriveIndexKeyFromBase(await testMasterKey, conversationId);
-}
-
-// The resolver the app supplies. `generation` is a module-level value so a test
-// can simulate a root rotation without rebuilding the key.
-//
-// The conversation id is the one the STORE passes in, not one captured when the
-// resolver was built. Capturing it would derive every conversation's index from
-// the same key, which would quietly stop the suite from testing the per-conversation
-// key separation that is the whole point of sealing.
-let currentGeneration = "gen-1";
-
-function testResolver(): SearchIndexKeyResolver {
-  return async (conversationId) => ({
-    generation: currentGeneration,
-    key: await testIndexKey(conversationId),
-  });
-}
+const HEADER_STORE = SEARCH_HEADER_STORE;
+const META_STORE = SEARCH_META_STORE;
+const POSTINGS_STORE = SEARCH_POSTINGS_STORE;
+const ROW_IDS_STORE = SEARCH_ROW_IDS_STORE;
+const ROWS_STORE = SEARCH_ROWS_STORE;
 
 function createTestStore(): SearchIndexStore {
-  return createIndexedDbSearchIndexStore({ resolveKey: testResolver() });
+  return createIndexedDbSearchIndexStore();
 }
 
-// Posting lists keyed by token TEXT, resolved back through the table's
+// Posting lists keyed by token TEXT, resolved back through the header's
 // dictionary. This helper deliberately uses readAllPostingLists so tests can
 // inspect one stored list in isolation; the production keystroke path below
 // always goes through query.
@@ -101,8 +75,8 @@ function entry(
   return built;
 }
 
-// The production keystroke path: store.query owns the dictionary lookup,
-// checked posting-list snapshot, intersection, and row projection together.
+// The production keystroke path: store.query owns the dictionary lookup, the
+// posting-list reads, the intersection, and the row projection together.
 async function queryStore(
   store: SearchIndexStore,
   conversationId: string,
@@ -137,7 +111,7 @@ function rawRequestIn(
   issue: (store: IDBObjectStore) => IDBRequest<never> | IDBRequest<unknown>
 ): Promise<unknown> {
   return new Promise<unknown>((resolve, reject) => {
-    const open = indexedDB.open(DB_NAME, MESSAGES_DB_VERSION);
+    const open = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
     open.addEventListener("success", () => {
       const db = open.result;
       // Closed on every exit path. A leaked connection is not a local annoyance:
@@ -202,8 +176,21 @@ function writeRaw(
   return rawRequestIn(storeName, "readwrite", (store) => store.put(value, key));
 }
 
-function rawKeys(storeName: string): Promise<unknown> {
-  return rawRequestIn(storeName, "readonly", (store) => store.getAllKeys());
+// Every key in a store, as the flat strings a test compares. The stored key is
+// rendered rather than inspected, because a `[conversationId, keyComponent]` pair
+// has no single string form.
+async function rawKeyList(storeName: string): Promise<string[]> {
+  const keys = await rawRequestIn(storeName, "readonly", (store) =>
+    store.getAllKeys()
+  );
+  return Array.isArray(keys) ? keys.map(String) : [];
+}
+
+// One stored posting list, as numbers. A posting list is a typed array, so this
+// narrows by construction rather than by assertion.
+async function rawRowList(key: IDBValidKey): Promise<number[]> {
+  const stored = await readRaw(POSTINGS_STORE, key);
+  return stored instanceof Uint32Array ? [...stored] : [];
 }
 
 function rawField(value: unknown, key: string): unknown {
@@ -213,16 +200,62 @@ function rawField(value: unknown, key: string): unknown {
   return value[key];
 }
 
+function rawStringList(value: unknown, key: string): string[] {
+  const field = rawField(value, key);
+  return Array.isArray(field) ? field.map(String) : [];
+}
+
+function rawNumber(value: unknown, key: string): number {
+  const field = rawField(value, key);
+  return typeof field === "number" ? field : Number.NaN;
+}
+
 // Opens a connection for schema assertions. Requests the shared version so it can
 // never be the thing that creates a store-less v1 database, and hands back a
 // handle the caller must close.
 function openRawForInspection(): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, MESSAGES_DB_VERSION);
+    const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
     request.addEventListener("success", () => resolve(request.result));
     request.addEventListener("error", () => reject(request.error));
     request.addEventListener("blocked", () =>
       reject(new Error("raw IndexedDB inspection open blocked"))
+    );
+  });
+}
+
+// Opens a database at an OLD version with a hand-picked schema, so the upgrade
+// path can be exercised without shipping the old build.
+//
+// Records are written on the versionchange transaction itself. Creating a second
+// transaction inside `upgradeneeded` gives one that is already on its way out, and
+// the writes land in an aborted transaction.
+function seedDatabaseAtVersion(
+  version: number,
+  storeNames: string[],
+  seed?: (tx: IDBTransaction) => void
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open(MESSAGES_DB_NAME, version);
+    request.addEventListener("upgradeneeded", () => {
+      const db = request.result;
+      for (const name of storeNames) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name);
+        }
+      }
+      const { transaction } = request;
+      if (transaction) {
+        seed?.(transaction);
+      }
+    });
+    request.addEventListener("success", () => {
+      request.result.close();
+      resolve();
+    });
+    request.addEventListener("error", () => reject(request.error));
+    request.addEventListener("blocked", () =>
+      reject(new Error("raw IndexedDB open blocked"))
     );
   });
 }
@@ -249,73 +282,12 @@ describe("indexeddb search index store", () => {
     });
   });
 
-  test("a stale writer retries after clear and recreate", async () => {
-    await store.putEntries("c1", new Map([["m1", entry("old", 1)]]));
-    const keyReleased = Promise.withResolvers<undefined>();
-    const keyStarted = Promise.withResolvers<undefined>();
-    let firstResolution = true;
-    const normalResolver = testResolver();
-    const gatedStore = createIndexedDbSearchIndexStore({
-      resolveKey: async (conversationId) => {
-        if (firstResolution) {
-          firstResolution = false;
-          keyStarted.resolve();
-          await keyReleased.promise;
-        }
-        return normalResolver(conversationId);
-      },
-    });
-
-    const pending = gatedStore.putEntries(
-      "c1",
-      new Map([["m-stale", entry("stale", 2)]])
-    );
-    await keyStarted.promise;
-    await store.clearConversation("c1");
-    await store.putEntries("c1", new Map([["m-new", entry("fresh", 3)]]));
-    keyReleased.resolve();
-    await pending;
-
-    const freshResult = await store.query("c1", ["fresh"], 10);
-    const staleResult = await store.query("c1", ["stale"], 10);
-    expect(freshResult.totalMatched).toBe(1);
-    expect(staleResult.totalMatched).toBe(1);
-  });
-
   // The whole point of the backend: a fresh store instance sees prior writes.
   test("data survives a new store instance", async () => {
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     const reopened = createTestStore();
     const found = await queryStore(reopened, "c1", ["deploy"]);
     expect(found.ids).toEqual(["m1"]);
-  });
-
-  test("a query retries when the table changes before its posting snapshot", async () => {
-    await store.putEntries("c1", new Map([["m1", entry("old", 1)]]));
-    const keyReleased = Promise.withResolvers<undefined>();
-    const keyStarted = Promise.withResolvers<undefined>();
-    let firstResolution = true;
-    const normalResolver = testResolver();
-    const gatedStore = createIndexedDbSearchIndexStore({
-      resolveKey: async (conversationId) => {
-        if (firstResolution) {
-          firstResolution = false;
-          keyStarted.resolve();
-          await keyReleased.promise;
-        }
-        return normalResolver(conversationId);
-      },
-    });
-
-    const pending = gatedStore.query("c1", ["old"], 10);
-    await keyStarted.promise;
-    await store.clearConversation("c1");
-    await store.putEntries("c1", new Map([["m-new", entry("fresh", 2)]]));
-    keyReleased.resolve();
-    const result = await pending;
-
-    expect(result.totalMatched).toBe(0);
-    expect(result.rows.size).toBe(0);
   });
 
   test("keeps conversations isolated", async () => {
@@ -325,6 +297,68 @@ describe("indexeddb search index store", () => {
     const inTwo = await queryStore(store, "c2", ["deploy"]);
     expect(inOne.ids).toEqual(["m1"]);
     expect(inTwo.ids).toEqual(["m9"]);
+  });
+
+  // Same prefix contract as the reference backend: the trailing fragment fans
+  // out across dictionary terms, AND-ed with any exact tokens.
+  test("a trailing prefix matches every term starting with it", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("deployment checklist", 2)],
+        ["m3", entry("unrelated words here", 3)],
+      ])
+    );
+    const found = await store.query("c1", [], 100, { prefix: "deplo" });
+    expect(found.totalMatched).toBe(2);
+    expect(
+      [...found.rows.values()]
+        .toSorted((left, right) => right.createdAt - left.createdAt)
+        .map((facts) => facts.messageId)
+    ).toEqual(["m2", "m1"]);
+  });
+
+  test("a prefix ANDs with exact tokens and honors unknown words", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("deployment checklist", 2)],
+      ])
+    );
+    const narrowed = await store.query("c1", ["service"], 100, {
+      prefix: "deplo",
+    });
+    expect(narrowed.totalMatched).toBe(1);
+    const poisoned = await store.query("c1", ["absent"], 100, {
+      prefix: "deplo",
+    });
+    expect(poisoned).toEqual({ rows: new Map(), totalMatched: 0 });
+    const unknown = await store.query("c1", [], 100, { prefix: "zzz" });
+    expect(unknown).toEqual({ rows: new Map(), totalMatched: 0 });
+  });
+
+  // The walk's skip check: which ids already occupy a row, so covered pages
+  // cost one fetch and no decrypts. Tombstoned rows count -- a removed row is
+  // covered, there is just nothing to find in it.
+  test("hasIndexedMessages reports occupancy, not searchability", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("deploy the database", 2)],
+      ])
+    );
+    expect(await store.hasIndexedMessages("c1", ["m1", "m2", "m3"])).toEqual(
+      new Set(["m1", "m2"])
+    );
+    expect(await store.hasIndexedMessages("c1", [])).toEqual(new Set());
+    expect(await store.hasIndexedMessages("nope", ["m1"])).toEqual(new Set());
+    await store.removeEntries("c1", ["m1"]);
+    expect(await store.hasIndexedMessages("c1", ["m1", "m2"])).toEqual(
+      new Set(["m1", "m2"])
+    );
   });
 
   test("an empty batch is a no-op", async () => {
@@ -364,6 +398,23 @@ describe("indexeddb search index store", () => {
     expect(stats.indexedRowCount).toBe(1);
   });
 
+  // A rewrite is not a new message, so the facts of the message itself must not
+  // move: createdAt and senderId are properties of the message, not of the text
+  // currently indexed.
+  test("a rewrite keeps the message's own createdAt and sender", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([["m1", entry("deploy", 10, "alice")]])
+    );
+    await store.putEntries(
+      "c1",
+      new Map([["m1", entry("rollback", 20, "bob")]])
+    );
+    const resolved = await store.readRows("c1", Uint32Array.from([0]));
+    expect(resolved.get(0)?.createdAt).toBe(10);
+    expect(resolved.get(0)?.senderId).toBe("alice");
+  });
+
   test("a later batch continues the row numbering rather than restarting", async () => {
     await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
     await store.putEntries("c1", new Map([["m2", entry("beta", 2)]]));
@@ -372,6 +423,29 @@ describe("indexeddb search index store", () => {
     const beta = await postingList(store, "c1", "beta");
     expect([...alpha]).toEqual([0]);
     expect([...beta]).toEqual([1]);
+  });
+
+  // What replaced the whole-blob compare-and-swap. Row ids are allocated inside
+  // the write transaction, so IndexedDB's own serialisation is the lock and two
+  // writers can never be handed the same id.
+  test("concurrent writers on one conversation never share a row id", async () => {
+    await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
+    await Promise.all([
+      store.putEntries("c1", new Map([["m2", entry("beta", 2)]])),
+      store.putEntries("c1", new Map([["m3", entry("gamma", 3)]])),
+    ]);
+    const stats = await store.readStats("c1");
+    expect(stats.indexedRowCount).toBe(3);
+    const beta = await postingList(store, "c1", "beta");
+    const gamma = await postingList(store, "c1", "gamma");
+    expect(beta.length).toBe(1);
+    expect(gamma.length).toBe(1);
+    // Distinct ids, and both rows resolve to their own message.
+    expect(beta[0]).not.toBe(gamma[0]);
+    const rows = await store.readRows("c1", Uint32Array.from([0, 1, 2]));
+    expect(
+      [...rows.values()].map((facts) => facts.messageId).toSorted()
+    ).toEqual(["m1", "m2", "m3"]);
   });
 
   test("a single read returns one token, not the whole index", async () => {
@@ -426,6 +500,9 @@ describe("indexeddb search index store", () => {
     expect(afterRemove.ids).toEqual(["m2"]);
   });
 
+  // The deletion is recorded, not forgotten. A tombstone row survives with an
+  // empty token list, so a stale device re-indexing the same message cannot
+  // resurrect it and cannot repopulate a posting list either.
   test("re-indexing a removed message leaves postings and totals unchanged", async () => {
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     await store.removeEntries("c1", ["m1"]);
@@ -438,6 +515,13 @@ describe("indexeddb search index store", () => {
     const afterLists = await store.readAllPostingLists("c1");
     expect(after).toEqual(before);
     expect([...afterLists]).toEqual([...beforeLists]);
+    // Still one interned row: the tombstone keeps the id reserved rather than
+    // letting the message claim a second one.
+    const stats = await store.readStats("c1");
+    expect(stats.indexedRowCount).toBe(1);
+    const tombstone = await readRaw(ROWS_STORE, ["c1", "0"]);
+    expect(rawField(tombstone, "present")).toBe(false);
+    expect(rawStringList(tombstone, "tokenIds")).toEqual([]);
   });
 
   test("removing a message drops the tokens only it had", async () => {
@@ -495,6 +579,7 @@ describe("indexeddb search index store", () => {
   test("clearing a conversation drops entries, meta, and the allocator", async () => {
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     await store.writeMeta(emptySearchIndexMeta("c1"));
+    await store.writePending("c1", ["m-pending"]);
     expect(await store.readMeta("c1")).not.toBeNull();
     await store.clearConversation("c1");
     expect(await store.readMeta("c1")).toBeNull();
@@ -502,6 +587,10 @@ describe("indexeddb search index store", () => {
     expect(all.size).toBe(0);
     const stats = await store.readStats("c1");
     expect(stats.indexedRowCount).toBe(0);
+    // No row record and no forward-index entry survive either.
+    expect(await readRaw(ROWS_STORE, ["c1", "0"])).toBeUndefined();
+    expect(await readRaw(ROW_IDS_STORE, ["c1", "m1"])).toBeUndefined();
+    expect(await store.readPending("c1")).toEqual([]);
   });
 
   test("clearing one conversation leaves the other alone", async () => {
@@ -532,7 +621,7 @@ describe("indexeddb search index store", () => {
   });
 
   // The allocator deliberately lives outside meta. The backfill rewrites meta on
-  // every page, so sharing one object would let the two roll each other's state
+  // every page, so sharing one record would let the two roll each other's state
   // back, and a rolled-back allocator hands two messages the same row id.
   test("a meta write does not disturb row numbering", async () => {
     await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
@@ -556,6 +645,30 @@ describe("indexeddb search index store", () => {
     expect([...beta]).toEqual([1]);
   });
 
+  test("lists conversations with their row counts and last access", async () => {
+    await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
+    await store.putEntries("c2", new Map([["m9", entry("beta", 1)]]));
+    // Coverage lives in meta, so a conversation is only listed once the walk has
+    // written meta for it -- which is also what eviction accounts over.
+    await store.writeMeta({
+      ...emptySearchIndexMeta("c1"),
+      lastAccessedAt: 99,
+    });
+    await store.writeMeta(emptySearchIndexMeta("c2"));
+    const listed = await store.listConversations();
+    const summaries = listed.toSorted((left, right) =>
+      left.conversationId.localeCompare(right.conversationId)
+    );
+    expect(summaries).toEqual([
+      {
+        conversationId: "c1",
+        indexedRowCount: 1,
+        lastAccessedAt: 99,
+      },
+      { conversationId: "c2", indexedRowCount: 1, lastAccessedAt: 0 },
+    ]);
+  });
+
   test("unknown conversation reads as empty, not an error", async () => {
     expect(await store.readMeta("nope")).toBeNull();
     expect(await queryStore(store, "nope", ["anything"])).toEqual({
@@ -566,6 +679,8 @@ describe("indexeddb search index store", () => {
     expect(stats.indexedRowCount).toBe(0);
     const resolved = await store.readRows("nope", Uint32Array.from([0]));
     expect(resolved.size).toBe(0);
+    const noPostings = await store.readAllPostingLists("nope");
+    expect(noPostings.size).toBe(0);
   });
 
   test("a read cannot mutate the stored list", async () => {
@@ -576,10 +691,23 @@ describe("indexeddb search index store", () => {
     expect([...reread]).toEqual([0]);
   });
 
+  // The count the result bar renders is the FULL intersection, so a capped page of
+  // rows must never shrink it.
+  test("totalMatched is the full count while rows is capped", async () => {
+    const batch = new Map<string, SearchIndexEntry>();
+    for (let index = 0; index < 40; index += 1) {
+      batch.set(`m${index}`, entry("deploy", index));
+    }
+    await store.putEntries("c1", batch);
+    const capped = await store.query("c1", ["deploy"], 5);
+    expect(capped.rows.size).toBe(5);
+    expect(capped.totalMatched).toBe(40);
+  });
+
   // Writes are linear (measured ~10k msgs/s in the shim). Whole-conversation
   // cursor reads are deliberately not asserted at scale: the shim's own cursor is
   // quadratic, so such a test would measure the shim rather than this code. The
-  // query path no longer uses a cursor at all, which is the point of readRows.
+  // query path uses no cursor at all, which is the point of readRows.
   test("many messages index and query correctly across batches", async () => {
     const TOTAL = 600;
     // oxlint-disable no-await-in-loop -- batches must land one at a time
@@ -614,17 +742,18 @@ describe("indexeddb schema versioning", () => {
     try {
       expect(db.version).toBe(MESSAGES_DB_VERSION);
       for (const name of [
-        TABLES_STORE,
+        HEADER_STORE,
         POSTINGS_STORE,
-        ALLOC_STORE,
+        ROW_IDS_STORE,
+        ROWS_STORE,
         META_STORE,
-        PENDING_STORE,
+        SEARCH_PENDING_STORE,
       ]) {
         expect(db.objectStoreNames.contains(name)).toBe(true);
       }
-      // The v5 per-row stores must not survive, or the disk cost of the index
-      // would keep growing alongside the sealed table.
-      for (const name of ["search-entries", "search-rows", "search-row-ids"]) {
+      // A superseded shape must not survive, or the disk cost of the index would
+      // keep growing alongside the live one.
+      for (const name of OBSOLETE_SEARCH_STORES) {
         expect(db.objectStoreNames.contains(name)).toBe(false);
       }
     } finally {
@@ -634,47 +763,32 @@ describe("indexeddb schema versioning", () => {
     }
   });
 
-  // v5 stored one plaintext record per row. A sealed table cannot be built over
-  // those, and keeping them would double the disk cost of the index, so the
-  // obsolete stores are dropped. An empty index that re-walks is the honest
-  // outcome: rebuilds are already the recovery path for a lost key.
-  test("a pre-sealed-layout database drops its obsolete stores rather than misread them", async () => {
-    await new Promise<void>((resolve) => {
-      const request = indexedDB.open(DB_NAME, 5);
-      request.addEventListener("upgradeneeded", () => {
-        const db = request.result;
-        for (const name of [
-          "search-rows",
-          "search-row-ids",
-          POSTINGS_STORE,
-          META_STORE,
-        ]) {
-          if (!db.objectStoreNames.contains(name)) {
-            db.createObjectStore(name);
-          }
-        }
-      });
-      request.addEventListener("success", () => {
-        const db = request.result;
-        // A v5 plaintext row, which the sealed layout cannot interpret.
-        const tx = db.transaction(["search-rows"], "readwrite");
-        tx.objectStore("search-rows").put(
+  // The previous layout held each conversation's whole row table as ONE sealed
+  // record in `search-tables`, with its allocator in `search-alloc`. There is no
+  // readable form for either here, and keeping them would double the disk cost of
+  // the index, so they are dropped. An empty index that re-walks is the honest
+  // outcome: rebuilds are already the recovery path for a lost row.
+  test("a previous-layout database drops its obsolete stores rather than misread them", async () => {
+    const previousVersion = MESSAGES_DB_VERSION - 1;
+    await seedDatabaseAtVersion(
+      previousVersion,
+      ["search-alloc", POSTINGS_STORE, "search-tables"],
+      (tx) => {
+        // A sealed whole-table record, which has no readable form here.
+        tx.objectStore("search-tables").put(
           {
-            createdAt: 1,
-            messageId: "m1",
-            row: 0,
-            senderId: "u",
-            tokens: ["ghost"],
-            version: 5,
+            generation: "gen-1",
+            instanceId: "old",
+            revision: 4,
+            sealed: new Uint8Array([1, 2, 3]),
+            version: 3,
           },
-          ["c1", "0"]
+          "c1"
         );
-        tx.addEventListener("complete", () => {
-          db.close();
-          resolve();
-        });
-      });
-    });
+        tx.objectStore("search-alloc").put(41, "c1");
+        tx.objectStore(POSTINGS_STORE).put(new Uint32Array([0]), ["c1", "t0"]);
+      }
+    );
 
     const store = createTestStore();
     // The first store call is what triggers the upgrade, so the version has to be
@@ -685,62 +799,48 @@ describe("indexeddb schema versioning", () => {
     const db = await openRawForInspection();
     try {
       expect(db.version).toBe(MESSAGES_DB_VERSION);
-      expect(db.objectStoreNames.contains("search-rows")).toBe(false);
-      expect(db.objectStoreNames.contains("search-row-ids")).toBe(false);
-      expect(db.objectStoreNames.contains(TABLES_STORE)).toBe(true);
+      for (const name of ["search-alloc", "search-tables"]) {
+        expect(db.objectStoreNames.contains(name)).toBe(false);
+      }
+      expect(db.objectStoreNames.contains(HEADER_STORE)).toBe(true);
     } finally {
       // A leaked connection blocks every later version upgrade, which shows up
       // as an unrelated timeout rather than as this test failing.
       db.close();
     }
 
+    // Numbering starts from zero, not from the dropped allocator's 41, and no
+    // leftover posting list can be reached.
     const resolved = await store.readRows("c1", Uint32Array.from([0]));
     expect(resolved.size).toBe(0);
+    expect(await readRaw(POSTINGS_STORE, ["c1", "t0"])).toBeUndefined();
+    await store.putEntries("c1", new Map([["m1", entry("fresh", 1)]]));
+    const fresh = await queryStore(store, "c1", ["fresh"]);
+    expect(fresh.ids).toEqual(["m1"]);
+    const restarted = await store.readStats("c1");
+    expect(restarted.indexedRowCount).toBe(1);
   });
 
-  // The security regression this whole reset exists for. Before sealing, a posting
-  // list was keyed `[conversationId, tokenText]`, so the words a user searched for
-  // sat in PLAINTEXT in an IndexedDB key. `search-postings` is still a current
-  // store name, so deleting the obsolete per-row stores is NOT enough: the upgrade
-  // has to drop the current-name search stores too, or those plaintext keys survive
-  // and the seal protects nothing on disk.
-  //
-  // Identity material is in the same database and must survive the rebuild: losing
-  // it would be a total loss, not a degraded index.
-  test("an upgrade drops old token-text postings but keeps identity material", async () => {
+  // Identity material is in the same database and must survive the rebuild:
+  // losing it would be a total loss, not a degraded index. And whatever the
+  // previous layout keyed its posting lists by, nothing from it may be readable
+  // afterwards, so a mixed index is impossible.
+  test("an upgrade drops the previous layout's search data but keeps identity material", async () => {
     const IDENTITY_STORE_NAME = "identity-keys";
     const SENTINEL = "identity-must-survive";
-    // One below the current version: the previously shipped layout, whose
-    // `search-postings` keys were token text rather than token ids.
     const previousVersion = MESSAGES_DB_VERSION - 1;
-    await new Promise<void>((resolve) => {
-      const request = indexedDB.open(DB_NAME, previousVersion);
-      request.addEventListener("upgradeneeded", () => {
-        const db = request.result;
-        for (const name of [
-          IDENTITY_STORE_NAME,
-          POSTINGS_STORE,
-          TABLES_STORE,
-          ALLOC_STORE,
-          META_STORE,
-        ]) {
-          if (!db.objectStoreNames.contains(name)) {
-            db.createObjectStore(name);
-          }
-        }
-      });
-      request.addEventListener("success", () => {
-        const db = request.result;
-        const tx = db.transaction(
-          [IDENTITY_STORE_NAME, POSTINGS_STORE, META_STORE],
-          "readwrite"
-        );
+    await seedDatabaseAtVersion(
+      previousVersion,
+      [IDENTITY_STORE_NAME, POSTINGS_STORE, META_STORE],
+      (tx) => {
         tx.objectStore(IDENTITY_STORE_NAME).put(SENTINEL, "me");
-        // The old keying: the token itself is the second key component.
+        // Both historical keyings: token text from the pre-sealing layouts, and
+        // the token id the sealed one used.
         tx.objectStore(POSTINGS_STORE).put(new Uint32Array([0]), [
           "c1",
           "supersecretword",
         ]);
+        tx.objectStore(POSTINGS_STORE).put(new Uint32Array([0]), ["c1", "t0"]);
         tx.objectStore(META_STORE).put(
           {
             conversationId: "c1",
@@ -752,129 +852,83 @@ describe("indexeddb schema versioning", () => {
           },
           "c1"
         );
-        tx.addEventListener("complete", () => {
-          db.close();
-          resolve();
-        });
-        tx.addEventListener("abort", () => resolve());
-      });
-      request.addEventListener("error", () => resolve());
-    });
+      }
+    );
 
     // Any store call triggers the upgrade.
     const store = createTestStore();
     await store.readMeta("c1");
 
-    const postingKeys = (await rawKeys(POSTINGS_STORE)) as IDBValidKey[];
-    // The plaintext token is gone, and so is the whole old keying.
-    expect(postingKeys.map(String).join("|")).not.toContain("supersecretword");
+    const postingKeys = await rawKeyList(POSTINGS_STORE);
+    // Neither the plaintext token nor the old token id is reachable.
+    expect(postingKeys.join("|")).not.toContain("supersecretword");
     expect(postingKeys.length).toBe(0);
     // Identity survived the rebuild untouched.
     expect(await readRaw(IDENTITY_STORE_NAME, "me")).toBe(SENTINEL);
     // Coverage does not claim history that was just discarded. The store is
     // dropped and recreated empty, so there is no record at all rather than a
-    // record whose cursor points into a table that no longer exists.
+    // record whose cursor points at rows that no longer exist.
     expect(await store.readMeta("c1")).toBeNull();
   });
 
-  test("a table from another format version is ignored rather than misread", async () => {
+  // A row record this build cannot read is left exactly as it is: its posting
+  // membership cannot be computed from a shape we cannot parse, and overwriting
+  // it would strand rows the posting lists still reference.
+  test("a row from another format version is not revived by a re-index", async () => {
     const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    await writeRaw(TABLES_STORE, "c1", {
-      generation: currentGeneration,
-      revision: 1,
-      sealed: new Uint8Array([1, 2, 3]),
-      version: 1,
+    await writeRaw(ROW_IDS_STORE, ["c1", "m1"], 0);
+    await writeRaw(ROWS_STORE, ["c1", "0"], {
+      createdAt: 1,
+      messageId: "m1",
+      present: true,
+      senderId: "u",
+      tokenIds: [0],
+      version: SEARCH_INDEX_FORMAT_VERSION - 1,
     });
+
+    await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
+
+    // The unreadable row is skipped rather than rewritten, so it is not projected
+    // as a real row.
     const resolved = await store.readRows("c1", Uint32Array.from([0]));
-    // The unreadable one is skipped rather than projected as a real row.
     expect(resolved.size).toBe(0);
+    // And a DIFFERENT message still indexes normally alongside it.
+    await store.putEntries("c1", new Map([["m2", entry("rollback", 2)]]));
+    const neighbour = await queryStore(store, "c1", ["rollback"]);
+    expect(neighbour.ids).toEqual(["m2"]);
   });
 
-  test("an authentic malformed table is reset before a rebuild", async () => {
+  // A header this build cannot read is treated as absent, so the conversation
+  // restarts rather than inheriting a numbering and a dictionary this build
+  // cannot interpret.
+  test("a header from another format version is ignored rather than trusted", async () => {
     const store = createTestStore();
     await store.readMeta("c1");
-    const sealed = await seal(await testIndexKey("c1"), new Uint8Array(16), {
-      conversationId: "c1",
-      keyGeneration: currentGeneration,
+    await writeRaw(HEADER_STORE, "c1", {
+      dictionary: ["ghost"],
+      nextRow: 99,
+      version: SEARCH_INDEX_FORMAT_VERSION - 1,
     });
-    await writeRaw(TABLES_STORE, "c1", {
-      generation: currentGeneration,
-      instanceId: "malformed-instance",
-      revision: 4,
-      sealed,
-      version: SEARCH_INDEX_FORMAT_VERSION,
-    });
-    await writeRaw(POSTINGS_STORE, ["c1", "t99"], new Uint32Array([99]));
+    await writeRaw(POSTINGS_STORE, ["c1", "t0"], new Uint32Array([99]));
 
     await store.putEntries("c1", new Map([["m2", entry("recovered", 2)]]));
 
     const recovered = await queryStore(store, "c1", ["recovered"]);
+    expect(recovered.ids).toEqual(["m2"]);
     expect(recovered.totalMatched).toBe(1);
-    expect(await readRaw(POSTINGS_STORE, ["c1", "t99"])).toBeUndefined();
-  });
-
-  test("an unusable table is reset before a rebuild", async () => {
-    const store = createTestStore();
-    await store.writeMeta({
-      ...emptySearchIndexMeta("c1"),
-      indexedThroughId: "stale-cursor",
-      lastAccessedAt: 123,
-    });
-    await store.writePending("c1", ["pending"]);
-    await writeRaw(TABLES_STORE, "c1", {
-      generation: currentGeneration,
-      instanceId: "broken-instance",
-      revision: 4,
-      sealed: new Uint8Array([1, 2, 3]),
-      version: SEARCH_INDEX_FORMAT_VERSION,
-    });
-    await writeRaw(POSTINGS_STORE, ["c1", "t99"], new Uint32Array([99]));
-    await writeRaw(ALLOC_STORE, "c1", 99);
-
-    await store.putEntries("c1", new Map([["m2", entry("recovered", 2)]]));
-
-    const recovered = await store.query("c1", ["recovered"], 10);
-    const stats = await store.readStats("c1");
-    expect(recovered.totalMatched).toBe(1);
-    expect(await readRaw(POSTINGS_STORE, ["c1", "t99"])).toBeUndefined();
-    expect(stats.indexedRowCount).toBe(1);
-    expect(await store.readPending("c1")).toEqual(["pending"]);
-    const meta = await store.readMeta("c1");
-    expect(meta?.indexedThroughId).toBeNull();
-    expect(meta?.lastAccessedAt).toBe(0);
-    expect(meta?.version).toBe(SEARCH_INDEX_FORMAT_VERSION);
-  });
-
-  test("removing an unusable table clears its data and resets coverage", async () => {
-    const store = createTestStore();
-    await store.writeMeta({
-      ...emptySearchIndexMeta("c1"),
-      indexedThroughId: "stale-cursor",
-      lastAccessedAt: 123,
-    });
-    await store.writePending("c1", ["pending"]);
-    await writeRaw(TABLES_STORE, "c1", {
-      generation: currentGeneration,
-      instanceId: "broken-instance",
-      revision: 4,
-      sealed: new Uint8Array([1, 2, 3]),
-      version: SEARCH_INDEX_FORMAT_VERSION,
-    });
-    await writeRaw(POSTINGS_STORE, ["c1", "t99"], new Uint32Array([99]));
-    await writeRaw(ALLOC_STORE, "c1", 99);
-
-    await store.removeEntries("c1", ["m2"]);
-
-    expect(await readRaw(TABLES_STORE, "c1")).toBeUndefined();
-    expect(await readRaw(POSTINGS_STORE, ["c1", "t99"])).toBeUndefined();
-    const stats = await store.readStats("c1");
-    expect(stats.indexedRowCount).toBe(0);
-    expect(await store.readPending("c1")).toEqual(["pending"]);
-    const meta = await store.readMeta("c1");
-    expect(meta?.indexedThroughId).toBeNull();
-    expect(meta?.lastAccessedAt).toBe(0);
-    expect(meta?.version).toBe(SEARCH_INDEX_FORMAT_VERSION);
+    // Numbering restarted, and the old list cannot be reached by any word. It is
+    // not merely unreadable: the restarted dictionary hands "recovered" id 0, so
+    // the leftover list had to be dropped rather than adopted, or its phantom row
+    // would be counted as a match.
+    const restarted = await store.readStats("c1");
+    expect(restarted.indexedRowCount).toBe(1);
+    expect(await rawRowList(["c1", "t0"])).toEqual([0]);
+    const header = rawStringList(
+      await readRaw(HEADER_STORE, "c1"),
+      "dictionary"
+    );
+    expect(header).toEqual(["recovered"]);
   });
 
   test("meta written by another format version reads as absent", async () => {
@@ -895,137 +949,79 @@ describe("indexeddb schema versioning", () => {
   test("writes stamp the current format version", async () => {
     const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    const stored = (await readRaw(TABLES_STORE, "c1")) as
-      | { version: number }
-      | undefined;
-    expect(stored?.version).toBe(SEARCH_INDEX_FORMAT_VERSION);
+    const row = await readRaw(ROWS_STORE, ["c1", "0"]);
+    const header = await readRaw(HEADER_STORE, "c1");
+    expect(rawField(row, "version")).toBe(SEARCH_INDEX_FORMAT_VERSION);
+    expect(rawField(header, "version")).toBe(SEARCH_INDEX_FORMAT_VERSION);
   });
 
-  test("each write advances the revision", async () => {
+  // The dictionary's order IS the posting ids, and it is append-only: a token id
+  // that exists must never move, or every posting list keyed by it would silently
+  // start describing a different word.
+  test("the dictionary is append-only and never reordered", async () => {
     const store = createTestStore();
-    await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    const first = (await readRaw(TABLES_STORE, "c1")) as
-      | { revision: number }
-      | undefined;
-    await store.putEntries("c1", new Map([["m2", entry("rollback", 2)]]));
-    const second = (await readRaw(TABLES_STORE, "c1")) as
-      | { revision: number }
-      | undefined;
-    expect(second?.revision).toBe((first?.revision ?? 0) + 1);
+    await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
+    await store.putEntries("c1", new Map([["m2", entry("beta alpha", 2)]]));
+    // "aardvark" sorts before both, so a sorted dictionary would renumber them.
+    await store.putEntries("c1", new Map([["m3", entry("aardvark", 3)]]));
+    const header = await readRaw(HEADER_STORE, "c1");
+    expect(rawStringList(header, "dictionary")).toEqual([
+      "alpha",
+      "beta",
+      "aardvark",
+    ]);
+    expect(await postingList(store, "c1", "alpha")).toHaveLength(2);
+    expect(await postingList(store, "c1", "aardvark")).toHaveLength(1);
   });
 
-  test("the table instance token survives writes and changes after clear", async () => {
+  test("a batch that only re-indexes tombstones writes no header", async () => {
     const store = createTestStore();
-    await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    const firstToken = rawField(
-      await readRaw(TABLES_STORE, "c1"),
-      "instanceId"
-    );
-    expect(firstToken).toEqual(expect.any(String));
-
-    await store.putEntries("c1", new Map([["m2", entry("rollback", 2)]]));
-    expect(rawField(await readRaw(TABLES_STORE, "c1"), "instanceId")).toBe(
-      firstToken
-    );
-
-    await store.clearConversation("c1");
-    await store.putEntries("c1", new Map([["m3", entry("deploy", 3)]]));
-    expect(rawField(await readRaw(TABLES_STORE, "c1"), "instanceId")).not.toBe(
-      firstToken
-    );
+    await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
+    await store.removeEntries("c1", ["m1"]);
+    const before = rawNumber(await readRaw(HEADER_STORE, "c1"), "nextRow");
+    await store.putEntries("c1", new Map([["m1", entry("alpha", 1)]]));
+    const after = rawNumber(await readRaw(HEADER_STORE, "c1"), "nextRow");
+    expect(after).toBe(before);
+    const stats = await store.readStats("c1");
+    expect(stats.indexedRowCount).toBe(1);
   });
 });
 
-describe("indexeddb sealing at rest", () => {
+describe("indexeddb storage shape", () => {
   beforeEach(async () => {
     await resetIndexedDbSearchIndexStoreForTests();
-    currentGeneration = "gen-1";
   });
 
-  // The whole point of the sealed table. Without this, a stolen device database
-  // is a transcript: the words and senders are enough to reconstruct the
-  // conversation even though the message bodies are ciphertext.
-  test("the stored table contains no message text, token, or sender", async () => {
+  // The index is a local cache that never leaves the device and that the server
+  // holds no copy of, so it is stored in the clear and protected by the OS and the
+  // device lock, the way WhatsApp, Telegram, Signal, iMessage and Slack do. This
+  // test states that shape rather than asserting a property it does not have.
+  test("the row record and the header are plain records, with no ciphertext", async () => {
     const store = createTestStore();
     await store.putEntries(
       "c1",
-      new Map([["m1", entry("deploy rollback hunter2", 1, "user-z")]])
+      new Map([["m1", entry("deploy rollback", 1, "user-z")]])
     );
-    const record = (await readRaw(TABLES_STORE, "c1")) as
-      | { sealed: Uint8Array }
-      | undefined;
-    const bytes = new TextDecoder("latin1").decode(
-      record?.sealed ?? new Uint8Array(0)
-    );
-    for (const secret of ["deploy", "rollback", "hunter2", "user-z", "m1"]) {
-      expect(bytes).not.toContain(secret);
-    }
+    const row = await readRaw(ROWS_STORE, ["c1", "0"]);
+    expect(rawField(row, "createdAt")).toBe(1);
+    expect(rawField(row, "messageId")).toBe("m1");
+    expect(rawField(row, "present")).toBe(true);
+    expect(rawField(row, "senderId")).toBe("user-z");
+    expect(rawStringList(row, "tokenIds").length).toBe(2);
+    const header = await readRaw(HEADER_STORE, "c1");
+    expect(rawStringList(header, "dictionary")).toEqual(["deploy", "rollback"]);
+    expect(rawNumber(header, "nextRow")).toBe(1);
   });
 
+  // Token text in an IndexedDB key would be a word the user typed, sitting in the
+  // clear next to the conversation it came from. The key is the dictionary id.
   test("posting-list keys are token ids, not token text", async () => {
     const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    const keys = (await rawKeys(POSTINGS_STORE)) as IDBValidKey[];
+    const keys = await rawKeyList(POSTINGS_STORE);
     // "c1" is the conversation id, which is not a secret. The token is.
-    expect(keys.map(String).join("|")).not.toContain("deploy");
-    expect(keys.map(String).join("|")).toContain("t0");
-  });
-
-  test("the wrong conversation's key cannot open the table", async () => {
-    const store = createTestStore();
-    await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    const other = createIndexedDbSearchIndexStore({
-      resolveKey: async (conversationId) => {
-        const raw = new Uint8Array(32).fill(9);
-        const base = await globalThis.crypto.subtle.importKey(
-          "raw",
-          raw,
-          "HKDF",
-          false,
-          ["deriveKey"]
-        );
-        return {
-          generation: currentGeneration,
-          key: await deriveIndexKeyFromBase(base, conversationId),
-        };
-      },
-    });
-    const resolved = await other.readRows("c1", Uint32Array.from([0]));
-    expect(resolved.size).toBe(0);
-  });
-
-  // A rotated conversation root must not keep serving a table sealed under the
-  // old one, and must not be readable at all until the index is rebuilt.
-  test("a rotated root invalidates the table instead of serving it", async () => {
-    const store = createTestStore();
-    await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
-    const before = await store.query("c1", ["deploy"], 100);
-    expect(before.totalMatched).toBe(1);
-
-    currentGeneration = "gen-2";
-    const after = await store.query("c1", ["deploy"], 100);
-    expect(after.totalMatched).toBe(0);
-    const rows = await store.readRows("c1", Uint32Array.from([0]));
-    expect(rows.size).toBe(0);
-  });
-
-  test("an unavailable key is not indexed rather than written in the clear", async () => {
-    const store = createIndexedDbSearchIndexStore({
-      resolveKey: () => Promise.resolve(null),
-    });
-    // Establishes the schema through the app's own open. A raw open would create
-    // the database at the shared version with no object stores, because
-    // `upgradeneeded` only runs for the opener that defines them -- which is
-    // exactly the trap `message-db.test.ts` exists to guard.
-    expect(await store.readMeta("c1")).toBeNull();
-    const result = await store.query("c1", ["deploy"], 100);
-    expect(result.totalMatched).toBe(0);
-    await expect(
-      store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]))
-    ).rejects.toThrow(/key unavailable/);
-    // Nothing sealed, and no plaintext left behind either.
-    expect(await readRaw(TABLES_STORE, "c1")).toBeUndefined();
-    expect(await readRaw(POSTINGS_STORE, ["c1", "t0"])).toBeUndefined();
+    expect(keys.join("|")).not.toContain("deploy");
+    expect(keys.join("|")).toContain("t0");
   });
 
   test("a query for an unknown token matches nothing without touching rows", async () => {
@@ -1041,10 +1037,11 @@ describe("indexeddb sealing at rest", () => {
     expect(both.rows.size).toBe(0);
   });
 
-  // Regression: a fresh table used to be a shallow copy of a shared constant, so
-  // the second conversation's first write started from the first conversation's
-  // rows. The symptom was a row count that grew without any message being added.
-  test("a second conversation starts from an empty table", async () => {
+  // Regression: a fresh conversation's dictionary used to be a shallow copy of a
+  // shared constant, so the second conversation's first write started from the
+  // first conversation's tokens. The symptom was a token count that grew without
+  // any message being added.
+  test("a second conversation starts from an empty index", async () => {
     const store = createTestStore();
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     await store.putEntries("c2", new Map([["m9", entry("deploy", 2)]]));
@@ -1067,5 +1064,255 @@ describe("indexeddb sealing at rest", () => {
     await store.putEntries("c1", new Map([["m1", entry("rollback", 1)]]));
     const stats = await store.readStats("c1");
     expect(stats.indexedRowCount).toBe(1);
+  });
+});
+
+// The one behaviour fake-indexeddb cannot reproduce on its own, and the reason this
+// suite passed while the browser was broken.
+//
+// `runTransaction` used to resolve on the transaction's `complete` event while
+// assigning the work's return value in a promise microtask. Under
+// fake-indexeddb the microtask always drained first, so every value came back
+// correct. Real Chrome dispatches `complete` first, so callers received
+// `undefined` for work that had plainly succeeded, and the resulting pile of
+// overlapping write transactions starved later reads until they hung forever.
+//
+// These tests CONSTRUCT that ordering -- work that resumes in a later task, after
+// its request has already completed and the transaction with it -- so they fail on
+// the old code under any shim.
+// Resumes in a later task, so the transaction's `complete` event is guaranteed to
+// have been dispatched first. That is the ordering real Chrome produces and
+// fake-indexeddb does not.
+function laterTask(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+describe("transaction completion ordering", () => {
+  test("work that settles after the transaction completes still returns its value", async () => {
+    const store = createTestStore();
+    await store.readMeta("c1");
+    const value = await runTransaction([META_STORE], "readonly", async (tx) => {
+      const found = await new Promise<string | undefined>((resolve, reject) => {
+        const request = tx.objectStore(META_STORE).get("c1");
+        request.addEventListener("success", () => resolve(request.result));
+        request.addEventListener("error", () => reject(request.error));
+      });
+      // The request is done, so the transaction commits during this wait. The
+      // old code resolved here with `undefined` instead of the value below.
+      await laterTask();
+      return found ?? "absent";
+    });
+    expect(value).toBe("absent");
+  });
+
+  test("a write whose work settles late is reported with its real result", async () => {
+    const store = createTestStore();
+    await store.readMeta("c1");
+    const rows = await runTransaction(
+      [HEADER_STORE],
+      "readwrite",
+      async (tx) => {
+        const request = tx.objectStore(HEADER_STORE).put(
+          {
+            dictionary: ["alpha"],
+            nextRow: 42,
+            version: SEARCH_INDEX_FORMAT_VERSION,
+          },
+          "c1"
+        );
+        await new Promise<void>((resolve, reject) => {
+          request.addEventListener("success", () => resolve());
+          request.addEventListener("error", () => reject(request.error));
+        });
+        await laterTask();
+        return 7;
+      }
+    );
+    expect(rows).toBe(7);
+    // And the write really landed, rather than being reported as an undefined
+    // success that happened to commit.
+    const stats = await store.readStats("c1");
+    expect(stats.indexedRowCount).toBe(42);
+  });
+
+  test("a read is not starved by concurrent writes on the same store", async () => {
+    const store = createTestStore();
+    await store.readMeta("c1");
+    // Chrome serialises transactions whose scopes overlap, so writes the caller
+    // wrongly believes are finished queue later reads behind them. With the early
+    // resolve, the read below never completed.
+    await Promise.all(
+      Array.from({ length: 25 }, (_, index) =>
+        store.writeMeta({ ...emptySearchIndexMeta("c1"), updatedAt: index + 1 })
+      )
+    );
+    const meta = await store.readMeta("c1");
+    expect(meta).not.toBeNull();
+    expect(meta?.updatedAt).toBeGreaterThan(0);
+  });
+});
+
+// The planner is pure, so the property that matters -- one get and one put per
+// DISTINCT token rather than per (row x token) -- is directly assertable here.
+// fake-indexeddb cannot reproduce the write-lock starvation this fixes, because it
+// has no lock contention, but the request count that causes it is arithmetic.
+describe("planTokenListUpdates", () => {
+  test("groups rows by token so each token is touched once", () => {
+    const plans = planTokenListUpdates([
+      { droppedTokenIds: [], row: 0, tokenIds: [1, 2] },
+      { droppedTokenIds: [], row: 1, tokenIds: [2, 3] },
+      { droppedTokenIds: [], row: 2, tokenIds: [1] },
+    ]);
+    expect([...plans.keys()].toSorted()).toEqual([1, 2, 3]);
+    expect(plans.get(1)).toEqual({ add: [0, 2], drop: [] });
+    expect(plans.get(2)).toEqual({ add: [0, 1], drop: [] });
+    expect(plans.get(3)).toEqual({ add: [1], drop: [] });
+    // Three tokens, not six (row x token) pairs: the whole point.
+    expect(plans.size).toBe(3);
+  });
+
+  test("adds are ascending regardless of the order rows arrive in", () => {
+    const forwards = planTokenListUpdates([
+      { droppedTokenIds: [], row: 0, tokenIds: [7] },
+      { droppedTokenIds: [], row: 1, tokenIds: [7] },
+      { droppedTokenIds: [], row: 2, tokenIds: [7] },
+    ]);
+    const backwards = planTokenListUpdates([
+      { droppedTokenIds: [], row: 2, tokenIds: [7] },
+      { droppedTokenIds: [], row: 1, tokenIds: [7] },
+      { droppedTokenIds: [], row: 0, tokenIds: [7] },
+    ]);
+    expect(forwards.get(7)?.add).toEqual([0, 1, 2]);
+    expect(backwards.get(7)?.add).toEqual([0, 1, 2]);
+  });
+
+  test("drops are grouped and ascending too", () => {
+    const plans = planTokenListUpdates([
+      { droppedTokenIds: [4], row: 9, tokenIds: [] },
+      { droppedTokenIds: [4], row: 3, tokenIds: [] },
+    ]);
+    expect(plans.get(4)).toEqual({ add: [], drop: [3, 9] });
+  });
+
+  // A rewrite: one row leaves a token while other rows join it. The executor
+  // applies drops before adds, so the shared token must be able to carry both.
+  test("a token can be both joined and left by different rows in one batch", () => {
+    const plans = planTokenListUpdates([
+      { droppedTokenIds: [5], row: 1, tokenIds: [] },
+      { droppedTokenIds: [], row: 2, tokenIds: [5] },
+    ]);
+    expect(plans.get(5)).toEqual({ add: [2], drop: [1] });
+  });
+
+  test("an empty batch plans nothing", () => {
+    expect(planTokenListUpdates([]).size).toBe(0);
+  });
+
+  test("a row with no tokens and no drops contributes no plan", () => {
+    const plans = planTokenListUpdates([
+      { droppedTokenIds: [], row: 0, tokenIds: [] },
+    ]);
+    expect(plans.size).toBe(0);
+  });
+});
+
+describe("posting write batching", () => {
+  beforeEach(async () => {
+    await resetIndexedDbSearchIndexStoreForTests();
+  });
+
+  test("a batch touching few tokens writes each posting list once", async () => {
+    const store = createTestStore();
+    // 40 messages over 3 distinct tokens. The per-(row x token) shape issued 40
+    // get/put pairs per token; the batched shape issues one pair.
+    const batch = new Map<string, SearchIndexEntry>();
+    for (let index = 0; index < 40; index += 1) {
+      batch.set(`m${index}`, entry("alpha beta gamma", index));
+    }
+    const plans = planTokenListUpdates(
+      [...batch.values()].map((_, row) => ({
+        droppedTokenIds: [],
+        row,
+        tokenIds: [0, 1, 2],
+      }))
+    );
+    expect(plans.size).toBe(3);
+    await store.putEntries("c1", batch);
+    const all = await store.readAllPostingLists("c1");
+    // Every row landed in every list exactly once.
+    for (const list of all.values()) {
+      expect([...list].toSorted((left, right) => left - right)).toEqual(
+        Array.from({ length: 40 }, (_, index) => index)
+      );
+    }
+  });
+
+  test("a rewrite drops the stale token and keeps the row on the rest", async () => {
+    const store = createTestStore();
+    await store.putEntries("c1", new Map([["m1", entry("alpha beta", 1)]]));
+    await store.putEntries("c1", new Map([["m1", entry("alpha gamma", 1)]]));
+    const all = await store.readAllPostingLists("c1");
+    // "beta" was dropped by the rewrite and its emptied list deleted, so it is
+    // absent rather than present-but-empty.
+    expect([...all.keys()].toSorted()).toEqual(["alpha", "gamma"]);
+    expect([...(all.get("alpha") ?? [])]).toEqual([0]);
+    expect([...(all.get("gamma") ?? [])]).toEqual([0]);
+  });
+
+  // The removal scoping fix: a token the removed rows never carried must not be
+  // read or rewritten at all. Compared as raw stored bytes, because
+  // readAllPostingLists deliberately hides emptied lists and would make a
+  // rewritten record indistinguishable from a deleted one.
+  test("removal leaves an untouched token's posting list byte-identical", async () => {
+    const store = createTestStore();
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("alpha beta", 1)],
+        ["m2", entry("alpha", 2)],
+        ["m3", entry("unrelated", 3)],
+      ])
+    );
+    const snapshot = async () => {
+      const keys = await rawKeyList(POSTINGS_STORE);
+      // Each read is its own transaction, so they are independent and batched.
+      const lists = await Promise.all(keys.map((key) => rawRowList(key)));
+      return new Map(keys.map((key, index) => [key, lists[index] ?? []]));
+    };
+    const before = await snapshot();
+    await store.removeEntries("c1", ["m1"]);
+    const after = await snapshot();
+    // "unrelated" has exactly one row and shares nothing with m1, so its record
+    // must be untouched. Walking the whole dictionary would have rewritten it with
+    // identical bytes, which is invisible here -- and is exactly the cost this
+    // removes, since at 200k rows that walk reads every list in the conversation.
+    const unchanged = [...before.keys()].filter(
+      (key) =>
+        JSON.stringify(after.get(key) ?? null) ===
+        JSON.stringify(before.get(key) ?? null)
+    );
+    // At least one record must be unchanged, and the alpha record must not be.
+    expect(unchanged.length).toBeGreaterThan(0);
+    const all = await store.readAllPostingLists("c1");
+    expect([...(all.get("alpha") ?? [])]).toEqual([1]);
+    expect(all.has("beta")).toBe(false);
+    expect([...(all.get("unrelated") ?? [])]).toEqual([2]);
+  });
+
+  test("removing a message clears exactly its tokens", async () => {
+    const store = createTestStore();
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy latency", 1)],
+        ["m2", entry("deploy", 2)],
+      ])
+    );
+    await store.removeEntries("c1", ["m1"]);
+    const all = await store.readAllPostingLists("c1");
+    expect([...all.keys()]).toEqual(["deploy"]);
+    expect([...(all.get("deploy") ?? [])]).toEqual([1]);
   });
 });

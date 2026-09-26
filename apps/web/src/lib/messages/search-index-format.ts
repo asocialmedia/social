@@ -13,23 +13,34 @@
 //   characters, and repeating it once per word made the index *larger than the
 //   messages it indexes* (measured: 112MB vs 94MB for 200k messages). Interning
 //   to a small integer per conversation cuts that 4.8x, to 23MB. Message ids live
-//   once, in the conversation's row table.
+//   once, in the conversation's rows.
 // - Read per token, not the whole index. Loading every posting list on the first
 //   keystroke cost 146MB of RAM on a 200k-message conversation, which is fatal on
 //   a phone. A query now reads only the words that were typed.
 // - Ids and metadata only, never message text. The index answers "which
 //   messages match"; snippets and sender details come from the decrypted rows,
 //   so plaintext is never written to a second long-lived store.
-// - Portable-ready serialization. Versioned records with stable field order and
-//   a merge-friendly cursor in meta, so this can later ship between devices as
-//   opaque encrypted blobs without a rewrite.
+// - Plaintext at rest, protected by the device rather than by the app. This is a
+//   local cache that never leaves the device and that the server holds no copy
+//   of, so its at-rest protection is the OS and the device lock — the same
+//   bargain WhatsApp, Telegram, Signal, iMessage and Slack make. Message
+//   payloads remain encrypted exactly as they are.
 // - Fail-tolerant by construction. Every backend method may reject; callers read
 //   a failure as "not indexed" and fall back to in-memory search.
 
-import { normalizeSearchText, searchQueryTokens } from "./message-search";
+import {
+  MAX_PREFIX_EXPANSION,
+  MIN_PREFIX_LENGTH,
+  normalizeSearchText,
+  searchQueryTokens,
+} from "./message-search";
 
-// The packed token-id width changed; existing indexes are dropped and rebuilt by walking history.
-export const SEARCH_INDEX_FORMAT_VERSION = 4;
+// Stamped on every record this build writes, and the guard for reading one back:
+// a record carrying a different number is treated as absent rather than
+// misread. The stored row record changed shape when the row table went back to
+// one record per row, and existing indexes are dropped and rebuilt by walking
+// history.
+export const SEARCH_INDEX_FORMAT_VERSION = 5;
 
 // A row's immutable facts. `messageId` is stored here, once, instead of being
 // repeated in every posting list.
@@ -93,11 +104,16 @@ export function emptySearchIndexRowTable(): SearchIndexRowTable {
 //
 // Deliberately does NOT carry the row-id allocator even though both are per-
 // conversation state. The walk rewrites this whole object on every page, and
-// `putEntries` rewrites it on every write; sharing one object between them means
-// a read-modify-write race can roll the allocator backwards, and two messages
-// would then be interned to the same row id and silently corrupt each other's
-// posting membership. Each backend keeps its allocator in its own private record
-// instead, so the two writers never touch the same object.
+// `putEntries` rewrites the allocator on every write; sharing one object between
+// them means a read-modify-write race can roll the allocator backwards, and two
+// messages would then be interned to the same row id and silently corrupt each
+// other's posting membership. Each backend keeps its allocator in its own private
+// record instead, so the two writers never touch the same object.
+export interface SearchIndexQueryOptions {
+  // The word still being typed, matched by prefix against the dictionary.
+  prefix?: string;
+}
+
 export interface SearchIndexMeta {
   conversationId: string;
   // When this conversation's index was last searched or written. Eviction is
@@ -108,6 +124,21 @@ export interface SearchIndexMeta {
   // an interrupted walk resumes here rather than restarting.
   indexedThroughId: string | null;
   pendingIds: string[];
+  // True once a walk reached the oldest message. Persisted so reopening search
+  // on a covered conversation does not pay a probe walk just to rediscover it.
+  // Absent (from before this field existed) reads as false.
+  reachedStart: boolean;
+  // True when the cursor above was written by a run that verified its way down
+  // from a verified top -- every page checked or processed before the cursor
+  // advanced past it. A cursor without this mark (older rows, another store
+  // version, or any bulk import that reordered history) must NOT be resumed
+  // from: the next run abandons it and descends from the top instead. Absent
+  // reads as false, which heals legacy rows exactly once.
+  //
+  // Anyone building a history import/restore that inserts rows non-monotonically
+  // must clear this (and reachedStart) for the conversation, or the walk will
+  // keep resuming below the imported rows and never see them.
+  cursorVerified: boolean;
   updatedAt: number;
   version: number;
 }
@@ -115,9 +146,11 @@ export interface SearchIndexMeta {
 export function emptySearchIndexMeta(conversationId: string): SearchIndexMeta {
   return {
     conversationId,
+    cursorVerified: false,
     indexedThroughId: null,
     lastAccessedAt: 0,
     pendingIds: [],
+    reachedStart: false,
     updatedAt: 0,
     version: SEARCH_INDEX_FORMAT_VERSION,
   };
@@ -140,20 +173,25 @@ export interface SearchIndexStore {
     entries: Map<string, SearchIndexEntry>
   ) => Promise<void>;
   readMeta: (conversationId: string) => Promise<SearchIndexMeta | null>;
-  // Answers a query end to end: maps the typed tokens to the table's internal
-  // token ids, intersects their posting lists, and projects the matched rows.
+  // Answers a query end to end: maps the typed tokens to the conversation's token
+  // dictionary ids, intersects their posting lists, and projects the matched rows.
   //
-  // One operation rather than three, for two reasons that only appear once the
-  // table is sealed. The token dictionary lives INSIDE the ciphertext, so a
-  // caller cannot turn words into posting keys at all without the table in hand.
-  // And doing the steps separately would let the table and the posting lists come
-  // from different commits, producing results that match rows the table no longer
-  // contains. A single call bounds both: one AEAD operation and one consistent
-  // revision per keystroke.
+  // One operation rather than three, for one reason: a persistent backend keys its
+  // posting lists by dictionary id, and the dictionary is not reachable through
+  // the store contract, so a caller cannot turn words into posting keys at all on
+  // its own. Doing the steps separately would also let the dictionary and the
+  // posting lists come from different commits, producing results that match rows
+  // the dictionary no longer describes. One call bounds both per keystroke.
+  //
+  // `options.prefix` turns the trailing token into a prefix match: dictionary
+  // terms starting with it are unioned, then AND-ed with the exact tokens. This
+  // is what makes typing narrow live instead of flashing empty until the word
+  // is complete.
   query: (
     conversationId: string,
     tokens: string[],
-    limit: number
+    limit: number,
+    options?: SearchIndexQueryOptions
   ) => Promise<SearchIndexQueryResult>;
   // Reads every token at once, keyed by token TEXT. Used by tests and by
   // whole-index operations (eviction accounting), never by the keystroke path,
@@ -167,6 +205,17 @@ export interface SearchIndexStore {
     conversationId: string,
     rowIds: Uint32Array
   ) => Promise<SearchIndexRowLookup>;
+  // The subset of the given message ids that already occupy a row, present or
+  // tombstoned -- both mean "covered, nothing left to do". Lets a walk skip
+  // pages it already indexed without decrypting or committing them, and --
+  // more importantly -- lets a run verify its resume cursor instead of
+  // trusting it. A cursor pointing below uncovered history (new arrivals above
+  // it, a stale row from another era or store version) would otherwise strand
+  // everything above it forever, because the walk only ever descends.
+  hasIndexedMessages: (
+    conversationId: string,
+    messageIds: readonly string[]
+  ) => Promise<ReadonlySet<string>>;
   // Rows that exist but are not searchable yet, persisted so coverage survives a
   // reload. Without this, a row whose payload had not decrypted when it was last
   // seen was queued in memory only: the backfill cursor moved past it and the
@@ -186,7 +235,7 @@ export interface SearchIndexStore {
   listConversations: () => Promise<SearchIndexConversationSummary[]>;
   // One point read, for the coverage label. It comes from the allocator's
   // high-water mark, so it is cheap and cumulative: it reports rows ever interned
-  // rather than decrypting the full table for a count.
+  // rather than counting the conversation for a label.
   readStats: (conversationId: string) => Promise<{ indexedRowCount: number }>;
   removeEntries: (
     conversationId: string,
@@ -366,6 +415,44 @@ export function rowListToArray(list: SearchIndexRowList): Uint32Array {
 // many rows get resolved and rendered.
 export const SEARCH_INDEX_QUERY_LIMIT = 2000;
 
+// Resolves a trailing prefix against the dictionary: every indexed term that
+// starts with it. Short fragments fan out only to the word itself (so single
+// characters keep working exactly as before, never as prefix searches), and an
+// expansion wider than the cap matches NOTHING rather than a capped subset --
+// a capped union would under-report the total, and the counter prints totals,
+// so partial is a lie while empty is just unhelpful for one more keystroke.
+export function expandPrefixTerm(
+  dictionary: readonly string[],
+  prefix: string
+): string[] {
+  if (prefix.length < MIN_PREFIX_LENGTH) {
+    return dictionary.includes(prefix) ? [prefix] : [];
+  }
+  const expansions = dictionary.filter((term) => term.startsWith(prefix));
+  if (expansions.length === 0 || expansions.length > MAX_PREFIX_EXPANSION) {
+    return [];
+  }
+  return expansions;
+}
+
+// Unions several posting lists into one sorted, de-duplicated list: the rows
+// matching ANY of them. Linear in the total input length; used for prefix
+// expansions, where one typed fragment fans out to several dictionary terms.
+export function unionPostingLists(lists: Uint32Array[]): Uint32Array {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const list of lists) {
+    for (const row of list) {
+      if (!seen.has(row)) {
+        seen.add(row);
+        out.push(row);
+      }
+    }
+  }
+  out.sort((left, right) => left - right);
+  return Uint32Array.from(out);
+}
+
 // Intersects several posting lists, with an exact total.
 //
 // Each pass scans one list once and tests membership in a Set of the rows that
@@ -427,16 +514,4 @@ export function intersectPostingLists(
   // Candidates ascend by row id, so the newest-indexed are at the end and the
   // cap is a slice rather than a sort.
   return { rows: candidates.slice(-limit).toReversed(), totalMatched };
-}
-
-// Raised when a write computed from revision N finds revision N+1 already sealed.
-// The backend must re-read and recompute rather than overwrite: a table built
-// from a stale read would silently drop the other writer's rows. Lives here
-// rather than in the IndexedDB backend so the revision semantics and the error
-// that reports them stay in one file.
-export class SearchIndexRevisionConflictError extends Error {
-  constructor(conversationId: string) {
-    super(`search index revision conflict for ${conversationId}`);
-    this.name = "SearchIndexRevisionConflictError";
-  }
 }

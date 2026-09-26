@@ -159,6 +159,22 @@ describe("searchCoverageLabel", () => {
   test("reports progress while the walk runs", () => {
     expect(
       searchCoverageLabel({ indexedCount: 12_480, indexingOlder: true })
-    ).toBe("Indexing older messages");
+    ).toBe("Indexing older messages (12,480 indexed)");
+  });
+
+  test("a fresh walk with nothing covered yet has no count to show", () => {
+    expect(searchCoverageLabel({ indexedCount: 0, indexingOlder: true })).toBe(
+      "Indexing older messages"
+    );
+  });
+
+  test("a failed run asks for a retry instead of looking done", () => {
+    expect(
+      searchCoverageLabel({
+        indexFailed: true,
+        indexedCount: 12_480,
+        indexingOlder: false,
+      })
+    ).toBe("Retry indexing older messages");
   });
 });

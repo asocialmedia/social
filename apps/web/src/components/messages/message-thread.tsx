@@ -73,7 +73,6 @@ import type {
   MessagePageAxis,
 } from "@/lib/messages/client";
 import {
-  deriveIndexKeyFromBase,
   editMessagePayload,
   exportPublicKeyJwk,
   generateFingerprint,
@@ -116,8 +115,10 @@ import {
   nextArrivalCount,
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
+import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
 import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
 import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
+import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
 import { useConversationSearch } from "@/lib/messages/use-conversation-search";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
@@ -193,6 +194,11 @@ type MessagesInfiniteData = InfiniteData<MessagePage, MessagesPageParam>;
 // from 11.1 minutes to 2.3.
 const BACKFILL_PAGE_SIZE = 500;
 const BACKFILL_PAGE_DELAY_MS = 250;
+// Newest messages inspected when a persisted "fully covered" verdict is
+// verified instead of trusted. Five is enough to catch a poisoned flag --
+// uncovered history at the top means the verdict is stale -- while staying a
+// negligible peek next to a 500-row walk page.
+const TOP_COVERAGE_PEEK_SIZE = 5;
 // How long to coalesce index writes during a walk before re-reading the row
 // table. Without this, every committed page would trigger a full row-table read
 // and a 25-page walk would cost 25 of them.
@@ -248,6 +254,26 @@ export function MessageThread({
     refreshToken: number;
     store: Awaited<ReturnType<typeof resolveSearchIndexStore>>["store"];
   } | null>(null);
+  // Bumped every time a walk settles so the auto-start effect re-evaluates
+  // after the run cleared: the final progress report lands while the run
+  // object still exists, which would otherwise look like "already running"
+  // forever and the chain would never continue.
+  const [walkEpoch, setWalkEpoch] = useState(0);
+  // Whether a previous walk persisted that it reached the oldest message.
+  // Null until the stored verdict is read; the auto-start waits for it so a
+  // covered conversation costs nothing on reopen.
+  const [persistedCovered, setPersistedCovered] = useState<boolean | null>(
+    null
+  );
+  // Whether that verdict vouches for its own cursor chain (every page verified
+  // on the way down). A covered flag without it is a legacy row: the next run
+  // descends from the top once to earn it, then resumes cheaply forever after.
+  const [persistedChainVerified, setPersistedChainVerified] = useState<
+    boolean | null
+  >(null);
+  // Whether the index writer instance exists. Auto-start must wait for it: a
+  // start attempt before it does silently no-ops and never retries.
+  const [writerReady, setWriterReady] = useState(false);
   // Owned here (not inside the bar) so the Ctrl+F shortcut can pull focus back
   // into the field while the results list holds it.
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1714,75 +1740,91 @@ export function MessageThread({
     ]
   );
 
-  // The search index is sealed under a key derived from the CURRENT conversation
-  // root. The generation is a signature of exactly the inputs that key depends on,
-  // so a root rotation or a peer key change yields a different generation and the
-  // store treats the existing table as unreadable and rebuilds by walking history.
-  // It never falls back to an old root: that would keep a table encrypted under a
-  // key the server has rotated away.
-  const indexKeySignature = useMemo(() => {
-    if (!detail || !userId) {
-      return "";
-    }
-    return JSON.stringify([
-      conversationId,
-      findMyWrappedKeys(detail.keys, userId).map((wrapped) =>
-        JSON.stringify({
-          encryptedKey: wrapped.encryptedKey,
-          version: wrapped.version,
-        })
-      ),
-      findPeerPublicKey(detail.conversation, userId) ?? "",
-    ]);
-  }, [conversationId, detail, userId]);
-
-  const resolveSearchIndexSealingKey = useCallback(
-    async (targetConversationId: string) => {
-      if (indexKeySignature === "" || targetConversationId !== conversationId) {
-        return null;
-      }
-      const baseKeys = await getBaseKeys(targetConversationId);
-      // Newest root first. One key per query: the table is sealed under the root
-      // in force when it was written, and a rotation makes it unreadable.
-      const [baseKey] = baseKeys;
-      if (!baseKey) {
-        return null;
-      }
-      return {
-        generation: indexKeySignature,
-        key: await deriveIndexKeyFromBase(baseKey, targetConversationId),
-      };
-    },
-    [conversationId, getBaseKeys, indexKeySignature]
-  );
-
-  // The store is resolved once per conversation, but it must still see the LATEST
-  // resolver. Capturing the callback directly would pin the first render's root
-  // key and silently stop indexing after a rotation; putting it in the effect
-  // dependencies instead would tear down and rebuild the store on every rotation.
-  // A ref-backed trampoline gets both: stable identity, current value.
-  const sealingKeyResolverRef = useRef(resolveSearchIndexSealingKey);
-  useEffect(() => {
-    sealingKeyResolverRef.current = resolveSearchIndexSealingKey;
-  }, [resolveSearchIndexSealingKey]);
-
   // Resolve the index backend once per conversation. A failure here is not
   // fatal: `resolveSearchIndexStore` already falls back to an in-memory store,
   // and the caller treats null as "no index, loaded rows only".
   useEffect(() => {
     let cancelled = false;
+    setPersistedCovered(null);
+    setPersistedChainVerified(null);
     const resolve = async () => {
       try {
-        const resolved = await resolveSearchIndexStore((target) =>
-          sealingKeyResolverRef.current(target)
-        );
-        if (!cancelled) {
-          setSearchIndex({ refreshToken: 0, store: resolved.store });
+        const resolved = await resolveSearchIndexStore();
+        if (cancelled) {
+          return;
+        }
+        setSearchIndex({ refreshToken: 0, store: resolved.store });
+        // Whether a previous walk already reached the start, so reopening
+        // search on a covered conversation starts nothing -- not even the
+        // one-request probe walk that would rediscover it. A persisted "done"
+        // is verified against the newest page rather than trusted blindly: a
+        // cursor that pointed below uncovered history poisons the flag with it,
+        // and trusting it would strand everything above forever.
+        try {
+          const meta = await resolved.store.readMeta(conversationId);
+          let covered = meta?.reachedStart === true;
+          let chainVerified = meta?.cursorVerified === true;
+          if (covered && !cancelled) {
+            try {
+              const peek = await fetchMessages(
+                conversationId,
+                { kind: "older" },
+                TOP_COVERAGE_PEEK_SIZE
+              );
+              const topIds = peek.messages.map((row) => row.id);
+              if (topIds.length > 0) {
+                const indexedTop = await resolved.store.hasIndexedMessages(
+                  conversationId,
+                  topIds
+                );
+                let queued: string[] = [];
+                try {
+                  queued = await resolved.store.readPending(conversationId);
+                } catch {
+                  // Unreadable queue: covered means indexed, below.
+                }
+                const queuedSet = new Set(queued);
+                covered = topIds.every(
+                  (id) => indexedTop.has(id) || queuedSet.has(id)
+                );
+              }
+            } catch {
+              // Peek failed: keep the persisted verdict rather than forcing a
+              // heal walk on a network blip.
+            }
+            if (!covered) {
+              chainVerified = false;
+              try {
+                const current =
+                  (await resolved.store.readMeta(conversationId)) ??
+                  emptySearchIndexMeta(conversationId);
+                await resolved.store.writeMeta({
+                  ...current,
+                  cursorVerified: false,
+                  reachedStart: false,
+                  updatedAt: Date.now(),
+                });
+              } catch {
+                // Best effort: the walk re-verifies from the top regardless.
+              }
+            }
+          }
+          if (!cancelled) {
+            setPersistedCovered(covered);
+            setPersistedChainVerified(chainVerified);
+          }
+        } catch {
+          if (!cancelled) {
+            setPersistedCovered(false);
+            setPersistedChainVerified(false);
+          }
         }
       } catch {
         // Both backends unavailable. Search still works over loaded rows.
         if (!cancelled) {
           setSearchIndex(null);
+          setPersistedCovered(false);
+          setPersistedChainVerified(false);
         }
       }
     };
@@ -1873,6 +1915,7 @@ export function MessageThread({
   useEffect(() => {
     if (!searchIndexStore) {
       searchWriterRef.current = null;
+      setWriterReady(false);
       return;
     }
     const writer = createMessageIndexWriter({
@@ -1907,8 +1950,10 @@ export function MessageThread({
       subscribeToPayloads: messageDecryptor.subscribe,
     });
     searchWriterRef.current = writer;
+    setWriterReady(true);
     return () => {
       searchWriterRef.current = null;
+      setWriterReady(false);
     };
   }, [
     bumpSearchIndex,
@@ -1918,9 +1963,11 @@ export function MessageThread({
     searchIndexStore,
   ]);
 
-  // Coverage of this device's index, and the walk that extends it. The walk is
-  // never started automatically: it is hundreds of requests over history nobody
-  // asked for, so the bar offers it and the user decides.
+  // Coverage of this device's index, and the walk that extends it. Opening
+  // search starts the walk on its own and each yielded run chains the next
+  // while search stays open; the bar shows progress throughout, and closing
+  // search (or hiding the tab) ends it. There is no manual stop: indexing is
+  // automatic and stops itself.
   const [coverage, setCoverage] = useState<BackfillProgress | null>(null);
   // Set when a write was refused for lack of storage, or when eviction had to drop
   // a conversation to stay inside the budget. Surfaced rather than swallowed: a
@@ -1954,9 +2001,17 @@ export function MessageThread({
     if (!writer || !searchIndexStore || backfillRef.current) {
       return;
     }
+
     const controller = new AbortController();
     backfillAbortRef.current = controller;
     backfillRunningRef.current = true;
+    // The walk is about to commit once per page, and every commit takes the
+    // IndexedDB write lock. Holding the writer's own coalesced writes for the
+    // duration keeps the transcript's decryptor completions from adding a
+    // parallel stream of commits that contend for the same lock and starve
+    // search reads. The walk's per-page flush writes everything queued, so
+    // nothing is deferred past the walk.
+    writer.setDeferring(true);
     const backfill = createMessageIndexBackfill({
       awaitDecrypts: awaitBackfillDecrypts,
       conversationId,
@@ -1976,6 +2031,12 @@ export function MessageThread({
       },
       onProgress: (next) => {
         setCoverage(next);
+        if (next.reachedStart) {
+          // Reached bottom through this run's verified descent, so the flag
+          // and the chain verdict go together from here on.
+          setPersistedCovered(true);
+          setPersistedChainVerified(true);
+        }
       },
       pageDelayMs: BACKFILL_PAGE_DELAY_MS,
       signal: controller.signal,
@@ -1995,12 +2056,20 @@ export function MessageThread({
         backfillRef.current = null;
         backfillAbortRef.current = null;
         backfillRunningRef.current = false;
+        // Released in the walk's own settle, so an abort or a page-budget yield
+        // both give the writer back rather than leaving it holding writes for a
+        // walk that is no longer running.
+        writer.setDeferring(false);
         if (coverageTimerRef.current) {
           clearTimeout(coverageTimerRef.current);
           coverageTimerRef.current = null;
         }
         // One last read so the final page's rows are searchable immediately.
         bumpSearchIndex();
+        // Retrigger the auto-start effect: the run's final report landed while
+        // the run object still existed, so without this the chain would see
+        // "already running" forever and never continue.
+        setWalkEpoch((epoch) => epoch + 1);
       }
     };
     void settle();
@@ -2013,13 +2082,92 @@ export function MessageThread({
 
   // Leaving the conversation, or closing search, must not leave a walk running:
   // it would keep fetching and decrypting for a thread nobody is reading.
+  // The report is cleared too: it belongs to the ended session, and a stale
+  // `stopped` would veto the next session's auto-start.
   useEffect(() => {
     if (searchOpen) {
       return;
     }
     backfillRef.current?.stop();
     backfillAbortRef.current?.abort();
+    setCoverage(null);
   }, [searchOpen]);
+
+  // A hidden tab does no walks: decrypting hundreds of pages for a screen
+  // nobody is looking at is battery and bandwidth spent for nothing. Becoming
+  // visible restarts the current run's successor through the auto-start below
+  // (a stopped run never chains on its own, so without this the walk would
+  // wait for search to reopen).
+  useEffect(() => {
+    if (!searchOpen) {
+      return;
+    }
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        backfillRef.current?.stop();
+        backfillAbortRef.current?.abort();
+        return;
+      }
+      if (
+        shouldAutoStartWalk({
+          autoIndex: true,
+          coverage,
+          persistedChainVerified,
+          persistedCovered,
+          running: backfillRef.current !== null,
+          searchOpen: true,
+          storeReady: searchIndexStore !== null,
+          writerReady,
+        })
+      ) {
+        startIndexingOlder();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [
+    coverage,
+    persistedChainVerified,
+    persistedCovered,
+    searchIndexStore,
+    searchOpen,
+    startIndexingOlder,
+    writerReady,
+  ]);
+
+  // Automatic catch-up. Opening search on partially covered history starts the
+  // walk, and each run that yields on its page budget chains the next while
+  // search stays open -- the 25-page bound paces the work, chaining only
+  // removes the clicks. Failed runs never chain (the Retry button owns them);
+  // there is no manual stop by design, so the flag below is always true and
+  // stopping only ever comes from close, hide, or teardown.
+  useEffect(() => {
+    if (
+      shouldAutoStartWalk({
+        autoIndex: true,
+        coverage,
+        persistedChainVerified,
+        persistedCovered,
+        running: backfillRef.current !== null,
+        searchOpen,
+        storeReady: searchIndexStore !== null,
+        writerReady,
+      })
+    ) {
+      startIndexingOlder();
+    }
+  }, [
+    coverage,
+    persistedChainVerified,
+    persistedCovered,
+    searchIndexStore,
+    searchOpen,
+    startIndexingOlder,
+    walkEpoch,
+    writerReady,
+  ]);
 
   useEffect(
     () => () => {
@@ -2085,18 +2233,19 @@ export function MessageThread({
     hasPreviousPage: hasPreviousPage ?? false,
     indexRefreshToken: searchIndexToken,
     indexStore: searchIndexStore,
-    isFetchingPreviousPage,
-    loadOlderMessages,
     requestDecryptBatch,
   });
   const { matchIds } = search;
 
   // How much of this conversation the index can actually see, which is what the
-  // bar's counter has to be honest about. Two independent signals agree on
-  // coverage: a backfill that reached the start, or a transcript that paged to
-  // the start (the API returning no older page means there is no older page).
+  // bar's counter has to be honest about. Three signals agree on coverage: a
+  // backfill that reached the start this session, a vouched persisted verdict
+  // from an earlier session (covered flag plus verified cursor chain -- either
+  // half missing means the walk must re-prove it), or a transcript that paged
+  // to the start (the API returning no older page means there is no older page).
   const fullyCovered =
     coverage?.reachedStart === true ||
+    (persistedCovered === true && persistedChainVerified === true) ||
     (hasPreviousPage === false && allMessages.length > 0);
   const indexingOlder = coverage?.state === "running";
   // Offered only when there is genuinely older history this device has not
@@ -2793,6 +2942,7 @@ export function MessageThread({
             canIndexOlder={canIndexOlder}
             fullyCovered={fullyCovered}
             indexedCount={search.indexedTotal}
+            indexFailed={coverage?.state === "failed"}
             indexingOlder={indexingOlder}
             inputRef={searchInputRef}
             matchCount={search.totalMatches}

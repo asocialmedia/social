@@ -10,21 +10,16 @@
 // browser or an IndexedDB shim.
 
 import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
-import type { SearchIndexKeyResolver } from "./indexeddb-search-index";
 import { createMemorySearchIndexStore } from "./memory-search-index";
 import type { SearchIndexStore } from "./search-index-format";
 
 export type SearchIndexBackend = "indexeddb" | "memory";
 
-async function tryIndexedDb(
-  resolveKey: SearchIndexKeyResolver
-): Promise<SearchIndexStore | null> {
+async function tryIndexedDb(): Promise<SearchIndexStore | null> {
   if (typeof indexedDB === "undefined") {
     return null;
   }
-  // The store takes its sealing key per conversation, because the key is derived
-  // from a conversation root that only the thread holding it can supply.
-  const store = createIndexedDbSearchIndexStore({ resolveKey });
+  const store = createIndexedDbSearchIndexStore();
   try {
     // Prove the database actually opens before committing to it. A denied or
     // corrupt store throws here, which is exactly the case to catch: a backend
@@ -44,17 +39,12 @@ export interface ResolvedSearchIndex {
 
 // Resolves the backend and returns a fresh store.
 //
-// Deliberately not cached. A cached store would capture the first call's key
-// resolver and reuse it for every later caller, so opening a second conversation
-// would try to read and write its index with the FIRST conversation's sealing
-// key -- the two conversations would be unable to open each other's tables, and
-// the failure would look like a corrupt index rather than a wiring mistake. The
-// store resolves its key per operation, so the probe cost is paid once per
-// conversation open rather than per keystroke.
-export async function resolveSearchIndexStore(
-  resolveKey: SearchIndexKeyResolver
-): Promise<ResolvedSearchIndex> {
-  const persistent = await tryIndexedDb(resolveKey);
+// Deliberately not cached. A cached store would hand one conversation's index to
+// the next caller, and the failure would look like a corrupt index rather than a
+// wiring mistake. The stores are cheap to build and the probe cost is paid once
+// per conversation open rather than per keystroke.
+export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
+  const persistent = await tryIndexedDb();
   return persistent
     ? { backend: "indexeddb", store: persistent }
     : { backend: "memory", store: createMemorySearchIndexStore() };

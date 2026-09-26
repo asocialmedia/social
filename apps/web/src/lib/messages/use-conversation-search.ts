@@ -13,14 +13,17 @@ import {
 import { messageDecryptor } from "./decryptor";
 import {
   extractSearchableText,
-  findMatchingIds,
   MAX_SEARCH_INDEX_MESSAGES,
-  normalizeSearchText,
-  rankSearchResults,
+  MERGE_THROTTLE_MS,
+  mergeSearchSnapshot,
   SEARCH_DEBOUNCE_MS,
-  searchQueryTokens,
+  splitSearchTokens,
 } from "./message-search";
-import type { RankedSearchResult, SearchCandidate } from "./message-search";
+import type {
+  MergedSearchSnapshot,
+  RankedSearchResult,
+  SearchCandidate,
+} from "./message-search";
 import { SEARCH_INDEX_QUERY_LIMIT } from "./search-index-format";
 import type {
   SearchIndexRowLookup,
@@ -37,10 +40,6 @@ export interface ConversationSearchInput {
   // search costs nothing.
   enabled: boolean;
   hasPreviousPage: boolean;
-  isFetchingPreviousPage: boolean;
-  // Serialized older-page loader from the thread (one page in flight at most).
-  // Resolves with the newly prepended messages.
-  loadOlderMessages: () => Promise<MessageData[]>;
   // Batch decrypt request for rows outside the thread's visible window.
   requestDecryptBatch: (messages: MessageData[]) => void;
   // The persistent per-conversation index, when one could be opened. Absent
@@ -142,32 +141,6 @@ function getCorpusSnapshot(
   return corpus;
 }
 
-// Builds a list-view row for a match that exists only in the persistent index,
-// with no decrypted row loaded to show a snippet from.
-//
-// The index deliberately stores ids and tokens only, never message text, so
-// there is no snippet to render yet. Showing the tokens that matched is honest
-// and still tells the reader what was found; the full text appears once the row
-// is loaded (which the jump does). Rows already in memory are ranked normally
-// above these.
-function indexOnlyResult(
-  id: string,
-  createdAt: number,
-  tokens: string[]
-): RankedSearchResult {
-  const text = tokens.join(" ");
-  return {
-    createdAt,
-    firstMatchStart: 0,
-    id,
-    // No highlight ranges: the preview is the matched tokens themselves.
-    ranges: [],
-    score: 0,
-    snippet: { offset: 0, text },
-    text,
-  };
-}
-
 // Live in-conversation search over the thread's own loaded history plus the
 // persistent local index.
 //
@@ -190,8 +163,6 @@ export function useConversationSearch(
     hasPreviousPage,
     indexRefreshToken,
     indexStore,
-    isFetchingPreviousPage,
-    loadOlderMessages,
     requestDecryptBatch,
   } = input;
   const [query, setQuery] = useState("");
@@ -211,27 +182,22 @@ export function useConversationSearch(
     return () => clearTimeout(timer);
   }, [enabled, query]);
 
-  // A read that started before a newer write is dropped on arrival, so a slow
-  // load cannot land after the write it predates and hide the new entries.
-  const latestTokenRef = useRef(indexRefreshToken ?? 0);
-  useEffect(() => {
-    latestTokenRef.current = indexRefreshToken ?? 0;
-  }, [indexRefreshToken]);
-
   // One point read for the coverage count, so the bar can say how much of the
   // conversation this device has covered. This replaced a read of the whole row
   // table, which is what used to cost 76MB of memory on a 200k-message
   // conversation and scale with the conversation rather than the result.
+  //
+  // Not gated on the refresh token. Coverage is the one number that must track
+  // indexing, and the read is a point read of the allocator, not a decrypt.
   useEffect(() => {
     if (!enabled || !indexStore) {
       return;
     }
-    const requestedAt = indexRefreshToken ?? 0;
     let cancelled = false;
     const load = async () => {
       try {
         const { indexedRowCount } = await indexStore.readStats(conversationId);
-        if (!cancelled && requestedAt === latestTokenRef.current) {
+        if (!cancelled) {
           setIndexedTotal(indexedRowCount);
         }
       } catch {
@@ -246,10 +212,28 @@ export function useConversationSearch(
     return () => {
       cancelled = true;
     };
+    // indexRefreshToken is a deliberate dependency. Every index commit bumps it,
+    // and a coverage count that does not move when the index does is simply
+    // wrong. The linter's heuristic assumes a dependency is read in the body,
+    // which is not true of a re-read trigger.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-read on every commit
   }, [conversationId, enabled, indexStore, indexRefreshToken]);
 
   // Read this query's posting lists. One point read per typed word, which is
   // cheap enough to redo after every debounce; a whole-index load is not.
+  //
+  // The refresh token IS a trigger, and the reason it can be is that querying is
+  // now cheap: one posting read per typed word plus a capped number of row reads,
+  // all inside one consistent transaction. It used not to be followed, because a
+  // query decrypted the whole sealed table and re-running it on every write meant
+  // the tab decrypted the entire conversation continuously during a backfill.
+  //
+  // The version of this that refused to follow the token had a worse bug. It kept
+  // a "drop a read that predates a write" guard, but the effect did not re-run on
+  // a token bump -- so any write landing during an in-flight query discarded the
+  // result with nothing scheduled to fetch it again, and the panel sat on
+  // "Searching..." forever. Re-querying once per committed page is both correct
+  // and affordable now.
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
     if (!enabled || !indexStore || trimmed.length === 0) {
@@ -258,27 +242,27 @@ export function useConversationSearch(
       // render to release.
       return;
     }
-    const tokens = searchQueryTokens(normalizeSearchText(trimmed));
-    if (tokens.length === 0) {
+    // Finished words go exact; the word still being typed goes prefix, so
+    // typing narrows live instead of flashing empty until the word completes.
+    // splitSearchTokens needs the untrimmed text: only a trailing space marks
+    // the last word finished.
+    const { exact, prefix } = splitSearchTokens(debouncedQuery);
+    if (exact.length === 0 && prefix === null) {
       return;
     }
-    // A read that predates a newer write is dropped on arrival, so a slow read
-    // cannot land after the write it predates and hide the new entries.
-    const requestedAt = indexRefreshToken ?? 0;
+    const tokens = prefix === null ? exact : [...exact, prefix];
     let cancelled = false;
     const load = async () => {
       try {
-        // One call for the whole query. It cannot be three: the token dictionary
-        // lives inside the sealed table, so a caller cannot turn words into
-        // posting keys at all, and separate steps could read the table and the
-        // posting lists from different commits. The store owns both halves so a
-        // keystroke costs one AEAD operation and one consistent revision.
+        // One call for the whole query, so the dictionary, the posting lists and
+        // the rows are all read from a single consistent snapshot.
         const result = await indexStore.query(
           conversationId,
-          tokens,
-          SEARCH_INDEX_QUERY_LIMIT
+          exact,
+          SEARCH_INDEX_QUERY_LIMIT,
+          prefix === null ? undefined : { prefix }
         );
-        if (!cancelled && requestedAt === latestTokenRef.current) {
+        if (!cancelled) {
           setIndexMatches({
             rows: result.rows,
             tokens,
@@ -295,42 +279,10 @@ export function useConversationSearch(
     return () => {
       cancelled = true;
     };
+    // Deliberate, for the same reason as the coverage read above: results must
+    // track the index, and a superseded load is already prevented by `cancelled`.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-query on every commit
   }, [conversationId, debouncedQuery, enabled, indexRefreshToken, indexStore]);
-
-  // Walk older history one page per effect run while the dialog is open. The
-  // length dependency re-arms the effect after every prepend, so a long thread
-  // indexes progressively without ever holding more than one fetch in flight.
-  // Serialization lives in loadOlderMessages (shared with the media viewer's
-  // loader), so this never races the transcript auto-loader's cursor.
-  const loadedCount = allMessages.length;
-  useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    if (!hasPreviousPage || loadedCount >= MAX_SEARCH_INDEX_MESSAGES) {
-      return;
-    }
-    if (isFetchingPreviousPage) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const added = await loadOlderMessages();
-      if (!cancelled && added.length > 0) {
-        requestDecryptBatch(added);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    enabled,
-    hasPreviousPage,
-    isFetchingPreviousPage,
-    loadedCount,
-    loadOlderMessages,
-    requestDecryptBatch,
-  ]);
 
   // Ask for decrypts of loaded rows the visible-window prefetcher never
   // reached. Requests are idempotent in the decryptor, and rows that resolve
@@ -358,79 +310,148 @@ export function useConversationSearch(
     () => EMPTY_CORPUS
   );
 
-  // Message id -> timestamp for the resolved matches, then overlaid with the
-  // in-memory corpus. The corpus wins, because an edit's new timestamp is known
-  // there before the index write lands. Bounded by the result cap: this used to
-  // be built from the whole conversation's row table.
-  const createdAtById = useMemo(() => {
-    const byId = new Map<string, number>();
-    for (const facts of indexMatches?.rows.values() ?? []) {
-      byId.set(facts.messageId, facts.createdAt);
-    }
-    for (const candidate of corpus) {
-      byId.set(candidate.id, candidate.createdAt);
-    }
-    return byId;
-  }, [corpus, indexMatches]);
-
-  // Merge the two sources of truth: the persistent inverted index (whole
-  // conversation) and the rows decrypted this session (always current). The
-  // memory side is authoritative for anything it knows about, because an edit is
-  // visible there before the index write has flushed.
-  const { matchIds, results, totalMatches } = useMemo(() => {
-    const inMemoryIds = findMatchingIds(corpus, debouncedQuery);
-    const ranked = rankSearchResults(corpus, debouncedQuery);
-    if (!debouncedQuery.trim()) {
-      return {
-        matchIds: inMemoryIds,
-        results: ranked,
-        totalMatches: inMemoryIds.length,
-      };
-    }
-    const seen = new Set(inMemoryIds);
-    let indexIds: string[] = [];
-    let indexOnlyTotal = 0;
-    let matchedTokens: string[] = [];
-    if (indexMatches) {
-      // Reordered by timestamp here, now that the matched rows' facts are known.
-      // The intersect could not do this: it does not know which rows will
-      // survive, and resolving timestamps first is what used to force a
-      // conversation-sized read.
-      const ids = [...indexMatches.rows.values()]
-        .toSorted((left, right) => right.createdAt - left.createdAt)
-        .map((facts) => facts.messageId)
-        .filter((id) => !seen.has(id));
-      indexIds = ids;
-      // Rows held by memory are counted once. Overlap is only observable inside
-      // the capped window, so a query matching far more than the cap can
-      // over-count by the unseen overlap; it never under-counts.
-      indexOnlyTotal = Math.max(
-        0,
-        indexMatches.totalMatched - (indexMatches.rows.size - ids.length)
-      );
-      matchedTokens = indexMatches.tokens;
-    }
-
-    const mergedIds = [...inMemoryIds, ...indexIds].toSorted(
-      (left, right) =>
-        (createdAtById.get(right) ?? 0) - (createdAtById.get(left) ?? 0)
-    );
-
-    // The ranked list leads with what can be shown in full; index-only hits
-    // follow, in the same order the counter uses, so the two views agree.
-    const withText = new Set(ranked.map((result) => result.id));
-    const tail = indexIds
-      .filter((id) => !withText.has(id))
-      .map((id) =>
-        indexOnlyResult(id, createdAtById.get(id) ?? 0, matchedTokens)
-      );
-    return {
-      matchIds: mergedIds,
-      results: [...ranked, ...tail],
-      totalMatches: inMemoryIds.length + indexOnlyTotal,
+  // The two sources of truth, merged ONCE per consistent pair of inputs.
+  //
+  // The counter used to be a sum of two independently-moving terms: matches over
+  // the loaded transcript, plus an index term corrected by an overlap estimate
+  // that can only see inside the 2,000-row result cap. While history was still
+  // loading, the transcript term slid as older pages pushed rows out of the
+  // 3,000-row window, and the index term jumped on every flush -- so a static
+  // query could report 269, then 316, then 289. Nothing was being deleted; the
+  // sum was mixing windows evaluated at different times.
+  //
+  // The merge is a pure function of the corpus and ONE index snapshot, so a given
+  // pair of inputs yields one number. It can still grow as coverage lands, which
+  // is real, but it cannot wobble for a reason the reader cannot see. It also
+  // scores the corpus once, instead of normalizing and scoring every row twice per
+  // keystroke.
+  //
+  const fresh = useMemo(
+    () =>
+      mergeSearchSnapshot({
+        corpus,
+        index: indexMatches,
+        query: debouncedQuery,
+      }),
+    [corpus, debouncedQuery, indexMatches]
+  );
+  // Sticky navigation ids and counter for the current query: ids never drop
+  // and the total never drops while the query stands, so arrows never yank
+  // and the counter never wobbles mid-indexing. Folded here rather than
+  // rendered because the fold needs the previously committed snapshot.
+  //
+  // Cadence is bounded and that bound is load-bearing. The fold inputs churn
+  // dozens of times per second during decrypt storms (measured: 87
+  // recomputes/sec), and applying every one schedules a render per churn
+  // event -- under a storm that render cascade trips React's nested-update
+  // guard. So: a new query applies immediately (typing must feel live), and
+  // same-query churn folds at most every MERGE_THROTTLE_MS via a trailing
+  // timer. Either way the merge itself is idempotent, so repeats converge.
+  const [sticky, setSticky] = useState<{
+    query: string;
+    snapshot: MergedSearchSnapshot;
+  } | null>(null);
+  const appliedQueryRef = useRef<string | null>(null);
+  const lastFoldRef = useRef(0);
+  const foldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestInputsRef = useRef({
+    corpus,
+    indexMatches,
+    query: debouncedQuery,
+  });
+  useEffect(() => {
+    latestInputsRef.current = {
+      corpus,
+      indexMatches,
+      query: debouncedQuery,
     };
-  }, [corpus, createdAtById, debouncedQuery, indexMatches]);
+    if (appliedQueryRef.current !== debouncedQuery) {
+      // New query (or first run): apply now, cancel any trailing fold for the
+      // previous one, and restart the throttle window.
+      if (foldTimerRef.current !== null) {
+        clearTimeout(foldTimerRef.current);
+        foldTimerRef.current = null;
+      }
+      appliedQueryRef.current = debouncedQuery;
+      lastFoldRef.current = Date.now();
+      const latest = latestInputsRef.current;
+      // oxlint-disable-next-line react/set-state-in-effect -- folding a stream into sticky state needs the previously committed snapshot; converges immediately, one render
+      setSticky((prev) => ({
+        query: latest.query,
+        snapshot: mergeSearchSnapshot(
+          {
+            corpus: latest.corpus,
+            index: latest.indexMatches,
+            query: latest.query,
+          },
+          prev && prev.query === latest.query ? prev.snapshot : null
+        ),
+      }));
+      return;
+    }
+    if (Date.now() - lastFoldRef.current >= MERGE_THROTTLE_MS) {
+      lastFoldRef.current = Date.now();
+      const latest = latestInputsRef.current;
+      // oxlint-disable-next-line react/set-state-in-effect -- same-query churn fold, throttled; converges, one render per window
+      setSticky((prev) => ({
+        query: latest.query,
+        snapshot: mergeSearchSnapshot(
+          {
+            corpus: latest.corpus,
+            index: latest.indexMatches,
+            query: latest.query,
+          },
+          prev && prev.query === latest.query ? prev.snapshot : null
+        ),
+      }));
+      return;
+    }
+    if (foldTimerRef.current === null) {
+      foldTimerRef.current = setTimeout(() => {
+        foldTimerRef.current = null;
+        lastFoldRef.current = Date.now();
+        const latest = latestInputsRef.current;
+        setSticky((prev) => ({
+          query: latest.query,
+          snapshot: mergeSearchSnapshot(
+            {
+              corpus: latest.corpus,
+              index: latest.indexMatches,
+              query: latest.query,
+            },
+            prev && prev.query === latest.query ? prev.snapshot : null
+          ),
+        }));
+      }, MERGE_THROTTLE_MS);
+    }
+  }, [corpus, debouncedQuery, indexMatches]);
+  useEffect(
+    () => () => {
+      if (foldTimerRef.current !== null) {
+        clearTimeout(foldTimerRef.current);
+      }
+    },
+    []
+  );
+  const { matchIds, ranked, totalMatches } =
+    sticky && sticky.query === debouncedQuery ? sticky.snapshot : fresh;
 
+  // Deliberately NO history loading here.
+  //
+  // This hook used to walk older pages on its own, re-arming after every load
+  // until 3,000 messages were in memory. That was a feedback loop: each page
+  // fetched, decrypted 500 messages, rebuilt the 3,000-row corpus and flushed
+  // index writes, while the visible "Index older messages" walk did the same
+  // thing at the same time and both competed for one IndexedDB write lock. The
+  // symptom was a search box that flickered -- the corpus was replaced
+  // underneath it, so the result list and the "n of N" counter changed on their
+  // own, and the tab slowed down the longer a search stayed open.
+  //
+  // Coverage is now driven by the user: the explicit index button, and ordinary
+  // history loads through the transcript's own scroll loader. Search reads what
+  // exists, it does not go and get it. The bar already reports how much has been
+  // covered, so a partial answer is an explicit one rather than a silent one.
+  const loadedCount = allMessages.length;
   const indexing =
     enabled && hasPreviousPage && loadedCount < MAX_SEARCH_INDEX_MESSAGES;
   const truncated =
@@ -443,7 +464,7 @@ export function useConversationSearch(
     indexing,
     matchIds: enabled ? matchIds : EMPTY_MATCH_IDS,
     query,
-    results: enabled ? results : [],
+    results: enabled ? ranked : [],
     setQuery,
     totalLoaded: enabled ? loadedCount : 0,
     totalMatches: enabled ? totalMatches : 0,

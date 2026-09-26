@@ -20,35 +20,48 @@
 
 export const MESSAGES_DB_NAME = "asm-messages";
 
-// The sealed row-table layout changed; existing search indexes are dropped and
-// rebuilt by walking history, while identity material is never reset.
-export const MESSAGES_DB_VERSION = 8;
+// The row table went back to one record per row; existing search indexes are
+// dropped and rebuilt by walking history, while identity material is never reset.
+export const MESSAGES_DB_VERSION = 9;
 export const RESET_SEARCH_STORES_BELOW_VERSION = MESSAGES_DB_VERSION;
 
 export const IDENTITY_STORE = "identity-keys";
-// One sealed record per conversation: the complete row table, its key generation,
-// and a revision. Replaces the per-row stores, because the table is encrypted as a
-// single AEAD blob and per-row records would mean ~400ms of WebCrypto per query.
-export const SEARCH_TABLES_STORE = "search-tables";
-export const SEARCH_POSTINGS_STORE = "search-postings";
-export const SEARCH_ALLOC_STORE = "search-alloc";
+// The token dictionary and the row-id allocator, one record per conversation. The
+// dictionary's ORDER defines the stable posting ids, so it is append-only; the
+// allocator is handed out inside the same write transaction that stores the rows
+// it allocates, which is what makes concurrent writers impossible to collide.
+export const SEARCH_HEADER_STORE = "search-header";
 export const SEARCH_META_STORE = "search-meta";
 // Rows that exist but are not searchable yet, persisted across sessions. Its own
 // store rather than a field on search-meta, because the backfill walk rewrites
 // meta on every page and sharing one object reintroduces the read-modify-write
 // race that forced the row allocator to be split out.
 export const SEARCH_PENDING_STORE = "search-pending";
+export const SEARCH_POSTINGS_STORE = "search-postings";
+// [conversationId, messageId] -> row id. The forward index from an incoming
+// message to the row it already occupies, so a write resolves each entry with a
+// point read instead of scanning the conversation's rows.
+export const SEARCH_ROW_IDS_STORE = "search-row-ids";
+// [conversationId, rowIdString] -> one row's facts, its token ids, and whether it
+// is still present. One record per row, so a write costs O(batch) rather than
+// O(conversation).
+export const SEARCH_ROWS_STORE = "search-rows";
 
+// Superseded search shapes. A sealed whole-table record and its separate
+// allocator are gone: they held the row table as one blob, so every write
+// re-encoded the entire conversation. An index is rebuildable by walking history,
+// so these are dropped rather than migrated.
 export const OBSOLETE_SEARCH_STORES = [
+  "search-alloc",
   "search-entries",
-  "search-rows",
-  "search-row-ids",
+  "search-tables",
 ];
 
 export const SEARCH_STORES = [
-  SEARCH_TABLES_STORE,
+  SEARCH_HEADER_STORE,
   SEARCH_POSTINGS_STORE,
-  SEARCH_ALLOC_STORE,
+  SEARCH_ROW_IDS_STORE,
+  SEARCH_ROWS_STORE,
   SEARCH_META_STORE,
   SEARCH_PENDING_STORE,
 ] as const;
@@ -59,9 +72,9 @@ export const SEARCH_STORES = [
 //
 // The reset decision uses the versionchange event's oldVersion, not the version
 // being requested. The shared builder is unconditional, so either owner can win
-// an upgrade and still drop search data whose keying predates the sealed layout.
-// IDENTITY_STORE is deliberately never reset: identity material must survive
-// every search-index rebuild.
+// an upgrade and still drop search data whose keying predates the current
+// per-row layout. IDENTITY_STORE is deliberately never reset: identity material
+// must survive every search-index rebuild.
 export function ensureMessagesSchema(
   db: IDBDatabase,
   oldVersion: number
@@ -81,9 +94,10 @@ export function ensureMessagesSchema(
     }
   }
   // Superseded shapes are dropped so they cannot be mistaken for a valid index.
-  // `search-rows` and `search-row-ids` are the v5 per-row stores: the current
-  // sealed table is keyed by conversation, so a leftover row record read under
-  // that key would hand back a row id where a sealed table is expected.
+  // `search-tables` held a conversation's row table as ONE sealed blob and
+  // `search-alloc` its row-id allocator; neither has a readable form here, and
+  // reading a leftover record where a header is expected would silently start a
+  // conversation's numbering from the wrong place.
   for (const name of OBSOLETE_SEARCH_STORES) {
     if (db.objectStoreNames.contains(name)) {
       db.deleteObjectStore(name);

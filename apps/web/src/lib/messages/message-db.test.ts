@@ -16,12 +16,10 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { deriveIndexKeyFromBase } from "./crypto";
 import {
   createIndexedDbSearchIndexStore,
   resetIndexedDbSearchIndexStoreForTests,
 } from "./indexeddb-search-index";
-import type { SearchIndexKeyResolver } from "./indexeddb-search-index";
 import {
   ensureMessagesSchema,
   IDENTITY_STORE,
@@ -46,30 +44,8 @@ function entry(text: string, createdAt: number): SearchIndexEntry {
   return built;
 }
 
-// A real per-conversation index key, derived from a throwaway base key. These
-// tests are about schema coordination, not cryptography, but they must go through
-// the same sealing path the app uses: a resolver that returned a constant key
-// would let a cross-conversation bug pass unnoticed.
-let testBaseKey: CryptoKey | null = null;
-
-const testResolver: SearchIndexKeyResolver = async (conversationId) => {
-  if (!testBaseKey) {
-    testBaseKey = await globalThis.crypto.subtle.importKey(
-      "raw",
-      new Uint8Array(32).fill(11),
-      "HKDF",
-      false,
-      ["deriveKey"]
-    );
-  }
-  return {
-    generation: "gen-1",
-    key: await deriveIndexKeyFromBase(testBaseKey, conversationId),
-  };
-};
-
 function createTestStore() {
-  return createIndexedDbSearchIndexStore({ resolveKey: testResolver });
+  return createIndexedDbSearchIndexStore();
 }
 
 // Requests the shared version explicitly. A bare `indexedDB.open(name)` on a
@@ -100,7 +76,9 @@ async function deleteDatabase(): Promise<void> {
   });
 }
 
-const PREVIOUS_SHIPPED_SEARCH_VERSION = 6;
+// The layout that shipped immediately before this one. Anything below it was
+// dropped when the row table went back to one record per row.
+const PREVIOUS_SHIPPED_SEARCH_VERSION = MESSAGES_DB_VERSION - 1;
 const IDENTITY_USER_ID = "user-a";
 
 function identitySentinel() {
@@ -227,7 +205,11 @@ describe("shared messages database", () => {
     }
   });
 
-  test("the previous search layout is upgraded without retaining plaintext postings", async () => {
+  // The previous layout is gone entirely rather than migrated: its records are
+  // keyed in ways this build cannot read, and a mixture of the two would be worse
+  // than an empty index. An index is rebuildable by walking history, so the whole
+  // search store set is dropped -- whatever its posting keys happened to be.
+  test("the previous search layout is upgraded without retaining its postings", async () => {
     const identityRecord = identitySentinel();
     await createDatabaseAtVersion(
       PREVIOUS_SHIPPED_SEARCH_VERSION,
@@ -237,7 +219,7 @@ describe("shared messages database", () => {
           .put(identityRecord, IDENTITY_USER_ID);
         transaction
           .objectStore(SEARCH_POSTINGS_STORE)
-          .put(new Uint32Array([0]), ["c1", "plaintext-token"]);
+          .put(new Uint32Array([0]), ["c1", "t0"]);
         transaction.objectStore(SEARCH_META_STORE).put(
           {
             conversationId: "c1",
@@ -257,7 +239,7 @@ describe("shared messages database", () => {
     const db = await openRaw();
     try {
       expect(
-        await readRawValue(db, SEARCH_POSTINGS_STORE, ["c1", "plaintext-token"])
+        await readRawValue(db, SEARCH_POSTINGS_STORE, ["c1", "t0"])
       ).toBeUndefined();
       expect(await readRawValue(db, IDENTITY_STORE, IDENTITY_USER_ID)).toEqual(
         identityRecord

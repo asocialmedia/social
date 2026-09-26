@@ -9,11 +9,13 @@
 import {
   emptySearchIndexRowList,
   emptySearchIndexRowTable,
+  expandPrefixTerm,
   internRows,
   intersectPostingLists,
   rowListAdd,
   rowListRemove,
   rowListToArray,
+  unionPostingLists,
 } from "./search-index-format";
 import type {
   SearchIndexConversationSummary,
@@ -23,8 +25,6 @@ import type {
   SearchIndexRowTable,
   SearchIndexStore,
 } from "./search-index-format";
-import { encodeRowTable, projectRowTable } from "./search-index-vault";
-import type { SealedRowTable } from "./search-index-vault";
 
 interface ConversationIndex {
   posting: Map<string, SearchIndexRowList>;
@@ -62,24 +62,6 @@ const removeFromToken = (
     index.posting.delete(token);
   }
 };
-
-// Projects the in-memory conversation table into the sealed table shape, which is
-// what the codec and the query path actually consume. Every row here is live: the
-// in-memory backend drops removed rows outright rather than tombstoning them,
-// because its lifetime is a single session and the tombstone exists to stop an
-// older DEVICE resurrecting a deletion.
-function toSealedRowTable(index: ConversationIndex): SealedRowTable {
-  const rowCount = index.table.messageIdByRow.length;
-  return {
-    createdAtByRow: [...index.table.createdAtByRow],
-    messageIdByRow: [...index.table.messageIdByRow],
-    presentByRow: Array.from({ length: rowCount }, () => true),
-    senderIdByRow: [...index.table.senderIdByRow],
-    tokensByRow: Array.from({ length: rowCount }, (_, row) => [
-      ...(index.tokensByRow.get(row) ?? []),
-    ]),
-  };
-}
 
 export function createMemorySearchIndexStore(): SearchIndexStore & {
   conversations: () => string[];
@@ -125,6 +107,19 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return [...byConversation.keys()];
     },
 
+    hasIndexedMessages(conversationId, messageIds) {
+      const { table } = indexFor(conversationId);
+      const out = new Set<string>();
+      for (const id of messageIds) {
+        // Present or tombstoned alike: the forward map keeps both, and both
+        // mean the walk has nothing left to do for the id.
+        if (table.rowsByMessageId.has(id)) {
+          out.add(id);
+        }
+      }
+      return Promise.resolve(out);
+    },
+
     listConversations() {
       const out: SearchIndexConversationSummary[] = [];
       for (const [conversationId, index] of byConversation) {
@@ -163,32 +158,50 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return Promise.resolve();
     },
 
-    // The reference implementation of the query path, run through the real codec
-    // so the persistent backend has an exact model rather than a parallel one:
-    // the table is encoded, the posting lists are intersected, and the matched
-    // rows are projected out of the encoded form rather than read off the
-    // in-memory structures. A query therefore exercises the same projection the
-    // sealed backend will.
+    // The reference implementation of the query path: the posting lists are
+    // intersected and the matched rows are projected out of the conversation
+    // table, which is what a persistent backend does with a point read per
+    // matched row.
     //
     // Postings stay keyed by token TEXT here. Interning them to dictionary ids is
-    // a storage detail: it exists so the persistent backend never writes a token
-    // into an IndexedDB key, where it would be plaintext at rest. In memory there
-    // is nothing to hide and nothing to look up by id.
-    query(conversationId, tokens, limit) {
+    // a storage detail of the persistent backend, which needs ids because its
+    // key is a stored field. In memory there is nothing to look up by id.
+    query(conversationId, tokens, limit, options) {
       const index = indexFor(conversationId);
       const lists = tokens.map((token) => {
         const list = index.posting.get(token);
         return list ? rowListToArray(list) : new Uint32Array(0);
       });
-      const { rows, totalMatched } = intersectPostingLists(lists, limit);
-      if (rows.length === 0) {
-        return Promise.resolve({ rows: new Map(), totalMatched });
+      const prefix = options?.prefix;
+      if (prefix !== undefined) {
+        const expansions = expandPrefixTerm([...index.posting.keys()], prefix);
+        if (expansions.length === 0) {
+          return Promise.resolve({ rows: new Map(), totalMatched: 0 });
+        }
+        lists.push(
+          unionPostingLists(
+            expansions.map((term) => {
+              const list = index.posting.get(term);
+              return list ? rowListToArray(list) : new Uint32Array(0);
+            })
+          )
+        );
       }
-      const encoded = encodeRowTable(toSealedRowTable(index));
-      return Promise.resolve({
-        rows: projectRowTable(encoded, rows),
-        totalMatched,
-      });
+      const { rows, totalMatched } = intersectPostingLists(lists, limit);
+      const { table } = index;
+      const resolved: SearchIndexRowLookup = new Map();
+      for (const row of rows) {
+        const messageId = table.messageIdByRow[row];
+        if (messageId === undefined) {
+          continue;
+        }
+        resolved.set(row, {
+          createdAt: table.createdAtByRow[row] ?? 0,
+          messageId,
+          senderId: table.senderIdByRow[row] ?? "",
+        });
+      }
+      return Promise.resolve({ rows: resolved, totalMatched });
     },
 
     readAllPostingLists(conversationId) {
