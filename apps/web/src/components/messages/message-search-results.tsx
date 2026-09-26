@@ -34,6 +34,10 @@ interface MessageSearchResultsProps {
   // A page turn failed. Rendered as a message rather than swallowed, so a failed
   // read is visible instead of a silently empty page.
   listPageError: string | null;
+  // The window on screen predates the index generation on hand, so more matches
+  // for this page may exist. The only state in which "still indexing" is the
+  // truthful thing to say about an empty page.
+  listPageStale: boolean;
   myUserId: string;
   onJump: (messageId: string) => void;
   query: string;
@@ -52,6 +56,7 @@ export function MessageSearchResults({
   indexingOlder,
   listPageError,
   listPageLoading,
+  listPageStale,
   myUserId,
   onJump,
   query,
@@ -86,6 +91,7 @@ export function MessageSearchResults({
     indexingOlder,
     listPageError,
     listPageLoading,
+    listPageStale,
     queryReady,
     resultCount: results.length,
     totalMatches,

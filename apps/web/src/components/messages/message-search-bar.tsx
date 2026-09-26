@@ -64,6 +64,9 @@ export interface MessageSearchBarProps {
   // Rows the current page holds, which the list status needs to tell an
   // unresolved window from a short page.
   resultCount: number;
+  // The page's window predates the index on hand, so it is waiting on commits
+  // rather than on a read. Changes what the bar says about an empty page.
+  listPageStale: boolean;
   // Owned by the thread so the Ctrl+F shortcut can pull focus back here.
   inputRef: React.RefObject<HTMLInputElement | null>;
   matchCount: number;
@@ -118,6 +121,7 @@ export function MessageSearchBar({
   rangeEnd,
   rangeStart,
   resultCount,
+  listPageStale,
   totalResults,
   view,
 }: MessageSearchBarProps) {
@@ -148,6 +152,7 @@ export function MessageSearchBar({
         ? searchListStatus({
             fullyCovered,
             indexingOlder,
+            listPageStale,
             queryReady,
             rangeEnd,
             rangeStart,

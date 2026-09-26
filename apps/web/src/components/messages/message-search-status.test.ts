@@ -145,6 +145,51 @@ describe("searchListStatus", () => {
     ).toBe("Loading matches…");
   });
 
+  // The branch the whole status change exists for, and the one the earlier
+  // tests did not pin. An empty page beside a nonzero total says one of two
+  // different things depending on whether a newer index generation exists that
+  // this page has not read:
+  //   - it has, so waiting is the honest instruction;
+  //   - it has not, so the page is simply empty and promising more would be a
+  //     lie about a walk that was never going to fill it.
+  test("distinguishes waiting on the index from a page that is simply empty", () => {
+    expect(
+      searchListStatus({
+        ...WALKING,
+        listPageStale: true,
+        rangeEnd: 20,
+        rangeStart: 1,
+        resultCount: 0,
+        totalResults: 29,
+      })
+    ).toBe("Still indexing…");
+    expect(
+      searchListStatus({
+        ...WALKING,
+        listPageStale: false,
+        rangeEnd: 20,
+        rangeStart: 1,
+        resultCount: 0,
+        totalResults: 29,
+      })
+    ).toBe("Loading matches…");
+  });
+
+  // A page that IS showing rows is not waiting on anything, stale or not: the
+  // range is the answer.
+  test("a page with rows reports its range even while it is stale", () => {
+    expect(
+      searchListStatus({
+        ...WALKING,
+        listPageStale: true,
+        rangeEnd: 20,
+        rangeStart: 1,
+        resultCount: 20,
+        totalResults: 29,
+      })
+    ).toBe("1–20 of 29 so far");
+  });
+
   // The mirror of the above: a sticky total can lag the live match set low, and
   // a range that runs past the stated total is as self-contradictory as one over
   // no rows at all.
@@ -232,6 +277,7 @@ describe("searchListEmptyState", () => {
     indexingOlder: false,
     listPageError: null,
     listPageLoading: false,
+    listPageStale: false,
     queryReady: true,
     resultCount: 0,
     totalMatches: 0,
@@ -266,7 +312,7 @@ describe("searchListEmptyState", () => {
         listPageLoading: true,
         totalMatches: 29,
       })
-    ).toBe("Loading results…");
+    ).toBe("Loading this page…");
   });
 
   // The reported bug: an empty page beside "29 matches" read "No messages
@@ -274,18 +320,26 @@ describe("searchListEmptyState", () => {
   // that matches exist and say where they are instead.
   test("an empty page with matches says the matches are elsewhere", () => {
     expect(searchListEmptyState({ ...BASE, totalMatches: 29 })).toBe(
-      "Matches exist outside the loaded page."
+      "No more matches past this page."
     );
   });
 
-  test("an empty page during a walk says more matches may surface", () => {
+  // The reported bug, second half: page 2 onward sat on "More matches are still
+  // indexing" while a walk ran, even when the walk was never going to fill that
+  // window. Only a page that has NOT read the current index generation may say
+  // that; a page that is merely empty has to admit it.
+  test("only a page behind the index may say matches are still indexing", () => {
     expect(
       searchListEmptyState({
         ...BASE,
         indexingOlder: true,
+        listPageStale: true,
         totalMatches: 29,
       })
     ).toBe("More matches are still indexing.");
+    expect(
+      searchListEmptyState({ ...BASE, indexingOlder: true, totalMatches: 29 })
+    ).toBe("No more matches past this page.");
   });
 
   test("a genuinely empty result set says so only once settled", () => {
