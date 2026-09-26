@@ -24,7 +24,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { Line, Path, Svg } from "react-native-svg";
+import { Path, Svg } from "react-native-svg";
 
 import noCommentsImage from "@/assets/images/nocomments.png";
 import noMediaImage from "@/assets/images/nomedia.png";
@@ -89,33 +89,39 @@ function EddieRail({ isLast }: { isLast: boolean }) {
   const { theme } = useAppTheme();
   const color = theme.cardBorder;
   return (
-    <Svg
-      height={isLast ? AVATAR_CENTER + 4 : "100%"}
-      pointerEvents="none"
-      style={styles.railSvg}
-      width={REPLY_INDENT + 4}
-    >
+    <>
+      {/* The through-rail for a non-last sibling. A View anchored top/bottom,
+          NOT an SVG at height "100%": a percentage height against a
+          content-sized parent does not resolve in Yoga, which is what left the
+          line broken or missing on native. Same construction as the depth-0
+          stub, and it lines up with the elbow drawn below. */}
       {isLast ? null : (
-        <Line
-          stroke={color}
-          strokeWidth={2}
-          x1={RAIL_X}
-          x2={RAIL_X}
-          y1={-1}
-          y2="100%"
+        <View
+          pointerEvents="none"
+          style={[styles.railLine, { backgroundColor: color }]}
         />
       )}
-      <Path
-        d={
-          isLast
-            ? `M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
-            : `M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
-        }
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-      />
-    </Svg>
+      {/* The elbow into this reply's avatar. Always a fixed-size box so the SVG
+          never needs a percentage dimension; `isLast` adds the short vertical
+          stub above the curve, since no through-rail continues past it. */}
+      <Svg
+        height={AVATAR_CENTER + 4}
+        pointerEvents="none"
+        style={styles.railSvg}
+        width={REPLY_INDENT + 4}
+      >
+        <Path
+          d={
+            isLast
+              ? `M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
+              : `M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
+          }
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+        />
+      </Svg>
+    </>
   );
 }
 
@@ -302,6 +308,7 @@ function EddieRow({
           <EddieRail isLast={!hasChildren} />
           <EddieComposer
             autoFocus
+            inline
             onCancel={onCloseInlineReply}
             onPosted={onCloseInlineReply}
             parentId={comment.id}
@@ -710,10 +717,14 @@ const styles = StyleSheet.create({
     position: "relative",
     zIndex: 1,
   },
+  // paddingBottom is tighter than paddingTop: the actions row already carries
+  // its own height, so equal padding left a visibly large gap under every
+  // eddie before the next one (or the divider) began.
   comment: {
     flexDirection: "row",
     gap: 10,
-    paddingVertical: 10,
+    paddingBottom: 6,
+    paddingTop: 10,
   },
   commentActions: {
     alignItems: "center",
@@ -824,6 +835,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textDecorationLine: "underline",
   },
+  railLine: {
+    bottom: 0,
+    left: RAIL_X,
+    position: "absolute",
+    top: 0,
+    width: 2,
+  },
   railSvg: {
     left: 0,
     position: "absolute",
@@ -837,9 +855,13 @@ const styles = StyleSheet.create({
     height: 32,
     paddingHorizontal: 8,
   },
+  // paddingTop matches the comment row's own, so the inline composer's 40px
+  // avatar centres on AVATAR_CENTER (30px) exactly where the rail elbow lands.
+  // Without it the elbow pointed above the avatar and the indent looked broken.
   replyComposer: {
     paddingBottom: 4,
     paddingLeft: REPLY_INDENT,
+    paddingTop: 10,
     position: "relative",
   },
   replyText: {

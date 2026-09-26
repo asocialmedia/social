@@ -15,13 +15,15 @@ import { Image } from "expo-image";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import Svg, {
+  Defs,
+  LinearGradient,
+  Stop,
+  Text as SvgText,
+} from "react-native-svg";
 
 import splashImage from "@/assets/images/splash-icon.png";
-import { Gradient3D } from "@/components/surface/gradient-3d";
-import {
-  ORANGE_BUTTON_SHADOWS,
-  ORANGE_GRADIENT,
-} from "@/components/surface/recipes";
+import { ORANGE_GRADIENT } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 
 // Matches the native splash backgroundColor in app.json, so the hand-off from
@@ -36,6 +38,14 @@ const LOGO_SIZE = 140;
 // Wordmark and tagline sit low, clear of the home indicator on gesture-nav
 // devices, the way a native splash does.
 const FOOTER_INSET = 72;
+
+// The wordmark is SVG text, so it needs an explicit box: a width to centre the
+// run in (textAnchor="middle") and a height/baseline to sit it on.
+const WORDMARK_FONT_SIZE = 22;
+const WORDMARK_WIDTH = 260;
+const WORDMARK_HEIGHT = 30;
+const WORDMARK_BASELINE = 23;
+const WORDMARK_GRADIENT_ID = "brandWordmark";
 
 // The icon grows very slightly as it dissolves, so the brand mark reads as
 // handing off to the app rather than simply blinking out.
@@ -138,24 +148,41 @@ function BrandSplash({ exiting }: { exiting: boolean }) {
         />
       </Animated.View>
       <View style={styles.footer}>
-        {/* The orange `.btn-3d` recipe: Gradient3D keeps the dual border (the
-            bright inner lip over the gradient) that a plain background loses,
-            which is the same construction as every primary button in the app.
-            The dark shadow list is the right one here - the splash is always
-            the dark brand tone regardless of the system scheme. */}
-        <Gradient3D
-          colors={ORANGE_GRADIENT}
-          shadows={ORANGE_BUTTON_SHADOWS}
-          style={styles.wordmarkPill}
-        >
-          {/* System font, not SofiaPro: this paints before the custom fonts
-              finish loading, and swapping faces mid-splash would reflow the
-              wordmark. */}
-          <Text style={styles.wordmark}>asocialmedia</Text>
-        </Gradient3D>
-        <Text style={styles.tagline}>by singularity works</Text>
+        <GradientWordmark />
+        <Text style={styles.tagline}>by Singularity Works</Text>
       </View>
     </Animated.View>
+  );
+}
+
+// Gradient-filled text. React Native cannot fill a <Text> with a gradient -
+// expo-linear-gradient paints a background the glyphs then sit on top of - so
+// the wordmark is drawn as SVG text filled with a vertical linear gradient.
+// That keeps the app's orange (#ff9500 -> #e65500) with nothing behind it.
+function GradientWordmark() {
+  return (
+    <Svg height={WORDMARK_HEIGHT} width={WORDMARK_WIDTH}>
+      <Defs>
+        <LinearGradient id={WORDMARK_GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={ORANGE_GRADIENT[0]} />
+          <Stop offset="1" stopColor={ORANGE_GRADIENT[1]} />
+        </LinearGradient>
+      </Defs>
+      {/* System font: this paints before the custom fonts finish loading, and
+          swapping faces mid-splash would reflow the wordmark. textAnchor centres
+          the run inside the fixed SVG width. */}
+      <SvgText
+        fill={`url(#${WORDMARK_GRADIENT_ID})`}
+        fontSize={WORDMARK_FONT_SIZE}
+        fontWeight="700"
+        letterSpacing={0.6}
+        textAnchor="middle"
+        x={WORDMARK_WIDTH / 2}
+        y={WORDMARK_BASELINE}
+      >
+        asocialmedia
+      </SvgText>
+    </Svg>
   );
 }
 
@@ -188,20 +215,5 @@ const styles = StyleSheet.create({
     color: "rgba(255, 255, 255, 0.55)",
     fontSize: 12,
     letterSpacing: 0.8,
-  },
-  wordmark: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    // Matches `.btn-3d`, so the pill reads as the app's own button surface.
-    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
-      string,
-      string
-    >),
-  },
-  wordmarkPill: {
-    paddingHorizontal: 18,
-    paddingVertical: 7,
   },
 });
