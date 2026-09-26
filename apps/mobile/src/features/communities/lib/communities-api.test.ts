@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   approveCommunityMember,
+  parseCommunityMember,
+  parseCommunityRoster,
   buildCommunitiesPath,
   fetchCreationQuota,
   fetchMembershipState,
@@ -280,5 +282,82 @@ describe("community membership mutations", () => {
       baseFetch: stubFetch(() => new Response("", { status: 401 })),
     });
     expect(failed).toBeNull();
+  });
+});
+
+describe("community roster parsing", () => {
+  const member = {
+    createdAt: "2026-01-01T00:00:00.000Z",
+    role: "MEMBER",
+    status: "ACTIVE",
+    user: {
+      aura: 42,
+      avatarUrl: "/avatars/general.png",
+      displayName: "Ada",
+      id: "user-1",
+      username: "ada",
+    },
+  };
+
+  test("reads a member and lifts the user fields flat", () => {
+    expect(parseCommunityMember(member)).toEqual({
+      aura: 42,
+      avatarUrl: "/avatars/general.png",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      displayName: "Ada",
+      id: "user-1",
+      role: "MEMBER",
+      status: "ACTIVE",
+      username: "ada",
+    });
+  });
+
+  test("defaults a missing role, status and aura rather than printing undefined", () => {
+    const parsed = parseCommunityMember({
+      createdAt: "2026-01-01T00:00:00.000Z",
+      user: { id: "user-1", username: "ada" },
+    });
+    expect(parsed?.role).toBe("PARTICIPANT");
+    expect(parsed?.status).toBe("ACTIVE");
+    expect(parsed?.aura).toBe(0);
+  });
+
+  test("drops a row with no usable user", () => {
+    expect(parseCommunityMember({ role: "MEMBER" })).toBeNull();
+    expect(parseCommunityMember({ user: { username: "ada" } })).toBeNull();
+    expect(parseCommunityMember(null)).toBeNull();
+  });
+
+  test("reads canModerate and the viewer's own membership", () => {
+    const roster = parseCommunityRoster({
+      canModerate: true,
+      members: [member],
+      membership: { role: "OWNER", status: "ACTIVE" },
+    });
+    expect(roster.canModerate).toBe(true);
+    expect(roster.members).toHaveLength(1);
+    expect(roster.membership?.role).toBe("OWNER");
+  });
+
+  test("treats a guest as a non-moderator with no membership", () => {
+    const roster = parseCommunityRoster({ members: [] });
+    expect(roster.canModerate).toBe(false);
+    expect(roster.membership).toBeNull();
+  });
+
+  test("skips malformed members without losing the good ones", () => {
+    const roster = parseCommunityRoster({
+      canModerate: false,
+      members: [member, { role: "MEMBER" }, null],
+    });
+    expect(roster.members).toHaveLength(1);
+  });
+
+  test("survives a payload that is not an object at all", () => {
+    expect(parseCommunityRoster(null)).toEqual({
+      canModerate: false,
+      members: [],
+      membership: null,
+    });
   });
 });

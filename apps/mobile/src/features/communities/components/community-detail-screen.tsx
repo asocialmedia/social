@@ -27,7 +27,14 @@ import type { CommunityDetail } from "../lib/communities-api";
 import { useCommunityMembership } from "../state/use-community-membership";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityJoinButton } from "./community-join-button";
+import { CommunityMatureGate } from "./community-mature-gate";
 import { CommunityNotifyButton } from "./community-notify-button";
+import { CommunityRosterCard } from "./community-roster-card";
+
+// Inferred from the API's own signature so the screen can never drift from the
+// sorts the endpoint accepts, and so no type import is needed alongside the
+// value import from the same module.
+type CommunitySort = NonNullable<Parameters<typeof fetchCommunityPosts>[3]>;
 
 export function CommunityDetailScreen() {
   const router = useRouter();
@@ -42,6 +49,11 @@ export function CommunityDetailScreen() {
     "loading"
   );
   const [error, setError] = useState<string | null>(null);
+  // Web's community feed sorts New or Top; native was pinned to New.
+  const [sort, setSort] = useState<CommunitySort>("new");
+  // The 18+ confirmation is per community and per session, so it is not
+  // remembered across launches: the gate is shown every time until confirmed.
+  const [matureConfirmed, setMatureConfirmed] = useState(false);
 
   const load = useCallback(
     async (cursor: string | null) => {
@@ -55,7 +67,7 @@ export function CommunityDetailScreen() {
       if (cursor === null) {
         const [nextDetail, nextPosts] = await Promise.all([
           fetchCommunityDetail(slug, options),
-          fetchCommunityPosts(slug, null, options),
+          fetchCommunityPosts(slug, null, options, sort),
         ]);
         setDetail(nextDetail);
         setPosts(nextPosts.posts);
@@ -64,7 +76,7 @@ export function CommunityDetailScreen() {
         setError(null);
         return;
       }
-      const nextPosts = await fetchCommunityPosts(slug, cursor, options);
+      const nextPosts = await fetchCommunityPosts(slug, cursor, options, sort);
       setPosts((current) => [
         ...current,
         ...nextPosts.posts.filter(
@@ -75,7 +87,7 @@ export function CommunityDetailScreen() {
       setStatus("success");
       setError(null);
     },
-    [slug]
+    [slug, sort]
   );
 
   useEffect(() => {
@@ -279,6 +291,36 @@ export function CommunityDetailScreen() {
                   value={detail.stats.weeklyVisitors}
                 />
               </View>
+              <View style={styles.sortTabs}>
+                {(["new", "top"] as const).map((option) => {
+                  const selected = option === sort;
+                  return (
+                    <Pressable
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      key={option}
+                      onPress={() => {
+                        if (option === sort) {
+                          return;
+                        }
+                        setSort(option);
+                        setStatus("loading");
+                      }}
+                      style={styles.sortTab}
+                    >
+                      <Text
+                        style={[
+                          styles.sortText,
+                          { color: selected ? "#ff9500" : theme.dividerText },
+                        ]}
+                      >
+                        {option === "new" ? "New" : "Top"}
+                      </Text>
+                      {selected ? <View style={styles.sortUnderline} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
               <View style={styles.actions}>
                 <CommunityJoinButton
                   isLoggedIn={Boolean(user)}
@@ -293,6 +335,11 @@ export function CommunityDetailScreen() {
                 />
               </View>
             </View>
+            <CommunityRosterCard
+              canModerate={membershipState.canModerate}
+              onRequireLogin={requireLogin}
+              slug={community.slug}
+            />
           </View>
         }
         ListEmptyComponent={
@@ -321,6 +368,17 @@ export function CommunityDetailScreen() {
         )}
         showsVerticalScrollIndicator={false}
       />
+      {community.mature && !matureConfirmed ? (
+        <CommunityMatureGate
+          community={community}
+          onEnter={() => {
+            setMatureConfirmed(true);
+          }}
+          onLeave={() => {
+            router.back();
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -390,6 +448,16 @@ const styles = StyleSheet.create({
   retryText: { color: "#ffffff", fontFamily: "SofiaProMed", fontSize: 13 },
   root: { flex: 1 },
   slug: { fontFamily: "SofiaProReg", fontSize: 14, marginTop: 2 },
+  sortTab: { alignItems: "flex-start", paddingVertical: 8 },
+  sortTabs: { flexDirection: "row", gap: 18, marginTop: 14 },
+  sortText: { fontFamily: "SofiaProMed", fontSize: 14 },
+  sortUnderline: {
+    backgroundColor: "#ff9500",
+    borderRadius: 2,
+    height: 2,
+    marginTop: 3,
+    width: "100%",
+  },
   stat: { alignItems: "center", gap: 3 },
   statLabel: { fontFamily: "SofiaProReg", fontSize: 10 },
   statValue: { fontFamily: "SofiaProBold", fontSize: 15, marginTop: 2 },

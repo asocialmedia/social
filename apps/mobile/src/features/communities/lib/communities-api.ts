@@ -496,12 +496,15 @@ export async function fetchCommunityDetail(
   };
 }
 
+export type CommunitySort = "new" | "top";
+
 export async function fetchCommunityPosts(
   slug: string,
   cursor: string | null,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  sort: CommunitySort = "new"
 ): Promise<{ nextCursor: string | null; posts: FeedPost[] }> {
-  const path = `/api/communities/${encodeURIComponent(slug)}/posts?sort=new&excludeModerated=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+  const path = `/api/communities/${encodeURIComponent(slug)}/posts?sort=${sort}&excludeModerated=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
   const response = await get(path, options);
   requireOk(response, "Community posts");
   const body = objectOf(await readJson(response)) ?? {};
@@ -517,4 +520,95 @@ export async function fetchCommunityPosts(
         : []
     ),
   };
+}
+
+// --- Roster ------------------------------------------------------------------
+
+export interface CommunityMember {
+  aura: number;
+  avatarUrl: string | null;
+  createdAt: string;
+  displayName: string | null;
+  id: string;
+  role: string;
+  status: string;
+  username: string;
+}
+
+export interface CommunityRoster {
+  canModerate: boolean;
+  members: CommunityMember[];
+  membership: { role: string; status: string } | null;
+}
+
+export function parseCommunityMember(value: unknown): CommunityMember | null {
+  const row = objectOf(value);
+  const user = objectOf(row?.user);
+  const id = textOf(user?.id);
+  if (!row || !user || !id) {
+    return null;
+  }
+  return {
+    aura:
+      typeof user.aura === "number" && Number.isFinite(user.aura)
+        ? user.aura
+        : 0,
+    avatarUrl: textOf(user.avatarUrl),
+    createdAt: textOf(row.createdAt) ?? "",
+    displayName: textOf(user.displayName),
+    id,
+    role: textOf(row.role) ?? "PARTICIPANT",
+    status: textOf(row.status) ?? "ACTIVE",
+    username: textOf(user.username) ?? "",
+  };
+}
+
+export function parseCommunityRoster(payload: unknown): CommunityRoster {
+  const body = objectOf(payload) ?? {};
+  const rows = Array.isArray(body.members) ? body.members : [];
+  const membership = objectOf(body.membership);
+  return {
+    canModerate: body.canModerate === true,
+    members: rows.flatMap((row) => {
+      const member = parseCommunityMember(row);
+      return member ? [member] : [];
+    }),
+    membership:
+      membership && typeof membership.role === "string"
+        ? {
+            role: membership.role,
+            status: String(membership.status ?? "ACTIVE"),
+          }
+        : null,
+  };
+}
+
+export async function fetchCommunityRoster(
+  slug: string,
+  options: ApiCallOptions,
+  params: {
+    badged?: boolean;
+    limit?: number;
+    pending?: boolean;
+    sort?: "aura" | "role";
+  } = {}
+): Promise<CommunityRoster | null> {
+  const query = new URLSearchParams({
+    limit: String(Math.min(100, Math.max(1, params.limit ?? 50))),
+  });
+  if (params.pending) {
+    query.set("pending", "1");
+  }
+  if (params.badged) {
+    query.set("badged", "1");
+  }
+  if (params.sort) {
+    query.set("sort", params.sort);
+  }
+  const path = `/api/communities/${encodeURIComponent(slug)}/members?${query.toString()}`;
+  const response = await get(path, options);
+  if (!response.ok) {
+    return null;
+  }
+  return parseCommunityRoster(await readJson(response));
 }
