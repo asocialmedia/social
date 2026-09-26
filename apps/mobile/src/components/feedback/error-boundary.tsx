@@ -11,9 +11,9 @@ import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 
+import errorImage from "@/assets/images/error.png";
 import { logError } from "@/lib/telemetry";
 
-import errorImage from "../../../assets/images/error.png";
 import { StatusScreen } from "./status-screen";
 
 interface Props {

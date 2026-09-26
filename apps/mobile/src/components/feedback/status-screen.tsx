@@ -6,9 +6,8 @@ import { Image } from "expo-image";
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+import asmLogo from "@/assets/images/asm.png";
 import { useAppTheme } from "@/theme";
-
-import asmLogo from "../../../assets/images/asm.png";
 
 export function StatusScreen({
   action,

@@ -4,9 +4,8 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text } from "react-native";
 
+import errorImage from "@/assets/images/error.png";
 import { StatusScreen } from "@/components/feedback/status-screen";
-
-import errorImage from "../../assets/images/error.png";
 
 export default function NotFound() {
   const router = useRouter();

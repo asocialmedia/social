@@ -8,11 +8,11 @@
 import { Image } from "expo-image";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import errorImage from "@/assets/images/error.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { APPLE_PANEL_TOKENS } from "@/components/surface/recipes";
 import { useAppTheme } from "@/theme";
 
-import errorImage from "../../../assets/images/error.png";
 import type { CommunityData } from "../lib/communities-api";
 import { CommunityAvatar } from "./community-avatar";
 
