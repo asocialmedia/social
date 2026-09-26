@@ -247,8 +247,19 @@ function PublishButton({
   );
 }
 
-export function PostEditor({ onPublished }: { onPublished: () => void }) {
-  const { isDark } = useAppTheme();
+export function PostEditor({
+  onPublished,
+  variant = "modal",
+}: {
+  onPublished?: () => void;
+  // "modal" is the floating composer (ComposerModal): transparent, no edge
+  // treatment, and the caption field takes focus the moment it opens. "feed"
+  // is the inline row pinned to the top of the home feed, so it carries web's
+  // edge-to-edge border/fill and must NOT autofocus - stealing focus there
+  // would pop the keyboard over the feed on every visit.
+  variant?: "feed" | "modal";
+}) {
+  const { isDark, theme } = useAppTheme();
   const text = themeText(isDark);
   const viewerAvatar = useViewerAvatarUrl();
   const mode = useComposerStore((state) => state.mode);
@@ -439,7 +450,7 @@ export function PostEditor({ onPublished }: { onPublished: () => void }) {
         description: successCopy(),
         title: isResponse ? "Response Posted" : "Posted",
       });
-      onPublished();
+      onPublished?.();
     } catch (error) {
       toast({
         description:
@@ -502,8 +513,27 @@ export function PostEditor({ onPublished }: { onPublished: () => void }) {
     );
   }
 
+  const inline = variant === "feed";
+
   return (
-    <View style={styles.root}>
+    <View
+      style={[
+        styles.root,
+        // The inline row sits directly on the feed, so it wears the feed's own
+        // page background (web's --background-alt) rather than a hardcoded
+        // shade, and is separated by the app's standard hairline divider. Using
+        // the tokens keeps it in step with the feed across both themes. Its
+        // stacking above the feed rows is handled by the list header wrapper.
+        inline
+          ? {
+              backgroundColor: theme.containerBg,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.dividerLine,
+              borderTopWidth: StyleSheet.hairlineWidth,
+            }
+          : null,
+      ]}
+    >
       {replyTo ? (
         <ResponsePreview onClear={clearReplyTo} replyTo={replyTo} />
       ) : null}
@@ -518,7 +548,7 @@ export function PostEditor({ onPublished }: { onPublished: () => void }) {
           >
             <TextInput
               accessibilityLabel={isGust ? "Gust caption" : "Post text"}
-              autoFocus
+              autoFocus={!inline}
               multiline
               onBlur={() => setFocused(false)}
               onChangeText={(value) => setDraft({ text: value })}
@@ -841,6 +871,10 @@ const styles = StyleSheet.create({
   moreMenu: {
     borderRadius: 12,
     borderWidth: 1,
+    // Android needs elevation to lift this above the feed rows behind it; on
+    // iOS the zIndex alone is enough. Only the inline variant can overlap
+    // content (the modal variant floats over a backdrop).
+    elevation: 8,
     left: 0,
     minWidth: 176,
     padding: 6,

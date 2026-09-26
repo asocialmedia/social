@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import HackerNewsPageSkeleton from "@/components/layouts/skeletons/hackernews-page-skeleton";
@@ -21,6 +22,13 @@ export default function HackerNewsPage() {
 }
 
 async function HackerNewsContent() {
+  // Claims the request before the first read. Prisma 8 stamps every query with
+  // a crypto.randomUUID() plan id, and Cache Components fails a prerender that
+  // touches an uncached value, so an unclaimed database read aborts the
+  // prerender. headers() alone does not claim it: partial prefetching serves
+  // runtime data during the shell render.
+  await connection();
+
   const session = await getSessionFromApi();
 
   if (!session?.user) {

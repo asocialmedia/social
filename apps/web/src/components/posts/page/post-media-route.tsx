@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { connection } from "next/server";
 
 import MediaPage from "@/app/(main)/posts/[postId]/media/[index]/media-page";
 import { getUserData } from "@/hooks/users/use-user-data";
@@ -93,6 +95,18 @@ async function resolveCanonicalMedia(
   return { post, resolvedIndex, session };
 }
 
+// Same reasoning as getMetadataPost in post-route.tsx: metadata is emitted per
+// URL for every viewer, generateMetadata cannot sit behind a Suspense boundary,
+// and a Prisma read in that scope trips the sync-IO check (Prisma 8 stamps
+// every query with a crypto.randomUUID() plan id). No emitted field depends on
+// the viewer, so the entry is shared rather than duplicated per account.
+async function getMetadataMediaPost(postId: string, mediaId?: string) {
+  "use cache";
+  cacheLife("hours");
+
+  return await getPost(postId, "", { mediaId });
+}
+
 export async function generatePostMediaMetadata({
   params,
   searchParams,
@@ -103,10 +117,7 @@ export async function generatePostMediaMetadata({
   }
   const parsedIndex = Math.trunc(Number(index));
 
-  const session = await getSessionFromApi();
-  const post = await getPost(postId, session?.user?.id ?? "", {
-    mediaId: searchParams.mediaId,
-  });
+  const post = await getMetadataMediaPost(postId, searchParams.mediaId);
   const canonicalPath = getPostMediaPath(post, parsedIndex);
   // Enforce the canonical namespace in metadata too, so a crawler that lands on
   // the global path for a community post follows the redirect rather than
@@ -179,6 +190,13 @@ export async function PostMediaRoute({
   params,
   searchParams,
 }: ResolvedPostMediaRoute) {
+  // Claims the request before the first read. Prisma 8 stamps every query with
+  // a crypto.randomUUID() plan id, and Cache Components fails a prerender that
+  // touches an uncached value, so an unclaimed database read aborts the
+  // prerender. headers() alone does not claim it: partial prefetching serves
+  // runtime data during the shell render.
+  await connection();
+
   const { post, resolvedIndex, session } = await resolveCanonicalMedia(
     params,
     searchParams.mediaId

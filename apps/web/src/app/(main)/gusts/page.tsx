@@ -1,5 +1,6 @@
 import { prisma } from "@asm/db";
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -16,24 +17,35 @@ interface GustsPageProps {
   searchParams: Promise<{ id?: string }>;
 }
 
+// A single gust's metadata is public and viewer-independent, and
+// generateMetadata cannot sit behind a Suspense boundary, so the read lives in
+// a cache scope: a Prisma read in the metadata scope trips the sync-IO check
+// (Prisma 8 stamps every query with a crypto.randomUUID() plan id) and aborts
+// the prerender. `connection()` does not clear it.
+async function getMetadataGust(gustId: string) {
+  "use cache";
+  cacheLife("hours");
+
+  return await prisma.orm.public.Posts.select("aura", "content", "id")
+    .include("postMedias", (media) => media.select("id", "_type"))
+    .include("postToTags", (postTags) =>
+      postTags.include("tag", (tag) => tag.select("name"))
+    )
+    .include("user", (user) =>
+      user.select("avatarUrl", "displayName", "id", "username")
+    )
+    .where({ id: gustId })
+    .first();
+}
+
 export async function generateMetadata(
   props: GustsPageProps
 ): Promise<Metadata> {
-  await connection();
   const searchParams = await props.searchParams;
   const gustId = searchParams.id;
 
   if (gustId) {
-    const post = await prisma.orm.public.Posts.select("aura", "content", "id")
-      .include("postMedias", (media) => media.select("id", "_type"))
-      .include("postToTags", (postTags) =>
-        postTags.include("tag", (tag) => tag.select("name"))
-      )
-      .include("user", (user) =>
-        user.select("avatarUrl", "displayName", "id", "username")
-      )
-      .where({ id: gustId })
-      .first();
+    const post = await getMetadataGust(gustId);
 
     if (post) {
       const authorUsername = post.user?.username || "unknown";
@@ -158,6 +170,13 @@ export default function Page() {
 }
 
 async function GustsContent() {
+  // Claims the request before the first read. Prisma 8 stamps every query with
+  // a crypto.randomUUID() plan id, and Cache Components fails a prerender that
+  // touches an uncached value, so an unclaimed database read aborts the
+  // prerender. headers() alone does not claim it: partial prefetching serves
+  // runtime data during the shell render.
+  await connection();
+
   const session = await getSessionFromApi();
   const loggedInUserData = session?.user
     ? await getUserData(session.user.id)

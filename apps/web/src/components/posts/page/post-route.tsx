@@ -6,7 +6,9 @@ import {
 } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import { notFound, permanentRedirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 
 import ClientPost from "@/app/(main)/posts/[postId]/client-post";
@@ -90,19 +92,29 @@ async function resolveCanonicalPost(params: PostRouteParams) {
   return { post, session };
 }
 
+// Metadata is emitted once per URL for every viewer and crawler, so it must not
+// depend on the session, and generateMetadata cannot be deferred behind a
+// Suspense boundary. Its database read therefore lives in a cache scope: a
+// Prisma read in the metadata scope trips the sync-IO check (Prisma 8 stamps
+// every query with a crypto.randomUUID() plan id) and aborts the prerender.
+// The viewer id is passed as "" because no emitted field depends on it, which
+// keeps one shared cache entry per post instead of one per account.
+async function getMetadataPost(postId: string, slug?: string) {
+  "use cache";
+  cacheLife("hours");
+
+  return await getPost(postId, "", { slug });
+}
+
 export async function generatePostMetadata(
   params: PostRouteParams
 ): Promise<Metadata> {
-  const session = await getSessionFromApi();
-
   // Only the lookup is guarded: `notFound()` / `permanentRedirect()` throw
   // control-flow errors that must propagate, so the canonical check below runs
   // OUTSIDE this try.
   let post: Awaited<ReturnType<typeof getPost>>;
   try {
-    post = await getPost(params.postId, session?.user?.id ?? "", {
-      slug: params.slug,
-    });
+    post = await getMetadataPost(params.postId, params.slug);
   } catch {
     notFound();
   }
@@ -167,6 +179,13 @@ export async function generatePostMetadata(
 // boundary with PostDetailSkeleton, so the fallback is skipped when the post
 // was already cached during metadata generation.
 export async function PostRoute({ params }: { params: PostRouteParams }) {
+  // Claims the request before the first read. Prisma 8 stamps every query with
+  // a crypto.randomUUID() plan id, and Cache Components fails a prerender that
+  // touches an uncached value, so an unclaimed database read aborts the
+  // prerender. headers() alone does not claim it: partial prefetching serves
+  // runtime data during the shell render.
+  await connection();
+
   const { post, session } = await resolveCanonicalPost(params);
 
   const userData = session?.user ? await getUserData(session.user.id) : null;

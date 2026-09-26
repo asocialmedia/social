@@ -1,7 +1,13 @@
 import { prisma } from "@asm/db";
-import { NextResponse } from "next/server";
+import { connection, NextResponse } from "next/server";
 
 export async function GET() {
+  // Popularity counts change with every post, so this stays request-bound.
+  // The claim also keeps the Prisma read out of the prerender: Prisma 8 stamps
+  // each query with a crypto.randomUUID() plan id, and Cache Components fails a
+  // prerender that touches an uncached value.
+  await connection();
+
   try {
     const tags = await prisma.orm.public.Tag.select("id", "name")
       .include("postToTags", (postTags) =>

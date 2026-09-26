@@ -1,4 +1,5 @@
 import { fromPrismaDateTime, prisma } from "@asm/db";
+import { connection } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
 // /request-password-reset flow (the legacy PasswordResetToken model is unused
 // and would reject every valid link).
 export async function GET(req: NextRequest) {
+  // A reset token is a single-use secret looked up per request, so this can
+  // never be prerendered or cached. The claim also keeps the Prisma read out of
+  // the prerender: Prisma 8 stamps each query with a crypto.randomUUID() plan
+  // id, and Cache Components fails a prerender that touches an uncached value.
+  await connection();
+
   try {
     const token = req.nextUrl.searchParams.get("token");
 

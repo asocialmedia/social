@@ -7,7 +7,7 @@ import {
   promoteProfileDerivative,
   purgeSupersededProfileMedia,
 } from "@asm/db";
-import { NextResponse } from "next/server";
+import { connection, NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { deleteAvatar } from "@/lib/media/object-storage";
@@ -242,6 +242,12 @@ export async function DELETE() {
 }
 
 export async function GET(request: Request) {
+  // Avatar metadata is per-user and time-stamped, so this stays request-bound.
+  // The claim also keeps the Prisma/Redis reads out of the prerender: Prisma 8
+  // stamps each query with a crypto.randomUUID() plan id, and Cache Components
+  // fails a prerender that touches an uncached value.
+  await connection();
+
   try {
     const url = new URL(request.url);
     const userId = url.searchParams.get("userId");

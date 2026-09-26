@@ -10,6 +10,7 @@ import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
+import { PostEditor } from "@/features/composer/components/post-editor";
 import { FeedList } from "@/features/feed/components/feed-list";
 import { FeedPager } from "@/features/feed/components/feed-pager";
 import { HOME_TAB_DEFS, FeedTabs } from "@/features/feed/components/feed-tabs";
@@ -164,6 +165,16 @@ export default function HomeScreen() {
                   (def.value === "following" || def.value === "personalized"
                     ? isLoggedIn
                     : true)
+                }
+                // Web's inline composer sits above the tab panels, so it is
+                // shared by whichever tab is showing. Feeding it to the active
+                // list alone keeps exactly one editor mounted (four would mean
+                // four text inputs fighting over the shared draft) and lets it
+                // scroll away with the posts.
+                header={
+                  index === activeIndex && isLoggedIn ? (
+                    <PostEditor variant="feed" />
+                  ) : null
                 }
                 key={def.value}
                 userId={user?.id}

@@ -13,6 +13,12 @@ import { cn } from "@/lib/utils";
 
 interface BookmarkButtonProps {
   className?: string;
+  // The trigger sizes itself (h-7 w-7, sm:h-7.5) and its icon with it. A caller
+  // that renders a larger touch target - the gust rail, the media viewer - must
+  // be able to scale the glyph to match, otherwise the icon looks undersized
+  // inside its own button. The same caveat applies to `className`: because the
+  // component sets a `sm:` size, an override needs the `!` modifier to win.
+  iconClassName?: string;
   initialState: BookmarkInfo;
   kind?: "post" | "gust";
   postId: string;
@@ -23,6 +29,7 @@ const BookmarkXIcon = <BookmarkX />;
 
 export default function BookmarkButton({
   className,
+  iconClassName,
   kind = "post",
   postId,
   initialState,
@@ -106,7 +113,8 @@ export default function BookmarkButton({
       <Bookmark
         className={cn(
           "size-4 transition-colors sm:size-4.5",
-          data.isBookmarkedByUser && "fill-white text-white"
+          data.isBookmarkedByUser && "fill-white text-white",
+          iconClassName
         )}
       />
     </button>

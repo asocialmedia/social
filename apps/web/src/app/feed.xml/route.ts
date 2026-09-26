@@ -5,6 +5,7 @@ import {
   prisma,
 } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
+import { connection } from "next/server";
 
 import { excerpt, getPostUrl } from "@/lib/seo/seo";
 
@@ -22,6 +23,13 @@ function toRfc822(date: Date): string {
 }
 
 export async function GET(): Promise<Response> {
+  // The feed is built from live rows and stamped with the current time, so the
+  // handler must run per request. Claiming the request up front also keeps the
+  // Prisma read out of the prerender: Prisma 8 stamps every query with a
+  // crypto.randomUUID() plan id, and Cache Components fails a prerender that
+  // touches an uncached value it cannot bake into a static response.
+  await connection();
+
   const posts = await prisma.orm.public.Posts.select(
     "content",
     "createdAt",

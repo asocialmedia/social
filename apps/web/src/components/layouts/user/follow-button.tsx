@@ -45,22 +45,14 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   initialState,
   className,
   onFollowed,
-}) => {
-  debugLog.component("Rendering FollowButton:", {
-    className,
-    initialState,
-    userId,
-  });
-
-  return (
-    <WrappedClientFollowButton
-      className={className}
-      initialState={initialState}
-      onFollowed={onFollowed}
-      userId={userId}
-    />
-  );
-};
+}) => (
+  <WrappedClientFollowButton
+    className={className}
+    initialState={initialState}
+    onFollowed={onFollowed}
+    userId={userId}
+  />
+);
 
 FollowButton.displayName = "FollowButton";
 

@@ -63,6 +63,12 @@ interface ShareButtonProps {
   description?: string;
   dialogDescription?: string;
   dialogTitle?: string;
+  // The trigger sizes itself (h-7 w-7, sm:h-7.5) and its icon with it. A caller
+  // that renders a larger touch target - the gust rail, the media viewer - must
+  // be able to scale the glyph to match, otherwise the icon looks undersized
+  // inside its own button. The same caveat applies to `className`: because the
+  // component sets a `sm:` size, an override needs the `!` modifier to win.
+  iconClassName?: string;
   postId?: string;
   shareUrl?: string;
   thumbnail?: string;
@@ -78,6 +84,7 @@ interface ShareStats {
 const ShareButton = ({
   className,
   defaultTab = "social",
+  iconClassName,
   postId,
   shareUrl,
   title,
@@ -526,7 +533,7 @@ const ShareButton = ({
         onClick={handleOpen}
         type="button"
       >
-        <Share2 className="size-4 sm:size-4.5" />
+        <Share2 className={cn("size-4 sm:size-4.5", iconClassName)} />
       </button>
       <DialogContent
         className="apple-panel w-full max-w-120 gap-4 overflow-hidden rounded-2xl p-0"

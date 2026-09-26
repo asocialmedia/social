@@ -5,7 +5,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { ReactNode, RefObject } from "react";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import {
   Animated,
   Easing,
@@ -20,6 +20,7 @@ import {
 import type { PanResponderInstance, ViewToken } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
+import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
 import notFoundImage from "@/assets/images/notfound.png";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
@@ -335,12 +336,37 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
     },
   };
 
+// The non-list states (loading skeleton, error, empty) still show the inline
+// composer above them, like web, where PostEditor sits above every tab panel
+// and is independent of what the feed itself is showing. The child keeps the
+// flex it needs to fill the remaining space.
+function FeedState({
+  children,
+  header,
+}: {
+  children: ReactNode;
+  header?: ReactElement | null;
+}) {
+  return (
+    <View style={styles.stateWrap}>
+      {header}
+      {children}
+    </View>
+  );
+}
+
 interface FeedListProps {
   // Extra tail padding when an overlay (guest banner + floating dock) sits
   // over the feed's end, so the last post scrolls clear of it. End padding
   // never moves visible items, so it can jump with overlay visibility.
   bottomInset?: number;
   enabled: boolean;
+  // Rendered as the list's header, so it scrolls away with the posts exactly
+  // like web's inline composer above the tab panels. Only passed by HomeScreen
+  // for the signed-in viewer; guests get the auth prompts instead. Typed as an
+  // element (not ReactNode) because that is what FlatList's
+  // ListHeaderComponent accepts.
+  header?: ReactElement | null;
   userId: string | undefined;
   variant: FeedVariant;
 }
@@ -348,6 +374,7 @@ interface FeedListProps {
 export function FeedList({
   bottomInset = 0,
   enabled,
+  header,
   userId,
   variant,
 }: FeedListProps) {
@@ -568,47 +595,72 @@ export function FeedList({
     );
   }
 
+  // Web's inline composer is rendered above the feed, so its absolutely
+  // positioned dropdowns have to paint over the post rows. As a FlatList
+  // header the editor is a sibling of those rows, and a zIndex set deep inside
+  // the editor cannot lift it out of that branch - the post card's own avatar
+  // already sets zIndex: 1. So the lift is applied here, on the element the
+  // list actually positions, and the rows are pinned below it. Android also
+  // clips off-screen list children by default, which cuts off a dropdown that
+  // overflows the header, hence removeClippedSubviews below.
+  const headerNode = header ? (
+    <View style={styles.headerWrap}>{header}</View>
+  ) : null;
+
   if (status === "loading" || (status === "idle" && enabled)) {
-    return <FeedSkeleton />;
+    return (
+      <FeedState header={headerNode}>
+        <FeedSkeleton />
+      </FeedState>
+    );
   }
 
   if (status === "error" && posts.length === 0) {
     return (
-      <View style={styles.centerWrap}>
-        <View style={styles.errorWrap}>
-          <Text
-            selectable
-            style={[styles.errorTitle, { color: theme.errorBannerText }]}
-          >
-            An error occurred while loading posts.
-          </Text>
-          <Text
-            selectable
-            style={[styles.errorBody, { color: theme.dividerText }]}
-          >
-            Please try refreshing the page.
-          </Text>
+      <FeedState header={headerNode}>
+        <View style={styles.centerWrap}>
+          <View style={styles.errorWrap}>
+            <Image
+              contentFit="contain"
+              source={errorImage}
+              style={styles.errorArt}
+            />
+            <Text
+              selectable
+              style={[styles.errorTitle, { color: theme.errorBannerText }]}
+            >
+              An error occurred while loading posts.
+            </Text>
+            <Text
+              selectable
+              style={[styles.errorBody, { color: theme.dividerText }]}
+            >
+              Please try refreshing the page.
+            </Text>
+          </View>
         </View>
-      </View>
+      </FeedState>
     );
   }
 
   if (status === "success" && posts.length === 0 && !hasMore) {
     const copy = EMPTY_COPY[variant];
     return (
-      <View style={styles.centerWrap}>
-        <Image
-          contentFit="contain"
-          source={noFeedImage}
-          style={styles.emptyArt}
-        />
-        <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
-          {copy.title}
-        </Text>
-        <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-          {copy.description}
-        </Text>
-      </View>
+      <FeedState header={headerNode}>
+        <View style={styles.centerWrap}>
+          <Image
+            contentFit="contain"
+            source={noFeedImage}
+            style={styles.emptyArt}
+          />
+          <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
+            {copy.title}
+          </Text>
+          <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
+            {copy.description}
+          </Text>
+        </View>
+      </FeedState>
     );
   }
 
@@ -715,6 +767,10 @@ export function FeedList({
                 pullUpdateRef.current?.(0);
               }}
               onViewableItemsChanged={handleViewableItemsChanged}
+              // Android detaches list children that scroll out of the viewport,
+              // which cuts off a dropdown hanging below the header. Needed now
+              // that the inline composer lives here rather than in a modal.
+              removeClippedSubviews={false}
               ref={listRef}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
@@ -747,6 +803,7 @@ export function FeedList({
                 </View>
               )}
               ListFooterComponent={footer}
+              ListHeaderComponent={headerNode}
             />
           </GestureDetector>
         </Animated.View>
@@ -875,6 +932,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 56,
   },
+  errorArt: {
+    height: 176,
+    opacity: 0.85,
+    width: 176,
+  },
   errorBody: {
     alignSelf: "stretch",
     fontFamily: "SofiaProReg",
@@ -892,6 +954,7 @@ const styles = StyleSheet.create({
   },
   errorWrap: {
     alignItems: "center",
+    gap: 16,
     maxWidth: 520,
     paddingHorizontal: 16,
     width: "100%",
@@ -901,6 +964,16 @@ const styles = StyleSheet.create({
   },
   group: {
     borderBottomWidth: 1,
+  },
+  headerWrap: {
+    // The header is a sibling of the post rows in the list, and the rows render
+    // after it in document order, so its absolutely positioned dropdowns get
+    // painted over. Lifting the header itself is what puts them on top; a
+    // zIndex set deeper inside the editor cannot escape that branch. elevation
+    // is what Android honours, zIndex covers iOS.
+    elevation: 10,
+    position: "relative",
+    zIndex: 10,
   },
   listShift: {
     flex: 1,
@@ -923,6 +996,9 @@ const styles = StyleSheet.create({
     top: 0,
     width: 10,
     zIndex: 30,
+  },
+  stateWrap: {
+    flex: 1,
   },
   undoAction: {
     fontFamily: "SofiaProBold",

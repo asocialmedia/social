@@ -18,6 +18,12 @@ interface AuthPromptCardProps {
   title: string;
 }
 
+// auth.png is 1536x1024 (3:2). `imageSize` is the rendered WIDTH and the height
+// is derived from the real ratio: declaring a square box plus a CSS `h-auto`
+// override resized one axis only, which both distorts the reserved layout box
+// (CLS) and trips next/image's "width or height modified" warning.
+const AUTH_IMAGE_ASPECT_RATIO = 1536 / 1024;
+
 // Reusable login/signup prompt with the auth.png graphic centered. Used for
 // guest users wherever a feature is gated behind an account (e.g. the
 // Following tab and the homepage "Get your account" sidebar card).
@@ -40,9 +46,9 @@ export const AuthPromptCard: React.FC<AuthPromptCardProps> = ({
       <Image
         alt=""
         aria-hidden
-        className="h-auto object-contain"
+        className="object-contain"
         draggable={false}
-        height={imageSize}
+        height={Math.round(imageSize / AUTH_IMAGE_ASPECT_RATIO)}
         src={authImage}
         width={imageSize}
       />
