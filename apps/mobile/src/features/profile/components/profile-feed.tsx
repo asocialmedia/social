@@ -25,6 +25,7 @@ import {
 } from "@/features/feed/components/share-sheet";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import {
+  isAudioMedia,
   isVideoMedia,
   mediaImageUrl,
   mediaPosterUrl,
@@ -42,6 +43,7 @@ import type {
   ProfileMedia,
   ProfileReply,
 } from "../lib/profile-view-model";
+import { mediaTileAspect } from "../lib/profile-view-model";
 
 type ProfileFeedItem =
   | { kind: "post"; value: FeedPost }
@@ -215,6 +217,13 @@ function GustGridTile({
   );
 }
 
+// Web sizes each tile by the item's real dimensions so the tab reads as a
+// masonry wall rather than a uniform checkerboard, falling back to square when
+// an upload never recorded them.
+// Web picks a tile per kind: video gets a poster and a play badge, audio gets
+// the waveform and opens the parent post instead of the viewer, a moderated
+// post shows a notice rather than its media, and anything that is not an image
+// falls back to a generic file card. The port keeps that split.
 function MediaTile({
   item,
   onOpen,
@@ -223,20 +232,48 @@ function MediaTile({
   onOpen: (item: ProfileMedia) => void;
 }) {
   const apiBase = getApiBaseUrl();
-  const source = isVideoMedia(item)
-    ? { uri: mediaPosterUrl(apiBase, item.id) }
-    : { uri: mediaImageUrl(apiBase, item) };
+  const aspectRatio = mediaTileAspect(item);
+  const isImage = item.type === "IMAGE";
+  const isGenericFile = !isImage && !isVideoMedia(item) && !isAudioMedia(item);
+  let source: { uri: string } | null = null;
+  if (isVideoMedia(item)) {
+    source = { uri: mediaPosterUrl(apiBase, item.id) };
+  } else if (isAudioMedia(item) || isImage) {
+    source = { uri: mediaImageUrl(apiBase, item) };
+  }
+  const moderated = item.post?.moderated === true;
+  const showFallback = moderated || isGenericFile || !source;
+  const kind = item.post?.isGust ? "gust" : "post";
+  const label = moderated
+    ? `Open moderated ${kind}`
+    : (item.altText ??
+      `Open ${isAudioMedia(item) ? "post for audio" : "profile media"}`);
+  let fallbackText = item.mimeType ?? "File";
+  if (moderated) {
+    fallbackText = item.post?.isGust ? "Moderated gust" : "Moderated post";
+  }
   return (
     <Pressable
-      accessibilityLabel={item.altText ?? "Open profile media"}
+      accessibilityLabel={label}
       accessibilityRole="link"
       onPress={() => onOpen(item)}
-      style={styles.mediaTile}
+      style={[styles.mediaTile, { aspectRatio }]}
     >
-      <Image contentFit="cover" source={source} style={styles.mediaImage} />
-      {isVideoMedia(item) ? (
+      {showFallback || !source ? (
+        <View style={[styles.mediaImage, styles.mediaFallback]}>
+          <Text style={styles.mediaFallbackText}>{fallbackText}</Text>
+        </View>
+      ) : (
+        <Image contentFit="cover" source={source} style={styles.mediaImage} />
+      )}
+      {isVideoMedia(item) && !moderated ? (
         <View style={styles.mediaPlay}>
           <Text style={styles.mediaPlayText}>▶</Text>
+        </View>
+      ) : null}
+      {isAudioMedia(item) && !moderated ? (
+        <View style={styles.mediaPlay}>
+          <Text style={styles.mediaPlayText}>♪</Text>
         </View>
       ) : null}
     </Pressable>
@@ -344,6 +381,18 @@ export function ProfileFeed({
       }
       if (item.post.isGust) {
         router.push({ params: { id: item.post.id }, pathname: "/gusts" });
+        return;
+      }
+      // Audio has nothing to show in the viewer, so it goes to the post the way
+      // web's audio tile does rather than opening an empty modal.
+      if (isAudioMedia(item)) {
+        router.push({
+          params: {
+            postId:
+              item.post.id.length > 8 ? item.post.id.slice(0, 8) : item.post.id,
+          },
+          pathname: "/posts/[postId]",
+        });
         return;
       }
       router.push({
@@ -573,6 +622,17 @@ const styles = StyleSheet.create({
     minHeight: 220,
   },
   loadingText: { fontFamily: "SofiaProReg", fontSize: 14 },
+  mediaFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  mediaFallbackText: {
+    color: "rgba(255,255,255,0.75)",
+    fontFamily: "SofiaProMed",
+    fontSize: 11,
+    textAlign: "center",
+  },
   mediaImage: { height: "100%", width: "100%" },
   mediaPlay: {
     alignItems: "center",
@@ -590,7 +650,6 @@ const styles = StyleSheet.create({
   mediaPlayText: { color: "#fff", fontSize: 14 },
   mediaRow: { gap: 4, paddingHorizontal: 2 },
   mediaTile: {
-    aspectRatio: 1,
     backgroundColor: "rgba(128,128,128,0.2)",
     borderRadius: 10,
     flex: 1,
