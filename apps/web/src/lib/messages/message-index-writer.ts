@@ -78,6 +78,19 @@ const MAX_TRACKED_PENDING = 5000;
 // reported through the bar's pending count rather than hidden.
 const MAX_DURABLE_PENDING = 5000;
 
+// How long coalesced writes wait for the rest of their batch before committing.
+//
+// Short enough that a freshly decrypted row becomes searchable almost at once,
+// and long enough that a burst of decrypt completions becomes ONE transaction
+// instead of one per completion. This is the knob that keeps the IndexedDB write
+// lock free for reads; see `schedule` for what happens without it.
+const FLUSH_WINDOW_MS = 120;
+// Upper bound on consecutive flush passes. A flush repeats only while new rows
+// arrived mid-drain; without a bound, a caller feeding rows continuously could
+// hold `flush` indefinitely. Rows beyond the bound stay queued and durably
+// persisted, so they are retried rather than lost.
+const MAX_DRAIN_PASSES = 8;
+
 // What one flush actually achieved. `flush` used to return nothing, which left
 // the backfill with no way to tell a committed page from a page whose rows were
 // all still queued, so it advanced its cursor either way.
@@ -106,6 +119,10 @@ export interface MessageIndexWriter {
   durablePending: () => Promise<string[]>;
   // Deleted, globally, or hidden for this user: drop them from the index.
   remove: (messageIds: readonly string[]) => void;
+  // Hold coalesced writes for the caller that is about to flush itself, so a
+  // long walk is not competing with a parallel stream of full-table commits from
+  // the transcript. See the note on `deferring`.
+  setDeferring: (defer: boolean) => void;
   coverage: () => MessageIndexCoverage;
 }
 
@@ -160,7 +177,34 @@ export function createMessageIndexWriter(
   const written = new Map<string, string>();
   const pending = new Map<string, IndexableMessage>();
   const removed = new Set<string>();
-  let scheduled: Promise<void> | null = null;
+  // Handle for the pending coalescing window, so a timer that has not fired yet
+  // is still "already scheduled" and cannot be stacked by a later `consider`.
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  // Batches are chained on this promise, so two batches can never overlap no
+  // matter who scheduled them -- the coalescing timer, a flush, or a payload
+  // retry. Overlapping batches used to iterate the same `pending` map
+  // concurrently, so each saw a partial view, both committed over each other,
+  // and `lastResult` reported whichever finished last -- which is how a walk
+  // could report thousands of commits while the row count never moved.
+  let batchChain: Promise<void> = Promise.resolve();
+  // Bumped on every `consider`. `flush` loops until a batch completes without
+  // any new row arriving mid-batch, so work that lands during the drain is
+  // committed by the same flush rather than stranded for a later window.
+  let batchEpoch = 0;
+  // While a backfill walk is running, coalesced writes wait for the walk's own
+  // flush instead of firing on their own.
+  //
+  // Every commit takes the IndexedDB write lock, so its cost is contention with
+  // every other commit and every search read. The walk already commits once per
+  // page, and the transcript's decryptor completions call `consider`
+  // continuously alongside it. With both committing, a walk that wanted 400
+  // page writes also paid for a steady stream of transcript writes, each one
+  // contending with the walk for the same lock and starving reads. Deferring
+  // makes the walk the only committer while it is active, so the cost is one
+  // commit per page. Rows are not lost: they sit in `pending` and the walk's
+  // `flush()` writes them with its batch. Outside a walk this is off, and
+  // behaviour is unchanged.
+  let deferring = false;
 
   function notifyCoverage(): void {
     onCoverage?.({
@@ -175,6 +219,10 @@ export function createMessageIndexWriter(
   // forget them. The writer is the only writer, so a whole-set write is safe where
   // an incremental one would only add a second consistency boundary to get wrong.
   const durable = new Set<string>();
+  // Durable size at the last coverage notification, so a flush that changed
+  // nothing -- no commits, no empties, no removals, same queue -- stays silent
+  // instead of re-rendering every subscriber into another empty flush.
+  let lastNotifiedDurable = 0;
   // Outcome of the most recent batch, so flush can report what actually ran
   // rather than running a second one to obtain a value. A second pass would
   // retry a refused write inside the same flush, which is how a test asserting
@@ -199,7 +247,6 @@ export function createMessageIndexWriter(
   }
 
   async function writeBatch(): Promise<MessageIndexFlushResult> {
-    scheduled = null;
     const committed: string[] = [];
     const settledEmpty: string[] = [];
     if (pending.size === 0) {
@@ -321,7 +368,21 @@ export function createMessageIndexWriter(
     // Persisted after the trim, so what survives to disk is the durable set
     // rather than the in-memory one.
     const persisted = await persistPending();
-    notifyCoverage();
+    // Notify only on change. An unconditional notify re-renders every
+    // subscriber on every flush, and one subscriber -- the transcript's
+    // writer feed -- re-considers on every notification, scheduling another
+    // flush: a self-sustaining loop of empty commits (~8/sec measured) that
+    // holds no lock but burns writes and re-renders forever, and -- worse --
+    // cancels any search read slower than its cadence before it can land.
+    if (
+      committed.length > 0 ||
+      settledEmpty.length > 0 ||
+      toRemove.length > 0 ||
+      durable.size !== lastNotifiedDurable
+    ) {
+      lastNotifiedDurable = durable.size;
+      notifyCoverage();
+    }
     lastResult = {
       committed,
       failed: !persisted,
@@ -351,16 +412,63 @@ export function createMessageIndexWriter(
   }
 
   function schedule(): void {
-    if (scheduled) {
+    if (deferring) {
       return;
     }
-    // A microtask is the smallest coalescing window that still merges every
-    // `consider` in the current synchronous batch, which is exactly the shape of
-    // a page load or a decryptor completion burst.
-    scheduled = (async () => {
-      await Promise.resolve();
-      await writeBatch();
+    if (timer !== null) {
+      return;
+    }
+    // A REAL timer, not a microtask, and this is the difference between search
+    // working and search appearing dead.
+    //
+    // A microtask runs before the browser can complete an IndexedDB transaction,
+    // so it only ever merged `consider` calls that were already synchronous with
+    // each other. Decrypt completions arrive on their own ticks: a 500-message
+    // page decrypting produced a steady drip of commits, and because a flush
+    // cleared `scheduled` as it finished, the next one started immediately. The
+    // result was back-to-back write transactions with no gap -- measured at
+    // roughly 200 commits per second on a 12k-row index -- which held the
+    // write lock essentially all the time. Every search read then queued behind
+    // them: coverage stayed at zero and a query never resolved, which is what
+    // presented as "no matches" and as a tab that got slower the longer it was
+    // left open.
+    //
+    // A timer window coalesces a whole tick's worth of completions into one
+    // commit, so the lock is idle between batches and reads get through. The
+    // cost is a bounded delay before a freshly decrypted row is searchable,
+    // which the coverage bar already reports honestly.
+    timer = setTimeout(() => {
+      timer = null;
+      if (deferring) {
+        // A walk started inside this window. It is the only committer while it
+        // runs, and it flushes what is queued with its own page, so committing
+        // here too would put two transactions back in contention.
+        return;
+      }
+      void enqueueBatch();
+    }, FLUSH_WINDOW_MS);
+  }
+
+  // Chains one batch behind whatever is already queued. The returned promise
+  // resolves when this batch finishes; a rejection inside one batch must not
+  // break the chain for later ones, so failures are swallowed here (the batch
+  // itself already records them in `lastResult`).
+  function enqueueBatch(): Promise<void> {
+    const previous = batchChain;
+    let release!: () => void;
+    // oxlint-disable-next-line promise/avoid-new -- a mutex handoff has no async/await form
+    batchChain = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const run = (async () => {
+      await previous;
+      try {
+        await writeBatch();
+      } finally {
+        release();
+      }
     })();
+    return run;
   }
 
   // Pending rows are retried when their payload finally lands, not only when the
@@ -401,6 +509,7 @@ export function createMessageIndexWriter(
           }
         }
         pending.set(message.id, message);
+        batchEpoch += 1;
         schedule();
       }
     },
@@ -414,19 +523,27 @@ export function createMessageIndexWriter(
     },
 
     async flush() {
-      if (scheduled) {
-        await scheduled;
-        // A write that scheduled more work (from a removal during the batch)
-        // still gets a turn before we report coverage.
-        if (scheduled) {
-          await scheduled;
-        }
-      } else {
-        await writeBatch();
+      // A window that has been armed but not yet fired still owns pending rows,
+      // and `flush` is the caller's guarantee that they are committed. Disarming
+      // the timer and draining inline keeps that guarantee without waiting out
+      // the window, and every batch goes through the same chain so this can
+      // never overlap one the timer already started.
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
       }
-      // The outcome of the work that actually ran. Running another batch here
-      // would retry a refused write inside the same flush, turning an honest
-      // "the store refused this" into a silent success.
+      // Repeat only while new rows arrived mid-drain. A refused write with no
+      // new arrivals stops after one pass, so an honest "the store refused
+      // this" is never retried into a silent success inside the same flush.
+      // oxlint-disable no-await-in-loop -- passes must be sequential; awaiting them together would overlap batches, which is the bug this chain exists to prevent
+      for (let pass = 0; pass < MAX_DRAIN_PASSES; pass += 1) {
+        const seen = batchEpoch;
+        await enqueueBatch();
+        if (batchEpoch === seen) {
+          break;
+        }
+      }
+      // oxlint-enable no-await-in-loop
       return lastResult;
     },
 
@@ -439,6 +556,19 @@ export function createMessageIndexWriter(
       }
       void removeEntries([...messageIds]);
       notifyCoverage();
+    },
+
+    setDeferring(next) {
+      if (deferring === next) {
+        return;
+      }
+      deferring = next;
+      // Leaving deferral must not strand rows the walk did not write: the walk
+      // calls this after its last page, so anything still queued gets one final
+      // commit rather than waiting for unrelated activity.
+      if (!deferring) {
+        schedule();
+      }
     },
   };
 }

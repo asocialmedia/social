@@ -97,6 +97,142 @@ describe("message index writer", () => {
     expect(await idsFor(counting, "note")).toHaveLength(50);
   });
 
+  // The regression that mattered most, and the reason the coalescing window is a
+  // timer rather than a microtask.
+  //
+  // Coalescing 50 SYNCHRONOUS calls was never the problem. A decryptor delivers
+  // completions on their own ticks, so the shape that actually occurs is 50
+  // calls each separated by a macrotask. Under a microtask window each of those
+  // became its own transaction, because a microtask runs before IndexedDB can
+  // finish one: the writer then committed back-to-back with no gap, held the
+  // write lock essentially all the time, and every search read queued behind it
+  // forever. In the browser that presented as coverage stuck at zero and queries
+  // that never resolved.
+  test("coalesces rows arriving on separate ticks into one commit", async () => {
+    const calls: number[] = [];
+    const counting = createMemorySearchIndexStore();
+    const original = counting.putEntries;
+    counting.putEntries = (conversationId, entries) => {
+      calls.push(entries.size);
+      return original(conversationId, entries);
+    };
+    const payloads = new Map<string, IndexablePayload>();
+    for (let i = 0; i < 20; i += 1) {
+      payloads.set(`t${i}`, { content: `release note ${i}`, type: "text" });
+    }
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store: counting,
+    });
+    for (let i = 0; i < 20; i += 1) {
+      writer.consider([message(`t${i}`)]);
+      // A real macrotask between arrivals, as a decryptor completion would.
+      // oxlint-disable no-await-in-loop -- the separate ticks ARE the test; awaiting these in parallel would collapse them into a single tick and test nothing
+      // oxlint-disable-next-line promise/avoid-new -- a timer has no async/await form
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      // oxlint-enable no-await-in-loop
+    }
+    await writer.flush();
+    expect(calls).toEqual([20]);
+    expect(await idsFor(counting, "release")).toHaveLength(20);
+  });
+
+  // Batches used to overlap: a timer-fired batch and a flush-driven batch could
+  // iterate the same `pending` map concurrently, so each saw a partial view and
+  // `lastResult` reported whichever finished last. In the browser that is how a
+  // walk reported thousands of commits while the row count never moved.
+  test("never runs two batches at once", async () => {
+    const counting = createMemorySearchIndexStore();
+    let depth = 0;
+    let maxDepth = 0;
+    const original = counting.putEntries;
+    counting.putEntries = async (conversationId, entries) => {
+      depth += 1;
+      maxDepth = Math.max(maxDepth, depth);
+      try {
+        return await original(conversationId, entries);
+      } finally {
+        depth -= 1;
+      }
+    };
+    const payloads = new Map<string, IndexablePayload>();
+    for (let i = 0; i < 6; i += 1) {
+      payloads.set(`c${i}`, { content: `deploy note ${i}`, type: "text" });
+    }
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store: counting,
+    });
+    writer.consider([
+      message("c0"),
+      message("c1"),
+      message("c2"),
+      message("c3"),
+      message("c4"),
+      message("c5"),
+    ]);
+    // Two flushes racing each other must serialize behind one drain, not run
+    // two batches over the same map.
+    await Promise.all([writer.flush(), writer.flush()]);
+    expect(maxDepth).toBe(1);
+    expect(await idsFor(counting, "deploy")).toHaveLength(6);
+  });
+
+  // An empty flush must stay silent. It used to notify on every pass, and one
+  // subscriber re-considered on every notification -- a self-sustaining loop
+  // of empty commits (~8/sec in the browser) that burned writes forever and,
+  // worse, cancelled any search read slower than its cadence before it could
+  // land, so results silently never arrived on large conversations.
+  test("an empty flush does not notify", async () => {
+    let notifications = 0;
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => {},
+      onCoverage: () => {
+        notifications += 1;
+      },
+      store,
+    });
+    writer.consider([message("m1")]);
+    await writer.flush();
+    const afterFirst = notifications;
+    await writer.flush();
+    await writer.flush();
+    expect(afterFirst).toBe(1);
+    expect(notifications).toBe(1);
+  });
+
+  test("a row considered mid-flush is drained by the same flush", async () => {
+    const counting = createMemorySearchIndexStore();
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "deploy the service", type: "text" }],
+      ["late", { content: "deploy late arrival", type: "text" }],
+    ]);
+    let writer: ReturnType<typeof createMessageIndexWriter> | null = null;
+    const original = counting.putEntries;
+    counting.putEntries = (conversationId, entries) => {
+      // A transcript completion landing while the batch is committing: the row
+      // must join the drain in progress rather than wait out a window.
+      if (entries.has("m1") && writer) {
+        writer.consider([message("late")]);
+      }
+      return original(conversationId, entries);
+    };
+    writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store: counting,
+    });
+    writer.consider([message("m1")]);
+    await writer.flush();
+    expect(await idsFor(counting, "late")).toEqual(["late"]);
+  });
+
   test("keeps a not-yet-decrypted row pending and indexes it later", async () => {
     harness.writer.consider([message("m1")]);
     await harness.writer.flush();
@@ -540,5 +676,88 @@ describe("message index writer", () => {
     const last = harness.coverage.at(-1);
     expect(last?.indexedCount).toBe(1);
     expect(last?.pendingCount).toBe(0);
+  });
+});
+
+// A backfill walk commits once per page, and each commit re-seals the whole row
+// table. The transcript's decryptor completions call `consider` continuously
+// alongside the walk, so without deferral the walk paid for a parallel stream of
+// full-table commits contending for the same IndexedDB write lock.
+describe("write deferral", () => {
+  test("deferring holds writes until the caller flushes", async () => {
+    const payloads = new Map<string, IndexablePayload>();
+    for (let index = 0; index < 20; index += 1) {
+      payloads.set(`m${index}`, { content: `deploy ${index}`, type: "text" });
+    }
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    writer.setDeferring(true);
+    writer.consider(
+      [...payloads.values()].map((_, index) => ({ id: `m${index}` }))
+    );
+    // Nothing committed: the rows are queued, not written.
+    expect(writer.coverage().indexedCount).toBe(0);
+    expect(writer.coverage().pendingCount).toBe(20);
+    // The walk's own flush is the commit point, and it writes everything queued.
+    const result = await writer.flush();
+    expect(result.committed).toHaveLength(20);
+    expect(writer.coverage().indexedCount).toBe(20);
+  });
+
+  test("leaving deferral flushes whatever is still queued", async () => {
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "deploy", type: "text" }],
+    ]);
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    writer.setDeferring(true);
+    writer.consider([{ id: "m1" }]);
+    expect(writer.coverage().indexedCount).toBe(0);
+    // The walk ended without an explicit flush; the rows must not be stranded.
+    writer.setDeferring(false);
+    await writer.flush();
+    expect(writer.coverage().indexedCount).toBe(1);
+  });
+
+  test("without deferral writes still land on their own", async () => {
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "deploy", type: "text" }],
+    ]);
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    writer.consider([{ id: "m1" }]);
+    await writer.flush();
+    expect(writer.coverage().indexedCount).toBe(1);
+  });
+
+  test("toggling deferral twice is a no-op and does not double-write", async () => {
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "deploy", type: "text" }],
+    ]);
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    writer.setDeferring(true);
+    writer.setDeferring(true);
+    writer.setDeferring(false);
+    writer.setDeferring(false);
+    writer.consider([{ id: "m1" }]);
+    await writer.flush();
+    expect(writer.coverage().indexedCount).toBe(1);
   });
 });
