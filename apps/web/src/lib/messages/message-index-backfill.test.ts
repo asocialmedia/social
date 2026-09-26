@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { MessageData } from "@asm/db";
 
+import { MessagesApiError } from "./client";
 import { HistoryThrottledError } from "./history-throttle";
 import { createMemorySearchIndexStore } from "./memory-search-index";
 import { createMessageIndexBackfill } from "./message-index-backfill";
@@ -29,9 +30,19 @@ function message(id: string, createdAt: number): MessageData {
 type Harness = ReturnType<typeof makeHarness>;
 
 function makeHarness(
-  options: { maxPages?: number; pages?: number; pageSize?: number } = {}
+  options: {
+    maxPages?: number;
+    pages?: number;
+    pageSize?: number;
+    fetchPage?: (cursor: string | undefined) => Promise<BackfillPage>;
+  } = {}
 ) {
-  const { maxPages, pageSize = 2, pages = 10 } = options;
+  const {
+    fetchPage: fetchPageOverride,
+    maxPages,
+    pageSize = 2,
+    pages = 10,
+  } = options;
   const store: SearchIndexStore = createMemorySearchIndexStore();
   const payloads = new Map<string, IndexablePayload>();
   const writer = createMessageIndexWriter({
@@ -74,7 +85,7 @@ function makeHarness(
       decrypted.push(messages.map((row) => row.id));
     },
     conversationId: CONVO,
-    fetchPage,
+    fetchPage: fetchPageOverride ?? fetchPage,
     onProgress: (next) => {
       progress.push(`${next.pageCount}:${next.indexedCount}`);
     },
@@ -424,6 +435,144 @@ describe("message index backfill", () => {
     // A dead network is not fixed by retrying four times in a row.
     expect(attempts).toBe(1);
     expect(result.state).toBe("failed");
+  });
+
+  // The reported fresh-profile failure: a 401 mid-walk used to kill the whole
+  // run on the first page it touched, stranding the walk on the retry button.
+  // Sessions flap (two tabs racing a rotation, a proxy blip); the walk now
+  // waits those out like it already did for throttles.
+  test("an unauthorized page is retried, then completes", async () => {
+    let attempts = 0;
+    const flapping = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: (cursor) => {
+        attempts += 1;
+        if (attempts <= 2) {
+          throw new MessagesApiError("Request failed (401)", 401);
+        }
+        return harness.fetchPage(cursor);
+      },
+      maxPages: 1,
+      pageDelayMs: 1,
+      retryDelayMs: 5,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const result = await flapping.run();
+    expect(attempts).toBe(3);
+    expect(result.pageCount).toBe(1);
+    expect(result.state).toBe("done");
+    expect(await idsFor(harness.store, "note")).not.toHaveLength(0);
+  });
+
+  test("a persistently unauthorized session still fails bounded", async () => {
+    let attempts = 0;
+    const dead = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: () => {
+        attempts += 1;
+        throw new MessagesApiError("Request failed (401)", 401);
+      },
+      pageDelayMs: 1,
+      retryDelayMs: 5,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const result = await dead.run();
+    // Bounded: 1 initial attempt plus the transient budget, not a loop. A dead
+    // session fails the run; a flapping one rides the same waits through.
+    expect(attempts).toBe(5);
+    expect(result.state).toBe("failed");
+  });
+
+  test("a server blip is retried", async () => {
+    const blip = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: (() => {
+        let attempts = 0;
+        return (cursor: string | undefined) => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw new MessagesApiError("Request failed (503)", 503);
+          }
+          return harness.fetchPage(cursor);
+        };
+      })(),
+      maxPages: 1,
+      pageDelayMs: 1,
+      retryDelayMs: 5,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const blipped = await blip.run();
+    expect(blipped.state).toBe("done");
+  });
+
+  test("a refused request fails fast without retrying", async () => {
+    // A fresh store: no persisted cursor, so no resume probe runs first and the
+    // single page fetch below is the whole story.
+    const fresh = makeHarness({ maxPages: 1 });
+    let refused = 0;
+    const denied = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: () => {
+        refused += 1;
+        throw new MessagesApiError("Request failed (404)", 404);
+      },
+      pageDelayMs: 1,
+      retryDelayMs: 5,
+      store: fresh.store,
+      writer: fresh.writer,
+    });
+    const result = await denied.run();
+    // A request the server understood and refused cannot heal by retrying.
+    expect(refused).toBe(1);
+    expect(result.state).toBe("failed");
+  });
+
+  test("a dropped request is retried, then gives up bounded", async () => {
+    let attempts = 0;
+    const dropped = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: () => {
+        attempts += 1;
+        throw new TypeError("fetch failed");
+      },
+      pageDelayMs: 1,
+      retryDelayMs: 5,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const result = await dropped.run();
+    expect(attempts).toBe(5);
+    expect(result.state).toBe("failed");
+  });
+
+  test("stopping during a retry wait halts promptly instead of failing", async () => {
+    const stalled = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: () => {
+        throw new MessagesApiError("Request failed (401)", 401);
+      },
+      pageDelayMs: 1,
+      // A five-second first wait: without an abortable sleep the stop below
+      // would hang the teardown for the whole wait.
+      retryDelayMs: 5000,
+      store: harness.store,
+      writer: harness.writer,
+    });
+    const running = stalled.run();
+    await Bun.sleep(100);
+    stalled.stop();
+    const result = await running;
+    // Silent by contract: a stop is never a failure, even mid-retry.
+    expect(result.state).toBe("stopped");
   });
 
   test("a page that repeats does not loop forever", async () => {

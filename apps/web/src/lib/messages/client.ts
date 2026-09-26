@@ -254,6 +254,13 @@ export async function fetchConversationDetail(
 //              newest page", which is how a transcript starts.
 //   - around: a window centered on one message, for jumping into history.
 //   - newer:  `cursor` is the newest id already loaded, growing upward.
+// Per-request options. `signal` aborts the fetch: search jumps fire one anchored
+// read per arrow press, and a press that supersedes the previous jump must not
+// leave its slow request running behind the new one.
+export interface FetchMessagesOptions {
+  signal?: AbortSignal;
+}
+
 export type MessagePageAxis =
   // `walk` marks a search backfill paging through a whole conversation for
   // indexing. It changes nothing about the response, only which request budget
@@ -265,17 +272,20 @@ export type MessagePageAxis =
 export async function fetchMessages(
   conversationId: string,
   cursor?: string,
-  limit?: number
+  limit?: number,
+  options?: FetchMessagesOptions
 ): Promise<MessagePage>;
 export async function fetchMessages(
   conversationId: string,
   axis: MessagePageAxis,
-  limit?: number
+  limit?: number,
+  options?: FetchMessagesOptions
 ): Promise<MessagePage>;
 export async function fetchMessages(
   conversationId: string,
   axisOrCursor?: string | MessagePageAxis,
-  limit?: number
+  limit?: number,
+  options?: FetchMessagesOptions
 ): Promise<MessagePage> {
   const params = new URLSearchParams();
   if (typeof axisOrCursor === "string") {
@@ -316,7 +326,7 @@ export async function fetchMessages(
   const query = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(
     `/api/messages/conversations/${conversationId}/messages${query}`,
-    { credentials: "same-origin" }
+    { credentials: "same-origin", signal: options?.signal }
   );
   if (!response.ok) {
     throw await parseError(response);

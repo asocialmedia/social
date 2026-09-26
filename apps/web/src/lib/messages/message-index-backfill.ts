@@ -39,7 +39,12 @@
 
 import type { MessageData } from "@asm/db";
 
-import { isHistoryThrottled } from "./history-throttle";
+import {
+  isHistoryNetworkError,
+  isHistoryServerError,
+  isHistoryThrottled,
+  isHistoryUnauthorized,
+} from "./history-throttle";
 import type { MessageIndexWriter } from "./message-index-writer";
 import { emptySearchIndexMeta } from "./search-index-format";
 import type { SearchIndexStore } from "./search-index-format";
@@ -89,6 +94,10 @@ export interface MessageIndexBackfillOptions {
   // the walk is hundreds of requests over a conversation that is not time-bound.
   pageDelayMs?: number;
   maxPages?: number;
+  // Base wait between transient-failure retries; doubles per attempt up to 8x.
+  // Exposed so tests can shrink a schedule that would otherwise stall the suite
+  // for fifteen seconds proving that a dead session still fails bounded.
+  retryDelayMs?: number;
 }
 
 export interface MessageIndexBackfill {
@@ -106,12 +115,54 @@ const DEFAULT_PAGE_DELAY_MS = 250;
 // Retrying is the difference between a walk that pauses and one that dies: a
 // shared IP or a burst from another tab can throttle a perfectly polite walk.
 const MAX_THROTTLE_RETRIES = 4;
+// How many times one page may be retried after a transient failure that is not
+// a throttle: an unauthorized response, a 5xx, or a dropped request. Sessions
+// flap, servers deploy, dev servers restart under the walk -- failing the whole
+// run on the first such page is what stranded fresh profiles on the retry
+// button. The budget is deliberately the same shape as the throttle budget: a
+// dead session still fails the run, just after a bounded wait rather than
+// instantly. Anything else (400, 403, 404) fails fast: retrying a request the
+// server understood and refused cannot heal it.
+const MAX_TRANSIENT_RETRIES = 4;
+// Waits between transient retries, growing so a flap has time to pass without
+// hammering: base, doubled per attempt up to 8x, then the run fails.
+const TRANSIENT_RETRY_DELAY_MS = 1000;
 
 const sleep = (ms: number) =>
   // oxlint-disable-next-line promise/avoid-new -- a timer has no async/await form
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+
+// Sleep that a stop cuts short. Retry waits last seconds, and closing search or
+// hiding the tab during one must halt the walk now rather than after the wait:
+// without this, stopping during a 60s throttle pause leaves the teardown
+// hanging for the full minute. Resolves true when the wait was abandoned.
+// Listens to both signals the way waitForPageDecrypts does: the caller's abort
+// (closing search, hiding the tab) and the run's own controller (stop()).
+function sleepOrAbort(
+  ms: number,
+  signal: AbortSignal | undefined,
+  runSignal: AbortSignal | undefined
+): Promise<boolean> {
+  if (signal?.aborted || runSignal?.aborted) {
+    return Promise.resolve(true);
+  }
+  // oxlint-disable-next-line promise/avoid-new -- a timer has no async/await form
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      runSignal?.removeEventListener("abort", onAbort);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(false);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    runSignal?.addEventListener("abort", onAbort, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 export function createMessageIndexBackfill(
   options: MessageIndexBackfillOptions
@@ -127,6 +178,7 @@ export function createMessageIndexBackfill(
   } = options;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   const pageDelayMs = options.pageDelayMs ?? DEFAULT_PAGE_DELAY_MS;
+  const retryDelayMs = options.retryDelayMs ?? TRANSIENT_RETRY_DELAY_MS;
 
   let state: BackfillState = "idle";
   let inFlight: Promise<BackfillProgress> | null = null;
@@ -314,37 +366,82 @@ export function createMessageIndexBackfill(
         break;
       }
       let fetched: BackfillPage | null = null;
+      let abandoned = false;
       for (let attempt = 0; attempt <= MAX_THROTTLE_RETRIES; attempt += 1) {
+        if (stopped || signal?.aborted) {
+          abandoned = true;
+          break;
+        }
         try {
           fetched = await fetchPage(cursor);
           break;
         } catch (error) {
-          if (!isHistoryThrottled(error)) {
-            // A page that cannot be fetched ends this run with everything
-            // indexed so far intact. The next run retries from the last committed
-            // cursor.
-            setState("failed");
-            report({
-              indexedCount: indexed,
-              latestIndexedId,
-              pageCount: pages,
-            });
-            return progress;
+          if (stopped || signal?.aborted) {
+            abandoned = true;
+            break;
           }
-          if (attempt === MAX_THROTTLE_RETRIES) {
-            setState("failed");
-            report({
-              indexedCount: indexed,
-              latestIndexedId,
-              pageCount: pages,
-            });
-            return progress;
+          if (isHistoryThrottled(error)) {
+            if (attempt === MAX_THROTTLE_RETRIES) {
+              setState("failed");
+              report({
+                indexedCount: indexed,
+                latestIndexedId,
+                pageCount: pages,
+              });
+              return progress;
+            }
+            // Wait exactly as long as the server asked. The walk is resumable, so
+            // giving up is always safe, but pausing keeps a throttled walk
+            // progressing instead of stranding it at whatever page it reached.
+            abandoned = await sleepOrAbort(
+              error.retryAfterSeconds * 1000,
+              signal,
+              runController?.signal
+            );
+            if (abandoned) {
+              break;
+            }
+            continue;
           }
-          // Wait exactly as long as the server asked. The walk is resumable, so
-          // giving up is always safe, but pausing keeps a throttled walk
-          // progressing instead of stranding it at whatever page it reached.
-          await sleep(error.retryAfterSeconds * 1000);
+          if (
+            (isHistoryUnauthorized(error) ||
+              isHistoryServerError(error) ||
+              isHistoryNetworkError(error)) &&
+            attempt < MAX_TRANSIENT_RETRIES
+          ) {
+            // A flap, not a verdict: sessions expire and heal, servers deploy,
+            // dev servers restart. Wait with a growing backoff and try the same
+            // page again; the budget bounds the stall and a dead session still
+            // fails the run. Anything the server understood and refused (400,
+            // 403, 404) skips this branch and fails below: retrying it cannot
+            // heal it.
+            abandoned = await sleepOrAbort(
+              Math.min(retryDelayMs * 2 ** attempt, retryDelayMs * 8),
+              signal,
+              runController?.signal
+            );
+            if (abandoned) {
+              break;
+            }
+            continue;
+          }
+          // A page that cannot be fetched ends this run with everything
+          // indexed so far intact. The next run retries from the last committed
+          // cursor.
+          setState("failed");
+          report({
+            indexedCount: indexed,
+            latestIndexedId,
+            pageCount: pages,
+          });
+          return progress;
         }
+      }
+      if (abandoned) {
+        // Stopped mid-fetch: nothing committed for this page, so the cursor is
+        // current; halt before fetching a page nobody will read. A stop is
+        // silent by contract, never a failure.
+        break;
       }
       if (!fetched) {
         setState("failed");

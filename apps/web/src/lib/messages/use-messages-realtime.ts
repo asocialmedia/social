@@ -211,8 +211,14 @@ export function useMessagesRealtime(
 
       // The server greets every (re)connect with `event: connected`. It
       // carries no message data, but it is the signal to refetch and catch
-      // up on anything published while the stream was down.
+      // up on anything published while the stream was down. It is also the
+      // only proof the stream is alive, so the reconnect backoff resets here
+      // rather than when the fetch returns: a rejected endpoint (rate limit,
+      // auth blip) answers instantly, and resetting on return would pin every
+      // retry at one second and spend shared budget keeping the limiter
+      // tripped instead of backing off.
       if (eventType === "connected") {
+        retryDelay = INITIAL_RETRY_MS;
         const isReconnect = hasConnected;
         hasConnected = true;
         onConnectRef.current?.(isReconnect);
@@ -264,8 +270,11 @@ export function useMessagesRealtime(
           }
         );
 
-        retryDelay = INITIAL_RETRY_MS;
-
+        // No delay reset here: the backoff must survive failed attempts, so it
+        // resets on the server's `connected` greeting instead (see below). A
+        // rate-limited stream endpoint rejects instantly, and resetting here
+        // would pin every retry at one second forever -- each attempt spending
+        // shared rate-limit budget to keep the limiter tripped.
         const reader = openMessageStream(response).getReader();
         const decoder = new TextDecoder();
         let buffer = "";
