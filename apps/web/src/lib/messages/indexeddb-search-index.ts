@@ -7,7 +7,7 @@
 // Schema (current):
 //
 //   header    conversationId                -> { dictionary, nextRow, version }
-//   rows      [conversationId, rowIdString] -> { createdAt, messageId, present, senderId, tokenIds, version }
+//   rows      [conversationId, rowIdString] -> { createdAt, messageId, present, preview, senderId, tokenIds, version }
 //   row-ids   [conversationId, messageId]   -> row id
 //   postings  [conversationId, "t" + tokenId] -> Uint32Array of row ids
 //   meta      conversationId                -> coverage cursor
@@ -68,6 +68,7 @@ import {
 } from "./search-index-format";
 import type {
   SearchIndexConversationSummary,
+  SearchIndexEntry,
   SearchIndexMeta,
   SearchIndexQueryResult,
   SearchIndexRowFacts,
@@ -388,6 +389,11 @@ interface StoredRow {
   createdAt: number;
   messageId: string;
   present: boolean;
+  // Leading message text for the list view's snippets, bounded by
+  // SEARCH_INDEX_PREVIEW_LENGTH. Present on every row this build writes;
+  // rows from before previews existed fail the version-shape check below and
+  // are treated as absent, which is what re-walks the conversation once.
+  preview: string;
   senderId: string;
   tokenIds: number[];
   version: number;
@@ -423,6 +429,8 @@ function isStoredRow(value: unknown): value is StoredRow {
     typeof value.messageId === "string" &&
     "present" in value &&
     typeof value.present === "boolean" &&
+    "preview" in value &&
+    typeof value.preview === "string" &&
     "senderId" in value &&
     typeof value.senderId === "string" &&
     "tokenIds" in value &&
@@ -557,6 +565,7 @@ function rowFacts(stored: StoredRow): SearchIndexRowFacts {
   return {
     createdAt: stored.createdAt,
     messageId: stored.messageId,
+    preview: stored.preview,
     senderId: stored.senderId,
   };
 }
@@ -630,6 +639,196 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
     }
     return out;
   };
+  // One chunk of the hot write: a single readwrite transaction over the rows, the
+  // row-id index, the posting lists and the header, and nothing awaited inside it
+  // except an IndexedDB request.
+  //
+  // Row ids are allocated from the header INSIDE this transaction, so IndexedDB's
+  // own per-store serialisation is the lock that stops two writers handing out the
+  // same id. Nothing is encrypted, so there is no crypto to await between the read
+  // and the write, and the transaction never goes inactive.
+  function putEntryChunk(
+    conversationId: string,
+    entries: ReadonlyMap<string, SearchIndexEntry>
+  ): Promise<void> {
+    return runTransaction(
+      [ROWS_STORE, ROW_IDS_STORE, POSTINGS_STORE, HEADER_STORE],
+      "readwrite",
+      async (tx) => {
+        const rowsStore = tx.objectStore(ROWS_STORE);
+        const rowIdsStore = tx.objectStore(ROW_IDS_STORE);
+        const postingsStore = tx.objectStore(POSTINGS_STORE);
+        const headerStore = tx.objectStore(HEADER_STORE);
+        const read = await readHeader(tx, conversationId);
+        if (read.kind === "unusable") {
+          // The dictionary restarts at id 0 here, and the posting lists on disk
+          // are keyed by ids this build cannot interpret: left alone they would
+          // be adopted by unrelated words and inflate every match count. Reset
+          // the conversation to empty and re-index it by walking history.
+          // oxlint-disable no-await-in-loop -- sequential range deletes on one transaction
+          for (const store of [rowsStore, rowIdsStore, postingsStore]) {
+            await requestAsPromise(
+              store.delete(conversationKeyRange(conversationId))
+            );
+          }
+          // oxlint-enable no-await-in-loop
+          await requestAsPromise(
+            headerStore.put(emptyHeader(), conversationId)
+          );
+        }
+        const header = read.kind === "usable" ? read.header : emptyHeader();
+        const { dictionary } = header;
+        const tokenIdByText = new Map(
+          dictionary.map((token, tokenId) => [token, tokenId])
+        );
+        let { nextRow } = header;
+        let allocatorMoved = false;
+        let dictionaryGrew = false;
+        const mutations: TokenRowMutation[] = [];
+
+        // Sequential on purpose: each entry's row id and prior tokens must be
+        // known before its posting lists are updated, and the whole batch is one
+        // transaction so the work is atomic rather than concurrent.
+        // oxlint-disable no-await-in-loop -- one entry at a time inside one transaction
+        for (const [messageId, entry] of entries) {
+          // A point read per incoming message id, which is what `row-ids` is
+          // for: a batch of entirely new messages never scans anything, and a
+          // rewrite finds its row without walking the conversation.
+          const existing = await requestAsPromise<number | undefined>(
+            rowIdsStore.get(rowIdKey(conversationId, messageId))
+          );
+          let row = existing;
+          let previous: StoredRow | null = null;
+          if (row === undefined) {
+            row = nextRow;
+            nextRow += 1;
+            allocatorMoved = true;
+            await requestAsPromise(
+              rowIdsStore.put(row, rowIdKey(conversationId, messageId))
+            );
+          } else {
+            const stored = await requestAsPromise<unknown>(
+              rowsStore.get(rowKey(conversationId, row))
+            );
+            if (!isStoredRow(stored)) {
+              // A row this build cannot read is left exactly as it is. Its
+              // posting membership cannot be computed from a shape we cannot
+              // parse, and overwriting it would drop rows the posting lists
+              // still reference.
+              continue;
+            }
+            if (!stored.present) {
+              // A tombstone must not be revived by a stale device's re-index.
+              continue;
+            }
+            previous = stored;
+          }
+          // Assign ids to this entry's tokens, appending to the dictionary.
+          // Append-only: an existing id must never move, because it is what
+          // the posting lists are keyed by.
+          const tokenIds: number[] = [];
+          for (const token of entry.tokens) {
+            let tokenId = tokenIdByText.get(token);
+            if (tokenId === undefined) {
+              tokenId = dictionary.length;
+              tokenIdByText.set(token, tokenId);
+              dictionary.push(token);
+              dictionaryGrew = true;
+            }
+            tokenIds.push(tokenId);
+          }
+          // A token the rewrite dropped must leave the posting list too, or the
+          // message would keep matching a word it no longer contains. The row's
+          // own tokenIds are the reverse index, so this costs nothing to know.
+          const kept = new Set(tokenIds);
+          const droppedTokenIds: number[] = [];
+          for (const oldTokenId of previous?.tokenIds ?? []) {
+            if (!kept.has(oldTokenId)) {
+              droppedTokenIds.push(oldTokenId);
+            }
+          }
+          mutations.push({ droppedTokenIds, row, tokenIds });
+          // A rewrite carries the row's current preview: the facts cache may
+          // hold the previous text, and removals already invalidate, so a
+          // write that changes facts must too.
+          if (previous !== null) {
+            rowFactsCache.delete(rowFactsCacheKey(conversationId, row));
+          }
+          const record: StoredRow = {
+            // A message's creator and creation time are facts of the message,
+            // not of the text currently indexed, so a rewrite keeps them. The
+            // preview is text, so it follows the rewrite.
+            createdAt: previous?.createdAt ?? entry.createdAt,
+            messageId,
+            present: true,
+            preview: entry.preview,
+            senderId: previous?.senderId ?? entry.senderId,
+            tokenIds,
+            version: SEARCH_INDEX_FORMAT_VERSION,
+          };
+          await requestAsPromise(
+            rowsStore.put(record, rowKey(conversationId, row))
+          );
+        }
+        // oxlint-enable no-await-in-loop
+
+        // A batch that only re-indexed tombstones wrote no rows and allocated
+        // no ids, so it must not write a header either.
+        if (mutations.length === 0) {
+          return;
+        }
+        // One get and one put per DISTINCT token the batch touched, instead of
+        // one pair per (row x token). See planTokenListUpdates.
+        const plans = planTokenListUpdates(mutations);
+        // oxlint-disable no-await-in-loop -- sequential point reads and writes; Promise.all cannot batch requests issued on one transaction
+        for (const [tokenId, update] of plans) {
+          const key = postingKeyForId(conversationId, tokenId);
+          const list = searchIndexRowListFrom(
+            (await requestAsPromise<Uint32Array | undefined>(
+              postingsStore.get(key)
+            )) ?? new Uint32Array(0)
+          );
+          // Drops before adds, so a row that both leaves and rejoins the same
+          // token in one batch ends up a member.
+          if (update.drop.length > 0) {
+            rowListRemoveMany(list, new Set(update.drop));
+          }
+          for (const row of update.add) {
+            rowListAdd(list, row);
+          }
+          await writePostingList(postingsStore, key, rowListToArray(list));
+        }
+        // oxlint-enable no-await-in-loop
+        if (allocatorMoved || dictionaryGrew) {
+          await requestAsPromise(
+            tx
+              .objectStore(HEADER_STORE)
+              .put(
+                { dictionary, nextRow, version: SEARCH_INDEX_FORMAT_VERSION },
+                conversationId
+              )
+          );
+        }
+      }
+    );
+  }
+
+  // How many entries one write transaction covers.
+  //
+  // A whole backfill page used to be one transaction, and that is a lock held for
+  // seconds: ~500 rows x ~10 tokens is thousands of requests, each rewriting a
+  // posting list, and IndexedDB serialises a readwrite transaction against every
+  // read of the same stores. The cost was a search page turn that sat on "loading"
+  // for tens of seconds while a walk ran behind it, because its read could not
+  // even start. Chunks keep each commit short so reads interleave with the walk.
+  //
+  // Idempotence is what makes the split safe: rows are keyed by their own interned
+  // id, so re-putting a committed entry rewrites the same row and the same posting
+  // members, and a chunk that fails after an earlier one committed is re-sent by
+  // the caller's retry. The walk is resumable, so partial coverage costs a
+  // redundant pass, never correctness.
+  const PUT_CHUNK_ENTRIES = 64;
+
   return {
     clearConversation(conversationId) {
       if (storageUnavailable()) {
@@ -662,24 +861,37 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         return Promise.resolve(new Set<string>());
       }
       // One readonly transaction for the whole page: a few hundred point
-      // reads that never touch the postings or rows. The forward map keeps
-      // tombstones alongside live rows, so presence here means covered
-      // either way.
-      return runTransaction([ROW_IDS_STORE], "readonly", async (tx) => {
-        const rowIdsStore = tx.objectStore(ROW_IDS_STORE);
-        const out = new Set<string>();
-        // oxlint-disable no-await-in-loop -- sequential point reads on one transaction; Promise.all would issue requests outside its lifetime
-        for (const messageId of messageIds) {
-          const row = await requestAsPromise<number | undefined>(
-            rowIdsStore.get(rowIdKey(conversationId, messageId))
-          );
-          if (row !== undefined) {
-            out.add(messageId);
+      // reads that never touch the postings. The forward map keeps tombstones
+      // alongside live rows, so presence there means covered either way -- but
+      // the row record itself is shape-checked, because a row written before
+      // previews existed must NOT count: skipping it would strand the page on
+      // rows the list cannot render and the read path treats as absent.
+      return runTransaction(
+        [ROW_IDS_STORE, ROWS_STORE],
+        "readonly",
+        async (tx) => {
+          const rowIdsStore = tx.objectStore(ROW_IDS_STORE);
+          const rowsStore = tx.objectStore(ROWS_STORE);
+          const out = new Set<string>();
+          // oxlint-disable no-await-in-loop -- sequential point reads on one transaction; Promise.all would issue requests outside its lifetime
+          for (const messageId of messageIds) {
+            const row = await requestAsPromise<number | undefined>(
+              rowIdsStore.get(rowIdKey(conversationId, messageId))
+            );
+            if (row === undefined) {
+              continue;
+            }
+            const stored = await requestAsPromise<unknown>(
+              rowsStore.get(rowKey(conversationId, row))
+            );
+            if (isStoredRow(stored)) {
+              out.add(messageId);
+            }
           }
+          // oxlint-enable no-await-in-loop
+          return out;
         }
-        // oxlint-enable no-await-in-loop
-        return out;
-      });
+      );
     },
 
     // A cursor over the meta store, which holds one small record per conversation.
@@ -728,171 +940,32 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       );
     },
 
-    // The hot write. One readwrite transaction over the rows, the row-id index,
-    // the posting lists and the header, and nothing awaited inside it except an
-    // IndexedDB request.
-    //
-    // Row ids are allocated from the header INSIDE this transaction, so
-    // IndexedDB's own per-store serialisation is the lock that stops two writers
-    // handing out the same id. Nothing is encrypted, so there is no crypto to
-    // await between the read and the write, and the transaction never goes
-    // inactive.
+    // The hot write, chunked. See PUT_CHUNK_ENTRIES for why a whole page is not
+    // one transaction.
     putEntries(conversationId, entries) {
       if (storageUnavailable() || entries.size === 0) {
         return Promise.resolve();
       }
-      return runTransaction(
-        [ROWS_STORE, ROW_IDS_STORE, POSTINGS_STORE, HEADER_STORE],
-        "readwrite",
-        async (tx) => {
-          const rowsStore = tx.objectStore(ROWS_STORE);
-          const rowIdsStore = tx.objectStore(ROW_IDS_STORE);
-          const postingsStore = tx.objectStore(POSTINGS_STORE);
-          const headerStore = tx.objectStore(HEADER_STORE);
-          const read = await readHeader(tx, conversationId);
-          if (read.kind === "unusable") {
-            // The dictionary restarts at id 0 here, and the posting lists on disk
-            // are keyed by ids this build cannot interpret: left alone they would
-            // be adopted by unrelated words and inflate every match count. Reset
-            // the conversation to empty and re-index it by walking history.
-            // oxlint-disable no-await-in-loop -- sequential range deletes on one transaction
-            for (const store of [rowsStore, rowIdsStore, postingsStore]) {
-              await requestAsPromise(
-                store.delete(conversationKeyRange(conversationId))
-              );
-            }
-            // oxlint-enable no-await-in-loop
-            await requestAsPromise(
-              headerStore.put(emptyHeader(), conversationId)
-            );
-          }
-          const header = read.kind === "usable" ? read.header : emptyHeader();
-          const { dictionary } = header;
-          const tokenIdByText = new Map(
-            dictionary.map((token, tokenId) => [token, tokenId])
-          );
-          let { nextRow } = header;
-          let allocatorMoved = false;
-          let dictionaryGrew = false;
-          const mutations: TokenRowMutation[] = [];
-
-          // Sequential on purpose: each entry's row id and prior tokens must be
-          // known before its posting lists are updated, and the whole batch is one
-          // transaction so the work is atomic rather than concurrent.
-          // oxlint-disable no-await-in-loop -- one entry at a time inside one transaction
-          for (const [messageId, entry] of entries) {
-            // A point read per incoming message id, which is what `row-ids` is
-            // for: a batch of entirely new messages never scans anything, and a
-            // rewrite finds its row without walking the conversation.
-            const existing = await requestAsPromise<number | undefined>(
-              rowIdsStore.get(rowIdKey(conversationId, messageId))
-            );
-            let row = existing;
-            let previous: StoredRow | null = null;
-            if (row === undefined) {
-              row = nextRow;
-              nextRow += 1;
-              allocatorMoved = true;
-              await requestAsPromise(
-                rowIdsStore.put(row, rowIdKey(conversationId, messageId))
-              );
-            } else {
-              const stored = await requestAsPromise<unknown>(
-                rowsStore.get(rowKey(conversationId, row))
-              );
-              if (!isStoredRow(stored)) {
-                // A row this build cannot read is left exactly as it is. Its
-                // posting membership cannot be computed from a shape we cannot
-                // parse, and overwriting it would drop rows the posting lists
-                // still reference.
-                continue;
-              }
-              if (!stored.present) {
-                // A tombstone must not be revived by a stale device's re-index.
-                continue;
-              }
-              previous = stored;
-            }
-            // Assign ids to this entry's tokens, appending to the dictionary.
-            // Append-only: an existing id must never move, because it is what
-            // the posting lists are keyed by.
-            const tokenIds: number[] = [];
-            for (const token of entry.tokens) {
-              let tokenId = tokenIdByText.get(token);
-              if (tokenId === undefined) {
-                tokenId = dictionary.length;
-                tokenIdByText.set(token, tokenId);
-                dictionary.push(token);
-                dictionaryGrew = true;
-              }
-              tokenIds.push(tokenId);
-            }
-            // A token the rewrite dropped must leave the posting list too, or the
-            // message would keep matching a word it no longer contains. The row's
-            // own tokenIds are the reverse index, so this costs nothing to know.
-            const kept = new Set(tokenIds);
-            const droppedTokenIds: number[] = [];
-            for (const oldTokenId of previous?.tokenIds ?? []) {
-              if (!kept.has(oldTokenId)) {
-                droppedTokenIds.push(oldTokenId);
-              }
-            }
-            mutations.push({ droppedTokenIds, row, tokenIds });
-            const record: StoredRow = {
-              // A message's creator and creation time are facts of the message,
-              // not of the text currently indexed, so a rewrite keeps them.
-              createdAt: previous?.createdAt ?? entry.createdAt,
-              messageId,
-              present: true,
-              senderId: previous?.senderId ?? entry.senderId,
-              tokenIds,
-              version: SEARCH_INDEX_FORMAT_VERSION,
-            };
-            await requestAsPromise(
-              rowsStore.put(record, rowKey(conversationId, row))
-            );
-          }
-          // oxlint-enable no-await-in-loop
-
-          // A batch that only re-indexed tombstones wrote no rows and allocated
-          // no ids, so it must not write a header either.
-          if (mutations.length === 0) {
-            return;
-          }
-          // One get and one put per DISTINCT token the batch touched, instead of
-          // one pair per (row x token). See planTokenListUpdates.
-          const plans = planTokenListUpdates(mutations);
-          // oxlint-disable no-await-in-loop -- sequential point reads and writes; Promise.all cannot batch requests issued on one transaction
-          for (const [tokenId, update] of plans) {
-            const key = postingKeyForId(conversationId, tokenId);
-            const list = searchIndexRowListFrom(
-              (await requestAsPromise<Uint32Array | undefined>(
-                postingsStore.get(key)
-              )) ?? new Uint32Array(0)
-            );
-            // Drops before adds, so a row that both leaves and rejoins the same
-            // token in one batch ends up a member.
-            if (update.drop.length > 0) {
-              rowListRemoveMany(list, new Set(update.drop));
-            }
-            for (const row of update.add) {
-              rowListAdd(list, row);
-            }
-            await writePostingList(postingsStore, key, rowListToArray(list));
-          }
-          // oxlint-enable no-await-in-loop
-          if (allocatorMoved || dictionaryGrew) {
-            await requestAsPromise(
-              tx
-                .objectStore(HEADER_STORE)
-                .put(
-                  { dictionary, nextRow, version: SEARCH_INDEX_FORMAT_VERSION },
-                  conversationId
-                )
-            );
+      if (entries.size <= PUT_CHUNK_ENTRIES) {
+        return putEntryChunk(conversationId, entries);
+      }
+      return (async () => {
+        // oxlint-disable no-await-in-loop -- chunks must commit in order, or the
+        // later ones would be indexed against a header the earlier ones have not
+        // written yet
+        let chunk = new Map<string, SearchIndexEntry>();
+        for (const [messageId, entry] of entries) {
+          chunk.set(messageId, entry);
+          if (chunk.size >= PUT_CHUNK_ENTRIES) {
+            await putEntryChunk(conversationId, chunk);
+            chunk = new Map<string, SearchIndexEntry>();
           }
         }
-      );
+        if (chunk.size > 0) {
+          await putEntryChunk(conversationId, chunk);
+        }
+        // oxlint-enable no-await-in-loop
+      })();
     },
 
     query(conversationId, tokens, limit, options) {
@@ -966,7 +1039,7 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
               lists.push(unionPostingLists(expansionLists));
             }
             // oxlint-enable no-await-in-loop
-            return intersectPostingLists(lists, limit);
+            return intersectPostingLists(lists, limit, options?.afterRowId);
           }
         );
         if (intersection.rows.length === 0) {

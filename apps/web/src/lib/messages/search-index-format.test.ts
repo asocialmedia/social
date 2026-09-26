@@ -20,6 +20,7 @@ import {
   rowListToArray,
   searchIndexRowListFrom,
   SEARCH_INDEX_FORMAT_VERSION,
+  SEARCH_INDEX_PREVIEW_LENGTH,
   SEARCH_INDEX_QUERY_LIMIT,
   unionPostingLists,
 } from "./search-index-format";
@@ -80,6 +81,32 @@ describe("buildSearchIndexEntry", () => {
       buildSearchIndexEntry({ createdAt: 1, senderId: "u", text: "" })
     ).toBeNull();
   });
+
+  test("keeps a bounded leading preview of the text", () => {
+    const built = buildSearchIndexEntry({
+      createdAt: 5,
+      senderId: "u",
+      text: "can anyone find the zarquon thread?",
+    });
+    expect(built?.preview).toBe("can anyone find the zarquon thread?");
+  });
+
+  test("truncates the preview without splitting a code point", () => {
+    // The emoji straddles the cutoff: a UTF-16 slice would keep its lone high
+    // surrogate, which renders as a replacement character in the list.
+    const built = buildSearchIndexEntry({
+      createdAt: 5,
+      senderId: "u",
+      text: `${"x".repeat(SEARCH_INDEX_PREVIEW_LENGTH - 1)}🎉 tail words here`,
+    });
+    expect(built).not.toBeNull();
+    expect([...(built?.preview ?? "")].length).toBeLessThanOrEqual(
+      SEARCH_INDEX_PREVIEW_LENGTH
+    );
+    expect(built?.preview.endsWith("🎉")).toBe(true);
+    // Tokens still come from the whole text, not just the stored prefix.
+    expect(built?.tokens).toContain("tail");
+  });
 });
 
 describe("emptySearchIndexMeta", () => {
@@ -113,6 +140,7 @@ describe("internRows", () => {
     expect(table.messageIdByRow[1]).toBe("m2");
     expect(table.createdAtByRow[1]).toBe(20);
     expect(table.senderIdByRow[0]).toBe("alice");
+    expect(table.previewByRow[0]).toBe("deploy latency");
     expect(tokensByRow.get(0)).toEqual(["deploy", "latency"]);
   });
 
@@ -324,6 +352,57 @@ describe("intersectPostingLists", () => {
     const { rows } = intersectPostingLists([deploy], 1);
     expect(rows).toEqual([2]);
   });
+
+  // The paging keyset. The reported bug was a list capped at 2,000 while the
+  // counter read 24k: the head query is bounded by what the keystroke path can
+  // afford to resolve, so pages past it have to be read on demand. These pin the
+  // two properties that makes that safe -- no row repeated across a seam, and no
+  // row skipped -- plus the exact total on every page.
+  test("afterRowId pages strictly below the cursor, never repeating a row", () => {
+    const first = intersectPostingLists([deploy], 2);
+    expect(first.rows).toEqual([2, 1]);
+    const cursor = first.rows.at(-1);
+    const second = intersectPostingLists([deploy], 2, cursor);
+    expect(second.rows).toEqual([0]);
+    // Strictly below: the boundary row is not re-served.
+    expect(second.rows).not.toContain(cursor);
+  });
+
+  test("walking every page covers the whole set exactly once", () => {
+    const seen: number[] = [];
+    let cursor: number | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const result = intersectPostingLists([deploy], 2, cursor);
+      seen.push(...result.rows);
+      // The total never changes with the window asked for.
+      expect(result.totalMatched).toBe(3);
+      const last = result.rows.at(-1);
+      if (last === undefined) {
+        break;
+      }
+      cursor = last;
+    }
+    expect(seen.toSorted((left, right) => left - right)).toEqual([0, 1, 2]);
+  });
+
+  test("a cursor below the oldest row yields an empty page and the full total", () => {
+    // This is the last page: its boundary is the oldest match, so the next page
+    // finds nothing below it. Empty rows with the full total is what tells the
+    // pager it has reached the end instead of showing a blank middle page.
+    const result = intersectPostingLists([deploy], 20, 0);
+    expect(result.rows).toEqual([]);
+    expect(result.totalMatched).toBe(3);
+  });
+
+  test("the keyset applies after the intersection, not before it", () => {
+    // `deploy` is [0,1,2] and the second list is [0,2], so the intersection is
+    // [0,2]. Cutting the candidate list before intersecting would report a total
+    // of 1 for a page that should report 2 with one row on it.
+    const second = Uint32Array.from([0, 2]);
+    const result = intersectPostingLists([deploy, second], 2, 1);
+    expect(result.rows).toEqual([0]);
+    expect(result.totalMatched).toBe(2);
+  });
 });
 
 describe("memory search index store", () => {
@@ -345,6 +424,117 @@ describe("memory search index store", () => {
       ids: ["m2"],
       totalMatched: 1,
     });
+  });
+
+  test("a query projects each row's preview for the list view", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([["m1", entry("can anyone find the zarquon thread?", 1)]])
+    );
+    const result = await store.query("c1", ["zarquon"], 100);
+    const facts = [...result.rows.values()];
+    expect(facts).toHaveLength(1);
+    expect(facts[0]?.preview).toBe("can anyone find the zarquon thread?");
+  });
+
+  test("an edit rewrites the preview with the new text", async () => {
+    await store.putEntries("c1", new Map([["m1", entry("deploy this", 1)]]));
+    await store.putEntries("c1", new Map([["m1", entry("rollback that", 1)]]));
+    const result = await store.query("c1", ["rollback"], 100);
+    const facts = [...result.rows.values()];
+    expect(facts).toHaveLength(1);
+    expect(facts[0]?.preview).toBe("rollback that");
+  });
+
+  // The reported list-view bug: 24k matches in the counter, a list that stopped
+  // at 2,000. The store has to serve windows on demand for paging to reach the
+  // rest, and the seam has to be exact or rows would repeat or vanish.
+  test("pages through every match with no duplicate or gap at the seam", async () => {
+    const entries = new Map<string, SearchIndexEntry>();
+    for (let row = 0; row < 25; row += 1) {
+      entries.set(`m${row}`, entry(`deploy note ${row}`, row + 1));
+    }
+    await store.putEntries("c1", entries);
+    const seen: string[] = [];
+    let cursor: number | undefined;
+    let total = 0;
+    // oxlint-disable no-await-in-loop -- paging IS sequential: each window's keyset cursor is the previous window's last row, so there is nothing to parallelize and running them together would defeat the test
+    for (let page = 0; page < 10; page += 1) {
+      const result = await store.query("c1", ["deploy"], 10, {
+        afterRowId: cursor,
+      });
+      // The total is the full set on every page, whatever window was asked for.
+      total = result.totalMatched;
+      const ids = [...result.rows.values()].map((facts) => facts.messageId);
+      if (ids.length === 0) {
+        break;
+      }
+      seen.push(...ids);
+      const rows = [...result.rows.keys()];
+      cursor = Math.min(...rows);
+    }
+    // oxlint-enable no-await-in-loop
+    expect(total).toBe(25);
+    expect(seen).toHaveLength(25);
+    expect(new Set(seen).size).toBe(25);
+    expect(seen.toSorted()).toEqual(
+      Array.from({ length: 25 }, (_, row) => `m${row}`).toSorted()
+    );
+  });
+
+  // The write path commits a bulk batch in chunks, because one transaction over
+  // a whole backfill page held IndexedDB's write lock long enough that a search
+  // page turn could not start its read. The split is only safe if it is invisible:
+  // a batch larger than any chunk has to index exactly as an unchunked one would,
+  // with dense ids, and a re-sent batch has to change nothing.
+  test("a batch larger than one write chunk indexes exactly as a small one", async () => {
+    const entries = new Map<string, SearchIndexEntry>();
+    for (let row = 0; row < 500; row += 1) {
+      entries.set(`m${row}`, entry(`deploy note ${row}`, row + 1));
+    }
+    await store.putEntries("c1", entries);
+    const result = await store.query("c1", ["deploy"], 1000);
+    expect(result.totalMatched).toBe(500);
+    expect([...result.rows.values()]).toHaveLength(500);
+    // Row ids are handed out by the header, and a chunk boundary must not
+    // restart or skip the allocator.
+    const rows = [...result.rows.keys()].toSorted((a, b) => a - b);
+    expect(rows[0]).toBe(0);
+    expect(rows.at(-1)).toBe(499);
+    expect(new Set(rows).size).toBe(500);
+  });
+
+  // Idempotence is what lets a caller retry a batch whose later chunks failed
+  // after an earlier one committed: re-putting every entry must not duplicate a
+  // row, inflate a posting list, or move a row id.
+  test("re-sending a batch changes nothing", async () => {
+    const entries = new Map<string, SearchIndexEntry>();
+    for (let row = 0; row < 200; row += 1) {
+      entries.set(`m${row}`, entry(`deploy note ${row}`, row + 1));
+    }
+    await store.putEntries("c1", entries);
+    const first = await store.query("c1", ["deploy"], 1000);
+    await store.putEntries("c1", new Map(entries));
+    const second = await store.query("c1", ["deploy"], 1000);
+    expect(second.totalMatched).toBe(200);
+    expect([...second.rows.keys()].toSorted((a, b) => a - b)).toEqual(
+      [...first.rows.keys()].toSorted((a, b) => a - b)
+    );
+  });
+
+  test("a paged window honours the prefix the head is matching", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m1", entry("deploy the service", 1)],
+        ["m2", entry("deployment checklist", 2)],
+        ["m3", entry("rollback the deploy", 3)],
+      ])
+    );
+    const page = await store.query("c1", [], 10, { prefix: "deplo" });
+    expect(page.totalMatched).toBe(3);
+    const all = [...page.rows.values()].map((facts) => facts.messageId);
+    expect(all).toHaveLength(3);
   });
 
   test("keeps conversations isolated", async () => {

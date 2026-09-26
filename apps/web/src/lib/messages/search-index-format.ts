@@ -17,9 +17,13 @@
 // - Read per token, not the whole index. Loading every posting list on the first
 //   keystroke cost 146MB of RAM on a 200k-message conversation, which is fatal on
 //   a phone. A query now reads only the words that were typed.
-// - Ids and metadata only, never message text. The index answers "which
-//   messages match"; snippets and sender details come from the decrypted rows,
-//   so plaintext is never written to a second long-lived store.
+// - Ids, metadata, and a bounded plaintext preview per row, never the full
+//   message text. The index answers "which messages match" and the list view
+//   renders each hit's context from the preview without loading (or being
+//   able to decrypt) the row; snippets and highlight ranges are built from it
+//   at read time. Full text still comes only from decrypted rows, so the
+//   long-lived store holds at most a short prefix per message rather than the
+//   conversation.
 // - Plaintext at rest, protected by the device rather than by the app. This is a
 //   local cache that never leaves the device and that the server holds no copy
 //   of, so its at-rest protection is the OS and the device lock — the same
@@ -40,13 +44,27 @@ import {
 // misread. The stored row record changed shape when the row table went back to
 // one record per row, and existing indexes are dropped and rebuilt by walking
 // history.
-export const SEARCH_INDEX_FORMAT_VERSION = 5;
+export const SEARCH_INDEX_FORMAT_VERSION = 6;
 
-// A row's immutable facts. `messageId` is stored here, once, instead of being
-// repeated in every posting list.
+// How much leading message text each indexed row keeps for the list view's
+// snippets. Enough for the snippet window (radius 60 each side plus the match)
+// in the overwhelmingly common case -- chat messages are short -- while bounding
+// the store to a short prefix per message rather than the conversation. A match
+// past the cutoff still resolves (postings are unaffected); its row just shows
+// the prefix without a highlight instead of match-centered context.
+export const SEARCH_INDEX_PREVIEW_LENGTH = 200;
+
+// A row's facts. `messageId` is stored here, once, instead of being
+// repeated in every posting list. Everything but the preview is immutable;
+// the preview follows the currently indexed text, so an edit rewrites it.
 export interface SearchIndexRow {
   createdAt: number;
   messageId: string;
+  // Leading message text, bounded by SEARCH_INDEX_PREVIEW_LENGTH, for the list
+  // view's snippets. Plaintext on this device, like the tokens: the tradeoff
+  // the local index already makes, extended from vocabulary to a short prefix
+  // so hits outside the loaded window render context instead of bare ids.
+  preview: string;
   senderId: string;
 }
 
@@ -61,6 +79,7 @@ export interface SearchIndexRow {
 export interface SearchIndexRowFacts {
   createdAt: number;
   messageId: string;
+  preview: string;
   senderId: string;
 }
 
@@ -87,6 +106,7 @@ export interface SearchIndexConversationSummary {
 export interface SearchIndexRowTable {
   createdAtByRow: number[];
   messageIdByRow: string[];
+  previewByRow: string[];
   rowsByMessageId: Map<string, number>;
   senderIdByRow: string[];
 }
@@ -95,6 +115,7 @@ export function emptySearchIndexRowTable(): SearchIndexRowTable {
   return {
     createdAtByRow: [],
     messageIdByRow: [],
+    previewByRow: [],
     rowsByMessageId: new Map(),
     senderIdByRow: [],
   };
@@ -110,6 +131,20 @@ export function emptySearchIndexRowTable(): SearchIndexRowTable {
 // other's posting membership. Each backend keeps its allocator in its own private
 // record instead, so the two writers never touch the same object.
 export interface SearchIndexQueryOptions {
+  // Keyset cursor for paging past the rows a previous window returned: only
+  // rows with a SMALLER id are considered, because the query orders descending
+  // (newest-indexed first). Strictly "less than", never "at or after", so a
+  // page turn can never repeat the boundary row.
+  //
+  // A keyset rather than a numeric offset because the order is an approximation
+  // (row ids are handed out in insertion order, `createdAt` is only resolved for
+  // a capped window), and the caller's displayed head is re-sorted by real
+  // timestamps. A numeric offset would count positions in the index's order while
+  // the seam between page one and page two sits in the caller's re-sorted order,
+  // which can duplicate or skip rows exactly at the seam. The keyset follows the
+  // index's own order, so the seam is exact whatever the caller does with the rows
+  // it already has.
+  afterRowId?: number;
   // The word still being typed, matched by prefix against the dictionary.
   prefix?: string;
 }
@@ -159,6 +194,7 @@ export function emptySearchIndexMeta(conversationId: string): SearchIndexMeta {
 // Entries as handed to the write path, before interning.
 export interface SearchIndexEntry {
   createdAt: number;
+  preview: string;
   senderId: string;
   tokens: string[];
 }
@@ -247,7 +283,9 @@ export interface SearchIndexStore {
 // ---- shared logic ----------------------------------------------------------
 
 // Builds an entry from a decrypted payload's searchable text. Returns null when
-// there is nothing to match, so an empty posting entry is never stored.
+// there is nothing to match, so an empty posting entry is never stored. The
+// preview is a code-point-safe leading slice: cutting a surrogate pair would
+// store a lone surrogate that renders as a replacement character in the list.
 export function buildSearchIndexEntry(input: {
   createdAt: number;
   senderId: string;
@@ -261,6 +299,7 @@ export function buildSearchIndexEntry(input: {
   }
   return {
     createdAt: input.createdAt,
+    preview: [...input.text].slice(0, SEARCH_INDEX_PREVIEW_LENGTH).join(""),
     senderId: input.senderId,
     tokens,
   };
@@ -279,6 +318,7 @@ export function internRows(
       row = table.messageIdByRow.length;
       table.messageIdByRow.push(messageId);
       table.createdAtByRow.push(entry.createdAt);
+      table.previewByRow.push(entry.preview);
       table.senderIdByRow.push(entry.senderId);
       table.rowsByMessageId.set(messageId, row);
       newRows.push(row);
@@ -464,18 +504,24 @@ export function unionPostingLists(lists: Uint32Array[]): Uint32Array {
 //
 // Returns the rows matching every list, capped at `limit`.
 //
+// `afterRowId` pages: the caller passes the last row id it received and gets the
+// next `limit` rows below it. The full intersection is still computed either way,
+// so `totalMatched` is exact on every page -- the counter never depends on which
+// window was asked for.
+//
 // Ordering: descending row id, which is newest-indexed-first, because row ids are
 // handed out in insertion order and a conversation is normally indexed oldest
 // first. Timestamps are deliberately NOT used here. The caller cannot know which
 // rows survived until this returns, and resolving timestamps for the whole
 // conversation to sort a capped result is what made search memory grow with the
-// conversation. So this returns the capped set and the caller reorders those few
-// rows once it has resolved their facts — exact for a chronologically indexed
+// conversation. So this returns the window and the caller reorders those few rows
+// once it has resolved their facts — exact for a chronologically indexed
 // conversation, and for a backfill interleaved with live traffic it may keep a
 // slightly different slice of a query matching more than `limit` messages.
 export function intersectPostingLists(
   lists: Uint32Array[],
-  limit: number
+  limit: number,
+  afterRowId?: number
 ): { rows: number[]; totalMatched: number } {
   if (lists.length === 0 || limit <= 0) {
     return { rows: [], totalMatched: 0 };
@@ -510,6 +556,13 @@ export function intersectPostingLists(
   const totalMatched = candidates.length;
   if (totalMatched === 0) {
     return { rows: [], totalMatched: 0 };
+  }
+  if (afterRowId !== undefined) {
+    // The window is everything strictly below the cursor, newest-indexed first.
+    // Candidates ascend, so this is a cut and a reverse -- no sort, and a page
+    // past the last match is empty while `totalMatched` still reports the total.
+    const remaining = candidates.filter((row) => row < afterRowId);
+    return { rows: remaining.slice(-limit).toReversed(), totalMatched };
   }
   // Candidates ascend by row id, so the newest-indexed are at the end and the
   // cap is a slice rather than a sort.

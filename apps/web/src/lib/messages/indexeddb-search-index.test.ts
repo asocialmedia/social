@@ -299,6 +299,52 @@ describe("indexeddb search index store", () => {
     expect(inTwo.ids).toEqual(["m9"]);
   });
 
+  test("a query projects each row's preview for the list view", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([["m1", entry("can anyone find the zarquon thread?", 1)]])
+    );
+    const result = await store.query("c1", ["zarquon"], 100);
+    const facts = [...result.rows.values()];
+    expect(facts).toHaveLength(1);
+    expect(facts[0]?.preview).toBe("can anyone find the zarquon thread?");
+  });
+
+  test("a rewrite updates the preview past the cached facts", async () => {
+    await store.putEntries("c1", new Map([["m1", entry("deploy this", 1)]]));
+    // Fills the row-facts cache with the first text.
+    const first = await store.query("c1", ["deploy"], 100);
+    expect(first.rows.size).toBe(1);
+    await store.putEntries("c1", new Map([["m1", entry("deploy that", 1)]]));
+    const result = await store.query("c1", ["deploy"], 100);
+    const facts = [...result.rows.values()];
+    expect(facts).toHaveLength(1);
+    expect(facts[0]?.preview).toBe("deploy that");
+  });
+
+  test("a row from before previews existed is treated as absent", async () => {
+    // A version-5 row record, planted raw: the shape this build can no longer
+    // read. The walk must see it as uncovered and re-index the message, and
+    // reads must not resolve it -- otherwise the format bump would silently
+    // strand every conversation on rows the list cannot render. The initial
+    // write exists only to create the database schema.
+    await store.putEntries("c1", new Map([["m-seed", entry("deploy", 9)]]));
+    await writeRaw(ROWS_STORE, ["c1", "99"], {
+      createdAt: 1,
+      messageId: "m-old",
+      present: true,
+      senderId: "user-a",
+      tokenIds: [0],
+      version: 5,
+    });
+    await writeRaw(ROW_IDS_STORE, ["c1", "m-old"], 99);
+    expect(await store.hasIndexedMessages("c1", ["m-old", "m-seed"])).toEqual(
+      new Set(["m-seed"])
+    );
+    const rows = await store.readRows("c1", Uint32Array.from([99]));
+    expect(rows.size).toBe(0);
+  });
+
   // Same prefix contract as the reference backend: the trailing fragment fans
   // out across dictionary terms, AND-ed with any exact tokens.
   test("a trailing prefix matches every term starting with it", async () => {
@@ -702,6 +748,71 @@ describe("indexeddb search index store", () => {
     const capped = await store.query("c1", ["deploy"], 5);
     expect(capped.rows.size).toBe(5);
     expect(capped.totalMatched).toBe(40);
+  });
+
+  // The reported bug: the chat counter said 24k, the list stopped at 2,000. The
+  // persistent backend is the one that has to serve those pages, so the seam
+  // exactness is asserted here rather than only against the in-memory fallback.
+  test("pages through every match with no duplicate or gap at the seam", async () => {
+    const batch = new Map<string, SearchIndexEntry>();
+    for (let index = 0; index < 40; index += 1) {
+      batch.set(`m${index}`, entry(`deploy note ${index}`, index + 1));
+    }
+    await store.putEntries("c1", batch);
+    const seen: string[] = [];
+    let cursor: number | undefined;
+    // oxlint-disable no-await-in-loop -- paging IS sequential: each window's keyset cursor is the previous window's last row, so parallel reads would defeat the test
+    for (let page = 0; page < 10; page += 1) {
+      const result = await store.query("c1", ["deploy"], 7, {
+        afterRowId: cursor,
+      });
+      // Exact on every page: the counter does not depend on the window asked for.
+      expect(result.totalMatched).toBe(40);
+      const ids = [...result.rows.values()].map((facts) => facts.messageId);
+      if (ids.length === 0) {
+        break;
+      }
+      seen.push(...ids);
+      cursor = Math.min(...result.rows.keys());
+    }
+    // oxlint-enable no-await-in-loop
+    expect(seen).toHaveLength(40);
+    expect(new Set(seen).size).toBe(40);
+    // Newest first, and contiguous: page by page down the row-id order with
+    // nothing repeated and nothing missing.
+    expect(seen[0]).toBe("m39");
+    expect(seen[39]).toBe("m0");
+  });
+
+  test("a page below the oldest match is empty, not a repeat of the last page", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m0", entry("deploy", 1)],
+        ["m1", entry("deploy", 2)],
+      ])
+    );
+    const last = await store.query("c1", ["deploy"], 20);
+    expect([...last.rows.keys()].toSorted((a, b) => b - a)).toEqual([1, 0]);
+    const past = await store.query("c1", ["deploy"], 20, { afterRowId: 0 });
+    expect(past.rows.size).toBe(0);
+    expect(past.totalMatched).toBe(2);
+  });
+
+  test("a paged window resolves previews, so a deep page renders real text", async () => {
+    await store.putEntries(
+      "c1",
+      new Map([
+        ["m0", entry("deploy the very first note", 1)],
+        ["m1", entry("deploy the very last note", 2)],
+      ])
+    );
+    // Past the head's window: only the older row is left below the cursor.
+    const deep = await store.query("c1", ["deploy"], 20, { afterRowId: 1 });
+    const facts = [...deep.rows.values()];
+    expect(facts).toHaveLength(1);
+    expect(facts[0]?.messageId).toBe("m0");
+    expect(facts[0]?.preview).toBe("deploy the very first note");
   });
 
   // Writes are linear (measured ~10k msgs/s in the shim). Whole-conversation

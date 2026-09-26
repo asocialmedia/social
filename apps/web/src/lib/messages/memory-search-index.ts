@@ -154,6 +154,13 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
           rowListAdd(listFor(index, token), row);
         }
         index.tokensByRow.set(row, tokens);
+        // internRows only fills the preview for new rows; an edit rewrites the
+        // text, so the preview follows every write, not just the first.
+        const messageId = index.table.messageIdByRow[row];
+        const preview = messageId ? entries.get(messageId)?.preview : undefined;
+        if (preview !== undefined) {
+          index.table.previewByRow[row] = preview;
+        }
       }
       return Promise.resolve();
     },
@@ -187,7 +194,11 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
           )
         );
       }
-      const { rows, totalMatched } = intersectPostingLists(lists, limit);
+      const { rows, totalMatched } = intersectPostingLists(
+        lists,
+        limit,
+        options?.afterRowId
+      );
       const { table } = index;
       const resolved: SearchIndexRowLookup = new Map();
       for (const row of rows) {
@@ -198,6 +209,7 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
         resolved.set(row, {
           createdAt: table.createdAtByRow[row] ?? 0,
           messageId,
+          preview: table.previewByRow[row] ?? "",
           senderId: table.senderIdByRow[row] ?? "",
         });
       }
@@ -247,6 +259,7 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
         out.set(row, {
           createdAt: table.createdAtByRow[row] ?? 0,
           messageId,
+          preview: table.previewByRow[row] ?? "",
           senderId: table.senderIdByRow[row] ?? "",
         });
       }
