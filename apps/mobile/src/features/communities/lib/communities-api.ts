@@ -176,6 +176,226 @@ function requireOk(response: Response, label: string): void {
   }
 }
 
+// Mutations answer with this union rather than throwing, so the caller can tell
+// "the server wants an install token" (retry after the Turnstile gate) apart
+// from a real failure. Same shape the follow mutation uses.
+export type CommunityMutationResult =
+  | { kind: "success"; state: CommunityMembershipState }
+  | { kind: "install-token-required" }
+  | { kind: "error"; message: string; status: number };
+
+export interface CommunityMembershipState {
+  canModerate: boolean;
+  membership: { role: string; status: string } | null;
+  status?: "ACTIVE" | "PENDING";
+  subscribed: boolean;
+}
+
+export interface CommunityCreationQuota {
+  aura: number;
+  canCreate: boolean;
+  maxed: boolean;
+  nextBonus: number;
+  nextRequirement: number | null;
+  owned: number;
+  reachAura: number;
+  reachCounted: number;
+  standing: number;
+}
+
+function parseMembershipState(value: unknown): CommunityMembershipState | null {
+  const body = objectOf(value);
+  if (!body) {
+    return null;
+  }
+  const { status } = body;
+  const membership = objectOf(body.membership);
+  return {
+    canModerate: body.canModerate === true,
+    membership:
+      membership &&
+      typeof membership.role === "string" &&
+      typeof membership.status === "string"
+        ? { role: membership.role, status: membership.status }
+        : null,
+    status: status === "ACTIVE" || status === "PENDING" ? status : undefined,
+    subscribed: body.subscribed === true,
+  };
+}
+
+// One writer for every community mutation, so the install-token branch, the
+// session cookie and the error decode exist once instead of per call site.
+async function mutateCommunity(
+  path: string,
+  method: "DELETE" | "PATCH" | "POST",
+  body: unknown,
+  options: ApiCallOptions,
+  label: string
+): Promise<CommunityMutationResult> {
+  const baseFetch = options.baseFetch ?? fetch;
+  const headers: Record<string, string> = options.cookie
+    ? { cookie: options.cookie }
+    : {};
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+  }
+  const response = await baseFetch(`${options.apiBase}${path}`, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers,
+    method,
+  });
+  const payload = await readJson(response);
+  if (response.ok) {
+    const state = parseMembershipState(payload);
+    if (state) {
+      return { kind: "success", state };
+    }
+    // A write that succeeded but returned no membership block (the role
+    // endpoint) still has to be reported as a success, so the state the caller
+    // already holds stands.
+    return {
+      kind: "success",
+      state: {
+        canModerate: false,
+        membership: null,
+        subscribed: false,
+      },
+    };
+  }
+  if (
+    response.status === 403 &&
+    objectOf(payload)?.error === "install-token-required"
+  ) {
+    return { kind: "install-token-required" };
+  }
+  const message = textOf(objectOf(payload)?.error);
+  return {
+    kind: "error",
+    message: message ?? `${label} failed (${response.status})`,
+    status: response.status,
+  };
+}
+
+function communityPath(slug: string, suffix = ""): string {
+  return `/api/communities/${encodeURIComponent(slug)}${suffix}`;
+}
+
+export function fetchMembershipState(
+  slug: string,
+  options: ApiCallOptions
+): Promise<CommunityMembershipState> {
+  return get(communityPath(slug, "/membership"), options).then(
+    async (response) => {
+      requireOk(response, "Membership");
+      const state = parseMembershipState(await readJson(response));
+      if (!state) {
+        throw new CommunityApiError(
+          "Membership response was not usable",
+          response.status
+        );
+      }
+      return state;
+    }
+  );
+}
+
+export function joinCommunity(
+  slug: string,
+  options: ApiCallOptions
+): Promise<CommunityMutationResult> {
+  return mutateCommunity(
+    communityPath(slug, "/membership"),
+    "POST",
+    undefined,
+    options,
+    "Join"
+  );
+}
+
+export function leaveCommunity(
+  slug: string,
+  options: ApiCallOptions
+): Promise<CommunityMutationResult> {
+  return mutateCommunity(
+    communityPath(slug, "/membership"),
+    "DELETE",
+    undefined,
+    options,
+    "Leave"
+  );
+}
+
+export function setCommunitySubscription(
+  slug: string,
+  subscribe: boolean,
+  options: ApiCallOptions
+): Promise<CommunityMutationResult> {
+  return mutateCommunity(
+    communityPath(slug, "/subscription"),
+    subscribe ? "POST" : "DELETE",
+    undefined,
+    options,
+    "Notifications"
+  );
+}
+
+export function approveCommunityMember(
+  slug: string,
+  targetUserId: string,
+  options: ApiCallOptions
+): Promise<CommunityMutationResult> {
+  return mutateCommunity(
+    communityPath(slug, `/members/${encodeURIComponent(targetUserId)}`),
+    "POST",
+    undefined,
+    options,
+    "Approve"
+  );
+}
+
+export function setCommunityMemberRole(
+  slug: string,
+  targetUserId: string,
+  role: "MEMBER" | "MODERATOR" | "PARTICIPANT",
+  options: ApiCallOptions
+): Promise<CommunityMutationResult> {
+  return mutateCommunity(
+    communityPath(slug, `/members/${encodeURIComponent(targetUserId)}`),
+    "PATCH",
+    { role },
+    options,
+    "Role change"
+  );
+}
+
+export async function fetchCreationQuota(
+  options: ApiCallOptions
+): Promise<CommunityCreationQuota | null> {
+  const response = await get("/api/communities/creation-quota", options);
+  if (!response.ok) {
+    return null;
+  }
+  const body = objectOf(await readJson(response));
+  if (!body) {
+    return null;
+  }
+  return {
+    aura: countOf(body.aura),
+    canCreate: body.canCreate === true,
+    maxed: body.maxed === true,
+    nextBonus: countOf(body.nextBonus),
+    nextRequirement:
+      typeof body.nextRequirement === "number" &&
+      Number.isFinite(body.nextRequirement)
+        ? body.nextRequirement
+        : null,
+    owned: countOf(body.owned),
+    reachAura: countOf(body.reachAura),
+    reachCounted: countOf(body.reachCounted),
+    standing: countOf(body.standing),
+  };
+}
+
 export function buildCommunitiesPath({
   category,
   cursor,

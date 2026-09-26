@@ -7,6 +7,7 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
+import { StartupGate } from "@/components/feedback/startup-splash";
 import { Toaster } from "@/components/feedback/toast";
 import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
 import { InstallProvider } from "@/features/auth/state/install";
@@ -57,18 +58,10 @@ export default function RootLayout() {
     void loadInstallToken();
   }, []);
 
-  useEffect(() => {
-    async function hideSplash() {
-      if (loaded || error) {
-        try {
-          await SplashScreen.hideAsync();
-        } catch {
-          // Splash screen hide failed or was already hidden
-        }
-      }
-    }
-    void hideSplash();
-  }, [loaded, error]);
+  // Hiding the native splash is the StartupGate's job: it waits for the
+  // session as well as the fonts, so the home screen's first paint already
+  // knows whether the viewer is signed in and the inline composer arrives with
+  // the feed instead of after it.
 
   if (!loaded && !error) {
     return null;
@@ -122,6 +115,10 @@ export default function RootLayout() {
                 the app-wide toast stack. */}
             <ComposerModal />
             <Toaster />
+            {/* Last so it covers the navigator and every overlay above: it
+                holds the platform splash until the session is known, then
+                dissolves into the app. */}
+            <StartupGate fontsReady={loaded || Boolean(error)} />
           </SessionProvider>
         </InstallProvider>
       </ThemeProvider>

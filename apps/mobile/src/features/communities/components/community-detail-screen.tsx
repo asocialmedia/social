@@ -24,7 +24,10 @@ import {
   fetchCommunityPosts,
 } from "../lib/communities-api";
 import type { CommunityDetail } from "../lib/communities-api";
+import { useCommunityMembership } from "../state/use-community-membership";
 import { CommunityAvatar } from "./community-avatar";
+import { CommunityJoinButton } from "./community-join-button";
+import { CommunityNotifyButton } from "./community-notify-button";
 
 export function CommunityDetailScreen() {
   const router = useRouter();
@@ -122,6 +125,46 @@ export function CommunityDetailScreen() {
       setStatus("error");
     }
   }, [load, slug]);
+
+  // Declared before the early returns so hook order stays stable while the
+  // detail is still loading; the state settles on its own once the slug is
+  // known and the first membership read lands.
+  const membershipState = useCommunityMembership({
+    initialMembership: detail?.membership ?? null,
+    isLoggedIn: Boolean(user),
+    slug: slug ?? "",
+  });
+
+  const requireLogin = useCallback(() => {
+    router.push("/(auth)/login");
+  }, [router]);
+
+  // Web records the visit from its server-rendered page, which native has no
+  // equivalent of, so the weekly-visitor count is pinged from the client on
+  // open. Best effort: a failed ping must never block the screen.
+  useEffect(() => {
+    if (!slug || !user) {
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const cookie = await authClient.getCookie();
+        if (!active) {
+          return;
+        }
+        await fetch(
+          `${getApiBaseUrl()}/api/communities/${encodeURIComponent(slug)}/visit`,
+          { headers: { cookie }, method: "POST" }
+        );
+      } catch {
+        // Ignored on purpose.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [slug, user]);
 
   if (!slug) {
     return (
@@ -236,6 +279,19 @@ export function CommunityDetailScreen() {
                   value={detail.stats.weeklyVisitors}
                 />
               </View>
+              <View style={styles.actions}>
+                <CommunityJoinButton
+                  isLoggedIn={Boolean(user)}
+                  membershipState={membershipState}
+                  onRequireLogin={requireLogin}
+                  style={styles.joinButton}
+                />
+                <CommunityNotifyButton
+                  isLoggedIn={Boolean(user)}
+                  membershipState={membershipState}
+                  onRequireLogin={requireLogin}
+                />
+              </View>
             </View>
           </View>
         }
@@ -293,6 +349,12 @@ function Stat({
 }
 
 const styles = StyleSheet.create({
+  actions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
   avatar: { marginTop: -32 },
   banner: { height: 150, overflow: "hidden" },
   bannerImage: { height: "100%", width: "100%" },
@@ -317,6 +379,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   header: { paddingHorizontal: 16, paddingTop: 0 },
+  joinButton: { flex: 1 },
   name: { fontFamily: "SofiaProBold", fontSize: 25, marginTop: 12 },
   retry: {
     backgroundColor: "#f97316",
