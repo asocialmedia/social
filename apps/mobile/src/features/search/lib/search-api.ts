@@ -204,3 +204,96 @@ export async function fetchSearchSuggestions(
       : [];
   });
 }
+
+// Search history. Web drives all four of these from its useSearchHistory hook
+// with optimistic writes; native had none of them wired, so a searcher's history
+// silently started empty on every install.
+//
+// Every write here is best effort by design, matching web: a failed history
+// write must never surface to the user or block the navigation that caused it,
+// so the callers await these without inspecting the result.
+
+/** Raw history page, entries still in their stored form. */
+export async function fetchSearchHistoryRaw(
+  options: ApiCallOptions
+): Promise<unknown[]> {
+  const response = await get("/api/search?type=history", options);
+  if (!response.ok) {
+    return [];
+  }
+  const payload = await readJson(response);
+  return Array.isArray(payload) ? payload : [];
+}
+
+function searchWrite(
+  path: string,
+  method: "DELETE" | "POST",
+  body: unknown,
+  options: ApiCallOptions
+): Promise<boolean> {
+  const baseFetch = options.baseFetch ?? fetch;
+  const headers: Record<string, string> = {
+    ...(options.cookie ? { cookie: options.cookie } : null),
+  };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+  }
+  return baseFetch(`${options.apiBase}${path}`, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers,
+    method,
+  }).then(
+    (response) => response.ok,
+    // A history write is never worth an error path; the caller does not await
+    // its outcome and an unhandled rejection here would surface as a crash.
+    () => false
+  );
+}
+
+export function recordSearchQuery(
+  query: string,
+  resultCount: number,
+  options: ApiCallOptions
+): Promise<boolean> {
+  return searchWrite("/api/search", "POST", { query, resultCount }, options);
+}
+
+export function recordSearchUser(
+  user: { displayName?: string | null; id: string; username: string },
+  options: ApiCallOptions
+): Promise<boolean> {
+  return searchWrite(
+    "/api/search",
+    "POST",
+    { type: "user", user: { ...user } },
+    options
+  );
+}
+
+export function recordSearchPost(
+  post: { content: string; createdAt: string; id: string },
+  options: ApiCallOptions
+): Promise<boolean> {
+  return searchWrite(
+    "/api/search",
+    "POST",
+    { post: { ...post }, type: "post" },
+    options
+  );
+}
+
+export function removeSearchHistoryItem(
+  target: string,
+  options: ApiCallOptions
+): Promise<boolean> {
+  return searchWrite(
+    `/api/search?type=history&target=${encodeURIComponent(target)}`,
+    "DELETE",
+    undefined,
+    options
+  );
+}
+
+export function clearSearchHistory(options: ApiCallOptions): Promise<boolean> {
+  return searchWrite("/api/search?type=history", "DELETE", undefined, options);
+}

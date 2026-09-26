@@ -2,7 +2,7 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Clock3, Flame, Search, Users, X } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -25,7 +25,16 @@ import { useAppTheme } from "@/theme";
 
 import { mediaGridImageUrl } from "../../feed/lib/media-url";
 import { MobileHeader } from "../../home/components/mobile-header";
-import { fetchSearchSuggestions, fetchSpotlight } from "../lib/search-api";
+import {
+  clearSearchHistory,
+  fetchSearchHistoryRaw,
+  fetchSearchSuggestions,
+  fetchSpotlight,
+  recordSearchPost,
+  recordSearchQuery,
+  recordSearchUser,
+  removeSearchHistoryItem,
+} from "../lib/search-api";
 import type {
   SearchCommunityResult,
   SearchPostResult,
@@ -33,6 +42,12 @@ import type {
   SearchUserResult,
   SpotlightResponse,
 } from "../lib/search-api";
+import {
+  historyItemKey,
+  historyItemLabel,
+  parseHistoryItem,
+} from "../lib/search-history";
+import type { SearchHistoryItem } from "../lib/search-history";
 
 const EMPTY_RESULTS: SpotlightResponse = {
   communities: [],
@@ -65,35 +80,52 @@ function ResultRow({
   );
 }
 
-function UserResult({ user }: { user: SearchUserResult }) {
+function UserResult({
+  onOpen,
+  user,
+}: {
+  onOpen: (user: SearchUserResult) => void;
+  user: SearchUserResult;
+}) {
+  const { theme } = useAppTheme();
   const router = useRouter();
   return (
     <ResultRow
-      onPress={() =>
+      onPress={() => {
+        onOpen(user);
         router.push({
           params: { username: user.username },
           pathname: "/users/[username]",
-        })
-      }
+        });
+      }}
     >
       <UserAvatar size={40} url={user.avatarUrl} />
       <View style={styles.rowCopy}>
-        <Text numberOfLines={1} style={[styles.rowTitle, { color: "#fff" }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.rowTitle, { color: theme.inputText }]}
+        >
           {user.displayName}
         </Text>
-        <Text numberOfLines={1} style={[styles.rowSubtitle, { color: "#aaa" }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.rowSubtitle, { color: theme.dividerText }]}
+        >
           @{user.username}
         </Text>
       </View>
       <View style={styles.rowMeta}>
         <Flame color="#ff9500" fill="#ff9500" size={14} />
-        <Text style={[styles.metaText, { color: "#aaa" }]}>{user.aura}</Text>
+        <Text style={[styles.metaText, { color: theme.dividerText }]}>
+          {user.aura}
+        </Text>
       </View>
     </ResultRow>
   );
 }
 
 function CommunityResult({ community }: { community: SearchCommunityResult }) {
+  const { theme } = useAppTheme();
   const router = useRouter();
   return (
     <ResultRow
@@ -110,10 +142,16 @@ function CommunityResult({ community }: { community: SearchCommunityResult }) {
         <Users color="#fff" size={19} />
       </View>
       <View style={styles.rowCopy}>
-        <Text numberOfLines={1} style={[styles.rowTitle, { color: "#fff" }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.rowTitle, { color: theme.inputText }]}
+        >
           {community.name}
         </Text>
-        <Text numberOfLines={1} style={[styles.rowSubtitle, { color: "#aaa" }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.rowSubtitle, { color: theme.dividerText }]}
+        >
           a/{community.slug} · {community.memberCount} members
         </Text>
       </View>
@@ -121,7 +159,13 @@ function CommunityResult({ community }: { community: SearchCommunityResult }) {
   );
 }
 
-function PostResult({ post }: { post: SearchPostResult }) {
+function PostResult({
+  onOpen,
+  post,
+}: {
+  onOpen: (post: SearchPostResult) => void;
+  post: SearchPostResult;
+}) {
   const { theme } = useAppTheme();
   const router = useRouter();
   const preview = post.previewMedia
@@ -134,12 +178,13 @@ function PostResult({ post }: { post: SearchPostResult }) {
     : null;
   return (
     <ResultRow
-      onPress={() =>
+      onPress={() => {
+        onOpen(post);
         router.push({
           params: { postId: post.id },
           pathname: "/posts/[postId]",
-        })
-      }
+        });
+      }}
     >
       <UserAvatar size={36} url={post.authorAvatarUrl} />
       <View style={styles.rowCopy}>
@@ -173,14 +218,79 @@ function PostResult({ post }: { post: SearchPostResult }) {
   );
 }
 
+// Web's history rows carry a different mark per kind: a clock for a query, the
+// person's avatar for a user, the author's avatar for a post.
+function HistoryGlyph({ item }: { item: SearchHistoryItem }) {
+  const { theme } = useAppTheme();
+  if (item.type === "query") {
+    return <Clock3 color={theme.dividerText} size={17} />;
+  }
+  if (item.type === "user") {
+    return <UserAvatar size={30} url={item.user.avatarUrl} />;
+  }
+  return <UserAvatar size={30} url={null} />;
+}
+
 export function SearchScreen() {
   const { theme } = useAppTheme();
+  const router = useRouter();
   const { user } = useSessionContext();
   const [input, setInput] = useState("");
   const [results, setResults] = useState<SpotlightResponse>(EMPTY_RESULTS);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [history, setHistory] = useState<
+    { item: SearchHistoryItem; key: string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The session cookie is resolved once into state and reused by every read and
+  // write below; authClient.getCookie() is not free and history touches it often.
+  // It has to be an effect rather than a memo because the value is async, and
+  // useMemo may not hold a promise.
+  const [cookie, setCookie] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const next = user ? await authClient.getCookie() : undefined;
+      if (active) {
+        setCookie(next);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  const options = useMemo(
+    () => ({ apiBase: getApiBaseUrl(), cookie }),
+    [cookie]
+  );
+
+  const loadHistory = useCallback(async () => {
+    if (!user) {
+      setHistory([]);
+      return;
+    }
+    try {
+      const resolved = options;
+      const raw = await fetchSearchHistoryRaw(resolved);
+      setHistory(
+        raw.flatMap((entry) => {
+          const item = parseHistoryItem(entry);
+          return item ? [{ item, key: historyItemKey(item, entry) }] : [];
+        })
+      );
+    } catch {
+      // History is an enhancement; a failure leaves the list empty rather than
+      // blocking the screen.
+      setHistory([]);
+    }
+  }, [options, user]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
 
   useEffect(() => {
     const query = input.trim();
@@ -195,11 +305,10 @@ export function SearchScreen() {
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const cookie = user ? await authClient.getCookie() : undefined;
-          const options = { apiBase: getApiBaseUrl(), cookie };
+          const resolved = options;
           const [nextResults, nextSuggestions] = await Promise.all([
-            fetchSpotlight(query, options),
-            fetchSearchSuggestions(query, options),
+            fetchSpotlight(query, resolved),
+            fetchSearchSuggestions(query, resolved),
           ]);
           if (!cancelled) {
             setResults(nextResults);
@@ -221,7 +330,7 @@ export function SearchScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [input, user]);
+  }, [input, options]);
 
   const hasQuery = input.trim().length > 0;
   const hasResults = useMemo(
@@ -230,14 +339,89 @@ export function SearchScreen() {
       0,
     [results]
   );
-  const submitSearch = () => {
+
+  // Opening a result records it, so the trail reflects what was actually looked
+  // at rather than only what was typed. Best effort: web swallows these too.
+  const onOpenUser = useCallback(
+    (target: SearchUserResult) => {
+      if (user) {
+        void (async () => {
+          await recordSearchUser(
+            {
+              displayName: target.displayName,
+              id: target.id,
+              username: target.username,
+            },
+            options
+          );
+          await loadHistory();
+        })();
+      }
+    },
+    [loadHistory, options, user]
+  );
+
+  const onOpenPost = useCallback(
+    (target: SearchPostResult) => {
+      if (user) {
+        void (async () => {
+          await recordSearchPost(
+            {
+              content: target.content,
+              createdAt: target.createdAt,
+              id: target.id,
+            },
+            options
+          );
+          await loadHistory();
+        })();
+      }
+    },
+    [loadHistory, options, user]
+  );
+
+  const submitSearch = useCallback(() => {
     const query = input.trim();
     if (!query) {
       return;
     }
     Keyboard.dismiss();
     setInput(query);
-  };
+    if (user) {
+      void (async () => {
+        const resolved = options;
+        const count =
+          results.users.length +
+          results.communities.length +
+          results.posts.length;
+        await recordSearchQuery(query, count, resolved);
+        await loadHistory();
+      })();
+    }
+  }, [input, loadHistory, options, results, user]);
+
+  // A duplicate query is replaced rather than stacked, which is what web's
+  // optimistic write does, so the list stays a set of distinct searches.
+  const dropHistoryItem = useCallback(
+    (key: string) => {
+      setHistory((current) => current.filter((entry) => entry.key !== key));
+      if (user) {
+        void (async () => {
+          await removeSearchHistoryItem(key, options);
+        })();
+      }
+    },
+    [options, user]
+  );
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    if (user) {
+      void (async () => {
+        await clearSearchHistory(options);
+      })();
+    }
+  }, [options, user]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
@@ -312,7 +496,70 @@ export function SearchScreen() {
           </Text>
         </View>
       ) : null}
-      {!hasQuery ? (
+      {!hasQuery && history.length > 0 ? (
+        <View style={styles.historyList}>
+          <View style={styles.historyHead}>
+            <Text style={[styles.historyTitle, { color: theme.dividerText }]}>
+              Recent
+            </Text>
+            <Pressable
+              accessibilityLabel="Clear search history"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={clearHistory}
+            >
+              <Text style={[styles.historyClear, { color: theme.dividerText }]}>
+                Clear all
+              </Text>
+            </Pressable>
+          </View>
+          {history.map((entry) => (
+            <Pressable
+              key={entry.key}
+              onPress={() => {
+                if (entry.item.type === "query") {
+                  setInput(entry.item.query);
+                  return;
+                }
+                if (entry.item.type === "user") {
+                  router.push({
+                    params: { username: entry.item.user.username },
+                    pathname: "/users/[username]",
+                  });
+                  return;
+                }
+                router.push({
+                  params: { postId: entry.item.post.id },
+                  pathname: "/posts/[postId]",
+                });
+              }}
+              style={({ pressed }) => [
+                styles.historyRow,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <HistoryGlyph item={entry.item} />
+              <Text
+                numberOfLines={1}
+                style={[styles.historyLabel, { color: theme.inputText }]}
+              >
+                {historyItemLabel(entry.item)}
+              </Text>
+              <Pressable
+                accessibilityLabel={`Remove ${historyItemLabel(entry.item)} from search history`}
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={() => {
+                  dropHistoryItem(entry.key);
+                }}
+              >
+                <X color={theme.dividerText} size={16} />
+              </Pressable>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {!hasQuery && history.length === 0 ? (
         <View style={styles.center}>
           <Search color={theme.dividerText} size={34} />
           <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
@@ -339,12 +586,12 @@ export function SearchScreen() {
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
             if ("username" in item) {
-              return <UserResult user={item} />;
+              return <UserResult onOpen={onOpenUser} user={item} />;
             }
             if ("slug" in item) {
               return <CommunityResult community={item} />;
             }
-            return <PostResult post={item} />;
+            return <PostResult onOpen={onOpenPost} post={item} />;
           }}
           showsVerticalScrollIndicator={false}
         />
@@ -386,6 +633,25 @@ const styles = StyleSheet.create({
   emptyBody: { fontFamily: "SofiaProReg", fontSize: 14, textAlign: "center" },
   emptyTitle: { fontFamily: "SofiaProBold", fontSize: 18 },
   error: { fontFamily: "SofiaProReg", fontSize: 15, textAlign: "center" },
+  historyClear: { fontFamily: "SofiaProMed", fontSize: 13 },
+  historyHead: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 6,
+    paddingHorizontal: 20,
+    paddingTop: 4,
+  },
+  historyLabel: { flex: 1, fontFamily: "SofiaProReg", fontSize: 14 },
+  historyList: { paddingTop: 4 },
+  historyRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+  },
+  historyTitle: { fontFamily: "SofiaProMed", fontSize: 13 },
   input: {
     flex: 1,
     fontFamily: "SofiaProReg",
