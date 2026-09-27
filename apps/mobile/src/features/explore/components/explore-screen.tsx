@@ -24,7 +24,6 @@ import {
   PanResponder,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,11 +31,13 @@ import {
   View,
 } from "react-native";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import noFollowImage from "@/assets/images/nofollow.png";
 import noMediaImage from "@/assets/images/nomedia.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
@@ -77,6 +78,7 @@ import {
 
 import {
   ExploreApiError,
+  fetchExploreHeadPosts,
   fetchExplorePage,
   fetchExplorePeople,
   fetchExploreTopGusts,
@@ -140,6 +142,9 @@ export function ExploreScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [newItems, setNewItems] = useState<FeedPost[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [isScrolledDown, setIsScrolledDown] = useState(false);
+  const isScrolledRef = useRef(false);
 
   const load = useCallback(
     async (cursor: string | null, append: boolean, refresh = false) => {
@@ -202,6 +207,7 @@ export function ExploreScreen() {
         return;
       }
       setPosts([]);
+      setNewItems([]);
       setUsers([]);
       setCommunities([]);
       setGusts([]);
@@ -249,6 +255,7 @@ export function ExploreScreen() {
       if (!EXPLORE_TABS.has(next) || next === activeTab) {
         return;
       }
+      setNewItems([]);
       setExploreTab(next);
       handleSearch("");
       router.setParams({ tab: next });
@@ -367,32 +374,52 @@ export function ExploreScreen() {
   // Web polls each Explore feed every 45s and offers the new posts behind a
   // pill, so a reader who has sat on the tab sees arrivals without pulling to
   // refresh. The probe diffs the head against what is already on screen and
-  // never rewrites the list on its own; tapping the pill prepends.
+  // never rewrites the list on its own; tapping the pill prepends and scrolls to top.
   const knownIdsRef = useRef<Set<string>>(new Set());
+  const newestIdRef = useRef<string | null>(null);
   const probeKeyRef = useRef("");
   const probeTab = activeTab;
   const probeSearch = deferredSearch;
 
   useEffect(() => {
+    newestIdRef.current = posts.length > 0 ? posts[0].id : null;
     knownIdsRef.current = new Set(posts.map((post) => post.id));
   }, [posts]);
 
   useEffect(() => {
-    if (status !== "success" || probeTab === "people" || probeSearch) {
+    if (
+      status !== "success" ||
+      probeTab === "gusts" ||
+      probeTab === "people" ||
+      probeSearch
+    ) {
       return;
     }
     const key = `${probeTab}:${probeSearch}`;
     probeKeyRef.current = key;
     const probe = async () => {
       try {
-        const head = await fetchExplorePage(probeTab, "", null, {
-          apiBase: getApiBaseUrl(),
-          cookie: await authClient.getCookie(),
-        });
+        const headPosts = await fetchExploreHeadPosts(
+          probeTab as "for-you" | "trending",
+          {
+            apiBase: getApiBaseUrl(),
+            cookie: await authClient.getCookie(),
+          }
+        );
         if (probeKeyRef.current !== key || knownIdsRef.current.size === 0) {
           return;
         }
-        setNewItems(findUnseenItems(head.posts, knownIdsRef.current));
+        const newest = headPosts[0]?.id;
+        // If the newest post is unchanged, the head is unchanged - do not count
+        // shifts or re-rankings inside candidate sets as new arrivals.
+        if (!newest || newest === newestIdRef.current) {
+          return;
+        }
+        newestIdRef.current = newest;
+        const unseen = findUnseenItems(headPosts, knownIdsRef.current);
+        if (unseen.length > 0) {
+          setNewItems(unseen);
+        }
       } catch (error) {
         logWarn("explore.probe_failed", {
           reason: error instanceof Error ? error.message : String(error),
@@ -403,6 +430,7 @@ export function ExploreScreen() {
     const poller = createExpoPoller({
       intervalMs: PROBE_INTERVAL_MS,
       onPoll: probe,
+      skipInitialPoll: true,
     });
     poller.start();
     return () => poller.stop();
@@ -420,6 +448,7 @@ export function ExploreScreen() {
       ),
     ]);
     setNewItems([]);
+    scrollViewRef.current?.scrollTo({ animated: true, y: 0 });
   }, [activeTab, newItems, setNewItems]);
 
   const newItemAuthors: PillAuthor[] = [
@@ -531,6 +560,32 @@ export function ExploreScreen() {
     [fetchMore]
   );
 
+  // The same 3D pull loader the feed uses, not the stock RefreshControl, so a
+  // refresh here reads identically to a refresh there. Placed before the
+  // loading early-return below, since a hook after one is conditional.
+  const pull = usePullToRefresh({
+    failed: status === "error",
+    onRefresh: refresh,
+    refreshing,
+    updatedMessage: "Explore updated",
+  });
+
+  // The screen's own infinite-scroll probe and the pull's bounce reading both
+  // need the same event, so chain them rather than picking a winner.
+  const handleContentScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetY = event.nativeEvent.contentOffset.y;
+      const scrolled = offsetY > 180;
+      if (scrolled !== isScrolledRef.current) {
+        isScrolledRef.current = scrolled;
+        setIsScrolledDown(scrolled);
+      }
+      handleScroll(event);
+      pull.onScroll(event);
+    },
+    [handleScroll, pull]
+  );
+
   const renderItem = useCallback(
     ({ item, index }: { index: number; item: ExploreItem }) => {
       if (activeTab === "gusts") {
@@ -588,23 +643,32 @@ export function ExploreScreen() {
     [activeTab, deferredSearch, handleFollow, router, viewerId]
   );
 
+  const showPill =
+    newItems.length > 0 &&
+    activeTab !== "gusts" &&
+    activeTab !== "people" &&
+    !deferredSearch;
+
   const header = (
     <View>
       <MobileHeader user={mobileHeaderUser} />
       <FeedTabs active={activeTab} onChange={selectTab} tabs={TAB_DEFS} />
-      {newItems.length > 0 ? (
-        <NewContentPill
-          authors={newItemAuthors}
-          count={newItems.length}
-          onPress={showNewItems}
-        />
-      ) : null}
       {activeTab === "for-you" || activeTab === "trending" ? (
         <ExplorePostSearch
           onSearch={handleSearch}
           search={search}
           tab={activeTab}
         />
+      ) : null}
+      {showPill && !isScrolledDown ? (
+        <View style={styles.pillRow}>
+          <NewContentPill
+            authors={newItemAuthors}
+            count={newItems.length}
+            floating={false}
+            onPress={showNewItems}
+          />
+        </View>
       ) : null}
       {activeTab === "people" ? (
         <ExplorePeopleHeader
@@ -748,62 +812,89 @@ export function ExploreScreen() {
       style={[styles.root, { backgroundColor: theme.containerBg }]}
       {...panResponder.panHandlers}
     >
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: showGuestBar ? 176 : 96 },
-        ]}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        onScroll={handleScroll}
-        refreshControl={
-          <RefreshControl
-            onRefresh={refresh}
-            refreshing={refreshing}
-            tintColor="#f97316"
-          />
-        }
-        scrollEventThrottle={150}
-        showsVerticalScrollIndicator={false}
-      >
-        {header}
-        {empty || (
+      <GestureDetector gesture={pull.gesture}>
+        <View style={styles.listWrap}>
           <Animated.View
-            style={{
-              opacity: opacityAnim,
-              transform: [{ translateX: slideAnim }],
-            }}
+            style={[
+              styles.listShift,
+              { transform: [{ translateY: pull.pullShift }] },
+            ]}
           >
-            {activeTab === "people" ? (
-              <View style={styles.peopleList}>
-                {items.map((item, index) => (
-                  <View key={itemKey(item)}>{renderItem({ index, item })}</View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.masonryRow}>
-                <View style={styles.masonryColumn}>
-                  {leftItems.map(({ index, item }) => (
-                    <View key={itemKey(item)}>
-                      {renderItem({ index, item })}
-                    </View>
-                  ))}
-                </View>
-                <View style={styles.masonryColumn}>
-                  {rightItems.map(({ index, item }) => (
-                    <View key={itemKey(item)}>
-                      {renderItem({ index, item })}
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
+            <GestureDetector gesture={pull.nativeScrollGesture}>
+              <ScrollView
+                contentContainerStyle={[
+                  styles.content,
+                  { paddingBottom: showGuestBar ? 176 : 96 },
+                ]}
+                contentInsetAdjustmentBehavior="automatic"
+                keyboardShouldPersistTaps="handled"
+                onScroll={handleContentScroll}
+                onScrollEndDrag={() => pull.onScrollEndDrag()}
+                ref={scrollViewRef}
+                scrollEventThrottle={150}
+                showsVerticalScrollIndicator={false}
+              >
+                {header}
+                {empty || (
+                  <Animated.View
+                    style={{
+                      opacity: opacityAnim,
+                      transform: [{ translateX: slideAnim }],
+                    }}
+                  >
+                    {activeTab === "people" ? (
+                      <View style={styles.peopleList}>
+                        {items.map((item, index) => (
+                          <View key={itemKey(item)}>
+                            {renderItem({ index, item })}
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.masonryRow}>
+                        <View style={styles.masonryColumn}>
+                          {leftItems.map(({ index, item }) => (
+                            <View key={itemKey(item)}>
+                              {renderItem({ index, item })}
+                            </View>
+                          ))}
+                        </View>
+                        <View style={styles.masonryColumn}>
+                          {rightItems.map(({ index, item }) => (
+                            <View key={itemKey(item)}>
+                              {renderItem({ index, item })}
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </Animated.View>
+                )}
+                {loadingMore ? (
+                  <ActivityIndicator
+                    color="#f97316"
+                    style={styles.footerLoader}
+                  />
+                ) : null}
+              </ScrollView>
+            </GestureDetector>
           </Animated.View>
-        )}
-        {loadingMore ? (
-          <ActivityIndicator color="#f97316" style={styles.footerLoader} />
-        ) : null}
-      </ScrollView>
+          {pull.loader}
+          {showPill && isScrolledDown ? (
+            <View
+              pointerEvents="box-none"
+              style={[styles.floatingPillWrap, { top: insets.top + 8 }]}
+            >
+              <NewContentPill
+                authors={newItemAuthors}
+                count={newItems.length}
+                floating={false}
+                onPress={showNewItems}
+              />
+            </View>
+          ) : null}
+        </View>
+      </GestureDetector>
       {showGuestBar ? (
         <View
           pointerEvents="box-none"
@@ -1219,6 +1310,13 @@ const styles = StyleSheet.create({
   emptyTitle: { fontFamily: "SofiaProMed", fontSize: 15, textAlign: "center" },
   errorState: { paddingHorizontal: 16, paddingVertical: 32 },
   errorText: { fontFamily: "SofiaProReg", fontSize: 14, textAlign: "center" },
+  floatingPillWrap: {
+    alignItems: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 40,
+  },
   footerLoader: { marginVertical: 20 },
   gustAuthorCopy: { flex: 1, minWidth: 0 },
   gustAuthorName: {
@@ -1296,6 +1394,16 @@ const styles = StyleSheet.create({
     fontSize: 9,
     marginTop: 1,
   },
+  // The pull shifts this view, so the scroll needs to be allowed to fill it
+  // and the wrapper needs a positioning context for the absolutely-placed
+  // loader.
+  listShift: {
+    flex: 1,
+  },
+  listWrap: {
+    flex: 1,
+    position: "relative",
+  },
   loadingState: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1331,6 +1439,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
+    // Web spaces this row off the first card with `mb-3` on the header
+    // wrapper. The list below has no top padding of its own, so without this
+    // the heading sits flush against the first card.
+    marginBottom: 12,
   },
   peopleHeadingText: { fontFamily: "SofiaProMed", fontSize: 14 },
   peopleList: {
@@ -1352,6 +1464,12 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProReg",
     fontSize: 13,
     minHeight: 38,
+  },
+  pillRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    width: "100%",
   },
   railHeading: {
     alignItems: "center",
