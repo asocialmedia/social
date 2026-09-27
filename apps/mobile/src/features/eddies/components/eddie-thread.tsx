@@ -392,7 +392,7 @@ function EddieRow({
                 onRequireLogin={() => handlers.onRequireLogin()}
                 postId={postId}
                 userVote={comment.votes?.[0]?.value ?? 0}
-                viewerLoggedIn={Boolean(viewerId)}
+                viewerId={viewerId ?? null}
               />
               <Pressable
                 accessibilityLabel="Reply to eddie"

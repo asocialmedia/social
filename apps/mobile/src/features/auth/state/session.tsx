@@ -28,6 +28,8 @@ import {
   signInWithGoogleNative,
 } from "@/features/auth/lib/google-native";
 import { useInstall } from "@/features/auth/state/install";
+import { engagementStore } from "@/features/feed/lib/engagement-store";
+import { feedCache } from "@/features/feed/state/feed-store";
 import { sleep } from "@/features/media-upload/lib/retry";
 import { unregisterPushNotifications } from "@/features/notifications/lib/push";
 import { supportsPasskeyOrigin } from "@/lib/api-base";
@@ -331,6 +333,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       logError("auth.sign_out_failed", error);
     }
+    // Per-viewer state (own votes, own bookmarks) must not survive the
+    // account, or the next sign-in would briefly render the previous
+    // viewer's highlights.
+    engagementStore.clear();
+    feedCache.clear();
     router.replace("/(auth)/login");
   }, [router]);
 

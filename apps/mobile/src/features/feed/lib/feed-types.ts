@@ -81,9 +81,11 @@ export interface FeedCommunity {
 
 export interface FeedParentPost {
   attachments?: FeedMedia[];
+  community?: FeedCommunity | null;
   content?: string | null;
   createdAt: string;
   embeds?: string | null;
+  id?: string;
   isGust?: boolean;
   moderated?: boolean;
   user?: FeedUser;

@@ -198,7 +198,7 @@ export function HashtagScreen() {
             }}
             onRequireLogin={requireLogin}
             post={item}
-            viewerLoggedIn={Boolean(user)}
+            viewerId={user?.id ?? null}
           />
         )}
         showsVerticalScrollIndicator={false}

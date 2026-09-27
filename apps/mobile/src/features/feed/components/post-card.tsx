@@ -15,6 +15,7 @@ import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
 import {
@@ -30,6 +31,7 @@ import {
 } from "../../home/components/bio-content";
 import { resolveAvatarWithFallback } from "../../home/components/profile-utils";
 import { UserBadge } from "../../home/components/user-badge";
+import { getPostRailColor } from "../lib/feed-rail";
 import type { FeedPost } from "../lib/feed-types";
 import {
   extractInlineMeta,
@@ -70,23 +72,36 @@ function CommunityAttribution({
   reason: boolean;
   slug: string;
 }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
+  const router = useRouter();
+  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
   return (
-    <View style={styles.attribution}>
+    <Pressable
+      accessibilityLabel={`Community a/${slug}`}
+      accessibilityRole="link"
+      onPress={(event) => {
+        event.stopPropagation();
+        router.push({ params: { slug }, pathname: "/a/[slug]" });
+      }}
+      style={styles.attribution}
+    >
       <View
-        style={[
-          styles.attributionBar,
-          { backgroundColor: accentColor ?? "#ff9500" },
-        ]}
+        style={[styles.attributionBar, { backgroundColor: resolvedColor }]}
       />
       <Text
         numberOfLines={1}
         style={[styles.attributionText, { color: theme.dividerText }]}
       >
-        a/{slug}
-        {reason ? ` · Trending in a/${slug}` : ""}
+        <Text style={{ color: theme.inputText, fontFamily: "SofiaProMed" }}>
+          a/{slug}
+        </Text>
+        {reason ? (
+          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+            {" · "}Trending in a/{slug}
+          </Text>
+        ) : null}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -171,7 +186,6 @@ export function PostCard({
     apiBase,
     authorSeed
   );
-  const viewerLoggedIn = Boolean(viewerId);
 
   const requireLogin = () => {
     router.push("/(auth)/login");
@@ -221,6 +235,7 @@ export function PostCard({
   const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
   const commentCount = post._count?.comments ?? 0;
   const responseCount = post._count?.responses ?? 0;
+  const railColor = getPostRailColor(post, isDark);
 
   return (
     <View
@@ -232,21 +247,27 @@ export function PostCard({
         },
       ]}
     >
+      {railColor ? (
+        <View
+          pointerEvents="none"
+          style={[styles.leftRail, { backgroundColor: railColor }]}
+        />
+      ) : null}
       <Pressable
         accessibilityLabel={`Open post by ${username}`}
         accessibilityRole="link"
         onPress={openDetail}
       >
+        {!hasThreadParent && post.parentPostId ? (
+          <ResponseParentRow post={post} />
+        ) : null}
+
         {post.community && showCommunity ? (
           <CommunityAttribution
             accentColor={post.community.accentColor}
             reason={showCommunityReason}
             slug={post.community.slug}
           />
-        ) : null}
-
-        {!hasThreadParent && post.parentPostId ? (
-          <ResponseParentRow post={post} />
         ) : null}
 
         <View style={styles.mainRow}>
@@ -440,7 +461,7 @@ export function PostCard({
                 onRequireLogin={requireLogin}
                 postId={post.id}
                 userVote={getUserVote(post)}
-                viewerLoggedIn={viewerLoggedIn}
+                viewerId={viewerId ?? null}
               />
               <CommentButton
                 count={commentCount}
@@ -454,7 +475,7 @@ export function PostCard({
                   initialBookmarked={isBookmarkedByUser(post, viewerId)}
                   onRequireLogin={requireLogin}
                   postId={post.id}
-                  viewerLoggedIn={viewerLoggedIn}
+                  viewerId={viewerId ?? null}
                 />
               </View>
             </View>
@@ -543,6 +564,7 @@ const styles = StyleSheet.create({
   },
   card: {
     paddingHorizontal: 16,
+    position: "relative",
   },
   content: {
     flex: 1,
@@ -579,6 +601,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "space-between",
+  },
+  leftRail: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    top: 0,
+    width: 2,
+    zIndex: 10,
   },
   mainRow: {
     alignItems: "flex-start",

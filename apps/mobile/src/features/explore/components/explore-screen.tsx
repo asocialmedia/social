@@ -560,7 +560,7 @@ export function ExploreScreen() {
             }
             onRequireLogin={() => router.push("/(auth)/login")}
             post={item.post}
-            viewerLoggedIn={Boolean(viewerId)}
+            viewerId={viewerId ?? null}
           />
         );
       }

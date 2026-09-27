@@ -1,10 +1,10 @@
 // Quoted-content cards for the feed: the response parent row, the Hacker
 // News story card, and the community share card. Ports of web's
 // ResponseParentRow, HNStoryCard and CommunityShareCard (post-card.tsx).
-// Navigation targets have no mobile screens yet, so rows are static.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import {
   ArrowUpRight,
   ImageOff,
@@ -14,15 +14,16 @@ import {
   User,
 } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { GestureResponderEvent } from "react-native";
 
+import { UserAvatar } from "@/components/avatar/user-avatar";
+import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 import { BioContent } from "../../home/components/bio-content";
-import {
-  resolveProfileImageUrl,
-  safeLinkUrl,
-} from "../../home/components/profile-utils";
+import { safeLinkUrl } from "../../home/components/profile-utils";
 import { formatRelativeDate } from "../lib/feed-types";
 import type { FeedPost } from "../lib/feed-types";
 import { mediaGridImageUrl } from "../lib/media-url";
@@ -44,21 +45,38 @@ const HN_MARK_SHADOWS =
   "inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 1px 2px rgba(154, 52, 18, 0.3)";
 
 export function ResponseParentRow({ post }: { post: FeedPost }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
+  const router = useRouter();
   const apiBase = getApiBaseUrl();
   const parent = post.parentPost;
 
   if (post.parentPostId && !parent) {
     return (
-      <View style={styles.tombstone}>
-        <View
-          style={[styles.tombstoneIcon, { backgroundColor: theme.dividerLine }]}
-        >
-          <ImageOff color={theme.dividerText} size={18} />
+      <View style={styles.parentRow}>
+        <View style={styles.parentRail}>
+          <View
+            style={[
+              styles.parentRailLine,
+              { backgroundColor: theme.cardBorder },
+            ]}
+          />
+          <View
+            style={[
+              styles.tombstoneIcon,
+              {
+                backgroundColor: isDark ? "#232323" : "#f1f3f5",
+                borderColor: theme.cardBorder,
+              },
+            ]}
+          >
+            <ImageOff color={theme.dividerText} size={16} />
+          </View>
         </View>
-        <Text style={[styles.tombstoneText, { color: theme.dividerText }]}>
-          This post is unavailable.
-        </Text>
+        <View style={styles.tombstoneBody}>
+          <Text style={[styles.tombstoneText, { color: theme.dividerText }]}>
+            This post is unavailable
+          </Text>
+        </View>
       </View>
     );
   }
@@ -66,46 +84,112 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
     return null;
   }
   const name = parent.user?.displayName || parent.user?.username || "unknown";
-  const avatarUri = parent.user?.avatarUrl
-    ? resolveProfileImageUrl(parent.user.avatarUrl, apiBase)
-    : null;
+  const username = parent.user?.username;
   const firstMedia = parent.attachments?.[0];
+  const parentPostId = parent.id || post.parentPostId;
+
+  const openParentPost = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    if (!parentPostId) {
+      return;
+    }
+    const shortId =
+      parentPostId.length > 8 ? parentPostId.slice(0, 8) : parentPostId;
+    router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+  };
+
+  const openAuthor = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    if (!username) {
+      return;
+    }
+    router.push({
+      params: { username },
+      pathname: "/users/[username]",
+    });
+  };
+
   return (
     <View style={styles.parentRow}>
       <View style={styles.parentRail}>
         <View
           style={[styles.parentRailLine, { backgroundColor: theme.cardBorder }]}
         />
-        {avatarUri ? (
-          <Image
-            contentFit="cover"
-            source={{ uri: avatarUri }}
-            style={styles.parentAvatar}
+        <Pressable
+          accessibilityLabel={`Open ${name}'s profile`}
+          accessibilityRole="link"
+          disabled={!username}
+          onPress={openAuthor}
+          style={styles.parentAvatarPressable}
+        >
+          <UserAvatar
+            size={36}
+            url={parent.user?.avatarUrl}
+            userId={parent.user?.id}
+            username={parent.user?.username}
           />
-        ) : null}
+        </Pressable>
       </View>
-      <View style={styles.parentBody}>
+      <Pressable
+        accessibilityLabel={`Parent post by ${name}`}
+        accessibilityRole="button"
+        onPress={openParentPost}
+        style={styles.parentBody}
+      >
         <View style={styles.parentHead}>
-          <Text
-            numberOfLines={1}
-            style={[styles.parentName, { color: theme.inputText }]}
+          <Pressable
+            accessibilityLabel={`Open ${name}'s profile`}
+            accessibilityRole="link"
+            disabled={!username}
+            onPress={openAuthor}
+            style={styles.parentNamePressable}
           >
-            {name}
-          </Text>
-          <Text style={[styles.parentMeta, { color: theme.dividerText }]}>
-            @{parent.user?.username ?? "unknown"}
-          </Text>
+            <Text
+              numberOfLines={1}
+              style={[styles.parentName, { color: theme.inputText }]}
+            >
+              {name}
+            </Text>
+          </Pressable>
+          <UserBadge
+            badge={parent.user?.badge}
+            badges={parent.user?.badges}
+            communityRoles={parent.user?.communityMemberships}
+          />
+          <Pressable
+            accessibilityLabel={`Open @${username}'s profile`}
+            accessibilityRole="link"
+            disabled={!username}
+            onPress={openAuthor}
+            style={styles.parentHandlePressable}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.parentMeta, { color: theme.dividerText }]}
+            >
+              @{username ?? "unknown"}
+            </Text>
+          </Pressable>
           {parent.isGust ? (
             <View style={styles.gustChip}>
               <Text style={styles.gustText}>Gust</Text>
             </View>
           ) : null}
           <Text style={[styles.parentMeta, { color: theme.dividerText }]}>
-            · {formatRelativeDate(parent.createdAt)}
+            ·
+          </Text>
+          <Text style={[styles.parentMeta, { color: theme.dividerText }]}>
+            {formatRelativeDate(parent.createdAt)}
           </Text>
         </View>
         {parent.content ? (
-          <BioContent apiBase={apiBase} bio={parent.content} />
+          <View style={styles.parentContent}>
+            <BioContent
+              apiBase={apiBase}
+              bio={parent.content}
+              clampLength={400}
+            />
+          </View>
         ) : null}
         {firstMedia && firstMedia.type !== "AUDIO" ? (
           <Image
@@ -114,7 +198,12 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
             style={styles.parentThumb}
           />
         ) : null}
-      </View>
+        {!parent.content && !firstMedia ? (
+          <Text style={[styles.parentEmpty, { color: theme.dividerText }]}>
+            Post
+          </Text>
+        ) : null}
+      </Pressable>
     </View>
   );
 }
@@ -337,35 +426,59 @@ export function HNStoryCard({ post }: { post: FeedPost }) {
 }
 
 export function CommunityShareCard({ post }: { post: FeedPost }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
+  const router = useRouter();
   const share = post.communityShare;
-  const community = share?.community;
-  if (!share || !community) {
+  const shareCommunity = share?.community;
+  if (!share || !shareCommunity) {
     return null;
   }
+  const communitySlug = shareCommunity.slug || post.community?.slug || "";
+  const communityName =
+    post.community?.name ?? shareCommunity.name ?? communitySlug;
+  const accentKey = post.community?.accentColor ?? shareCommunity.accentColor;
+  const accentColor = resolveCommunityAccentColor(accentKey, isDark);
+
+  const openShare = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    if (share.sourcePostId) {
+      const shortId =
+        share.sourcePostId.length > 8
+          ? share.sourcePostId.slice(0, 8)
+          : share.sourcePostId;
+      router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+    } else if (communitySlug) {
+      router.push({ params: { slug: communitySlug }, pathname: "/a/[slug]" });
+    }
+  };
+
   return (
-    <View
+    <Pressable
+      accessibilityLabel={`Shared from a/${communitySlug}`}
+      accessibilityRole="button"
+      onPress={openShare}
       style={[
         styles.shareCard,
         { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
       ]}
     >
-      <View
-        style={[
-          styles.shareBar,
-          { backgroundColor: community.accentColor ?? "#ff9500" },
-        ]}
-      />
+      <View style={[styles.shareBar, { backgroundColor: accentColor }]} />
       <View style={styles.shareBody}>
-        <Text style={[styles.shareName, { color: theme.inputText }]}>
-          {community.name}
+        <Text
+          numberOfLines={1}
+          style={[styles.shareName, { color: theme.inputText }]}
+        >
+          {communityName}
         </Text>
-        <Text style={[styles.shareSub, { color: theme.dividerText }]}>
-          Shared from a/{community.slug}
+        <Text
+          numberOfLines={1}
+          style={[styles.shareSub, { color: theme.dividerText }]}
+        >
+          Shared from a/{communitySlug}
         </Text>
       </View>
       <ArrowUpRight color={theme.dividerText} size={16} />
-    </View>
+    </Pressable>
   );
 }
 
@@ -497,7 +610,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  parentAvatar: {
+  parentAvatarPressable: {
     borderRadius: 12,
     height: 36,
     width: 36,
@@ -505,6 +618,20 @@ const styles = StyleSheet.create({
   },
   parentBody: {
     flex: 1,
+    minWidth: 0,
+  },
+  parentContent: {
+    marginTop: 4,
+  },
+  parentEmpty: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    fontStyle: "italic",
+    fontWeight: "normal",
+    marginTop: 4,
+  },
+  parentHandlePressable: {
+    flexShrink: 1,
     minWidth: 0,
   },
   parentHead: {
@@ -523,18 +650,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "normal",
   },
+  parentNamePressable: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
   parentRail: {
     alignItems: "center",
+    alignSelf: "stretch",
     position: "relative",
     width: 36,
   },
   parentRailLine: {
-    bottom: -12,
+    bottom: -14,
     left: "50%",
     marginLeft: -1,
     position: "absolute",
-    top: -4,
+    top: 18,
     width: 2,
+    zIndex: 0,
   },
   parentRow: {
     flexDirection: "row",
@@ -576,19 +709,21 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProReg",
     fontSize: 12,
     fontWeight: "normal",
+    marginTop: 1,
   },
-  tombstone: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 12,
+  tombstoneBody: {
+    flex: 1,
+    justifyContent: "center",
+    minWidth: 0,
   },
   tombstoneIcon: {
     alignItems: "center",
     borderRadius: 12,
+    borderWidth: 1,
     height: 36,
     justifyContent: "center",
     width: 36,
+    zIndex: 1,
   },
   tombstoneText: {
     fontFamily: "SofiaProReg",

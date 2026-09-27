@@ -60,12 +60,12 @@ export function ExplorePostCard({
   onPress,
   onRequireLogin,
   post,
-  viewerLoggedIn,
+  viewerId,
 }: {
   onPress: () => void;
   onRequireLogin: () => void;
   post: FeedPost;
-  viewerLoggedIn: boolean;
+  viewerId: string | null;
 }) {
   const { isDark, theme } = useAppTheme();
   const apiBase = getApiBaseUrl();
@@ -176,7 +176,7 @@ export function ExplorePostCard({
               onRequireLogin={onRequireLogin}
               postId={post.id}
               userVote={post.vote?.[0]?.value ?? 0}
-              viewerLoggedIn={viewerLoggedIn}
+              viewerId={viewerId}
             />
           </View>
         </>

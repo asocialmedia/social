@@ -8,17 +8,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
-import {
-  fetchBookmarkInfo,
-  fetchVoteInfo,
-  submitBookmark,
-  submitVote,
-} from "@/features/feed/lib/feed-api";
+import { engagementStore } from "@/features/feed/lib/engagement-store";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import {
   getUserVote,
   isBookmarkedByUser,
 } from "@/features/feed/lib/feed-types";
+import { usePostEngagement } from "@/features/feed/state/use-post-engagement";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
@@ -27,20 +23,20 @@ import {
   gustVoteToast,
   planGustVote,
 } from "../lib/gust-vote";
-import type { GustVoteState } from "../lib/gust-vote";
 import { setFollowing as setFollowOnServer } from "../lib/gusts-api";
 
 async function context() {
   return { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() };
 }
 
-// Reconciliation reads are best-effort: a network failure keeps the
-// payload's snapshot.
-async function readSafely<T>(task: () => Promise<T>): Promise<T | null> {
+// A re-read of one post's viewer state, straight through the shared store.
+// The store collapses this to nothing when the feed already seeded the post
+// inside the stale window, so calling it on activation is cheap.
+async function refreshEngagement(postId: string): Promise<void> {
   try {
-    return await task();
+    await engagementStore.refresh(postId, await context());
   } catch {
-    return null;
+    // Best effort: the payload's snapshot stays on screen.
   }
 }
 
@@ -58,40 +54,33 @@ export function useGustVote(
   active: boolean
 ) {
   const router = useRouter();
-  const [state, setState] = useState<GustVoteState>(() => ({
+  // The same store the feed cards use, so amplifying a gust in the reel and
+  // the same post in the feed can never disagree. The payload already carries
+  // the viewer's vote, so this seeds it rather than fetching it.
+  const { engagement, vote } = usePostEngagement({
     aura: post.aura ?? 0,
+    postId: post.id,
     userVote: getUserVote(post),
-  }));
-  const stateRef = useRef(state);
-  const generationRef = useRef(0);
-  const reconciledRef = useRef(false);
+    viewerId,
+  });
+  const stateRef = useRef(engagement);
 
   useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+    stateRef.current = engagement;
+  }, [engagement]);
 
-  // Reconcile with the server once the gust is actually watched (web's
-  // vote-info query), so off-screen cards cost no requests.
+  // A genuine re-read, once the gust is actually watched (web's vote-info
+  // query), so off-screen cards cost no requests. The store's stale window
+  // collapses repeats for a post the feed already seeded.
   useEffect(() => {
-    if (!viewerId || !active || reconciledRef.current) {
+    if (!viewerId || !active) {
       return;
     }
-    reconciledRef.current = true;
-    let cancelled = false;
-    void (async () => {
-      const info = await readSafely(async () =>
-        fetchVoteInfo(post.id, await context())
-      );
-      if (!cancelled && info && generationRef.current === 0) {
-        setState(info);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void refreshEngagement(post.id);
+    // Runs when a gust becomes the active tile; post.id re-keys on reuse.
   }, [active, post.id, viewerId]);
 
-  const run = (value: 1 | -1, forced: boolean) => {
+  const run = async (value: 1 | -1, forced: boolean) => {
     if (!viewerId) {
       router.push("/(auth)/login");
       return;
@@ -101,52 +90,35 @@ export function useGustVote(
     if (plan.noop) {
       return;
     }
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    stateRef.current = plan.next;
-    setState(plan.next);
-    void (async () => {
-      try {
-        const info = await submitVote(
-          post.id,
-          plan.target,
-          plan.toggleOff,
-          await context()
-        );
-        logInfo("gusts.voted", { forced, target: plan.target });
-        if (generationRef.current !== generation) {
-          return;
-        }
-        stateRef.current = info;
-        setState(info);
-        const copy = forced
-          ? null
-          : gustVoteToast(plan, previous.userVote, authorName(post));
-        if (copy) {
-          toast(copy);
-        }
-      } catch (error) {
-        logWarn("gusts.vote_failed", { forced, reason: reason(error) });
-        if (generationRef.current !== generation) {
-          return;
-        }
-        stateRef.current = previous;
-        setState(previous);
-        toast({
-          description: GUST_VOTE_ERROR_COPY,
-          title: "Vote Failed",
-          variant: "destructive",
-        });
+    try {
+      await vote(value);
+      logInfo("gusts.voted", { forced, target: plan.target });
+      const copy = forced
+        ? null
+        : gustVoteToast(plan, previous.userVote, authorName(post));
+      if (copy) {
+        toast(copy);
       }
-    })();
+    } catch (error) {
+      logWarn("gusts.vote_failed", { forced, reason: reason(error) });
+      toast({
+        description: GUST_VOTE_ERROR_COPY,
+        title: "Vote Failed",
+        variant: "destructive",
+      });
+    }
   };
 
   return {
     // Double tap: a forced, silent +1 that never un-amplifies.
-    amplify: () => run(1, true),
-    aura: state.aura,
-    toggleVote: (value: 1 | -1) => run(value, false),
-    userVote: state.userVote,
+    amplify: () => {
+      void run(1, true);
+    },
+    aura: engagement.aura,
+    toggleVote: (value: 1 | -1) => {
+      void run(value, false);
+    },
+    userVote: engagement.userVote,
   };
 }
 
@@ -156,71 +128,52 @@ export function useGustBookmark(
   active: boolean
 ) {
   const router = useRouter();
-  const [bookmarked, setBookmarked] = useState(() =>
-    isBookmarkedByUser(post, viewerId ?? undefined)
-  );
-  const generationRef = useRef(0);
-  const reconciledRef = useRef(false);
+  // Shares the store with the feed card, so bookmarking in the reel shows up
+  // in the feed without either side re-reading.
+  const { engagement, refresh, toggleBookmark } = usePostEngagement({
+    initialBookmarked: isBookmarkedByUser(post, viewerId ?? undefined),
+    postId: post.id,
+    viewerId,
+  });
+  const bookmarked = engagement.isBookmarkedByUser;
 
   useEffect(() => {
-    if (!viewerId || !active || reconciledRef.current) {
+    if (!viewerId || !active) {
       return;
     }
-    reconciledRef.current = true;
-    let cancelled = false;
-    void (async () => {
-      const info = await readSafely(async () =>
-        fetchBookmarkInfo(post.id, await context())
-      );
-      if (!cancelled && info !== null && generationRef.current === 0) {
-        setBookmarked(info);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [active, post.id, viewerId]);
+    void refresh();
+    // Runs when a gust becomes the active tile. `refresh` already closes over
+    // post.id, so it re-keys on reuse without listing it again.
+  }, [active, refresh, viewerId]);
 
-  const toggle = () => {
+  const toggle = async () => {
     if (!viewerId) {
       router.push("/(auth)/login");
       return;
     }
     const next = !bookmarked;
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    setBookmarked(next);
-    void (async () => {
-      try {
-        await submitBookmark(post.id, next, await context());
-        logInfo("gusts.bookmarked", { saved: next });
-        if (generationRef.current !== generation) {
-          return;
-        }
-        toast(
-          next
-            ? {
-                description: "Post saved, find it anytime in your bookmarks",
-                title: "Bookmarked",
-              }
-            : {
-                description: "Removed from your bookmarks",
-                title: "Bookmark Removed",
-              }
-        );
-      } catch (error) {
-        logWarn("gusts.bookmark_failed", { reason: reason(error) });
-        if (generationRef.current !== generation) {
-          return;
-        }
-        setBookmarked(!next);
-        toast({
-          description: "That didn't go through, give it another try?",
-          title: "Bookmark Failed",
-          variant: "destructive",
-        });
-      }
-    })();
+    try {
+      await toggleBookmark();
+      logInfo("gusts.bookmarked", { saved: next });
+      toast(
+        next
+          ? {
+              description: "Post saved, find it anytime in your bookmarks",
+              title: "Bookmarked",
+            }
+          : {
+              description: "Removed from your bookmarks",
+              title: "Bookmark Removed",
+            }
+      );
+    } catch (error) {
+      logWarn("gusts.bookmark_failed", { reason: reason(error) });
+      toast({
+        description: "That didn't go through, give it another try?",
+        title: "Bookmark Failed",
+        variant: "destructive",
+      });
+    }
   };
 
   return { bookmarked, toggle };

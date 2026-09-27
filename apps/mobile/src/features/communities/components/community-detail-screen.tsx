@@ -363,7 +363,7 @@ export function CommunityDetailScreen() {
             }
             onRequireLogin={() => router.push("/(auth)/login")}
             post={item}
-            viewerLoggedIn={Boolean(user)}
+            viewerId={user?.id ?? null}
           />
         )}
         showsVerticalScrollIndicator={false}

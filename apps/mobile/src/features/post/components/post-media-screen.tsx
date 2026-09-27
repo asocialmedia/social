@@ -610,7 +610,6 @@ export function PostMediaScreen({
     [post]
   );
   const currentMedia = media[currentIndex];
-  const viewerLoggedIn = Boolean(viewerId);
 
   const requireLogin = useCallback(() => {
     router.push("/(auth)/login");
@@ -969,7 +968,7 @@ export function PostMediaScreen({
                   onRequireLogin={requireLogin}
                   postId={post.id}
                   userVote={getUserVote(post)}
-                  viewerLoggedIn={viewerLoggedIn}
+                  viewerId={viewerId ?? null}
                 />
               </View>
               <View style={styles.actionsRight}>
@@ -985,7 +984,7 @@ export function PostMediaScreen({
                   initialBookmarked={isBookmarkedByUser(post, viewerId)}
                   onRequireLogin={requireLogin}
                   postId={post.id}
-                  viewerLoggedIn={viewerLoggedIn}
+                  viewerId={viewerId ?? null}
                 />
               </View>
             </View>

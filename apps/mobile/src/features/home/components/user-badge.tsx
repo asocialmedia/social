@@ -16,6 +16,7 @@ import modRoleBadge from "@/assets/images/roles/mod.png";
 import ownerRoleBadge from "@/assets/images/roles/owner.png";
 import shitposterBadge from "@/assets/images/roles/shitposter.png";
 import trendingBadge from "@/assets/images/roles/trending.png";
+import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { logWarn } from "@/lib/telemetry";
 import {
   PROFILE_STATS_SHADOWS,
@@ -68,16 +69,17 @@ function CommunityMark({
   avatarUrl?: string | null;
   slug: string;
 }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
   const [failed, setFailed] = useState(false);
   const uri = avatarUrl ? resolveProfileImageUrl(avatarUrl, apiBase) : null;
+  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
   return (
     <View style={styles.communityRow}>
       <View
         style={[
           styles.communityAvatar,
           {
-            backgroundColor: accentColor ?? theme.dividerLine,
+            backgroundColor: resolvedColor,
           },
         ]}
       >
