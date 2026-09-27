@@ -12,20 +12,22 @@ import {
 import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import bannerAsm from "@/assets/images/banner-asm.png";
 import noSearchImage from "@/assets/images/nosearch.png";
 import zephImage from "@/assets/images/zeph.png";
+import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -171,6 +173,15 @@ export function CommunitiesScreen() {
     }
     setRefreshing(false);
   };
+
+  // The same 3D pull loader the feed uses, not the stock RefreshControl, so a
+  // refresh here reads identically to a refresh there.
+  const pull = usePullToRefresh({
+    failed: status === "error",
+    onRefresh: refresh,
+    refreshing,
+    updatedMessage: "Communities updated",
+  });
 
   const loadMore = async () => {
     if (loadingMore || !page?.nextCursor) {
@@ -436,42 +447,51 @@ export function CommunitiesScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <FlatList
-        {...LIST_VIRTUALIZATION_PROPS}
-        ListEmptyComponent={empty}
-        ListHeaderComponent={header}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: showGuestBar ? 176 : 96 },
-        ]}
-        contentInsetAdjustmentBehavior="automatic"
-        data={communities}
-        keyExtractor={(community) => community.id}
-        ListFooterComponent={
-          loadingMore ? (
-            <ActivityIndicator color="#f97316" style={styles.footer} />
-          ) : null
-        }
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.6}
-        refreshControl={
-          <RefreshControl
-            onRefresh={refresh}
-            refreshing={refreshing}
-            tintColor="#f97316"
-          />
-        }
-        renderItem={({ item }) => (
-          <View style={styles.cardWrap}>
-            <CommunityCard
-              aura={page?.auras[item.id] ?? 0}
-              community={item}
-              onPress={() => openCommunity(item)}
-            />
-          </View>
-        )}
-        showsVerticalScrollIndicator={false}
-      />
+      <GestureDetector gesture={pull.gesture}>
+        <View style={styles.listWrap}>
+          <Animated.View
+            style={[
+              styles.listShift,
+              { transform: [{ translateY: pull.pullShift }] },
+            ]}
+          >
+            <GestureDetector gesture={pull.nativeScrollGesture}>
+              <FlatList
+                {...LIST_VIRTUALIZATION_PROPS}
+                ListEmptyComponent={empty}
+                ListFooterComponent={
+                  loadingMore ? (
+                    <ActivityIndicator color="#f97316" style={styles.footer} />
+                  ) : null
+                }
+                ListHeaderComponent={header}
+                contentContainerStyle={[
+                  styles.content,
+                  { paddingBottom: showGuestBar ? 176 : 96 },
+                ]}
+                contentInsetAdjustmentBehavior="automatic"
+                data={communities}
+                keyExtractor={(community) => community.id}
+                onEndReached={loadMore}
+                onEndReachedThreshold={0.6}
+                onScroll={(event) => pull.onScroll(event)}
+                onScrollEndDrag={() => pull.onScrollEndDrag()}
+                renderItem={({ item }) => (
+                  <View style={styles.cardWrap}>
+                    <CommunityCard
+                      aura={page?.auras[item.id] ?? 0}
+                      community={item}
+                      onPress={() => openCommunity(item)}
+                    />
+                  </View>
+                )}
+                showsVerticalScrollIndicator={false}
+              />
+            </GestureDetector>
+          </Animated.View>
+          {pull.loader}
+        </View>
+      </GestureDetector>
       {showGuestBar ? (
         <View
           pointerEvents="box-none"
@@ -699,6 +719,15 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     width: "100%",
+  },
+  // The pull shifts this view, so the list needs to be allowed to fill it and
+  // the wrapper needs a positioning context for the absolutely-placed loader.
+  listShift: {
+    flex: 1,
+  },
+  listWrap: {
+    flex: 1,
+    position: "relative",
   },
   loadingCard: { borderRadius: 16, height: 280 },
   loadingState: { gap: 16, padding: 32 },

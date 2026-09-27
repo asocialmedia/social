@@ -4,6 +4,7 @@
 import { Image } from "expo-image";
 import { ArrowUp } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { StyleProp, ViewStyle } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -17,16 +18,20 @@ export interface PillAuthor {
   username?: string | null;
 }
 
-interface NewContentPillProps {
+export interface NewContentPillProps {
   authors: PillAuthor[];
   count: number;
+  floating?: boolean;
   onPress: () => void;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function NewContentPill({
   authors,
   count,
+  floating = true,
   onPress,
+  style,
 }: NewContentPillProps) {
   const { isDark, theme } = useAppTheme();
   if (count <= 0) {
@@ -35,7 +40,10 @@ export function NewContentPill({
   const apiBase = getApiBaseUrl();
   const label = count === 1 ? "1 new post" : `${count} new posts`;
   return (
-    <View pointerEvents="box-none" style={styles.float}>
+    <View
+      pointerEvents="box-none"
+      style={[floating ? styles.float : styles.inline, style]}
+    >
       <Pressable
         accessibilityLabel={`Show ${label}`}
         accessibilityRole="button"
@@ -91,6 +99,10 @@ const styles = StyleSheet.create({
     right: 0,
     top: 12,
     zIndex: 5,
+  },
+  inline: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   label: {
     fontFamily: "SofiaProMed",

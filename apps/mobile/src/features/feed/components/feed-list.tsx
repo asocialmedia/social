@@ -8,22 +8,21 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { ReactElement, ReactNode, RefObject } from "react";
 import {
   Animated,
-  Easing,
   FlatList,
   PanResponder,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import type { PanResponderInstance, ViewToken } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { GestureDetector } from "react-native-gesture-handler";
 
 import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
 import notFoundImage from "@/assets/images/notfound.png";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -50,88 +49,12 @@ import type { MenuAnchor, MoreAction } from "./more-menu";
 import { NewContentPill } from "./new-content-pill";
 import type { PillAuthor } from "./new-content-pill";
 import { PostCard } from "./post-card";
-import { PULL_THRESHOLD, PullLoader } from "./pull-loader";
 import { ShareSheet } from "./share-sheet";
 import { usePostOverflow } from "./use-post-overflow";
 
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
 const scrollMemory = new Map<string, number>();
-
-// Custom pull-to-refresh on both platforms (the indicator is PullLoader). iOS
-// bounces natively, so the distance reads straight off the negative content
-// offset. Android clamps the offset at zero, so a vertical pan captured at
-// the top of the list measures the pull instead (with rubber-band
-// resistance), replacing the Material RefreshControl indicator.
-const PULL_RESISTANCE = 0.55;
-const PULL_CAPTURE_SLOP = 8;
-// Where the Android list parks while refreshing: the 44px loader chip at
-// top 12 plus breathing room.
-const PULL_PARK = 64;
-
-// Android pull, on native gestures: a JS responder loses the drag to the
-// native scroll view the moment it starts, so the pull is a gesture-handler
-// Pan running simultaneously with the list's own native scroll gesture. It
-// measures only the part of the drag made while the list sits at the very
-// top (baseline taken when the offset first reaches zero), so scrolling back
-// up and continuing into a pull works like iOS. Horizontal drags fail it and
-// stay with the tab pager. Built once per list; the handlers only read refs.
-function createPullGestures(refs: {
-  // The list's slide: follows the pull, parks under the spinner while
-  // refreshing, springs home otherwise.
-  pullShift: Animated.Value;
-  pullRef: RefObject<number>;
-  pullUpdateRef: RefObject<((distance: number) => void) | null>;
-  refreshRef: RefObject<() => void>;
-  refreshingRef: RefObject<boolean>;
-  scrollOffsetRef: RefObject<number>;
-}) {
-  let baseline: number | null = null;
-  const resetPull = () => {
-    baseline = null;
-    refs.pullRef.current = 0;
-    refs.pullUpdateRef.current?.(0);
-  };
-  const nativeScroll = Gesture.Native();
-  const pull = Gesture.Pan()
-    .enabled(Platform.OS === "android")
-    .runOnJS(true)
-    .activeOffsetY(PULL_CAPTURE_SLOP)
-    .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
-    .simultaneousWithExternalGesture(nativeScroll)
-    .onUpdate((event) => {
-      if (refs.refreshingRef.current || refs.scrollOffsetRef.current > 0) {
-        if (refs.pullRef.current > 0) {
-          resetPull();
-        }
-        return;
-      }
-      if (baseline === null) {
-        baseline = event.translationY;
-      }
-      const distance =
-        Math.max(0, event.translationY - baseline) * PULL_RESISTANCE;
-      if (Math.abs(distance - refs.pullRef.current) > 1) {
-        refs.pullRef.current = distance;
-        refs.pullUpdateRef.current?.(distance);
-        refs.pullShift.setValue(distance);
-      }
-    })
-    .onFinalize(() => {
-      const trigger =
-        !refs.refreshingRef.current && refs.pullRef.current > PULL_THRESHOLD;
-      if (trigger) {
-        refs.refreshRef.current();
-      }
-      Animated.spring(refs.pullShift, {
-        bounciness: 0,
-        toValue: trigger ? PULL_PARK : 0,
-        useNativeDriver: Platform.OS !== "web",
-      }).start();
-      resetPull();
-    });
-  return { nativeScroll, pull };
-}
 
 // Floating feed scrollbar: native port of web's FeedScrollbar. The system
 // indicator is hidden; an orange 3D thumb overlays the right edge, appears
@@ -376,17 +299,6 @@ export function FeedList({
     offset: 0,
   });
   const scrollbarUpdate = useRef<((offset: number) => void) | null>(null);
-  const pullRef = useRef(0);
-  // Pull distance writes here without re-rendering the list; PullLoader owns
-  // the progress state and registers its setter through this ref.
-  const pullUpdateRef = useRef<((distance: number) => void) | null>(null);
-  // Android pull: the list's scroll offset and the latest refresh state are
-  // read through refs, since the responder is built once.
-  const scrollOffsetRef = useRef(0);
-  const refreshingRef = useRef(false);
-  const refreshRef = useRef<() => void>(() => {
-    /* empty */
-  });
 
   // Latest viewable ids are retained so the tab can publish them when it
   // becomes enabled; the FlatList retains the first closure, so enabled is
@@ -479,28 +391,6 @@ export function FeedList({
     }
     overflow.onAction(action, morePost);
   };
-
-  useEffect(() => {
-    refreshingRef.current = status === "refreshing";
-    refreshRef.current = refresh;
-  }, [refresh, status]);
-
-  // Android pull on native gestures; see createPullGestures. The ref objects
-  // are handed over, never read, during render: only the gesture callbacks
-  // touch `.current`, on touch events.
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
-  const [pullShift] = useState(() => new Animated.Value(0));
-  // oxlint-disable-next-line react/hook-use-state, react/refs -- single stable gesture pair created once; no setter is ever needed and no ref value is read here
-  const [pullGestures] = useState(() =>
-    createPullGestures({
-      pullRef,
-      pullShift,
-      pullUpdateRef,
-      refreshRef,
-      refreshingRef,
-      scrollOffsetRef,
-    })
-  );
 
   // Restore this tab's scroll position when it (re)mounts with content.
   const memoryKey = `home:${variant}`;
@@ -600,6 +490,14 @@ export function FeedList({
     [publishVisibleIds]
   );
 
+  // Above every early return below: a hook called after one is conditional.
+  const refreshing = status === "refreshing";
+  const pull = usePullToRefresh({
+    failed: status === "error",
+    onRefresh: refresh,
+    refreshing,
+  });
+
   // Account-only tabs. For you is ranked from the viewer's own signals and
   // Following is their people, so neither means anything without an account;
   // the tab stays tappable (a guest discovers the feature) but the feed is
@@ -696,7 +594,6 @@ export function FeedList({
   ];
 
   const showLoader = status === "loading-more";
-  const refreshing = status === "refreshing";
   const showEnd = status === "success" && !hasMore && posts.length > 0;
   let footer: ReactNode = null;
   if (showLoader) {
@@ -730,12 +627,15 @@ export function FeedList({
   }
 
   return (
-    <GestureDetector gesture={pullGestures.pull}>
+    <GestureDetector gesture={pull.gesture}>
       <View style={styles.listWrap}>
         <Animated.View
-          style={[styles.listShift, { transform: [{ translateY: pullShift }] }]}
+          style={[
+            styles.listShift,
+            { transform: [{ translateY: pull.pullShift }] },
+          ]}
         >
-          <GestureDetector gesture={pullGestures.nativeScroll}>
+          <GestureDetector gesture={pull.nativeScrollGesture}>
             <FlatList
               contentContainerStyle={{
                 paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
@@ -758,32 +658,15 @@ export function FeedList({
               }}
               onScroll={(event) => {
                 const offsetY = event.nativeEvent.contentOffset.y;
-                scrollOffsetRef.current = offsetY;
                 scrollbarUpdate.current?.(offsetY);
                 if (enabledRef.current) {
                   reportFeedScroll(offsetY);
                 }
-                // iOS pull distance off the bounce (Android's comes from the pull
-                // responder). Progress stays local to PullLoader via the ref: no
-                // list re-render.
-                if (!refreshing && offsetY < 0) {
-                  const distance = -offsetY;
-                  if (Math.abs(distance - pullRef.current) > 1) {
-                    pullRef.current = distance;
-                    pullUpdateRef.current?.(distance);
-                  }
-                } else if (pullRef.current > 0) {
-                  pullRef.current = 0;
-                  pullUpdateRef.current?.(0);
-                }
+                // The pull reads the same bounce offset and keeps its progress
+                // in the loader, so none of this re-renders the list.
+                pull.onScroll(event);
               }}
-              onScrollEndDrag={() => {
-                if (!refreshing && pullRef.current > PULL_THRESHOLD) {
-                  refresh();
-                }
-                pullRef.current = 0;
-                pullUpdateRef.current?.(0);
-              }}
+              onScrollEndDrag={() => pull.onScrollEndDrag()}
               onViewableItemsChanged={handleViewableItemsChanged}
               // Android detaches list children that scroll out of the
               // viewport, which cuts a row's thread rail off where it bleeds
@@ -829,20 +712,7 @@ export function FeedList({
             />
           </GestureDetector>
         </Animated.View>
-        <PullLoader
-          failed={status === "error"}
-          onSettle={() => {
-            // The parked Android list glides home with the chip.
-            Animated.timing(pullShift, {
-              duration: 240,
-              easing: Easing.bezier(0.32, 0.72, 0, 1),
-              toValue: 0,
-              useNativeDriver: Platform.OS !== "web",
-            }).start();
-          }}
-          refreshing={refreshing}
-          registerUpdate={pullUpdateRef}
-        />
+        {pull.loader}
         <FeedScrollbar
           listRef={listRef}
           metricsRef={metricsRef}

@@ -73,12 +73,16 @@ function timing(
 
 export function PullLoader({
   failed,
+  message: updatedMessage = "Feed updated",
   onSettle,
   refreshing,
   registerUpdate,
 }: {
   // The refresh that just finished failed: the pill says so.
   failed: boolean;
+  // The pill's success text. Defaults to the feed's, since the loader was
+  // built there; other screens name their own.
+  message?: string;
   // Fired as the chip starts sliding away, so the list can glide home with
   // it.
   onSettle: () => void;
@@ -193,7 +197,7 @@ export function PullLoader({
   }, [appear, progress, refreshing]);
 
   const chip = isDark ? CHIP_DARK : CHIP_LIGHT;
-  const message = failed ? "Couldn't refresh" : "Feed updated";
+  const message = failed ? "Couldn't refresh" : updatedMessage;
   // Scale tracks the pull (70% -> 100%) and holds full size once parked.
   const scale = appear.interpolate({
     inputRange: [0, 1],
