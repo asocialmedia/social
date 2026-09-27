@@ -20,12 +20,6 @@
 // A budget that is not measured is a wish. Every number here is either a
 // measurement from the 200k fixture, or a multiple of one, and the measurement
 // is written next to it so the next person can tell whether it is still true.
-//
-// The BROWSER budgets cannot be checked by any test in this repo: there is no
-// browser automation here, and `fake-indexeddb` and the in-memory path both lack
-// the write lock and the structured-clone cost that dominate in a real browser.
-// Asserting them against either would be asserting a fiction. The procedure is
-// `docs/messages-search-browser-acceptance.md`.
 
 // ---- reference (bun test, in-memory backend) --------------------------------
 
