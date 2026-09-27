@@ -104,6 +104,47 @@ export function isMediaReferenced(
   return false;
 }
 
+// Detaches a group's media rows from staging so the unmount sweep can no longer
+// discard them, and returns the detached entries so a failed send can restore
+// them.
+//
+// This has to happen synchronously BEFORE the send is awaited. Once the server
+// has been handed a media id it can no longer tell a row backing a sent message
+// from an abandoned draft - the ids live inside the encrypted payload, so the
+// media row is never linked to a message. A discard in that window clears the
+// row's conversation link, which leaves the sender able to read it (unlinked
+// rows are owner-readable) while the peer 404s on every fetch, permanently.
+// "Discardable" therefore has to mean "the server was never asked to reference
+// this row", and only a claim made before the send can guarantee that.
+export function claimStagedMedia(
+  entries: Map<string, StagedMediaId>,
+  ids: string[]
+): Map<string, StagedMediaId> {
+  const claimed = new Map<string, StagedMediaId>();
+  for (const id of ids) {
+    const entry = entries.get(id);
+    if (entry) {
+      claimed.set(id, entry);
+    }
+    entries.delete(id);
+  }
+  return claimed;
+}
+
+// Puts a claimed group back under staging after a send that never landed, so
+// the rows stay reclaimable when the sender clears them or leaves the thread.
+// Entries claimed since (a newer draft reusing the id) are left alone.
+export function restoreStagedMedia(
+  entries: Map<string, StagedMediaId>,
+  claimed: Map<string, StagedMediaId>
+): void {
+  for (const [id, entry] of claimed) {
+    if (!entries.has(id)) {
+      entries.set(id, entry);
+    }
+  }
+}
+
 // Groups ready attachments by media kind, preserving order. A mixed batch (some
 // GIFs, some photos) becomes one album message per kind, because a single
 // encrypted media payload carries one `kind` for all of its images.

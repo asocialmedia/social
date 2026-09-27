@@ -12,11 +12,13 @@ import type {
   StagedMediaId,
 } from "./message-attachment-state";
 import {
+  claimStagedMedia,
   groupReadyAttachments,
   hasUploading,
   isMediaReferenced,
   isReadyToSend,
   kindForFile,
+  restoreStagedMedia,
   selectAcceptedFiles,
 } from "./message-attachment-state";
 
@@ -292,6 +294,30 @@ export function useMessageAttachments(conversationId: string) {
     [removeAttachments]
   );
 
+  // Takes a group out of staging before its send is attempted, so the unmount
+  // sweep above can no longer discard rows the server may already reference.
+  // Returns the detached entries for restoreAttachments if the send fails.
+  const claimAttachments = useCallback(
+    (ids: string[]): Map<string, StagedMediaId> => {
+      for (const id of ids) {
+        controllersRef.current.get(id)?.abort();
+        controllersRef.current.delete(id);
+        progressRef.current.delete(id);
+      }
+      return claimStagedMedia(mediaIdsRef.current, ids);
+    },
+    []
+  );
+
+  // Re-stages a claimed group after a send that never landed, so those rows
+  // are still reclaimed when the sender removes them or leaves the thread.
+  const restoreAttachments = useCallback(
+    (claimed: Map<string, StagedMediaId>) => {
+      restoreStagedMedia(mediaIdsRef.current, claimed);
+    },
+    []
+  );
+
   const replaceAttachmentFile = useCallback(
     (id: string, file: File) => {
       controllersRef.current.get(id)?.abort();
@@ -355,11 +381,13 @@ export function useMessageAttachments(conversationId: string) {
     addFiles,
     attachments,
     canSend: isReadyToSend(attachments),
+    claimAttachments,
     isUploading: hasUploading(attachments),
     readyGroups,
     removeAttachment,
     removeAttachments,
     replaceAttachmentFile,
+    restoreAttachments,
     retryAttachment,
   };
 }

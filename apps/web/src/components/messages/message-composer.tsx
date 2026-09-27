@@ -150,11 +150,13 @@ export function MessageComposer({
     addFiles,
     attachments,
     canSend,
+    claimAttachments,
     isUploading,
     readyGroups,
     removeAttachment,
     removeAttachments,
     replaceAttachmentFile,
+    restoreAttachments,
     retryAttachment,
   } = useMessageAttachments(conversationId);
 
@@ -363,18 +365,27 @@ export function MessageComposer({
                 }
               : {}),
           };
+          // Stop treating these rows as discardable BEFORE awaiting the send.
+          // Once the server has the media ids it cannot tell a row backing a
+          // sent message from an abandoned draft, so a discard racing this send
+          // (unmount on conversation switch, onSent's re-renders) would clear
+          // the conversation link and 404 the image for the peer for good.
+          const claimed = claimAttachments(group.attachmentIds);
           // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
           const ok = await sendPayload(payload);
           if (!ok) {
+            // Nothing referenced these rows, so re-stage them: the sender can
+            // retry, and they stay reclaimable if they leave the thread.
+            restoreAttachments(claimed);
             // Leave the failed group and any unsent ones staged and tracked so
             // the sender can retry and their media rows are still reclaimed if
             // they leave the thread. Groups already sent above stay removed.
             setSending(false);
             return;
           }
-          // Only drop groups that actually landed, and never discard their media
-          // (now referenced by sent messages). Earlier groups stay dropped so a
-          // later failure cannot cause a resend.
+          // The send landed, so the rows belong to a message now: drop the
+          // tiles without discarding. `claimed` already detached them, so this
+          // is bookkeeping only.
           removeAttachments(group.attachmentIds, { discard: false });
           first = false;
         }
@@ -411,6 +422,7 @@ export function MessageComposer({
   }, [
     attachments.length,
     canSend,
+    claimAttachments,
     editing,
     handleEditSave,
     peer,
@@ -418,6 +430,7 @@ export function MessageComposer({
     readyGroups,
     removeAttachments,
     replyTarget,
+    restoreAttachments,
     sendPayload,
     sending,
     text,

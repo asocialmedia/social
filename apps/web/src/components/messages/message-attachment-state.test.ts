@@ -7,12 +7,14 @@ import type {
   StagedMediaId,
 } from "./message-attachment-state";
 import {
+  claimStagedMedia,
   groupReadyAttachments,
   hasUploading,
   isAllowedMessageImage,
   isMediaReferenced,
   isReadyToSend,
   kindForFile,
+  restoreStagedMedia,
   selectAcceptedFiles,
 } from "./message-attachment-state";
 
@@ -194,5 +196,60 @@ describe("isMediaReferenced", () => {
       ["b", { mediaId: "m2", owned: true }]
     );
     expect(isMediaReferenced(map, "m1", new Set(["a"]))).toBe(false);
+  });
+});
+
+describe("claimStagedMedia", () => {
+  test("detaches the group so the unmount sweep cannot discard it", () => {
+    const map = entries(
+      ["a", { mediaId: "m1", owned: true }],
+      ["b", { mediaId: "m2", owned: true }]
+    );
+    const claimed = claimStagedMedia(map, ["a"]);
+    expect(map.has("a")).toBe(false);
+    expect(map.has("b")).toBe(true);
+    expect(claimed.get("a")).toEqual({ mediaId: "m1", owned: true });
+  });
+
+  test("claims a whole group, so no sent row stays discardable", () => {
+    const map = entries(
+      ["a", { mediaId: "m1", owned: true }],
+      ["b", { mediaId: "m2", owned: true }],
+      ["c", { mediaId: "m3", owned: true }]
+    );
+    claimStagedMedia(map, ["a", "b"]);
+    expect([...map.keys()]).toEqual(["c"]);
+  });
+
+  test("tolerates ids that never registered a row", () => {
+    const map = entries(["a", { mediaId: "m1", owned: true }]);
+    const claimed = claimStagedMedia(map, ["a", "missing"]);
+    expect(map.size).toBe(0);
+    expect(claimed.get("missing")).toBeUndefined();
+  });
+});
+
+describe("restoreStagedMedia", () => {
+  test("re-stages a group whose send never landed", () => {
+    const map = entries(
+      ["a", { mediaId: "m1", owned: true }],
+      ["b", { mediaId: "m2", owned: true }]
+    );
+    const claimed = claimStagedMedia(map, ["a", "b"]);
+    expect(map.size).toBe(0);
+    restoreStagedMedia(map, claimed);
+    expect(map.get("a")).toEqual({ mediaId: "m1", owned: true });
+    expect(map.get("b")).toEqual({ mediaId: "m2", owned: true });
+  });
+
+  test("does not clobber a row registered since the claim", () => {
+    const map = entries();
+    const claimed = claimStagedMedia(
+      entries(["a", { mediaId: "m1", owned: true }]),
+      ["a"]
+    );
+    map.set("a", { mediaId: "m9", owned: true });
+    restoreStagedMedia(map, claimed);
+    expect(map.get("a")).toEqual({ mediaId: "m9", owned: true });
   });
 });
