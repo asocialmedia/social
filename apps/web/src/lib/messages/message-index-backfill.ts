@@ -2,29 +2,27 @@
 //
 // Until this exists, search only covers history the user happened to scroll
 // through: the writer indexes whatever the transcript holds, so a message nobody
-// ever scrolled to is invisible to search. This walks the rest of the
-// conversation backwards, page by page, and feeds each page to the same writer
-// the transcript already uses, so one index serves both.
+// ever scrolled to is invisible to search. This walks the rest of the conversation
+// backwards, page by page, into the same writer, so one index serves both.
 //
 // Properties this file exists to guarantee:
 //
 // - Resumable. The oldest id reached is persisted to meta after every committed
-//   page, so closing the tab mid-walk resumes where it stopped instead of
-//   starting over. An interrupted walk is the common case, not the exception.
+//   page, so closing the tab mid-walk resumes instead of starting over. An
+//   interrupted walk is the common case, not the exception.
 // - Self-verifying. The walk only ever descends, so a resume cursor pointing
 //   below uncovered history would strand everything above it while reporting
-//   steady progress. Each run therefore re-verifies the top page instead of
-//   trusting the hint, and every page is checked for existing coverage before
-//   any decrypt is spent on it: covered pages advance the cursor for the cost
-//   of one fetch, and a run that verifies the bottom sets the flag that lets
-//   future sessions skip the walk entirely.
+//   steady progress. Each run re-verifies the top page rather than trusting the
+//   hint, and every page is checked for existing coverage before any decrypt is
+//   spent on it: covered pages advance the cursor for the cost of one fetch, and
+//   a run that verifies the bottom sets the flag that lets future sessions skip
+//   the walk entirely.
 // - Bounded. A single run walks at most `maxPages` pages and then yields, so a
-//   200k-message conversation cannot turn into one request storm. The caller
-//   starts another run when it wants to keep going.
+//   200k-message conversation cannot turn into one request storm.
 // - Abortable. Closing search, switching conversations, or losing the network
 //   stops the walk between pages, and the cursor reflects only committed pages.
-// - Paced. One page in flight at a time with a delay between pages, because this
-//   walks the oldest page a user may have opened years ago and has no business
+// - Paced. One page in flight at a time with a delay between pages: this walks
+//   the oldest page a user may have opened years ago and has no business
 //   saturating the API.
 // - Degrading. A page that cannot be fetched stops the walk and keeps everything
 //   indexed so far. Messages that cannot be decrypted are still counted as
@@ -32,10 +30,10 @@
 //   searchable": the writer persists those rows to a durable queue and retries
 //   them.
 //
-//   That distinction is the whole reason the cursor is trustworthy. Advancing past
-//   a page is safe only because every row in it is either committed or durably
-//   queued. When the QUEUE ITSELF cannot be written, those rows are recoverable
-//   from nowhere, so the cursor must not move and the walk stops.
+//   That distinction is why the cursor is trustworthy. Advancing past a page is
+//   safe only because every row in it is either committed or durably queued. When
+//   the QUEUE itself cannot be written, those rows are recoverable from nowhere,
+//   so the cursor must not move and the walk stops.
 
 import type { MessageData } from "@asm/db";
 
@@ -84,18 +82,18 @@ export interface MessageIndexBackfillOptions {
   // Resolves before the walk is allowed to ask for a page.
   //
   // The walk and the transcript share one rate-limit budget, and on a fresh
-  // device the walk owns it from the first keystroke: 500-row pages, 250ms apart,
-  // while the user is trying to LAND on a search match through the same endpoint.
-  // Nothing stopped the walk, so the user's single anchored read arrived into an
-  // already-throttled budget, failed, and fell back to the bounded older-page
-  // walk -- which then spent thirty unpaced requests against the same limiter and
-  // reported the target unreachable. Waiting here is what makes a user-initiated
-  // read cost one request instead of thirty.
+  // device the walk owns it from the first keystroke: 500-row pages, 250ms
+  // apart, while the user is trying to LAND on a search match through the same
+  // endpoint. The user's single anchored read then arrived into an
+  // already-throttled budget, failed, and fell back to the older-page walk --
+  // which spent thirty unpaced requests against the same limiter and reported
+  // the target unreachable. Waiting here is what makes a user-initiated read
+  // cost one request instead of thirty.
   //
   // Optional, and a rejection is not a failure: the walk treats a throw the same
   // as an abort and abandons the page it had not requested yet, which is a pause
-  // the next run continues from. The cursor only ever moves past committed pages,
-  // so waiting cannot cost coverage.
+  // the next run continues from. The cursor only moves past committed pages, so
+  // waiting cannot cost coverage.
   beforePage?: () => Promise<void>;
   // Fetches one page older than `cursor`. Omitted for the first page, which
   // starts from the newest message.
@@ -153,9 +151,9 @@ const sleep = (ms: number) =>
 // Sleep that a stop cuts short. Retry waits last seconds, and closing search or
 // hiding the tab during one must halt the walk now rather than after the wait:
 // without this, stopping during a 60s throttle pause leaves the teardown
-// hanging for the full minute. Resolves true when the wait was abandoned.
-// Listens to both signals the way waitForPageDecrypts does: the caller's abort
-// (closing search, hiding the tab) and the run's own controller (stop()).
+// hanging for the full minute. Resolves true when the wait was abandoned. Listens
+// to both signals the way waitForPageDecrypts does: the caller's abort and the
+// run's own controller (stop()).
 function sleepOrAbort(
   ms: number,
   signal: AbortSignal | undefined,
@@ -279,8 +277,8 @@ export function createMessageIndexBackfill(
     // Awaiting the call rather than chaining it: some callers return void
     // instead of a promise, and `.then` on void is a TypeError. A wait that
     // throws is treated like one that timed out -- the page processes with
-    // whatever resolved, and the rest stays pending -- because ending the
-    // whole walk on a wait error would strand coverage behind one bad page.
+    // whatever resolved, and the rest stays pending -- because ending the whole
+    // walk on a wait error would strand coverage behind one bad page.
     const ready = (async (): Promise<true> => {
       try {
         await awaitDecrypts(messages);
@@ -406,11 +404,11 @@ export function createMessageIndexBackfill(
       // Trust-but-verify the resume hint. The walk only ever descends, so a
       // cursor pointing below uncovered history -- new arrivals above it, a
       // stale row from another era or store version -- would strand everything
-      // above it forever while reporting steady progress. The hint is kept
-      // only when the newest page is covered AND a previous verifying run
-      // vouched for the chain; otherwise the run descends from the top,
-      // re-covering old ground idempotently on the way down (the per-page
-      // check below skips it for one fetch per page, no decrypts).
+      // above it forever while reporting steady progress. The hint is kept only
+      // when the newest page is covered AND a previous verifying run vouched for
+      // the chain; otherwise the run descends from the top, re-covering old
+      // ground idempotently on the way down (the per-page check below skips it
+      // for one fetch per page, no decrypts).
       try {
         if (!(await yieldToTranscriptReads(signal))) {
           return progress;
@@ -513,8 +511,7 @@ export function createMessageIndexBackfill(
             // dev servers restart. Wait with a growing backoff and try the same
             // page again; the budget bounds the stall and a dead session still
             // fails the run. Anything the server understood and refused (400,
-            // 403, 404) skips this branch and fails below: retrying it cannot
-            // heal it.
+            // 403, 404) fails below instead: retrying it cannot heal it.
             abandoned = await sleepOrAbort(
               Math.min(retryDelayMs * 2 ** attempt, retryDelayMs * 8),
               signal,
@@ -569,15 +566,15 @@ export function createMessageIndexBackfill(
             !pendingThisRun.has(row.id)
         );
         if (uncovered.length === 0) {
-          // Nothing to do: the cursor and counts advance through the shared
-          // tail below, and the flush still runs so transcript-queued rows
-          // commit on the walk's cadence rather than their own.
+          // Nothing to do: counts and cursor advance through the shared tail
+          // below, and the flush still runs so transcript-queued rows commit on
+          // the walk's cadence rather than their own.
         } else {
           // Decrypt first: the writer can only index a row whose payload it can
-          // read, and handing it undecrypted rows would just queue them as pending
-          // and retry them against a transcript that will never hold them.
-          // A stop lands here as an abandoned wait, not a skipped page: the
-          // fetched rows still commit below, and the halt happens after them.
+          // read, and handing it undecrypted rows would just queue them as
+          // pending and retry them against a transcript that will never hold
+          // them. A stop lands here as an abandoned wait, not a skipped page:
+          // the fetched rows still commit below, and the halt is after them.
           waitedOut = await waitForPageDecrypts(uncovered, signal);
           writer.consider(uncovered);
         }
@@ -603,14 +600,14 @@ export function createMessageIndexBackfill(
         }
         // A page arrives oldest-first (the route reverses its descending page
         // before responding), so the head is the oldest id and the tail the
-        // newest. Getting this backwards persists a resume cursor pointing at
-        // the newest row of the last page, which makes every resumed walk
-        // re-fetch that whole page.
+        // newest. Getting this backwards persists a resume cursor pointing at the
+        // newest row of the last page, which makes every resumed walk re-fetch
+        // that whole page.
         //
-        // Pages arrive newest-page-first, so the newest id this run covered came
-        // from the first page: assigning it every time would leave it pointing at
-        // the newest row of the OLDEST page, which is the least useful number
-        // the progress line could report.
+        // Pages arrive newest-page-first, so `latestIndexedId` must be set only
+        // once: assigning it every time would leave it pointing at the newest row
+        // of the OLDEST page, the least useful number the progress line could
+        // report.
         latestIndexedId ??= messages.at(-1)?.id ?? null;
         oldestReachedId = messages[0]?.id ?? oldestReachedId;
       }

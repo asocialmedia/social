@@ -3,8 +3,7 @@
 // This is the test backend and the reference implementation of the store
 // contract: every rule lives in search-index-format.ts (pure, tested) and in the
 // contract itself, so the browser backend cannot drift from this one. Bun has no
-// IndexedDB, and the browser-only IDB code is untested for the same reason, which
-// is why the logic that matters is kept out of the storage layer.
+// IndexedDB, so the logic that matters is kept out of the storage layer.
 
 import {
   emptySearchIndexRowList,
@@ -185,9 +184,9 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
     // table, which is what a persistent backend does with a point read per
     // matched row.
     //
-    // Postings stay keyed by token TEXT here. Interning them to dictionary ids is
-    // a storage detail of the persistent backend, which needs ids because its
-    // key is a stored field. In memory there is nothing to look up by id.
+    // Postings stay keyed by token TEXT here. Interning them to dictionary ids
+    // is a storage detail of the persistent backend, whose key is a stored
+    // field; in memory there is nothing to look up by id.
     query(conversationId, tokens, limit, options) {
       const index = indexFor(conversationId);
       const empty: SearchIndexPostingList = {

@@ -1,74 +1,40 @@
 // Keeps the local search index inside a storage budget.
 //
-// Why this exists: the index is cheap per conversation (measured 17.6MB for a
-// 200k-message conversation, about a fifth of what those messages cost to move)
-// but it is unbounded across conversations. A user with a hundred long-running
-// DMs would accumulate gigabytes, and browsers do not fail gracefully when an
-// origin fills up: Chrome evicts the whole origin, Safari may too, and until this
-// existed a full disk made search quietly stop working forever while the UI kept
-// saying "No matches yet" with no explanation.
-//
-// Policy, and why:
-//
-// - Budget in ROWS, not bytes. Per-conversation byte accounting needs a scan of
-//   every posting list, which is the expensive operation this design exists to
-//   avoid. The row allocator already knows each conversation's size, and rows
-//   convert to bytes at a stable rate (measured ~88 bytes per row on disk
-//   including its id and timestamp), so a row budget is a byte budget without
-//   the scan.
-// - Least-recently-used. A conversation the user searched this week is worth more
-//   than one they abandoned last year, and an evicted index is rebuildable by
-//   walking, so the cost of eviction is a slower first search, not lost data.
-// - Never evict the conversation being used. Evicting the active thread would
-//   drop the very results on screen.
-// - Ties break toward the smaller conversation, so a budget is met without
-//   discarding more than necessary when two conversations were last touched in
-//   the same millisecond.
+// Budget is in ROWS, not bytes: per-conversation byte accounting would need a
+// scan of every posting list. Rows convert at a stable rate (~92 bytes/row on
+// the 200k fixture), LRU by last access, never evicting the active
+// conversation. Eviction costs a re-walk, not data loss.
 
 import type { SearchIndexConversationSummary } from "./search-index-format";
 
-// Measured on a realistic corpus BEFORE format 7: 17.6MiB of index for 200,000
-// rows, so ~92 bytes per row including interned ids, timestamps, posting lists
-// and key strings.
-//
-// KNOWN STALE, and in the safe direction. Format 7 carries a creation time beside
-// every posting entry, and the 200k fixture holds on the order of two million
-// postings, so the real per-row cost is materially higher -- nearer 200 bytes.
-// Budgeting low evicts sooner than it strictly needs to, which costs a re-walk;
-// budgeting high would let a phone fill its origin quota. So the estimate is left
-// conservative on purpose, and `search-slo.ts` carries the re-measurement note.
+// ~92 bytes/row on the 200k fixture (format 6). KNOWN STALE: format 7 adds one
+// float per posting (~2M postings), so the true cost is nearer 200 bytes.
+// Conservative on purpose: evicts early (a re-walk) rather than risking quota.
+// See `search-slo.ts` for the re-measurement note.
 export const SEARCH_INDEX_BYTES_PER_ROW = 92;
 
-// Default ceiling. 200k rows is about 18MB, which sits comfortably inside a
-// phone's per-origin budget while still covering a very large single
-// conversation. A user who indexes one 200k DM uses the whole budget, which is
-// the intended trade: the conversation they care about is the one that survives.
+// 200k rows is ~18MB: comfortable inside a phone per-origin budget while still
+// covering a very large single conversation.
 export const DEFAULT_SEARCH_INDEX_ROW_BUDGET = 200_000;
 
 export interface EvictionPlan {
-  // Conversations to clear, least-recently-used first.
   evict: string[];
-  // Rows freed by the plan.
   freedRows: number;
-  // Rows still indexed after the plan.
   remainingRows: number;
-  // True when even evicting everything else leaves the budget exceeded, which
-  // happens when the active conversation alone is over budget. Not an error: the
-  // active conversation is never evicted, so the index simply stays over budget
-  // until it shrinks.
+  // True when the active conversation alone exceeds the budget. Not an error:
+  // the active conversation is never evicted.
   overBudgetAfterEviction: boolean;
 }
 
 export interface PlanEvictionInput {
-  // Ceiling in rows. Defaults to DEFAULT_SEARCH_INDEX_ROW_BUDGET.
   rowBudget?: number;
   summaries: SearchIndexConversationSummary[];
   // Never evicted, whatever the budget says.
   activeConversationId: string | null;
 }
 
-// Chooses which conversations to clear. Pure, so the policy is testable without
-// a storage backend and without a device.
+// Chooses which conversations to clear. Pure and LRU; ties drop the smaller
+// conversation first.
 export function planSearchIndexEviction(
   input: PlanEvictionInput
 ): EvictionPlan {
@@ -96,8 +62,6 @@ export function planSearchIndexEviction(
       if (left.lastAccessedAt !== right.lastAccessedAt) {
         return left.lastAccessedAt - right.lastAccessedAt;
       }
-      // Same millisecond: drop the smaller one first, so the budget is met
-      // without discarding more conversation than necessary.
       return left.indexedRowCount - right.indexedRowCount;
     });
 
@@ -115,15 +79,12 @@ export function planSearchIndexEviction(
   return {
     evict,
     freedRows,
-    // Only over budget if the active conversation alone exceeds it.
     overBudgetAfterEviction: remainingRows > rowBudget,
     remainingRows,
   };
 }
 
-// Human-readable size for the coverage and storage surfaces. Bytes, not MiB:
-// the numbers involved are small enough that rounding to a decimal keeps the
-// difference visible between 0.4MB and 0.9MB.
+// Human-readable size for the coverage and storage surfaces.
 export function formatSearchIndexBytes(bytes: number): string {
   if (bytes < 1024) {
     return `${Math.max(0, Math.round(bytes))}B`;

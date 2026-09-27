@@ -25,9 +25,8 @@
 // conversation was tried and reverted: every `putEntries` re-encoded and
 // re-encrypted the ENTIRE conversation's table, so writing one 500-message page
 // cost ~1.4s of synchronous AES on the main thread at 200k rows and held the
-// IndexedDB write lock long enough to starve every other index read. A backfill
-// tab eventually crashed on it. Writes are O(batch) and reads O(results) now,
-// and the read lock is held for a few hundred point reads instead of minutes.
+// write lock long enough to starve every other index read. Writes are O(batch)
+// and reads O(results) now.
 //
 // Two consequences, both deliberate:
 //
@@ -40,18 +39,15 @@
 // - There is no WebCrypto on this path, and inside a transaction nothing is
 //   awaited except an IndexedDB request. WebCrypto resolves in a later task, so
 //   awaiting it inside a transaction lets the transaction go inactive before the
-//   next request is issued (`TransactionInactiveError`) -- which is what forced
-//   the sealed design to split every operation into two phases.
+//   next request is issued (`TransactionInactiveError`).
 //
 // Because row-id allocation happens INSIDE the single write transaction, two
 // writers on one conversation are serialised by IndexedDB and cannot be handed
 // the same row id. There is therefore no revision counter, no compare-and-swap
-// and no retry loop: the whole-blob CAS existed only because the row table was
-// one mutable blob, and it cost a full extra read plus a re-seal on every
-// keystroke.
+// and no retry loop.
 //
-// Fail-tolerant: a denied or corrupt database rejects, and every caller reads that
-// as "not indexed" rather than letting it reach the transcript.
+// Fail-tolerant: a denied or corrupt database rejects, and every caller reads
+// that as "not indexed" rather than letting it reach the transcript.
 
 import {
   ensureMessagesSchema,
@@ -164,10 +160,11 @@ async function openDatabase(): Promise<IDBDatabase> {
 // Resolves when the transaction *commits*, not when the last request is issued.
 // Resolving on request success would let an abort land after the caller moved
 // on, which is how a partial write becomes a silent gap.
+//
 // Exported for the completion-ordering tests, which need to drive a work callback
-// that settles in a later task than its last request. That is the shape that
-// exposed a real-browser-only bug and that fake-indexeddb will not produce on its
-// own, so it has to be constructible rather than waited for.
+// that settles in a later task than its last request: the shape that exposed a
+// real-browser-only bug fake-indexeddb will not produce on its own, so it has to
+// be constructible rather than waited for.
 export async function runTransaction<T>(
   storeNames: string[],
   mode: IDBTransactionMode,
@@ -181,14 +178,13 @@ export async function runTransaction<T>(
     // The transaction committing is NOT the same as the work being done, and
     // resolving on `complete` alone loses the work's return value.
     //
-    // `result` is assigned inside a promise callback, which is a microtask. A real
-    // browser can dispatch the transaction's `complete` event before that
-    // microtask runs, so the caller receives `undefined` for work that plainly
-    // succeeded. That is not cosmetic: a caller that believes a write finished
-    // queues the next one immediately, and the resulting pile of overlapping
-    // readwrite transactions on the same store starves later reads until they hang
-    // forever. It is also invisible to tests, because fake-indexeddb happens to
-    // drain the microtask first.
+    // `result` is assigned inside a microtask. A real browser can dispatch
+    // `complete` before that microtask runs, so the caller receives `undefined`
+    // for work that plainly succeeded -- which is not cosmetic: a caller that
+    // believes a write finished queues the next one immediately, and the pile of
+    // overlapping readwrite transactions that follows starves later reads until
+    // they hang forever. fake-indexeddb is invisible to this because it happens
+    // to drain the microtask first.
     //
     // So both conditions are required: the transaction committed AND the work
     // settled. Whichever finishes second resolves the promise.
@@ -250,8 +246,8 @@ function requestAsPromise<T>(request: IDBRequest<T>): Promise<T> {
 // every value, so awaiting each step with a fresh listener leaves the previous
 // ones attached: step n fires n listeners, making the walk quadratic. One
 // self-reusing listener makes it linear. Only the whole-conversation operations
-// need it (eviction accounting, listing conversations); the query and write paths
-// are all point reads.
+// need it (eviction accounting, listing conversations); the query and write
+// paths are all point reads.
 function drainCursor(
   request: ReturnType<IDBObjectStore["openCursor"]>,
   onRow: (key: IDBValidKey, value: unknown) => void
@@ -631,13 +627,12 @@ function rowFactsCacheKey(conversationId: string, row: number): string {
 export function createIndexedDbSearchIndexStore(): SearchIndexStore {
   // Session cache of resolved row facts, keyed `${conversationId} ${row}`.
   // Profiling a 200k-row conversation showed row resolution is ~99% of a
-  // keystroke query (a header plus a posting list read in ~1ms; resolving
-  // 2,000 rows costs ~250ms), and consecutive keystrokes re-resolve mostly
-  // the same rows. The cache turns repeats into map hits. It fills only from
-  // verified reads -- never from writes, so an out-of-band change can never
-  // be cached over -- and removals and conversation clears invalidate it;
-  // absent rows are never cached, because a row created later must be read,
-  // not remembered as missing.
+  // keystroke query (header plus posting list read in ~1ms; resolving 2,000 rows
+  // costs ~250ms), and consecutive keystrokes re-resolve mostly the same rows.
+  // It fills only from verified reads -- never from writes, so an out-of-band
+  // change can never be cached over -- and removals and conversation clears
+  // invalidate it; absent rows are never cached, because a row created later
+  // must be read, not remembered as missing.
   const rowFactsCache = new Map<string, SearchIndexRowFacts>();
   const MAX_CACHED_ROW_FACTS = 2000;
   const cacheRowFacts = (
@@ -875,18 +870,19 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
 
   // How many entries one write transaction covers.
   //
-  // A whole backfill page used to be one transaction, and that is a lock held for
-  // seconds: ~500 rows x ~10 tokens is thousands of requests, each rewriting a
-  // posting list, and IndexedDB serialises a readwrite transaction against every
-  // read of the same stores. The cost was a search page turn that sat on "loading"
-  // for tens of seconds while a walk ran behind it, because its read could not
-  // even start. Chunks keep each commit short so reads interleave with the walk.
+  // A whole backfill page used to be one transaction, and that is a lock held
+  // for seconds: ~500 rows x ~10 tokens is thousands of requests, each rewriting
+  // a posting list, and IndexedDB serialises a readwrite transaction against
+  // every read of the same stores. The cost was a search page turn that sat on
+  // "loading" for tens of seconds while a walk ran behind it, because its read
+  // could not even start. Chunks keep each commit short so reads interleave with
+  // the walk.
   //
-  // Idempotence is what makes the split safe: rows are keyed by their own interned
-  // id, so re-putting a committed entry rewrites the same row and the same posting
-  // members, and a chunk that fails after an earlier one committed is re-sent by
-  // the caller's retry. The walk is resumable, so partial coverage costs a
-  // redundant pass, never correctness.
+  // Idempotence is what makes the split safe: rows are keyed by their own
+  // interned id, so re-putting a committed entry rewrites the same row and the
+  // same posting members, and a chunk that fails after an earlier one committed
+  // is re-sent by the caller's retry. The walk is resumable, so partial coverage
+  // costs a redundant pass, never correctness.
   const PUT_CHUNK_ENTRIES = 64;
 
   return {

@@ -364,6 +364,33 @@ export function jumpTargetSource(input: {
   return input.loadedMessageIds.includes(input.targetId) ? "loaded" : "absent";
 }
 
+// Whether "scroll to latest" has to fetch the newest messages before it can
+// scroll to anything.
+//
+// A search jump replaces the whole transcript with ONE anchored page from the
+// middle of history, so the virtualizer's end is the end of that page -- up to a
+// hundred messages short of the present. Scrolling to it is not "the bottom of
+// the conversation", it is "the bottom of the page you are looking at", and the
+// user is left there with the newest messages missing. The newer-direction auto
+// loader would eventually grow them back, but only if the viewport happened to
+// sit near the TOP of the window, and one page at a time.
+//
+// `hasNextPage` is the signal, and it is the transcript's own: the first page
+// carries a cursor for newer messages exactly when the window is not the tail.
+// A conversation sitting at the newest message has no such cursor, so the
+// ordinary case costs nothing and scrolls exactly as before.
+//
+// The in-flight guard is here rather than left to the caller because a
+// double-click on the button is ordinary, and two concurrent tail reads would
+// race their cache writes with whichever arrived second -- which is how a
+// "go to latest" ends up not at the latest.
+export function needsTailReturn(input: {
+  hasNextPage: boolean;
+  inFlight: boolean;
+}): boolean {
+  return input.hasNextPage && !input.inFlight;
+}
+
 // The transcript's loading prompt. Two strings, not one per mechanism: every
 // read of history says the same thing to the reader, and the only genuinely
 // different wait is a message whose text is still decrypting. Exported so the
@@ -551,6 +578,11 @@ export function MessageThread({
   // there is exactly how two loaders end up on one cursor.
   // eslint-disable-next-line react/hook-use-state -- one-time instance; the setter is intentionally unused
   const [historyReads] = useState(() => createHistoryReadCoordinator());
+  // A tail read from "scroll to latest" is in flight. Guards the double-click,
+  // where two concurrent reads would race their cache writes and whichever lost
+  // would decide where "the bottom" is. Mirrors `needsTailReturn`, which is the
+  // tested form of the same rule.
+  const tailReturnRef = useRef(false);
   // True while the user is walking older history. The viewer's history trim is
   // suppressed during a walk, because dropping the freshly loaded pages would
   // make the walk retread the same ground (a load/trim loop). It resets when
@@ -3461,10 +3493,14 @@ export function MessageThread({
     });
   }, [mediaViewerKey, messageIndexById, rowVirtualizer]);
 
-  // Jump to the newest message and clear the badge. Optimistically marks the
-  // viewport pinned so followOnAppend resumes tracking immediately, without
-  // waiting for the smooth scroll to settle and fire a scroll event.
-  const jumpToBottom = useCallback(() => {
+  // Scroll to the end of whatever is currently loaded, and claim the viewport is
+  // pinned so followOnAppend resumes tracking.
+  //
+  // Split out from the tail read so the two states are not conflated. "Pinned" is
+  // a claim that the user is looking at the newest message, and after a failed
+  // tail read that is false -- claiming it anyway would stop new messages from
+  // being followed and clear a badge that was telling the truth.
+  const scrollToLoadedEnd = useCallback(() => {
     pinnedRef.current = true;
     setPinnedToBottom(true);
     setArrivalCount(0);
@@ -3489,6 +3525,92 @@ export function MessageThread({
       });
     }
   }, [peerTyping, rowVirtualizer]);
+
+  // Put the transcript back on the newest messages when a jump left it anchored
+  // mid-history. Resolves false when the read failed.
+  const returnToTail = useCallback(async (): Promise<boolean> => {
+    if (!needsTailReturn({ hasNextPage, inFlight: tailReturnRef.current })) {
+      return true;
+    }
+    tailReturnRef.current = true;
+    // A token, because this is a hundred rows of history through the same
+    // endpoint the search backfill is spending. Without it the walk's 500-row
+    // pages can throttle the very read the user asked for, and the fallback is
+    // the broken behaviour.
+    const token = historyReads.acquire();
+    // And it supersedes any jump still landing: the user asked for the bottom,
+    // so a jump settling a moment later must not yank them back out of it.
+    jumpEpochRef.current += 1;
+    jumpAbortRef.current?.abort();
+    jumpInFlightRef.current = false;
+    jumpActivityRef.current = null;
+    setJumpActivity(null);
+    setJumpLoading(false);
+    setJumpTextPending(false);
+    try {
+      // What the transcript holds now, so a message that arrives while this read
+      // is in flight is carried across rather than dropped. Same race the
+      // anchored jump has, and the same helper settles it.
+      const issuedIds = new Set(readFlat().map((message) => message.id));
+      const tail = await fetchMessages(
+        conversationId,
+        { kind: "older" },
+        HISTORY_PAGE_SIZE
+      );
+      queryClient.setQueryData<MessagesInfiniteData>(
+        ["messages", conversationId],
+        (old) =>
+          old
+            ? {
+                pageParams: [NEWEST_PAGE],
+                pages: [
+                  reconcileAnchoredWindow({
+                    currentPages: old.pages,
+                    fetched: tail,
+                    issuedIds,
+                  }),
+                ],
+              }
+            : old
+      );
+      return true;
+    } catch {
+      // A failed read leaves the user in the window they are in, which is
+      // degraded but coherent. The newer-direction loader can still grow them
+      // forward, and the badge keeps telling them there is something to scroll
+      // to -- which there is.
+      return false;
+    } finally {
+      historyReads.release(token);
+      tailReturnRef.current = false;
+    }
+  }, [conversationId, hasNextPage, historyReads, queryClient, readFlat]);
+
+  // "Scroll to latest". Returns the transcript to the newest messages first when a
+  // jump left it anchored mid-history, because scrolling to the end of an
+  // anchored window is not the bottom of the conversation -- it is the bottom of
+  // the page, which is the whole bug.
+  //
+  // Only the landed case marks the viewport pinned and clears the badge. A failed
+  // read leaves the user where they were with the badge still telling the truth,
+  // which is better than a transcript that claims to be at the newest message and
+  // silently stops following new ones.
+  const jumpToBottom = useCallback(() => {
+    void (async () => {
+      if (await returnToTail()) {
+        scrollToLoadedEnd();
+        return;
+      }
+      // The tail read failed. Scroll to the end of the window we are in so the
+      // press still visibly did something, but do NOT claim the user is at the
+      // newest message: they are not, and saying so would stop followOnAppend
+      // and clear a badge that was accurate.
+      const el = scrollRef.current;
+      rowVirtualizer.scrollToEnd({
+        behavior: el && el.scrollTop < el.clientHeight ? "smooth" : "auto",
+      });
+    })();
+  }, [returnToTail, rowVirtualizer, scrollToLoadedEnd]);
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).

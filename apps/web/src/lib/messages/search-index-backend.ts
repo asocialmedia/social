@@ -1,13 +1,6 @@
-// Chooses the search index backend at runtime.
-//
-// Fail-tolerant by construction: the feature must never be the reason the
-// transcript breaks. If IndexedDB is missing (server render, embedded webview),
-// denied (private mode), or fails to open, the conversation falls back to an
-// in-memory index for the session. Search then works for history loaded in this
-// session and simply stops persisting — a degraded feature, not an error.
-//
-// The probe is injectable so the selection policy is unit-tested without a
-// browser or an IndexedDB shim.
+// Chooses the search index backend at runtime. Fail-tolerant: if IndexedDB is
+// missing, denied, or fails to open, fall back to a session-only in-memory
+// index rather than breaking the transcript.
 
 import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
 import { createMemorySearchIndexStore } from "./memory-search-index";
@@ -21,10 +14,7 @@ async function tryIndexedDb(): Promise<SearchIndexStore | null> {
   }
   const store = createIndexedDbSearchIndexStore();
   try {
-    // Prove the database actually opens before committing to it. A denied or
-    // corrupt store throws here, which is exactly the case to catch: a backend
-    // that cannot open would otherwise fail on the first write, after the user
-    // already believed the index was working.
+    // Prove the database opens before committing to it.
     await store.readMeta("__probe__");
     return store;
   } catch {
@@ -37,12 +27,9 @@ export interface ResolvedSearchIndex {
   store: SearchIndexStore;
 }
 
-// Resolves the backend and returns a fresh store.
-//
-// Deliberately not cached. A cached store would hand one conversation's index to
-// the next caller, and the failure would look like a corrupt index rather than a
-// wiring mistake. The stores are cheap to build and the probe cost is paid once
-// per conversation open rather than per keystroke.
+// Deliberately not cached: a shared store would hand one conversation's index
+// to the next caller. Stores are cheap; the probe runs once per conversation
+// open, not per keystroke.
 export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
   const persistent = await tryIndexedDb();
   return persistent
@@ -50,8 +37,7 @@ export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
     : { backend: "memory", store: createMemorySearchIndexStore() };
 }
 
-// Test seam. There is no cached state left to clear, so this only exists as one
-// place to change if a caching decision is ever revisited.
+// Test seam; no cached state to clear.
 export function resetSearchIndexStoreForTests(): void {
   // No cached state to clear.
 }

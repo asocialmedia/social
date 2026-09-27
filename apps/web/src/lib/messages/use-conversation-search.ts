@@ -339,12 +339,11 @@ export function useConversationSearch(
   // query decrypted the whole sealed table and re-running it on every write meant
   // the tab decrypted the entire conversation continuously during a backfill.
   //
-  // The version of this that refused to follow the token had a worse bug. It kept
-  // a "drop a read that predates a write" guard, but the effect did not re-run on
-  // a token bump -- so any write landing during an in-flight query discarded the
-  // result with nothing scheduled to fetch it again, and the panel sat on
-  // "Searching..." forever. Re-querying once per committed page is both correct
-  // and affordable now.
+  // What makes dropping the old "discard a read that predates a write" guard
+  // safe is re-running on every bump: that guard without the re-run discarded
+  // any write landing during an in-flight query and scheduled nothing to fetch
+  // it again, so the panel sat on "Searching..." forever. Re-querying once per
+  // committed page is both correct and affordable now.
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
     if (!enabled || !indexStore || trimmed.length === 0) {
@@ -441,19 +440,18 @@ export function useConversationSearch(
   }, [corpus]);
   // The two sources of truth, merged ONCE per consistent pair of inputs.
   //
-  // The counter used to be a sum of two independently-moving terms: matches over
-  // the loaded transcript, plus an index term corrected by an overlap estimate
-  // that can only see inside the 2,000-row result cap. While history was still
-  // loading, the transcript term slid as older pages pushed rows out of the
-  // 3,000-row window, and the index term jumped on every flush -- so a static
-  // query could report 269, then 316, then 289. Nothing was being deleted; the
-  // sum was mixing windows evaluated at different times.
+  // Summing two independently-moving terms is what makes a counter wobble: a
+  // transcript term that slid as older pages pushed rows out of the window, plus
+  // an index term that jumped on every flush, reported 269 then 316 then 289 for
+  // a static query. Nothing was being deleted; the sum mixed windows evaluated at
+  // different times. The index term's correction could only see inside the
+  // 2,000-row result cap to begin with.
   //
   // The merge is a pure function of the corpus and ONE index snapshot, so a given
   // pair of inputs yields one number. It can still grow as coverage lands, which
   // is real, but it cannot wobble for a reason the reader cannot see. It also
-  // scores the corpus once, instead of normalizing and scoring every row twice per
-  // keystroke.
+  // scores the corpus once, instead of normalizing and scoring every row twice
+  // per keystroke.
   //
   const fresh = useMemo(
     () =>
@@ -588,19 +586,17 @@ export function useConversationSearch(
   // The keyset boundary for page 1: the oldest match ALREADY SHOWN on page 0,
   // because the query walks older from there.
   //
-  // This used to be the lowest row in the whole head window, which is wrong in a
-  // way that only shows up once the two numbers differ. The head holds up to
-  // SEARCH_INDEX_QUERY_LIMIT rows but displays SEARCH_PAGE_SIZE of them, so
-  // hanging page 1 below the WINDOW skipped every match between the page-0 slice
-  // and the end of the window -- up to two thousand messages, reachable from
-  // nowhere, with the pager cheerfully offering pages that led only to empty ones.
-  // Below the displayed slice instead, and the pages tile the match sequence.
+  // It is the oldest DISPLAYED match, not the oldest row in the head window. The
+  // window holds up to SEARCH_INDEX_QUERY_LIMIT rows but shows SEARCH_PAGE_SIZE
+  // of them, so hanging page 1 below the window would skip every match between
+  // the page-0 slice and the end of the window -- up to two thousand messages,
+  // reachable from nowhere, with the pager cheerfully offering pages that led
+  // only to empty ones.
   //
-  // It also used to be a row id, which is not a position in time on this index --
-  // see the ordering note on `selectNewestFirstWindow`. On a backfilled
-  // conversation the newest matches hold the LOWEST row ids, so the boundary was
-  // the top of the set and every page after the head came back empty. That is the
-  // "page 1 is fine and page 2 shows nothing" report.
+  // It is a position in time, not a row id: row ids are internation order, and
+  // on a backfilled conversation the newest matches hold the LOWEST row ids, so
+  // a row-id boundary sits at the top of the set and every page after the head
+  // comes back empty. See the ordering note on `selectNewestFirstWindow`.
   const headCursor = useMemo(() => {
     if (!indexMatches) {
       return null;
@@ -638,10 +634,10 @@ export function useConversationSearch(
       return;
     }
     const tokens = prefix === null ? exact : [...exact, prefix];
-    // The whole sequencing rule, in one tested place. It used to live inline
-    // here, which is where a cursor read from the wrong page, a shortcut that
-    // trusted a stale verdict, and a "still loading" that turned into a dead end
-    // were all invisible to the suite.
+    // The whole sequencing rule, in one tested place. Kept out of this effect
+    // on purpose: a cursor read from the wrong page, a shortcut that trusted a
+    // stale verdict, and a "still loading" that turned into a dead end were all
+    // invisible while it lived inline here.
     const decision = decidePageRequest({
       // Page 1 hangs off the head's displayed boundary; deeper pages off the page
       // before them.
@@ -671,9 +667,10 @@ export function useConversationSearch(
       return;
     }
     if (decision.kind === "await-previous") {
-      // The page before is mid-read. Clicking faster than reads land is ordinary,
-      // so this is a wait and not a failure -- an error here is what made fast
-      // paging a dead end behind a retry nobody had broken.
+      // The page before is mid-read. Clicking faster than reads land is
+      // ordinary, so this is a wait and not a failure -- treating it as an
+      // error is what made fast paging a dead end behind a retry nobody had
+      // broken.
       setPageWindowLoading(true);
       return;
     }
@@ -905,12 +902,11 @@ export function useConversationSearch(
 
   // Deliberately NO history loading here.
   //
-  // This hook used to walk older pages on its own, re-arming after every load
-  // until 3,000 messages were in memory. That was a feedback loop: each page
-  // fetched, decrypted 500 messages, rebuilt the 3,000-row corpus and flushed
-  // index writes, while the visible "Index older messages" walk did the same
-  // thing at the same time and both competed for one IndexedDB write lock. The
-  // symptom was a search box that flickered -- the corpus was replaced
+  // The hook once walked older pages on its own, re-arming after every load
+  // until 3,000 messages were in memory, competing with the visible "Index older
+  // messages" walk for one IndexedDB write lock: each page fetched, decrypted 500
+  // messages, rebuilt the corpus and flushed writes while the other did the same.
+  // The symptom was a search box that flickered -- the corpus was replaced
   // underneath it, so the result list and the "n of N" counter changed on their
   // own, and the tab slowed down the longer a search stayed open.
   //

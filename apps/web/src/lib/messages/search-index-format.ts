@@ -1,8 +1,7 @@
 // Persistent local index for in-conversation search.
 //
 // The server stores only AES-GCM ciphertext, so the only place that can match
-// message text is this device. To search a whole conversation rather than the
-// few thousand rows in memory, decrypted text is written into a per-conversation
+// message text is this device. Decrypted text goes into a per-conversation
 // inverted index (token -> message rows) that survives reloads.
 //
 // Design notes, each a deliberate choice:
@@ -15,20 +14,12 @@
 //   to a small integer per conversation cuts that 4.8x, to 23MB. Message ids live
 //   once, in the conversation's rows.
 // - Read per token, not the whole index. Loading every posting list on the first
-//   keystroke cost 146MB of RAM on a 200k-message conversation, which is fatal on
-//   a phone. A query now reads only the words that were typed.
+//   keystroke cost 146MB of RAM on a 200k-message conversation, fatal on a phone.
 // - Ids, metadata, and a bounded plaintext preview per row, never the full
-//   message text. The index answers "which messages match" and the list view
-//   renders each hit's context from the preview without loading (or being
-//   able to decrypt) the row; snippets and highlight ranges are built from it
-//   at read time. Full text still comes only from decrypted rows, so the
-//   long-lived store holds at most a short prefix per message rather than the
-//   conversation.
-// - Plaintext at rest, protected by the device rather than by the app. This is a
-//   local cache that never leaves the device and that the server holds no copy
-//   of, so its at-rest protection is the OS and the device lock — the same
-//   bargain WhatsApp, Telegram, Signal, iMessage and Slack make. Message
-//   payloads remain encrypted exactly as they are.
+//   message text. Full text still comes only from decrypted rows.
+// - Plaintext at rest, protected by the device rather than by the app: a local
+//   cache that never leaves the device, same bargain as WhatsApp, Telegram,
+//   Signal, iMessage and Slack. Message payloads stay encrypted.
 // - Fail-tolerant by construction. Every backend method may reject; callers read
 //   a failure as "not indexed" and fall back to in-memory search.
 
@@ -39,50 +30,42 @@ import {
   searchQueryTokens,
 } from "./message-search";
 
-// Stamped on every record this build writes, and the guard for reading one back:
-// a record carrying a different number is treated as absent rather than
-// misread. The stored row record changed shape when the row table went back to
-// one record per row, and existing indexes are dropped and rebuilt by walking
-// history.
+// Stamped on every record this build writes; a record carrying a different
+// number reads as absent rather than being misread.
 //
 // Version 7 puts `createdAt` INSIDE every posting list, because ordering by row
-// id was the defect it exists to fix. See the ordering note on
-// `selectNewestFirstWindow` for the measurement and the consequence. A v6 index
-// cannot be read by this build, so the write path resets the conversation and the
-// walk rebuilds it -- which is why nothing here needs a migration: the index is
-// derived data and history is on the server.
+// id was the defect it exists to fix (see the ordering note on
+// `selectNewestFirstWindow`). A v6 index cannot be read by this build, so the
+// write path resets the conversation and the walk rebuilds it -- the index is
+// derived data and history is on the server, so no migration is needed.
 export const SEARCH_INDEX_FORMAT_VERSION = 7;
 
 // How much leading message text each indexed row keeps for the list view's
-// snippets. Enough for the snippet window (radius 60 each side plus the match)
-// in the overwhelmingly common case -- chat messages are short -- while bounding
-// the store to a short prefix per message rather than the conversation. A match
-// past the cutoff still resolves (postings are unaffected); its row just shows
-// the prefix without a highlight instead of match-centered context.
+// snippets: enough for the snippet window (radius 60 each side plus the match)
+// in the common case, while bounding the store to a short prefix per message.
+// A match past the cutoff still resolves; its row shows the prefix without a
+// highlight instead of match-centered context.
 export const SEARCH_INDEX_PREVIEW_LENGTH = 200;
 
-// A row's facts. `messageId` is stored here, once, instead of being
-// repeated in every posting list. Everything but the preview is immutable;
-// the preview follows the currently indexed text, so an edit rewrites it.
+// A row's facts. `messageId` is stored here, once, instead of being repeated in
+// every posting list. Everything but the preview is immutable; the preview
+// follows the currently indexed text, so an edit rewrites it.
 export interface SearchIndexRow {
   createdAt: number;
   messageId: string;
-  // Leading message text, bounded by SEARCH_INDEX_PREVIEW_LENGTH, for the list
-  // view's snippets. Plaintext on this device, like the tokens: the tradeoff
-  // the local index already makes, extended from vocabulary to a short prefix
-  // so hits outside the loaded window render context instead of bare ids.
+  // Leading message text, bounded by SEARCH_INDEX_PREVIEW_LENGTH. Plaintext on
+  // this device, like the tokens: a short prefix so hits outside the loaded
+  // window render context instead of bare ids.
   preview: string;
   senderId: string;
 }
 
 // The interned facts for one row, as a query needs them.
 //
-// This replaced a full per-conversation row table. That table was the single
-// largest memory cost in the design: holding every message id as a string plus a
-// reverse Map measured 76MB for a 200k-message conversation, which is 4.3x the
-// index's size on disk and unsurvivable on a low-end phone. Resolving only the
-// rows a query actually matched costs 0.2MB and does not grow with the
-// conversation, so the read is now O(results) instead of O(conversation).
+// This replaced a full per-conversation row table, which measured 76MB for a
+// 200k-message conversation (4.3x the index's disk size, unsurvivable on a
+// low-end phone). Resolving only the rows a query matched costs 0.2MB and does
+// not grow with the conversation: O(results) instead of O(conversation).
 export interface SearchIndexRowFacts {
   createdAt: number;
   messageId: string;
@@ -92,18 +75,16 @@ export interface SearchIndexRowFacts {
 
 export type SearchIndexRowLookup = Map<number, SearchIndexRowFacts>;
 
-// What one query returns: the matched rows' facts, and the exact total. The total
-// is computed over the full intersection and is deliberately not capped, because
+// What one query returns: the matched rows' facts, and the exact total. The
+// total runs over the FULL intersection and is deliberately not capped, because
 // the bar renders "n of N" and a capped N would silently under-report.
 export interface SearchIndexQueryResult {
-  // Whether the conversation holds matches strictly past the returned window.
-  // Read from the same pass that cut the window, so a pager can stop at the last
-  // page without spending a speculative read to discover there is nothing there.
+  // Whether the conversation holds matches strictly past the returned window,
+  // read from the same pass that cut it, so a pager can stop without a
+  // speculative read.
   hasMore: boolean;
   // Facts for the requested window only, newest first in the index's own order.
   rows: SearchIndexRowLookup;
-  // Over the FULL intersection, not the window, and not capped. The bar renders
-  // "n of N" from it, so a capped or windowed N would silently under-report.
   totalMatched: number;
 }
 
@@ -135,24 +116,14 @@ export function emptySearchIndexRowTable(): SearchIndexRowTable {
   };
 }
 
-// Coverage bookkeeping, owned by the backfill walk.
-//
-// Deliberately does NOT carry the row-id allocator even though both are per-
-// conversation state. The walk rewrites this whole object on every page, and
-// `putEntries` rewrites the allocator on every write; sharing one object between
-// them means a read-modify-write race can roll the allocator backwards, and two
-// messages would then be interned to the same row id and silently corrupt each
-// other's posting membership. Each backend keeps its allocator in its own private
-// record instead, so the two writers never touch the same object.
-// Where a page turn resumes: the last row of the previous window, in the index's
-// own order.
+// Coverage bookkeeping, owned by the backfill walk. Where a page turn resumes:
+// the last row of the previous window, in the index's own order.
 //
 // `(createdAt, row)` rather than the row id alone, and that is the whole fix. A
-// row id is an ALLOCATION order, not a time order, so a cursor built from one is
-// a cursor into the wrong sequence; see the ordering note on
-// `selectNewestFirstWindow` for the measurement. `row` is the tiebreak, and it
-// matters: timestamps collide (same-millisecond sends are ordinary), and without
-// a second component a cursor is ambiguous inside a tie group, which is how a
+// row id is an ALLOCATION order, not a time order; see the ordering note on
+// `selectNewestFirstWindow`. `row` is the tiebreak because timestamps collide
+// (same-millisecond sends are ordinary) and an order that is not total cannot be
+// keyed -- a cursor landing inside a tie group is ambiguous, which is how a
 // pager starts repeating and dropping rows.
 export interface SearchIndexCursor {
   createdAt: number;
@@ -160,44 +131,50 @@ export interface SearchIndexCursor {
 }
 
 export interface SearchIndexQueryOptions {
-  // Keyset cursor: return only the matches strictly OLDER than this one. Strictly,
-  // never "at or after", so a page turn can never repeat the boundary row.
+  // Keyset cursor: return only matches strictly OLDER than this one. Never "at
+  // or after", so a page turn can never repeat the boundary row.
   //
   // A keyset rather than a numeric offset, which is the only other shape that
   // survives a conversation being indexed underneath it: an offset counts
-  // positions in a set that a backfill is still adding to, so the same offset
-  // names a different message on the next read. Here the seam is a message, so
-  // a row that lands above the cursor while the reader is on a page cannot appear
-  // twice, and a row that lands below it cannot be skipped.
+  // positions in a set a backfill is still adding to, so the same offset names a
+  // different message on the next read. Here the seam is a message, so a row
+  // landing above the cursor while the reader is on a page cannot appear twice
+  // and a row landing below it cannot be skipped.
   afterMatch?: SearchIndexCursor;
   // The word still being typed, matched by prefix against the dictionary.
   prefix?: string;
 }
 
+// Coverage bookkeeping, owned by the backfill walk.
+//
+// Deliberately does NOT carry the row-id allocator even though both are per-
+// conversation state: the walk rewrites this object on every page and
+// `putEntries` rewrites the allocator on every write, so sharing one object
+// means a read-modify-write race can roll the allocator backwards and intern two
+// messages to the same row id, silently corrupting each other's posting
+// membership. Each backend keeps its allocator in its own private record.
 export interface SearchIndexMeta {
   conversationId: string;
-  // When this conversation's index was last searched or written. Eviction is
-  // least-recently-used, so a conversation nobody has touched in months is the
-  // first to go. Zero means "never touched", which sorts oldest.
+  // Last search or write. Eviction is least-recently-used; 0 means "never
+  // touched", which sorts oldest.
   lastAccessedAt: number;
-  // Newest id known to be indexed. History walks advance it as they commit, so
-  // an interrupted walk resumes here rather than restarting.
+  // Newest id known to be indexed, so an interrupted walk resumes here rather
+  // than restarting.
   indexedThroughId: string | null;
   pendingIds: string[];
-  // True once a walk reached the oldest message. Persisted so reopening search
-  // on a covered conversation does not pay a probe walk just to rediscover it.
-  // Absent (from before this field existed) reads as false.
+  // True once a walk reached the oldest message, so reopening search on a
+  // covered conversation does not pay a probe walk. Absent reads as false.
   reachedStart: boolean;
-  // True when the cursor above was written by a run that verified its way down
-  // from a verified top -- every page checked or processed before the cursor
-  // advanced past it. A cursor without this mark (older rows, another store
-  // version, or any bulk import that reordered history) must NOT be resumed
-  // from: the next run abandons it and descends from the top instead. Absent
-  // reads as false, which heals legacy rows exactly once.
+  // True when the cursor was written by a run that verified its way down from a
+  // verified top -- every page checked or processed before the cursor advanced
+  // past it. A cursor without this mark (older rows, another store version, or
+  // any bulk import that reordered history) must NOT be resumed from: the next
+  // run abandons it and descends from the top instead. Absent reads as false,
+  // which heals legacy rows exactly once.
   //
-  // Anyone building a history import/restore that inserts rows non-monotonically
-  // must clear this (and reachedStart) for the conversation, or the walk will
-  // keep resuming below the imported rows and never see them.
+  // Anyone building a history import/restore that inserts rows
+  // non-monotonically must clear this (and reachedStart) for the conversation,
+  // or the walk will keep resuming below the imported rows and never see them.
   cursorVerified: boolean;
   updatedAt: number;
   version: number;
@@ -234,20 +211,18 @@ export interface SearchIndexStore {
     entries: Map<string, SearchIndexEntry>
   ) => Promise<void>;
   readMeta: (conversationId: string) => Promise<SearchIndexMeta | null>;
-  // Answers a query end to end: maps the typed tokens to the conversation's token
-  // dictionary ids, intersects their posting lists, and projects the matched rows.
+  // Answers a query end to end: maps typed tokens to dictionary ids,
+  // intersects their posting lists, and projects the matched rows.
   //
-  // One operation rather than three, for one reason: a persistent backend keys its
-  // posting lists by dictionary id, and the dictionary is not reachable through
-  // the store contract, so a caller cannot turn words into posting keys at all on
-  // its own. Doing the steps separately would also let the dictionary and the
-  // posting lists come from different commits, producing results that match rows
-  // the dictionary no longer describes. One call bounds both per keystroke.
+  // One operation rather than three: a persistent backend keys posting lists by
+  // dictionary id, which is not reachable through this contract, so a caller
+  // cannot turn words into posting keys on its own. Separate steps would also
+  // let the dictionary and posting lists come from different commits, matching
+  // rows the dictionary no longer describes.
   //
   // `options.prefix` turns the trailing token into a prefix match: dictionary
-  // terms starting with it are unioned, then AND-ed with the exact tokens. This
-  // is what makes typing narrow live instead of flashing empty until the word
-  // is complete.
+  // terms starting with it are unioned, then AND-ed with the exact tokens, so
+  // typing narrows live instead of flashing empty until the word completes.
   query: (
     conversationId: string,
     tokens: string[],
@@ -268,35 +243,32 @@ export interface SearchIndexStore {
   ) => Promise<SearchIndexRowLookup>;
   // The subset of the given message ids that already occupy a row, present or
   // tombstoned -- both mean "covered, nothing left to do". Lets a walk skip
-  // pages it already indexed without decrypting or committing them, and --
-  // more importantly -- lets a run verify its resume cursor instead of
-  // trusting it. A cursor pointing below uncovered history (new arrivals above
-  // it, a stale row from another era or store version) would otherwise strand
+  // pages it already indexed, and lets a run verify its resume cursor instead of
+  // trusting it: a cursor pointing below uncovered history would otherwise strand
   // everything above it forever, because the walk only ever descends.
   hasIndexedMessages: (
     conversationId: string,
     messageIds: readonly string[]
   ) => Promise<ReadonlySet<string>>;
   // Rows that exist but are not searchable yet, persisted so coverage survives a
-  // reload. Without this, a row whose payload had not decrypted when it was last
-  // seen was queued in memory only: the backfill cursor moved past it and the
-  // queue died with the tab, leaving a permanent silent hole in search.
+  // reload. Without this, a row that had not decrypted when last seen was queued
+  // in memory only: the cursor moved past it and the queue died with the tab,
+  // leaving a permanent silent hole in search.
   //
-  // Whole-set rather than incremental, because the writer is the single owner and
-  // therefore the only writer, so there is nothing to race. Incremental add and
-  // remove would only create a second consistency boundary to get wrong.
+  // Whole-set rather than incremental: the writer is the single owner, so there
+  // is nothing to race, and incremental add/remove would only create a second
+  // consistency boundary to get wrong.
   readPending: (conversationId: string) => Promise<string[]>;
   writePending: (
     conversationId: string,
     messageIds: readonly string[]
   ) => Promise<void>;
   // Every conversation with an index on this device, oldest access first. Backs
-  // least-recently-used eviction. The meta store holds one small record per
-  // conversation, so this is cheap even where a row scan would not be.
+  // LRU eviction; the meta store holds one small record per conversation, so
+  // this is cheap even where a row scan would not be.
   listConversations: () => Promise<SearchIndexConversationSummary[]>;
-  // One point read, for the coverage label. It comes from the allocator's
-  // high-water mark, so it is cheap and cumulative: it reports rows ever interned
-  // rather than counting the conversation for a label.
+  // One point read for the coverage label, from the allocator's high-water
+  // mark: cheap and cumulative (rows ever interned) rather than a count.
   readStats: (conversationId: string) => Promise<{ indexedRowCount: number }>;
   removeEntries: (
     conversationId: string,
@@ -356,33 +328,31 @@ export function internRows(
 // A posting list that can grow in place, with each row's creation time carried
 // alongside it.
 //
-// This exists because the obvious implementation is quadratic. A posting list is
-// a typed array, and a typed array cannot grow, so "insert a row" means "copy the
-// whole list". For a token that appears in 80k messages, indexing a conversation
-// copies 80k rows for every message that contains the token: measured at 200k
-// messages, 1,679 msgs/s instead of 20,700. Holding spare capacity and tracking
-// the used length turns the common append into a pointer bump.
+// The obvious implementation is quadratic: a typed array cannot grow, so
+// "insert a row" means "copy the whole list". For a token appearing in 80k
+// messages that copies 80k rows per message containing it (measured 1,679
+// msgs/s instead of 20,700). Spare capacity plus a used length turns the common
+// append into a pointer bump.
 //
 // `sorted` records whether the used prefix of `values` ascends. Row ids are
 // handed out in insertion order, so the common case stays sorted for free; a
-// backfill that interleaves with live traffic, or a removal, just clears the flag
-// and the next read sorts once.
+// backfill interleaved with live traffic or a removal clears the flag and the
+// next read sorts once.
 //
-// `times` is the reason this is a v7 record and not a v6 one. Ordering a page by
-// row id assumed row ids ascend with message age, and they do not: the backfill
-// descends from the newest page, so the newest message is interned first and
-// LOW row ids are the NEWEST messages. Measured on the 200k fixture, row 975 is
-// the newest message and row 44416 the oldest -- exactly inverted. Carrying the
-// time next to the row makes the ordering key a fact about the message instead
-// of an artefact of the order this device happened to index it in, and it costs
-// one float per posting rather than a second read: a query that needed a second
-// pass to learn its candidates' times would pay one point read per match, which
-// is the O(matches) cost this design exists to keep off the keystroke path.
+// `times` is why this is a v7 record: ordering a page by row id assumed row ids
+// ascend with message age, and they do not. The backfill descends from the
+// newest page, so LOW row ids are the NEWEST messages (measured on the 200k
+// fixture: row 975 newest, row 44416 oldest -- exactly inverted). Carrying the
+// time makes the ordering key a fact about the message instead of an artefact
+// of the order this device indexed it in, and it costs one float per posting
+// rather than a second read: a query needing a second pass to learn its
+// candidates' times would pay one point read per match, the O(matches) cost
+// this design exists to keep off the keystroke path.
 export interface SearchIndexRowList {
   length: number;
   sorted: boolean;
-  // Creation time per row, parallel to `values`. Kept in the same used-prefix
-  // discipline: only `[0, length)` is meaningful.
+  // Creation time per row, parallel to `values`. Same used-prefix discipline:
+  // only `[0, length)` is meaningful.
   times: Float64Array;
   values: Uint32Array;
 }
@@ -393,8 +363,8 @@ export interface SearchIndexPostingList {
   times: Float64Array;
 }
 
-// A matched row, with the time its message was created. This is the unit the
-// query sorts and windows, so ordering never has to touch the row table.
+// A matched row with its creation time: the unit the query sorts and windows,
+// so ordering never touches the row table.
 export interface SearchIndexPostingMatch {
   createdAt: number;
   row: number;
@@ -414,11 +384,10 @@ export function emptySearchIndexRowList(): SearchIndexRowList {
 // Wraps a stored list, copying it into a growable buffer. Used when reading an
 // existing list back out of storage before adding to it.
 //
-// A stored list whose two arrays disagree in length is UNUSABLE, and reads as
-// empty rather than being repaired: the only way they disagree is a write that
-// died between them, and guessing which half is authoritative is how a posting
-// list ends up attributing one row's time to another row. An empty list costs a
-// re-index of the conversation; a wrong one costs wrong results.
+// A stored list whose two arrays disagree in length is UNUSABLE: the only way
+// they disagree is a write that died between them, and guessing which half is
+// authoritative is how a posting list attributes one row's time to another. An
+// empty list costs a re-index; a wrong one costs wrong results.
 export function searchIndexRowListFrom(
   stored: SearchIndexPostingList
 ): SearchIndexRowList {
@@ -457,8 +426,8 @@ function reserve(list: SearchIndexRowList, needed: number): void {
 // retried batch cannot duplicate an entry.
 //
 // The duplicate scan is skipped for appends, which is the whole write path: an
-// append means the row is greater than every value already held, so it cannot be
-// one of them. Scanning unconditionally made every add O(n) and put the 200k
+// append means the row is greater than every value already held, so it cannot
+// be one of them. Scanning unconditionally made every add O(n) and put the 200k
 // backfill at 11,338 msgs/s instead of 20,700.
 export function rowListAdd(
   list: SearchIndexRowList,
@@ -487,9 +456,8 @@ export function rowListRemove(list: SearchIndexRowList, row: number): void {
   }
   // Shift the tail down over the hole, in BOTH arrays: a list whose times no
   // longer line up with its rows attributes a message's time to its neighbour,
-  // and the pager would then order by a time that belongs to something else.
-  // Removals are rare (delete, hide) and off the interaction path, unlike writes,
-  // so a copy-free shift is the right trade.
+  // and the pager would order by a time belonging to something else. Removals
+  // are rare and off the interaction path, so a copy-free shift is right.
   if (at + 1 < list.length) {
     list.values.copyWithin(at, at + 1, list.length);
     list.times.copyWithin(at, at + 1, list.length);
@@ -519,15 +487,14 @@ export function rowListRemoveMany(
   list.length = kept;
 }
 
-// The exact-length arrays a reader gets, sorted ascending. This is the only place
-// a posting list is copied, and it happens once per query per token.
+// The exact-length arrays a reader gets, sorted ascending. The only place a
+// posting list is copied, once per query per token.
 export function rowListToArrays(
   list: SearchIndexRowList
 ): SearchIndexPostingList {
   if (!list.sorted) {
-    // Sorted as PAIRS. Sorting rows alone would leave every time beside the wrong
-    // row, which is a worse failure than an unsorted list: the values would look
-    // right and the order would be silently wrong.
+    // Sorted as PAIRS. Sorting rows alone would leave every time beside the
+    // wrong row: the values would look right while the order was silently wrong.
     const order = [...list.values.subarray(0, list.length).keys()].toSorted(
       (left, right) => (list.values[left] ?? 0) - (list.values[right] ?? 0)
     );
@@ -579,11 +546,9 @@ export function expandPrefixTerm(
 export function unionPostingLists(
   lists: readonly SearchIndexPostingList[]
 ): SearchIndexPostingList {
-  // Keyed by row rather than deduped by position, because a row's time has to
-  // travel WITH it: a union that kept the first occurrence's time and dropped the
-  // rest is fine (they agree), but a union that paired row ids from one list with
-  // times from another would not be. A row's time is a property of the row, so
-  // the first occurrence is as good as any.
+  // Keyed by row rather than deduped by position: a row's time must travel
+  // WITH it, and pairing row ids from one list with times from another would
+  // not. The first occurrence is as good as any -- they agree.
   const createdAtByRow = new Map<number, number>();
   for (const list of lists) {
     for (let index = 0; index < list.rows.length; index += 1) {
@@ -596,9 +561,7 @@ export function unionPostingLists(
   const rows = [...createdAtByRow.keys()].toSorted(
     (left, right) => left - right
   );
-  // Both arrays filled in one pass, because the pairing is the whole invariant
-  // here and a reader should not have to trust that two arrays were kept in
-  // lockstep somewhere else.
+  // Both arrays filled in one pass: the pairing is the whole invariant here.
   const values = new Uint32Array(rows.length);
   const times = new Float64Array(rows.length);
   for (let index = 0; index < rows.length; index += 1) {
@@ -609,41 +572,25 @@ export function unionPostingLists(
   return { rows: values, times };
 }
 
-// Intersects several posting lists, with an exact total, and carries each
-// matched row's creation time out with it.
+// Intersects several posting lists, with an exact total, carrying each matched
+// row's creation time out with it.
 //
-// Each pass scans one list once and tests membership in a Set of the rows that
-// survived so far, so the cost is the sum of the list lengths rather than their
-// product. The rarest list leads, which bounds the candidate set immediately.
+// Each pass scans one list once and tests membership in a Map of the survivors,
+// so cost is the sum of the list lengths rather than their product. The rarest
+// list leads, bounding candidates immediately. Computed in full because
+// `totalMatched` drives the result counter; capping the scan would under-report.
 //
-// The intersection is computed in full because `totalMatched` drives the result
-// counter; capping the scan would silently under-report it.
-//
-// No ordering and no windowing happens here, and that is deliberate. This used to
-// order by descending row id and cut a page out of that order, which was wrong in
-// a way the shape of the code hid: it assumed row ids ascend with message age
-// because they are handed out in insertion order. A conversation is not indexed
-// oldest-first here. The backfill walk descends from the NEWEST page and the
-// writer interns the newest loaded rows as the transcript loads, so the first row
-// interned is the newest message and row ids DESCEND with time. Measured on the
-// 200k fixture: row 975 is the newest message, row 44416 the oldest, exactly
-// inverting the assumption.
-//
-// Two things broke. The capped head took the `limit` HIGHEST row ids, which are
-// the OLDEST matches rather than the newest, and display re-sorted the window by
-// timestamp so the order looked right until a query matched more than `limit`
-// messages and the newest matches were not in the window at all. And keyset
-// paging walked `row < afterRowId`, toward HIGHER row ids and therefore toward
-// OLDER messages, so the boundary for the first paged page was the newest match
-// and every page after it came back empty or repeated the head -- the "page 1 is
-// fine and page 2 onward shows nothing" report.
-//
-// So the ordering key moved onto the message. `times` rides in the posting list
-// (see `SearchIndexRowList`), and `selectNewestFirstWindow` below does the
-// ordering and the cut. Intersecting still produces candidates in row-id order
-// because that is what the posting lists are stored in, and it is free: the
-// ordering pass is O(matches log matches) on a set bounded by what the user
-// actually matched, not by the conversation.
+// No ordering and no windowing happens here, and that is deliberate: ordering
+// belongs on the message's own time (`times` rides in the posting list, see
+// `SearchIndexRowList`), done by `selectNewestFirstWindow`. Ordering by row id
+// instead was wrong because row ids are allocation order, not age: this backfill
+// descends from the NEWEST page, so LOW row ids are the NEWEST messages
+// (measured on the 200k fixture: row 975 newest, row 44416 oldest). That
+// inversion made the capped head take the OLDEST matches and made keyset paging
+// walk toward older rows until every page after the head came back empty.
+// Intersecting still yields candidates in row-id order because that is what the
+// lists are stored in, and sorting them is free: O(matches log matches) on what
+// the user matched, not on the conversation.
 export function intersectPostingLists(
   lists: readonly SearchIndexPostingList[]
 ): { matches: SearchIndexPostingMatch[]; totalMatched: number } {
@@ -672,9 +619,8 @@ export function intersectPostingLists(
     if (candidates.length === 0) {
       break;
     }
-    // Membership by row id, built once per pass. A row's time is a property of the
-    // row, so taking it from the smallest list is as good as taking it from any
-    // other, and the survivors keep the time they arrived with -- which also means
+    // Membership by row id, built once per pass. A row's time is a property
+    // of the row, so taking it from the smallest list is as good as any, and
     // an intersection cannot invent a time no list agrees on.
     const allowed = new Map<number, number>();
     for (let index = 0; index < list.rows.length; index += 1) {
@@ -688,20 +634,18 @@ export function intersectPostingLists(
 
 // The index's display order: newest first, with the row id as the tiebreak.
 //
-// Time is the message's own. The row id is only there to make the order TOTAL,
-// because same-millisecond sends are ordinary and an order that is not total
-// cannot be keyed: a cursor landing inside a tie group would be ambiguous, and a
-// pager over an ambiguous order repeats and drops rows. Row id is stable and
-// unique, so `(createdAt, row)` is a total order over rows and a keyset over it
-// is exact.
+// The row id only exists to make the order TOTAL: same-millisecond sends are
+// ordinary, an order that is not total cannot be keyed, and a cursor landing
+// inside a tie group is ambiguous, which makes a pager repeat and drop rows.
+// Row id is stable and unique, so `(createdAt, row)` is a total order and a
+// keyset over it is exact.
 //
 // Note this tiebreak is the row id while the list view's own comparator breaks
 // ties on the message id. They can only disagree inside a same-millisecond group
-// that a page boundary falls through, and the disagreement is one of position
-// among messages the reader cannot tell apart -- each row still appears exactly
-// once, in one page. Making the two identical would mean carrying every
-// candidate's message id into the ordering pass, which is the O(matches) row
-// resolution this design exists to avoid.
+// a page boundary falls through, and only on position among messages the reader
+// cannot tell apart -- each row still appears exactly once. Making them
+// identical would mean carrying every candidate's message id into the ordering
+// pass, the O(matches) row resolution this design avoids.
 function compareNewestFirst(
   left: SearchIndexPostingMatch | SearchIndexCursor,
   right: SearchIndexPostingMatch | SearchIndexCursor
@@ -712,11 +656,10 @@ function compareNewestFirst(
   return left.row - right.row;
 }
 
-// One page of matches, and whether the conversation has any past it.
-//
-// `hasMore` is what lets a pager stop without a speculative extra read: the
-// previous design inferred "no more pages" from a page coming back empty, which
-// cost a wasted round trip and a visible loading state on every last page.
+// One page of matches, and whether the conversation has any past it. `hasMore`
+// lets a pager stop without a speculative extra read -- inferring "no more
+// pages" from an empty page cost a wasted round trip and a visible loading
+// state on every last page.
 export function selectNewestFirstWindow(
   matches: readonly SearchIndexPostingMatch[],
   limit: number,
@@ -726,9 +669,8 @@ export function selectNewestFirstWindow(
     return { hasMore: false, window: [] };
   }
   const ordered = [...matches].toSorted(compareNewestFirst);
-  // Strictly past the cursor. The boundary is EXCLUDED, so a page turn can never
-  // repeat it, and the comparison is a total order, so no match can fall between
-  // two pages and be skipped.
+  // Strictly past the cursor: the boundary is EXCLUDED so a page turn can never
+  // repeat it, and the total order means no match can fall between two pages.
   const start =
     afterMatch === undefined
       ? 0
