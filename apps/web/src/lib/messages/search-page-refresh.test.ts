@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { decidePageRead, headPageCursor } from "./search-page-refresh";
+import {
+  decidePageRead,
+  decidePageRequest,
+  headPageCursor,
+} from "./search-page-refresh";
 
 // The reported bug: page 2 onward of the results list did not change while the
 // walk kept indexing, so it read as "no results here" for the whole session. The
@@ -186,5 +190,144 @@ describe("headPageCursor", () => {
     expect(
       headPageCursor({ shownMessageIds: new Set(["m12", "m11"]), windowRows })
     ).toEqual({ createdAt: 100, row: 12 });
+  });
+});
+
+// The page-turn state machine. This is the sequencing a pager depends on, and it
+// used to live inline in a hook effect where the suite could not reach it -- so the
+// cases below are all reports that happened, not hypotheticals.
+describe("decidePageRequest", () => {
+  const base = {
+    generation: 7,
+    minIntervalMs: 400,
+    now: 10_000,
+    page: 1,
+    ready: true,
+  };
+  // The head's displayed boundary: the oldest row page 0 shows.
+  const headCursor = { createdAt: 500, row: 4 };
+
+  test("page 0 is the merged head and never reads", () => {
+    expect(decidePageRequest({ ...base, page: 0 })).toEqual({ kind: "skip" });
+  });
+
+  test("a closed session never reads", () => {
+    expect(decidePageRequest({ ...base, ready: false })).toEqual({
+      kind: "skip",
+    });
+  });
+
+  test("page 1 reads from the head's boundary", () => {
+    expect(decidePageRequest({ ...base, afterMatch: headCursor })).toEqual({
+      afterMatch: headCursor,
+      kind: "read",
+    });
+  });
+
+  // An all-in-memory head shows no index row at all, so there is no boundary. The
+  // read starts at the top of the match sequence, which is what an absent cursor
+  // means -- and it must NOT be confused with "the page before is unreachable",
+  // which is a different page's problem entirely.
+  test("page 1 with no boundary still reads, from the top", () => {
+    expect(decidePageRequest({ ...base, afterMatch: null })).toEqual({
+      kind: "read",
+    });
+  });
+
+  test("a deeper page reads from the page before it", () => {
+    const previous = { createdAt: 400, row: 9 };
+    expect(
+      decidePageRequest({ ...base, afterMatch: previous, page: 2 })
+    ).toEqual({ afterMatch: previous, kind: "read" });
+  });
+
+  // Paging faster than reads land is ordinary. Treating it as a failure is what
+  // made fast paging a dead end behind a retry nobody had broken.
+  test("a page whose predecessor is mid-read waits rather than failing", () => {
+    expect(
+      decidePageRequest({
+        ...base,
+        afterMatch: null,
+        page: 3,
+        previousState: "loading",
+      })
+    ).toEqual({ kind: "await-previous" });
+  });
+
+  test("a page whose predecessor failed is unreachable", () => {
+    expect(
+      decidePageRequest({
+        ...base,
+        afterMatch: null,
+        page: 3,
+        previousState: "failed",
+      })
+    ).toEqual({ kind: "unreachable" });
+  });
+
+  // The one that matters most on a fresh index. A page read early in a backfill
+  // legitimately finds nothing past it, because the walk has not got there yet --
+  // and then the walk fills that space. Trusting that stale verdict would strand
+  // every match the walk had not reached, which is the unreachable-tail defect
+  // arriving by a new route.
+  test("a stale 'nothing past me' verdict is ignored, not trusted", () => {
+    const decision = decidePageRequest({
+      ...base,
+      afterMatch: { createdAt: 300, row: 12 },
+      page: 2,
+      previousHasMore: false,
+      // Read at generation 5; the index is at 7.
+      previousReadGeneration: 5,
+    });
+    expect(decision.kind).toBe("read");
+  });
+
+  test("a current 'nothing past me' verdict ends the pager without a read", () => {
+    expect(
+      decidePageRequest({
+        ...base,
+        afterMatch: { createdAt: 300, row: 12 },
+        page: 2,
+        previousHasMore: false,
+        previousReadGeneration: 7,
+      })
+    ).toEqual({ kind: "exhausted" });
+  });
+
+  test("a predecessor that never read has no verdict to trust", () => {
+    const decision = decidePageRequest({
+      ...base,
+      afterMatch: { createdAt: 300, row: 12 },
+      page: 2,
+      previousHasMore: false,
+      // Never read: absent is not the same as having read nothing.
+      previousReadGeneration: undefined,
+    });
+    expect(decision.kind).toBe("read");
+  });
+
+  test("a window already read at this generation needs no read", () => {
+    expect(
+      decidePageRequest({
+        ...base,
+        afterMatch: headCursor,
+        readAt: 9900,
+        readGeneration: 7,
+      })
+    ).toEqual({ kind: "current" });
+  });
+
+  // Commits arrive far faster than a page turn is worth re-reading. One re-read
+  // per window is enough, and the trailing tick brings it back.
+  test("a window behind the index waits out the floor rather than reading", () => {
+    expect(
+      decidePageRequest({
+        ...base,
+        afterMatch: headCursor,
+        now: 10_000,
+        readAt: 9900,
+        readGeneration: 6,
+      })
+    ).toEqual({ kind: "wait", waitMs: 300 });
   });
 });

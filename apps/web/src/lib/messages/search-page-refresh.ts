@@ -103,3 +103,102 @@ function isOlder(left: SearchIndexCursor, right: SearchIndexCursor): boolean {
   // `selectNewestFirstWindow` sorts by.
   return left.row > right.row;
 }
+
+// What a page turn should do, decided before any I/O.
+//
+// Extracted from the hook because this is the sequencing rules for a pager, and
+// they are where the failures live: a cursor that is read from the wrong page, a
+// shortcut that trusts a stale verdict, and a "still loading" that turns into a
+// dead end. None of it needs React to reason about, and every one of those cases
+// is a report rather than a hypothetical.
+export type PageRequestDecision =
+  // Nothing to do: page 0 is the merged head, or the session is closed.
+  | { kind: "skip" }
+  // Read this window, starting strictly after `afterMatch` when the page has a
+  // seam to start from. Page 1 with an all-in-memory head has none: the read
+  // starts at the top of the match sequence, which is exactly what an absent
+  // cursor means.
+  | { kind: "read"; afterMatch?: SearchIndexCursor }
+  // The window already reflects the index as it stands.
+  | { kind: "current" }
+  // The index has moved on and the last read was too recent; come back in `waitMs`.
+  | { kind: "wait"; waitMs: number }
+  // The page before is mid-read. Ordinary when paging faster than reads land, so
+  // it is a wait and NOT an error: an error here is what made fast paging a dead
+  // end behind a retry message nobody had broken.
+  | { kind: "await-previous" }
+  // The page before is not coming: it read empty, or its read failed.
+  | { kind: "unreachable" }
+  // The page before already proved, from a CURRENT read, that nothing is past it.
+  // Rendering the same empty page again, without a round trip.
+  | { kind: "exhausted" };
+
+export function decidePageRequest(input: {
+  // Where this page's read starts. Page 1 reads from the HEAD's boundary, a
+  // deeper page from the page before it; the caller resolves that because the
+  // head boundary is derived from the rendered slice and the others come from a
+  // stack. Null means "this page has no seam to start from", which is only ever
+  // true past page 1.
+  afterMatch?: SearchIndexCursor | null;
+  // The index generation on hand.
+  generation: number;
+  // Whether the page before reported anything past its window.
+  previousHasMore?: boolean;
+  // The generation the page before's last COMPLETED read used, if any. Absent
+  // means it has never read, which is not the same as having read nothing.
+  previousReadGeneration?: number;
+  // How the page before's own read ended. "loaded" and undefined mean the same
+  // thing to every branch here -- a seam is expected, or there was no read to have
+  // one -- so only the two states that change the answer are named.
+  previousState?: "failed" | "loading";
+  // The page being turned to. 0 is the head.
+  page: number;
+  // Whether the session is open and a query is ready to read against.
+  ready: boolean;
+  readGeneration?: number;
+  readAt?: number;
+  minIntervalMs: number;
+  now: number;
+}): PageRequestDecision {
+  if (!input.ready || input.page <= 0) {
+    return { kind: "skip" };
+  }
+  const { afterMatch } = input;
+  if (input.page > 1 && afterMatch === null) {
+    if (input.previousState === "loading") {
+      return { kind: "await-previous" };
+    }
+    return { kind: "unreachable" };
+  }
+  // Nothing past the previous page, and the verdict is CURRENT.
+  //
+  // The currency gate is the entire correctness of this shortcut. A page read
+  // early in a backfill legitimately finds nothing past it -- the walk has not
+  // reached there yet -- and then fills that space. Trusting a stale verdict
+  // would strand every match the walk had not reached, which is the same
+  // unreachable-tail defect this file was written to remove, arriving by a new
+  // route.
+  if (
+    input.page > 1 &&
+    input.previousHasMore === false &&
+    input.previousReadGeneration === input.generation
+  ) {
+    return { kind: "exhausted" };
+  }
+  const decision = decidePageRead({
+    generation: input.generation,
+    minIntervalMs: input.minIntervalMs,
+    now: input.now,
+    readAt: input.readAt,
+    readGeneration: input.readGeneration,
+  });
+  if (decision.kind === "current") {
+    return { kind: "current" };
+  }
+  if (decision.kind === "wait") {
+    return { kind: "wait", waitMs: decision.waitMs };
+  }
+  return afterMatch === null || afterMatch === undefined
+    ? { kind: "read" }
+    : { afterMatch, kind: "read" };
+}

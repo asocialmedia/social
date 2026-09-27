@@ -34,7 +34,7 @@ import type {
   SearchIndexRowLookup,
   SearchIndexStore,
 } from "./search-index-format";
-import { decidePageRead, headPageCursor } from "./search-page-refresh";
+import { decidePageRequest, headPageCursor } from "./search-page-refresh";
 
 export interface ConversationSearchInput {
   allMessages: MessageData[];
@@ -105,6 +105,17 @@ const PAGE_REFRESH_MIN_INTERVAL_MS = 400;
 // Shared empty result for a closed search, so the common case allocates nothing
 // and the inline bar's `matchIds` identity stays stable while idle.
 const EMPTY_MATCH_IDS: string[] = [];
+
+// The only two predecessor states the page-turn decision distinguishes. "loaded"
+// folds into undefined, and so does a page that was never read: a page that
+// produced a seam needs no explanation, and the seam itself is the answer.
+function previousPageState(
+  reads: ReadonlyMap<number, "failed" | "loaded" | "loading">,
+  page: number
+): "failed" | "loading" | undefined {
+  const state = reads.get(page);
+  return state === "loading" || state === "failed" ? state : undefined;
+}
 
 // The posting lists read for the current query, keyed by nothing: they are
 // already the exact set for this query, and are only valid together with the row
@@ -627,58 +638,56 @@ export function useConversationSearch(
       return;
     }
     const tokens = prefix === null ? exact : [...exact, prefix];
-    // Page 1 hangs off the head's boundary; deeper pages off their own boundary.
-    const afterMatch =
-      listPage === 1
-        ? headCursor
-        : (cursorsRef.current.get(listPage - 1) ?? null);
-    // A page the page before it already proved empty, from a read that is still
-    // CURRENT, is not read again. Without this the reader is charged a round trip
-    // and a visible "Loading this page…" to learn something already known -- which
-    // is what a last page looked like on every conversation.
-    //
-    // Gated on the predecessor's read being current, and that gate is the whole
-    // correctness of the shortcut. On a fresh index a page read early in a walk
-    // legitimately finds nothing past it, and the walk then fills that space: a
-    // verdict from a stale read would strand every match the walk had not reached
-    // yet, which is the same unreachable-tail defect in a new place.
-    if (
-      listPage > 1 &&
-      pageHasMoreRef.current.get(listPage - 1) === false &&
-      pageReadTokenRef.current.get(listPage - 1) === indexGeneration
-    ) {
-      setPageWindowLoading(false);
-      setPageWindowError(null);
+    // The whole sequencing rule, in one tested place. It used to live inline
+    // here, which is where a cursor read from the wrong page, a shortcut that
+    // trusted a stale verdict, and a "still loading" that turned into a dead end
+    // were all invisible to the suite.
+    const decision = decidePageRequest({
+      // Page 1 hangs off the head's displayed boundary; deeper pages off the page
+      // before them.
+      afterMatch:
+        listPage === 1
+          ? headCursor
+          : (cursorsRef.current.get(listPage - 1) ?? null),
+      generation: indexGeneration,
+      minIntervalMs: PAGE_REFRESH_MIN_INTERVAL_MS,
+      now: Date.now(),
+      page: listPage,
+      previousHasMore: pageHasMoreRef.current.get(listPage - 1),
+      previousReadGeneration: pageReadTokenRef.current.get(listPage - 1),
+      // "loaded" is folded into undefined: the decision reads the state only to
+      // tell a mid-read page from one that will never produce a seam.
+      previousState: previousPageState(pageReadsRef.current, listPage - 1),
+      readAt: pageReadAtRef.current.get(listPage),
+      readGeneration: pageReadTokenRef.current.get(listPage),
+      ready: true,
+    });
+    // Resolved out here rather than inside the read closure below: a narrowing
+    // does not survive into a callback, and the cursor this read pages from must
+    // be the one the decision chose, not one re-derived at the call site.
+    const readAfterMatch =
+      decision.kind === "read" ? (decision.afterMatch ?? null) : null;
+    if (decision.kind === "skip" || decision.kind === "current") {
       return;
     }
-    if (listPage > 1 && afterMatch === null) {
-      if (pageReadsRef.current.get(listPage - 1) === "loading") {
-        // The page before is still being read. Clicking faster than the reads
-        // land is ordinary, not a failure: wait for its boundary and let the
-        // cursor epoch re-run this effect. Reporting an error here is what made
-        // fast paging a dead end with a retry message nobody had broken.
-        setPageWindowLoading(true);
-        return;
-      }
+    if (decision.kind === "await-previous") {
+      // The page before is mid-read. Clicking faster than reads land is ordinary,
+      // so this is a wait and not a failure -- an error here is what made fast
+      // paging a dead end behind a retry nobody had broken.
+      setPageWindowLoading(true);
+      return;
+    }
+    if (decision.kind === "unreachable") {
       // The page before is not coming: it read as empty, or its read failed.
-      // Reporting that beats fetching the head window again and showing it as a
-      // deeper page.
       setPageWindowError("This page could not be loaded. Go back and retry.");
       setPageWindowLoading(false);
       return;
     }
-    // Whether this page owes a read: never read, behind the index, or waiting out
-    // the floor between two reads. A window already read at this generation is
-    // the answer, and re-reading it is a no-op the effect would otherwise repeat
-    // for reasons that have nothing to do with the index.
-    const decision = decidePageRead({
-      generation: indexGeneration,
-      minIntervalMs: PAGE_REFRESH_MIN_INTERVAL_MS,
-      now: Date.now(),
-      readAt: pageReadAtRef.current.get(listPage),
-      readGeneration: pageReadTokenRef.current.get(listPage),
-    });
-    if (decision.kind === "current") {
+    if (decision.kind === "exhausted") {
+      // Nothing past the previous page, from a read that is still current. The
+      // page renders empty and the status says so, without a round trip.
+      setPageWindowLoading(false);
+      setPageWindowError(null);
       return;
     }
     if (decision.kind === "wait") {
@@ -704,7 +713,7 @@ export function useConversationSearch(
           exact,
           SEARCH_PAGE_SIZE,
           {
-            afterMatch: afterMatch ?? undefined,
+            ...(readAfterMatch ? { afterMatch: readAfterMatch } : {}),
             ...(prefix === null ? {} : { prefix }),
           }
         );
