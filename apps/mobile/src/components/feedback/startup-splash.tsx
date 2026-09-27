@@ -40,11 +40,12 @@ const LOGO_SIZE = 140;
 const FOOTER_INSET = 72;
 
 // The wordmark is SVG text, so it needs an explicit box: a width to centre the
-// run in (textAnchor="middle") and a height/baseline to sit it on.
-const WORDMARK_FONT_SIZE = 22;
+// run in (textAnchor="middle") and a height/baseline to sit it on. The height
+// and baseline track the font size, since the box has to hug the glyph run.
+const WORDMARK_FONT_SIZE = 16;
 const WORDMARK_WIDTH = 260;
-const WORDMARK_HEIGHT = 30;
-const WORDMARK_BASELINE = 23;
+const WORDMARK_HEIGHT = 22;
+const WORDMARK_BASELINE = 17;
 const WORDMARK_GRADIENT_ID = "brandWordmark";
 
 // The icon grows very slightly as it dissolves, so the brand mark reads as
@@ -190,7 +191,9 @@ const styles = StyleSheet.create({
   footer: {
     alignItems: "center",
     bottom: FOOTER_INSET,
-    gap: 10,
+    // Tight: the wordmark and the tagline read as one lockup, not two
+    // separately-floating elements.
+    gap: 4,
     left: 0,
     position: "absolute",
     right: 0,
