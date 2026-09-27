@@ -1,5 +1,6 @@
 export {
   fetchProfileUserList,
+  usePrefetchProfile,
   useProfile,
   useProfileFeed,
 } from "./lib/profile-state";

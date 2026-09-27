@@ -16,6 +16,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { usePrefetchProfile } from "@/features/profile";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
 import {
@@ -173,6 +174,7 @@ export function PostCard({
 }: PostCardProps) {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
+  const prefetchProfile = usePrefetchProfile();
   const [showComments, setShowComments] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -210,6 +212,13 @@ export function PostCard({
       params: { username: author.username },
       pathname: "/users/[username]",
     });
+  };
+
+  // Warms the profile cache on touch-down so the route usually mounts with data
+  // already in flight, which is what lets it paint content instead of a
+  // skeleton. Cheap when the profile is cached: the hook returns immediately.
+  const prefetchAuthor = () => {
+    prefetchProfile(author?.username);
   };
 
   const inline = useMemo(
@@ -281,6 +290,7 @@ export function PostCard({
               accessibilityRole="link"
               disabled={!author?.username}
               onPress={openAuthor}
+              onPressIn={prefetchAuthor}
               style={styles.avatarLink}
             >
               <Image
@@ -316,6 +326,7 @@ export function PostCard({
                   accessibilityRole="link"
                   disabled={!author?.username}
                   onPress={openAuthor}
+                  onPressIn={prefetchAuthor}
                   style={styles.authorIdentity}
                 >
                   <Text

@@ -28,6 +28,7 @@ import type {
   ProfileFeedView,
   ProfileHeaderProfile,
 } from "./profile-view-model";
+import { SingleFlight } from "./single-flight";
 
 export { fetchProfileUserList } from "./profile-api";
 export type {
@@ -55,6 +56,60 @@ function cacheKey(viewerId: string, username: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Couldn't load this profile";
+}
+
+// One request per cache key, shared between a press-in prefetch and the screen
+// that later mounts for the same profile. Without this the two would race and
+// fire duplicate fetches for the same user.
+const profileRequests = new SingleFlight();
+
+function loadProfile(key: string, usernameKey: string): Promise<void> {
+  return profileRequests.run(key, async () => {
+    try {
+      const cookie = await authClient.getCookie();
+      const options = { apiBase: getApiBaseUrl(), cookie };
+      const profile = await fetchProfileByUsername(usernameKey, options);
+      const followInfo = await fetchFollowInfo(profile.id, options);
+      profileCache.setData(key, {
+        ...profile,
+        _count: { ...profile._count, followers: followInfo.followers },
+        isFollowing: followInfo.isFollowedByUser,
+      });
+    } catch (error) {
+      // A failure after a prefetch still records the error, so a later mount
+      // shows the retry state instead of silently fetching forever.
+      profileCache.setError(key, errorMessage(error));
+    }
+  });
+}
+
+// Warms the profile cache ahead of navigation. Call from onPressIn so the
+// request is already in flight by the time the route mounts, which lets the
+// screen paint its real content immediately instead of a full-screen spinner.
+// Prefetching is best effort: failures land in the cache as an error state and
+// the screen retries normally.
+export function usePrefetchProfile(): (
+  username: string | null | undefined
+) => void {
+  const { user: sessionUser } = useSessionContext();
+  const viewerKey = sessionUser?.id ?? "guest";
+  return useCallback(
+    (username: string | null | undefined) => {
+      const usernameKey = username?.trim().toLowerCase();
+      if (!usernameKey) {
+        return;
+      }
+      const key = cacheKey(viewerKey, usernameKey);
+      // A fresh entry needs no request, and an in-flight one is already being
+      // awaited, so both cases return without touching the network.
+      if (profileCache.isFresh(key) || profileRequests.has(key)) {
+        return;
+      }
+      profileCache.markStale(key);
+      void loadProfile(key, usernameKey);
+    },
+    [viewerKey]
+  );
 }
 
 function feedKind(tab: ProfileViewTab): ProfileFeedPage["kind"] {
@@ -162,31 +217,12 @@ export function useProfile(username: string): {
     if (!key || profileCache.isFresh(key)) {
       return;
     }
-    let active = true;
     profileCache.markStale(key);
-    void (async () => {
-      try {
-        const cookie = await authClient.getCookie();
-        const options = { apiBase: getApiBaseUrl(), cookie };
-        const profile = await fetchProfileByUsername(usernameKey, options);
-        const followInfo = await fetchFollowInfo(profile.id, options);
-        if (!active) {
-          return;
-        }
-        profileCache.setData(key, {
-          ...profile,
-          _count: { ...profile._count, followers: followInfo.followers },
-          isFollowing: followInfo.isFollowedByUser,
-        });
-      } catch (error) {
-        if (active) {
-          profileCache.setError(key, errorMessage(error));
-        }
-      }
-    })();
-    return () => {
-      active = false;
-    };
+    // Deliberately no "is this still mounted" guard: the cache write is keyed
+    // and idempotent, so letting it land after unmount is what makes a
+    // press-in prefetch pay off. Skipping an unmounted screen's result is what
+    // left the next mount staring at a spinner.
+    void loadProfile(key, usernameKey);
     // reloadToken intentionally re-runs the effect after markStale.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [key, reloadToken, usernameKey]);

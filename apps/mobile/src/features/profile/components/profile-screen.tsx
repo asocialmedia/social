@@ -20,6 +20,7 @@ import type { ProfileViewTab } from "../lib/profile-tab-memory";
 import { ProfileEditModal } from "./profile-edit-modal";
 import { ProfileFeed } from "./profile-feed";
 import { ProfileHeader } from "./profile-header";
+import { ProfileSkeleton } from "./profile-skeleton";
 import { ProfileTabs } from "./profile-tabs";
 
 function LoadingProfile() {
@@ -47,7 +48,6 @@ export function ProfileScreen() {
   const { user } = useSessionContext();
   const { profile, status, reload, follow, isFollowing } = useProfile(username);
   const [tab, setTab] = useState<ProfileViewTab>("posts");
-  const [tabReady, setTabReady] = useState(false);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
@@ -64,9 +64,6 @@ export function ProfileScreen() {
         if (active) {
           setTab("posts");
         }
-      }
-      if (active) {
-        setTabReady(true);
       }
     })();
     return () => {
@@ -117,8 +114,15 @@ export function ProfileScreen() {
     username,
   });
 
-  if (!username || status === "loading" || !tabReady) {
+  // Only the header is gated. The tab preference is read from SecureStore
+  // because it is the persisted value for this user, and a cold read costs a
+  // frame, so the screen paints with the default tab first and corrects itself
+  // when the read lands rather than holding a spinner for it.
+  if (!username) {
     return <LoadingProfile />;
+  }
+  if (status === "loading") {
+    return <ProfileSkeleton activeTab={tab} />;
   }
   if (status === "error" || !profile) {
     return (
