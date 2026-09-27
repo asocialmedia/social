@@ -4,6 +4,7 @@ import {
   buildExploreGustsPath,
   buildExplorePostsPath,
   buildExploreSearchPath,
+  fetchExploreHeadPosts,
   fetchExplorePage,
   fetchExplorePeople,
   mutateExploreFollow,
@@ -85,6 +86,23 @@ describe("explore requests", () => {
       requests.some((request) => request.includes("/api/users/trending"))
     ).toBe(true);
     expect(page.posts[0]?.id).toBe("post-1");
+  });
+
+  test("probes head posts without touching people endpoints", async () => {
+    const requests: string[] = [];
+    const posts = await fetchExploreHeadPosts("for-you", {
+      apiBase: API,
+      baseFetch: ((input: RequestInfo | URL) => {
+        requests.push(String(input));
+        return Promise.resolve(Response.json({ posts: [post] }));
+      }) as unknown as typeof fetch,
+      cookie: "session=1",
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain(
+      "/api/posts/for-you?excludeModerated=1&take=20"
+    );
+    expect(posts[0]?.id).toBe("post-1");
   });
 
   test("uses suggested people for signed-in viewers", async () => {

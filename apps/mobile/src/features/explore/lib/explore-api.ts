@@ -244,12 +244,24 @@ export async function fetchExplorePage(
   return { ...postsPage, users: usersPage.users };
 }
 
-/**
- * `refresh` bypasses the server's suggestion cache. Web's People tab sends it
- * when the reader asks for a new set, so the button actually produces a
- * different list; without it the same cached page is returned every time and
- * the control does nothing.
- */
+// Head-only probe for explore posts feeds ("for-you" and "trending").
+// Fetches only the head page of posts without touching the user recommendation
+// endpoints, matching web's lightweight explore poller.
+export async function fetchExploreHeadPosts(
+  tab: "for-you" | "trending",
+  options: ApiCallOptions
+): Promise<FeedPost[]> {
+  const response = await get(buildExplorePostsPath(tab, null), options);
+  requireOk(response, "Explore posts probe");
+  const payload = await readJson(response);
+  const page = parseExplorePage(payload, "posts");
+  return page.posts;
+}
+
+// refresh bypasses the server's suggestion cache. Web's People tab sends it
+// when the reader asks for a new set, so the button actually produces a
+// different list; without it the same cached page is returned every time and
+// the control does nothing.
 export async function fetchExplorePeople(
   query: string,
   viewerLoggedIn: boolean,

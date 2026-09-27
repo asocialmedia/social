@@ -7,6 +7,7 @@ import type { PollerOptions } from "./foreground-network-poller";
 export function createExpoPoller(options: {
   intervalMs: number;
   onPoll: () => Promise<void> | void;
+  skipInitialPoll?: boolean;
 }): ForegroundNetworkPoller {
   return new ForegroundNetworkPoller({
     ...options,

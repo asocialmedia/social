@@ -25,6 +25,9 @@ export interface PollerOptions {
     timeout: number
   ) => ReturnType<typeof setInterval>;
   clearInterval?: (timer: ReturnType<typeof setInterval>) => void;
+  // When true, waits for the first intervalMs to elapse instead of probing
+  // synchronously on startup.
+  skipInitialPoll?: boolean;
 }
 
 function networkIsOnline(state: PollerNetworkState): boolean {
@@ -52,6 +55,7 @@ export class ForegroundNetworkPoller {
   private foreground = false;
   private online = false;
   private networkChanged = false;
+  private hasPolled = false;
 
   constructor(options: PollerOptions) {
     this.options = options;
@@ -64,6 +68,7 @@ export class ForegroundNetworkPoller {
       return;
     }
     this.running = true;
+    this.hasPolled = false;
     this.networkChanged = false;
     this.foreground = appIsForeground(this.options.appState.getCurrentState());
     this.appSubscription = this.options.appState.subscribe((state) => {
@@ -113,7 +118,9 @@ export class ForegroundNetworkPoller {
       return;
     }
     if (this.timer === null) {
-      void this.poll();
+      if (!this.options.skipInitialPoll || this.hasPolled) {
+        void this.poll();
+      }
       this.timer = this.setIntervalFn(() => {
         void this.poll();
       }, this.options.intervalMs);
@@ -125,6 +132,7 @@ export class ForegroundNetworkPoller {
       return;
     }
     this.polling = true;
+    this.hasPolled = true;
     try {
       await this.options.onPoll();
     } catch {
