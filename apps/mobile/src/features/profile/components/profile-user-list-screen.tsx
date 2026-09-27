@@ -16,6 +16,7 @@ import type { FeedTabDef } from "@/features/feed/components/feed-tabs";
 import { fetchProfileUserList, useProfile } from "@/features/profile";
 import type { ProfileListKind, ProfileUserListItem } from "@/features/profile";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { useAppTheme } from "@/theme";
 
 import { mutateFollow } from "../lib/profile-api";
@@ -378,6 +379,7 @@ export function ProfileUserListScreen({ kind }: { kind: ProfileListKind }) {
   } else {
     content = (
       <FlatList
+        {...LIST_VIRTUALIZATION_PROPS}
         contentContainerStyle={[
           styles.list,
           visibleState.items.length === 0 && styles.emptyList,

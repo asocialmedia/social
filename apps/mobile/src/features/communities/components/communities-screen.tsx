@@ -33,6 +33,7 @@ import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import {
   LOGIN_BUTTON_SHADOWS,
   LOGIN_BUTTON_SHADOWS_LIGHT,
@@ -436,6 +437,7 @@ export function CommunitiesScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <FlatList
+        {...LIST_VIRTUALIZATION_PROPS}
         ListEmptyComponent={empty}
         ListHeaderComponent={header}
         contentContainerStyle={[

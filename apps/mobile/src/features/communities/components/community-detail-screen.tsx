@@ -16,6 +16,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { ExplorePostCard } from "@/features/explore/components/explore-post-card";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -213,6 +214,7 @@ export function CommunityDetailScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <FlatList
+        {...LIST_VIRTUALIZATION_PROPS}
         contentContainerStyle={styles.content}
         data={posts}
         keyExtractor={(post) => post.id}

@@ -26,6 +26,7 @@ import { MobileHeader } from "@/features/home/components/mobile-header";
 import { unreadCountStore } from "@/features/notifications/state/unread-store";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -289,6 +290,7 @@ export function NotificationsScreen() {
         />
       </View>
       <FlatList
+        {...LIST_VIRTUALIZATION_PROPS}
         // flexGrow lets the empty/loading/error slot centre vertically instead
         // of collapsing to the top; harmless once rows exist.
         contentContainerStyle={{

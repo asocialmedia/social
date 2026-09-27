@@ -27,6 +27,7 @@ import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { useAppTheme } from "@/theme";
 
 import type { FeedVariant } from "../lib/feed-api";
@@ -741,6 +742,7 @@ export function FeedList({
               }}
               data={groups}
               keyExtractor={(group) => group.id}
+              {...LIST_VIRTUALIZATION_PROPS}
               onContentSizeChange={(_, height) => {
                 metricsRef.current.content = height;
                 scrollbarUpdate.current?.(metricsRef.current.offset);

@@ -20,6 +20,7 @@ import { PostCard } from "@/features/feed/components/post-card";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { useAppTheme } from "@/theme";
 
 import { MobileBottomNav } from "../../home/components/mobile-bottom-nav";
@@ -209,6 +210,7 @@ export function BookmarksScreen() {
         </View>
       ) : (
         <FlatList<FeedPost | HnStory>
+          {...LIST_VIRTUALIZATION_PROPS}
           contentContainerStyle={styles.list}
           data={data}
           keyExtractor={(item) =>

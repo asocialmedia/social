@@ -21,6 +21,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { useAppTheme } from "@/theme";
 
 import { MobileHeader } from "../../home/components/mobile-header";
@@ -359,6 +360,7 @@ export function HackerNewsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <FlatList
+        {...LIST_VIRTUALIZATION_PROPS}
         contentContainerStyle={styles.content}
         data={stories}
         keyExtractor={(story) => String(story.id)}
