@@ -18,6 +18,14 @@
 //   Does NOT cover the IndexedDB backend, the quota/eviction path, or the UI. Those
 //           need a browser; see the manual checklist this prints at the end.
 //
+// It also ASSERTS rather than only reports: the per-query budget comes from
+// `search-slo.ts`, so a regression that doubles the keystroke cost fails the run
+// instead of producing a number nobody diffs. The browser budgets in the same file
+// are deliberately NOT checked here -- `fake-indexeddb` and this in-memory path
+// both lack the write lock and the structured-clone cost that dominate in a real
+// browser, and asserting them against either would be asserting a fiction.
+//
+
 // Correctness is self-validating: the ground truth for each probe is counted while
 // indexing, straight from the decrypted text, and the index's own answer is compared
 // against it. A bug cannot hide by agreeing with a hardcoded expectation.
@@ -52,6 +60,7 @@ import {
   selectNewestFirstWindow,
 } from "../apps/web/src/lib/messages/search-index-format";
 import type { SearchIndexEntry } from "../apps/web/src/lib/messages/search-index-format";
+import { REFERENCE_QUERY_SLO_MS } from "../apps/web/src/lib/messages/search-slo";
 
 function flag(argv: string[], name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -333,6 +342,10 @@ async function main(): Promise<void> {
     "\n  probe            indexed   ground truth   rows   verdict     latency"
   );
   let failures = 0;
+  // Budget overruns are counted apart from correctness failures so the summary
+  // can say which of the two went wrong: a wrong answer is a correctness bug, a
+  // slow one is a budget bug, and they get fixed by different people.
+  let budgetFailures = 0;
   const CAP = 50;
   for (const word of probes) {
     // Warm once so the number is not dominated by a lazy first derive.
@@ -436,8 +449,17 @@ async function main(): Promise<void> {
   console.log(
     `    resolve ${window.window.length} window rows     ${projectMs.toFixed(2)}ms`
   );
+  const cpuMs = intersectMs + orderMs + projectMs;
+  console.log(`    cpu per query           ${cpuMs.toFixed(2)}ms`);
+  // The one budget this harness can honestly check. It is the REFERENCE budget,
+  // because this is the in-memory path; the browser budget is checked by opening
+  // the app, and asserting it here would be measuring the wrong backend.
+  const overBudget = cpuMs > REFERENCE_QUERY_SLO_MS;
+  if (overBudget) {
+    budgetFailures += 1;
+  }
   console.log(
-    `    cpu per query           ${(intersectMs + orderMs + projectMs).toFixed(2)}ms`
+    `    budget (${REFERENCE_QUERY_SLO_MS}ms)  ${overBudget ? "OVER" : "ok"}`
   );
   console.log(
     `    (sanity: token id ${tokenId}, resolved ${projected.size} rows for "${probeWord}", dictionary ${dictionary.length} entries)`
@@ -451,6 +473,16 @@ async function main(): Promise<void> {
       ? "\n  RESULT: all probes match ground truth"
       : `\n  RESULT: ${failures} probe(s) MISMATCHED`
   );
+  if (budgetFailures > 0) {
+    console.log(
+      `\n  BUDGET: ${budgetFailures} check(s) over REFERENCE_QUERY_SLO_MS`
+    );
+  }
+  if (failures > 0 || budgetFailures > 0) {
+    // A non-zero exit is what makes this usable as a gate. Printing a number and
+    // exiting zero is how a budget becomes a comment.
+    process.exitCode = 1;
+  }
   console.log(
     "\n  Not covered here (needs a browser): the IndexedDB backend, per-origin\n  quota and eviction, Safari private-mode fallback, and the backfill's\n  25-pages-per-run pacing. See the manual checklist."
   );

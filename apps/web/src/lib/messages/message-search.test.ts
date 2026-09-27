@@ -1049,3 +1049,80 @@ describe("buildPagedResults", () => {
     expect(second.map((row) => row.id)).toEqual(first.map((row) => row.id));
   });
 });
+
+// The per-fold main-thread cost of the list. A fold runs at up to four per second
+// while a backfill is committing, so anything the fold materializes is multiplied
+// by that on a fresh device -- the exact condition under which the list felt slow
+// and the chat badge flickered.
+// A whole index window's worth of matched rows. Row ids run the OTHER way from the
+// timestamps on purpose, mirroring a backfill that descends from the newest page --
+// so a fixture where the two agree could not tell an ordering bug from a bounds
+// bug.
+function matchedIndexRows(count: number) {
+  const rows = new Map<
+    number,
+    { createdAt: number; messageId: string; preview: string }
+  >();
+  for (let index = 0; index < count; index += 1) {
+    const row = count - 1 - index;
+    rows.set(row, {
+      createdAt: 1000 - index,
+      messageId: `m${row}`,
+      preview: `zarquon note ${index}`,
+    });
+  }
+  return rows;
+}
+
+describe("mergeSearchSnapshot index tail bound", () => {
+  // The regression: the tail was bounded only by the query limit, so a common
+  // word built 2,000 snippets per fold for a list that shows twenty rows.
+  test("the head materializes at most MAX_SEARCH_RESULTS rows", () => {
+    const snapshot = mergeSearchSnapshot({
+      corpus: [],
+      index: {
+        rows: matchedIndexRows(2000),
+        tokens: ["zarquon"],
+        totalMatched: 2000,
+      },
+      query: "zarquon",
+    });
+    expect(snapshot.ranked).toHaveLength(MAX_SEARCH_RESULTS);
+  });
+
+  // The cap is a materialization bound, not an answer bound. Navigation and the
+  // counter must still see everything the index matched, or the two halves of
+  // one answer start disagreeing -- which is what the bar's honesty rules are
+  // about.
+  test("navigation and the counter still see the whole match set", () => {
+    const snapshot = mergeSearchSnapshot({
+      corpus: [],
+      index: {
+        rows: matchedIndexRows(2000),
+        tokens: ["zarquon"],
+        totalMatched: 2000,
+      },
+      query: "zarquon",
+    });
+    expect(snapshot.matchIds).toHaveLength(2000);
+    expect(snapshot.indexOnlyIds).toHaveLength(2000);
+    expect(snapshot.totalMatches).toBe(2000);
+    // And the display keeps the newest, which is the order the list renders.
+    // Newest first, which is the order the list renders: the highest row id here
+    // carries the newest timestamp.
+    expect(snapshot.ranked[0]?.id).toBe("m1999");
+  });
+
+  test("a match set inside the cap is unaffected", () => {
+    const snapshot = mergeSearchSnapshot({
+      corpus: [],
+      index: {
+        rows: matchedIndexRows(5),
+        tokens: ["zarquon"],
+        totalMatched: 5,
+      },
+      query: "zarquon",
+    });
+    expect(snapshot.ranked).toHaveLength(5);
+  });
+});

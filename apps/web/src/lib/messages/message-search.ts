@@ -563,14 +563,28 @@ export function mergeSearchSnapshot(
   // the same order the counter uses, so the two views agree. Deliberately NOT
   // sticky: the list shows what matches NOW, while navigation above stays put.
 
-  const tail = indexOnlyIds.map((id) =>
-    indexOnlyResult(
-      id,
-      createdAtById.get(id) ?? 0,
-      previewById.get(id) ?? "",
-      matchedTokens
-    )
-  );
+  // Bounded to the same MAX_SEARCH_RESULTS the corpus half is already bounded by,
+  // and for the same reason. It used to be bounded only by the query limit -- up
+  // to 2,000 rows -- so a common word on a fresh index materialized 2,000 snippets
+  // and 2,000 highlight range sets on every fold. A fold runs at up to four per
+  // second while a backfill is committing, which is 2,000 snippet builds per fold
+  // of pure main-thread work for a list that displays twenty rows.
+  //
+  // Nothing observable depends on the tail being longer. Navigation reads
+  // `matchIds` and `createdAtById`, both built from the full id set above; the
+  // counter reads `index.totalMatched`; and the head renders the first
+  // SEARCH_PAGE_SIZE rows. The head's displayed slice and its index boundary are
+  // both derived from the first twenty rows, which this cap always covers.
+  const tail = indexOnlyIds
+    .slice(0, MAX_SEARCH_RESULTS)
+    .map((id) =>
+      indexOnlyResult(
+        id,
+        createdAtById.get(id) ?? 0,
+        previewById.get(id) ?? "",
+        matchedTokens
+      )
+    );
   const totalMatches = Math.max(
     prev?.totalMatches ?? 0,
     inMemoryIds.length + indexOnlyTotal

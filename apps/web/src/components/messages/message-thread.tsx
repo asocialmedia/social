@@ -53,6 +53,7 @@ import type { SearchView } from "@/components/messages/message-search-bar";
 import { MessageSearchResults } from "@/components/messages/message-search-results";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
+import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
   appendMessageToLastPage,
@@ -1832,6 +1833,17 @@ export function MessageThread({
   // (they call through directly) at any time.
   const autoFillStandDownUntilRef = useRef(0);
   const autoFillSeenFailuresRef = useRef(0);
+  // Cleared on a conversation change, and that is the whole point of the ref
+  // holding a COUNT as well as a deadline. The count belongs to one
+  // conversation's failure counter, so carrying it into the next thread means the
+  // first failure there reads as "one more than we had seen" only by luck: if the
+  // new conversation's counter starts lower, the stand-down never arms, and if it
+  // starts equal the deadline from the OLD conversation suppresses this one for
+  // the rest of the window even though nothing has failed here.
+  useEffect(() => {
+    autoFillStandDownUntilRef.current = 0;
+    autoFillSeenFailuresRef.current = 0;
+  }, [conversationId]);
   const autoFillFailedRecently = useCallback(() => {
     if (messagesFailureCount !== autoFillSeenFailuresRef.current) {
       const failed = messagesFailureCount > autoFillSeenFailuresRef.current;
@@ -2340,14 +2352,35 @@ export function MessageThread({
             // Asked of the fetched window explicitly, before the cache swap
             // below decides anything: this is the answer that used to be taken
             // from the cache and came back "not found".
+            const loadedNow = readFlat().map((message) => message.id);
             const source = jumpTargetSource({
               fetchedMessageIds: window.messages.map((message) => message.id),
-              loadedMessageIds: readFlat().map((message) => message.id),
+              loadedMessageIds: loadedNow,
               targetId: messageId,
             });
+            // What the transcript held when the read went out, so the write below
+            // can tell a message that ARRIVED while it was in flight from one it
+            // already had. The blind write this replaces discarded both, and a
+            // peer message folded in during the read simply vanished from the
+            // screen while the badge said it had arrived.
+            const issuedIds = new Set(loadedNow);
             queryClient.setQueryData<MessagesInfiniteData>(
               ["messages", conversationId],
-              { pageParams: [NEWEST_PAGE], pages: [window] }
+              (old) => {
+                if (!old) {
+                  return old;
+                }
+                return {
+                  pageParams: [NEWEST_PAGE],
+                  pages: [
+                    reconcileAnchoredWindow({
+                      currentPages: old.pages,
+                      fetched: window,
+                      issuedIds,
+                    }),
+                  ],
+                };
+              }
             );
             // The window's own decrypts are urgent: this jump is about to wait on
             // one of them, and on a fresh device the backfill has hundreds queued

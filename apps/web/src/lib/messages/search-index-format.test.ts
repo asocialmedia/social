@@ -31,6 +31,12 @@ import type {
   SearchIndexEntry,
   SearchIndexStore,
 } from "./search-index-format";
+import {
+  REFERENCE_APPEND_SLO_MS,
+  REFERENCE_PUBLIST_GROWTH_SLO_MS,
+  REFERENCE_QUERY_SCALING_FACTOR,
+  REFERENCE_QUERY_SLO_MS,
+} from "./search-slo";
 
 type Store = SearchIndexStore & {
   conversations: () => string[];
@@ -294,7 +300,9 @@ describe("posting list growth", () => {
     }
     // Copying per add costs ~50M element copies here, which is seconds. The
     // bound is loose enough for a loaded CI box and still catches a regression.
-    expect(performance.now() - start).toBeLessThan(250);
+    expect(performance.now() - start).toBeLessThan(
+      REFERENCE_PUBLIST_GROWTH_SLO_MS
+    );
   });
 });
 
@@ -1057,7 +1065,7 @@ describe("query performance budget", () => {
       const result = await queryStore(store, "c1", tokens);
       const elapsed = performance.now() - start;
       expect(result.ids.length).toBeLessThanOrEqual(SEARCH_INDEX_QUERY_LIMIT);
-      expect(elapsed).toBeLessThan(100);
+      expect(elapsed).toBeLessThan(REFERENCE_QUERY_SLO_MS);
     }
   });
 
@@ -1086,7 +1094,9 @@ describe("query performance budget", () => {
     // is bounded by the posting lists and the result cap, not by row count. The
     // fallback's production query also projects through the sealed row codec, so
     // its absolute floor is higher than the old readRows-only helper.
-    expect(largeMs).toBeLessThan(Math.max(50, smallMs * 4));
+    expect(largeMs).toBeLessThan(
+      Math.max(50, smallMs * REFERENCE_QUERY_SCALING_FACTOR)
+    );
   });
 
   test("a single insert does not scale with the size of the index", async () => {
@@ -1096,7 +1106,7 @@ describe("query performance budget", () => {
       "c1",
       new Map([["m-new", entry("deploy latency", 2_000_000_000_000)]])
     );
-    expect(performance.now() - start).toBeLessThan(50);
+    expect(performance.now() - start).toBeLessThan(REFERENCE_APPEND_SLO_MS);
   });
 
   test("caps materialized rows while reporting the full total", async () => {

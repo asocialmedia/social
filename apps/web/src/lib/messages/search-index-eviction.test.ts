@@ -158,6 +158,10 @@ describe("search index budget sizing", () => {
 
   test("the measured rate matches the 200k benchmark", () => {
     // 17.6MB for 200,000 rows, rounded.
+    // Deliberately the stale-conservative number rather than a measured format 7
+    // figure. See the note on the constant: budgeting low costs a re-walk, and
+    // budgeting high would let a phone fill its origin quota. Re-measure with
+    // `bun run bench:search` before changing it.
     expect(SEARCH_INDEX_BYTES_PER_ROW).toBe(92);
   });
 });

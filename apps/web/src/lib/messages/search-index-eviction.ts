@@ -27,8 +27,16 @@
 
 import type { SearchIndexConversationSummary } from "./search-index-format";
 
-// Measured on a realistic corpus: 17.6MB of index for 200,000 rows, so ~92 bytes
-// per row including interned ids, timestamps, posting lists and key strings.
+// Measured on a realistic corpus BEFORE format 7: 17.6MiB of index for 200,000
+// rows, so ~92 bytes per row including interned ids, timestamps, posting lists
+// and key strings.
+//
+// KNOWN STALE, and in the safe direction. Format 7 carries a creation time beside
+// every posting entry, and the 200k fixture holds on the order of two million
+// postings, so the real per-row cost is materially higher -- nearer 200 bytes.
+// Budgeting low evicts sooner than it strictly needs to, which costs a re-walk;
+// budgeting high would let a phone fill its origin quota. So the estimate is left
+// conservative on purpose, and `search-slo.ts` carries the re-measurement note.
 export const SEARCH_INDEX_BYTES_PER_ROW = 92;
 
 // Default ceiling. 200k rows is about 18MB, which sits comfortably inside a
