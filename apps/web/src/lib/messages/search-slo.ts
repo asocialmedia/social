@@ -24,8 +24,9 @@
 // The BROWSER budgets cannot be checked by any test in this repo: there is no
 // browser automation here, and `fake-indexeddb` and the in-memory path both lack
 // the write lock and the structured-clone cost that dominate in a real browser.
-// Asserting them against either would be asserting a fiction. The procedure is
-// `SEARCH-ACCEPTANCE.md`, beside this file.
+// Asserting them against either would be asserting a fiction. They are here to be
+// read and met by a human in a browser, not to be automated -- which is also why
+// nothing in the suite claims to have met them.
 
 // ---- reference (bun test, in-memory backend) --------------------------------
 

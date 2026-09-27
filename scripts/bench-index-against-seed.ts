@@ -484,7 +484,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   }
   console.log(
-    "\n  Not covered here (needs a browser): the IndexedDB backend, per-origin\n  quota and eviction, Safari private-mode fallback, and the backfill's\n  25-pages-per-run pacing.\n\n  The procedure for those is SEARCH-ACCEPTANCE.md in apps/web/src/lib/messages/\n  -- assertions with expected values per step, not a click-through."
+    "\n  Not covered here (needs a browser): the IndexedDB backend, per-origin\n  quota and eviction, Safari private-mode fallback, and the backfill's\n  25-pages-per-run pacing. See BROWSER_JUMP_SLO_MS and\n  BROWSER_PAGE_TURN_SLO_MS in apps/web/src/lib/messages/search-slo.ts -- they\n  are stated here so they can be met by hand, not asserted by this script."
   );
 }
 
