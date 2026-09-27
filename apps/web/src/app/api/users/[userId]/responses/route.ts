@@ -29,12 +29,25 @@ export async function GET(
     .where((post) => and(post.rootPostId.isNotNull(), post.userId.eq(userId)))
     .orderBy((post) => post.createdAt.desc());
   if (cursor) {
-    query = query.cursor({ id: cursor }).offset(1);
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // every orderBy column needs one: the anchor's createdAt is read back here
+    // because the page cursor only carries a post id. The seek is exclusive, so
+    // no .offset(1) hop is needed. A vanished anchor restarts from the top
+    // rather than 500ing the scroll.
+    const anchor = await prisma.orm.public.Posts.select("createdAt")
+      .where({ id: cursor })
+      .first();
+    if (anchor) {
+      query = query.cursor({ createdAt: anchor.createdAt, id: cursor });
+    }
   }
   const postRows = await query.limit(pageSize + 1).all();
   const posts = postRows.map(mapPostData);
 
-  const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
+  // The cursor must be the last SERVED row: anchoring on the look-ahead row
+  // would skip a post on every page.
+  const nextCursor =
+    posts.length > pageSize ? (posts[pageSize - 1]?.id ?? null) : null;
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
     nextCursor,

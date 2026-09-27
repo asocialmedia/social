@@ -28,7 +28,20 @@ export async function GET(
     .where((vote) => and(vote.userId.eq(userId), vote.value.eq(1)))
     .orderBy([(vote) => vote.createdAt.desc(), (vote) => vote.postId.desc()]);
   if (cursor) {
-    voteQuery = voteQuery.cursor({ postId: cursor }).offset(1);
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // every orderBy column needs one: the anchor vote's createdAt is read back
+    // here because the page cursor only carries a postId. The seek is
+    // exclusive, so no .offset(1) hop is needed. A vanished anchor (vote
+    // retracted mid-scroll) restarts from the top rather than 500ing the scroll.
+    const anchor = await prisma.orm.public.Votes.select("createdAt")
+      .where((vote) => and(vote.userId.eq(userId), vote.postId.eq(cursor)))
+      .first();
+    if (anchor) {
+      voteQuery = voteQuery.cursor({
+        createdAt: anchor.createdAt,
+        postId: cursor,
+      });
+    }
   }
   const votes = await voteQuery.limit(pageSize + 1).all();
 

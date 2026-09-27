@@ -108,7 +108,7 @@ export async function GET(
   const url = new URL(request.url);
   const cursor = decodeCommentCursor(url.searchParams.get("cursor"));
 
-  const topLevelQuery = getCommentDataQuery(prisma.orm, userId)
+  let topLevelQuery = getCommentDataQuery(prisma.orm, userId)
     .where((comment) =>
       and(comment.parentId.isNull(), comment.postId.eq(postId))
     )
@@ -117,11 +117,16 @@ export async function GET(
       (comment) => comment.id.desc(),
     ])
     .limit(PAGE_SIZE + 1);
-  const topLevelRows = await (
-    cursor ? topLevelQuery.cursor({ id: cursor.id }) : topLevelQuery
-  )
-    .offset(cursor ? 1 : 0)
-    .all();
+  if (cursor) {
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // the cursor must carry a value for every orderBy column - which the token
+    // already encodes. The seek is exclusive, so no .offset(1) hop is needed.
+    topLevelQuery = topLevelQuery.cursor({
+      createdAt: new Date(cursor.createdAt),
+      id: cursor.id,
+    });
+  }
+  const topLevelRows = await topLevelQuery.all();
   const topLevel = topLevelRows.map(mapCommentData);
 
   const hasMore = topLevel.length > PAGE_SIZE;

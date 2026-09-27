@@ -231,7 +231,8 @@ describe("GET /api/posts/for-you", () => {
     expect(body.posts).toHaveLength(2);
     expect(body.posts[0].id).toBe("exp-1");
     expect(lastLegacyArgs?.cursor).toEqual({ id: "p-anchor" });
-    expect(lastLegacyArgs?.skip).toBe(1);
+    // Prisma 8's keyset seek is already exclusive, so no offset hop is needed.
+    expect(lastLegacyArgs?.skip).toBe(0);
   });
 
   test("restarts the archive when its cursor anchor is gone", async () => {

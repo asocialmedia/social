@@ -58,7 +58,7 @@ const mockEncodeCursor = mock(
 
 interface PostQuery {
   all: () => Row[];
-  cursor: (cursor: { id: string }) => PostQuery;
+  cursor: (cursor: { id: string; trendingScore?: number }) => PostQuery;
   first: () => Row | null;
   limit: (limit: number) => PostQuery;
   offset: (offset: number) => PostQuery;
@@ -80,6 +80,7 @@ interface PostQuery {
 
 function createPostQuery(): PostQuery {
   const state = {
+    cursor: undefined as { id: string; trendingScore?: number } | undefined,
     cursorId: undefined as string | undefined,
     ids: [] as string[],
     limit: 21,
@@ -109,7 +110,7 @@ function createPostQuery(): PostQuery {
       }
       if (state.live) {
         lastLegacyArgs = {
-          cursor: state.cursorId ? { id: state.cursorId } : undefined,
+          cursor: state.cursor,
           orderBy: state.orderBy,
           skip: state.offset,
           take: state.limit,
@@ -122,12 +123,15 @@ function createPostQuery(): PostQuery {
       if (state.cursorId) {
         const index = rows.findIndex((row) => row.id === state.cursorId);
         if (index !== -1) {
-          rows = rows.slice(index + state.offset);
+          // Prisma 8 keyset seek is exclusive: the cursor row is already
+          // excluded, so the mock drops it without any offset hop.
+          rows = rows.slice(index + 1);
         }
       }
       return rows.slice(0, state.limit);
     },
     cursor: (cursor) => {
+      state.cursor = cursor;
       state.cursorId = cursor.id;
       return query;
     },
@@ -192,13 +196,23 @@ const mockPrisma = {
     public: {
       Posts: {
         select: () => ({
-          where: (
-            predicate: (post: {
-              id: { notIn: (ids: string[]) => unknown };
-            }) => unknown
-          ) => {
+          where: (filter: unknown) => {
+            // Object form: the cursor anchor lookup by primary key.
+            if (typeof filter !== "function") {
+              const { id } = filter as { id: string };
+              return {
+                first: () =>
+                  pgPosts.find((post) => post.id === id) ??
+                  rowsById.get(id) ??
+                  null,
+              };
+            }
+            // Callback form: the "is anything left outside the snapshot?"
+            // probe, which filters on notIn.
             let excludedIds: string[] = [];
-            predicate({ id: { notIn: (ids) => (excludedIds = ids) } });
+            filter({
+              id: { notIn: (ids: string[]) => (excludedIds = ids) },
+            });
             return {
               first: () =>
                 pgPosts.find((post) => !excludedIds.includes(post.id)) ?? null,
@@ -418,7 +432,9 @@ describe("GET /api/posts/trending", () => {
       const body = await res.json();
       expect(body.posts).toHaveLength(20);
       expect(lastLegacyArgs?.take).toBe(21);
-      expect(body.nextCursor).toBe("p20");
+      // The cursor anchors on the last SERVED row: pointing it at the
+      // look-ahead row would skip a post on every page.
+      expect(body.nextCursor).toBe("p19");
     });
 
     test("includes moderated posts by default", async () => {
@@ -442,11 +458,56 @@ describe("GET /api/posts/trending", () => {
     });
 
     test("handles expired exp. cursor and strips prefix for live Postgres query", async () => {
+      pgPosts = [
+        { id: "p-anchor", trendingScore: 42 },
+        { id: "p-older", trendingScore: 7 },
+      ];
       const req = new Request(
         "http://localhost/api/posts/trending?cursor=exp.p-anchor"
       );
       await GET(req);
-      expect(lastLegacyArgs?.cursor).toEqual({ id: "p-anchor" });
+      // Prisma 8 keyset cursors need a value for EVERY orderBy column, so the
+      // anchor's trendingScore travels with the id.
+      expect(lastLegacyArgs?.cursor).toEqual({
+        id: "p-anchor",
+        trendingScore: 42,
+      });
+      expect(lastLegacyArgs?.skip).toBe(0);
+      expect(lastLegacyArgs?.take).toBe(21);
+    });
+
+    test("restarts from the top when the cursor anchor is gone", async () => {
+      pgPosts = [{ id: "p-fresh", trendingScore: 3 }];
+      const req = new Request(
+        "http://localhost/api/posts/trending?cursor=exp.p-missing"
+      );
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      // A vanished anchor must not reach Prisma: it would 500 the scroll.
+      expect(lastLegacyArgs?.cursor).toBeUndefined();
+      const body = await res.json();
+      expect(body.posts.map((p: Row) => p.id)).toEqual(["p-fresh"]);
+    });
+
+    test("resumes after the cursor row without an offset hop", async () => {
+      pgPosts = Array.from({ length: 6 }, (_, i) => ({
+        id: `p${i}`,
+        trendingScore: 10 - i,
+      }));
+      const req = new Request(
+        "http://localhost/api/posts/trending?cursor=exp.p1"
+      );
+      const res = await GET(req);
+
+      const body = await res.json();
+      // The keyset seek is already exclusive, so p2 must not be skipped.
+      expect(body.posts.map((p: Row) => p.id)).toEqual([
+        "p2",
+        "p3",
+        "p4",
+        "p5",
+      ]);
     });
   });
 });
