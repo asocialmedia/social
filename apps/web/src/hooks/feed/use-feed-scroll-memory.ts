@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   clampScrollTop,
@@ -7,6 +7,10 @@ import {
   findAnchorElement,
   findTopAnchor,
 } from "@/lib/posts/feed-scroll";
+import {
+  consumeFeedTop,
+  subscribeFeedTopRequests,
+} from "@/lib/posts/feed-top-request";
 import type { FeedPosition } from "@/store/feed-position-store";
 import {
   useFeedPositionReady,
@@ -45,6 +49,20 @@ export function useFeedScrollMemory({
   const keyRef = useRef<string | null>(null);
   const restoringRef = useRef(false);
   const userScrolledRef = useRef(false);
+  // Flips whenever anyone asks for a feed to jump to the top, so the restore
+  // below re-runs and can honour it. Without this a request aimed at the feed
+  // already on screen (publishing a post while sitting on Latest) would be
+  // invisible here, and would linger to hijack a later tab switch. It toggles
+  // rather than counts because the restore only asks "did something arrive
+  // since I last looked", which is exactly what consumeFeedTop then answers.
+  const [topRequested, setTopRequested] = useState(false);
+  useEffect(
+    () =>
+      subscribeFeedTopRequests(() => {
+        setTopRequested((value) => !value);
+      }),
+    []
+  );
 
   // Persist the container's position: raw offsets on every scroll frame,
   // anchor capture once scrolling settles, and a final capture on pagehide
@@ -129,6 +147,15 @@ export function useFeedScrollMemory({
     const previousKey = keyRef.current;
     keyRef.current = key;
 
+    // An explicit request wins over remembered position: the reader was just
+    // sent here to see something specific (their own new post), and restoring
+    // the offset they last left would hide it. The scroll handler then records
+    // the new position, so the top becomes what is remembered from here on.
+    if (topRequested && consumeFeedTop(key)) {
+      container.scrollTo({ top: 0 });
+      return;
+    }
+
     const saved = useFeedPositionStore.getState().positions[key] ?? null;
     if (!saved || saved.scrollTop <= 0) {
       if (previousKey !== null && previousKey !== key) {
@@ -208,5 +235,5 @@ export function useFeedScrollMemory({
       finish();
       window.removeEventListener("load", onLoad);
     };
-  }, [containerRef, memoryKey, ready]);
+  }, [containerRef, memoryKey, ready, topRequested]);
 }

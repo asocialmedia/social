@@ -96,17 +96,15 @@ const LIVE_ROUTES = new Set([
 // primary hsl(22.93 92.59% 52.35%) ~= #f66b15; `.dark .pill-nav-active`
 // swaps to the warmer #ffb054 glyph on an accent-orange tint.
 const NAV_ACTIVE_LIGHT = {
-  border: "rgba(246, 107, 21, 0.25)",
   color: "#f66b15",
   shadows:
-    "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)",
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(246, 107, 21, 0.25), 0 1px 2px rgba(0, 0, 0, 0.06)",
   tint: ["rgba(246, 107, 21, 0.14)", "rgba(246, 107, 21, 0.08)"],
 } as const;
 const NAV_ACTIVE_DARK = {
-  border: "rgba(255, 149, 0, 0.3)",
   color: "#ffb054",
   shadows:
-    "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2)",
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 149, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2)",
   tint: ["rgba(255, 149, 0, 0.18)", "rgba(230, 85, 0, 0.1)"],
 } as const;
 
@@ -198,24 +196,14 @@ function DockTab({
         // Inactive tabs read `text-muted-foreground`.
         const iconColor = tone ? tone.color : theme.dividerText;
         return (
-          <View
-            style={[
-              styles.tabInner,
-              active
-                ? { borderColor: activeTone.border, borderWidth: 1 }
-                : undefined,
-              disabled && styles.tabDisabled,
-            ]}
-          >
-            {/* Gradient3D keeps the recipe's inset lip above the tint (web
-                paints inset shadows over the background), and mounting it
-                with the tone gives Android a rounded shadow: a shadow added
-                to an existing view draws square. Inside the active border
-                the radius steps in by the border width. */}
+          <View style={[styles.tabInner, disabled && styles.tabDisabled]}>
+            {/* Gradient3D keeps the recipe's inset lip above the tint and
+                renders the outer hairline border via boxShadow at radius 12,
+                preventing Android React Native from drawing a square border. */}
             {tone ? (
               <Gradient3D
                 colors={tone.tint}
-                radius={active ? 11 : 12}
+                radius={12}
                 shadows={tone.shadows}
                 style={styles.tabTint}
               />

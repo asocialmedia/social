@@ -187,8 +187,18 @@ export function ExplorePostCard({
 
 const styles = StyleSheet.create({
   authorCopy: { flex: 1, minWidth: 0 },
-  authorName: { fontFamily: "SofiaProMed", fontSize: 12, maxWidth: "100%" },
-  authorNameRow: { alignItems: "center", flexDirection: "row", gap: 4 },
+  authorName: {
+    flexShrink: 1,
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+    minWidth: 0,
+  },
+  authorNameRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    maxWidth: "100%",
+  },
   authorRow: { alignItems: "center", flexDirection: "row", gap: 8 },
   body: { gap: 10, padding: 12 },
   card: {
@@ -197,6 +207,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 16,
     overflow: "hidden",
+    width: "100%",
   },
   content: { fontFamily: "SofiaProReg", fontSize: 13, lineHeight: 18 },
   explicit: { opacity: 0.6 },

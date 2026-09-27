@@ -8,7 +8,10 @@
 // - detail card (expanded content, full media column, mobile action bar)
 // - full eddies thread (PostComments, composer for signed-in viewers)
 // - "View more content" + "View all posts" row + related rail
-// - floating bottom nav with the guest bar docked above it, like HomeScreen
+//
+// No bottom nav here, unlike HomeScreen: the detail view is a focused read, and
+// a dock under a thread invites the reader to wander off mid-argument. The guest
+// auth bar is the only bottom overlay, flush with the edge.
 //
 // Deltas vs web: no PostAuthorSidebar, which is a desktop-only aside and has
 // no place in a single column. Everything else this comment used to list as
@@ -21,7 +24,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -50,7 +52,6 @@ import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
-import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -87,42 +88,12 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  // Web fixes both the guest banner and the bottom nav over the feed (the
-  // feed pads its tail instead), so the dock floats over content on a
-  // transparent backdrop rather than sitting in a solid band. Same here:
-  // the banner sits at the bottom edge and rides a transform up above the
-  // dock while it shows, dropping back down while the dock hides on scroll.
-  const [dockHeight, setDockHeight] = useState(56);
-  const [dockHidden, setDockHidden] = useState(false);
+  // The bottom dock is deliberately absent on this screen: the post detail is a
+  // focused read, and a navigation bar under a thread invites the reader to
+  // wander off mid-argument. Web's mobile post page does the same. The guest
+  // auth bar therefore sits flat on the bottom edge with no dock to clear.
   const [bannerHeight, setBannerHeight] = useState(0);
-  const dockLift = dockHeight + insets.bottom + 20;
-  // A transform, never a layout prop: tweening `bottom` or a margin runs on
-  // the JS thread and re-lays out every frame, while translate runs natively
-  // at 60fps. Same 220ms ease-out-cubic as the top bar and the dock, kicked
-  // off on the same hide flip, so all three glide as one with zero layout
-  // work. Tail padding never moves visible items, so it stays constant.
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; driven by the effect below
-  const [bannerLift] = useState(() => new Animated.Value(1));
-  useEffect(() => {
-    if (!showGuestBar) {
-      return;
-    }
-    const anim = Animated.timing(bannerLift, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      toValue: dockHidden ? 0 : 1,
-      useNativeDriver: true,
-    });
-    anim.start();
-    return () => {
-      anim.stop();
-    };
-  }, [bannerLift, dockHidden, showGuestBar]);
-  const bannerTranslate = bannerLift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -dockLift],
-  });
-  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : 0;
+  const feedBottomPad = showGuestBar ? bannerHeight + insets.bottom + 12 : 0;
   const scrollRef = useRef<ScrollView>(null);
   // Web's ?comment= deep scroll: the thread reports where the eddie sits
   // inside itself, and the thread's own offset inside this scroll view turns
@@ -234,7 +205,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
               cookie,
             });
             if (!cancelled && rows.length > 0) {
-              setRelated(rows);
+              setRelated(rows.filter((row) => !row.isGust));
             }
           } catch (error) {
             logWarn("post.related_failed", {
@@ -436,10 +407,6 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
         <PostDetailSkeleton />
-        <MobileBottomNav
-          onHeightChange={setDockHeight}
-          onHiddenChange={setDockHidden}
-        />
       </View>
     );
   }
@@ -482,23 +449,11 @@ export function PostDetailScreen({ postId }: { postId: string }) {
               setBannerHeight(event.nativeEvent.layout.height);
             }}
             pointerEvents="box-none"
-            style={{
-              bottom: 0,
-              left: 0,
-              position: "absolute",
-              right: 0,
-              transform: [{ translateY: bannerTranslate }],
-              // Above the dock so it slides out underneath the banner.
-              zIndex: 60,
-            }}
+            style={styles.guestBarAnchor}
           >
             <GuestAuthBar />
           </Animated.View>
         ) : null}
-        <MobileBottomNav
-          onHeightChange={setDockHeight}
-          onHiddenChange={setDockHidden}
-        />
       </View>
     );
   }
@@ -591,23 +546,11 @@ export function PostDetailScreen({ postId }: { postId: string }) {
             setBannerHeight(event.nativeEvent.layout.height);
           }}
           pointerEvents="box-none"
-          style={{
-            bottom: 0,
-            left: 0,
-            position: "absolute",
-            right: 0,
-            transform: [{ translateY: bannerTranslate }],
-            // Above the dock so it slides out underneath the banner.
-            zIndex: 60,
-          }}
+          style={styles.guestBarAnchor}
         >
           <GuestAuthBar />
         </Animated.View>
       ) : null}
-      <MobileBottomNav
-        onHeightChange={setDockHeight}
-        onHiddenChange={setDockHidden}
-      />
       {showEddies && viewerId ? <FloatingEddieBar postId={post.id} /> : null}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
       <MoreMenu
@@ -704,6 +647,15 @@ const styles = StyleSheet.create({
   },
   endPad: {
     height: 32,
+  },
+  // Flush with the bottom edge: this screen has no dock, so the guest bar is
+  // the only thing floating over the thread.
+  guestBarAnchor: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 60,
   },
   header: {
     alignItems: "center",

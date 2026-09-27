@@ -18,5 +18,7 @@ export function ProfileTabs({
   active: ProfileViewTab;
   onChange: (tab: ProfileViewTab) => void;
 }) {
-  return <FeedTabs active={active} onChange={onChange} tabs={TABS} />;
+  return (
+    <FeedTabs active={active} onChange={onChange} scrollable tabs={TABS} />
+  );
 }

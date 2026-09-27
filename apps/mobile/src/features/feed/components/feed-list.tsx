@@ -40,7 +40,7 @@ import {
 import { hasVideoAttachment } from "../lib/media-kind";
 import { viewBatcher } from "../lib/view-batcher";
 import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
-import { feedCache } from "../state/feed-store";
+import { consumeFeedTop, feedCache } from "../state/feed-store";
 import { useFeedTab } from "../state/use-feed";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { FeedSkeleton, FeedSkeletonCard } from "./feed-skeleton";
@@ -337,23 +337,10 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
     },
   };
 
-// The non-list states (loading skeleton, error, empty) still show the inline
-// composer above them, like web, where PostEditor sits above every tab panel
-// and is independent of what the feed itself is showing. The child keeps the
-// flex it needs to fill the remaining space.
-function FeedState({
-  children,
-  header,
-}: {
-  children: ReactNode;
-  header?: ReactElement | null;
-}) {
-  return (
-    <View style={styles.stateWrap}>
-      {header}
-      {children}
-    </View>
-  );
+// The non-list states (loading skeleton, error, empty) fill the space the
+// list would. The child keeps the flex it needs to fill the remaining space.
+function FeedState({ children }: { children: ReactNode }) {
+  return <View style={styles.stateWrap}>{children}</View>;
 }
 
 interface FeedListProps {
@@ -362,11 +349,11 @@ interface FeedListProps {
   // never moves visible items, so it can jump with overlay visibility.
   bottomInset?: number;
   enabled: boolean;
-  // Rendered as the list's header, so it scrolls away with the posts exactly
-  // like web's inline composer above the tab panels. Only passed by HomeScreen
-  // for the signed-in viewer; guests get the auth prompts instead. Typed as an
-  // element (not ReactNode) because that is what FlatList's
-  // ListHeaderComponent accepts.
+  // Rendered as the list's own header, so it scrolls away with the content
+  // and comes back on pull-down. Only the visible tab is given one: a header
+  // per tab would mount a composer (a TextInput, an avatar, 3D surfaces) four
+  // times over and remount on every switch. Typed as an element rather than a
+  // bare ReactNode because that is all ListHeaderComponent accepts.
   header?: ReactElement | null;
   userId: string | undefined;
   variant: FeedVariant;
@@ -516,8 +503,25 @@ export function FeedList({
 
   // Restore this tab's scroll position when it (re)mounts with content.
   const memoryKey = `home:${variant}`;
+  // A tab the reader was just sent to (their own post landing at the head of
+  // Latest) must land at the top, not at the offset they left it at. The
+  // request is one-shot and claimed here, so the memory restore below is
+  // skipped for that visit instead of the two fighting over the offset.
+  const jumpedToTop = useRef(false);
+  useEffect(() => {
+    if (!enabled || !consumeFeedTop(variant)) {
+      return;
+    }
+    jumpedToTop.current = true;
+    scrollMemory.delete(memoryKey);
+    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+  }, [enabled, memoryKey, variant]);
+
   useEffect(() => {
     if (status !== "success" || posts.length === 0) {
+      return;
+    }
+    if (jumpedToTop.current) {
       return;
     }
     const offset = scrollMemory.get(memoryKey) ?? 0;
@@ -616,21 +620,12 @@ export function FeedList({
     );
   }
 
-  // Web's inline composer is rendered above the feed, so its absolutely
-  // positioned dropdowns have to paint over the post rows. As a FlatList
-  // header the editor is a sibling of those rows, and a zIndex set deep inside
-  // the editor cannot lift it out of that branch - the post card's own avatar
-  // already sets zIndex: 1. So the lift is applied here, on the element the
-  // list actually positions, and the rows are pinned below it. Android also
-  // clips off-screen list children by default, which cuts off a dropdown that
-  // overflows the header, hence removeClippedSubviews below.
-  const headerNode = header ? (
-    <View style={styles.headerWrap}>{header}</View>
-  ) : null;
-
+  // Web's inline composer is rendered above the pager, not inside a list, so
+  // the tabs carry no header of their own and every one of them reaches the
+  // top of its own content.
   if (status === "loading" || (status === "idle" && enabled)) {
     return (
-      <FeedState header={headerNode}>
+      <FeedState>
         <FeedSkeleton />
       </FeedState>
     );
@@ -638,7 +633,7 @@ export function FeedList({
 
   if (status === "error" && posts.length === 0) {
     return (
-      <FeedState header={headerNode}>
+      <FeedState>
         <View style={styles.centerWrap}>
           <View style={styles.errorWrap}>
             <Image
@@ -667,7 +662,7 @@ export function FeedList({
   if (status === "success" && posts.length === 0 && !hasMore) {
     const copy = EMPTY_COPY[variant];
     return (
-      <FeedState header={headerNode}>
+      <FeedState>
         <View style={styles.centerWrap}>
           <Image
             contentFit="contain"
@@ -788,9 +783,9 @@ export function FeedList({
                 pullUpdateRef.current?.(0);
               }}
               onViewableItemsChanged={handleViewableItemsChanged}
-              // Android detaches list children that scroll out of the viewport,
-              // which cuts off a dropdown hanging below the header. Needed now
-              // that the inline composer lives here rather than in a modal.
+              // Android detaches list children that scroll out of the
+              // viewport, which cuts a row's thread rail off where it bleeds
+              // past the card's own bounds.
               removeClippedSubviews={false}
               ref={listRef}
               scrollEventThrottle={16}
@@ -824,7 +819,11 @@ export function FeedList({
                 </View>
               )}
               ListFooterComponent={footer}
-              ListHeaderComponent={headerNode}
+              // The composer lives here, as real content. It scrolls away with
+              // the first post and returns on pull-down for free, because the
+              // list's own scroll already moves it - no overlay, no clipped
+              // layer over the scroll view, and no per-frame work of our own.
+              ListHeaderComponent={header}
             />
           </GestureDetector>
         </Animated.View>
@@ -986,16 +985,6 @@ const styles = StyleSheet.create({
   },
   group: {
     borderBottomWidth: 1,
-  },
-  headerWrap: {
-    // The header is a sibling of the post rows in the list, and the rows render
-    // after it in document order, so its absolutely positioned dropdowns get
-    // painted over. Lifting the header itself is what puts them on top; a
-    // zIndex set deeper inside the editor cannot escape that branch. elevation
-    // is what Android honours, zIndex covers iOS.
-    elevation: 10,
-    position: "relative",
-    zIndex: 10,
   },
   listShift: {
     flex: 1,

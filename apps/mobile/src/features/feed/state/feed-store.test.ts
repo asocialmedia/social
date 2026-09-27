@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import type { FeedPost } from "../lib/feed-types";
-import { FeedCache, flattenUniquePosts, prependPosts } from "./feed-store";
+import {
+  FeedCache,
+  clearFeedTopRequest,
+  consumeFeedTop,
+  flattenUniquePosts,
+  prependPosts,
+  requestFeedTop,
+  subscribeFeedTopRequests,
+} from "./feed-store";
 
 function post(id: string): FeedPost {
   return {
@@ -100,5 +108,95 @@ describe("FeedCache.updatePostEverywhere", () => {
     stop();
     cache.updatePostEverywhere("x", { viewCount: 43 });
     expect(notifications).toBe(1);
+  });
+});
+
+describe("FeedCache.showPublishedPost", () => {
+  test("puts a published post at the head of a tab that already has pages", () => {
+    const cache = new FeedCache();
+    cache.applyPage(
+      "latest:u1",
+      [post("old1"), post("old2")],
+      "cursor1",
+      {},
+      false
+    );
+    cache.showPublishedPost("latest:u1", post("fresh"));
+    const entry = cache.get("latest:u1");
+    expect(entry.pages[0]?.map((item) => item.id)).toEqual([
+      "fresh",
+      "old1",
+      "old2",
+    ]);
+    // The cursor is untouched: the optimistic post is not a page boundary.
+    expect(entry.cursor).toBe("cursor1");
+    expect(entry.stale).toBe(false);
+  });
+
+  test("seeds a tab that was never fetched, marked stale so it refetches", () => {
+    const cache = new FeedCache();
+    cache.showPublishedPost("latest:u1", post("fresh"));
+    const entry = cache.get("latest:u1");
+    expect(entry.status).toBe("success");
+    expect(entry.pages[0]?.map((item) => item.id)).toEqual(["fresh"]);
+    // Stale is what makes the list refetch the real first page on mount; without
+    // it the single optimistic post would BE the tab forever.
+    expect(entry.stale).toBe(true);
+  });
+
+  test("never duplicates a post that is already cached", () => {
+    const cache = new FeedCache();
+    cache.applyPage("latest:u1", [post("a")], null, {}, false);
+    cache.showPublishedPost("latest:u1", post("a"));
+    expect(cache.get("latest:u1").pages[0]?.map((item) => item.id)).toEqual([
+      "a",
+    ]);
+  });
+
+  test("notifies subscribers so the list re-renders", () => {
+    const cache = new FeedCache();
+    let notifications = 0;
+    cache.subscribe(() => {
+      notifications += 1;
+    });
+    cache.showPublishedPost("latest:u1", post("fresh"));
+    expect(notifications).toBe(1);
+  });
+});
+
+describe("feed top request", () => {
+  test("is claimed once, and only by the feed that asked for it", () => {
+    requestFeedTop("latest");
+    expect(consumeFeedTop("personalized")).toBe(false);
+    expect(consumeFeedTop("latest")).toBe(true);
+    expect(consumeFeedTop("latest")).toBe(false);
+  });
+
+  test("a later request replaces an unclaimed one", () => {
+    requestFeedTop("latest");
+    requestFeedTop("trending");
+    expect(consumeFeedTop("latest")).toBe(false);
+    expect(consumeFeedTop("trending")).toBe(true);
+  });
+
+  test("can be dropped so a stale request cannot hijack a later visit", () => {
+    requestFeedTop("latest");
+    clearFeedTopRequest();
+    expect(consumeFeedTop("latest")).toBe(false);
+  });
+
+  test("notifies subscribers, so a feed already on screen can react", () => {
+    // This is the case a tab switch cannot cover: publishing while already on
+    // Latest changes none of that list's props, so without the subscription
+    // the request would go unnoticed and linger.
+    let notified = 0;
+    const unsubscribe = subscribeFeedTopRequests(() => {
+      notified += 1;
+    });
+    requestFeedTop("latest");
+    unsubscribe();
+    requestFeedTop("latest");
+    expect(notified).toBe(1);
+    clearFeedTopRequest();
   });
 });

@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import { ArrowLeft, Settings2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
@@ -41,6 +42,7 @@ export function ProfileScreen() {
   const params = useLocalSearchParams<{ username?: string }>();
   const username = usernameParam(params.username);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const { user } = useSessionContext();
   const { profile, status, reload, follow, isFollowing } = useProfile(username);
@@ -88,11 +90,25 @@ export function ProfileScreen() {
         try {
           await SecureStore.setItemAsync(profileTabStorageKey(username), next);
         } catch {
-          /* persistence is best effort */
+          // persistence is best effort
         }
       })();
     },
     [router, user, username]
+  );
+
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const tabOrder: readonly ProfileViewTab[] = user
+        ? ["posts", "gusts", "responses", "eddies", "amplified", "media"]
+        : ["posts", "gusts", "media"];
+      const currentIndex = tabOrder.indexOf(tab);
+      const nextIndex = currentIndex + direction;
+      if (nextIndex >= 0 && nextIndex < tabOrder.length) {
+        selectTab(tabOrder[nextIndex]);
+      }
+    },
+    [selectTab, tab, user]
   );
   const guestAllowed = useMemo(() => tab === "posts" || tab === "gusts", [tab]);
   const feed = useProfileFeed({
@@ -157,7 +173,9 @@ export function ProfileScreen() {
   };
   const header = (
     <View style={styles.headerFrame}>
-      <View style={styles.topBar}>
+      <View
+        style={[styles.topBar, { top: insets.top > 0 ? insets.top + 6 : 14 }]}
+      >
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
@@ -225,7 +243,9 @@ export function ProfileScreen() {
       <ProfileFeed
         feed={feed}
         header={header}
+        isOwnProfile={own}
         locked={locked}
+        onSwipeNavigate={handleSwipeNavigate}
         tab={tab}
         viewerId={user?.id ?? null}
       />
@@ -288,8 +308,12 @@ const styles = StyleSheet.create({
   },
   topButton: {
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(18, 20, 24, 0.45)",
+    borderColor: "rgba(255, 255, 255, 0.18)",
     borderRadius: 20,
+    borderWidth: 1,
+    boxShadow:
+      "inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 2px 6px rgba(0, 0, 0, 0.3)",
     height: 40,
     justifyContent: "center",
     width: 40,

@@ -14,8 +14,8 @@ import {
 } from "lucide-react-native";
 import { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { BioContent } from "@/features/home/components/bio-content";
 import {
@@ -28,7 +28,17 @@ import {
 } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { useAppTheme } from "@/theme";
+import {
+  BTN_3D_GRAY_SHADOWS,
+  BTN_3D_GRAY_SHADOWS_DARK,
+  EDIT_PROFILE_SHADOWS,
+  EDIT_PROFILE_SHADOWS_DARK,
+  FOLLOW_BUTTON_SHADOWS,
+  FOLLOW_BUTTON_SHADOWS_LIGHT,
+  ICON_BUTTON_SHADOWS_DARK,
+  ICON_BUTTON_SHADOWS_LIGHT,
+  useAppTheme,
+} from "@/theme";
 
 import type { ProfileHeaderProfile } from "../lib/profile-view-model";
 
@@ -59,11 +69,11 @@ function BannerContent({
     );
   }
   return (
-    <Image
-      blurRadius={10}
-      contentFit="cover"
-      source={avatarPlaceholder}
-      style={[styles.banner, styles.blurred]}
+    <LinearGradient
+      colors={["#ff9500", "#e65500", "#8b2f00"]}
+      end={{ x: 1, y: 1 }}
+      start={{ x: 0, y: 0 }}
+      style={styles.banner}
     />
   );
 }
@@ -81,6 +91,23 @@ function SocialIcon({ color, kind }: { color: string; kind: string }) {
     };
   const name = names[kind];
   return name ? <FontAwesome6 color={color} name={name} size={15} /> : null;
+}
+
+function getFollowButtonStyles(isFollowing: boolean, isDark: boolean) {
+  if (isFollowing) {
+    return {
+      colors: isDark
+        ? (["#4a4a4a", "#333333"] as const)
+        : (["#f7f8fa", "#e4e7ec"] as const),
+      shadow: isDark ? BTN_3D_GRAY_SHADOWS_DARK : BTN_3D_GRAY_SHADOWS,
+      textColor: isDark ? "#ffffff" : "#1f2430",
+    };
+  }
+  return {
+    colors: ["#ff9500", "#e65500"] as const,
+    shadow: isDark ? FOLLOW_BUTTON_SHADOWS : FOLLOW_BUTTON_SHADOWS_LIGHT,
+    textColor: "#ffffff",
+  };
 }
 
 export function ProfileHeader({
@@ -104,7 +131,8 @@ export function ProfileHeader({
   onShare: () => void;
   profile: ProfileHeaderProfile;
 }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const apiBase = getApiBaseUrl();
   const banner = resolveProfileImageUrl(profile.bannerUrl, apiBase);
@@ -113,6 +141,7 @@ export function ProfileHeader({
   const flame = getAuraFlameStyle(profile.aura);
   const joined = formatJoinedDate(profile.createdAt);
   const role = profile.communityMemberships?.[0];
+  const followStyles = getFollowButtonStyles(isFollowing, isDark);
   const openSocial = useCallback(async (href: string) => {
     try {
       await Linking.openURL(href);
@@ -123,7 +152,7 @@ export function ProfileHeader({
 
   return (
     <View style={styles.root}>
-      <View style={styles.bannerWrap}>
+      <View style={[styles.bannerWrap, { height: 140 + insets.top }]}>
         <BannerContent avatar={avatar} banner={banner} />
         <LinearGradient
           colors={["transparent", theme.containerBg]}
@@ -135,8 +164,17 @@ export function ProfileHeader({
       </View>
       <View style={styles.content}>
         <View style={styles.avatarRow}>
-          <View style={styles.avatarOverlap}>
-            <UserAvatar radius={12} size={112} url={profile.avatarUrl} />
+          <View
+            style={[styles.avatarOverlap, { borderColor: theme.containerBg }]}
+          >
+            <UserAvatar
+              radius={16}
+              seed={profile.username || profile.id}
+              size={112}
+              url={profile.avatarUrl}
+              userId={profile.id}
+              username={profile.username}
+            />
           </View>
           <View style={styles.actions}>
             {isOwnProfile ? (
@@ -144,12 +182,34 @@ export function ProfileHeader({
                 accessibilityLabel="Edit profile"
                 accessibilityRole="button"
                 onPress={onEdit}
-                style={styles.editButton}
+                style={({ pressed }) => [
+                  styles.editButton,
+                  {
+                    boxShadow: isDark
+                      ? EDIT_PROFILE_SHADOWS_DARK
+                      : EDIT_PROFILE_SHADOWS,
+                    transform: [{ translateY: pressed ? 1 : 0 }],
+                  },
+                ]}
               >
-                <Pencil color={theme.inputText} size={15} />
-                <Text style={[styles.editText, { color: theme.inputText }]}>
-                  Edit
-                </Text>
+                <LinearGradient
+                  colors={
+                    isDark ? ["#8f96a3", "#5c6370"] : ["#e4e7ec", "#c6ccd5"]
+                  }
+                  end={{ x: 0.5, y: 1 }}
+                  start={{ x: 0.5, y: 0 }}
+                  style={styles.editButtonGradient}
+                >
+                  <Pencil color={isDark ? "#ffffff" : "#1c1f26"} size={14} />
+                  <Text
+                    style={[
+                      styles.editText,
+                      { color: isDark ? "#ffffff" : "#1c1f26" },
+                    ]}
+                  >
+                    Edit profile
+                  </Text>
+                </LinearGradient>
               </Pressable>
             ) : (
               <>
@@ -158,26 +218,71 @@ export function ProfileHeader({
                   accessibilityRole="button"
                   disabled={!canFollow}
                   onPress={onFollow}
-                  style={[styles.followButton, !canFollow && styles.disabled]}
+                  style={({ pressed }) => [
+                    styles.followButton,
+                    !canFollow && styles.disabled,
+                    {
+                      boxShadow: followStyles.shadow,
+                      transform: [{ translateY: pressed ? 1 : 0 }],
+                    },
+                  ]}
                 >
-                  <UserPlus color="#fff" size={15} />
-                  <Text style={styles.followText}>
-                    {isFollowing ? "Following" : "Follow"}
-                  </Text>
+                  <LinearGradient
+                    colors={followStyles.colors}
+                    end={{ x: 0.5, y: 1 }}
+                    start={{ x: 0.5, y: 0 }}
+                    style={styles.followButtonGradient}
+                  >
+                    {isFollowing ? null : (
+                      <UserPlus color="#ffffff" size={14} />
+                    )}
+                    <Text
+                      style={[
+                        styles.followText,
+                        { color: followStyles.textColor },
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  </LinearGradient>
                 </Pressable>
                 <Pressable
                   accessibilityLabel="Message"
                   accessibilityRole="button"
                   disabled={!canMessage}
                   onPress={onMessage}
-                  style={[styles.messageButton, !canMessage && styles.disabled]}
+                  style={({ pressed }) => [
+                    styles.messageButton,
+                    !canMessage && styles.disabled,
+                    {
+                      boxShadow: isDark
+                        ? BTN_3D_GRAY_SHADOWS_DARK
+                        : BTN_3D_GRAY_SHADOWS,
+                      transform: [{ translateY: pressed ? 1 : 0 }],
+                    },
+                  ]}
                 >
-                  <MessageCircle color={theme.inputText} size={15} />
-                  <Text
-                    style={[styles.messageText, { color: theme.inputText }]}
+                  <LinearGradient
+                    colors={
+                      isDark ? ["#4a4a4a", "#333333"] : ["#f7f8fa", "#e4e7ec"]
+                    }
+                    end={{ x: 0.5, y: 1 }}
+                    start={{ x: 0.5, y: 0 }}
+                    style={styles.messageButtonGradient}
                   >
-                    Message
-                  </Text>
+                    <MessageCircle
+                      color={isDark ? "#ffffff" : "#1f2430"}
+                      size={15}
+                    />
+                    <Text
+                      style={[
+                        styles.messageText,
+                        { color: isDark ? "#ffffff" : "#1f2430" },
+                      ]}
+                    >
+                      Message
+                    </Text>
+                  </LinearGradient>
                 </Pressable>
               </>
             )}
@@ -230,7 +335,16 @@ export function ProfileHeader({
                   accessibilityRole="link"
                   key={social.href}
                   onPress={() => openSocial(href)}
-                  style={styles.social}
+                  style={({ pressed }) => [
+                    styles.social,
+                    {
+                      backgroundColor: isDark ? "#232323" : theme.cardBg,
+                      boxShadow: isDark
+                        ? ICON_BUTTON_SHADOWS_DARK
+                        : ICON_BUTTON_SHADOWS_LIGHT,
+                      transform: [{ translateY: pressed ? 1 : 0 }],
+                    },
+                  ]}
                 >
                   <SocialIcon color={theme.dividerText} kind={social.kind} />
                 </Pressable>
@@ -276,9 +390,18 @@ export function ProfileHeader({
             accessibilityLabel="Share profile"
             accessibilityRole="button"
             onPress={onShare}
-            style={styles.shareButton}
+            style={({ pressed }) => [
+              styles.shareButton,
+              {
+                backgroundColor: isDark ? "#232323" : theme.cardBg,
+                boxShadow: isDark
+                  ? ICON_BUTTON_SHADOWS_DARK
+                  : ICON_BUTTON_SHADOWS_LIGHT,
+                transform: [{ translateY: pressed ? 1 : 0 }],
+              },
+            ]}
           >
-            <Share2 color={theme.dividerText} size={17} />
+            <Share2 color={theme.dividerText} size={16} />
           </Pressable>
         </View>
       </View>
@@ -325,7 +448,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 4,
   },
-  avatarOverlap: { borderColor: "#171717", borderRadius: 16, borderWidth: 4 },
+  avatarOverlap: {
+    borderRadius: 20,
+    borderWidth: 4,
+    overflow: "hidden",
+  },
   avatarRow: {
     alignItems: "flex-end",
     flexDirection: "row",
@@ -336,31 +463,39 @@ const styles = StyleSheet.create({
   bannerFade: {
     ...StyleSheet.absoluteFill,
   },
-  bannerWrap: { height: 128, overflow: "hidden" },
+  bannerWrap: { overflow: "hidden" },
   bio: { marginTop: 12 },
   blurred: { opacity: 0.72, transform: [{ scale: 1.15 }] },
   content: { paddingHorizontal: 16 },
   disabled: { opacity: 0.45 },
   editButton: {
+    borderRadius: 9999,
+    height: 36,
+    overflow: "hidden",
+  },
+  editButtonGradient: {
     alignItems: "center",
-    backgroundColor: "rgba(128,128,128,0.2)",
-    borderRadius: 18,
+    borderRadius: 9999,
     flexDirection: "row",
     gap: 6,
     height: 36,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
   },
-  editText: { fontFamily: "SofiaProMed", fontSize: 14 },
+  editText: { fontFamily: "SofiaProBold", fontSize: 14 },
   followButton: {
+    borderRadius: 9999,
+    height: 36,
+    overflow: "hidden",
+  },
+  followButtonGradient: {
     alignItems: "center",
-    backgroundColor: "#f97316",
-    borderRadius: 18,
+    borderRadius: 9999,
     flexDirection: "row",
     gap: 5,
     height: 36,
     paddingHorizontal: 16,
   },
-  followText: { color: "#fff", fontFamily: "SofiaProMed", fontSize: 14 },
+  followText: { fontFamily: "SofiaProBold", fontSize: 14 },
   identity: { marginTop: 12 },
   inlineLabel: { fontFamily: "SofiaProMed", fontSize: 14 },
   inlineStat: {
@@ -373,15 +508,19 @@ const styles = StyleSheet.create({
   },
   inlineValue: { fontFamily: "SofiaProBold", fontSize: 14 },
   messageButton: {
+    borderRadius: 9999,
+    height: 36,
+    overflow: "hidden",
+  },
+  messageButtonGradient: {
     alignItems: "center",
-    backgroundColor: "rgba(128,128,128,0.2)",
-    borderRadius: 18,
+    borderRadius: 9999,
     flexDirection: "row",
     gap: 5,
     height: 36,
     paddingHorizontal: 14,
   },
-  messageText: { fontFamily: "SofiaProMed", fontSize: 14 },
+  messageText: { fontFamily: "SofiaProBold", fontSize: 14 },
   meta: { fontFamily: "SofiaProReg", fontSize: 14 },
   metaRow: {
     alignItems: "center",
@@ -395,9 +534,7 @@ const styles = StyleSheet.create({
   root: { borderBottomColor: "rgba(128,128,128,0.25)", borderBottomWidth: 1 },
   shareButton: {
     alignItems: "center",
-    borderColor: "rgba(128,128,128,0.35)",
     borderRadius: 18,
-    borderWidth: 1,
     height: 36,
     justifyContent: "center",
     marginLeft: "auto",
@@ -405,9 +542,7 @@ const styles = StyleSheet.create({
   },
   social: {
     alignItems: "center",
-    borderColor: "rgba(128,128,128,0.25)",
     borderRadius: 18,
-    borderWidth: 1,
     height: 36,
     justifyContent: "center",
     width: 36,

@@ -20,7 +20,9 @@ import {
 } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  Animated,
+  PanResponder,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -29,6 +31,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import noFollowImage from "@/assets/images/nofollow.png";
@@ -96,6 +99,10 @@ const TAB_DEFS: readonly FeedTabDef<ExploreTab>[] = [
 type ExploreItem =
   | { kind: "post"; post: FeedPost }
   | { kind: "user"; user: ExploreUser };
+
+function itemKey(item: ExploreItem): string {
+  return `${item.kind}-${item.kind === "post" ? item.post.id : item.user.id}`;
+}
 
 export function ExploreScreen() {
   const router = useRouter();
@@ -249,6 +256,81 @@ export function ExploreScreen() {
     [activeTab, handleSearch, router, setExploreTab]
   );
 
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const tabOrder: readonly ExploreTab[] = [
+        "for-you",
+        "gusts",
+        "people",
+        "trending",
+      ];
+      const currentIndex = tabOrder.indexOf(activeTab);
+      const nextIndex = currentIndex + direction;
+      if (nextIndex >= 0 && nextIndex < tabOrder.length) {
+        selectTab(tabOrder[nextIndex]);
+      }
+    },
+    [activeTab, selectTab]
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) => {
+          if (gesture.numberActiveTouches !== 1) {
+            return false;
+          }
+          const absDx = Math.abs(gesture.dx);
+          const absDy = Math.abs(gesture.dy);
+          return absDx > 14 && absDx > absDy * 1.35;
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          const { dx, vx } = gesture;
+          if (dx <= -48 || vx <= -0.45) {
+            handleSwipeNavigate(1);
+          } else if (dx >= 48 || vx >= 0.45) {
+            handleSwipeNavigate(-1);
+          }
+        },
+      }),
+    [handleSwipeNavigate]
+  );
+
+  const activeTabTrackedRef = useRef(activeTab);
+  const slideAnim = useMemo(() => new Animated.Value(0), []);
+  const opacityAnim = useMemo(() => new Animated.Value(1), []);
+
+  useEffect(() => {
+    if (activeTabTrackedRef.current !== activeTab) {
+      const tabOrder: readonly ExploreTab[] = [
+        "for-you",
+        "gusts",
+        "people",
+        "trending",
+      ];
+      const nextIndex = tabOrder.indexOf(activeTab);
+      const prevIndex = tabOrder.indexOf(activeTabTrackedRef.current);
+      const direction = nextIndex >= prevIndex ? 1 : -1;
+      activeTabTrackedRef.current = activeTab;
+
+      slideAnim.setValue(direction * 28);
+      opacityAnim.setValue(0.7);
+
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          duration: 180,
+          toValue: 0,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+        Animated.timing(opacityAnim, {
+          duration: 180,
+          toValue: 1,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+      ]).start();
+    }
+  }, [activeTab, opacityAnim, slideAnim]);
+
   const handleFollow = useCallback(
     async (userId: string, next: boolean) => {
       if (!viewerId) {
@@ -375,7 +457,7 @@ export function ExploreScreen() {
     );
   };
 
-  const fetchMore = async () => {
+  const fetchMore = useCallback(async () => {
     if (loadingMore || !nextCursor || activeTab === "people") {
       return;
     }
@@ -388,7 +470,7 @@ export function ExploreScreen() {
       return;
     }
     setLoadingMore(false);
-  };
+  }, [activeTab, load, loadingMore, nextCursor]);
 
   const items = useMemo<ExploreItem[]>(() => {
     const next: ExploreItem[] = [];
@@ -421,6 +503,34 @@ export function ExploreScreen() {
     return next;
   }, [activeTab, posts, users]);
 
+  const { leftItems, rightItems } = useMemo(() => {
+    const left: { index: number; item: ExploreItem }[] = [];
+    const right: { index: number; item: ExploreItem }[] = [];
+    for (const [index, item] of items.entries()) {
+      if (index % 2 === 0) {
+        left.push({ index, item });
+      } else {
+        right.push({ index, item });
+      }
+    }
+    return { leftItems: left, rightItems: right };
+  }, [items]);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      const paddingToBottom = 300;
+      if (
+        layoutMeasurement.height + contentOffset.y >=
+        contentSize.height - paddingToBottom
+      ) {
+        void fetchMore();
+      }
+    },
+    [fetchMore]
+  );
+
   const renderItem = useCallback(
     ({ item, index }: { index: number; item: ExploreItem }) => {
       if (activeTab === "gusts") {
@@ -429,6 +539,7 @@ export function ExploreScreen() {
         }
         return (
           <ExploreGustTile
+            isGrid
             onPress={() =>
               // Web opens the reel positioned at this gust rather than the
               // post page, so the tap lands on the video it came from.
@@ -633,29 +744,18 @@ export function ExploreScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <FlatList
-        ListEmptyComponent={empty}
-        ListHeaderComponent={header}
-        columnWrapperStyle={activeTab === "people" ? undefined : styles.columns}
+    <View
+      style={[styles.root, { backgroundColor: theme.containerBg }]}
+      {...panResponder.panHandlers}
+    >
+      <ScrollView
         contentContainerStyle={[
           styles.content,
           { paddingBottom: showGuestBar ? 176 : 96 },
         ]}
         contentInsetAdjustmentBehavior="automatic"
-        data={items}
-        keyExtractor={(item) =>
-          `${item.kind}-${item.kind === "post" ? item.post.id : item.user.id}`
-        }
-        key={activeTab === "people" ? "explore-people" : "explore-grid"}
-        ListFooterComponent={
-          loadingMore ? (
-            <ActivityIndicator color="#f97316" style={styles.footerLoader} />
-          ) : null
-        }
-        numColumns={activeTab === "people" ? 1 : 2}
-        onEndReached={fetchMore}
-        onEndReachedThreshold={0.6}
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleScroll}
         refreshControl={
           <RefreshControl
             onRefresh={refresh}
@@ -663,9 +763,47 @@ export function ExploreScreen() {
             tintColor="#f97316"
           />
         }
-        renderItem={renderItem}
+        scrollEventThrottle={150}
         showsVerticalScrollIndicator={false}
-      />
+      >
+        {header}
+        {empty || (
+          <Animated.View
+            style={{
+              opacity: opacityAnim,
+              transform: [{ translateX: slideAnim }],
+            }}
+          >
+            {activeTab === "people" ? (
+              <View style={styles.peopleList}>
+                {items.map((item, index) => (
+                  <View key={itemKey(item)}>{renderItem({ index, item })}</View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.masonryRow}>
+                <View style={styles.masonryColumn}>
+                  {leftItems.map(({ index, item }) => (
+                    <View key={itemKey(item)}>
+                      {renderItem({ index, item })}
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.masonryColumn}>
+                  {rightItems.map(({ index, item }) => (
+                    <View key={itemKey(item)}>
+                      {renderItem({ index, item })}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+          </Animated.View>
+        )}
+        {loadingMore ? (
+          <ActivityIndicator color="#f97316" style={styles.footerLoader} />
+        ) : null}
+      </ScrollView>
       {showGuestBar ? (
         <View
           pointerEvents="box-none"
@@ -680,9 +818,11 @@ export function ExploreScreen() {
 }
 
 function ExploreGustTile({
+  isGrid,
   onPress,
   post,
 }: {
+  isGrid?: boolean;
   onPress: () => void;
   post: FeedPost;
 }) {
@@ -701,6 +841,7 @@ function ExploreGustTile({
       onPress={onPress}
       style={({ pressed }) => [
         styles.gustTile,
+        isGrid && styles.gustTileGrid,
         {
           backgroundColor: theme.cardBg,
           borderColor: theme.cardBorder,
@@ -1044,7 +1185,6 @@ const styles = StyleSheet.create({
   },
   authPromptImage: { height: 128, width: 160 },
   authPromptTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
-  columns: { gap: 16, paddingHorizontal: 16 },
   communityMatches: { gap: 8, paddingTop: 12 },
   content: { paddingTop: 0 },
   createButton: {
@@ -1131,11 +1271,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     gap: 10,
-    marginBottom: 24,
+    marginBottom: 20,
     marginHorizontal: 16,
-    marginTop: 16,
+    marginTop: 14,
     overflow: "hidden",
-    paddingBottom: 4,
+    paddingBottom: 16,
     paddingTop: 14,
   },
   gustRow: { gap: 12, paddingHorizontal: 16 },
@@ -1145,6 +1285,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     width: 144,
+  },
+  gustTileGrid: {
+    marginBottom: 16,
+    width: "100%",
   },
   gustUsername: {
     color: "rgba(255,255,255,0.7)",
@@ -1159,6 +1303,14 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   loadingTile: { aspectRatio: 4 / 5, borderRadius: 16, width: "47%" },
+  masonryColumn: {
+    flex: 1,
+  },
+  masonryRow: {
+    flexDirection: "row",
+    gap: 16,
+    paddingHorizontal: 16,
+  },
   match: {
     alignItems: "center",
     borderCurve: "continuous",
@@ -1181,6 +1333,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   peopleHeadingText: { fontFamily: "SofiaProMed", fontSize: 14 },
+  peopleList: {
+    paddingHorizontal: 16,
+  },
   peopleSearch: {
     alignItems: "center",
     backgroundColor: "#111111",

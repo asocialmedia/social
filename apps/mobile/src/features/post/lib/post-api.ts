@@ -117,7 +117,7 @@ export async function fetchRelatedPosts(
   return (payload.posts as FeedPost[])
     .filter((post) => post && typeof post.id === "string")
     .map(normalizePostData)
-    .filter((post) => post.id !== postId);
+    .filter((post) => post.id !== postId && !post.isGust);
 }
 
 // Best-effort visit record so recents surface the post. Guests have no visit

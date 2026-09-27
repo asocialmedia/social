@@ -295,6 +295,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 16,
     overflow: "hidden",
+    width: "100%",
   },
   content: { flex: 1, padding: 12, paddingTop: 0 },
   follow: {
@@ -324,8 +325,19 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
   },
-  name: { fontFamily: "SofiaProBold", fontSize: 15 },
-  nameRow: { alignItems: "center", flexDirection: "row", gap: 4, marginTop: 8 },
+  name: {
+    flexShrink: 1,
+    fontFamily: "SofiaProBold",
+    fontSize: 15,
+    minWidth: 0,
+  },
+  nameRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    marginTop: 8,
+    maxWidth: "100%",
+  },
   reason: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 6 },
   recommended: {
     alignItems: "center",

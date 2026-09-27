@@ -4,7 +4,11 @@ import type { PostsPage } from "@asm/db";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
-import { filterFeedPosts, prependPostsToFeedCache } from "./feed-cache";
+import {
+  filterFeedPosts,
+  prependPostsToFeedCache,
+  showPublishedPostInFeedCache,
+} from "./feed-cache";
 
 type Post = PostsPage["posts"][number];
 type FeedData = InfiniteData<PostsPage, string | null>;
@@ -118,5 +122,35 @@ describe("prependPostsToFeedCache", () => {
         [post("x")]
       )
     ).toBe(false);
+  });
+});
+
+describe("showPublishedPostInFeedCache", () => {
+  test("prepends to a tab that already has pages, leaving the cursor alone", () => {
+    const { queryClient, queryKey } = makeClient();
+    showPublishedPostInFeedCache(queryClient, queryKey, post("fresh"));
+    const data = queryClient.getQueryData<FeedData>(queryKey);
+    expect(ids(data, 0)).toEqual(["fresh", "b", "a"]);
+    expect(data?.pages[0]?.nextCursor).toBe("c1");
+    expect(ids(data, 1)).toEqual(["z"]);
+  });
+
+  test("seeds a tab that was never fetched and invalidates it", () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["post-feed", "latest", "user1"];
+    showPublishedPostInFeedCache(queryClient, queryKey, post("fresh"));
+    const data = queryClient.getQueryData<FeedData>(queryKey);
+    // The post is readable straight away...
+    expect(ids(data, 0)).toEqual(["fresh"]);
+    // ...and the entry is invalidated, so mounting the tab refetches the real
+    // first page instead of showing this one post forever.
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
+  });
+
+  test("does not duplicate a post the tab already has", () => {
+    const { queryClient, queryKey } = makeClient();
+    showPublishedPostInFeedCache(queryClient, queryKey, post("a"));
+    const data = queryClient.getQueryData<FeedData>(queryKey);
+    expect(ids(data, 0)).toEqual(["b", "a"]);
   });
 });

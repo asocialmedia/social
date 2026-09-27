@@ -1,10 +1,3 @@
-// React Native 0.86 exposes a spec-compliant `boxShadow` style prop that
-// accepts the same syntax as the web, including multiple comma-separated
-// shadows and the `inset` keyword. These recipes are copied verbatim from the
-// web 3D surfaces in packages/ui/styles/globals.css so the mobile bevels match
-// the browser pixel-for-pixel instead of approximating them with a border plus
-// a hand-rolled inner lip line.
-
 // `.premium-input`
 export const INPUT_SHADOWS =
   "inset 0 2px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 1px rgba(255, 255, 255, 0.04)";
@@ -87,6 +80,20 @@ export const FOLLOW_BUTTON_SHADOWS =
 
 export const FOLLOW_BUTTON_SHADOWS_LIGHT =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+
+// Edit profile button shadows mirroring web's EditProfileButton
+export const EDIT_PROFILE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1.5px 2px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.06)";
+
+export const EDIT_PROFILE_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(45, 50, 60, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+// .btn-3d-gray shadows mirroring packages/ui/styles/globals.css
+export const BTN_3D_GRAY_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.85), inset 0 1.5px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 1px rgba(255, 255, 255, 0.6), 0 1px 2px rgba(0, 0, 0, 0.06)";
+
+export const BTN_3D_GRAY_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1.5px 2px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 1px rgba(255, 255, 255, 0.35), 0 3px 5px rgba(0, 0, 0, 0.12)";
 
 // `.premium-error`
 export const ERROR_SHADOWS =

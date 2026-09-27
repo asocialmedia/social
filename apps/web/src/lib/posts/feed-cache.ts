@@ -97,6 +97,34 @@ export function prependPostsToFeedCache(
   return added;
 }
 
+// A just-published fleet is put at the head of the Latest tab so the reader
+// lands on it the moment the tab is selected, instead of waiting for that tab
+// to fetch. Two cases, because the tab may never have been opened:
+//
+//   - already cached: the post is prepended to page one, cursors untouched (the
+//     same shape the new-content pill uses), and nothing is invalidated.
+//   - never fetched: a single-page entry is seeded and then invalidated, so the
+//     tab renders the post at once and refetches the real first page as soon as
+//     it mounts. Invalidating is what stops the one-post seed from becoming the
+//     tab's permanent contents.
+export function showPublishedPostInFeedCache(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  post: PostsPage["posts"][number]
+): void {
+  const cached =
+    queryClient.getQueryData<InfiniteData<PostsPage, string | null>>(queryKey);
+  if (cached && cached.pages.length > 0) {
+    prependPostsToFeedCache(queryClient, queryKey, [post]);
+    return;
+  }
+  queryClient.setQueryData<InfiniteData<PostsPage, string | null>>(queryKey, {
+    pageParams: [null],
+    pages: [{ nextCursor: null, posts: [post] }],
+  });
+  void queryClient.invalidateQueries({ queryKey });
+}
+
 // Scrolls the nearest scrollable ancestor of `node` back to the top. Feeds live
 // inside a shared scroll container rather than owning their own overflow, so
 // walking up finds the right element on both the home tabs and the post page.

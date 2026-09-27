@@ -53,6 +53,8 @@ import {
   pressedPill,
   themeText,
 } from "@/components/surface/recipes";
+import { useSessionContext } from "@/features/auth/state/session";
+import { revealPublishedPost } from "@/features/feed/state/publish-reveal";
 import { MAX_POST_ATTACHMENTS } from "@/features/media-upload/lib/upload-policy";
 import {
   attachmentActions,
@@ -262,7 +264,7 @@ export function PostEditor({
   onPublished?: () => void;
   // "modal" is the floating composer (ComposerModal): transparent, no edge
   // treatment, and the caption field takes focus the moment it opens. "feed"
-  // is the inline row pinned to the top of the home feed, so it carries web's
+  // is the inline row that heads the home feed's list, so it carries web's
   // edge-to-edge border/fill and must NOT autofocus - stealing focus there
   // would pop the keyboard over the feed on every visit.
   variant?: "feed" | "modal";
@@ -271,6 +273,11 @@ export function PostEditor({
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const text = themeText(isDark);
+  // Aliased, not `user`: the render helpers below take a `user` of their own.
+  const { user: viewer } = useSessionContext();
+  // Whose feed the published post lands in: the Latest tab is keyed per viewer,
+  // so the optimistic insert has to use the same id the list will read.
+  const viewerId = viewer?.id;
   const viewerAvatar = useViewerAvatarUrl();
   const mode = useComposerStore((state) => state.mode);
   const setMode = useComposerStore((state) => state.setMode);
@@ -478,7 +485,7 @@ export function PostEditor({
       tags: draft.tags,
     });
     try {
-      await publishPost(
+      const result = await publishPost(
         {
           // A pure community reshare has no caption of its own: the server
           // allows that only because communitySharePostId is present.
@@ -499,6 +506,13 @@ export function PostEditor({
       clearDraft();
       setAltTarget(null);
       setGifOpen(false);
+      // A plain fleet is a home-feed post, so the feed is switched to Latest
+      // with the new post already at its head. A gust belongs to the reels
+      // feed and a response to the thread it was written in, so neither is
+      // revealed here - the caller routes those.
+      if (result.kind === "created" && !isResponse && !isGust) {
+        revealPublishedPost(result.post, viewerId);
+      }
       toast({
         description: successCopy(),
         title: isResponse ? "Response Posted" : "Posted",
@@ -575,8 +589,9 @@ export function PostEditor({
         // The inline row sits directly on the feed, so it wears the feed's own
         // page background (web's --background-alt) rather than a hardcoded
         // shade, and is separated by the app's standard hairline divider. Using
-        // the tokens keeps it in step with the feed across both themes. Its
-        // stacking above the feed rows is handled by the list header wrapper.
+        // the tokens keeps it in step with the feed across both themes. It
+        // needs no stacking of its own: it renders as the feed list's header,
+        // so it scrolls with the content and nothing can overlap it.
         inline
           ? {
               backgroundColor: theme.containerBg,

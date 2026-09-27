@@ -124,12 +124,79 @@ export function getSocialLinks(user: SocialSource): SocialLink[] {
   return links;
 }
 
+// Stored avatar/banner URLs look like `{endpoint}/{bucket}/avatars/{userId}/...`
+// or `{endpoint}/{bucket}/banners/{userId}/...` (sometimes with encoded `%2F` separators).
+// Object storage buckets are private — content is only reachable through the app proxy routes,
+// so rewrite these URLs to their app-relative proxy paths at render time.
+const ASMOB_AVATAR_URL_RE =
+  /(?:^|\/)(?<kind>avatars|banners)\/(?<userId>[^/?#]+)\/[^/?#]+/;
+
+export function rewriteAsmobUrl(rawUrl: string): string {
+  if (!rawUrl) {
+    return "";
+  }
+  let decoded = rawUrl;
+  try {
+    decoded = decodeURIComponent(rawUrl);
+  } catch {
+    // Keep rawUrl if decoding fails
+  }
+  const match = decoded.match(ASMOB_AVATAR_URL_RE);
+  if (!match?.groups) {
+    return rawUrl;
+  }
+  const { kind, userId } = match.groups;
+  const file =
+    decoded
+      .slice(match.index ?? 0)
+      .split("/")
+      .pop() ?? "";
+  return kind === "avatars"
+    ? `/api/users/avatar/${userId}/image?v=${file}`
+    : `/api/users/banner/${userId}/image?v=${file}`;
+}
+
+export const DEFAULT_AVATARS = [
+  "/avatars/default-1.png",
+  "/avatars/default-2.png",
+] as const;
+
+export function getDefaultAvatar(seed?: string | null): string {
+  if (!seed) {
+    return DEFAULT_AVATARS[0];
+  }
+  let sum = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    sum += (seed.codePointAt(i) ?? 0) * (i + 1);
+  }
+  const index = sum % DEFAULT_AVATARS.length;
+  return DEFAULT_AVATARS[index];
+}
+
+const DEFAULT_AVATAR_RE = /\/avatars\/(?<file>default-[12]\.png)(?:[?#]|$)/i;
+const PROXY_USER_IMAGE_RE =
+  /(?:^|\/)api\/users\/(?<kind>avatar|banner)\/(?<userId>[^/?#]+)\/image(?:\?(?<query>[^#]*))?/i;
+
+export function toAppProxyUrl(url: string | null | undefined): string {
+  if (!url) {
+    return "";
+  }
+  const defaultAvatarMatch = url.match(DEFAULT_AVATAR_RE);
+  if (defaultAvatarMatch?.groups?.file) {
+    return `/avatars/${defaultAvatarMatch.groups.file}`;
+  }
+  const proxyMatch = url.match(PROXY_USER_IMAGE_RE);
+  if (proxyMatch?.groups) {
+    const { kind, userId, query } = proxyMatch.groups;
+    return `/api/users/${kind}/${userId}/image${query ? `?${query}` : ""}`;
+  }
+  return rewriteAsmobUrl(url);
+}
+
 // Resolves an avatar/banner URL from the profile payload into something
-// expo-image can load. Absolute URLs pass through; app-relative paths
-// (proxy images AND the /avatars/* defaults, which web serves as static
-// assets on the same origin) are rooted at the API base (dev server or
-// prod, per getApiBaseUrl). Null when there is nothing to show, so callers
-// fall back to their placeholder.
+// expo-image can load. Storage URLs are rewritten through app proxy routes,
+// relative proxy and default avatar paths are rooted at the API base, and
+// external URLs pass through.
 export function resolveProfileImageUrl(
   rawUrl: string | null | undefined,
   apiBase: string
@@ -138,13 +205,32 @@ export function resolveProfileImageUrl(
     return null;
   }
   const trimmed = rawUrl.trim();
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed;
+  if (!trimmed) {
+    return null;
   }
-  if (trimmed.startsWith("/")) {
-    return `${apiBase.replace(/\/+$/, "")}${trimmed}`;
+  const proxied = toAppProxyUrl(trimmed);
+  if (proxied.startsWith("/")) {
+    return `${apiBase.replace(/\/+$/, "")}${proxied}`;
+  }
+  if (/^https?:\/\//i.test(proxied)) {
+    return proxied;
   }
   return null;
+}
+
+// Resolves an avatar URL with a fallback to the user's default avatar
+// illustration if the custom avatar URL is null or empty.
+export function resolveAvatarWithFallback(
+  rawUrl: string | null | undefined,
+  apiBase: string,
+  seed?: string | null
+): string {
+  const resolved = resolveProfileImageUrl(rawUrl, apiBase);
+  if (resolved) {
+    return resolved;
+  }
+  const defaultPath = getDefaultAvatar(seed);
+  return `${apiBase.replace(/\/+$/, "")}${defaultPath}`;
 }
 
 const SOCIAL_HOSTS: Record<SocialLinkKind, string> = {

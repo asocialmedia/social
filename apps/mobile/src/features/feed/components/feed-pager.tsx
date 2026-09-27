@@ -5,6 +5,11 @@
 // flick) commits the swipe, edges clamp. Built on PanResponder + the core
 // Animated API so no extra native dependency is needed.
 //
+// The tab hand-off happens mid-drag, not on the animation's completion: the
+// incoming tab is enabled (and fetching) while the finger is still down, so
+// the page the slide lands on is already painted. The index math behind both
+// the hand-off and the release lives in lib/pager-navigation.
+//
 // The responder config is rebuilt every render (cheap object creation) so
 // handlers always close over current values - no latest-refs, which the
 // React Compiler forbids writing during render.
@@ -23,22 +28,17 @@ import type {
   PanResponderGestureState,
 } from "react-native";
 
-// Horizontal travel (px) that commits a swipe on release, and the speed
-// (px/ms) that commits a shorter flick. Same values as web.
-const SWIPE_DISTANCE = 56;
-const FLICK_VELOCITY = 0.6;
-// Once the finger travels this far the gesture locks to horizontal or
-// vertical; whichever axis is ahead wins.
-const DIRECTION_LOCK = 10;
+import {
+  DIRECTION_LOCK,
+  clampIndex,
+  handoffIndex,
+  settleIndex,
+} from "../lib/pager-navigation";
 
 interface FeedPagerProps {
   activeIndex: number;
   children: ReactNode[];
   onIndexChange: (index: number) => void;
-}
-
-function clampIndex(index: number, pageCount: number): number {
-  return Math.min(Math.max(0, index), Math.max(0, pageCount - 1));
 }
 
 export function FeedPager({
@@ -54,6 +54,17 @@ export function FeedPager({
   const clampedIndex = clampIndex(activeIndex, pageCount);
   const committedIndex = useRef(clampedIndex);
   const dragBase = useRef(0);
+  // The page a live drag started from. A hand-off may already have moved the
+  // active tab elsewhere, so the release has to measure its travel from here
+  // to stay able to spring back.
+  const dragOrigin = useRef(clampedIndex);
+  // The page last handed over during this drag, so a move only reports an
+  // actual change instead of re-publishing on every touch event.
+  const handedOver = useRef(clampedIndex);
+  const dragging = useRef(false);
+  // Set by a release that already started its settle tween, so the sync
+  // effect below does not restart the same animation one frame later.
+  const settled = useRef<number | null>(null);
 
   const goTo = useCallback(
     (index: number) => {
@@ -65,9 +76,6 @@ export function FeedPager({
         useNativeDriver: Platform.OS !== "web",
       }).start(({ finished }) => {
         if (finished) {
-          if (next !== activeIndex) {
-            onIndexChange(next);
-          }
           return;
         }
         // An interrupted animation must never strand the track between
@@ -76,15 +84,27 @@ export function FeedPager({
         translateX.setValue(-committedIndex.current * pageWidth);
       });
     },
-    [activeIndex, onIndexChange, pageCount, pageWidth, translateX]
+    [pageCount, pageWidth, translateX]
   );
 
   // Tab taps drive from the outside, and width changes (rotation) flow in
   // through goTo's identity, so this always converges the track to the
   // clamped page: a mid-gesture measuring change can never leave it
-  // stranded. Swipe commits flow back through onIndexChange instead, so
-  // this stays a one-way sync.
+  // stranded. Two cases stand down. A live drag owns the track - its moves
+  // write translateX directly and the release decides where it lands. And a
+  // release that already named this page is mid-settle toward it, so
+  // re-animating would restart its tween and stall the slide.
   useEffect(() => {
+    if (settled.current !== null) {
+      const alreadySettling = settled.current === clampedIndex;
+      settled.current = null;
+      if (alreadySettling) {
+        return;
+      }
+    }
+    if (dragging.current) {
+      return;
+    }
     goTo(clampedIndex);
   }, [clampedIndex, goTo]);
 
@@ -102,7 +122,11 @@ export function FeedPager({
 
   const handleGrant = useCallback(() => {
     translateX.stopAnimation();
-    dragBase.current = -committedIndex.current * pageWidth;
+    dragging.current = true;
+    const origin = committedIndex.current;
+    dragOrigin.current = origin;
+    handedOver.current = origin;
+    dragBase.current = -origin * pageWidth;
   }, [pageWidth, translateX]);
 
   const handleMove = useCallback(
@@ -110,27 +134,45 @@ export function FeedPager({
       const min = -(pageCount - 1) * pageWidth;
       const raw = dragBase.current + gesture.dx;
       translateX.setValue(Math.min(0, Math.max(min, raw)));
+      // Hand the tab over as soon as the drag points at a neighbour. The
+      // incoming feed starts fetching now, so its posts (and anything else
+      // that mounts per tab) are ready when the track settles instead of
+      // popping in a beat after the slide lands.
+      const next = handoffIndex(dragOrigin.current, gesture.dx, pageCount);
+      if (next !== handedOver.current) {
+        handedOver.current = next;
+        onIndexChange(next);
+      }
     },
-    [pageCount, pageWidth, translateX]
+    [onIndexChange, pageCount, pageWidth, translateX]
+  );
+
+  // The release publishes the page it lands on before animating to it, so the
+  // tab strip and the enabled feed are already right while the track is still
+  // sliding. A spring-back publishes the origin, taking back the mid-drag
+  // hand-off.
+  const settle = useCallback(
+    (index: number) => {
+      dragging.current = false;
+      settled.current = index;
+      onIndexChange(index);
+      goTo(index);
+    },
+    [goTo, onIndexChange]
   );
 
   const handleRelease = useCallback(
     (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
-      const { dx, vx } = gesture;
-      let next = committedIndex.current;
-      if (dx <= -SWIPE_DISTANCE || vx <= -FLICK_VELOCITY) {
-        next = committedIndex.current + 1;
-      } else if (dx >= SWIPE_DISTANCE || vx >= FLICK_VELOCITY) {
-        next = committedIndex.current - 1;
-      }
-      goTo(next);
+      settle(
+        settleIndex(dragOrigin.current, gesture.dx, gesture.vx, pageCount)
+      );
     },
-    [goTo]
+    [pageCount, settle]
   );
 
   const handleTerminate = useCallback(() => {
-    goTo(committedIndex.current);
-  }, [goTo]);
+    settle(dragOrigin.current);
+  }, [settle]);
 
   // Memoized so the responder identity is stable across renders. The config
   // closures only run on touch (never during render), which is exactly where

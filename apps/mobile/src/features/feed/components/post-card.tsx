@@ -28,7 +28,7 @@ import {
   MentionChip,
   TagChip,
 } from "../../home/components/bio-content";
-import { resolveProfileImageUrl } from "../../home/components/profile-utils";
+import { resolveAvatarWithFallback } from "../../home/components/profile-utils";
 import { UserBadge } from "../../home/components/user-badge";
 import type { FeedPost } from "../lib/feed-types";
 import {
@@ -165,9 +165,12 @@ export function PostCard({
   const author = post.user;
   const displayName = author?.displayName || author?.username || "unknown";
   const username = author?.username ?? "unknown";
-  const avatarUri = author?.avatarUrl
-    ? resolveProfileImageUrl(author.avatarUrl, apiBase)
-    : null;
+  const authorSeed = author?.username || author?.id || null;
+  const avatarUri = resolveAvatarWithFallback(
+    author?.avatarUrl,
+    apiBase,
+    authorSeed
+  );
   const viewerLoggedIn = Boolean(viewerId);
 
   const requireLogin = () => {
@@ -348,10 +351,11 @@ export function PostCard({
                     {extraMentions.map((mention, index) => (
                       <MentionChip
                         avatarUrl={
-                          mention.user?.avatarUrl
-                            ? resolveProfileImageUrl(
+                          mention.user
+                            ? resolveAvatarWithFallback(
                                 mention.user.avatarUrl,
-                                apiBase
+                                apiBase,
+                                mention.user.username || mention.user.id
                               )
                             : null
                         }

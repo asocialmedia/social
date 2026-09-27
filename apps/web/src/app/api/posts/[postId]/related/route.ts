@@ -70,7 +70,8 @@ export async function GET(
 
   const take = 10;
 
-  // 2. Fetch candidates matching semantic tags or recent relevant posts
+  // 2. Fetch candidates matching semantic tags or recent relevant posts.
+  // Match origin isGust so fleets/posts only recommend fleets/posts, never gusts.
   let candidates = await prisma.orm.public.Posts.select(
     "embedding",
     "id",
@@ -80,6 +81,7 @@ export async function GET(
     .where((post) =>
       and(
         post.id.neq(postId),
+        post.isGust.eq(Boolean(originPost.isGust)),
         post.moderated.eq(false),
         post.rootPostId.isNull()
       )
@@ -108,6 +110,7 @@ export async function GET(
       .where((post) =>
         and(
           post.id.notIn([postId, ...candidates.map((c) => c.id)]),
+          post.isGust.eq(Boolean(originPost.isGust)),
           post.moderated.eq(false),
           post.rootPostId.isNull()
         )
