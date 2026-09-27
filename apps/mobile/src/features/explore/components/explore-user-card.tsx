@@ -20,6 +20,14 @@ import {
 } from "@/theme";
 
 import type { ExploreUser } from "../lib/explore-api";
+import {
+  AVATAR_CORNER,
+  AVATAR_OVERLAP,
+  AVATAR_RING_ALIGN_SELF,
+  AVATAR_SIZE,
+  RING_BORDER,
+  RING_RADIUS,
+} from "./explore-user-card-geometry";
 
 function bannerFor(
   avatarUrl: string | null | undefined,
@@ -173,10 +181,16 @@ export function ExploreUserCard({
             styles.avatarOverlap,
             {
               borderColor: avatarRing,
+              borderRadius: RING_RADIUS,
+              borderWidth: RING_BORDER,
             },
           ]}
         >
-          <UserAvatar size={56} url={user.avatarUrl} />
+          <UserAvatar
+            radius={AVATAR_CORNER}
+            size={AVATAR_SIZE}
+            url={user.avatarUrl}
+          />
         </View>
         <View style={styles.nameRow}>
           <Text
@@ -267,9 +281,8 @@ export function ExploreUserCard({
 
 const styles = StyleSheet.create({
   avatarOverlap: {
-    borderRadius: 18,
-    borderWidth: 4,
-    marginTop: -28,
+    alignSelf: AVATAR_RING_ALIGN_SELF,
+    marginTop: AVATAR_OVERLAP,
     zIndex: 2,
   },
   banner: {
