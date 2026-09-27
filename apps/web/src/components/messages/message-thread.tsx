@@ -4532,7 +4532,7 @@ function VirtualRowInner({
         >
           <div
             className={cn(
-              "border-border/60 bg-muted/30 flex max-w-[85%] items-center gap-2 border px-3.5 py-2 text-xs sm:max-w-[75%]",
+              "bubble-received flex max-w-[85%] items-center gap-2 px-3.5 py-2 text-xs sm:max-w-[75%]",
               rounding
             )}
           >

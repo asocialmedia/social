@@ -215,11 +215,7 @@ export function MessageBubble({
       roundingClasses
     );
   } else {
-    bubbleClass = cn(
-      "px-3.5 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]",
-      "border-border/60 border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]",
-      roundingClasses
-    );
+    bubbleClass = cn("px-3.5 py-2 text-sm", "bubble-received", roundingClasses);
   }
   const onColoredBubble = mine && !isMedia;
 
