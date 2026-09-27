@@ -17,12 +17,16 @@ import { splitBoxShadow } from "./box-shadow";
 export function Gradient3D({
   children,
   colors,
+  direction = "vertical",
   radius = 9999,
   shadows,
   style,
 }: {
   children?: ReactNode;
   colors: readonly [string, string, ...string[]];
+  // "vertical" runs top to bottom; "horizontal" runs left to right. Web
+  // writes this as bg-linear-to-r / bg-linear-to-b on the same element.
+  direction?: "horizontal" | "vertical";
   radius?: number;
   // A full CSS box-shadow list, inset and outer layers mixed, as on web.
   shadows: string;
@@ -30,6 +34,7 @@ export function Gradient3D({
   style?: StyleProp<ViewStyle>;
 }) {
   const { inset, outer } = splitBoxShadow(shadows);
+  const isHorizontal = direction === "horizontal";
   return (
     <View
       style={[
@@ -41,9 +46,9 @@ export function Gradient3D({
     >
       <LinearGradient
         colors={colors}
-        end={{ x: 0.5, y: 1 }}
+        end={isHorizontal ? { x: 1, y: 0 } : { x: 0.5, y: 1 }}
         pointerEvents="none"
-        start={{ x: 0.5, y: 0 }}
+        start={isHorizontal ? { x: 0, y: 0 } : { x: 0.5, y: 0 }}
         style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
       />
       {inset ? (
