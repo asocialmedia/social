@@ -28,6 +28,14 @@ export async function GET(
     }),
   ]);
 
+  // The caller's own preferences, lifted out of the member list so the client
+  // never has to pick "my" row out of a two-element array. The conversation
+  // payload still carries every member row (the thread reads the peer's), so
+  // this is a convenience read, not a privacy boundary.
+  const myMember = conversation.members.find(
+    (member) => member.userId === user.id
+  );
+
   return Response.json({
     conversation,
     keys: keys.map((key) => ({
@@ -39,5 +47,9 @@ export async function GET(
       version: key.version,
     })),
     mySentCount,
+    prefs: {
+      mutedAt: myMember?.mutedAt?.toISOString() ?? null,
+      themeKey: myMember?.themeKey ?? null,
+    },
   });
 }

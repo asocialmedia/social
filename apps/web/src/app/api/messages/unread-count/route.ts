@@ -21,11 +21,12 @@ export async function GET() {
   // conversation is bounded by its OWN read watermark - the global earliest
   // read would over-count threads the user has already read. Conversations
   // with a blocked partner are excluded entirely: blocked pairs must not see
-  // each other's activity, unread badges included.
+  // each other's activity, unread badges included. Conversations the member has
+  // muted are excluded for the same reason a mute exists at all: no badge.
   const [memberships, iBlocked, blockedMe] = await Promise.all([
     prisma.messageConversationMember.findMany({
       select: { conversationId: true, lastReadAt: true },
-      where: { userId: user.id },
+      where: { mutedAt: null, userId: user.id },
     }),
     prisma.block.findMany({
       select: { blockedId: true },

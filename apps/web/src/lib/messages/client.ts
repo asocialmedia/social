@@ -41,10 +41,21 @@ export interface WrappedKeyPayload {
   version?: number;
 }
 
+export interface ConversationPrefs {
+  // ISO timestamp of when this member muted the thread, or null when not muted.
+  // Preserved across re-mutes, so it reads as "muted since".
+  mutedAt: string | null;
+  // Chat theme key, or null for the app default.
+  themeKey: string | null;
+}
+
 export interface ConversationDetailResponse {
   conversation: MessageConversationData;
   keys: WrappedKeyPayload[];
   mySentCount: number;
+  // The caller's own preferences for this conversation. Separate from the
+  // member list so no consumer has to pick "my" row out of a two-element array.
+  prefs: ConversationPrefs;
 }
 
 export interface ConversationListItem {
@@ -246,6 +257,31 @@ export async function fetchConversationDetail(
     throw await parseError(response);
   }
   return (await response.json()) as ConversationDetailResponse;
+}
+
+// Writes the caller's own DM preferences. Only the keys present in `prefs` are
+// sent, so a mute toggle cannot clear the theme and a theme pick cannot unmute.
+// Returns the stored values so the caller can reconcile its optimistic state
+// with the server's answer (the mute timestamp in particular is server-owned:
+// re-muting keeps the original one).
+export async function updateConversationPrefs(
+  conversationId: string,
+  prefs: { muted?: boolean; themeKey?: string | null }
+): Promise<ConversationPrefs> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/prefs`,
+    {
+      body: JSON.stringify(prefs),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as { prefs: ConversationPrefs };
+  return body.prefs;
 }
 
 // The three paging axes. Mutually exclusive server-side; each carries the id it

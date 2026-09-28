@@ -181,7 +181,14 @@ export async function GET(request: Request) {
     const { conversation } = membership;
     const [lastMessage] = conversation.messages;
     const unreadCount = unreadCountByConversation.get(conversation.id) ?? 0;
-    return toListItem(conversation, lastMessage, unreadCount);
+    // A muted chat keeps its messages but loses its badge: mute is this member's
+    // own preference, so it is applied per membership here rather than by
+    // filtering the query (which would also drop the thread from the rail).
+    return toListItem(
+      conversation,
+      lastMessage,
+      membership.mutedAt ? 0 : unreadCount
+    );
   });
 
   const last = visiblePage.at(-1);
