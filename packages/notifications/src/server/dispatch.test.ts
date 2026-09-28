@@ -103,6 +103,7 @@ describe("push dispatch", () => {
       pruneSubscriptions: () => Promise.resolve(),
     });
     expect(result.device.sent).toBe(0);
+    expect(result.retryable).toBe(true);
     expect(result.web.sent).toBe(0);
   });
 

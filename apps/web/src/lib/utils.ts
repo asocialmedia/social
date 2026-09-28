@@ -8,6 +8,33 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== "object") {
+    return false;
+  }
+
+  const element = target as EventTarget & {
+    closest?: (selector: string) => unknown;
+    isContentEditable?: boolean;
+    tagName?: string;
+  };
+
+  if (element.isContentEditable) {
+    return true;
+  }
+
+  const tagName = element.tagName?.toLowerCase();
+  if (tagName === "input" || tagName === "select" || tagName === "textarea") {
+    return true;
+  }
+
+  return Boolean(
+    element.closest?.(
+      "[contenteditable]:not([contenteditable='false']), [role='textbox']"
+    )
+  );
+}
+
 export function formatRelativeDate(from: Date | string) {
   try {
     const dateObj = typeof from === "string" ? new Date(from) : from;

@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const userId = session.user.id;
-    const notificationQuery = getNotificationDataQuery(prisma.orm)
+    let notificationQuery = getNotificationDataQuery(prisma.orm)
       .where((notification) =>
         and(
           notification.recipientId.eq(userId),
@@ -28,14 +28,27 @@ export async function GET(req: NextRequest) {
       )
       .orderBy((notification) => notification.createdAt.desc())
       .limit(pageSize + 1);
-    const notifications = await (
-      cursor ? notificationQuery.cursor({ id: cursor }) : notificationQuery
-    )
+    if (cursor) {
+      // Prisma 8 cursors are keyset seeks built from the values passed in, so
+      // every orderBy column needs one: the anchor's createdAt is read back
+      // here because the page cursor only carries a notification id. The seek is
+      // exclusive, so no .offset(1) hop is needed.
+      const anchor = await prisma.orm.public.Notifications.select("createdAt")
+        .where({ id: cursor })
+        .first();
+      if (anchor) {
+        notificationQuery = notificationQuery.cursor({
+          createdAt: anchor.createdAt,
+          id: cursor,
+        });
+      }
+    }
+    const notifications = await notificationQuery
       .all()
       .then((rows) => rows.map(mapNotificationData));
     const nextCursor =
-      notifications.length > pageSize && notifications[pageSize]
-        ? notifications[pageSize].id
+      notifications.length > pageSize && notifications[pageSize - 1]
+        ? notifications[pageSize - 1].id
         : null;
     const data: NotificationsPage = {
       nextCursor,

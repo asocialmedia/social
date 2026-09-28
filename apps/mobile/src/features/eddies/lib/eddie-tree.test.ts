@@ -44,6 +44,49 @@ describe("buildEddieTree", () => {
     ]);
   });
 
+  test("builds on Hermes without Array.sort or toSorted", () => {
+    const originalSort = Array.prototype.sort;
+    const originalToSorted = Array.prototype.toSorted;
+    // oxlint-disable-next-line no-extend-native -- simulate the Hermes runtime
+    Object.defineProperty(Array.prototype, "sort", {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+    // oxlint-disable-next-line no-extend-native -- simulate the Hermes runtime
+    Object.defineProperty(Array.prototype, "toSorted", {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+    try {
+      const tree = buildEddieTree([
+        eddie("old", "2026-01-01T00:00:00Z"),
+        eddie("new", "2026-01-02T00:00:00Z"),
+        eddie("r2", "2026-01-01T00:05:00Z", { parentId: "old" }),
+        eddie("r1", "2026-01-01T00:01:00Z", { parentId: "old" }),
+      ]);
+      expect(tree.map((node) => node.comment.id)).toEqual(["new", "old"]);
+      expect(tree[1]?.children.map((node) => node.comment.id)).toEqual([
+        "r1",
+        "r2",
+      ]);
+    } finally {
+      // oxlint-disable-next-line no-extend-native -- restore the test runtime
+      Object.defineProperty(Array.prototype, "sort", {
+        configurable: true,
+        value: originalSort,
+        writable: true,
+      });
+      // oxlint-disable-next-line no-extend-native -- restore the test runtime
+      Object.defineProperty(Array.prototype, "toSorted", {
+        configurable: true,
+        value: originalToSorted,
+        writable: true,
+      });
+    }
+  });
+
   test("prunes a deleted leaf but keeps a deleted parent with replies", () => {
     const tree = buildEddieTree([
       eddie("gone", "2026-01-01T00:00:00Z", { deleted: true }),

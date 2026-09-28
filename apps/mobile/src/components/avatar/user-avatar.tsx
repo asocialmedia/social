@@ -7,9 +7,10 @@ import { StyleSheet, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { useSessionContext } from "@/features/auth/state/session";
-import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
+import { resolveAvatarWithFallback } from "@/features/home/components/profile-utils";
 import { usePopupProfile } from "@/features/home/components/use-popup-profile";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -18,22 +19,39 @@ import {
 
 export function UserAvatar({
   radius,
+  seed,
   size,
   url,
+  userId,
+  username,
 }: {
   radius?: number;
+  seed?: string | null;
   size: number;
   url: string | null | undefined;
+  userId?: string | null;
+  username?: string | null;
 }) {
   const { isDark } = useAppTheme();
-  const resolved = resolveProfileImageUrl(url, getApiBaseUrl());
+  const apiBase = getApiBaseUrl();
+  const avatarKey = seed || username || userId || null;
+  const resolved = resolveAvatarWithFallback(url, apiBase, avatarKey);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const cornerRadius = radius ?? Math.round(size * 0.3);
   const showImage = resolved !== null && failedUrl !== resolved;
   return (
-    <View style={{ height: size, width: size }}>
+    <View
+      style={{
+        backgroundColor: isDark ? "#232323" : "#f1f3f5",
+        borderRadius: cornerRadius,
+        height: size,
+        overflow: "hidden",
+        width: size,
+      }}
+    >
       <Image
         accessibilityLabel=""
+        cachePolicy={imageCachePolicy(resolved)}
         contentFit="cover"
         onError={() => setFailedUrl(resolved)}
         source={showImage ? { uri: resolved } : avatarPlaceholder}

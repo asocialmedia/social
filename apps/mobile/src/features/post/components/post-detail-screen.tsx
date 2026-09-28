@@ -8,47 +8,52 @@
 // - detail card (expanded content, full media column, mobile action bar)
 // - full eddies thread (PostComments, composer for signed-in viewers)
 // - "View more content" + "View all posts" row + related rail
-// - floating bottom nav with the guest bar docked above it, like HomeScreen
 //
-// Deltas vs web (documented, REST-only): no PostAuthorSidebar (desktop
-// only), no ?comment= deep scroll (PostComments has no id anchors yet),
-// no swipe-to-profile (profile screens don't exist yet), Respond stays a
-// static count (composer doesn't exist yet), and the more menu is the v1
-// local variant (toggle ALT when describable, else share) until MoreMenu's
-// in-flight API migration settles - FeedList currently calls the old
-// (post/showingAlt) signature while more-menu.tsx exports the new
-// (anchor/entries) one, so this screen deliberately does not import it.
+// No bottom nav here, unlike HomeScreen: the detail view is a focused read, and
+// a dock under a thread invites the reader to wander off mid-argument. The guest
+// auth bar is the only bottom overlay, flush with the edge.
+//
+// Deltas vs web: no PostAuthorSidebar, which is a desktop-only aside and has
+// no place in a single column. Everything else this comment used to list as
+// missing is not: the more menu is the shared MoreMenu, the composer exists,
+// profile screens exist, and the thread carries id offsets for ?comment=.
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import type { LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
 import notFoundImage from "@/assets/images/notfound.png";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FloatingEddieBar } from "@/features/eddies/components/floating-eddie-bar";
+import {
+  buildMoreEntries,
+  MoreMenu,
+} from "@/features/feed/components/more-menu";
+import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import { PostCard } from "@/features/feed/components/post-card";
 import { PostComments } from "@/features/feed/components/post-comments";
 import { ShareSheet } from "@/features/feed/components/share-sheet";
+import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
-import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -83,52 +88,70 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  // Web fixes both the guest banner and the bottom nav over the feed (the
-  // feed pads its tail instead), so the dock floats over content on a
-  // transparent backdrop rather than sitting in a solid band. Same here:
-  // the banner sits at the bottom edge and rides a transform up above the
-  // dock while it shows, dropping back down while the dock hides on scroll.
-  const [dockHeight, setDockHeight] = useState(56);
-  const [dockHidden, setDockHidden] = useState(false);
+  // The bottom dock is deliberately absent on this screen: the post detail is a
+  // focused read, and a navigation bar under a thread invites the reader to
+  // wander off mid-argument. Web's mobile post page does the same. The guest
+  // auth bar therefore sits flat on the bottom edge with no dock to clear.
   const [bannerHeight, setBannerHeight] = useState(0);
-  const dockLift = dockHeight + insets.bottom + 20;
-  // A transform, never a layout prop: tweening `bottom` or a margin runs on
-  // the JS thread and re-lays out every frame, while translate runs natively
-  // at 60fps. Same 220ms ease-out-cubic as the top bar and the dock, kicked
-  // off on the same hide flip, so all three glide as one with zero layout
-  // work. Tail padding never moves visible items, so it stays constant.
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; driven by the effect below
-  const [bannerLift] = useState(() => new Animated.Value(1));
-  useEffect(() => {
-    if (!showGuestBar) {
-      return;
-    }
-    const anim = Animated.timing(bannerLift, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      toValue: dockHidden ? 0 : 1,
-      useNativeDriver: true,
-    });
-    anim.start();
-    return () => {
-      anim.stop();
-    };
-  }, [bannerLift, dockHidden, showGuestBar]);
-  const bannerTranslate = bannerLift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -dockLift],
-  });
-  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : 0;
+  const feedBottomPad = showGuestBar ? bannerHeight + insets.bottom + 12 : 0;
   const scrollRef = useRef<ScrollView>(null);
+  // Web's ?comment= deep scroll: the thread reports where the eddie sits
+  // inside itself, and the thread's own offset inside this scroll view turns
+  // that into a scroll position. Both are measured, never guessed, so a
+  // missing or paged-out eddie lands nowhere rather than at a wrong place.
+  const params = useLocalSearchParams<{ comment?: string | string[] }>();
+  const commentParam = Array.isArray(params.comment)
+    ? (params.comment[0] ?? null)
+    : (params.comment ?? null);
+  const threadY = useRef(0);
+  const scrolledTo = useRef<string | null>(null);
+  const handleThreadLayout = useCallback((event: LayoutChangeEvent) => {
+    threadY.current = event.nativeEvent.layout.y;
+  }, []);
+  const handleCommentOffset = useCallback(
+    (commentId: string, yInThread: number) => {
+      if (scrolledTo.current === commentId) {
+        return;
+      }
+      scrolledTo.current = commentId;
+      // A little air above the row so its header is not flush with the
+      // screen edge once it arrives.
+      scrollRef.current?.scrollTo({
+        animated: true,
+        y: threadY.current + yInThread - 24,
+      });
+      logInfo("post_detail.comment_deep_scroll", { commentId });
+    },
+    []
+  );
 
-  // v1 more action (see header comment): toggle ALT when the post carries a
-  // described attachment, otherwise fall through to share. Full menu lands
-  // once MoreMenu's migration settles.
-  const handleMore = useCallback((target: FeedPost) => {
-    const describable = (target.attachments ?? []).some(
-      (media) => media?.altText
-    );
-    if (describable) {
+  // The shared overflow menu, the same one the feed uses. This screen used to
+  // carry a local variant that could only toggle ALT or fall through to share,
+  // which is why moderation, delete and edit tags were unreachable from a post
+  // page even though the routes existed.
+  const overflow = usePostOverflow({
+    onDeleted: () => {
+      // The post is gone, so the page has nothing left to show.
+      router.back();
+    },
+    onHide: () => {
+      toast({
+        description: "This post won't appear in your feed.",
+        title: "Post hidden",
+      });
+    },
+    onModerated: (mutatedId, next) => {
+      setPost((current) =>
+        current && current.id === mutatedId ? { ...current, ...next } : current
+      );
+    },
+    onTagsSaved: () => {
+      toast({
+        description: "Tags updated",
+        title: "Saved",
+      });
+    },
+    onToggleAlt: (target) => {
       setAltVisibleIds((current) => {
         const next = new Set(current);
         if (next.has(target.id)) {
@@ -138,9 +161,16 @@ export function PostDetailScreen({ postId }: { postId: string }) {
         }
         return next;
       });
-      return;
-    }
-    setSharePost(target);
+    },
+    viewerId: viewerId ?? null,
+  });
+
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+  const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
+
+  const handleMore = useCallback((target: FeedPost, anchor: MenuAnchor) => {
+    setMenuAnchor(anchor);
+    setMenuPost(target);
   }, []);
 
   const handleShare = useCallback((target: FeedPost) => {
@@ -175,7 +205,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
               cookie,
             });
             if (!cancelled && rows.length > 0) {
-              setRelated(rows);
+              setRelated(rows.filter((row) => !row.isGust));
             }
           } catch (error) {
             logWarn("post.related_failed", {
@@ -377,10 +407,6 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
         <PostDetailSkeleton />
-        <MobileBottomNav
-          onHeightChange={setDockHeight}
-          onHiddenChange={setDockHidden}
-        />
       </View>
     );
   }
@@ -423,23 +449,11 @@ export function PostDetailScreen({ postId }: { postId: string }) {
               setBannerHeight(event.nativeEvent.layout.height);
             }}
             pointerEvents="box-none"
-            style={{
-              bottom: 0,
-              left: 0,
-              position: "absolute",
-              right: 0,
-              transform: [{ translateY: bannerTranslate }],
-              // Above the dock so it slides out underneath the banner.
-              zIndex: 60,
-            }}
+            style={styles.guestBarAnchor}
           >
             <GuestAuthBar />
           </Animated.View>
         ) : null}
-        <MobileBottomNav
-          onHeightChange={setDockHeight}
-          onHiddenChange={setDockHidden}
-        />
       </View>
     );
   }
@@ -483,7 +497,15 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       >
         {renderThread()}
         {showEddies ? (
-          <PostComments postId={post.id} variant="page" viewerId={viewerId} />
+          <View onLayout={handleThreadLayout} style={styles.threadWrap}>
+            <PostComments
+              onCommentOffset={handleCommentOffset}
+              postId={post.id}
+              scrollToCommentId={commentParam}
+              variant="page"
+              viewerId={viewerId}
+            />
+          </View>
         ) : null}
         <View style={styles.moreRow}>
           <Text style={[styles.moreTitle, { color: theme.inputText }]}>
@@ -524,25 +546,39 @@ export function PostDetailScreen({ postId }: { postId: string }) {
             setBannerHeight(event.nativeEvent.layout.height);
           }}
           pointerEvents="box-none"
-          style={{
-            bottom: 0,
-            left: 0,
-            position: "absolute",
-            right: 0,
-            transform: [{ translateY: bannerTranslate }],
-            // Above the dock so it slides out underneath the banner.
-            zIndex: 60,
-          }}
+          style={styles.guestBarAnchor}
         >
           <GuestAuthBar />
         </Animated.View>
       ) : null}
-      <MobileBottomNav
-        onHeightChange={setDockHeight}
-        onHiddenChange={setDockHidden}
-      />
       {showEddies && viewerId ? <FloatingEddieBar postId={post.id} /> : null}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
+      <MoreMenu
+        anchor={menuAnchor}
+        entries={
+          menuPost
+            ? buildMoreEntries({
+                post: menuPost,
+                showCaptions: false,
+                showingAlt: altVisibleIds.has(menuPost.id),
+                viewerId,
+              })
+            : []
+        }
+        onAction={(action) => {
+          const target = menuPost;
+          setMenuAnchor(null);
+          setMenuPost(null);
+          if (target) {
+            overflow.onAction(action, target);
+          }
+        }}
+        onClose={() => {
+          setMenuAnchor(null);
+          setMenuPost(null);
+        }}
+      />
+      {overflow.dialogs}
     </View>
   );
 }
@@ -612,6 +648,15 @@ const styles = StyleSheet.create({
   endPad: {
     height: 32,
   },
+  // Flush with the bottom edge: this screen has no dock, so the guest bar is
+  // the only thing floating over the thread.
+  guestBarAnchor: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 60,
+  },
   header: {
     alignItems: "center",
     flexDirection: "row",
@@ -663,4 +708,5 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  threadWrap: { width: "100%" },
 });

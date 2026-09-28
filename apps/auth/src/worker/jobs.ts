@@ -131,7 +131,9 @@ export async function processNotificationCreated(
   await withSpan(
     "job.notification-created",
     async () => {
-      await unreadNotificationCache.increment(recipientId);
+      await (notificationId
+        ? unreadNotificationCache.incrementOnce(recipientId, notificationId)
+        : unreadNotificationCache.increment(recipientId));
       // Push fan-out is best-effort and additive: the unread counter above is
       // the durable part, so a push outage must never fail the job. The row is
       // only re-read when the producer captured its id.
@@ -185,7 +187,7 @@ async function deliverNotificationPush(
   if (!issuer) {
     return;
   }
-  await dispatchNotificationPush(
+  const result = await dispatchNotificationPush(
     { ...notification, issuer },
     {
       listDeviceTokens: (userId) =>
@@ -206,6 +208,9 @@ async function deliverNotificationPush(
       pruneSubscriptions: (endpoints) => prunePushSubscriptions(endpoints),
     }
   );
+  if (result.retryable) {
+    throw new Error("Push dispatch infrastructure unavailable");
+  }
 }
 
 export async function processNotificationDeleted({
@@ -371,6 +376,12 @@ export async function processInactiveUsersSweep(
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const batchSize = 100;
     const skippedUserIds: string[] = [];
+    // Retained accounts are counted, not narrated. A seeded development corpus
+    // is almost entirely undeletable - every seeded post, comment and vote
+    // references its author - so one line per user turned a single sweep at
+    // boot into hundreds of identical lines and buried everything else in the
+    // startup log. The identities stay available at debug.
+    let retained = 0;
 
     const deleteBatch = async (): Promise<number> => {
       const batch = await prisma.orm.public.Users.select("id")
@@ -409,7 +420,8 @@ export async function processInactiveUsersSweep(
         }
         if (userId) {
           skippedUserIds.push(userId);
-          log.info(
+          retained += 1;
+          log.debug(
             { constraint: "foreign_key", userId },
             "inactive user retained because related records restrict deletion"
           );
@@ -423,7 +435,10 @@ export async function processInactiveUsersSweep(
     };
 
     const totalDeleted = await deleteBatch();
-    log.info({ deleted: totalDeleted }, "inactive user sweep finished");
+    log.info(
+      { deleted: totalDeleted, retained },
+      "inactive user sweep finished"
+    );
     return totalDeleted;
   });
 }

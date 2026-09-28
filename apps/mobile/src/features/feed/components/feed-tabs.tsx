@@ -5,8 +5,16 @@
 // (h-1 w-6 rounded-full, orange gradient), labels are inactive-muted and
 // active semibold-ink.
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { useAppTheme } from "@/theme";
 
@@ -30,6 +38,7 @@ interface FeedTabsProps<T extends string = HomeTab> {
   // matching web's flex-1 tab buttons; the feed strip stays content-centered.
   fill?: boolean;
   onChange: (tab: T) => void;
+  scrollable?: boolean;
   tabs?: readonly FeedTabDef<T>[];
 }
 
@@ -42,11 +51,13 @@ export function FeedTabs<T extends string = HomeTab>({
   active,
   fill = false,
   onChange,
+  scrollable = false,
   tabs = HOME_TAB_DEFS as unknown as readonly FeedTabDef<T>[],
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
   const indicatorX = useMemo(() => new Animated.Value(0), []);
+  const scrollRef = useRef<ScrollView>(null);
 
   const activeIndex = Math.max(
     0,
@@ -64,17 +75,22 @@ export function FeedTabs<T extends string = HomeTab>({
     Animated.timing(indicatorX, {
       duration: 220,
       toValue: left,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     }).start();
-  }, [indicatorX, layout]);
 
-  return (
+    // Scroll to reveal the active tab when scrollable is active.
+    if (scrollable && scrollRef.current) {
+      const targetX = Math.max(0, layout.x - 48);
+      scrollRef.current.scrollTo({ animated: true, x: targetX });
+    }
+  }, [indicatorX, layout, scrollable]);
+
+  const content = (
     <View
-      accessibilityRole="tablist"
       style={[
-        styles.strip,
+        styles.stripInner,
+        scrollable ? styles.stripScrollableInner : null,
         fill ? styles.stripFill : null,
-        { borderBottomColor: theme.cardBorder },
       ]}
     >
       {tabs.map((tab) => {
@@ -100,7 +116,11 @@ export function FeedTabs<T extends string = HomeTab>({
                 onChange(tab.value);
               }
             }}
-            style={[styles.trigger, fill ? styles.triggerFill : null]}
+            style={[
+              styles.trigger,
+              scrollable ? styles.scrollableTrigger : null,
+              fill ? styles.triggerFill : null,
+            ]}
           >
             <Text
               style={[
@@ -118,10 +138,9 @@ export function FeedTabs<T extends string = HomeTab>({
       })}
       {layout ? (
         <Animated.View
-          pointerEvents="none"
           style={[
             styles.indicator,
-            { transform: [{ translateX: indicatorX }] },
+            { pointerEvents: "none", transform: [{ translateX: indicatorX }] },
           ]}
         >
           <LinearGradient
@@ -132,6 +151,46 @@ export function FeedTabs<T extends string = HomeTab>({
           />
         </Animated.View>
       ) : null}
+    </View>
+  );
+
+  if (scrollable) {
+    return (
+      <View
+        accessibilityRole="tablist"
+        style={[
+          styles.strip,
+          {
+            backgroundColor: theme.containerBg,
+            borderBottomColor: theme.cardBorder,
+          },
+        ]}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          horizontal
+          ref={scrollRef}
+          showsHorizontalScrollIndicator={false}
+        >
+          {content}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      accessibilityRole="tablist"
+      style={[
+        styles.strip,
+        fill ? styles.stripFill : null,
+        {
+          backgroundColor: theme.containerBg,
+          borderBottomColor: theme.cardBorder,
+        },
+      ]}
+    >
+      {content}
     </View>
   );
 }
@@ -153,21 +212,47 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
   },
+  scrollContent: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  scrollableTrigger: {
+    paddingHorizontal: 12,
+  },
   strip: {
     borderBottomWidth: 1,
+    // The home composer collapses upward under this strip when the feed
+    // scrolls down, and the feed is a later sibling, so the strip is lifted
+    // above it and filled with the page background to hide the composer
+    // passing behind. zIndex only, never elevation: on Android elevation
+    // would draw a drop shadow along the strip's bottom border.
     flexDirection: "row",
     justifyContent: "center",
     paddingVertical: 6,
     position: "relative",
+    zIndex: 10,
   },
   stripFill: {
     justifyContent: "space-between",
   },
+  stripInner: {
+    flexDirection: "row",
+    justifyContent: "center",
+    position: "relative",
+    width: "100%",
+  },
+  stripScrollableInner: {
+    flexDirection: "row",
+    paddingHorizontal: 8,
+    position: "relative",
+    width: "auto",
+  },
   trigger: {
     alignItems: "center",
+    flexShrink: 0,
     justifyContent: "center",
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   triggerFill: {
     flex: 1,

@@ -63,10 +63,13 @@ export async function sendDevicePush(
     return { failed: 0, sent: 0, unregistered: [] };
   }
   return await sendFcmPush(notification, targets, {
-    cache: options.cache,
+    cache: options.cache === undefined ? cachedAccessToken : options.cache,
     fetchImpl: options.fetchImpl,
     logger: options.logger,
     now: options.now,
+    onAccessToken: (cache) => {
+      cachedAccessToken = cache;
+    },
     serviceAccount: resolveFcmServiceAccountCached(),
   });
 }
@@ -76,6 +79,7 @@ export async function sendDevicePush(
 // raw JSON string so repeated sends do not re-parse the PEM.
 let cachedRaw: string | null | undefined;
 let cachedAccount: ReturnType<typeof resolveFcmServiceAccount> | null = null;
+let cachedAccessToken: FcmAccessTokenCache | null = null;
 
 function resolveFcmServiceAccountCached() {
   const raw = process.env.FCM_SERVICE_ACCOUNT_JSON ?? null;

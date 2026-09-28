@@ -39,6 +39,10 @@ const StatusImage = ({ image }: { image: StaticImageData | string }) => (
     className="size-52 object-contain"
     draggable={false}
     height={1199}
+    // A status screen has nothing else to paint, so this illustration is always
+    // the LCP and always above the fold. Lazy-loading it just delays the only
+    // content the page has.
+    loading="eager"
     src={image}
     width={1312}
   />

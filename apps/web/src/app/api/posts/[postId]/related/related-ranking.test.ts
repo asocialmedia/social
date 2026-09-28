@@ -20,7 +20,12 @@ interface PostQuery {
   orderBy: (order: unknown) => PostQuery;
   where: (
     predicate: (post: {
-      id: { eq: (id: string) => unknown };
+      id: {
+        eq: (id: string) => unknown;
+        neq: (id: string) => unknown;
+        notIn: (ids: string[]) => unknown;
+      };
+      isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
       rootPostId: { isNull: () => unknown };
     }) => unknown
@@ -37,7 +42,12 @@ function createPostQuery(): PostQuery {
     orderBy: () => query,
     where: (predicate) => {
       predicate({
-        id: { eq: (id) => (state.where.id = id) },
+        id: {
+          eq: (id) => (state.where.id = id),
+          neq: (id) => (state.where.neqId = id),
+          notIn: (ids) => (state.where.notInIds = ids),
+        },
+        isGust: { eq: (value) => (state.where.isGust = value) },
         moderated: { eq: (value) => (state.where.moderated = value) },
         rootPostId: { isNull: () => ({}) },
       });

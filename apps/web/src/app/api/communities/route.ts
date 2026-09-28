@@ -16,6 +16,7 @@ import {
 } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
+import { createCommunity } from "@/communities/actions";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const logger = createLogger({ serviceName: "community-api" });
@@ -226,5 +227,18 @@ export async function GET(request: Request) {
       { error: "Couldn't load communities" },
       { status: 500 }
     );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload: unknown = await request.json();
+    const community = await createCommunity(payload);
+    return Response.json(community, { status: 201 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Couldn't create community";
+    const status = message === "Sign in to do that" ? 401 : 400;
+    return Response.json({ error: message }, { status });
   }
 }

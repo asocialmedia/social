@@ -13,7 +13,16 @@ import { uploadRateBudget } from "./rate-budget";
 import { AbortError, HttpError, parseRetryAfter } from "./retry";
 import type { ServerMediaStatus } from "./upload-status";
 
-export type UploadPurpose = "comment" | "post";
+// Mirrors the server's zod enum in /api/upload/initiate exactly. It was
+// previously narrowed to the two purposes the post and eddie composers used,
+// which left avatar and banner uploads impossible to express even though the
+// API has always accepted them.
+export type UploadPurpose =
+  | "avatar"
+  | "banner"
+  | "comment"
+  | "message"
+  | "post";
 
 export interface InitiateRequest {
   height?: number;

@@ -92,6 +92,9 @@ export default function FollowingFeed() {
           className="h-40 w-auto object-contain"
           draggable={false}
           height={1024}
+          // This illustration IS the feed when nobody is followed yet, so it is
+          // the largest paint on the empty tab.
+          loading="eager"
           src={noFeedImage}
           width={1536}
         />

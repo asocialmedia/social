@@ -14,6 +14,10 @@ const state = {
   auraAwards: [] as { recipientId: string; type: string }[],
   createdPostData: null as Record<string, unknown> | null,
   createdPostId: null as string | null,
+  enqueuedNotifications: [] as {
+    notificationId: string;
+    recipientId: string;
+  }[],
   mentionCreates: [] as { userId: string }[],
   notifications: [] as { recipientId: string; type: string }[],
   ownedMediaIds: [] as string[],
@@ -27,6 +31,7 @@ function resetState() {
   state.auraAwards = [];
   state.createdPostId = null;
   state.createdPostData = null;
+  state.enqueuedNotifications = [];
   state.mentionCreates = [];
   state.notifications = [];
   state.ownedMediaIds = [];
@@ -260,6 +265,10 @@ mock.module("@asm/db", () => ({
     state.auraAwards.push({ recipientId: args.recipientId, type: args.type });
     return Promise.resolve({ amount: 10 });
   },
+  enqueueNotificationCreated: (recipientId: string, notificationId: string) => {
+    state.enqueuedNotifications.push({ notificationId, recipientId });
+    return Promise.resolve();
+  },
   getPostDataQuery: () => ({
     where: () => ({ first: () => Promise.resolve(state.createdPostData) }),
   }),
@@ -318,6 +327,9 @@ describe("submitPost mention validation", () => {
       { recipientId: AUTHOR_ID, type: "POST_CREATION" },
     ]);
     expect(state.scheduledCleanups).toEqual(["notif-published-1"]);
+    expect(state.enqueuedNotifications).toEqual([
+      { notificationId: "notif-published-1", recipientId: AUTHOR_ID },
+    ]);
   });
 
   test("mentions of other users are kept and awarded normally", async () => {

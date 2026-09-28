@@ -2,6 +2,7 @@
 // registration call. The pure helpers live in ./install-token.ts.
 
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 import { getApiBaseUrl } from "./api-env";
 import { parseRegisterResponse } from "./install-token";
@@ -20,6 +21,10 @@ let cachedToken: string | null | undefined;
 
 /** Reads the persisted token into memory. Safe to call repeatedly. */
 export async function loadInstallToken(): Promise<string | null> {
+  if (Platform.OS === "web") {
+    cachedToken = null;
+    return cachedToken;
+  }
   if (cachedToken !== undefined) {
     return cachedToken;
   }
@@ -88,6 +93,9 @@ export async function registerInstall(
 /** Clears the stored token (used when the server rejects it as invalid). */
 export async function clearInstallToken(): Promise<void> {
   cachedToken = null;
+  if (Platform.OS === "web") {
+    return;
+  }
   try {
     await SecureStore.deleteItemAsync(INSTALL_TOKEN_STORAGE_KEY);
     await SecureStore.deleteItemAsync(INSTALL_ID_STORAGE_KEY);

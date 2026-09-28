@@ -15,6 +15,7 @@ import {
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { FeedApiError } from "@/features/feed/lib/feed-api";
+import { getWithTimeout } from "@/lib/http-get";
 
 export { groupNotifications } from "@asm/notifications/shared";
 
@@ -44,11 +45,17 @@ function callNotificationsApi(
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  return baseFetch(`${options.apiBase}${path}`, {
+  const request = {
     body: options.body,
     headers,
     method: options.method ?? "GET",
-  });
+  } satisfies RequestInit;
+  return (options.method ?? "GET").toUpperCase() === "GET"
+    ? getWithTimeout(`${options.apiBase}${path}`, request, {
+        baseFetch,
+        timeoutMs: options.timeoutMs,
+      })
+    : baseFetch(`${options.apiBase}${path}`, request);
 }
 
 async function readJson(response: Response): Promise<unknown> {

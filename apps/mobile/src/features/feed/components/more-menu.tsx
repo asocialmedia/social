@@ -1,3 +1,11 @@
+import {
+  Captions,
+  EyeOff,
+  Pencil,
+  Repeat2,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react-native";
 // Post overflow menu: 1:1 native port of web's PostMoreButton dropdown
 // (posts/actions/post-more-button.tsx on the shadcn DropdownMenu). A
 // panel-3d popover anchored under the `...` trigger, aligned to its right
@@ -8,10 +16,16 @@
 //
 // Entries follow web's rules: Not interested (signed in, not the author),
 // Show/Hide alt (only when an attachment is described), Show/Hide captions
-// (posts with video, not moderated). Share to feed, Moderation, Edit tags
-// and Delete run through Next server actions with no REST equivalent, so
-// they stay out until endpoints exist - no dead entries.
-import { Captions, EyeOff } from "lucide-react-native";
+// (posts with video, not moderated), then Share to feed, Moderation, Edit
+// tags and Delete for a viewer who may moderate the post.
+//
+// Those last four used to be omitted here because web drove them through
+// Next server actions with no REST equivalent. The web app now exposes
+// DELETE /api/posts/:id, PATCH /api/posts/:id and POST .../tags, so the
+// native menu offers the same entries web does rather than leaving a menu
+// that could only hide a post. Share to feed is not one of those routes: it
+// opens the composer pre-filled, and the publish carries
+// communitySharePostId.
 import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
 import {
@@ -34,13 +48,17 @@ import {
 } from "@/theme";
 
 import type { FeedPost } from "../lib/feed-types";
+import { buildMoreEntries as buildEntryList } from "../lib/more-entries";
+import type {
+  MoreAction,
+  MoreMenuEntry as MoreMenuEntryData,
+} from "../lib/more-entries";
 
-export type MoreAction =
-  | { type: "delete" }
-  | { type: "hide" }
-  | { type: "toggle-alt" }
-  | { type: "toggle-captions" }
-  | { type: "toggle-transcript" };
+export type { MoreAction } from "../lib/more-entries";
+
+// The entry list is pure data with no React or react-native in it, so it
+// lives in lib/ where a test can reach it. This panel is what turns an entry
+// into something drawable, which is why the glyph lives here.
 
 // Trigger rect in window coordinates (measureInWindow).
 export interface MenuAnchor {
@@ -50,46 +68,40 @@ export interface MenuAnchor {
   y: number;
 }
 
-export interface MoreMenuEntry {
-  action: MoreAction;
-  // Web's `text-destructive` item (the eddie row's Delete).
-  destructive?: boolean;
+/** A lib entry with the glyph the panel draws it with. */
+export interface MoreMenuEntry extends MoreMenuEntryData {
   icon: ComponentType<{ color?: string; size?: number }>;
-  label: string;
 }
 
-// Web's entry list for a post, in web's order.
+// The glyph for each action. Kept here rather than in the entry list so that
+// list stays free of react-native and therefore testable. Exported because
+// callers that hand-build a single entry still need the right glyph.
+export const ACTION_ICONS: Record<
+  MoreAction["type"],
+  ComponentType<{ color?: string; size?: number }>
+> = {
+  delete: Trash2,
+  "edit-tags": Pencil,
+  hide: EyeOff,
+  moderate: ShieldCheck,
+  "share-to-feed": Repeat2,
+  "toggle-alt": Captions,
+  "toggle-captions": Captions,
+  "toggle-transcript": Captions,
+};
+
+/** The lib's entry list with a glyph attached to each one. */
 export function buildMoreEntries(options: {
   post: FeedPost;
   showCaptions: boolean;
   showingAlt: boolean;
   viewerId?: string | null;
+  viewerRole?: string | null;
 }): MoreMenuEntry[] {
-  const { post, showCaptions, showingAlt, viewerId } = options;
-  const attachments = post.attachments ?? [];
-  const entries: MoreMenuEntry[] = [];
-  if (viewerId && viewerId !== post.user?.id) {
-    entries.push({
-      action: { type: "hide" },
-      icon: EyeOff,
-      label: "Not interested",
-    });
-  }
-  if (attachments.some((media) => media?.altText)) {
-    entries.push({
-      action: { type: "toggle-alt" },
-      icon: Captions,
-      label: showingAlt ? "Hide alt" : "Show alt",
-    });
-  }
-  if (!post.moderated && attachments.some((media) => media?.type === "VIDEO")) {
-    entries.push({
-      action: { type: "toggle-captions" },
-      icon: Captions,
-      label: showCaptions ? "Hide captions" : "Show captions",
-    });
-  }
-  return entries;
+  return buildEntryList(options).map((entry) => ({
+    ...entry,
+    icon: ACTION_ICONS[entry.action.type],
+  }));
 }
 
 // `.panel-3d` on hsl(var(--background-alt)).

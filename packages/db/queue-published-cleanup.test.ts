@@ -27,6 +27,11 @@ class MockQueue {
     return Promise.resolve({ id: opts?.jobId ?? "job-id" });
   }
 
+  getJob = (_jobId: string) => {
+    void this.name;
+    return Promise.resolve(null);
+  };
+
   upsertJobScheduler(schedulerId: string, options: Record<string, unknown>) {
     mockSchedulers.set(`${this.name}:${schedulerId}`, options);
     return Promise.resolve();
@@ -41,6 +46,27 @@ describe("queue notification cleanup jobs and schedulers", () => {
   beforeEach(() => {
     mockJobs.clear();
     mockSchedulers.clear();
+  });
+
+  test("enqueueNotificationCreated uses the isolated retrying queue", async () => {
+    const { enqueueNotificationCreated } = await import("./queue");
+
+    await enqueueNotificationCreated("user-1", "notif-123");
+
+    const notificationJobs = mockJobs.get("notifications") ?? [];
+    expect(notificationJobs).toEqual([
+      {
+        data: { notificationId: "notif-123", recipientId: "user-1" },
+        name: "notification-created",
+        opts: {
+          attempts: 5,
+          backoff: { delay: 1000, type: "exponential" },
+          jobId: "notification-created-notif-123",
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+        },
+      },
+    ]);
   });
 
   test("schedulePublishedNotificationCleanup adds delayed job to maintenance queue", async () => {

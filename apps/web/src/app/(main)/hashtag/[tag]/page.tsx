@@ -2,7 +2,9 @@ import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import { Hash } from "lucide-react";
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import { notFound, permanentRedirect } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import SecondaryRightSideBar from "@/components/layouts/shell/secondary-right-side-bar";
@@ -24,25 +26,19 @@ function safeDecodeTag(raw: string): string {
   }
 }
 
-export async function generateMetadata(props: PageProps): Promise<Metadata> {
-  const params = await props.params;
-  const rawTag = safeDecodeTag(params.tag);
+// Metadata never varies by viewer, so the canonical-casing lookup and the post
+// count are read through a cached scope. generateMetadata cannot sit behind a
+// Suspense boundary, so an unclaimed Prisma read here would run inside the
+// prerender and abort it (see the connection() note on HashtagContent).
+async function getMetadataTag(rawTag: string) {
+  "use cache";
+  cacheLife("hours");
 
-  // Resolve the canonical (database) casing of the tag so mixed-case URLs for
-  // the same tag do not split their link equity.
   const tagRecord = await prisma.orm.public.Tag.select("name")
     .where((tag) => tag.name.ilike(rawTag))
     .first();
   if (!tagRecord) {
-    notFound();
-  }
-
-  // Mixed-case casing permanently redirects to canonical casing
-  if (
-    params.tag !== encodeURIComponent(tagRecord.name) &&
-    rawTag !== tagRecord.name
-  ) {
-    permanentRedirect(`/hashtag/${encodeURIComponent(tagRecord.name)}`);
+    return null;
   }
 
   const { count } = await prisma.orm.public.Posts.where((post) =>
@@ -51,18 +47,34 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     )
   ).aggregate((aggregate) => ({ count: aggregate.count() }));
 
-  const title = `#${tagRecord.name} posts`;
-  const description = `${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tagRecord.name} on asocialmedia. Explore the latest eddies and join the conversation.`;
-  const url = absoluteUrl(`/hashtag/${encodeURIComponent(tagRecord.name)}`);
+  return { count, name: tagRecord.name };
+}
+
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
+  const params = await props.params;
+  const rawTag = safeDecodeTag(params.tag);
+
+  // Resolve the canonical (database) casing of the tag so mixed-case URLs for
+  // the same tag do not split their link equity.
+  const tag = await getMetadataTag(rawTag);
+  if (!tag) {
+    notFound();
+  }
+
+  // Mixed-case casing permanently redirects to canonical casing
+  if (params.tag !== encodeURIComponent(tag.name) && rawTag !== tag.name) {
+    permanentRedirect(`/hashtag/${encodeURIComponent(tag.name)}`);
+  }
+
+  const { count } = tag;
+  const title = `#${tag.name} posts`;
+  const description = `${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tag.name} on asocialmedia. Explore the latest eddies and join the conversation.`;
+  const url = absoluteUrl(`/hashtag/${encodeURIComponent(tag.name)}`);
 
   return {
-    alternates: { canonical: `/hashtag/${encodeURIComponent(tagRecord.name)}` },
+    alternates: { canonical: `/hashtag/${encodeURIComponent(tag.name)}` },
     description,
-    keywords: [
-      tagRecord.name,
-      `${tagRecord.name} posts`,
-      `${tagRecord.name} community`,
-    ],
+    keywords: [tag.name, `${tag.name} posts`, `${tag.name} community`],
     openGraph: {
       description,
       images: [
@@ -97,6 +109,12 @@ export default function Page(props: PageProps) {
 }
 
 async function HashtagContent({ params }: PageProps) {
+  // Request-bound before the first read: Prisma 8 stamps every query with a
+  // crypto.randomUUID() plan id, and Cache Components rejects an uncached value
+  // in the prerendered shell, so an unclaimed read aborts the prerender. The
+  // Suspense boundary above keeps the shell itself prerenderable.
+  await connection();
+
   const { tag } = await params;
   const decodedTag = safeDecodeTag(tag);
   if (!decodedTag.trim()) {

@@ -140,14 +140,29 @@ export async function GET(request: Request) {
       )
       .orderBy([(post) => post.trendingScore.desc(), (post) => post.id.desc()]);
     if (liveCursor) {
-      liveQuery = liveQuery.cursor({ id: liveCursor }).offset(1);
+      // Prisma 8 cursors are keyset seeks: the boundary is built from the
+      // values handed to .cursor(), so every orderBy column needs one and the
+      // cursor row is already excluded (no .offset(1) hop). The feed cursor
+      // only carries a post id, so the anchor's score is read back here. A
+      // vanished anchor (deleted or moderated since the last page) restarts
+      // from the top of the ranking rather than 500ing the scroll.
+      const anchor = await prisma.orm.public.Posts.select("id", "trendingScore")
+        .where({ id: liveCursor })
+        .first();
+      if (anchor) {
+        liveQuery = liveQuery.cursor({
+          id: anchor.id,
+          trendingScore: anchor.trendingScore,
+        });
+      }
     }
     const postRows = await liveQuery.limit(pageSize + 1).all();
     const posts = postRows.map(mapPostData);
 
     const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
     data = {
-      nextCursor: posts.length > pageSize ? posts[pageSize].id : null,
+      nextCursor:
+        posts.length > pageSize ? (posts[pageSize - 1]?.id ?? null) : null,
       posts: hydrated,
     };
   }

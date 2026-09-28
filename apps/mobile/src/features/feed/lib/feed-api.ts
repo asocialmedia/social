@@ -4,6 +4,8 @@
 // (authClient.getCookie). Pure and injectable for testing: cookie, apiBase
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
+import { getWithTimeout } from "@/lib/http-get";
+
 import type { FeedPost, PostsPage } from "./feed-types";
 import { mediaCaptionsPath, mediaWavePeaksPath } from "./media-url";
 import { parseWavePeaks } from "./waveform";
@@ -13,6 +15,7 @@ export interface ApiCallOptions {
   apiBase: string;
   baseFetch?: typeof fetch;
   cookie?: string;
+  timeoutMs?: number;
 }
 
 export class FeedApiError extends Error {
@@ -36,11 +39,17 @@ function callFeedApi(
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  return baseFetch(`${options.apiBase}${path}`, {
+  const request = {
     body: options.body,
     headers,
     method: options.method ?? "GET",
-  });
+  } satisfies RequestInit;
+  return (options.method ?? "GET").toUpperCase() === "GET"
+    ? getWithTimeout(`${options.apiBase}${path}`, request, {
+        baseFetch,
+        timeoutMs: options.timeoutMs,
+      })
+    : baseFetch(`${options.apiBase}${path}`, request);
 }
 
 async function readJson(response: Response): Promise<unknown> {

@@ -271,6 +271,10 @@ export default function HomeFeed({
           className="h-40 w-auto object-contain"
           draggable={false}
           height={1024}
+          // This illustration IS the feed when there is nothing to show, so it
+          // is the largest paint on an empty tab. Lazy-loading it makes the
+          // empty state arrive after the copy beside it.
+          loading="eager"
           src={noFeedImage}
           width={1536}
         />

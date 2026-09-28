@@ -46,13 +46,18 @@ async function queryArchivePosts(
     })
     .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
   if (cursor) {
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // every orderBy column needs one: the anchor's createdAt is read back here
+    // because the feed cursor only carries a post id. The seek is exclusive,
+    // so no .offset(1) hop is needed. A vanished anchor (deleted or moderated
+    // mid-scroll) degrades to a fresh first page instead of 500ing the scroll.
     const anchor = await prisma.orm.public.Posts.select("createdAt")
       .where({ id: cursor })
       .first();
     if (!anchor) {
       return null;
     }
-    query = query.cursor({ createdAt: anchor.createdAt, id: cursor }).offset(1);
+    query = query.cursor({ createdAt: anchor.createdAt, id: cursor });
   }
   const rows = await query.limit(limit).all();
   return rows.map(mapPostData);

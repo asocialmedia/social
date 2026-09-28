@@ -8,6 +8,7 @@
 // Plus the local mutations the composers and delete dialog apply.
 
 import type { FeedComment } from "@/features/feed/lib/feed-api";
+import { insertionOrder } from "@/features/feed/lib/feed-types";
 
 export const MAX_EDDIE_DEPTH = 6;
 
@@ -38,10 +39,14 @@ export function buildEddieTree(comments: readonly FeedComment[]): EddieNode[] {
       roots.push(comment);
     }
   }
-  roots.sort((a, b) => stamp(b) - stamp(a) || b.id.localeCompare(a.id));
+  const orderedRoots = insertionOrder(
+    roots,
+    (a, b) => stamp(b) - stamp(a) || b.id.localeCompare(a.id)
+  );
 
   const build = (comment: FeedComment, depth: number): EddieNode | null => {
-    const rawChildren = [...(childrenOf.get(comment.id) ?? [])].toSorted(
+    const rawChildren = insertionOrder(
+      childrenOf.get(comment.id) ?? [],
       (a, b) => stamp(a) - stamp(b) || a.id.localeCompare(b.id)
     );
     const children: EddieNode[] = [];
@@ -58,7 +63,7 @@ export function buildEddieTree(comments: readonly FeedComment[]): EddieNode[] {
   };
 
   const tree: EddieNode[] = [];
-  for (const root of roots) {
+  for (const root of orderedRoots) {
     const built = build(root, 0);
     if (built) {
       tree.push(built);

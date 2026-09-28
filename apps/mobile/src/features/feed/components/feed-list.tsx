@@ -4,33 +4,33 @@
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { ReactNode, RefObject } from "react";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import {
   Animated,
-  Easing,
   FlatList,
   PanResponder,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import type { PanResponderInstance } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import type { PanResponderInstance, ViewToken } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 
 import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
 import notFoundImage from "@/assets/images/notfound.png";
+import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { useAppTheme } from "@/theme";
 
 import type { FeedVariant } from "../lib/feed-api";
-import { groupPostsIntoThreads } from "../lib/feed-types";
+import { groupPostsIntoThreads, orderByIndex } from "../lib/feed-types";
 import type { FeedPost, FeedThreadGroup } from "../lib/feed-types";
 import {
   HEADER_BAR_HEIGHT,
@@ -40,7 +40,7 @@ import {
 import { hasVideoAttachment } from "../lib/media-kind";
 import { viewBatcher } from "../lib/view-batcher";
 import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
-import { feedCache } from "../state/feed-store";
+import { consumeFeedTop, feedCache } from "../state/feed-store";
 import { useFeedTab } from "../state/use-feed";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { FeedSkeleton, FeedSkeletonCard } from "./feed-skeleton";
@@ -49,87 +49,12 @@ import type { MenuAnchor, MoreAction } from "./more-menu";
 import { NewContentPill } from "./new-content-pill";
 import type { PillAuthor } from "./new-content-pill";
 import { PostCard } from "./post-card";
-import { PULL_THRESHOLD, PullLoader } from "./pull-loader";
 import { ShareSheet } from "./share-sheet";
+import { usePostOverflow } from "./use-post-overflow";
 
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
 const scrollMemory = new Map<string, number>();
-
-// Custom pull-to-refresh on both platforms (the indicator is PullLoader). iOS
-// bounces natively, so the distance reads straight off the negative content
-// offset. Android clamps the offset at zero, so a vertical pan captured at
-// the top of the list measures the pull instead (with rubber-band
-// resistance), replacing the Material RefreshControl indicator.
-const PULL_RESISTANCE = 0.55;
-const PULL_CAPTURE_SLOP = 8;
-// Where the Android list parks while refreshing: the 44px loader chip at
-// top 12 plus breathing room.
-const PULL_PARK = 64;
-
-// Android pull, on native gestures: a JS responder loses the drag to the
-// native scroll view the moment it starts, so the pull is a gesture-handler
-// Pan running simultaneously with the list's own native scroll gesture. It
-// measures only the part of the drag made while the list sits at the very
-// top (baseline taken when the offset first reaches zero), so scrolling back
-// up and continuing into a pull works like iOS. Horizontal drags fail it and
-// stay with the tab pager. Built once per list; the handlers only read refs.
-function createPullGestures(refs: {
-  // The list's slide: follows the pull, parks under the spinner while
-  // refreshing, springs home otherwise.
-  pullShift: Animated.Value;
-  pullRef: RefObject<number>;
-  pullUpdateRef: RefObject<((distance: number) => void) | null>;
-  refreshRef: RefObject<() => void>;
-  refreshingRef: RefObject<boolean>;
-  scrollOffsetRef: RefObject<number>;
-}) {
-  let baseline: number | null = null;
-  const resetPull = () => {
-    baseline = null;
-    refs.pullRef.current = 0;
-    refs.pullUpdateRef.current?.(0);
-  };
-  const nativeScroll = Gesture.Native();
-  const pull = Gesture.Pan()
-    .enabled(Platform.OS === "android")
-    .runOnJS(true)
-    .activeOffsetY(PULL_CAPTURE_SLOP)
-    .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
-    .simultaneousWithExternalGesture(nativeScroll)
-    .onUpdate((event) => {
-      if (refs.refreshingRef.current || refs.scrollOffsetRef.current > 0) {
-        if (refs.pullRef.current > 0) {
-          resetPull();
-        }
-        return;
-      }
-      if (baseline === null) {
-        baseline = event.translationY;
-      }
-      const distance =
-        Math.max(0, event.translationY - baseline) * PULL_RESISTANCE;
-      if (Math.abs(distance - refs.pullRef.current) > 1) {
-        refs.pullRef.current = distance;
-        refs.pullUpdateRef.current?.(distance);
-        refs.pullShift.setValue(distance);
-      }
-    })
-    .onFinalize(() => {
-      const trigger =
-        !refs.refreshingRef.current && refs.pullRef.current > PULL_THRESHOLD;
-      if (trigger) {
-        refs.refreshRef.current();
-      }
-      Animated.spring(refs.pullShift, {
-        bounciness: 0,
-        toValue: trigger ? PULL_PARK : 0,
-        useNativeDriver: true,
-      }).start();
-      resetPull();
-    });
-  return { nativeScroll, pull };
-}
 
 // Floating feed scrollbar: native port of web's FeedScrollbar. The system
 // indicator is hidden; an orange 3D thumb overlays the right edge, appears
@@ -286,7 +211,7 @@ function FeedScrollbar({
     return null;
   }
   return (
-    <View pointerEvents="box-none" style={styles.scrollTrack}>
+    <View style={[styles.scrollTrack, { pointerEvents: "box-none" }]}>
       <LinearGradient
         colors={["#ff9500", "#e65500"]}
         end={{ x: 0.5, y: 1 }}
@@ -336,12 +261,24 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
     },
   };
 
+// The non-list states (loading skeleton, error, empty) fill the space the
+// list would. The child keeps the flex it needs to fill the remaining space.
+function FeedState({ children }: { children: ReactNode }) {
+  return <View style={styles.stateWrap}>{children}</View>;
+}
+
 interface FeedListProps {
   // Extra tail padding when an overlay (guest banner + floating dock) sits
   // over the feed's end, so the last post scrolls clear of it. End padding
   // never moves visible items, so it can jump with overlay visibility.
   bottomInset?: number;
   enabled: boolean;
+  // Rendered as the list's own header, so it scrolls away with the content
+  // and comes back on pull-down. Only the visible tab is given one: a header
+  // per tab would mount a composer (a TextInput, an avatar, 3D surfaces) four
+  // times over and remount on every switch. Typed as an element rather than a
+  // bare ReactNode because that is all ListHeaderComponent accepts.
+  header?: ReactElement | null;
   userId: string | undefined;
   variant: FeedVariant;
 }
@@ -349,11 +286,11 @@ interface FeedListProps {
 export function FeedList({
   bottomInset = 0,
   enabled,
+  header,
   userId,
   variant,
 }: FeedListProps) {
   const { theme } = useAppTheme();
-  const router = useRouter();
   const { user } = useSessionContext();
   const listRef = useRef<FlatList<FeedThreadGroup>>(null);
   const metricsRef = useRef<ScrollMetrics>({
@@ -362,17 +299,6 @@ export function FeedList({
     offset: 0,
   });
   const scrollbarUpdate = useRef<((offset: number) => void) | null>(null);
-  const pullRef = useRef(0);
-  // Pull distance writes here without re-rendering the list; PullLoader owns
-  // the progress state and registers its setter through this ref.
-  const pullUpdateRef = useRef<((distance: number) => void) | null>(null);
-  // Android pull: the list's scroll offset and the latest refresh state are
-  // read through refs, since the responder is built once.
-  const scrollOffsetRef = useRef(0);
-  const refreshingRef = useRef(false);
-  const refreshRef = useRef<() => void>(() => {
-    /* empty */
-  });
 
   // Latest viewable ids are retained so the tab can publish them when it
   // becomes enabled; the FlatList retains the first closure, so enabled is
@@ -396,7 +322,6 @@ export function FeedList({
   const [lastDismissed, setLastDismissed] = useState<string | null>(null);
   const {
     dismissPost,
-    error,
     fetchNext,
     hasMore,
     newItems,
@@ -424,55 +349,70 @@ export function FeedList({
     };
   }, []);
 
+  const overflow = usePostOverflow({
+    onDeleted: (postId) => {
+      // A deleted post leaves the feed the same way a hidden one does, but
+      // with no undo: there is nothing left to bring back.
+      dismissPost(postId);
+    },
+    onHide: (post) => {
+      dismissPost(post.id);
+      setLastDismissed(post.id);
+    },
+    onModerated: (postId, next) => {
+      feedCache.updatePostEverywhere(postId, next);
+    },
+    onTagsSaved: (postId, tags) => {
+      feedCache.updatePostEverywhere(postId, {
+        tags: tags.map((name) => ({ id: name, name })),
+      });
+    },
+    onToggleAlt: (post) => {
+      setAltVisibleIds((current) => {
+        const next = new Set(current);
+        if (next.has(post.id)) {
+          next.delete(post.id);
+        } else {
+          next.add(post.id);
+        }
+        return next;
+      });
+    },
+    onToggleCaptions: () => {
+      toggleCaptions();
+    },
+    viewerId: user?.id ?? null,
+  });
+
   const handleMoreAction = (action: MoreAction) => {
     const morePost = moreTarget?.post;
     if (!morePost) {
       return;
     }
-    if (action.type === "hide") {
-      dismissPost(morePost.id);
-      setLastDismissed(morePost.id);
-    } else if (action.type === "toggle-captions") {
-      toggleCaptions();
-    } else if (action.type === "toggle-alt") {
-      setAltVisibleIds((current) => {
-        const next = new Set(current);
-        if (next.has(morePost.id)) {
-          next.delete(morePost.id);
-        } else {
-          next.add(morePost.id);
-        }
-        return next;
-      });
-    }
+    overflow.onAction(action, morePost);
   };
-
-  useEffect(() => {
-    refreshingRef.current = status === "refreshing";
-    refreshRef.current = refresh;
-  }, [refresh, status]);
-
-  // Android pull on native gestures; see createPullGestures. The ref objects
-  // are handed over, never read, during render: only the gesture callbacks
-  // touch `.current`, on touch events.
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
-  const [pullShift] = useState(() => new Animated.Value(0));
-  // oxlint-disable-next-line react/hook-use-state, react/refs -- single stable gesture pair created once; no setter is ever needed and no ref value is read here
-  const [pullGestures] = useState(() =>
-    createPullGestures({
-      pullRef,
-      pullShift,
-      pullUpdateRef,
-      refreshRef,
-      refreshingRef,
-      scrollOffsetRef,
-    })
-  );
 
   // Restore this tab's scroll position when it (re)mounts with content.
   const memoryKey = `home:${variant}`;
+  // A tab the reader was just sent to (their own post landing at the head of
+  // Latest) must land at the top, not at the offset they left it at. The
+  // request is one-shot and claimed here, so the memory restore below is
+  // skipped for that visit instead of the two fighting over the offset.
+  const jumpedToTop = useRef(false);
+  useEffect(() => {
+    if (!enabled || !consumeFeedTop(variant)) {
+      return;
+    }
+    jumpedToTop.current = true;
+    scrollMemory.delete(memoryKey);
+    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+  }, [enabled, memoryKey, variant]);
+
   useEffect(() => {
     if (status !== "success" || posts.length === 0) {
+      return;
+    }
+    if (jumpedToTop.current) {
       return;
     }
     const offset = scrollMemory.get(memoryKey) ?? 0;
@@ -531,6 +471,33 @@ export function FeedList({
     []
   );
 
+  const handleViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<FeedThreadGroup>[] }) => {
+      const ids = new Set<string>();
+      let autoplayPostId: string | null = null;
+      const ordered = orderByIndex(viewableItems);
+      for (const item of ordered) {
+        const group = item.item as FeedThreadGroup | undefined;
+        for (const post of group?.posts ?? []) {
+          ids.add(post.id);
+          if (!autoplayPostId && hasVideoAttachment(post)) {
+            autoplayPostId = post.id;
+          }
+        }
+      }
+      publishVisibleIds(ids, autoplayPostId);
+    },
+    [publishVisibleIds]
+  );
+
+  // Above every early return below: a hook called after one is conditional.
+  const refreshing = status === "refreshing";
+  const pull = usePullToRefresh({
+    failed: status === "error",
+    onRefresh: refresh,
+    refreshing,
+  });
+
   // Account-only tabs. For you is ranked from the viewer's own signals and
   // Following is their people, so neither means anything without an account;
   // the tab stays tappable (a guest discovers the feature) but the feed is
@@ -538,81 +505,77 @@ export function FeedList({
   if ((variant === "following" || variant === "personalized") && !user) {
     const copy = EMPTY_COPY[variant];
     return (
-      <View style={styles.centerWrap}>
-        <View
-          style={[
-            styles.prompt,
-            { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
-          ]}
-        >
-          <Text style={[styles.promptTitle, { color: theme.inputText }]}>
-            {variant === "personalized"
+      <View style={[styles.centerWrap, { paddingBottom: bottomInset }]}>
+        <AuthPromptCard
+          description={copy.description}
+          imageSize={128}
+          title={
+            variant === "personalized"
               ? "Log in for a feed made for you"
-              : "Log in to see your feed"}
-          </Text>
-          <Text style={[styles.promptBody, { color: theme.dividerText }]}>
-            {copy.description}
-          </Text>
-          <Pressable
-            onPress={() => router.push("/(auth)/login")}
-            style={styles.promptBtn}
-          >
-            <Text style={styles.promptBtnText}>Log in</Text>
-          </Pressable>
-        </View>
+              : "Log in to see your feed"
+          }
+        />
       </View>
     );
   }
 
+  // Web's inline composer is rendered above the pager, not inside a list, so
+  // the tabs carry no header of their own and every one of them reaches the
+  // top of its own content.
   if (status === "loading" || (status === "idle" && enabled)) {
-    return <FeedSkeleton />;
+    return (
+      <FeedState>
+        <FeedSkeleton />
+      </FeedState>
+    );
   }
 
   if (status === "error" && posts.length === 0) {
     return (
-      <View style={styles.centerWrap}>
-        <Image
-          contentFit="contain"
-          source={errorImage}
-          style={styles.emptyArt}
-        />
-        <Text style={[styles.errorTitle, { color: "#dc2626" }]}>
-          An error occurred while loading posts.
-        </Text>
-        <Text style={[styles.errorBody, { color: theme.dividerText }]}>
-          {error ?? "Please try again."}
-        </Text>
-        {__DEV__ ? (
-          <Text style={[styles.errorBody, { color: theme.dividerText }]}>
-            Dev build? Run `bun run dev:android --reverse-only` - the emulator
-            loses its localhost ports on reboot.
-          </Text>
-        ) : null}
-        <Pressable hitSlop={8} onPress={refresh} style={styles.retryRow}>
-          <Text style={[styles.retryText, { color: theme.auxLink }]}>
-            Try again
-          </Text>
-        </Pressable>
-      </View>
+      <FeedState>
+        <View style={styles.centerWrap}>
+          <View style={styles.errorWrap}>
+            <Image
+              contentFit="contain"
+              source={errorImage}
+              style={styles.errorArt}
+            />
+            <Text
+              selectable
+              style={[styles.errorTitle, { color: theme.errorBannerText }]}
+            >
+              An error occurred while loading posts.
+            </Text>
+            <Text
+              selectable
+              style={[styles.errorBody, { color: theme.dividerText }]}
+            >
+              Please try refreshing the page.
+            </Text>
+          </View>
+        </View>
+      </FeedState>
     );
   }
 
   if (status === "success" && posts.length === 0 && !hasMore) {
     const copy = EMPTY_COPY[variant];
     return (
-      <View style={styles.centerWrap}>
-        <Image
-          contentFit="contain"
-          source={noFeedImage}
-          style={styles.emptyArt}
-        />
-        <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
-          {copy.title}
-        </Text>
-        <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-          {copy.description}
-        </Text>
-      </View>
+      <FeedState>
+        <View style={styles.centerWrap}>
+          <Image
+            contentFit="contain"
+            source={noFeedImage}
+            style={styles.emptyArt}
+          />
+          <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
+            {copy.title}
+          </Text>
+          <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
+            {copy.description}
+          </Text>
+        </View>
+      </FeedState>
     );
   }
 
@@ -631,7 +594,6 @@ export function FeedList({
   ];
 
   const showLoader = status === "loading-more";
-  const refreshing = status === "refreshing";
   const showEnd = status === "success" && !hasMore && posts.length > 0;
   let footer: ReactNode = null;
   if (showLoader) {
@@ -665,18 +627,22 @@ export function FeedList({
   }
 
   return (
-    <GestureDetector gesture={pullGestures.pull}>
+    <GestureDetector gesture={pull.gesture}>
       <View style={styles.listWrap}>
         <Animated.View
-          style={[styles.listShift, { transform: [{ translateY: pullShift }] }]}
+          style={[
+            styles.listShift,
+            { transform: [{ translateY: pull.pullShift }] },
+          ]}
         >
-          <GestureDetector gesture={pullGestures.nativeScroll}>
+          <GestureDetector gesture={pull.nativeScrollGesture}>
             <FlatList
               contentContainerStyle={{
                 paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
               }}
               data={groups}
               keyExtractor={(group) => group.id}
+              {...LIST_VIRTUALIZATION_PROPS}
               onContentSizeChange={(_, height) => {
                 metricsRef.current.content = height;
                 scrollbarUpdate.current?.(metricsRef.current.offset);
@@ -692,54 +658,20 @@ export function FeedList({
               }}
               onScroll={(event) => {
                 const offsetY = event.nativeEvent.contentOffset.y;
-                scrollOffsetRef.current = offsetY;
                 scrollbarUpdate.current?.(offsetY);
                 if (enabledRef.current) {
                   reportFeedScroll(offsetY);
                 }
-                // iOS pull distance off the bounce (Android's comes from the pull
-                // responder). Progress stays local to PullLoader via the ref: no
-                // list re-render.
-                if (!refreshing && offsetY < 0) {
-                  const distance = -offsetY;
-                  if (Math.abs(distance - pullRef.current) > 1) {
-                    pullRef.current = distance;
-                    pullUpdateRef.current?.(distance);
-                  }
-                } else if (pullRef.current > 0) {
-                  pullRef.current = 0;
-                  pullUpdateRef.current?.(0);
-                }
+                // The pull reads the same bounce offset and keeps its progress
+                // in the loader, so none of this re-renders the list.
+                pull.onScroll(event);
               }}
-              onScrollEndDrag={() => {
-                if (!refreshing && pullRef.current > PULL_THRESHOLD) {
-                  refresh();
-                }
-                pullRef.current = 0;
-                pullUpdateRef.current?.(0);
-              }}
-              onViewableItemsChanged={({ viewableItems }) => {
-                const ids = new Set<string>();
-                let autoplayPostId: string | null = null;
-                // Sorted so the "topmost visible" pick is deterministic; RN
-                // does not promise an order for viewableItems.
-                const ordered = [...viewableItems].toSorted(
-                  (a, b) => (a.index ?? 0) - (b.index ?? 0)
-                );
-                for (const item of ordered) {
-                  const group = item.item as FeedThreadGroup | undefined;
-                  for (const post of group?.posts ?? []) {
-                    ids.add(post.id);
-                    // The owner is the first visible post that actually has a
-                    // video; a text-only post at the top must not blank out
-                    // playback for the video just below it.
-                    if (!autoplayPostId && hasVideoAttachment(post)) {
-                      autoplayPostId = post.id;
-                    }
-                  }
-                }
-                publishVisibleIds(ids, autoplayPostId);
-              }}
+              onScrollEndDrag={() => pull.onScrollEndDrag()}
+              onViewableItemsChanged={handleViewableItemsChanged}
+              // Android detaches list children that scroll out of the
+              // viewport, which cuts a row's thread rail off where it bleeds
+              // past the card's own bounds.
+              removeClippedSubviews={false}
               ref={listRef}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
@@ -772,23 +704,15 @@ export function FeedList({
                 </View>
               )}
               ListFooterComponent={footer}
+              // The composer lives here, as real content. It scrolls away with
+              // the first post and returns on pull-down for free, because the
+              // list's own scroll already moves it - no overlay, no clipped
+              // layer over the scroll view, and no per-frame work of our own.
+              ListHeaderComponent={header}
             />
           </GestureDetector>
         </Animated.View>
-        <PullLoader
-          failed={status === "error"}
-          onSettle={() => {
-            // The parked Android list glides home with the chip.
-            Animated.timing(pullShift, {
-              duration: 240,
-              easing: Easing.bezier(0.32, 0.72, 0, 1),
-              toValue: 0,
-              useNativeDriver: true,
-            }).start();
-          }}
-          refreshing={refreshing}
-          registerUpdate={pullUpdateRef}
-        />
+        {pull.loader}
         <FeedScrollbar
           listRef={listRef}
           metricsRef={metricsRef}
@@ -805,7 +729,7 @@ export function FeedList({
           />
         ) : null}
         {lastDismissed ? (
-          <View style={styles.undoWrap} pointerEvents="box-none">
+          <View style={[styles.undoWrap, { pointerEvents: "box-none" }]}>
             <View
               style={[
                 styles.undoBar,
@@ -850,6 +774,7 @@ export function FeedList({
           onAction={handleMoreAction}
           onClose={() => setMoreTarget(null)}
         />
+        {overflow.dialogs}
       </View>
     </GestureDetector>
   );
@@ -900,19 +825,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 56,
   },
+  errorArt: {
+    height: 176,
+    opacity: 0.85,
+    width: 176,
+  },
   errorBody: {
+    alignSelf: "stretch",
     fontFamily: "SofiaProReg",
     fontSize: 12,
     fontWeight: "normal",
     marginTop: 8,
+    maxWidth: 420,
     textAlign: "center",
   },
   errorTitle: {
     fontFamily: "SofiaProMed",
     fontSize: 14,
     fontWeight: "normal",
-    marginTop: 12,
     textAlign: "center",
+  },
+  errorWrap: {
+    alignItems: "center",
+    gap: 16,
+    maxWidth: 520,
+    paddingHorizontal: 16,
+    width: "100%",
   },
   footer: {
     paddingVertical: 20,
@@ -926,47 +864,6 @@ const styles = StyleSheet.create({
   listWrap: {
     flex: 1,
     position: "relative",
-  },
-  prompt: {
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-    maxWidth: 340,
-    padding: 20,
-    width: "100%",
-  },
-  promptBody: {
-    fontFamily: "SofiaProReg",
-    fontSize: 13,
-    fontWeight: "normal",
-    textAlign: "center",
-  },
-  promptBtn: {
-    alignItems: "center",
-    backgroundColor: "#ff9500",
-    borderRadius: 9999,
-    marginTop: 8,
-    paddingVertical: 10,
-  },
-  promptBtnText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 14,
-    fontWeight: "normal",
-  },
-  promptTitle: {
-    fontFamily: "SofiaProBold",
-    fontSize: 16,
-    fontWeight: "normal",
-    textAlign: "center",
-  },
-  retryRow: {
-    marginTop: 12,
-  },
-  retryText: {
-    fontFamily: "SofiaProMed",
-    fontSize: 14,
-    fontWeight: "normal",
   },
   scrollThumb: {
     borderRadius: 9999,
@@ -982,6 +879,9 @@ const styles = StyleSheet.create({
     top: 0,
     width: 10,
     zIndex: 30,
+  },
+  stateWrap: {
+    flex: 1,
   },
   undoAction: {
     fontFamily: "SofiaProBold",

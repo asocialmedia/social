@@ -9,14 +9,16 @@
 // affects the app.
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 
+import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import { logInfo } from "@/lib/telemetry";
 
 import {
   registerForPushNotifications,
   resetPushRegistration,
+  subscribeToPushTokenChanges,
   subscribeToPushTaps,
   unregisterPushNotifications,
 } from "../lib/push";
@@ -24,6 +26,7 @@ import {
 export function PushRegistrar() {
   const router = useRouter();
   const { isPending, user } = useSessionContext();
+  const { runWithInstallToken } = useInstall();
   const userId = user?.id ?? null;
   const previousUserId = useRef<string | null>(null);
   const routerReady = useRef(false);
@@ -38,6 +41,9 @@ export function PushRegistrar() {
   }, [router]);
 
   useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
     if (isPending) {
       return;
     }
@@ -53,25 +59,35 @@ export function PushRegistrar() {
     // the new user (the server moves it via upsert).
     if (userId && userId !== previous) {
       resetPushRegistration();
-      void registerForPushNotifications();
+      void registerForPushNotifications(runWithInstallToken);
     }
 
     previousUserId.current = userId;
-  }, [isPending, userId]);
+  }, [isPending, runWithInstallToken, userId]);
 
   // A token can rotate while the app is backgrounded (app restore, update),
   // so re-register on each return to foreground.
   useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
     if (!userId) {
       return;
     }
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
-        void registerForPushNotifications();
+        void registerForPushNotifications(runWithInstallToken);
       }
     });
-    return () => subscription.remove();
-  }, [userId]);
+    const tokenSubscription = subscribeToPushTokenChanges(() => {
+      resetPushRegistration();
+      void registerForPushNotifications(runWithInstallToken);
+    });
+    return () => {
+      subscription.remove();
+      tokenSubscription.remove();
+    };
+  }, [runWithInstallToken, userId]);
 
   return null;
 }

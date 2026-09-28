@@ -20,6 +20,7 @@ export type { PushLogger } from "./log";
 
 export interface PushDispatchResult {
   device: DevicePushResult;
+  retryable?: boolean;
   web: WebPushResult;
 }
 
@@ -109,7 +110,7 @@ export async function dispatchNotificationPush(
       error: String(error),
       recipientId: notification.recipientId,
     });
-    return NOOP_RESULT;
+    return { ...NOOP_RESULT, retryable: true };
   }
 }
 

@@ -7,12 +7,15 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
+import { ErrorBoundary } from "@/components/feedback/error-boundary";
+import { StartupGate } from "@/components/feedback/startup-splash";
 import { Toaster } from "@/components/feedback/toast";
 import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
 import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
 import { ComposerModal } from "@/features/composer/components/composer-modal";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
+import { SpotlightModal } from "@/features/search/components/spotlight-modal";
 import { UpdateGate } from "@/features/update/components/update-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
@@ -57,18 +60,10 @@ export default function RootLayout() {
     void loadInstallToken();
   }, []);
 
-  useEffect(() => {
-    async function hideSplash() {
-      if (loaded || error) {
-        try {
-          await SplashScreen.hideAsync();
-        } catch {
-          // Splash screen hide failed or was already hidden
-        }
-      }
-    }
-    void hideSplash();
-  }, [loaded, error]);
+  // Hiding the native splash is the StartupGate's job: it waits for the
+  // session as well as the fonts, so the home screen's first paint already
+  // knows whether the viewer is signed in and the inline composer arrives with
+  // the feed instead of after it.
 
   if (!loaded && !error) {
     return null;
@@ -78,44 +73,67 @@ export default function RootLayout() {
   // above every screen.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-        <StatusBar style={isDark ? "light" : "dark"} />
-        {/* Install credential first: the session provider wraps every mutating
-          auth call in it, so a fresh install is verified before signing in. */}
-        <InstallProvider>
-          <SessionProvider>
-            <UpdateGate />
-            {/* Native push registration + tap routing. Inside the session
-              provider so it can react to sign-in/out. */}
-            <PushRegistrar />
-            <Stack
-              screenOptions={{
-                animation: "fade",
-                animationDuration: 200,
-                contentStyle: { backgroundColor: theme.containerBg },
-                headerShown: false,
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="notifications" />
-              <Stack.Screen
-                name="gusts"
-                options={{ contentStyle: { backgroundColor: "#000000" } }}
+      {/* Outermost boundary: a throw anywhere below, including a provider or
+          the navigator itself, lands on a screen with a working Try Again
+          instead of a blank window. */}
+      <ErrorBoundary>
+        <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+          <StatusBar style={isDark ? "light" : "dark"} />
+          {/* Install credential first: the session provider wraps every mutating
+            auth call in it, so a fresh install is verified before signing in. */}
+          <InstallProvider>
+            <SessionProvider>
+              <UpdateGate />
+              {/* Native push registration + tap routing. Inside the session
+                provider so it can react to sign-in/out. */}
+              <PushRegistrar />
+              <Stack
+                screenOptions={{
+                  animation: "fade",
+                  animationDuration: 200,
+                  contentStyle: { backgroundColor: theme.containerBg },
+                  headerShown: false,
+                }}
+              >
+                <Stack.Screen name="index" />
+                <Stack.Screen name="notifications" />
+                <Stack.Screen name="bookmarks" />
+                <Stack.Screen
+                  name="gusts"
+                  options={{ contentStyle: { backgroundColor: "#000000" } }}
+                />
+                <Stack.Screen name="users/[username]" />
+                <Stack.Screen name="users/[username]/followers" />
+                <Stack.Screen name="users/[username]/following" />
+                <Stack.Screen name="discover" />
+                <Stack.Screen name="communities" />
+                <Stack.Screen name="communities/create" />
+                <Stack.Screen name="a/[slug]" />
+                <Stack.Screen name="legal/[document]" />
+                <Stack.Screen name="hashtag/[tag]" />
+                <Stack.Screen name="hackernews" />
+                <Stack.Screen name="settings" />
+                <Stack.Screen name="(auth)" />
+              </Stack>
+              {/* Shown only when a mutating request needs the install credential
+                and none is stored yet, so browsing never pays the cost. */}
+              <InstallVerificationGate
+                sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
               />
-              <Stack.Screen name="(auth)" />
-            </Stack>
-            {/* Shown only when a mutating request needs the install credential
-              and none is stored yet, so browsing never pays the cost. */}
-            <InstallVerificationGate
-              sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
-            />
-            {/* The post composer (opened from the dock's + and Respond) and
-                the app-wide toast stack. */}
-            <ComposerModal />
-            <Toaster />
-          </SessionProvider>
-        </InstallProvider>
-      </ThemeProvider>
+              {/* The post composer (opened from the dock's + and Respond) and
+                  the app-wide toast stack. */}
+              <ComposerModal />
+              {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
+              <SpotlightModal />
+              <Toaster />
+              {/* Last so it covers the navigator and every overlay above: it
+                  holds the platform splash until the session is known, then
+                  dissolves into the app. */}
+              <StartupGate fontsReady={loaded || Boolean(error)} />
+            </SessionProvider>
+          </InstallProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

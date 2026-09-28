@@ -1,36 +1,15 @@
 // Loading skeleton for the feed: three post-shaped placeholders with a
-// gentle opacity pulse (core Animated loop, no extra dependency), matching
-// web FeedViewSkeleton's structure (avatar + header lines + text lines +
-// media block + action row).
-import { useEffect, useMemo } from "react";
-import { Animated, StyleSheet, View } from "react-native";
+// gentle opacity pulse, matching web FeedViewSkeleton's structure (avatar +
+// header lines + text lines + media block + action row).
+import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 
+import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import { useAppTheme } from "@/theme";
 
 function SkeletonCard() {
   const { theme } = useAppTheme();
-  const pulse = useMemo(() => new Animated.Value(0.45), []);
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          duration: 900,
-          toValue: 1,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          duration: 900,
-          toValue: 0.45,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-    };
-  }, [pulse]);
+  const pulse = useSkeletonPulse();
 
   const block = { backgroundColor: theme.dividerLine };
   return (

@@ -378,7 +378,31 @@ async function fetchUsersFromDatabase(input: {
     ])
     .limit(limit + 1);
   if (cursor) {
-    userQuery = userQuery.cursor({ id: cursor });
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // the cursor needs a value for the active sort column as well as the id;
+    // the anchor's sort key is read back here. The seek is exclusive, so no
+    // .offset(1) hop is needed. A vanished anchor restarts from the top.
+    const anchor = await prisma.orm.public.Users.select(
+      "aura",
+      "createdAt",
+      "displayName",
+      "username"
+    )
+      .where({ id: cursor })
+      .first();
+    if (anchor) {
+      let sortKey: Record<string, unknown>;
+      if (sortBy === "aura") {
+        sortKey = { aura: anchor.aura };
+      } else if (sortBy === "username") {
+        sortKey = { username: anchor.username };
+      } else if (sortBy === "displayName") {
+        sortKey = { displayName: anchor.displayName };
+      } else {
+        sortKey = { createdAt: anchor.createdAt };
+      }
+      userQuery = userQuery.cursor({ ...sortKey, id: cursor });
+    }
   }
   const users = await userQuery.all();
 

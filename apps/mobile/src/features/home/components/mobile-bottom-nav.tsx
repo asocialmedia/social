@@ -29,6 +29,7 @@ import type { ComponentType } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -81,24 +82,29 @@ const RIGHT_ITEMS: MobileNavItem[] = [
 
 // Routes with a mobile screen behind them. Everything else renders as a
 // disabled stub until its screen lands - no dead-feeling fake navigation.
-const LIVE_ROUTES = new Set(["/", "/gusts"]);
+// /messages is the only one still stubbed; HackerNews now has a screen.
+const LIVE_ROUTES = new Set([
+  "/",
+  "/gusts",
+  "/discover",
+  "/communities",
+  "/hackernews",
+]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
 // primary border and the inner lip, never a saturated fill. Light keys off
 // primary hsl(22.93 92.59% 52.35%) ~= #f66b15; `.dark .pill-nav-active`
 // swaps to the warmer #ffb054 glyph on an accent-orange tint.
 const NAV_ACTIVE_LIGHT = {
-  border: "rgba(246, 107, 21, 0.25)",
   color: "#f66b15",
   shadows:
-    "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)",
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(246, 107, 21, 0.25), 0 1px 2px rgba(0, 0, 0, 0.06)",
   tint: ["rgba(246, 107, 21, 0.14)", "rgba(246, 107, 21, 0.08)"],
 } as const;
 const NAV_ACTIVE_DARK = {
-  border: "rgba(255, 149, 0, 0.3)",
   color: "#ffb054",
   shadows:
-    "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2)",
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 149, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2)",
   tint: ["rgba(255, 149, 0, 0.18)", "rgba(230, 85, 0, 0.1)"],
 } as const;
 
@@ -190,24 +196,14 @@ function DockTab({
         // Inactive tabs read `text-muted-foreground`.
         const iconColor = tone ? tone.color : theme.dividerText;
         return (
-          <View
-            style={[
-              styles.tabInner,
-              active
-                ? { borderColor: activeTone.border, borderWidth: 1 }
-                : undefined,
-              disabled && styles.tabDisabled,
-            ]}
-          >
-            {/* Gradient3D keeps the recipe's inset lip above the tint (web
-                paints inset shadows over the background), and mounting it
-                with the tone gives Android a rounded shadow: a shadow added
-                to an existing view draws square. Inside the active border
-                the radius steps in by the border width. */}
+          <View style={[styles.tabInner, disabled && styles.tabDisabled]}>
+            {/* Gradient3D keeps the recipe's inset lip above the tint and
+                renders the outer hairline border via boxShadow at radius 12,
+                preventing Android React Native from drawing a square border. */}
             {tone ? (
               <Gradient3D
                 colors={tone.tint}
-                radius={active ? 11 : 12}
+                radius={12}
                 shadows={tone.shadows}
                 style={styles.tabTint}
               />
@@ -290,7 +286,7 @@ export function MobileBottomNav({
       duration: 220,
       easing: Easing.out(Easing.cubic),
       toValue: hidden ? 1 : 0,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     });
     travel.start();
     return () => {
@@ -357,8 +353,13 @@ export function MobileBottomNav({
 
   return (
     <View
-      pointerEvents="box-none"
-      style={[styles.dock, { bottom: bottomOffset + insets.bottom + 12 }]}
+      style={[
+        styles.dock,
+        {
+          bottom: bottomOffset + insets.bottom + 12,
+          pointerEvents: "box-none",
+        },
+      ]}
     >
       <Animated.View
         onLayout={(event) => {

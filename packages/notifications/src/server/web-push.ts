@@ -7,6 +7,8 @@
 // and self-hosted deployments without push keys fully working instead of
 // throwing on every notification.
 
+import { setTimeout as sleep } from "node:timers/promises";
+
 import type { PushSubscription } from "web-push";
 import webpush from "web-push";
 
@@ -82,10 +84,52 @@ function isGone(error: unknown): boolean {
   return status === 404 || status === 410;
 }
 
+function isRetryable(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return true;
+  }
+  const status = (error as { statusCode?: unknown }).statusCode;
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    typeof status !== "number" ||
+    status >= 500
+  );
+}
+
+type WebSendOutcome =
+  | { kind: "sent" }
+  | { kind: "gone" }
+  | { kind: "failed"; error: unknown };
+
+const WEB_SEND_MAX_ATTEMPTS = 2;
+const WEB_SEND_RETRY_BASE_MS = 250;
+
+async function sendWithRetry(
+  send: () => Promise<unknown>,
+  attempt = 1
+): Promise<WebSendOutcome> {
+  try {
+    await send();
+    return { kind: "sent" };
+  } catch (error) {
+    if (isGone(error)) {
+      return { kind: "gone" };
+    }
+    if (!isRetryable(error) || attempt >= WEB_SEND_MAX_ATTEMPTS) {
+      return { error, kind: "failed" };
+    }
+    await sleep(WEB_SEND_RETRY_BASE_MS * 2 ** (attempt - 1));
+    return await sendWithRetry(send, attempt + 1);
+  }
+}
+
 // Delivers one notification to a set of browser subscriptions. Never throws:
 // a dead endpoint is collected for pruning and any other failure is counted, so
 // one bad subscription cannot abort the rest or the worker job.
-const SEND_TIMEOUT_MS = 10_000;
+const SEND_TIMEOUT_MS = 5000;
+const PUSH_BATCH_BUDGET_MS = 30_000;
 // A user holds a handful of browsers; the cap keeps one account with a
 // flood of registrations from monopolising the worker.
 const MAX_SUBSCRIPTIONS_PER_USER = 20;
@@ -112,10 +156,23 @@ export async function sendWebPush(
         vapidDetails: options.vapid ?? undefined,
       }));
 
-  for (const subscription of subscriptions.slice(
-    0,
-    MAX_SUBSCRIPTIONS_PER_USER
-  )) {
+  const deliverable = subscriptions.slice(0, MAX_SUBSCRIPTIONS_PER_USER);
+  const deadline = Date.now() + PUSH_BATCH_BUDGET_MS;
+  const sendNext = async (index: number): Promise<void> => {
+    if (index >= deliverable.length) {
+      return;
+    }
+    const subscription = deliverable[index];
+    if (subscription && Date.now() >= deadline) {
+      result.failed += deliverable.length - index;
+      options.logger?.warn("push.web_batch_budget_exhausted", {
+        remaining: deliverable.length - index,
+      });
+      return;
+    }
+    if (!subscription) {
+      return;
+    }
     // Defense in depth against SSRF: the subscribe route already refuses
     // non push-service endpoints, and anything stored before that check (or
     // written some other way) is never contacted and gets pruned.
@@ -126,30 +183,29 @@ export async function sendWebPush(
       options.logger?.warn("push.web_endpoint_rejected", {
         host: endpointHost(subscription.endpoint),
       });
-      continue;
+      await sendNext(index + 1);
+      return;
     }
-    try {
-      // Sequential on purpose: push services rate-limit per connection and a
-      // user holds few subscriptions, so a bounded serial loop keeps the
-      // worker's concurrency budget predictable.
-      // eslint-disable-next-line no-await-in-loop -- bounded serial delivery, see note above
-      await send(toWebPushSubscription(subscription), body);
+    const outcome = await sendWithRetry(() =>
+      send(toWebPushSubscription(subscription), body)
+    );
+    if (outcome.kind === "sent") {
       result.sent += 1;
-    } catch (error) {
-      if (isGone(error)) {
-        result.expired.push(subscription.endpoint);
-      } else {
-        result.failed += 1;
-        const detail = describePushError(error);
-        // Host only: the full endpoint is a capability to push to that device.
-        options.logger?.warn("push.web_send_failed", {
-          host: endpointHost(subscription.endpoint),
-          reason: detail.reason,
-          status: detail.status,
-        });
-      }
+    } else if (outcome.kind === "gone") {
+      result.expired.push(subscription.endpoint);
+    } else {
+      result.failed += 1;
+      const detail = describePushError(outcome.error);
+      options.logger?.warn("push.web_send_failed", {
+        host: endpointHost(subscription.endpoint),
+        reason: detail.reason,
+        status: detail.status,
+      });
     }
-  }
+    await sendNext(index + 1);
+  };
+
+  await sendNext(0);
 
   return result;
 }

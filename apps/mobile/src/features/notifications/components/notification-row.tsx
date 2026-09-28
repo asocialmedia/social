@@ -36,6 +36,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -121,6 +122,7 @@ function AvatarWithBadge({
   return (
     <View style={{ height: size, width: size }}>
       <Image
+        cachePolicy={imageCachePolicy(uri)}
         contentFit="cover"
         onError={() => setFailed(true)}
         source={uri && !failed ? { uri } : avatarPlaceholder}
@@ -198,6 +200,7 @@ function NotificationAvatars({
           : null;
         return (
           <Image
+            cachePolicy={imageCachePolicy(uri)}
             contentFit="cover"
             key={issuer.id}
             source={uri ? { uri } : avatarPlaceholder}

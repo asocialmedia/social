@@ -6,16 +6,19 @@
 // action bar (vote | eddies | respond | views | share + bookmark).
 //
 // Card taps open the post detail screen (/posts/[postId]), mirroring web's
-// card-wide navigation (interactive controls, the composer and eddies opt
-// out by sitting outside the tap region). Profile links stay static text
-// and Respond shows its count without opening the skipped composer.
+// card-wide navigation. Profile identity controls explicitly stop the press
+// event before routing to /users/[username], so they never open the post.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
+import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { usePrefetchProfile } from "@/features/profile";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -27,8 +30,9 @@ import {
   MentionChip,
   TagChip,
 } from "../../home/components/bio-content";
-import { resolveProfileImageUrl } from "../../home/components/profile-utils";
+import { resolveAvatarWithFallback } from "../../home/components/profile-utils";
 import { UserBadge } from "../../home/components/user-badge";
+import { getPostRailColor } from "../lib/feed-rail";
 import type { FeedPost } from "../lib/feed-types";
 import {
   extractInlineMeta,
@@ -69,23 +73,36 @@ function CommunityAttribution({
   reason: boolean;
   slug: string;
 }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
+  const router = useRouter();
+  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
   return (
-    <View style={styles.attribution}>
+    <Pressable
+      accessibilityLabel={`Community a/${slug}`}
+      accessibilityRole="link"
+      onPress={(event) => {
+        event.stopPropagation();
+        router.push({ params: { slug }, pathname: "/a/[slug]" });
+      }}
+      style={styles.attribution}
+    >
       <View
-        style={[
-          styles.attributionBar,
-          { backgroundColor: accentColor ?? "#ff9500" },
-        ]}
+        style={[styles.attributionBar, { backgroundColor: resolvedColor }]}
       />
       <Text
         numberOfLines={1}
         style={[styles.attributionText, { color: theme.dividerText }]}
       >
-        a/{slug}
-        {reason ? ` · Trending in a/${slug}` : ""}
+        <Text style={{ color: theme.inputText, fontFamily: "SofiaProMed" }}>
+          a/{slug}
+        </Text>
+        {reason ? (
+          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+            {" · "}Trending in a/{slug}
+          </Text>
+        ) : null}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -157,6 +174,7 @@ export function PostCard({
 }: PostCardProps) {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
+  const prefetchProfile = usePrefetchProfile();
   const [showComments, setShowComments] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -164,10 +182,12 @@ export function PostCard({
   const author = post.user;
   const displayName = author?.displayName || author?.username || "unknown";
   const username = author?.username ?? "unknown";
-  const avatarUri = author?.avatarUrl
-    ? resolveProfileImageUrl(author.avatarUrl, apiBase)
-    : null;
-  const viewerLoggedIn = Boolean(viewerId);
+  const authorSeed = author?.username || author?.id || null;
+  const avatarUri = resolveAvatarWithFallback(
+    author?.avatarUrl,
+    apiBase,
+    authorSeed
+  );
 
   const requireLogin = () => {
     router.push("/(auth)/login");
@@ -182,6 +202,23 @@ export function PostCard({
     }
     const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
     router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+  };
+  const openAuthor = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    if (!author?.username) {
+      return;
+    }
+    router.push({
+      params: { username: author.username },
+      pathname: "/users/[username]",
+    });
+  };
+
+  // Warms the profile cache on touch-down so the route usually mounts with data
+  // already in flight, which is what lets it paint content instead of a
+  // skeleton. Cheap when the profile is cached: the hook returns immediately.
+  const prefetchAuthor = () => {
+    prefetchProfile(author?.username);
   };
 
   const inline = useMemo(
@@ -207,6 +244,7 @@ export function PostCard({
   const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
   const commentCount = post._count?.comments ?? 0;
   const responseCount = post._count?.responses ?? 0;
+  const railColor = getPostRailColor(post, isDark);
 
   return (
     <View
@@ -218,11 +256,21 @@ export function PostCard({
         },
       ]}
     >
+      {railColor ? (
+        <View
+          pointerEvents="none"
+          style={[styles.leftRail, { backgroundColor: railColor }]}
+        />
+      ) : null}
       <Pressable
         accessibilityLabel={`Open post by ${username}`}
         accessibilityRole="link"
         onPress={openDetail}
       >
+        {!hasThreadParent && post.parentPostId ? (
+          <ResponseParentRow post={post} />
+        ) : null}
+
         {post.community && showCommunity ? (
           <CommunityAttribution
             accentColor={post.community.accentColor}
@@ -231,59 +279,74 @@ export function PostCard({
           />
         ) : null}
 
-        {!hasThreadParent && post.parentPostId ? (
-          <ResponseParentRow post={post} />
-        ) : null}
-
         <View style={styles.mainRow}>
           <View style={styles.rail}>
             <ThreadRail
               hasThreadChild={hasThreadChild}
               hasThreadParent={hasThreadParent}
             />
-            <Image
-              contentFit="cover"
-              onError={() => setAvatarFailed(true)}
-              source={
-                avatarUri && !avatarFailed
-                  ? { uri: avatarUri }
-                  : avatarPlaceholder
-              }
-              style={[styles.avatar, { backgroundColor: theme.cardBg }]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                styles.avatarRing,
-                {
-                  boxShadow: isDark
-                    ? AVATAR_RING_SHADOWS_DARK
-                    : AVATAR_RING_SHADOWS,
-                },
-              ]}
-            />
+            <Pressable
+              accessibilityLabel={`Open ${author?.displayName || username}'s profile`}
+              accessibilityRole="link"
+              disabled={!author?.username}
+              onPress={openAuthor}
+              onPressIn={prefetchAuthor}
+              style={styles.avatarLink}
+            >
+              <Image
+                cachePolicy={imageCachePolicy(avatarUri)}
+                contentFit="cover"
+                onError={() => setAvatarFailed(true)}
+                source={
+                  avatarUri && !avatarFailed
+                    ? { uri: avatarUri }
+                    : avatarPlaceholder
+                }
+                style={[styles.avatar, { backgroundColor: theme.cardBg }]}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.avatarRing,
+                  {
+                    boxShadow: isDark
+                      ? AVATAR_RING_SHADOWS_DARK
+                      : AVATAR_RING_SHADOWS,
+                  },
+                ]}
+              />
+            </Pressable>
           </View>
 
           <View style={styles.content}>
             <View style={styles.headerRow}>
               <View style={styles.headerLeft}>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.name, { color: theme.inputText }]}
+                <Pressable
+                  accessibilityLabel={`Open ${displayName}'s profile`}
+                  accessibilityRole="link"
+                  disabled={!author?.username}
+                  onPress={openAuthor}
+                  onPressIn={prefetchAuthor}
+                  style={styles.authorIdentity}
                 >
-                  {displayName}
-                </Text>
-                <UserBadge
-                  badge={author?.badge}
-                  badges={author?.badges}
-                  communityRoles={author?.communityMemberships}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={[styles.handle, { color: theme.dividerText }]}
-                >
-                  @{username}
-                </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.name, { color: theme.inputText }]}
+                  >
+                    {displayName}
+                  </Text>
+                  <UserBadge
+                    badge={author?.badge}
+                    badges={author?.badges}
+                    communityRoles={author?.communityMemberships}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.handle, { color: theme.dividerText }]}
+                  >
+                    @{username}
+                  </Text>
+                </Pressable>
                 <Text style={[styles.dot, { color: theme.dividerText }]}>
                   ·
                 </Text>
@@ -320,10 +383,11 @@ export function PostCard({
                     {extraMentions.map((mention, index) => (
                       <MentionChip
                         avatarUrl={
-                          mention.user?.avatarUrl
-                            ? resolveProfileImageUrl(
+                          mention.user
+                            ? resolveAvatarWithFallback(
                                 mention.user.avatarUrl,
-                                apiBase
+                                apiBase,
+                                mention.user.username || mention.user.id
                               )
                             : null
                         }
@@ -408,7 +472,7 @@ export function PostCard({
                 onRequireLogin={requireLogin}
                 postId={post.id}
                 userVote={getUserVote(post)}
-                viewerLoggedIn={viewerLoggedIn}
+                viewerId={viewerId ?? null}
               />
               <CommentButton
                 count={commentCount}
@@ -422,7 +486,7 @@ export function PostCard({
                   initialBookmarked={isBookmarkedByUser(post, viewerId)}
                   onRequireLogin={requireLogin}
                   postId={post.id}
-                  viewerLoggedIn={viewerLoggedIn}
+                  viewerId={viewerId ?? null}
                 />
               </View>
             </View>
@@ -480,11 +544,22 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     minWidth: 0,
   },
+  authorIdentity: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 6,
+    minWidth: 0,
+  },
   avatar: {
     borderRadius: 12,
     height: 36,
     width: 36,
     zIndex: 1,
+  },
+  avatarLink: {
+    height: 36,
+    width: 36,
   },
   avatarRing: {
     borderRadius: 12,
@@ -500,6 +575,7 @@ const styles = StyleSheet.create({
   },
   card: {
     paddingHorizontal: 16,
+    position: "relative",
   },
   content: {
     flex: 1,
@@ -536,6 +612,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "space-between",
+  },
+  leftRail: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    top: 0,
+    width: 2,
+    zIndex: 10,
   },
   mainRow: {
     alignItems: "flex-start",

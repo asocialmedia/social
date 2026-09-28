@@ -1,3 +1,7 @@
+import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { FeedApiError } from "@/features/feed/lib/feed-api";
+import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
+import { normalizePostsData } from "@/features/feed/lib/feed-types";
 // Gusts API layer, ported from web's client-gusts query and the routes it
 // rides: GET /api/gusts (personalized / chronological / deep-link pages),
 // POST /api/posts/visit (history), POST/DELETE /api/users/:id/followers,
@@ -5,10 +9,7 @@
 // web's hide/unhide server actions). Pure and injectable like feed-api:
 // cookie, apiBase and baseFetch come from the caller, so it unit-tests on
 // Bun without React Native.
-import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { FeedApiError } from "@/features/feed/lib/feed-api";
-import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
-import { normalizePostsData } from "@/features/feed/lib/feed-types";
+import { getWithTimeout } from "@/lib/http-get";
 
 export type GustTab = "latest" | "personalized";
 
@@ -60,11 +61,17 @@ function request(
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  return baseFetch(`${options.apiBase}${path}`, {
+  const init = {
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
     headers,
     method: options.method ?? "GET",
-  });
+  } satisfies RequestInit;
+  return (options.method ?? "GET").toUpperCase() === "GET"
+    ? getWithTimeout(`${options.apiBase}${path}`, init, {
+        baseFetch,
+        timeoutMs: options.timeoutMs,
+      })
+    : baseFetch(`${options.apiBase}${path}`, init);
 }
 
 async function readJson(response: Response): Promise<unknown> {

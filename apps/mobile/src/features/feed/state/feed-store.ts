@@ -44,6 +44,53 @@ export function flattenUniquePosts(pages: FeedPost[][]): FeedPost[] {
   return [...new Map(list.map((post) => [post.id, post])).values()];
 }
 
+// A published post belongs at the head of the Latest tab, and the reader should
+// land on it rather than wherever they last left that feed. The request is a
+// one-shot module signal (not state) because it is a command aimed at whichever
+// list is showing, not something a component renders from: only the tab that
+// was actually asked for consumes it, so switching to Latest for any other
+// reason is untouched.
+let pendingFeedTop: string | null = null;
+let topRequestVersion = 0;
+const topRequestListeners = new Set<() => void>();
+
+/** Asks the named feed to scroll to the top the next time it is shown. */
+export function requestFeedTop(variant: string): void {
+  pendingFeedTop = variant;
+  topRequestVersion += 1;
+  for (const listener of topRequestListeners) {
+    listener();
+  }
+}
+
+// Subscribing is what makes the request work when the feed is ALREADY the one
+// being shown: a tab switch alone would not re-run the list's effect, so
+// publishing from the composer on top of Latest would insert the post without
+// ever scrolling to it, and the request would linger to hijack a later visit.
+export function subscribeFeedTopRequests(listener: () => void): () => void {
+  topRequestListeners.add(listener);
+  return () => {
+    topRequestListeners.delete(listener);
+  };
+}
+
+/**
+ * Claims a pending scroll-to-top for `variant`. Returns true at most once per
+ * request, so the list that acts on it does not fight a later remount.
+ */
+export function consumeFeedTop(variant: string): boolean {
+  if (pendingFeedTop !== variant) {
+    return false;
+  }
+  pendingFeedTop = null;
+  return true;
+}
+
+/** Drops any pending request, so a stale one cannot hijack a later visit. */
+export function clearFeedTopRequest(): void {
+  pendingFeedTop = null;
+}
+
 // Prepends probed posts to page one only (cursors untouched), deduped by id.
 // No-op when there is nothing new or no cache entry, like web
 // prependPostsToFeedCache.
@@ -129,6 +176,35 @@ export class FeedCache {
       stale: false,
       status: "success",
     });
+  }
+
+  /**
+   * Puts a just-published post at the head of a tab so it is on screen the
+   * moment the reader lands there, instead of after a refetch round-trip.
+   *
+   * Two cases, because the tab may never have been opened: a tab that already
+   * has pages gets the post prepended to page one with the cursor untouched
+   * (the same shape the new-content pill uses), and a tab with nothing cached
+   * gets a one-page entry marked stale, so it renders the post at once and then
+   * refetches the real first page when it mounts.
+   */
+  showPublishedPost(key: string, post: FeedPost): void {
+    const current = this.get(key);
+    if (current.pages.length === 0) {
+      this.patch(key, {
+        cursor: null,
+        error: null,
+        hasMore: false,
+        pages: [[post]],
+        stale: true,
+        status: "success",
+      });
+      return;
+    }
+    const { added, pages } = prependPosts(current.pages, [post]);
+    if (added) {
+      this.patch(key, { pages });
+    }
   }
 
   /** Patches one post everywhere it is cached (view-count reconcile). */

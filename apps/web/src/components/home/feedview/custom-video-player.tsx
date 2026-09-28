@@ -33,7 +33,7 @@ import {
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { useVideoMuteStore } from "@/lib/stores/video-mute-store";
-import { cn } from "@/lib/utils";
+import { cn, isEditableTarget } from "@/lib/utils";
 
 interface CustomVideoPlayerProps {
   autoPlay?: boolean;
@@ -620,17 +620,23 @@ export const CustomVideoPlayer = ({
       C: toggleCaptions,
       T: toggleTranscript,
       c: toggleCaptions,
-      f: toggleFullscreen,
       k: handlePlayPause,
       m: toggleMute,
       t: toggleTranscript,
     };
 
+    if (!hideControls) {
+      keyboardControls.f = toggleFullscreen;
+    }
+
     const handleKeyPress = (e: KeyboardEvent) => {
       if (
         !showControls ||
-        (e.target as HTMLElement)?.tagName === "INPUT" ||
-        (e.target as HTMLElement)?.tagName === "TEXTAREA"
+        e.defaultPrevented ||
+        e.altKey ||
+        e.ctrlKey ||
+        e.metaKey ||
+        isEditableTarget(e.target)
       ) {
         return;
       }

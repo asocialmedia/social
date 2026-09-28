@@ -49,11 +49,18 @@ interface PostMoreButtonProps {
   /** Applies the media page's dark 3D chip styling (same look as the mobile
    * viewer's control buttons) instead of the default pill hover treatment. */
   variant?: "default" | "media-page";
+  // The trigger sizes itself (h-7 w-7, sm:h-7.5) and its icon with it. A caller
+  // that renders a larger touch target - the gust rail - must be able to scale
+  // the glyph to match, otherwise the icon looks undersized inside its own
+  // button. The same caveat applies to `className`: because the component sets a
+  // `sm:` size, an override needs the `!` modifier to win.
+  iconClassName?: string;
 }
 
 export default function PostMoreButton({
   post,
   className,
+  iconClassName,
   variant = "default",
   extraItems,
 }: PostMoreButtonProps) {
@@ -237,7 +244,9 @@ export default function PostMoreButton({
             onClick={handleTriggerClick}
             type="button"
           >
-            <MoreHorizontal className="size-4 sm:size-4.5" />
+            <MoreHorizontal
+              className={cn("size-4 sm:size-4.5", iconClassName)}
+            />
           </button>
         </DropdownMenuTrigger>
         {/* `apple-panel` (deprecated, unlayered) used to sit here and fought

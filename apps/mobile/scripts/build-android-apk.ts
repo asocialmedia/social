@@ -21,6 +21,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -30,11 +31,16 @@ import { fileURLToPath } from "node:url";
 
 import { $ } from "bun";
 
+import { ANDROID_SPLIT_ABIS, isAndroidSplitAbi } from "../plugins/abi-splits";
 import {
   googleServicesCandidates,
   pickFirstExisting,
   validateGoogleServices,
 } from "./google-services-lib";
+import {
+  describeMissingReleaseApk,
+  resolveReleaseApk,
+} from "./release-apk-lib";
 
 const repoRoot = path.resolve(
   fileURLToPath(new URL("../../..", import.meta.url))
@@ -57,6 +63,10 @@ const ROOT_GOOGLE_SERVICES_FILE = path.join(repoRoot, "google-services.json");
 // shipping APKs carry arm64-v8a; the other ABIs are emulator-only (x86/x86_64)
 // or 32-bit legacy, and together account for ~62 MB nobody downloads.
 const DEFAULT_ABI = "arm64-v8a";
+
+// assembleRelease writes one APK per ABI here, and - because the split sets
+// `universalApk false` - no plain app-release.apk alongside them.
+const APK_OUTPUT_DIR = path.join(APP_DIR, "build", "outputs", "apk", "release");
 
 function step(message: string): void {
   console.log(`\n\u001B[1m==> ${message}\u001B[0m`);
@@ -326,11 +336,23 @@ async function assertTooling(): Promise<void> {
   await $`java -version`.quiet();
 }
 
+// The ABI the release APK is built for. Validated up front: an ABI the split
+// does not produce yields no artifact, and the build is minutes long.
+function resolveAbi(): string {
+  const abi = process.env.ASM_ANDROID_ABI ?? DEFAULT_ABI;
+  if (!isAndroidSplitAbi(abi)) {
+    fail(
+      `ASM_ANDROID_ABI is "${abi}", which the release split does not produce. Use one of: ${ANDROID_SPLIT_ABIS.join(", ")}.`
+    );
+  }
+  return abi;
+}
+
 async function main(): Promise<void> {
   await assertTooling();
+  const abi = resolveAbi();
   const { cleanup, keyAlias, keyPassword, sourcePath, storePassword } =
     await resolveKeystore();
-  const abi = process.env.ASM_ANDROID_ABI ?? DEFAULT_ABI;
 
   try {
     // Must run BEFORE prebuild: the Google Services config plugin copies the
@@ -369,14 +391,18 @@ async function main(): Promise<void> {
         ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_PASSWORD: storePassword,
       });
 
-    const apkSource = path.join(
-      APP_DIR,
-      "build",
-      "outputs",
-      "apk",
-      "release",
-      "app-release.apk"
-    );
+    // The split names the artifact per ABI, so the requested one has to be
+    // selected out of the output directory rather than assumed. An unreadable
+    // directory is reported as an empty one, so the failure names the file it
+    // wanted rather than a bare ENOENT.
+    const built = resolveReleaseApk({
+      abi,
+      files: await readdir(APK_OUTPUT_DIR).catch(() => []),
+    });
+    if (built.kind === "missing") {
+      fail(describeMissingReleaseApk(built, APK_OUTPUT_DIR));
+    }
+    const apkSource = path.join(APK_OUTPUT_DIR, built.fileName);
     await access(apkSource).catch(() => {
       fail(`Expected APK not found at ${apkSource}`);
     });

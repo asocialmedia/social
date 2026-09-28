@@ -14,6 +14,8 @@
 // Android collapses same-collapseKey messages in the tray, mirroring web
 // push's tag behavior; the `data.path` is what the app's tap handler reads.
 
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { SignJWT, importPKCS8 } from "jose";
 
 import type { NotificationRecord } from "../shared/types";
@@ -113,6 +115,27 @@ export interface FcmAccessTokenCache {
   token: string;
 }
 
+const FCM_REQUEST_TIMEOUT_MS = 5000;
+const FCM_SEND_MAX_ATTEMPTS = 2;
+const FCM_SEND_RETRY_BASE_MS = 250;
+const MAX_DEVICE_TARGETS_PER_USER = 20;
+const PUSH_BATCH_BUDGET_MS = 30_000;
+
+async function fetchWithTimeout(
+  fetchImpl: typeof fetch,
+  input: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // Resolves the service account from env, or null when push is unconfigured.
 export function resolveFcmServiceAccount(
   env: NodeJS.ProcessEnv = process.env
@@ -154,14 +177,19 @@ export async function getFcmAccessToken(
       .setExpirationTime(nowSeconds + ASSERTION_LIFETIME_SECONDS)
       .sign(key);
 
-    const response = await fetchImpl(FCM_OAUTH_ENDPOINT, {
-      body: new URLSearchParams({
-        assertion,
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      }).toString(),
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      method: "POST",
-    });
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      FCM_OAUTH_ENDPOINT,
+      {
+        body: new URLSearchParams({
+          assertion,
+          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        }).toString(),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        method: "POST",
+      },
+      FCM_REQUEST_TIMEOUT_MS
+    );
     if (!response.ok) {
       return null;
     }
@@ -235,6 +263,7 @@ export interface SendFcmOptions {
   fetchImpl?: typeof fetch;
   logger?: PushLogger;
   now?: () => number;
+  onAccessToken?: (cache: FcmAccessTokenCache) => void;
   serviceAccount: FcmServiceAccount | null;
 }
 
@@ -255,14 +284,19 @@ async function sendFcmMessage(
   fetchImpl: typeof fetch
 ): Promise<FcmSendOutcome> {
   try {
-    const response = await fetchImpl(endpoint, {
-      body: JSON.stringify({ message: buildFcmMessage(notification, token) }),
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json",
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      endpoint,
+      {
+        body: JSON.stringify({ message: buildFcmMessage(notification, token) }),
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+      FCM_REQUEST_TIMEOUT_MS
+    );
     if (response.ok) {
       return { kind: "sent" };
     }
@@ -283,6 +317,49 @@ async function sendFcmMessage(
   }
 }
 
+function isRetryableFcmStatus(status: number | null): boolean {
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status === null ||
+    status >= 500
+  );
+}
+
+async function sendFcmMessageWithRetry(
+  endpoint: string,
+  accessToken: string,
+  notification: NotificationRecord,
+  token: string,
+  fetchImpl: typeof fetch,
+  attempt = 1
+): Promise<FcmSendOutcome> {
+  const outcome = await sendFcmMessage(
+    endpoint,
+    accessToken,
+    notification,
+    token,
+    fetchImpl
+  );
+  if (
+    outcome.kind !== "failed" ||
+    !isRetryableFcmStatus(outcome.detail.status) ||
+    attempt >= FCM_SEND_MAX_ATTEMPTS
+  ) {
+    return outcome;
+  }
+  await sleep(FCM_SEND_RETRY_BASE_MS * 2 ** (attempt - 1));
+  return await sendFcmMessageWithRetry(
+    endpoint,
+    accessToken,
+    notification,
+    token,
+    fetchImpl,
+    attempt + 1
+  );
+}
+
 // Delivers one notification to a user's FCM devices. Never throws: a transport
 // failure is counted so the worker job cannot be poisoned by a push outage.
 // Sends sequentially because each message is a separate HTTP call and a user
@@ -293,9 +370,9 @@ export async function sendFcmPush(
   options: SendFcmOptions
 ): Promise<FcmPushResult> {
   const result: FcmPushResult = { failed: 0, sent: 0, unregistered: [] };
-  const deliverable = targets.filter(
-    (target) => target.provider === "fcm" && isFcmToken(target.token)
-  );
+  const deliverable = targets
+    .filter((target) => target.provider === "fcm" && isFcmToken(target.token))
+    .slice(0, MAX_DEVICE_TARGETS_PER_USER);
   if (deliverable.length === 0 || !options.serviceAccount) {
     return result;
   }
@@ -315,13 +392,25 @@ export async function sendFcmPush(
     });
     return result;
   }
+  options.onAccessToken?.(auth);
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const endpoint = `${FCM_SEND_BASE}/${encodeURIComponent(options.serviceAccount.projectId)}/messages:send`;
+  const deadline = Date.now() + PUSH_BATCH_BUDGET_MS;
 
-  for (const target of deliverable) {
-    // oxlint-disable-next-line no-await-in-loop -- one HTTP request per message, and FCM rate-limits per project, so a bounded serial loop keeps the worker's concurrency budget predictable
-    const outcome = await sendFcmMessage(
+  const sendNext = async (index: number): Promise<void> => {
+    if (index >= deliverable.length) {
+      return;
+    }
+    const target = deliverable[index];
+    if (!target || Date.now() >= deadline) {
+      result.failed += deliverable.length - index;
+      options.logger?.warn("push.fcm_batch_budget_exhausted", {
+        remaining: deliverable.length - index,
+      });
+      return;
+    }
+    const outcome = await sendFcmMessageWithRetry(
       endpoint,
       auth.token,
       notification,
@@ -341,7 +430,10 @@ export async function sendFcmPush(
         status: outcome.detail.status,
       });
     }
-  }
+    await sendNext(index + 1);
+  };
+
+  await sendNext(0);
 
   return result;
 }

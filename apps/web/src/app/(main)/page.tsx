@@ -1,5 +1,6 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
@@ -50,6 +51,15 @@ export default function Page() {
 }
 
 async function HomeContent() {
+  // Marks this subtree request-bound before any read. Prisma 8 stamps every
+  // query with a crypto.randomUUID() plan id, and Next's Cache Components
+  // prerender rejects an uncached value it cannot bake into a static shell, so
+  // an unclaimed database read in the shell aborts the prerender. The session
+  // lookup only reads headers() for guests on some paths, which does not claim
+  // the scope either - the explicit connection() does, and the Suspense
+  // boundary above keeps the shell prerenderable.
+  await connection();
+
   const session = await getSessionFromApi();
 
   // Guests can browse the home feed; the client decides which tabs and

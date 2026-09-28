@@ -6,10 +6,12 @@
 // media column behind the explicit gate, and the mobile action bar.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import {
   BookmarkToggle,
   CommentButton,
@@ -30,6 +32,7 @@ import {
   MediaGallery,
   ModeratedNotice,
 } from "@/features/feed/components/post-media";
+import { getPostRailColor } from "@/features/feed/lib/feed-rail";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import {
   extractInlineMeta,
@@ -45,7 +48,12 @@ import {
 } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
+import {
+  subscribeCountDeltas,
+  withCountDelta,
+} from "@/features/post/lib/comment-count-deltas";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -57,7 +65,7 @@ interface PostDetailCardProps {
   // Web parity (isJoined switches Card vs plain div on web); native
   // renders one surface either way.
   joined?: boolean;
-  onMore: (post: FeedPost) => void;
+  onMore: (post: FeedPost, anchor: MenuAnchor) => void;
   onOpenMedia: (index: number) => void;
   onShare: (post: FeedPost) => void;
   onToggleEddies: () => void;
@@ -87,7 +95,6 @@ export function PostDetailCard({
   const avatarUri = author?.avatarUrl
     ? resolveProfileImageUrl(author.avatarUrl, apiBase)
     : null;
-  const viewerLoggedIn = Boolean(viewerId);
 
   const requireLogin = () => {
     router.push("/(auth)/login");
@@ -112,8 +119,27 @@ export function PostDetailCard({
     [post.embeds]
   );
   const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
-  const commentCount = post._count?.comments ?? 0;
-  const responseCount = post._count?.responses ?? 0;
+  // The delta store is module-level, so this card has to be nudged to
+  // re-read it when an event lands on any post.
+  const [, setDeltaTick] = useState(0);
+  useEffect(
+    () => subscribeCountDeltas(() => setDeltaTick((value) => value + 1)),
+    []
+  );
+
+  // Counts move as stream events land, without waiting for a refetch, so the
+  // number under the comment icon agrees with the thread above it.
+  const commentCount = withCountDelta(
+    post.id,
+    "comments",
+    post._count?.comments ?? 0
+  );
+  const responseCount = withCountDelta(
+    post.id,
+    "responses",
+    post._count?.responses ?? 0
+  );
+  const railColor = getPostRailColor(post, isDark);
 
   return (
     <View
@@ -125,12 +151,40 @@ export function PostDetailCard({
         },
       ]}
     >
+      {railColor ? (
+        <View
+          pointerEvents="none"
+          style={[styles.leftRail, { backgroundColor: railColor }]}
+        />
+      ) : null}
+      {!hasThreadParent && post.parentPostId ? (
+        <ResponseParentRow post={post} />
+      ) : null}
+
       {post.community ? (
-        <View style={styles.attribution}>
+        <Pressable
+          accessibilityLabel={`Community a/${post.community.slug}`}
+          accessibilityRole="link"
+          onPress={(event) => {
+            event.stopPropagation();
+            if (post.community?.slug) {
+              router.push({
+                params: { slug: post.community.slug },
+                pathname: "/a/[slug]",
+              });
+            }
+          }}
+          style={styles.attribution}
+        >
           <View
             style={[
               styles.attributionBar,
-              { backgroundColor: post.community.accentColor ?? "#ff9500" },
+              {
+                backgroundColor: resolveCommunityAccentColor(
+                  post.community.accentColor,
+                  isDark
+                ),
+              },
             ]}
           />
           <Text
@@ -139,11 +193,7 @@ export function PostDetailCard({
           >
             a/{post.community.slug}
           </Text>
-        </View>
-      ) : null}
-
-      {!hasThreadParent && post.parentPostId ? (
-        <ResponseParentRow post={post} />
+        </Pressable>
       ) : null}
 
       {hasThreadParent ? (
@@ -154,6 +204,7 @@ export function PostDetailCard({
               style={[styles.railStub, { backgroundColor: theme.cardBorder }]}
             />
             <Image
+              cachePolicy={imageCachePolicy(avatarUri)}
               contentFit="cover"
               onError={() => setAvatarFailed(true)}
               source={
@@ -203,7 +254,7 @@ export function PostDetailCard({
                 </Text>
               </View>
               <View style={styles.moreFix}>
-                <MoreButton onPress={() => onMore(post)} />
+                <MoreButton onPress={(anchor) => onMore(post, anchor)} />
               </View>
             </View>
             <DetailBody
@@ -223,7 +274,6 @@ export function PostDetailCard({
               responseCount={responseCount}
               showAlt={showAlt}
               viewerId={viewerId}
-              viewerLoggedIn={viewerLoggedIn}
             />
           </View>
         </View>
@@ -231,6 +281,7 @@ export function PostDetailCard({
         <View>
           <View style={styles.detailHead}>
             <Image
+              cachePolicy={imageCachePolicy(avatarUri)}
               contentFit="cover"
               onError={() => setAvatarFailed(true)}
               source={
@@ -279,12 +330,12 @@ export function PostDetailCard({
               </Text>
             </View>
             <View style={styles.detailMore}>
-              <MoreButton onPress={() => onMore(post)} />
+              <MoreButton onPress={(anchor) => onMore(post, anchor)} />
               <BookmarkToggle
                 initialBookmarked={isBookmarkedByUser(post, viewerId)}
                 onRequireLogin={requireLogin}
                 postId={post.id}
-                viewerLoggedIn={viewerLoggedIn}
+                viewerId={viewerId ?? null}
               />
             </View>
           </View>
@@ -306,7 +357,6 @@ export function PostDetailCard({
               responseCount={responseCount}
               showAlt={showAlt}
               viewerId={viewerId}
-              viewerLoggedIn={viewerLoggedIn}
               hideBookmark
             />
           </View>
@@ -334,7 +384,6 @@ function DetailBody({
   responseCount,
   showAlt,
   viewerId,
-  viewerLoggedIn,
 }: {
   apiBase: string;
   attachments: FeedPost["attachments"] & object;
@@ -353,7 +402,6 @@ function DetailBody({
   responseCount: number;
   showAlt: boolean;
   viewerId: string | undefined;
-  viewerLoggedIn: boolean;
 }) {
   const { theme } = useAppTheme();
   const list = Array.isArray(attachments) ? attachments : [];
@@ -452,7 +500,7 @@ function DetailBody({
           onRequireLogin={requireLogin}
           postId={post.id}
           userVote={getUserVote(post)}
-          viewerLoggedIn={viewerLoggedIn}
+          viewerId={viewerId ?? null}
         />
         <CommentButton count={commentCount} onPress={onToggleEddies} />
         <RespondButton count={responseCount} post={post} />
@@ -464,7 +512,7 @@ function DetailBody({
               initialBookmarked={isBookmarkedByUser(post, viewerId)}
               onRequireLogin={requireLogin}
               postId={post.id}
-              viewerLoggedIn={viewerLoggedIn}
+              viewerId={viewerId ?? null}
             />
           )}
         </View>
@@ -544,6 +592,7 @@ const styles = StyleSheet.create({
   },
   card: {
     paddingHorizontal: 16,
+    position: "relative",
   },
   content: {
     flex: 1,
@@ -626,6 +675,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "space-between",
+  },
+  leftRail: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    top: 0,
+    width: 2,
+    zIndex: 10,
   },
   mainRow: {
     alignItems: "flex-start",

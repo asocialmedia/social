@@ -20,7 +20,13 @@ interface ExploreGustsRailProps {
 
 const VIDEO_HOVER_DELAY = 150;
 
-const GustRailCard = ({ gust }: { gust: PostData }) => {
+const GustRailCard = ({
+  gust,
+  priority,
+}: {
+  gust: PostData;
+  priority?: boolean;
+}) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -98,6 +104,10 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
           gust.explicitContent && "opacity-60 blur-lg saturate-50"
         )}
         fill
+        // Only the first card in the rail: it is the one on screen at paint
+        // time, and on a quiet explore page it becomes the LCP. The rest of the
+        // rail stays lazy so it does not compete with the feed for bandwidth.
+        loading={priority ? "eager" : "lazy"}
         sizes="(max-width: 640px) 144px, 176px"
         src={thumbUrl}
         unoptimized
@@ -224,8 +234,8 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
 
       {/* Horizontal scrollable rail with a right-edge fade hint */}
       <div className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] px-4 pt-0.5 pb-4">
-        {eligibleGusts.map((gust) => (
-          <GustRailCard gust={gust} key={gust.id} />
+        {eligibleGusts.map((gust, index) => (
+          <GustRailCard gust={gust} key={gust.id} priority={index === 0} />
         ))}
       </div>
     </section>

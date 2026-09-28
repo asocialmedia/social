@@ -158,6 +158,7 @@ export function SendButton({
 
 export function EddieComposer({
   autoFocus,
+  inline = false,
   onCancel,
   onPosted,
   parentId,
@@ -167,6 +168,10 @@ export function EddieComposer({
   replyingTo,
 }: {
   autoFocus?: boolean;
+  // The inline reply slot. Drops the standalone composer's vertical margin: the
+  // wrapper already spaces it, and that margin pushed the 40px avatar off the
+  // rail's AVATAR_CENTER, breaking the reply indent.
+  inline?: boolean;
   onCancel?: () => void;
   onPosted?: (comment: FeedComment) => void;
   parentId?: string;
@@ -266,7 +271,7 @@ export function EddieComposer({
   );
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, inline && styles.wrapInline]}>
       <View style={styles.row}>
         <UserAvatar size={40} url={viewerAvatar} />
         <View style={styles.column}>
@@ -502,5 +507,8 @@ const styles = StyleSheet.create({
   wrap: {
     marginVertical: 12,
     width: "100%",
+  },
+  wrapInline: {
+    marginVertical: 0,
   },
 });

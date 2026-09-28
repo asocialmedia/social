@@ -257,6 +257,31 @@ describe("sendFcmPush", () => {
     expect(result.sent).toBe(0);
   });
 
+  test("retries transient FCM failures", async () => {
+    let sendCalls = 0;
+    const fetchImpl = ((input: RequestInfo | URL) => {
+      if (String(input) === FCM_OAUTH_ENDPOINT) {
+        return Promise.resolve(
+          Response.json({ access_token: "ya29.test", expires_in: 3600 })
+        );
+      }
+      sendCalls += 1;
+      return sendCalls === 1
+        ? Promise.resolve(new Response("{}", { status: 503 }))
+        : Promise.resolve(Response.json({ name: "projects/x/messages/1" }));
+    }) as unknown as typeof fetch;
+
+    const result = await sendFcmPush(
+      base(),
+      [{ platform: "android", provider: "fcm", token: "token-1" }],
+      { fetchImpl, serviceAccount: account }
+    );
+
+    expect(sendCalls).toBe(2);
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
   test("counts a non-unregistered send error as failed", async () => {
     const fetchImpl = ((input: RequestInfo | URL) => {
       if (String(input) === FCM_OAUTH_ENDPOINT) {

@@ -40,6 +40,10 @@ export const MediaGalleryLocked: React.FC<{ bare?: boolean }> = ({
         className="h-28 w-auto object-contain"
         draggable={false}
         height={1024}
+        // This placeholder IS the panel when a profile has no media, so it is
+        // the largest paint on the tab. Lazy-loading it makes the empty state
+        // pop in after the copy around it.
+        loading="eager"
         src={noMediaImage}
         width={1536}
       />
@@ -64,6 +68,8 @@ export const MediaGalleryLocked: React.FC<{ bare?: boolean }> = ({
           className="h-28 w-auto object-contain"
           draggable={false}
           height={1024}
+          // Same reasoning as the bare variant: it is the panel's main paint.
+          loading="eager"
           src={noMediaImage}
           width={1536}
         />

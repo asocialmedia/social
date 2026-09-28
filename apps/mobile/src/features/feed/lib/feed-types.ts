@@ -81,9 +81,11 @@ export interface FeedCommunity {
 
 export interface FeedParentPost {
   attachments?: FeedMedia[];
+  community?: FeedCommunity | null;
   content?: string | null;
   createdAt: string;
   embeds?: string | null;
+  id?: string;
   isGust?: boolean;
   moderated?: boolean;
   user?: FeedUser;
@@ -151,6 +153,16 @@ export function insertionOrder<T>(
     ordered.splice(index, 0, item);
   }
   return ordered;
+}
+
+interface IndexedItem {
+  index?: number | null;
+}
+
+// FlatList does not guarantee viewableItems order. Keep the callback on the
+// Hermes-safe insertion path instead of Array.sort/toSorted.
+export function orderByIndex<T extends IndexedItem>(items: readonly T[]): T[] {
+  return insertionOrder(items, (a, b) => (a.index ?? 0) - (b.index ?? 0));
 }
 
 function countOf(value: unknown): number {

@@ -17,6 +17,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import {
   Bookmark,
   CalendarDays,
@@ -44,6 +45,7 @@ import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
 import {
   AVATAR_RING_SHADOWS,
@@ -96,6 +98,7 @@ function BannerContent({
   if (bannerUri) {
     return (
       <Image
+        cachePolicy={imageCachePolicy(bannerUri)}
         contentFit="cover"
         source={{ uri: bannerUri }}
         style={styles.bannerImage}
@@ -107,6 +110,7 @@ function BannerContent({
     return (
       <Image
         blurRadius={20}
+        cachePolicy={imageCachePolicy(avatarUri)}
         contentFit="cover"
         source={{ uri: avatarUri }}
         style={[styles.bannerImage, styles.bannerBlurred]}
@@ -158,6 +162,7 @@ interface UserProfilePopupProps {
 
 export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
   const { isDark, theme } = useAppTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { signOut } = useSessionContext();
   const { reload, state }: { reload: () => void; state: PopupDataState } =
@@ -195,8 +200,17 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
     // closing first would unmount the dialog before it ever appears.
     setLogoutOpen(true);
   };
-
   const profile = state.status === "ready" ? state.profile : null;
+  const openProfile = () => {
+    if (!profile) {
+      return;
+    }
+    onClose();
+    router.push({
+      params: { username: profile.username },
+      pathname: "/users/[username]",
+    });
+  };
   const bookmarkTotal = state.status === "ready" ? state.bookmarkTotal : null;
   const socialLinks = profile ? getSocialLinks(profile) : [];
   const flame = getAuraFlameStyle(profile?.aura ?? 0);
@@ -291,35 +305,46 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
 
               <View style={styles.identity}>
                 <View style={styles.avatarRow}>
-                  <View style={styles.avatarFrame}>
-                    <Image
-                      contentFit="cover"
-                      onError={() => {
-                        logWarn("profile.popup_avatar_failed", {});
-                        setAvatarFailed(true);
-                      }}
-                      source={
-                        avatarUri && !avatarFailed
-                          ? { uri: avatarUri }
-                          : avatarPlaceholder
-                      }
-                      style={[styles.avatar, { backgroundColor: theme.cardBg }]}
-                    />
-                    {/* 4px card ring (web ring-4) plus the avatar-ring bevel:
-                        boxShadow is not part of expo-image's ImageStyle. */}
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.avatarRing,
-                        {
-                          borderColor: theme.cardBg,
-                          boxShadow: isDark
-                            ? AVATAR_RING_SHADOWS_DARK
-                            : AVATAR_RING_SHADOWS,
-                        },
-                      ]}
-                    />
-                  </View>
+                  <Pressable
+                    accessibilityLabel={`Open @${profile.username}'s profile`}
+                    accessibilityRole="link"
+                    onPress={openProfile}
+                    style={styles.avatarLink}
+                  >
+                    <View style={styles.avatarFrame}>
+                      <Image
+                        cachePolicy={imageCachePolicy(avatarUri)}
+                        contentFit="cover"
+                        onError={() => {
+                          logWarn("profile.popup_avatar_failed", {});
+                          setAvatarFailed(true);
+                        }}
+                        source={
+                          avatarUri && !avatarFailed
+                            ? { uri: avatarUri }
+                            : avatarPlaceholder
+                        }
+                        style={[
+                          styles.avatar,
+                          { backgroundColor: theme.cardBg },
+                        ]}
+                      />
+                      {/* 4px card ring (web ring-4) plus the avatar-ring bevel:
+                          boxShadow is not part of expo-image's ImageStyle. */}
+                      <View
+                        pointerEvents="none"
+                        style={[
+                          styles.avatarRing,
+                          {
+                            borderColor: theme.cardBg,
+                            boxShadow: isDark
+                              ? AVATAR_RING_SHADOWS_DARK
+                              : AVATAR_RING_SHADOWS,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </Pressable>
                   {joined ? (
                     <View style={styles.joined}>
                       <CalendarDays color={theme.dividerText} size={14} />
@@ -337,12 +362,24 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
 
                 <View style={styles.nameBlock}>
                   <View style={styles.nameRow}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.name, { color: theme.inputText }]}
+                    <Pressable
+                      accessibilityLabel={`Open @${profile.username}'s profile`}
+                      accessibilityRole="link"
+                      onPress={openProfile}
+                      style={styles.identityLink}
                     >
-                      {profile.displayName || profile.username}
-                    </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.name, { color: theme.inputText }]}
+                      >
+                        {profile.displayName || profile.username}
+                      </Text>
+                      <Text
+                        style={[styles.handle, { color: theme.dividerText }]}
+                      >
+                        @{profile.username}
+                      </Text>
+                    </Pressable>
                     <UserBadge
                       badge={profile.badge}
                       badges={profile.badges}
@@ -351,9 +388,6 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                       open={badgesOpen}
                     />
                   </View>
-                  <Text style={[styles.handle, { color: theme.dividerText }]}>
-                    @{profile.username}
-                  </Text>
                   {/* Floating panel like web's hover card: absolutely
                       positioned over the content below, so the card must not
                       clip (overflow visible; only the banner clips itself). */}
@@ -445,9 +479,11 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                 {/* h-9 premium pill, same construction as the bookmarks row
                     below: the shared AuthPrimaryButton is h-11 and would sit
                     taller than its siblings. */}
-                <View
-                  accessibilityLabel="View profile (coming soon)"
-                  style={[styles.actionBtn, styles.stub]}
+                <Pressable
+                  accessibilityLabel="View profile"
+                  accessibilityRole="button"
+                  onPress={openProfile}
+                  style={styles.actionBtn}
                 >
                   <LinearGradient
                     colors={["#ff9500", "#e65500"]}
@@ -457,20 +493,24 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                   >
                     <Text style={styles.actionText}>View Profile</Text>
                   </LinearGradient>
-                </View>
-                <View
-                  accessibilityLabel="Open settings (coming soon)"
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Open settings"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => {
+                    router.push("/settings");
+                  }}
                   style={[
                     styles.iconBtn,
                     {
                       backgroundColor: theme.passkeyBg,
                       boxShadow: iconShadows,
                     },
-                    styles.stub,
                   ]}
                 >
                   <Settings2 color={theme.passkeyIcon} size={16} />
-                </View>
+                </Pressable>
                 <Pressable
                   accessibilityLabel="Log out"
                   accessibilityRole="button"
@@ -496,8 +536,16 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                 </Pressable>
               </View>
 
-              <View style={[styles.bookmarks, styles.stub]}>
-                <View style={styles.bookmarksBtn}>
+              <View style={styles.bookmarks}>
+                <Pressable
+                  accessibilityLabel="Open bookmarks"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onClose();
+                    router.push("/bookmarks");
+                  }}
+                  style={styles.bookmarksBtn}
+                >
                   <LinearGradient
                     colors={["#ff9500", "#e65500"]}
                     end={{ x: 0.5, y: 1 }}
@@ -514,7 +562,7 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                       </View>
                     ) : null}
                   </LinearGradient>
-                </View>
+                </Pressable>
               </View>
             </>
           ) : null}
@@ -548,9 +596,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
     letterSpacing: -0.3,
-    textShadowColor: "rgba(0, 0, 0, 0.2)",
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 1,
+    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
+      string,
+      string
+    >),
   },
   actions: {
     alignItems: "center",
@@ -565,6 +614,10 @@ const styles = StyleSheet.create({
     width: 72,
   },
   avatarFrame: {
+    height: 72,
+    width: 72,
+  },
+  avatarLink: {
     height: 72,
     width: 72,
   },
@@ -656,9 +709,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
     letterSpacing: -0.3,
-    textShadowColor: "rgba(0, 0, 0, 0.2)",
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 1,
+    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
+      string,
+      string
+    >),
   },
   card: {
     borderRadius: 16,
@@ -716,6 +770,10 @@ const styles = StyleSheet.create({
   },
   identity: {
     paddingHorizontal: 16,
+  },
+  identityLink: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   joined: {
     alignItems: "center",

@@ -66,6 +66,7 @@ import {
 import {
   isAudioMedia,
   isVideoMedia,
+  isGifMedia,
   mediaImageUrl,
   mediaPosterUrl,
   mediaVideoUrl,
@@ -82,6 +83,7 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -608,7 +610,6 @@ export function PostMediaScreen({
     [post]
   );
   const currentMedia = media[currentIndex];
-  const viewerLoggedIn = Boolean(viewerId);
 
   const requireLogin = useCallback(() => {
     router.push("/(auth)/login");
@@ -707,6 +708,7 @@ export function PostMediaScreen({
         if (!active) {
           return (
             <Image
+              cachePolicy={imageCachePolicy(mediaPosterUrl(apiBase, item.id))}
               contentFit="contain"
               source={{ uri: mediaPosterUrl(apiBase, item.id) }}
               style={styles.media}
@@ -734,6 +736,10 @@ export function PostMediaScreen({
       return (
         <Image
           accessibilityLabel={item.altText ?? `Media item ${index + 1}`}
+          cachePolicy={imageCachePolicy(
+            mediaImageUrl(apiBase, item),
+            isGifMedia(item)
+          )}
           contentFit="contain"
           source={{ uri: mediaImageUrl(apiBase, item) }}
           style={styles.media}
@@ -962,7 +968,7 @@ export function PostMediaScreen({
                   onRequireLogin={requireLogin}
                   postId={post.id}
                   userVote={getUserVote(post)}
-                  viewerLoggedIn={viewerLoggedIn}
+                  viewerId={viewerId ?? null}
                 />
               </View>
               <View style={styles.actionsRight}>
@@ -978,7 +984,7 @@ export function PostMediaScreen({
                   initialBookmarked={isBookmarkedByUser(post, viewerId)}
                   onRequireLogin={requireLogin}
                   postId={post.id}
-                  viewerLoggedIn={viewerLoggedIn}
+                  viewerId={viewerId ?? null}
                 />
               </View>
             </View>

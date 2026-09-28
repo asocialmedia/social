@@ -15,8 +15,8 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { CornerDownRight, Trash2 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { CornerDownRight } from "lucide-react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -24,7 +24,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { Line, Path, Svg } from "react-native-svg";
+import type { LayoutChangeEvent } from "react-native";
+import { Path, Svg } from "react-native-svg";
 
 import noCommentsImage from "@/assets/images/nocomments.png";
 import noMediaImage from "@/assets/images/nomedia.png";
@@ -34,7 +35,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { ORANGE_GRADIENT } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { deleteEddie } from "@/features/composer/lib/publish-api";
-import { MoreMenu } from "@/features/feed/components/more-menu";
+import { ACTION_ICONS, MoreMenu } from "@/features/feed/components/more-menu";
 import type {
   MenuAnchor,
   MoreMenuEntry,
@@ -48,12 +49,23 @@ import { fetchCommentsPage } from "@/features/feed/lib/feed-api";
 import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { applyCountDelta } from "@/features/post/lib/comment-count-deltas";
 import { getShortPostId } from "@/features/post/lib/post-path";
+import { usePostStream } from "@/features/post/lib/use-post-stream";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
+import { imageCachePolicy } from "@/lib/image-cache";
 import { logError, logWarn } from "@/lib/telemetry";
 import { LOGIN_BUTTON_SHADOWS, useAppTheme } from "@/theme";
 
 import { subscribeEddieCreated } from "../lib/eddie-events";
+import {
+  AVATAR_CENTER,
+  computeEddieRailGeometry,
+  RAIL_LEFT,
+  RAIL_STROKE,
+  REPLY_INDENT,
+} from "../lib/eddie-rail";
 import {
   buildEddieTree,
   MAX_EDDIE_DEPTH,
@@ -66,54 +78,86 @@ import { useEddieComposerStore } from "../state/eddie-composer-store";
 import { DeleteEddieDialog } from "./delete-eddie-dialog";
 import { EddieComposer } from "./eddie-composer";
 
-// Avatar geometry for the rail connectors: 40px avatar, 10px row padding,
-// so the avatar center sits at 30px; the rail channel centers at 16px.
-const AVATAR_CENTER = 30;
-const RAIL_X = 16;
-const CURVE_RADIUS = 16;
-const REPLY_INDENT = 32;
 const POLL_MS = 8000;
 
+// First-paint guess for the avatar's centre, refined by onLayout. Keeping the
+// constant here documents the expected geometry without the rail depending on it.
+const RAIL_GEOMETRY_SEED = { avatarCenter: AVATAR_CENTER, commentTop: 0 };
+
+// The entry list is pure data so it can be unit tested, which means the glyph
+// lives with the panel. This row is the one place that hand-builds a single
+// entry, so it takes the glyph from the same map.
 const DELETE_ENTRY: MoreMenuEntry[] = [
   {
     action: { type: "delete" },
     destructive: true,
-    icon: Trash2,
+    icon: ACTION_ICONS.delete,
     label: "Delete",
   },
 ];
 
-function EddieRail({ isLast }: { isLast: boolean }) {
+// The reply connector: a vertical run down the parent's avatar column that
+// curves right into this reply's avatar, like web's rail.
+//
+// Split into three parts because neither shape alone can do the job in Yoga.
+// The curve is an SVG, which is the only thing here that can draw an arc. But
+// the rail has to run on to the bottom of the row for a non-last sibling, and a
+// percentage height does not resolve against a content-sized parent - which is
+// what truncated the original SVG and left the line hanging in space. So the
+// run is a View (top/bottom, always resolves) and the SVG carries ONLY the
+// fixed-size turn, with no percentage dimension and no negative origin to be
+// clipped at the viewport edge.
+function EddieRail({
+  avatarCenter,
+  isLast,
+}: {
+  // Where the avatar's centre line actually landed, measured by the row. The
+  // rail is drawn against this rather than a computed constant, so it cannot
+  // drift from the avatar when padding, avatar size or nesting changes.
+  avatarCenter: number;
+  isLast: boolean;
+}) {
   const { theme } = useAppTheme();
   const color = theme.cardBorder;
+  const geometry = computeEddieRailGeometry(avatarCenter, isLast);
   return (
-    <Svg
-      height={isLast ? AVATAR_CENTER + 4 : "100%"}
-      pointerEvents="none"
-      style={styles.railSvg}
-      width={REPLY_INDENT + 4}
-    >
-      {isLast ? null : (
-        <Line
-          stroke={color}
-          strokeWidth={2}
-          x1={RAIL_X}
-          x2={RAIL_X}
-          y1={-1}
-          y2="100%"
-        />
-      )}
-      <Path
-        d={
-          isLast
-            ? `M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
-            : `M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${REPLY_INDENT} ${AVATAR_CENTER} H ${REPLY_INDENT + 2}`
-        }
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
+    <>
+      {/* Vertical run into the turn. A last sibling stops at the turn; one that
+          still has replies below carries on to the bottom of the row, so the
+          whole thread reads as one unbroken channel. */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.railVertical,
+          { backgroundColor: color },
+          isLast ? { height: geometry.verticalHeight ?? 0 } : { bottom: 0 },
+        ]}
       />
-    </Svg>
+      {/* The turn, in a box sized to hold the arc plus half a stroke of bleed
+          on every side, so the stroke is never clipped at the SVG viewport. */}
+      <Svg
+        height={geometry.curveBox}
+        pointerEvents="none"
+        style={[styles.railCurve, { top: geometry.curveTop }]}
+        width={geometry.curveBox}
+      >
+        <Path
+          d={`M ${geometry.railStroke / 2} ${geometry.railStroke / 2} A ${geometry.curveRadius} ${geometry.curveRadius} 0 0 0 ${geometry.curveBox - 1} ${geometry.curveBox - 1}`}
+          fill="none"
+          stroke={color}
+          strokeWidth={geometry.railStroke}
+        />
+      </Svg>
+      {/* Short run from the end of the arc into the avatar, tucked under its
+          edge so no seam can open at the join. */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.railTail,
+          { backgroundColor: color, top: geometry.tailTop },
+        ]}
+      />
+    </>
   );
 }
 
@@ -141,6 +185,10 @@ function EddieImage({
     <View style={styles.attachment}>
       <Image
         accessibilityLabel="Eddie attachment"
+        cachePolicy={imageCachePolicy(
+          eddieImageUrl(apiBase, media),
+          media.mimeType === "image/gif"
+        )}
         contentFit="contain"
         onError={() => setFailed(true)}
         source={failed ? noMediaImage : { uri: eddieImageUrl(apiBase, media) }}
@@ -152,10 +200,38 @@ function EddieImage({
 
 interface RowHandlers {
   onDelete: (commentId: string) => void;
+  onLayoutRow: (commentId: string, yWithinParent: number) => void;
   onMore: (commentId: string, anchor: MenuAnchor) => void;
+  /** Opens the given author's profile, as web's linked name and avatar do. */
+  onOpenAuthor: (username: string) => void;
   onReply: (node: EddieNode) => void;
   onRequireLogin: () => void;
 }
+
+/** Summed y from `node` down to `targetId`, or null when it is not below. */
+function offsetWithin(
+  nodes: readonly EddieNode[],
+  targetId: string,
+  parentY = 0
+): number | null {
+  for (const node of nodes) {
+    const ownY = rowOffsetRegistry.get(node.comment.id);
+    const absolute = parentY + (ownY ?? 0);
+    if (node.comment.id === targetId) {
+      return absolute;
+    }
+    const found = offsetWithin(node.children, targetId, absolute);
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
+
+// Rows publish their offset here as they lay out. Module scope because the
+// offsets describe the tree, not any one mount, and a remount with the same
+// comments should resolve to the same answer.
+const rowOffsetRegistry = new Map<string, number>();
 
 function EddieRow({
   apiBase,
@@ -177,6 +253,7 @@ function EddieRow({
   viewerId: string | undefined;
 }) {
   const { theme } = useAppTheme();
+  const { onLayoutRow, onOpenAuthor } = handlers;
   const { comment, depth } = node;
   const commentUser = comment.user ?? null;
   const username = commentUser?.username || "unknown";
@@ -192,20 +269,62 @@ function EddieRow({
       media && (media.type === "IMAGE" || media.mimeType?.startsWith("image/"))
   );
 
+  // The rail is drawn from the avatar's real measured centre rather than a
+  // computed constant, so it cannot drift from the avatar. Measured from
+  // avatarWrap with alignSelf: "flex-start", which keeps it sized to the avatar
+  // instead of stretched to the row - a stretched box reports the comment's
+  // full height and threw the turn far below the avatar.
+  // Seeded with AVATAR_CENTER so the first paint is already close, and each
+  // handler no-ops when the value has not moved, so stable layouts cost nothing.
+  const [rail, setRail] = useState(RAIL_GEOMETRY_SEED);
+  const handleCommentLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { y } = event.nativeEvent.layout;
+      setRail((current) =>
+        current.commentTop === y ? current : { ...current, commentTop: y }
+      );
+      onLayoutRow(node.comment.id, y);
+    },
+    [node.comment.id, onLayoutRow]
+  );
+  const handleAvatarLayout = useCallback((event: LayoutChangeEvent) => {
+    const { height, y } = event.nativeEvent.layout;
+    setRail((current) => {
+      const avatarCenter = current.commentTop + y + height / 2;
+      return current.avatarCenter === avatarCenter
+        ? current
+        : { ...current, avatarCenter };
+    });
+  }, []);
+
   return (
     <View style={[depth > 0 && !beyondCap && styles.nested]}>
-      {depth > 0 ? <EddieRail isLast={isLast} /> : null}
-      {/* Stub hanging off a top-level avatar down to its replies. */}
-      {depth === 0 && (hasChildren || replying) ? (
-        <View
-          pointerEvents="none"
-          style={[styles.stub, { backgroundColor: theme.cardBorder }]}
-        />
+      {depth > 0 && !beyondCap ? (
+        <EddieRail avatarCenter={rail.avatarCenter} isLast={isLast} />
       ) : null}
-      <View style={styles.comment}>
-        <View style={styles.avatarWrap}>
+      <View onLayout={handleCommentLayout} style={styles.comment}>
+        {/* Stub: hangs this comment's avatar down to where its replies begin, so
+            the thread line reads as dropping off the parent. Scoped to the
+            comment content block, its bottom: 0 terminates cleanly at the start
+            of this comment's replies rather than trailing past the thread. */}
+        {hasChildren || replying ? (
+          <View
+            pointerEvents="none"
+            style={[styles.stub, { backgroundColor: theme.cardBorder }]}
+          />
+        ) : null}
+        <Pressable
+          accessibilityLabel={`Open ${name}'s profile`}
+          accessibilityRole="link"
+          disabled={!username || username === "unknown"}
+          onPress={() => onOpenAuthor(username)}
+          style={styles.avatarWrap}
+          // The rail is drawn from this wrapper's measured box, so the layout
+          // pass has to stay on the wrapper rather than moving inside it.
+          onLayout={handleAvatarLayout}
+        >
           <UserAvatar radius={12} size={40} url={commentUser?.avatarUrl} />
-        </View>
+        </Pressable>
         <View style={styles.commentBody}>
           <View style={styles.commentHeadRow}>
             <View style={styles.commentHead}>
@@ -219,6 +338,7 @@ function EddieRow({
                 <>
                   <Text
                     numberOfLines={1}
+                    onPress={() => onOpenAuthor(username)}
                     style={[styles.commentName, { color: theme.inputText }]}
                   >
                     {name}
@@ -272,7 +392,7 @@ function EddieRow({
                 onRequireLogin={() => handlers.onRequireLogin()}
                 postId={postId}
                 userVote={comment.votes?.[0]?.value ?? 0}
-                viewerLoggedIn={Boolean(viewerId)}
+                viewerId={viewerId ?? null}
               />
               <Pressable
                 accessibilityLabel="Reply to eddie"
@@ -293,9 +413,10 @@ function EddieRow({
 
       {replying && !isDeleted ? (
         <View style={styles.replyComposer}>
-          <EddieRail isLast={!hasChildren} />
+          <EddieRail avatarCenter={rail.avatarCenter} isLast={!hasChildren} />
           <EddieComposer
             autoFocus
+            inline
             onCancel={onCloseInlineReply}
             onPosted={onCloseInlineReply}
             parentId={comment.id}
@@ -349,6 +470,8 @@ function EddieSkeleton() {
 }
 
 export interface EddieThreadProps {
+  /** Fires once the deep-scroll target's offset inside this thread is known. */
+  onCommentOffset?: (commentId: string, yInThread: number) => void;
   postId: string;
   // Threaded cards carry tighter card padding, so the gap above the
   // border matches web's thread rhythm (pb-2) instead of the full pb-4.
@@ -358,10 +481,14 @@ export interface EddieThreadProps {
   // refetch while the drawer is open.
   variant?: "card" | "page" | "reels";
   viewerId: string | undefined;
+  /** Web's ?comment= deep scroll: the eddie to bring into view. */
+  scrollToCommentId?: string | null;
 }
 
 export function EddieThread({
+  onCommentOffset,
   postId,
+  scrollToCommentId = null,
   tight = false,
   variant = "card",
   viewerId,
@@ -442,13 +569,36 @@ export function EddieThread({
     [postId]
   );
 
+  // Web holds an SSE connection open for the thread and applies created and
+  // deleted events as they land, so an eddie posted elsewhere appears without
+  // waiting for a tick. The poll below stays as the fallback: the stream and
+  // the poll both re-read on reconnect, so they cannot disagree.
+  usePostStream({
+    enabled: pagesInPlace,
+    kind: "comments",
+    onCountDelta: (delta, eventPostId) => {
+      applyCountDelta({ field: "comments", postId: eventPostId }, delta);
+    },
+    onEvent: (event) => {
+      setComments((current) => {
+        if (event.kind === "created") {
+          return withCreatedEddie(current, event.payload as FeedComment);
+        }
+        return withDeletedEddie(current, (event.payload as FeedComment).id);
+      });
+      setStatus("ready");
+    },
+    postId,
+  });
+
   // Web polls the post page's thread (and the open gust drawer) every 8s.
   useEffect(() => {
     if (!pagesInPlace) {
       return;
     }
-    const timer = setInterval(() => {
-      void (async () => {
+    const poller = createExpoPoller({
+      intervalMs: POLL_MS,
+      onPoll: async () => {
         try {
           const cookie = await authClient.getCookie();
           const page = await fetchCommentsPage(postId, null, {
@@ -459,11 +609,10 @@ export function EddieThread({
         } catch {
           // Polling is best-effort; the next tick tries again.
         }
-      })();
-    }, POLL_MS);
-    return () => {
-      clearInterval(timer);
-    };
+      },
+    });
+    poller.start();
+    return () => poller.stop();
   }, [apiBase, pagesInPlace, postId]);
 
   const loadMore = async () => {
@@ -495,9 +644,58 @@ export function EddieThread({
     router.push("/(auth)/login");
   };
 
+  // Rows report their offset within their own parent, and a reply's absolute
+  // position is its parent's plus its own, so the deep-scroll target can be
+  // turned into a scroll offset without measuring the whole tree at once.
+  const rowOffsets = useRef(new Map<string, number>());
+  const [rowsVersion, setRowsVersion] = useState(0);
+  const reportRowOffset = useCallback((commentId: string, y: number) => {
+    const current = rowOffsets.current.get(commentId);
+    if (current === y) {
+      return;
+    }
+    rowOffsets.current.set(commentId, y);
+    // The tree reads offsets from the module registry, so a new offset means a
+    // deep-scroll target may now resolve that it could not before.
+    rowOffsetRegistry.set(commentId, y);
+    setRowsVersion((value) => value + 1);
+  }, []);
+
+  // Deep scroll: rows land their offsets asynchronously, so the target is
+  // resolved from an effect that re-runs as the tree grows. Resolving to null
+  // tells the surface the eddie is not in this thread (paged out, or deleted),
+  // which is what stops a scroll to a guessed position.
+  useEffect(() => {
+    if (!scrollToCommentId || status !== "ready") {
+      return;
+    }
+    const y = offsetWithin(buildEddieTree(comments), scrollToCommentId);
+    onCommentOffset?.(scrollToCommentId, y ?? 0);
+    if (y === null) {
+      // The comment id is unique on its own, so this diagnostic does not need
+      // the post id, and leaving it out keeps the dependency list honest.
+      logWarn("eddies.scroll_target_missing", {
+        commentId: scrollToCommentId,
+      });
+    }
+    // rowsVersion is the trigger and is deliberately not read in the body: it
+    // ticks whenever a row lands its offset, which is exactly the moment the
+    // target may start resolving. The compiler cannot infer that, so it reads
+    // as an extra dependency.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [comments, onCommentOffset, rowsVersion, scrollToCommentId, status]);
+
   const handlers: RowHandlers = {
     onDelete: (commentId) => setDeleteTarget(commentId),
+    onLayoutRow: reportRowOffset,
     onMore: (commentId, anchor) => setMenu({ anchor, commentId }),
+    onOpenAuthor: (username) => {
+      if (!viewerId) {
+        requireLogin();
+        return;
+      }
+      router.push(`/users/${username}` as "/");
+    },
     onReply: (node) => {
       if (!viewerId) {
         requireLogin();
@@ -700,14 +898,26 @@ const styles = StyleSheet.create({
     height: 288,
     width: "100%",
   },
+  // alignSelf stops the default row stretch from inflating this box to the full
+  // comment height. The rail measures it to find the avatar's centre, and a
+  // stretched box reports the row height, which threw the connector's turn well
+  // below the avatar. Sized to its content it is exactly the avatar, so the
+  // measurement is the avatar's real centre.
   avatarWrap: {
+    alignSelf: "flex-start",
     position: "relative",
     zIndex: 1,
   },
+  // paddingBottom is tighter than paddingTop: the actions row already carries
+  // its own height, so equal padding left a visibly large gap under every
+  // eddie before the next one (or the divider) began. relative anchors the
+  // depth-0 stub to the content block rather than the whole thread.
   comment: {
     flexDirection: "row",
     gap: 10,
-    paddingVertical: 10,
+    paddingBottom: 6,
+    paddingTop: 10,
+    position: "relative",
   },
   commentActions: {
     alignItems: "center",
@@ -818,10 +1028,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textDecorationLine: "underline",
   },
-  railSvg: {
-    left: 0,
+  // The turn. Positioned so the arc's start sits on the vertical run's axis and
+  // its end lands on the avatar's centre line at REPLY_INDENT: the box's top is
+  // one radius above AVATAR_CENTER (where the run hands off) and its left is
+  // the rail's own left edge, so all three parts share one origin.
+  railCurve: {
+    left: RAIL_LEFT,
+    position: "absolute",
+  },
+  // From the end of the arc into the avatar's left edge, overlapping by a
+  // stroke so the join can never show a seam. The vertical position comes from
+  // the measured avatar, so it is not set here.
+  railTail: {
+    height: RAIL_STROKE,
+    left: REPLY_INDENT - RAIL_STROKE,
+    position: "absolute",
+    width: RAIL_STROKE * 2,
+  },
+  railVertical: {
+    left: RAIL_LEFT,
     position: "absolute",
     top: 0,
+    width: RAIL_STROKE,
   },
   replyBtn: {
     alignItems: "center",
@@ -831,9 +1059,13 @@ const styles = StyleSheet.create({
     height: 32,
     paddingHorizontal: 8,
   },
+  // paddingTop matches the comment row's own, so the inline composer's 40px
+  // avatar centres on AVATAR_CENTER (30px) exactly where the rail elbow lands.
+  // Without it the elbow pointed above the avatar and the indent looked broken.
   replyComposer: {
     paddingBottom: 4,
     paddingLeft: REPLY_INDENT,
+    paddingTop: 10,
     position: "relative",
   },
   replyText: {
@@ -891,11 +1123,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 32,
   },
+  // Web's stub is `top-6` against its own AVATAR_CENTER of 24, i.e. the line
+  // drops from the centre of the avatar. Native's AVATAR_CENTER is 30, so the
+  // same relationship is expressed with the constant rather than a stale 24.
+  // RAIL_LEFT centers the 2px stroke on RAIL_X, matching railVertical.
   stub: {
     bottom: 0,
-    left: RAIL_X,
+    left: RAIL_LEFT,
     position: "absolute",
-    top: 24,
-    width: 2,
+    top: AVATAR_CENTER,
+    width: RAIL_STROKE,
   },
 });

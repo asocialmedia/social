@@ -5,7 +5,6 @@ import {
   COMMUNITY_DISCOVERY_CATEGORIES,
   COMMUNITY_MAX_OWNED,
 } from "@asm/db/communities";
-import { Button } from "@asm/ui/shadui/button";
 import bannerAsm from "@assets/banner-asm.png";
 import noSearchImage from "@assets/general/nosearch.png";
 import zephImage from "@assets/zeph.png";
@@ -13,7 +12,6 @@ import {
   FileText,
   Flame,
   LayoutGrid,
-  Plus,
   Search,
   UserRound,
   Users,
@@ -589,7 +587,6 @@ export default function ClientComm() {
                 communities={communities}
                 isSearching={isSearching}
                 label={activeLabel}
-                onCreate={handleCreate}
               />
 
               {communities.length > 0 && query.hasNextPage ? (
@@ -655,17 +652,18 @@ function CommunityGrid({
   communities,
   isSearching,
   label,
-  onCreate,
 }: {
   auras: Record<string, number>;
   communities: CommunityData[];
   isSearching: boolean;
   label: string;
-  onCreate: () => void;
 }) {
   if (communities.length === 0) {
     return (
-      <div className="sidebar-subcard flex flex-col items-center gap-3 rounded-2xl px-6 py-14 text-center">
+      // No panel here on purpose: an empty shelf is not a card, and wrapping it
+      // in a bordered surface reads as one broken card in the grid. The
+      // illustration and the copy sit straight on the page.
+      <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
         <Image
           alt=""
           className="h-24 w-auto object-contain"
@@ -679,21 +677,11 @@ function CommunityGrid({
             ? "No communities match that search"
             : `Nothing in ${label} yet`}
         </p>
-        <p className="text-muted-foreground max-w-sm text-xs">
+        <p className="text-muted-foreground max-w-md text-xs leading-relaxed">
           {isSearching
-            ? "Try a different name or topic, or start the community you were looking for."
-            : "Be the first to plant a flag here."}
+            ? "Nothing here answers to that name. Try a broader word, a topic instead of a title, or look for the people you already follow."
+            : "This shelf is waiting on its first community. Make one for the thing you keep coming back to: a game, a language, a city, a weekly ritual. Name it, set the tone, and the regulars find their way in."}
         </p>
-        {/* A failed search is not an invitation to create - the reader was
-            looking for something specific, and a create CTA here just competes
-            with the results they were after. Only the genuinely-empty shelf
-            offers it. */}
-        {isSearching ? null : (
-          <Button onClick={onCreate} size="sm" variant="outline">
-            <Plus className="size-4" />
-            Create community
-          </Button>
-        )}
       </div>
     );
   }

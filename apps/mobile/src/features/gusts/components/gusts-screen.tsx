@@ -39,6 +39,11 @@ import type {
 import { ShareSheet } from "@/features/feed/components/share-sheet";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
+import { resolveGustResumeTab } from "@/features/feed/state/tab-store";
+import {
+  useHomeTabMemoryReady,
+  useTabStore,
+} from "@/features/feed/state/tab-store-native";
 import { useVideoCaptionsStore } from "@/features/feed/state/video-captions-store";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -47,7 +52,6 @@ import { useAppTheme } from "@/theme";
 
 import { GustViewSession } from "../lib/gust-view-session";
 import {
-  defaultGustTab,
   gustShareUrl,
   markPostVisited,
   parseGustTab,
@@ -152,7 +156,19 @@ export function GustsScreen() {
   const [tabChoice, setTabChoice] = useState<GustTab | null>(() =>
     parseGustTab(firstParam(params.tab))
   );
-  const tab = tabChoice ?? defaultGustTab(Boolean(viewerId));
+  const memoryReady = useHomeTabMemoryReady();
+  const storedGust = useTabStore((state) =>
+    viewerId ? state.gustByUserId[viewerId] : undefined
+  );
+  const setGustTab = useTabStore((state) => state.setGustTab);
+  const tab =
+    tabChoice ??
+    resolveGustResumeTab(
+      firstParam(params.tab),
+      Boolean(viewerId),
+      storedGust,
+      memoryReady
+    );
   // For you is ranked from the viewer's own watch/amplify signals, so it is
   // account-only. A guest who taps the tab (or follows a deep link) gets a
   // sign-in prompt instead of a feed, and nothing is fetched. A ?id= deep link
@@ -320,6 +336,9 @@ export function GustsScreen() {
     }
     logInfo("gusts.tab_changed", { tab: next });
     setTabChoice(next);
+    if (viewerId) {
+      setGustTab(viewerId, next);
+    }
     setInitialId(null);
     setActiveIndex(0);
     listRef.current?.scrollToOffset({ animated: false, offset: 0 });

@@ -18,6 +18,7 @@ export type ProfileTab =
   | "posts"
   | "replies"
   | "responses";
+export type GustResumeTab = "latest" | "personalized";
 
 // Remembered tabs expire after 7 days of being set, like web.
 export const TAB_MEMORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -27,6 +28,10 @@ export const HOME_TABS: ReadonlySet<HomeTab> = new Set([
   "latest",
   "personalized",
   "trending",
+]);
+export const GUST_RESUME_TABS: ReadonlySet<GustResumeTab> = new Set([
+  "latest",
+  "personalized",
 ]);
 
 export const EXPLORE_TABS: ReadonlySet<ExploreTab> = new Set([
@@ -70,22 +75,28 @@ export interface TimestampedTab<T> {
 
 interface TabMemorySnapshot {
   explore: TimestampedTab<ExploreTab> | null;
+  gustByUserId: Record<string, TimestampedTab<GustResumeTab>>;
   home: TimestampedTab<HomeTab> | null;
+  homeByUserId: Record<string, TimestampedTab<HomeTab>>;
   profileByUserId: Record<string, TimestampedTab<ProfileTab>>;
 }
 
 interface TabMemoryState extends TabMemorySnapshot {
   clearProfileTab: (userId: string) => void;
+  clearResumeTabs: (userId: string) => void;
   pruneExpired: () => void;
   resetTabMemory: () => void;
   setExploreTab: (tab: ExploreTab) => void;
-  setHomeTab: (tab: HomeTab) => void;
+  setGustTab: (userId: string, tab: GustResumeTab) => void;
+  setHomeTab: (tab: HomeTab, userId?: string) => void;
   setProfileTab: (userId: string, tab: ProfileTab) => void;
 }
 
 const EMPTY_SNAPSHOT: TabMemorySnapshot = {
   explore: null,
+  gustByUserId: {},
   home: null,
+  homeByUserId: {},
   profileByUserId: {},
 };
 
@@ -124,10 +135,11 @@ function sanitizeSnapshot(persisted: unknown, now: number): TabMemorySnapshot {
   if (typeof persisted !== "object" || persisted === null) {
     return { ...EMPTY_SNAPSHOT, profileByUserId: {} };
   }
-  const { explore, home, profileByUserId } = persisted as Partial<
-    Record<keyof TabMemorySnapshot, unknown>
-  >;
+  const { explore, gustByUserId, home, homeByUserId, profileByUserId } =
+    persisted as Partial<Record<keyof TabMemorySnapshot, unknown>>;
   const cleanProfiles: Record<string, TimestampedTab<ProfileTab>> = {};
+  const cleanHomes: Record<string, TimestampedTab<HomeTab>> = {};
+  const cleanGusts: Record<string, TimestampedTab<GustResumeTab>> = {};
   if (typeof profileByUserId === "object" && profileByUserId !== null) {
     for (const [userId, entry] of Object.entries(profileByUserId)) {
       const clean = asFreshTab(entry, PROFILE_TABS, now);
@@ -136,9 +148,27 @@ function sanitizeSnapshot(persisted: unknown, now: number): TabMemorySnapshot {
       }
     }
   }
+  if (typeof homeByUserId === "object" && homeByUserId !== null) {
+    for (const [userId, entry] of Object.entries(homeByUserId)) {
+      const clean = asFreshTab(entry, HOME_TABS, now);
+      if (clean) {
+        cleanHomes[userId] = clean;
+      }
+    }
+  }
+  if (typeof gustByUserId === "object" && gustByUserId !== null) {
+    for (const [userId, entry] of Object.entries(gustByUserId)) {
+      const clean = asFreshTab(entry, GUST_RESUME_TABS, now);
+      if (clean) {
+        cleanGusts[userId] = clean;
+      }
+    }
+  }
   return {
     explore: asFreshTab(explore, EXPLORE_TABS, now),
+    gustByUserId: cleanGusts,
     home: asFreshTab(home, HOME_TABS, now),
+    homeByUserId: cleanHomes,
     profileByUserId: cleanProfiles,
   };
 }
@@ -178,9 +208,31 @@ export function createTabMemoryStore(
               ),
             };
           }),
+
+        clearResumeTabs: (userId) =>
+          set((state) => ({
+            gustByUserId: Object.fromEntries(
+              Object.entries(state.gustByUserId).filter(([id]) => id !== userId)
+            ),
+            homeByUserId: Object.fromEntries(
+              Object.entries(state.homeByUserId).filter(([id]) => id !== userId)
+            ),
+          })),
+
         pruneExpired: () =>
           set((state) => {
             const now = Date.now();
+            const fresh = <T extends string>(
+              entries: Record<string, TimestampedTab<T>>,
+              allowed: ReadonlySet<T>
+            ) =>
+              Object.fromEntries(
+                Object.entries(entries).filter(
+                  ([, entry]) =>
+                    isTabValue(allowed, entry.value) &&
+                    isFresh(entry.updatedAt, now)
+                )
+              ) as Record<string, TimestampedTab<T>>;
             const home =
               state.home && isFresh(state.home.updatedAt, now)
                 ? state.home
@@ -189,37 +241,55 @@ export function createTabMemoryStore(
               state.explore && isFresh(state.explore.updatedAt, now)
                 ? state.explore
                 : null;
-            let profilesChanged = false;
-            const profileByUserId: Record<
-              string,
-              TimestampedTab<ProfileTab>
-            > = {};
-            for (const [userId, entry] of Object.entries(
-              state.profileByUserId
-            )) {
-              if (
-                PROFILE_TABS.has(entry.value) &&
-                isFresh(entry.updatedAt, now)
-              ) {
-                profileByUserId[userId] = entry;
-              } else {
-                profilesChanged = true;
-              }
-            }
+            const homeByUserId = fresh(state.homeByUserId, HOME_TABS);
+            const gustByUserId = fresh(state.gustByUserId, GUST_RESUME_TABS);
+            const profileByUserId = fresh(state.profileByUserId, PROFILE_TABS);
             if (
               home === state.home &&
               explore === state.explore &&
-              !profilesChanged
+              JSON.stringify(homeByUserId) ===
+                JSON.stringify(state.homeByUserId) &&
+              JSON.stringify(gustByUserId) ===
+                JSON.stringify(state.gustByUserId) &&
+              JSON.stringify(profileByUserId) ===
+                JSON.stringify(state.profileByUserId)
             ) {
               return state;
             }
-            return { explore, home, profileByUserId };
+            return {
+              explore,
+              gustByUserId,
+              home,
+              homeByUserId,
+              profileByUserId,
+            };
           }),
-        resetTabMemory: () => set({ ...EMPTY_SNAPSHOT, profileByUserId: {} }),
+
+        resetTabMemory: () => set({ ...EMPTY_SNAPSHOT }),
+
         setExploreTab: (tab) =>
           set({ explore: { updatedAt: Date.now(), value: tab } }),
-        setHomeTab: (tab) =>
-          set({ home: { updatedAt: Date.now(), value: tab } }),
+
+        setGustTab: (userId, tab) =>
+          set((state) => ({
+            gustByUserId: {
+              ...state.gustByUserId,
+              [userId]: { updatedAt: Date.now(), value: tab },
+            },
+          })),
+
+        setHomeTab: (tab, userId) =>
+          set((state) =>
+            userId
+              ? {
+                  homeByUserId: {
+                    ...state.homeByUserId,
+                    [userId]: { updatedAt: Date.now(), value: tab },
+                  },
+                }
+              : { home: { updatedAt: Date.now(), value: tab } }
+          ),
+
         setProfileTab: (userId, tab) =>
           set((state) => ({
             profileByUserId: {
@@ -233,18 +303,27 @@ export function createTabMemoryStore(
           ...current,
           ...sanitizeSnapshot(persisted, Date.now()),
         }),
+        migrate: (persisted) =>
+          sanitizeSnapshot(
+            typeof persisted === "object" && persisted !== null
+              ? ((persisted as { state?: unknown }).state ?? persisted)
+              : null,
+            Date.now()
+          ),
         name: "asm-tab-memory",
         onRehydrateStorage: () => (state) => {
           state?.pruneExpired();
         },
         partialize: (state) => ({
           explore: state.explore,
+          gustByUserId: state.gustByUserId,
           home: state.home,
+          homeByUserId: state.homeByUserId,
           profileByUserId: state.profileByUserId,
         }),
         skipHydration: true,
         storage: createJSONStorage(() => storage),
-        version: 1,
+        version: 2,
       }
     )
   );
@@ -311,6 +390,22 @@ export function resolveExploreTab(
     return remembered;
   }
   return isLoggedIn ? "for-you" : "trending";
+}
+
+export function resolveGustResumeTab(
+  tabParam: string | null,
+  isLoggedIn: boolean,
+  stored: TimestampedTab<GustResumeTab> | null | undefined,
+  ready: boolean
+): GustResumeTab {
+  const fromParam = parseParam(tabParam, GUST_RESUME_TABS);
+  if (fromParam) {
+    return fromParam;
+  }
+  return (
+    readStored(stored, GUST_RESUME_TABS, ready) ??
+    (isLoggedIn ? "personalized" : "latest")
+  );
 }
 
 export function resolveProfileTab(

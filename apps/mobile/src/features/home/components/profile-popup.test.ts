@@ -17,12 +17,14 @@ import {
   formatNumber,
   getAuraFlameStyle,
   getBadgePanelItems,
+  getDefaultAvatar,
   getLinkPlatform,
   getSocialLinks,
   hostLabel,
   normalizeBadges,
   parseLinkPreview,
   rankBadges,
+  resolveAvatarWithFallback,
   resolveProfileImageUrl,
   safeLinkUrl,
   safeSocialUrl,
@@ -142,10 +144,42 @@ describe("resolveProfileImageUrl", () => {
     );
   });
 
+  test("rewrites private object storage avatar and banner URLs to proxy endpoints", () => {
+    expect(
+      resolveProfileImageUrl(
+        "http://minio:9000/asmob/avatars/user123/my-avatar.png",
+        API
+      )
+    ).toBe(`${API}/api/users/avatar/user123/image?v=my-avatar.png`);
+    expect(
+      resolveProfileImageUrl(
+        "https://storage.example.com/bucket/banners/user456/banner.jpg",
+        API
+      )
+    ).toBe(`${API}/api/users/banner/user456/image?v=banner.jpg`);
+  });
+
   test("rejects blanks and relative paths", () => {
     expect(resolveProfileImageUrl(null, API)).toBeNull();
     expect(resolveProfileImageUrl("", API)).toBeNull();
     expect(resolveProfileImageUrl("avatars/x.png", API)).toBeNull();
+  });
+});
+
+describe("getDefaultAvatar + resolveAvatarWithFallback", () => {
+  test("generates stable default avatars based on seed", () => {
+    expect(getDefaultAvatar("alice")).toBe("/avatars/default-2.png");
+    expect(getDefaultAvatar("bob")).toBe("/avatars/default-1.png");
+    expect(getDefaultAvatar(null)).toBe("/avatars/default-1.png");
+  });
+
+  test("resolves avatar with fallback when custom url is missing", () => {
+    expect(resolveAvatarWithFallback(null, API, "user-seed")).toBe(
+      `${API}${getDefaultAvatar("user-seed")}`
+    );
+    expect(
+      resolveAvatarWithFallback("/api/users/avatar/u1/image", API, "seed")
+    ).toBe(`${API}/api/users/avatar/u1/image`);
   });
 });
 

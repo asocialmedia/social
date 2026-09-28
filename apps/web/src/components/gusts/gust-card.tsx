@@ -761,7 +761,10 @@ export const GustCard: React.FC<GustCardProps> = ({
             <button
               aria-label="View comments"
               className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
-              onClick={onOpenComments}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenComments();
+              }}
               type="button"
             >
               <MessageSquare
@@ -777,14 +780,19 @@ export const GustCard: React.FC<GustCardProps> = ({
           </div>
 
           {/* Share */}
+          {/* The Share/Bookmark/More components default to a 28/30px trigger
+              with a 16/18px glyph, and those defaults are `sm:`-prefixed, so a
+              plain h-11 override loses the cascade from sm upward. The `!` is
+              what keeps every button in this rail the same 44px/20px. */}
           <ShareButton
-            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
             defaultTab="link"
             description={
               post.content || `Watch ${authorName}'s gust on asocialmedia`
             }
             dialogDescription="Share this gust with your network"
             dialogTitle="Share Gust"
+            iconClassName="size-5!"
             postId={post.id}
             shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/gusts?id=${post.id}`}
             thumbnail={thumbUrl}
@@ -794,9 +802,10 @@ export const GustCard: React.FC<GustCardProps> = ({
           {/* Bookmark */}
           <BookmarkButton
             className={cn(
-              "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95",
+              "rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95",
               isBookmarked && "rail-3d-btn-gold"
             )}
+            iconClassName="size-5!"
             initialState={{
               isBookmarkedByUser: isBookmarked,
             }}
@@ -805,7 +814,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           />
 
           <PostMoreButton
-            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
             extraItems={
               post.moderated ? null : (
                 <>
@@ -838,6 +847,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                 </>
               )
             }
+            iconClassName="size-5!"
             post={post}
           />
 

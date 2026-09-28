@@ -112,7 +112,13 @@ export async function GET(
     )
     .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
   if (cursor) {
-    topLevelQuery = topLevelQuery.cursor({ id: cursor.id }).offset(1);
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // the cursor must carry a value for every orderBy column - which the token
+    // already encodes. The seek is exclusive, so no .offset(1) hop is needed.
+    topLevelQuery = topLevelQuery.cursor({
+      createdAt: new Date(cursor.createdAt),
+      id: cursor.id,
+    });
   }
   const topLevelRows = await topLevelQuery.limit(PAGE_SIZE + 1).all();
   const topLevel = topLevelRows.map(mapPostData);

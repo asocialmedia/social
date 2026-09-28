@@ -8,6 +8,10 @@ import { submitViewBatch } from "./feed-api";
 
 const FLUSH_DELAY_MS = 800;
 const MAX_BATCH = 100;
+// How many posts stay "already counted" for the session. A few screens of
+// scrolling is plenty; the server dedupes per (user, post) regardless, so this
+// only suppresses redundant requests.
+const COUNTED_LIMIT = 300;
 
 interface BatcherOptions {
   apiBase: string;
@@ -20,6 +24,14 @@ export class ViewBatcher {
   /** Called with reconciled counts after every flush (view-count display). */
   public onFlush: ((counts: Record<string, number>) => void) | null = null;
   private pending: string[] = [];
+  // Ids already counted this session. Without this, a post that scrolls out of
+  // view and back is re-marked as soon as the previous batch drains, so a slow
+  // scroll produced a stream of one-id flushes (the `batchSize: 1` pattern in
+  // the dev log). The server already dedupes per (user, post), so those extra
+  // requests bought nothing. Bounded, and cleared with the session.
+  private counted = new Set<string>();
+  private countedOrder: string[] = [];
+  private maxCounted: number;
   private submit: (
     postIds: string[],
     options: BatcherOptions
@@ -30,12 +42,33 @@ export class ViewBatcher {
     submit: (
       postIds: string[],
       options: BatcherOptions
-    ) => Promise<Record<string, number>> = submitViewBatch
+    ) => Promise<Record<string, number>> = submitViewBatch,
+    options: { maxCounted?: number } = {}
   ) {
     this.submit = submit;
+    this.maxCounted = Math.max(1, options.maxCounted ?? COUNTED_LIMIT);
+  }
+
+  private remember(postId: string): void {
+    if (this.counted.has(postId)) {
+      return;
+    }
+    this.counted.add(postId);
+    this.countedOrder.push(postId);
+    while (this.countedOrder.length > this.maxCounted) {
+      const oldest = this.countedOrder.shift();
+      if (oldest !== undefined) {
+        this.counted.delete(oldest);
+      }
+    }
   }
 
   mark(postId: string, options: BatcherOptions): void {
+    // Already counted this session: counting again would only re-send an id the
+    // server has already recorded for this viewer.
+    if (this.counted.has(postId)) {
+      return;
+    }
     if (!this.pending.includes(postId)) {
       this.pending.push(postId);
     }
@@ -65,6 +98,11 @@ export class ViewBatcher {
     try {
       const counts = await this.submit(batch, this.latest);
       this.consecutiveFailures = 0;
+      // Only a confirmed send retires the ids. A failed batch is requeued
+      // below, and must stay eligible on the next attempt.
+      for (const postId of batch) {
+        this.remember(postId);
+      }
       this.onFlush?.(counts);
       return counts;
     } catch {

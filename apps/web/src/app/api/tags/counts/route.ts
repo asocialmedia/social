@@ -1,7 +1,13 @@
 import { prisma } from "@asm/db";
-import { NextResponse } from "next/server";
+import { connection, NextResponse } from "next/server";
 
 export async function GET() {
+  // Tag counts are derived from live post rows, so this stays request-bound.
+  // The claim also keeps the Prisma reads out of the prerender: Prisma 8 stamps
+  // each query with a crypto.randomUUID() plan id, and Cache Components fails a
+  // prerender that touches an uncached value.
+  await connection();
+
   try {
     const [postsWithTags, tagCounts] = await Promise.all([
       prisma.orm.public.Posts.select("content", "id")

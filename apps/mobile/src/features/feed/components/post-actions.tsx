@@ -17,42 +17,25 @@ import {
   MoreHorizontal,
   Share2,
 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
-import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   replyTargetFromPost,
   useComposerStore,
 } from "@/features/composer/state/composer-store";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import {
   formatNumber,
   getAuraFlameStyle,
 } from "../../home/components/profile-utils";
-import {
-  fetchBookmarkInfo,
-  fetchVoteInfo,
-  submitBookmark,
-  submitVote,
-} from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
+import { usePostEngagement } from "../state/use-post-engagement";
 import type { MenuAnchor } from "./more-menu";
-
-interface MutationContext {
-  apiBase: string;
-  cookie: string;
-}
-
-async function mutationContext(): Promise<MutationContext> {
-  return { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() };
-}
 
 // `.vote-btn-up` / `.vote-btn-down` 3D dual-border shadows, light + dark.
 // Resting vote buttons are bare (web's idle state); the gradient + ring only
@@ -81,7 +64,7 @@ interface VoteClusterProps {
   onRequireLogin: () => void;
   postId: string;
   userVote: number;
-  viewerLoggedIn: boolean;
+  viewerId: string | null;
 }
 
 export function VoteCluster({
@@ -90,92 +73,36 @@ export function VoteCluster({
   onRequireLogin,
   postId,
   userVote: initialVote,
-  viewerLoggedIn,
+  viewerId,
 }: VoteClusterProps) {
   const { isDark, theme } = useAppTheme();
-  const [aura, setAura] = useState(initialAura);
-  const [userVote, setUserVote] = useState(initialVote);
-  // Mutation generation: rapid taps resolve out of order, so only the
-  // latest tap's response or rollback may touch state.
-  const generationRef = useRef(0);
+  // The payload already carries the viewer's own vote, so this renders the
+  // right number on first paint. The old version fired GET /votes on every
+  // mount to fetch a value it already had, once per card, which is where the
+  // request flood came from. `initialBookmarked` is deliberately left out: the
+  // bookmark toggle owns that field, and claiming it here would reset it.
+  const { engagement, vote } = usePostEngagement({
+    aura: initialAura,
+    commentId,
+    postId,
+    userVote: initialVote,
+    viewerId,
+  });
 
-  // Reconcile with the server snapshot on mount (web's vote-info query).
-  // Guests hold no vote state server-side, so there is nothing to read.
-  // Comment rows carry their vote in props; skip the per-row fetch.
-  useEffect(() => {
-    if (!viewerLoggedIn || commentId) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const context = await mutationContext();
-      const info = await fetchVoteInfo(postId, context, commentId);
-      if (!cancelled && info) {
-        // oxlint-disable-next-line react/set-state-in-effect -- server reconciliation after mount, not derivable during render
-        setAura(info.aura);
-        // oxlint-disable-next-line react/set-state-in-effect -- same reconciliation as above
-        setUserVote(info.userVote);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [commentId, postId, viewerLoggedIn]);
-
-  // Comment rows skip the server fetch above, so keep them in sync when the
-  // parent supplies fresh server data for the same comment id (refreshes
-  // reuse the row component, and useState alone would hold the old aura).
-  useEffect(() => {
-    if (!commentId) {
-      return;
-    }
-    // oxlint-disable-next-line react/set-state-in-effect -- prop sync for reused comment rows, not derivable during render
-    setAura(initialAura);
-    // oxlint-disable-next-line react/set-state-in-effect -- same prop sync as above
-    setUserVote(initialVote);
-  }, [commentId, initialAura, initialVote]);
-
-  const cast = (value: 1 | -1) => {
-    if (!viewerLoggedIn) {
+  const cast = async (value: 1 | -1) => {
+    if (!viewerId) {
       onRequireLogin();
       return;
     }
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    const toggleOff = userVote === value;
-    const target = toggleOff ? 0 : value;
-    const previous = { aura, userVote };
-    // Optimistic: +-1 per vote delta, like web calculateVoteChange.
-    setUserVote(target);
-    setAura(aura + (target - userVote));
-    void (async () => {
-      try {
-        const context = await mutationContext();
-        const info = await submitVote(
-          postId,
-          target,
-          toggleOff,
-          context,
-          commentId
-        );
-        if (generationRef.current !== generation) {
-          return;
-        }
-        setAura(info.aura);
-        setUserVote(info.userVote);
-      } catch (error) {
-        if (generationRef.current !== generation) {
-          return;
-        }
-        setAura(previous.aura);
-        setUserVote(previous.userVote);
-        logWarn("feed.vote_failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
+    try {
+      await vote(value);
+    } catch {
+      // The hook already rolled the optimistic value back and logged why;
+      // nothing left for the button to do.
+    }
   };
 
+  const { aura, userVote } = engagement;
   const flame = getAuraFlameStyle(aura);
   const upActive = userVote === 1;
   const downActive = userVote === -1;
@@ -269,60 +196,36 @@ interface BookmarkToggleProps {
   initialBookmarked: boolean;
   onRequireLogin: () => void;
   postId: string;
-  viewerLoggedIn: boolean;
+  viewerId: string | null;
 }
 
 export function BookmarkToggle({
   initialBookmarked,
   onRequireLogin,
   postId,
-  viewerLoggedIn,
+  viewerId,
 }: BookmarkToggleProps) {
   const { theme } = useAppTheme();
-  const [bookmarked, setBookmarked] = useState(initialBookmarked);
-  const generationRef = useRef(0);
+  // Same story as the vote cluster: the payload already says whether this
+  // viewer bookmarked the post, so the old per-mount GET /bookmark was
+  // refetching a known value on every card.
+  const { engagement, toggleBookmark } = usePostEngagement({
+    initialBookmarked,
+    postId,
+    viewerId,
+  });
+  const bookmarked = engagement.isBookmarkedByUser;
 
-  useEffect(() => {
-    if (!viewerLoggedIn) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const context = await mutationContext();
-      const info = await fetchBookmarkInfo(postId, context);
-      if (!cancelled && info !== null) {
-        // oxlint-disable-next-line react/set-state-in-effect -- server reconciliation after mount, not derivable during render
-        setBookmarked(info);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [postId, viewerLoggedIn]);
-
-  const toggle = () => {
-    if (!viewerLoggedIn) {
+  const toggle = async () => {
+    if (!viewerId) {
       onRequireLogin();
       return;
     }
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    const next = !bookmarked;
-    setBookmarked(next);
-    void (async () => {
-      try {
-        const context = await mutationContext();
-        await submitBookmark(postId, next, context);
-      } catch (error) {
-        if (generationRef.current !== generation) {
-          return;
-        }
-        setBookmarked(!next);
-        logWarn("feed.bookmark_failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
+    try {
+      await toggleBookmark();
+    } catch {
+      // Rolled back and logged by the hook.
+    }
   };
 
   return (

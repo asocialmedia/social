@@ -8,6 +8,7 @@ import { twoFactorClient, usernameClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 import { getAuthBaseUrl } from "@/lib/api-env";
 
@@ -48,6 +49,21 @@ const passkeyPlugin = getPasskeyPlugin();
 
 export const hasNativePasskey = passkeyPlugin !== null;
 
+const webStorage = {
+  getItem: (key: string) => globalThis.localStorage.getItem(key),
+  getItemAsync: (key: string) =>
+    Promise.resolve(globalThis.localStorage.getItem(key)),
+  setItem: (key: string, value: string) => {
+    globalThis.localStorage.setItem(key, value);
+  },
+  setItemAsync: (key: string, value: string) => {
+    globalThis.localStorage.setItem(key, value);
+    return Promise.resolve();
+  },
+};
+
+const authStorage = Platform.OS === "web" ? webStorage : SecureStore;
+
 export const authClient = createAuthClient({
   baseURL: getAuthBaseUrl(),
   plugins: [
@@ -67,7 +83,7 @@ export const authClient = createAuthClient({
     }),
     expoClient({
       scheme: "asocialmedia",
-      storage: SecureStore,
+      storage: authStorage,
       storagePrefix: "asocialmedia",
     }),
   ],

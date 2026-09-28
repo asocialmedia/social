@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
 import { logWarn } from "@/lib/telemetry";
 
 import type { FeedVariant } from "../lib/feed-api";
@@ -86,23 +87,21 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   // exactly like web. Starts from the mount fill and from fetch settles,
   // never from an effect watching cache pages (the Compiler rejects that
   // dep). Probes immediately and every 45s; swallows fetch errors.
-  const probeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollerRef = useRef<ReturnType<typeof createExpoPoller> | null>(null);
   const probeKey = useRef<string | null>(null);
   const probeCancel = useRef<(() => void) | null>(null);
 
   const stopProbe = useCallback(() => {
     probeCancel.current?.();
     probeCancel.current = null;
-    if (probeTimer.current !== null) {
-      clearInterval(probeTimer.current);
-      probeTimer.current = null;
-    }
+    pollerRef.current?.stop();
+    pollerRef.current = null;
     probeKey.current = null;
   }, []);
 
   const startProbe = useCallback(
     (key: string) => {
-      if (probeTimer.current !== null && probeKey.current === key) {
+      if (pollerRef.current && probeKey.current === key) {
         return;
       }
       stopProbe();
@@ -135,10 +134,11 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         }
       };
       probeKey.current = key;
-      void probe();
-      probeTimer.current = setInterval(() => {
-        void probe();
-      }, PROBE_INTERVAL_MS);
+      pollerRef.current = createExpoPoller({
+        intervalMs: PROBE_INTERVAL_MS,
+        onPoll: probe,
+      });
+      pollerRef.current.start();
     },
     [stopProbe, variant]
   );

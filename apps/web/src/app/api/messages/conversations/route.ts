@@ -157,7 +157,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor");
 
-  const conversationQuery = getMessageConversationDataQuery(prisma.orm)
+  let conversationQuery = getMessageConversationDataQuery(prisma.orm)
     .include("messages", (message) =>
       message
         .orderBy([(row) => row.createdAt.desc(), (row) => row.id.desc()])
@@ -173,11 +173,25 @@ export async function GET(request: Request) {
       (conversation) => conversation.id.desc(),
     ])
     .limit(PAGE_SIZE + 1);
-  const conversationRows = await (
-    cursor ? conversationQuery.cursor({ id: cursor }) : conversationQuery
-  )
-    .offset(cursor ? 1 : 0)
-    .all();
+  if (cursor) {
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // every orderBy column needs one: the anchor's updatedAt is read back here
+    // because the page cursor only carries a conversation id. The seek is
+    // exclusive, so no .offset(1) hop is needed. A vanished anchor restarts
+    // from the top rather than 500ing the scroll.
+    const anchor = await prisma.orm.public.MessageConversations.select(
+      "updatedAt"
+    )
+      .where({ id: cursor })
+      .first();
+    if (anchor) {
+      conversationQuery = conversationQuery.cursor({
+        id: cursor,
+        updatedAt: anchor.updatedAt,
+      });
+    }
+  }
+  const conversationRows = await conversationQuery.all();
   const page = conversationRows.map(mapConversation);
   const hasMore = page.length > PAGE_SIZE;
   const visiblePage = hasMore ? page.slice(0, PAGE_SIZE) : page;

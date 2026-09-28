@@ -7,6 +7,8 @@
 // callback, so an enqueue inside could fire once per attempt. Collect the
 // events while the transaction runs (reset at the top of the callback, so a
 // retry starts clean) and flush once it has resolved.
+import { setTimeout as sleep } from "node:timers/promises";
+
 import {
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
@@ -21,6 +23,23 @@ export function newNotificationEvents(): NotificationEvents {
   return { created: [], deleted: [] };
 }
 
+const ENQUEUE_MAX_ATTEMPTS = 3;
+
+async function enqueueWithRetry(
+  action: () => Promise<void>,
+  attempt = 1
+): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    if (attempt >= ENQUEUE_MAX_ATTEMPTS) {
+      throw error;
+    }
+    await sleep(100 * 2 ** (attempt - 1));
+    await enqueueWithRetry(action, attempt + 1);
+  }
+}
+
 export function resetNotificationEvents(events: NotificationEvents): void {
   events.created.length = 0;
   events.deleted.length = 0;
@@ -32,7 +51,9 @@ async function enqueueCreatedSafely(
   label: string
 ): Promise<void> {
   try {
-    await enqueueNotificationCreated(recipientId, notificationId);
+    await enqueueWithRetry(() =>
+      enqueueNotificationCreated(recipientId, notificationId)
+    );
   } catch (error) {
     console.error(`Failed to enqueue ${label} notification event:`, error);
   }
@@ -43,7 +64,7 @@ async function enqueueDeletedSafely(
   label: string
 ): Promise<void> {
   try {
-    await enqueueNotificationDeleted(recipientId);
+    await enqueueWithRetry(() => enqueueNotificationDeleted(recipientId));
   } catch (error) {
     console.error(
       `Failed to enqueue ${label} notification removal event:`,

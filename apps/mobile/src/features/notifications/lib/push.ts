@@ -19,8 +19,9 @@
 // /posts/abcd1234). Post paths map onto the native detail screen; everything
 // else resolves to the notifications list, which always exists.
 
+import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import type * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -36,22 +37,36 @@ const ANDROID_CHANNEL_ID = "default";
 // Foreground presentation: show the banner even while the app is open, so a
 // live notification is not silently swallowed. Sound is off in-foreground (the
 // OS plays it; a second cue would double up).
-Notifications.setNotificationHandler({
-  handleNotification: () =>
-    Promise.resolve({
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-});
+type NotificationsModule = typeof Notifications;
+let notificationsPromise: Promise<NotificationsModule> | null = null;
+
+function loadNotifications(): Promise<NotificationsModule> | null {
+  if (Platform.OS === "web" || Constants.expoGoConfig !== null) {
+    return null;
+  }
+  notificationsPromise ??= (async () => {
+    const notifications = await import("expo-notifications");
+    notifications.setNotificationHandler({
+      handleNotification: () =>
+        Promise.resolve({
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+    });
+    return notifications;
+  })();
+  return notificationsPromise;
+}
 
 async function ensureAndroidChannel(): Promise<void> {
-  if (Platform.OS !== "android") {
+  const notifications = await loadNotifications();
+  if (Platform.OS !== "android" || !notifications) {
     return;
   }
-  await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-    importance: Notifications.AndroidImportance.DEFAULT,
+  await notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+    importance: notifications.AndroidImportance.DEFAULT,
     name: "Notifications",
   });
 }
@@ -70,22 +85,46 @@ async function sessionHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
+export type RunWithInstallToken = <T>(
+  action: () => Promise<T>,
+  isTokenRejected: (result: T) => boolean
+) => Promise<T | null>;
+
+type DeviceTokenRegistration =
+  | "registered"
+  | "install-token-required"
+  | "failed";
+
 async function postToken(
   token: string,
   platform: "android" | "ios"
-): Promise<boolean> {
+): Promise<DeviceTokenRegistration> {
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/push/device`, {
       body: JSON.stringify({ platform, provider: "fcm", token }),
       headers: await sessionHeaders(),
       method: "POST",
     });
-    return response.ok;
+    if (response.ok) {
+      return "registered";
+    }
+    if (response.status === 403) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      if (body?.error === "install-token-required") {
+        return "install-token-required";
+      }
+    }
+    logWarn("push.device_register_rejected", {
+      status: response.status,
+    });
+    return "failed";
   } catch (error) {
     logWarn("push.device_register_failed", {
       reason: error instanceof Error ? error.message : String(error),
     });
-    return false;
+    return "failed";
   }
 }
 
@@ -107,7 +146,9 @@ let lastRegisteredToken: string | null = null;
 // a token already registered this session is not re-sent. Returns the token,
 // or null when push is unavailable (no permission, simulator, no Firebase
 // config in the build).
-export async function registerForPushNotifications(): Promise<string | null> {
+export async function registerForPushNotifications(
+  runWithInstallToken: RunWithInstallToken
+): Promise<string | null> {
   if (!Device.isDevice) {
     // Push tokens are not issued to simulators/emulators.
     return null;
@@ -118,12 +159,17 @@ export async function registerForPushNotifications(): Promise<string | null> {
     logInfo("push.skipped", { reason: "platform not configured" });
     return null;
   }
+  const notifications = await loadNotifications();
+  if (!notifications) {
+    logInfo("push.skipped", { reason: "Expo Go" });
+    return null;
+  }
 
   await ensureAndroidChannel();
 
-  let { status } = await Notifications.getPermissionsAsync();
+  let { status } = await notifications.getPermissionsAsync();
   if (status !== "granted") {
-    const requested = await Notifications.requestPermissionsAsync();
+    const requested = await notifications.requestPermissionsAsync();
     ({ status } = requested);
   }
   if (status !== "granted") {
@@ -134,7 +180,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
   try {
     // The native FCM registration token. Fails on a build without
     // google-services.json, which is the signal to skip registration.
-    const deviceToken = await Notifications.getDevicePushTokenAsync();
+    const deviceToken = await notifications.getDevicePushTokenAsync();
     const token =
       typeof deviceToken.data === "string" ? deviceToken.data : null;
     if (!token) {
@@ -143,8 +189,11 @@ export async function registerForPushNotifications(): Promise<string | null> {
     if (token === lastRegisteredToken) {
       return token;
     }
-    const ok = await postToken(token, "android");
-    if (ok) {
+    const registration = await runWithInstallToken(
+      () => postToken(token, "android"),
+      (result) => result === "install-token-required"
+    );
+    if (registration === "registered") {
       lastRegisteredToken = token;
       logInfo("push.registered");
       return token;
@@ -184,11 +233,20 @@ export function subscribeToPushTaps(
   navigate: (route: string) => void,
   isReady: () => boolean
 ): PushTapListener {
+  let active = true;
+  let removeSubscription: (() => void) | null = null;
+  const notificationPromise = loadNotifications();
+  if (!notificationPromise) {
+    return {
+      remove: () => {
+        /* empty */
+      },
+    };
+  }
+
   const handle = (response: Notifications.NotificationResponse | null) => {
     const path = response?.notification.request.content.data?.path;
     if (!isReady()) {
-      // Cold-start taps arrive before the router is mounted; dropping them is
-      // acceptable (the app opens on Home), and racing the router is not.
       return;
     }
     if (typeof path === "string") {
@@ -198,16 +256,56 @@ export function subscribeToPushTaps(
     }
   };
 
-  const subscription =
-    Notifications.addNotificationResponseReceivedListener(handle);
-
-  // The tap that cold-started the app, if any. Read once, then the listener
-  // above covers every later tap (useLastNotificationResponse would re-fire).
   void (async () => {
-    handle(await Notifications.getLastNotificationResponseAsync());
+    const notifications = await notificationPromise;
+    if (!active) {
+      return;
+    }
+    const subscription =
+      notifications.addNotificationResponseReceivedListener(handle);
+    removeSubscription = () => subscription.remove();
+    let lastResponse: Notifications.NotificationResponse | null = null;
+    try {
+      lastResponse = await notifications.getLastNotificationResponseAsync();
+    } catch {
+      lastResponse = null;
+    }
+    handle(lastResponse);
   })();
 
   return {
-    remove: () => subscription.remove(),
+    remove: () => {
+      active = false;
+      removeSubscription?.();
+    },
+  };
+}
+
+export function subscribeToPushTokenChanges(
+  listener: () => void
+): PushTapListener {
+  let active = true;
+  let removeSubscription: (() => void) | null = null;
+  const notificationPromise = loadNotifications();
+  if (!notificationPromise) {
+    return {
+      remove: () => {
+        /* empty */
+      },
+    };
+  }
+  void (async () => {
+    const notifications = await notificationPromise;
+    if (!active) {
+      return;
+    }
+    const subscription = notifications.addPushTokenListener(listener);
+    removeSubscription = () => subscription.remove();
+  })();
+  return {
+    remove: () => {
+      active = false;
+      removeSubscription?.();
+    },
   };
 }

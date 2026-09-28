@@ -5,11 +5,12 @@
 //
 // React Native cannot nest Views inside flowing Text, so segments lay out in
 // a wrapping row (the standard native linkify arrangement) instead of true
-// inline flow. Mention/tag pills are static: their profile/hashtag screens
-// do not exist on mobile yet, same as the popup's other disabled stubs.
+// inline flow. Mention and tag pills navigate, as they do in web's
+// post-meta.tsx.
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import { Hash } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -112,10 +113,14 @@ export function MentionChip({
   username: string;
 }) {
   const { isDark, theme } = useAppTheme();
+  const router = useRouter();
   return (
-    <View
+    <Pressable
       accessibilityLabel={`Mentioned user ${username}`}
-      accessibilityRole="text"
+      accessibilityRole="link"
+      onPress={() => {
+        router.push({ params: { username }, pathname: "/users/[username]" });
+      }}
     >
       <ChipShell
         tint={isDark ? "rgba(59, 130, 246, 0.12)" : "rgba(59, 130, 246, 0.08)"}
@@ -132,14 +137,21 @@ export function MentionChip({
           @{username}
         </Text>
       </ChipShell>
-    </View>
+    </Pressable>
   );
 }
 
 export function TagChip({ tag }: { tag: string }) {
   const { isDark, theme } = useAppTheme();
+  const router = useRouter();
   return (
-    <View accessibilityLabel={`Hashtag ${tag}`} accessibilityRole="text">
+    <Pressable
+      accessibilityLabel={`Hashtag ${tag}`}
+      accessibilityRole="link"
+      onPress={() => {
+        router.push({ params: { tag }, pathname: "/hashtag/[tag]" });
+      }}
+    >
       <ChipShell
         tint={isDark ? "rgba(255, 149, 0, 0.12)" : "rgba(255, 149, 0, 0.1)"}
       >
@@ -151,7 +163,7 @@ export function TagChip({ tag }: { tag: string }) {
           {tag}
         </Text>
       </ChipShell>
-    </View>
+    </Pressable>
   );
 }
 

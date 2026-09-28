@@ -24,7 +24,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
@@ -64,6 +64,8 @@ import {
   patchThumbnail,
   uploadMediaFile,
 } from "@/lib/media/media-upload-client";
+import { showPublishedPostInFeedCache } from "@/lib/posts/feed-cache";
+import { requestFeedTop } from "@/lib/posts/feed-top-request";
 
 import "./styles.css";
 import type { Media } from "@/lib/types";
@@ -71,6 +73,7 @@ import { cn, formatRelativeDate } from "@/lib/utils";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import type { ComposerReplyTarget } from "@/store/composer-store";
 import { useComposerStore } from "@/store/composer-store";
+import { useTabStore } from "@/store/tab-store";
 
 import AltTextPanel from "./alt-text-panel";
 import { AttachmentPreview } from "./attachment-preview";
@@ -349,6 +352,8 @@ export default function PostEditor({
 }) {
   const { user } = useSession();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const setHomeTab = useTabStore((state) => state.setHomeTab);
   const mutation = useSubmitPostMutation();
   const hnShareStore = useHnShareStore();
   const sharedHnStory = hnShareStore.story;
@@ -967,6 +972,23 @@ export default function PostEditor({
         if (newPost?.parentPostId) {
           closeComposer();
         }
+        // A plain fleet goes to the top of the Latest tab, which is where the
+        // reader is sent and where their post is already in the cache. For you
+        // is ranked, so a brand new post with no engagement would never surface
+        // there - without this the composer would look like it had swallowed
+        // the post. Web's home tab and the mobile app's behave the same way.
+        if (newPost && !newPost.isGust && !newPost.parentPostId) {
+          setHomeTab("latest");
+          showPublishedPostInFeedCache(
+            queryClient,
+            ["post-feed", "latest", user?.id ?? "guest"],
+            newPost
+          );
+          // And land at the top of it: Latest may have a remembered offset
+          // from earlier in the session, which would park the reader below
+          // their own post.
+          requestFeedTop(`home:latest`);
+        }
       },
     });
   }, [
@@ -998,6 +1020,9 @@ export default function PostEditor({
     clearCommunity,
     communityShareTarget,
     clearCommunityShare,
+    queryClient,
+    setHomeTab,
+    user?.id,
   ]);
   // oxlint-enable react/preserve-manual-memoization
 

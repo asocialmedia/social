@@ -1326,9 +1326,35 @@ export async function getCommunityFeedPage(
           (post) => post.createdAt.desc(),
           (post) => post.id.desc(),
         ]);
-  const pagedQuery = options.cursor
-    ? orderedQuery.cursor({ id: options.cursor })
-    : orderedQuery;
+  // Prisma 8 cursors are keyset seeks built from the values passed in, so
+  // every orderBy column needs one: the anchor's sort key is read back here
+  // because the feed cursor only carries a post id. The seek is exclusive, so
+  // no .offset(1) hop is needed. A vanished anchor restarts from the top rather
+  // than failing the scroll.
+  let pagedQuery = orderedQuery;
+  if (options.cursor) {
+    if (sort === "top") {
+      const anchor = await prisma.orm.public.Posts.select("aura")
+        .where({ id: options.cursor })
+        .first();
+      if (anchor) {
+        pagedQuery = orderedQuery.cursor({
+          aura: anchor.aura,
+          id: options.cursor,
+        });
+      }
+    } else {
+      const anchor = await prisma.orm.public.Posts.select("createdAt")
+        .where({ id: options.cursor })
+        .first();
+      if (anchor) {
+        pagedQuery = orderedQuery.cursor({
+          createdAt: anchor.createdAt,
+          id: options.cursor,
+        });
+      }
+    }
+  }
   const rows = await pagedQuery.limit(limit + 1).all();
   const posts = rows.map(mapPostData);
   const hasMore = posts.length > limit;

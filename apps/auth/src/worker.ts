@@ -4,6 +4,18 @@
 import "reflect-metadata";
 import { loadRootEnv } from "./env";
 
+function readWorkerInteger(
+  name: string,
+  fallback: number,
+  maximum: number
+): number {
+  const parsed = Math.trunc(Number(process.env[name] ?? ""));
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return fallback;
+  }
+  return Math.min(parsed, maximum);
+}
+
 if (import.meta.main) {
   loadRootEnv();
 
@@ -15,6 +27,7 @@ if (import.meta.main) {
     ensureStreamGroups,
     registerMaintenanceSchedulers,
     createBullConnection,
+    NOTIFICATIONS_QUEUE,
   } = await import("@asm/db");
   const { Worker: QueueWorker } = await import("bullmq");
   type QueueWorkerType = InstanceType<typeof QueueWorker>;
@@ -140,6 +153,28 @@ if (import.meta.main) {
       { connection }
     );
 
+    const notificationWorker = new QueueWorker(
+      NOTIFICATIONS_QUEUE,
+      async (job) => {
+        if (job.name === "notification-created") {
+          return await processNotificationCreated(job.data, logger);
+        }
+        throw new Error(`Unknown notification event: ${job.name}`);
+      },
+      {
+        concurrency: readWorkerInteger(
+          "NOTIFICATION_WORKER_CONCURRENCY",
+          8,
+          32
+        ),
+        connection,
+        limiter: {
+          duration: 1000,
+          max: readWorkerInteger("NOTIFICATION_WORKER_RATE_MAX", 40, 200),
+        },
+      }
+    );
+
     // The "media" queue is consumed by apps/media-processing since the
     // pipeline worker split; auth no longer touches media jobs.
 
@@ -187,7 +222,32 @@ if (import.meta.main) {
       { connection }
     );
 
-    workers.push(contentWorker, maintenanceWorker);
+    workers.push(contentWorker, notificationWorker, maintenanceWorker);
+
+    notificationWorker.on("completed", (job) => {
+      logger.info(
+        {
+          attemptsMade: job.attemptsMade,
+          durationMs:
+            typeof job.processedOn === "number" && job.timestamp
+              ? job.processedOn - job.timestamp
+              : undefined,
+          job: job.name,
+        },
+        "notification job completed"
+      );
+    });
+
+    notificationWorker.on("failed", (job, error) => {
+      logger.error(
+        {
+          attemptsMade: job?.attemptsMade,
+          error,
+          job: job?.name,
+        },
+        "notification job failed after retries"
+      );
+    });
 
     for (const worker of workers) {
       worker.on("failed", (job, error) => {

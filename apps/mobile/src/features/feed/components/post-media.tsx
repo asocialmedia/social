@@ -35,6 +35,7 @@ import noMediaImage from "@/assets/images/nomedia.png";
 import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
@@ -55,6 +56,7 @@ import {
   mediaGridImageUrl,
   mediaImageUrl,
   mediaPosterUrl,
+  isGifMedia,
   mediaVideoUrl,
 } from "../lib/media-url";
 import {
@@ -145,6 +147,10 @@ function SingleImage({
     >
       <Image
         accessibilityLabel={media.altText ?? "Post image"}
+        cachePolicy={imageCachePolicy(
+          mediaImageUrl(apiBase, media),
+          isGifMedia(media)
+        )}
         contentFit="contain"
         onError={() => onFailed(media.id)}
         onLoad={(event) => {
@@ -199,6 +205,10 @@ function GridImage({
     <>
       <Image
         accessibilityLabel={media.altText ?? "Post image"}
+        cachePolicy={imageCachePolicy(
+          mediaGridImageUrl(apiBase, media),
+          isGifMedia(media)
+        )}
         contentFit="cover"
         onError={() => onFailed(media.id)}
         source={{ uri: mediaGridImageUrl(apiBase, media) }}
@@ -1665,9 +1675,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
     letterSpacing: -0.35,
-    textShadowColor: "rgba(0, 0, 0, 0.2)",
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 1,
+    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
+      string,
+      string
+    >),
   },
   gateCopy: {
     flex: 1,

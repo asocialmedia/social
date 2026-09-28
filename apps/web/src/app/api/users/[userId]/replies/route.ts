@@ -60,7 +60,17 @@ export async function GET(
     .where({ userId })
     .orderBy((comment) => comment.createdAt.desc());
   if (cursor) {
-    query = query.cursor({ id: cursor }).offset(1);
+    // Prisma 8 cursors are keyset seeks built from the values passed in, so
+    // every orderBy column needs one: the anchor's createdAt is read back here
+    // because the page cursor only carries a comment id. The seek is exclusive,
+    // so no .offset(1) hop is needed. A vanished anchor restarts from the top
+    // rather than 500ing the scroll.
+    const anchor = await prisma.orm.public.Comments.select("createdAt")
+      .where({ id: cursor })
+      .first();
+    if (anchor) {
+      query = query.cursor({ createdAt: anchor.createdAt, id: cursor });
+    }
   }
   const comments = await query.limit(pageSize + 1).all();
 
@@ -98,7 +108,10 @@ export async function GET(
     post: hydratedPosts[index] ?? reply.post,
   }));
 
-  const nextCursor = comments.length > pageSize ? comments[pageSize].id : null;
+  // The cursor must be the last SERVED row: anchoring on the look-ahead row
+  // would skip a reply on every page.
+  const nextCursor =
+    comments.length > pageSize ? (comments[pageSize - 1]?.id ?? null) : null;
   const data: UserRepliesPage = {
     nextCursor,
     replies: repliesWithHydratedPosts,
