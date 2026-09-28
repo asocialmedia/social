@@ -317,6 +317,32 @@ describe("buildSeedPlan referential integrity", () => {
       expect(owners[0]?.userId).toBe(community.ownerId);
     }
   });
+
+  test("every share points at a fleet that predates it", () => {
+    // A share is only a share if the post it was shared from already existed, so
+    // the source has to be an older fleet. Naming the source after the timeline
+    // slot instead of the post on it picks a different post, because share slots
+    // consume a slot without producing a fleet and the two draw from separate id
+    // counters: on 22 of 60 seeds that yielded a source that was a share, one
+    // that was newer than the share, and in one case the share itself.
+    for (const seed of [1, 8, 10, 14, 15, 20]) {
+      const built = plan({ seed });
+      const createdAt = new Map(
+        built.posts.map((post) => [post.id, post.createdAt.getTime()])
+      );
+      const sharePostIds = new Set(
+        built.communityPostShares.map((share) => share.postId)
+      );
+      expect(built.communityPostShares.length).toBeGreaterThan(0);
+      for (const share of built.communityPostShares) {
+        expect(share.sourcePostId).not.toBe(share.postId);
+        expect(sharePostIds.has(share.sourcePostId)).toBe(false);
+        const sourceAt = createdAt.get(share.sourcePostId);
+        expect(sourceAt).toBeDefined();
+        expect(sourceAt).toBeLessThan(createdAt.get(share.postId) ?? 0);
+      }
+    }
+  });
 });
 
 describe("buildSeedPlan threading", () => {

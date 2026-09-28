@@ -699,6 +699,21 @@ export function buildSeedPlan(
   const rootPosts: SeedPost[] = [];
   const communityPosts: SeedPost[] = [];
   const communityPostShares: SeedCommunityPostShare[] = [];
+  // The timeline slot each root post was laid on, parallel to rootPosts. A
+  // share's source has to be resolved through this rather than through the slot
+  // number: share slots and root posts draw from separate id counters, and a
+  // share slot consumes a slot without producing a root post at all, so a slot
+  // is not a post index.
+  const rootPostSlots: number[] = [];
+  // A share whose source has not been chosen yet, with the slot it was laid on.
+  // The candidate is the fleet that ended up on an older slot, which is only
+  // knowable once the whole timeline has been filled.
+  const pendingShares: {
+    communityId: string;
+    createdAt: Date;
+    postId: string;
+    slot: number;
+  }[] = [];
   const shareCount =
     communities.length > 0 && userCount > 0 ? config.communityPostShares : 0;
   const feedTimes = buildTimeline(
@@ -724,33 +739,60 @@ export function buildSeedPlan(
     }
     if (!shareSlots.has(slot)) {
       rootPosts.push(composePost(rootPosts.length, author.id, createdAt));
+      rootPostSlots.push(slot);
       continue;
     }
-    // Slot 0 is the newest, so a higher index is an older fleet to share from.
-    const sourceIndex = rng.int(
-      Math.min(slot + 1, feedTimes.length - 1),
-      feedTimes.length
-    );
     const community = communities[rng.int(0, communities.length)];
     if (!community) {
       rootPosts.push(composePost(rootPosts.length, author.id, createdAt));
+      rootPostSlots.push(slot);
       continue;
     }
     const shared = composePost(
-      config.posts + communityPostShares.length,
+      config.posts + pendingShares.length,
       author.id,
       createdAt,
       { communityId: community.id }
     );
     communityPosts.push(shared);
-    communityPostShares.push({
+    pendingShares.push({
       communityId: community.id,
       createdAt,
-      id: seedId("share", communityPostShares.length),
       postId: shared.id,
-      // A share always points back at a fleet that already exists, which is
-      // always an earlier (older) slot.
-      sourcePostId: seedId("post", sourceIndex),
+      slot,
+    });
+  }
+
+  // Point every share back at a fleet that already existed when it was made.
+  // Slot 0 is the newest, so a higher slot is an older fleet, and the source is
+  // the post that actually landed on that slot rather than the slot number -
+  // naming a post after a slot picks some other post entirely, regularly one
+  // newer than the share it is meant to predate, and sometimes a share.
+  for (const pending of pendingShares) {
+    const olderRootIndexes: number[] = [];
+    for (const [index, rootSlot] of rootPostSlots.entries()) {
+      if (rootSlot > pending.slot) {
+        olderRootIndexes.push(index);
+      }
+    }
+    // The slot spread above always leaves a plain fleet below every share, so
+    // this candidate list is never empty. Guarded anyway: a share with nothing
+    // older to point at is dropped rather than written with a source that
+    // postdates it, or with no source at all, and the community post it carried
+    // is still a valid post.
+    const source =
+      olderRootIndexes.length > 0
+        ? rootPosts[rng.pick(olderRootIndexes)]
+        : null;
+    if (!source) {
+      continue;
+    }
+    communityPostShares.push({
+      communityId: pending.communityId,
+      createdAt: pending.createdAt,
+      id: seedId("share", communityPostShares.length),
+      postId: pending.postId,
+      sourcePostId: source.id,
     });
   }
 
