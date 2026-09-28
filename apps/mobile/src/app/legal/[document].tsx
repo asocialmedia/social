@@ -100,10 +100,13 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
         });
         return;
       }
-      if (decision.kind === "leave") {
-        // "Back to feed" and anything else on the site's own origin: the web
-        // app, not the document.
-        goBack();
+      if (decision.kind === "feed") {
+        // "Back to feed" and any other link to the site's home. The reader
+        // asked for the feed, so they get the feed: replacing the document
+        // rather than popping it would drop them wherever they opened the
+        // document from - settings, or the signup form - which is not where they
+        // tapped to go.
+        router.replace("/");
         return;
       }
       if (decision.kind === "open-externally") {
@@ -113,7 +116,7 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
         void openExternally(target);
       }
     },
-    [apiBase, document, goBack, openExternally, router]
+    [apiBase, document, openExternally, router]
   );
 
   return (

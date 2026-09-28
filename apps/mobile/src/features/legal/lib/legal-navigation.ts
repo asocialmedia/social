@@ -27,10 +27,11 @@ export type LegalNavigationDecision =
   | { kind: "allow" }
   // The other policy. A screen of this app, not a page of this document.
   | { document: LegalDocument; kind: "switch-document" }
-  // Anywhere else on the site's own origin, which is the web app, not the
-  // document - the feed behind "Back to feed" among others.
-  | { kind: "leave" }
-  // Off-origin, or a scheme the system can open for us.
+  // The site's own home, behind "Back to feed". A screen of this app too.
+  | { kind: "feed" }
+  // Somewhere this app has no screen for: off-origin, a scheme the system can
+  // open, or another page of the web app - the Terms link to /support, for one.
+  // Handed to the system so the reader lands on the page they tapped.
   | { kind: "open-externally" }
   // Nothing sensible to do with it, and nothing to show the reader either.
   | { kind: "block" };
@@ -120,9 +121,14 @@ export function decideLegalNavigation({
       : { document: key as LegalDocument, kind: "switch-document" };
   }
 
-  // Same origin, not a document: this is the web app, and the reader meant to
-  // leave the document rather than to page through it.
-  return { kind: "leave" };
+  // The site's home is a screen of this app, so a link to it is a route change
+  // and not a page load. Everything else on the origin is a page of the web app
+  // that this screen has no equivalent for, and honouring the tap means opening
+  // it - going back instead would drop the reader wherever they opened the
+  // document from, which is not the page they asked for.
+  return targetPath === pathOf(apiBase)
+    ? { kind: "feed" }
+    : { kind: "open-externally" };
 }
 
 /**

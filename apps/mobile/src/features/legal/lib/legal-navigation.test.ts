@@ -44,13 +44,26 @@ describe("decideLegalNavigation", () => {
     });
   });
 
-  test("refuses to page anywhere else on the site's own origin", () => {
-    // "Back to feed" is a next/link to /, and the web app takes it as a soft
-    // navigation, so it never reaches a pre-navigation check at all.
-    expect(decide(`${API_BASE}/`)).toEqual({ kind: "leave" });
-    expect(decide(`${API_BASE}`)).toEqual({ kind: "leave" });
-    expect(decide(`${API_BASE}/u/someone`)).toEqual({ kind: "leave" });
-    expect(decide(`${API_BASE}/api/health`)).toEqual({ kind: "leave" });
+  test("sends the site's own home to the app's feed, not to a previous screen", () => {
+    // "Back to feed" is a next/link to /. The reader opened this document from
+    // settings or the signup form, so going back would return them there rather
+    // than to the feed they tapped.
+    expect(decide(`${API_BASE}/`)).toEqual({ kind: "feed" });
+    expect(decide(`${API_BASE}`)).toEqual({ kind: "feed" });
+    expect(decide(`${API_BASE}#top`)).toEqual({ kind: "feed" });
+  });
+
+  test("opens a page of the web app this screen has no equivalent for", () => {
+    // The Terms link to /support. There is no native support screen, so the only
+    // honest way to honour the tap is the page itself - going back would show
+    // the reader settings or the signup form instead.
+    expect(decide(`${API_BASE}/support`)).toEqual({ kind: "open-externally" });
+    expect(decide(`${API_BASE}/u/someone`)).toEqual({
+      kind: "open-externally",
+    });
+    expect(decide(`${API_BASE}/api/health`)).toEqual({
+      kind: "open-externally",
+    });
   });
 
   test("hands every other origin to the system browser", () => {
@@ -93,7 +106,10 @@ describe("decideLegalNavigation", () => {
       kind: "switch-document",
     });
     expect(decide("http://10.0.2.2:3000/", "terms", dev)).toEqual({
-      kind: "leave",
+      kind: "feed",
+    });
+    expect(decide("http://10.0.2.2:3000/support", "terms", dev)).toEqual({
+      kind: "open-externally",
     });
     expect(decide("https://asocialmedia.cc/toc", "terms", dev)).toEqual({
       kind: "open-externally",
