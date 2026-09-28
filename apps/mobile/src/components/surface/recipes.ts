@@ -161,6 +161,79 @@ export function metaChip(isDark: boolean) {
       };
 }
 
+// `.hn-chip` resting, light + dark. The HackerNews feed's metadata pills are
+// orange-tinted, not the neutral meta-chip: rgba(255,149,0,0.12) behind an
+// orange ink, with a 1px edge just off the fill.
+export function hnChip(isDark: boolean) {
+  return isDark
+    ? {
+        background: "rgba(255, 149, 0, 0.12)",
+        border: "rgba(251, 146, 60, 0.15)",
+        color: "#fdba74",
+        shadows:
+          "inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 1px 1px rgba(255, 255, 255, 0.2)",
+      }
+    : {
+        background: "rgba(255, 149, 0, 0.12)",
+        border: "rgba(234, 88, 12, 0.18)",
+        color: "#c2410c",
+        shadows:
+          "inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 1px 1px rgba(154, 52, 18, 0.06)",
+      };
+}
+
+// `.hn-chip:hover` / `.hn-link:hover`, shown while pressed. Both recipes wash
+// to the same orange fill, so one recipe drives the row actions and the pills.
+export function hnChipPressed() {
+  return {
+    gradient: ["#ffb25e", "#f28500"] as const,
+    shadows:
+      "inset 0 0 0 1px rgba(255, 255, 255, 0.35), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.4), 0 1px 1px rgba(255, 255, 255, 0.4), 0 2px 4px rgba(0, 0, 0, 0.08)",
+    text: "#ffffff",
+  };
+}
+
+// `.hn-link`, light + dark. The row actions ("Reshare as fleet" / "Copy") are
+// flat orange text on the page, no fill at rest.
+export function hnLink(isDark: boolean) {
+  return isDark ? "#fdba74" : "#c2410c";
+}
+
+// `.btn-3d-gray` resting + pressed, light + dark. The neutral 3D pill: the
+// HackerNews filter trigger is this, not the orange primary.
+export function btnGray(isDark: boolean) {
+  if (isDark) {
+    return {
+      pressed: {
+        colors: ["#333333", "#2a2a2a"] as const,
+        shadows:
+          "inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 2px rgba(255, 255, 255, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.12)",
+        text: "#ffffff",
+      },
+      resting: {
+        colors: ["#4a4a4a", "#333333"] as const,
+        shadows:
+          "inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1.5px 2px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 1px rgba(255, 255, 255, 0.35), 0 3px 5px rgba(0, 0, 0, 0.12), 0 8px 16px -4px rgba(0, 0, 0, 0.2)",
+        text: "#ffffff",
+      },
+    };
+  }
+  return {
+    pressed: {
+      colors: ["#dfe3e9", "#cdd2da"] as const,
+      shadows:
+        "inset 0 0 0 1px rgba(255, 255, 255, 0.6), inset 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06)",
+      text: "#1f2430",
+    },
+    resting: {
+      colors: ["#f7f8fa", "#e4e7ec"] as const,
+      shadows:
+        "inset 0 0 0 1px rgba(255, 255, 255, 0.85), inset 0 1.5px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 1px rgba(255, 255, 255, 0.6), 0 1px 2px rgba(0, 0, 0, 0.06)",
+      text: "#1f2430",
+    },
+  };
+}
+
 // Theme text colors (--foreground / --muted-foreground / --destructive).
 export function themeText(isDark: boolean) {
   return isDark
