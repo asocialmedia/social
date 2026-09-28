@@ -1,13 +1,14 @@
 // Choosing which release APK to verify and package, with no filesystem access
 // so the decision is unit-testable.
 //
-// The app ships an ABI split (see ../plugins/abi-splits), so `assembleRelease`
-// writes one APK per ABI into android/app/build/outputs/apk/release and, with
-// `universalApk false`, no `app-release.apk` at all. A script that still looks
-// for the universal name fails after a successful - and expensive - Gradle
-// build, before it can verify a signature or publish anything.
+// The app ships an ABI split (see ../plugins/with-android-abi-splits), so
+// `assembleRelease` writes one APK per ABI into
+// android/app/build/outputs/apk/release and, with `universalApk false`, no
+// `app-release.apk` at all. A script that still looks for the universal name
+// fails after a successful - and expensive - Gradle build, before it can verify
+// a signature or publish anything.
 
-import { splitApkFileName } from "../plugins/abi-splits";
+import { splitApkFileName } from "../plugins/with-android-abi-splits";
 
 export type ReleaseApkResolution =
   | { fileName: string; kind: "found" }
