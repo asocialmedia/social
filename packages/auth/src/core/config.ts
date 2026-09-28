@@ -137,18 +137,43 @@ export interface SocialProvidersConfig {
   google?: {
     clientId: string;
     clientSecret: string;
-    redirectURI: string;
+    redirectURI?: string;
     mapProfileToUser: (profile: GoogleProfile) => SocialUserMapping;
   };
   reddit?: {
     clientId: string;
     clientSecret: string;
-    redirectURI: string;
+    redirectURI?: string;
     mapProfileToUser: (profile: RedditProfile) => SocialUserMapping;
   };
 }
 
-function buildSocialProviderConfig(authBaseUrl: string): {
+// The base URL better-auth builds its own callbacks and redirects from, resolved
+// from the environment. Deliberately allowed to come back as nothing:
+//
+// `keys` runs with skipValidation in production, so its schema default for
+// AUTH_URL does not apply there and an unset AUTH_URL resolves to undefined
+// rather than to localhost. better-auth then derives the origin per request,
+// which is what the auth service actually runs on in production and works
+// behind the proxy in front of it. Setting AUTH_URL (or BETTER_AUTH_URL) is what
+// makes it stop guessing - see apps/auth/.env.example.
+//
+// Exported for the reason a caller might reach for it: an absent value is
+// meaningful here, and the alternative is `env.AUTH_URL` being typed as a
+// non-empty string that production does not actually provide.
+export function resolveAuthBaseUrl({
+  authUrl,
+  baseURL,
+  betterAuthUrl,
+}: {
+  authUrl: string | undefined;
+  baseURL: string | undefined;
+  betterAuthUrl: string | undefined;
+}): string | undefined {
+  return baseURL || betterAuthUrl || authUrl || undefined;
+}
+
+function buildSocialProviderConfig(authBaseUrl: string | undefined): {
   socialProviders: SocialProvidersConfig;
   trustedProviders: SocialProviderName[];
 } {
@@ -169,7 +194,13 @@ function buildSocialProviderConfig(authBaseUrl: string): {
           username: derivedUsername,
         };
       },
-      redirectURI: `${authBaseUrl}/api/auth/callback/google`,
+      // Omitted when the base URL is unknown, rather than assembled into
+      // "undefined/api/auth/callback/google". better-auth derives the
+      // redirect URI from its own request context, so the provider still
+      // works; a wrong absolute URL is only ever noise.
+      ...(authBaseUrl
+        ? { redirectURI: `${authBaseUrl}/api/auth/callback/google` }
+        : {}),
     };
     trustedProviders.push("google");
   }
@@ -190,7 +221,13 @@ function buildSocialProviderConfig(authBaseUrl: string): {
           username: derivedUsername,
         };
       },
-      redirectURI: `${authBaseUrl}/api/auth/callback/reddit`,
+      // Omitted when the base URL is unknown, rather than assembled into
+      // "undefined/api/auth/callback/reddit". better-auth derives the
+      // redirect URI from its own request context, so the provider still
+      // works; a wrong absolute URL is only ever noise.
+      ...(authBaseUrl
+        ? { redirectURI: `${authBaseUrl}/api/auth/callback/reddit` }
+        : {}),
     };
     trustedProviders.push("reddit");
   }
@@ -214,7 +251,11 @@ export function createAuthConfig(config: AuthConfig = {}) {
     sendTwoFactorOTP,
   } = config;
 
-  const authBaseUrl = baseURL || process.env.BETTER_AUTH_URL || env.AUTH_URL;
+  const authBaseUrl = resolveAuthBaseUrl({
+    authUrl: env.AUTH_URL,
+    baseURL,
+    betterAuthUrl: process.env.BETTER_AUTH_URL,
+  });
   // The web app imports auth helpers while collecting route data at build time.
   // Env validation is intentionally skipped there, so retain a valid relying
   // party origin even though the production runtime still supplies APP_URL.
@@ -774,4 +815,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
   });
 }
 
+// A bare instance, for this package's own request helpers in ./middleware. The
+// auth service does not use it: it builds its own with the email service and OTP
+// senders, which is the one that matters in production.
+//
+// The web app reaches this module through the package barrel - to hash a
+// password, for instance - and so constructs this instance on the first request
+// that needs one. With no AUTH_URL in production it has no base URL and
+// better-auth says so on every boot. Setting AUTH_URL in the deployment (see
+// apps/auth/.env.example) is the fix; see resolveAuthBaseUrl.
 export const auth = createAuthConfig();
