@@ -126,8 +126,8 @@ describe("buildConversationMediaIndex", () => {
     expect(second.items[0]).toBe(first.items[0]);
   });
 
-  test("drops cached items when a message is deleted in place", () => {
-    // Same array identity across calls, so the WeakMap cache is genuinely
+  test("removes items when a message is deleted in place, and restores them", () => {
+    // Same array identity across calls, so the derivation memo is genuinely
     // exercised (mutating the element, not replacing the list).
     const list: ConversationMediaMessage[] = [
       { deletedAt: null, id: "m1" },
@@ -137,25 +137,42 @@ describe("buildConversationMediaIndex", () => {
       m1: mediaPayload(["/api/media/a"]),
       m2: mediaPayload(["/api/media/b"]),
     };
+    const second = list[1] as ConversationMediaMessage;
     const [, firstM2] = buildConversationMediaIndex(
       list,
       lookup(entries)
     ).items;
-    const [, second] = list;
 
     second.deletedAt = new Date();
     const after = buildConversationMediaIndex(list, lookup(entries));
+    // Deletion is decided per rebuild from the row, not from the memo, so the
+    // attachment leaves the index the moment its row is marked deleted.
     expect(after.items.map((item) => item.flatKey)).toEqual(["m1:0"]);
 
-    // Restoring the message must rebuild a fresh item, proving the cached one
-    // was pruned rather than resurrected.
+    // Undeleting brings the same item object back. The memo is keyed by the
+    // payload object and holds no reference from the index, so restoring the row
+    // reuses the derivation instead of rebuilding it — which is what lets a
+    // memoized grid row skip re-rendering when this happens.
     second.deletedAt = null;
     const restored = buildConversationMediaIndex(list, lookup(entries));
     expect(restored.items.map((item) => item.flatKey)).toEqual([
       "m1:0",
       "m2:0",
     ]);
-    expect(restored.items[1]).not.toBe(firstM2);
+    expect(restored.items[1]).toBe(firstM2);
+  });
+
+  test("re-derives when an edit produces a new payload object", () => {
+    // The memo is keyed by payload identity precisely because a message id
+    // survives an edit: an id-keyed cache would keep serving the old album.
+    const list = messages("m1");
+    const before = mediaPayload(["/api/media/a"]);
+    const after = mediaPayload(["/api/media/a", "/api/media/b"]);
+    const first = buildConversationMediaIndex(list, lookup({ m1: before }));
+    expect(first.items.map((item) => item.flatKey)).toEqual(["m1:0"]);
+
+    const edited = buildConversationMediaIndex(list, lookup({ m1: after }));
+    expect(edited.items.map((item) => item.flatKey)).toEqual(["m1:0", "m1:1"]);
   });
 
   test("carries the decryptor revision through", () => {

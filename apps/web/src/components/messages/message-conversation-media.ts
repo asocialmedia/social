@@ -1,36 +1,47 @@
 import { getMediaImages } from "@/lib/messages/crypto";
 import type { DecryptEntry } from "@/lib/messages/decryptor";
+import type { SharedMediaItem } from "@/lib/messages/shared-refs-format";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
 // Flattens every decrypted media attachment across a conversation into one
 // chronologically-ordered list, so the fullscreen viewer can page through all
-// images - not just the album a tile was tapped in.
+// images - not just the album a tile was tapped in - and the details panel can
+// lay them out as a grid.
 //
-// Pure apart from a module-level structural-sharing cache keyed by the input
-// message array, so ordering, flattening, and reuse rules stay unit-testable.
-// Only DECRYPTED media payloads become items: a message's type is unknowable
-// until its ciphertext is decrypted, so the index is a view of what the thread
-// has already decrypted (plus whatever the viewer asks for).
+// Pure apart from a module-level derivation cache, so ordering, flattening, and
+// reuse rules stay unit-testable. Only DECRYPTED media payloads become items: a
+// message's type is unknowable until its ciphertext is decrypted, so the index is
+// a view of what the thread has already decrypted (plus whatever the viewer asks
+// for).
+//
+// SCALE. This is rebuilt on every decrypt tick and every prepend, so each row's
+// attachment list is memoized by message id (conversation-index-cache.ts). A
+// rebuild is then one map lookup per row plus the array assembly, which is what
+// keeps a very large window from re-walking every album on every tick. The cache
+// also hands back the SAME item objects, so a memoized grid row still skips
+// re-rendering when an unrelated message decrypts.
 
 // Minimal shape the index needs from a transcript row. Keeping it structural
 // avoids coupling this module to the full database message type.
+//
+// `createdAt` and `senderId` are here because the item the index produces carries
+// them, and the panel's media tab sorts by time. A row without them would produce
+// an item that cannot be merged with a stored one.
 export interface ConversationMediaMessage {
+  createdAt: Date | string;
   deletedAt: Date | null;
   id: string;
+  senderId: string;
 }
 
-export interface ConversationMediaItem {
-  // `${messageId}:${imageIndex}` - stable across pagination, decrypt ticks, and
-  // re-renders, so navigation anchors never drift when items are prepended.
-  flatKey: string;
+// The shared media item, plus the two fields the fullscreen viewer's own
+// download and sizing paths use. Extending the shared type rather than
+// restating it is what makes the live index and the stored rows interchangeable:
+// a component that takes the shared type can take either.
+export type ConversationMediaItem = SharedMediaItem & {
   height?: number;
-  imageIndex: number;
-  kind: "gif" | "image";
-  mediaId: string | null;
-  messageId: string;
-  url: string;
   width?: number;
-}
+};
 
 export interface ConversationMediaIndex {
   // flatKey -> position in `items`. Rebuilt each pass; cheap (media is sparse).
@@ -52,29 +63,51 @@ export function messageIdFromFlatKey(flatKey: string): string {
   return separator === -1 ? flatKey : flatKey.slice(0, separator);
 }
 
-// One item cache per input array. The transcript array is stable across decrypt
-// ticks (it only changes when query data changes), so keying on it gives
-// structural sharing across ticks while letting stale caches be collected.
-const cachesByMessages = new WeakMap<
-  readonly ConversationMediaMessage[],
-  Map<string, ConversationMediaItem>
->();
+// The attachments one decrypted media payload contributes, in send order, keyed
+// by the payload OBJECT (not the message id: an edit re-decrypts into a new
+// object, and a stale id-keyed entry would keep listing a replaced album).
+//
+// A WeakMap needs no eviction policy of its own — an entry dies with the payload
+// object, and the decryptor's cache cap bounds how many of those exist. It is
+// what keeps a rebuild (every decrypt tick, every prepend) to one lookup per row
+// while still handing back the SAME item objects, so a memoized grid row skips
+// re-rendering when an unrelated message decrypts.
+const derivations = new WeakMap<object, ConversationMediaItem[]>();
 
-// Builds the ordered index, reusing item objects from the per-array cache so an
-// unchanged attachment keeps its identity. Remounts are already prevented by
-// keying consumers on `flatKey`; identity reuse additionally lets memoized
-// consumers skip re-rendering on unrelated decrypt ticks.
+// Index is the image's position WITHIN its message, so the keys are stable when
+// an older page prepends.
+function deriveMediaItems(
+  message: ConversationMediaMessage,
+  payload: Extract<DecryptEntry, object> & { type: "media" }
+): ConversationMediaItem[] {
+  const images = getMediaImages(payload);
+  const items: ConversationMediaItem[] = [];
+  for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
+    const image = images[imageIndex];
+    if (!image?.url) {
+      continue;
+    }
+    items.push({
+      createdAt: new Date(message.createdAt).getTime(),
+      flatKey: mediaFlatKey(message.id, imageIndex),
+      height: image.height,
+      imageIndex,
+      kind: payload.kind,
+      mediaId: getMessageMediaId(image.url),
+      messageId: message.id,
+      senderId: message.senderId,
+      url: image.url,
+      width: image.width,
+    });
+  }
+  return items;
+}
+
 export function buildConversationMediaIndex(
   messages: readonly ConversationMediaMessage[],
   getPayload: (id: string) => DecryptEntry | undefined,
   revision = 0
 ): ConversationMediaIndex {
-  let cache = cachesByMessages.get(messages);
-  if (!cache) {
-    cache = new Map();
-    cachesByMessages.set(messages, cache);
-  }
-
   const items: ConversationMediaItem[] = [];
   const indexByKey = new Map<string, number>();
 
@@ -89,38 +122,22 @@ export function buildConversationMediaIndex(
     if (payload.type !== "media") {
       continue;
     }
-    const images = getMediaImages(payload);
-    for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
-      const image = images[imageIndex];
-      const flatKey = mediaFlatKey(message.id, imageIndex);
-      let item = cache.get(flatKey);
-      if (!item) {
-        item = {
-          flatKey,
-          height: image.height,
-          imageIndex,
-          kind: payload.kind,
-          mediaId: getMessageMediaId(image.url),
-          messageId: message.id,
-          url: image.url,
-          width: image.width,
-        };
-        cache.set(flatKey, item);
-      }
-      indexByKey.set(flatKey, items.length);
+    let derived = derivations.get(payload);
+    if (!derived) {
+      derived = deriveMediaItems(message, payload);
+      derivations.set(payload, derived);
+    }
+    for (const item of derived) {
+      indexByKey.set(item.flatKey, items.length);
       items.push(item);
     }
   }
 
-  // Drop cached items whose message was deleted or fell out of the loaded
-  // window, so the cache tracks live media instead of growing forever.
-  if (cache.size > items.length) {
-    for (const key of cache.keys()) {
-      if (!indexByKey.has(key)) {
-        cache.delete(key);
-      }
-    }
-  }
-
   return { indexByKey, items, revision };
+}
+
+// Test-only: whether a payload's attachments are already derived, so a test can
+// assert the memo is doing its job without reaching into the cache.
+export function hasConversationMediaDerivation(payload: object): boolean {
+  return derivations.has(payload);
 }
