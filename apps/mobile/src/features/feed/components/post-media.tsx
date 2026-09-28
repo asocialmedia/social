@@ -177,6 +177,7 @@ function SingleImage({
       accessibilityLabel={media.altText ?? "Open post media"}
       accessibilityRole="link"
       onPress={() => onPressMedia(index)}
+      style={({ pressed }) => [pressed && styles.mediaTilePressed]}
     >
       {frame}
     </Pressable>
@@ -225,7 +226,7 @@ function GridImage({
       accessibilityLabel={media.altText ?? "Open post media"}
       accessibilityRole="link"
       onPress={() => onPressMedia(index)}
-      style={frameStyle}
+      style={({ pressed }) => [frameStyle, pressed && styles.mediaTilePressed]}
     >
       {content}
     </Pressable>
@@ -1046,10 +1047,11 @@ function OverflowTile({
       accessibilityLabel={`Show ${count} more media`}
       accessibilityRole="button"
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         styles.gridTile,
         styles.overflowTile,
         { backgroundColor: theme.cardBg },
+        pressed && styles.mediaTilePressed,
       ]}
     >
       <LinearGradient
@@ -1750,6 +1752,10 @@ const styles = StyleSheet.create({
     height: "100%",
     overflow: "hidden",
     width: "100%",
+  },
+  mediaTilePressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.985 }],
   },
   moderated: {
     alignItems: "center",
