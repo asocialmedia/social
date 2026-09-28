@@ -769,3 +769,271 @@ describe("write deferral", () => {
     expect(writer.coverage().indexedCount).toBe(1);
   });
 });
+
+// ---- shared-content refs, written on the same pass as the text rows --------
+
+// ---- shared-content refs, written on the same pass as the text rows --------
+
+describe("message index writer: shared refs", () => {
+  let harness: ReturnType<typeof makeHarness>;
+
+  beforeEach(() => {
+    harness = makeHarness();
+  });
+
+  function page(kind: "link" | "media" | "post") {
+    return harness.store.readSharedRefs(CONVO, kind, { limit: 50 });
+  }
+
+  test("persists a post share alongside its text row", async () => {
+    harness.payloads.set("m1", {
+      content: "look at this",
+      postId: "p1",
+      type: "post",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    const stored = await page("post");
+    expect(stored.items.map((item) => item.postId)).toEqual(["p1"]);
+    // Both halves in one pass, so the searchable text and the tab row can never
+    // come from different reads of the same message.
+    expect(await idsFor(harness.store, "look")).toEqual(["m1"]);
+  });
+
+  test("persists every image of an album, indexed by album position", async () => {
+    harness.payloads.set("m1", {
+      images: [{ url: "/api/media/a" }, { url: "/api/media/b" }],
+      kind: "image",
+      type: "media",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    const stored = await page("media");
+    expect(stored.items.map((item) => item.index)).toEqual([0, 1]);
+    expect(stored.items.map((item) => item.url)).toEqual([
+      "/api/media/a",
+      "/api/media/b",
+    ]);
+  });
+
+  // A captionless image has no words of its own, so the text index holds it under
+  // a synthesized kind label. That label is what makes it findable in the
+  // transcript, so the row is expected — and the point of the shared extractor is
+  // that the tab and the search bar agree on that.
+  test("persists refs for a message whose text is only a synthesized label", async () => {
+    harness.payloads.set("m1", {
+      images: [{ url: "/api/media/a" }],
+      kind: "image",
+      type: "media",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    const stored = await page("media");
+    expect(stored.items).toHaveLength(1);
+    expect(await idsFor(harness.store, "shared")).toEqual(["m1"]);
+  });
+
+  test("persists a link from a caption", async () => {
+    harness.payloads.set("m1", {
+      content: "read https://example.com/a",
+      images: [{ url: "/api/media/a" }],
+      kind: "image",
+      type: "media",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const stored = await page("link");
+    expect(stored.items.map((item) => item.url)).toEqual([
+      "https://example.com/a",
+    ]);
+  });
+
+  // The bug the refs-aware signature exists for: an edit that swaps one link for
+  // another leaves every token identical, so a text-only signature would treat the
+  // row as current and the panel would keep showing a URL the author removed.
+  test("an edit that swaps a link rewrites the ref even though no token changes", async () => {
+    harness.payloads.set("m1", {
+      content: "read https://example.com/old",
+      type: "text",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const before = await page("link");
+    expect(before.items.map((item) => item.url)).toEqual([
+      "https://example.com/old",
+    ]);
+
+    harness.payloads.set("m1", {
+      content: "read https://example.com/new",
+      type: "text",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    const after = await page("link");
+    expect(after.items).toHaveLength(1);
+    expect(after.items[0]?.url).toBe("https://example.com/new");
+    // The count must not double, or the tab's label drifts from its rows.
+    const counts = await harness.store.readSharedRefsCounts(CONVO);
+    expect(counts?.link).toBe(1);
+  });
+
+  // The second half of the same bug: refs that go to ZERO are not in the write
+  // batch at all, so nothing would drop the old rows and nothing would point at
+  // them either.
+  test("an edit that strips every ref leaves none behind", async () => {
+    harness.payloads.set("m1", {
+      content: "https://example.com/a",
+      type: "text",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const before = await page("link");
+    expect(before.items).toHaveLength(1);
+
+    harness.payloads.set("m1", { content: "no links now", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const after = await page("link");
+    expect(after.items).toEqual([]);
+    const counts = await harness.store.readSharedRefsCounts(CONVO);
+    expect(counts?.link).toBe(0);
+  });
+
+  test("a message that becomes empty loses its refs", async () => {
+    harness.payloads.set("m1", {
+      content: "https://example.com/a",
+      type: "text",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    harness.payloads.set("m1", { content: "   ", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const after = await page("link");
+    expect(after.items).toEqual([]);
+  });
+
+  test("remove() drops refs as well as text rows", async () => {
+    harness.payloads.set("m1", {
+      content: "https://example.com/a",
+      type: "text",
+    });
+    harness.payloads.set("m2", {
+      content: "https://example.com/b",
+      type: "text",
+    });
+    harness.writer.consider([message("m1"), message("m2")]);
+    await harness.writer.flush();
+    const before = await page("link");
+    expect(before.items).toHaveLength(2);
+
+    // The same call the thread makes for delete-for-me and for a
+    // delete-for-everyone event: leaving refs behind would show hidden text in the
+    // one place the user goes looking for the conversation's contents.
+    harness.writer.remove(["m1"]);
+    await harness.writer.flush();
+    const after = await page("link");
+    expect(after.items.map((item) => item.messageId)).toEqual(["m2"]);
+  });
+
+  test("a message deleted while queued never gets a ref row", async () => {
+    harness.payloads.set("m1", {
+      content: "https://example.com/a",
+      type: "text",
+    });
+    harness.writer.consider([message("m1")]);
+    harness.writer.remove(["m1"]);
+    await harness.writer.flush();
+    const after = await page("link");
+    expect(after.items).toEqual([]);
+  });
+
+  test("an undecryptable row is queued, not stored as an empty ref", async () => {
+    harness.payloads.set("m1", "pending");
+    harness.writer.consider([message("m1")]);
+    const flushed = await harness.writer.flush();
+    expect(flushed.stillPending).toEqual(["m1"]);
+    const empty = await page("link");
+    expect(empty.items).toEqual([]);
+    expect(await harness.store.readSharedRefsCounts(CONVO)).toBeNull();
+
+    // And it lands once the payload arrives, which is the durable-queue contract.
+    harness.payloads.set("m1", {
+      content: "https://example.com/a",
+      type: "text",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const landed = await page("link");
+    expect(landed.items).toHaveLength(1);
+  });
+
+  test("a re-consider with unchanged refs writes nothing new", async () => {
+    harness.payloads.set("m1", {
+      images: [{ url: "/api/media/a" }],
+      kind: "image",
+      type: "media",
+    });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const before = await page("media");
+
+    // The transcript re-consideres on every decrypt tick; without a refs-aware
+    // signature this would rewrite the row on each one, for nothing.
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const after = await page("media");
+    expect(after.items[0]).toBe(before.items[0]);
+    const counts = await harness.store.readSharedRefsCounts(CONVO);
+    expect(counts?.media).toBe(1);
+  });
+
+  test("a refs write failure leaves the text index intact and retries later", async () => {
+    // The two writes are separate transactions on purpose: search must not go down
+    // with refs. The failure is injected directly, because inducing a real
+    // IndexedDB rejection here would mean faulting the browser.
+    const failing = createMemorySearchIndexStore();
+    let failNext = true;
+    const spy = {
+      ...failing,
+      putSharedRefs: (
+        ...args: Parameters<typeof failing.putSharedRefs>
+      ): Promise<void> => {
+        if (failNext) {
+          failNext = false;
+          return Promise.reject(new Error("refs unavailable"));
+        }
+        return failing.putSharedRefs(...args);
+      },
+    };
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "https://example.com/a", type: "text" }],
+    ]);
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store: spy,
+    });
+    writer.consider([message("m1")]);
+    const failed = await writer.flush();
+
+    // Text committed; refs did not, and the row is queued rather than dropped.
+    expect(failed.stillPending).toEqual(["m1"]);
+    expect(await idsFor(failing, "https://example.com/a")).toEqual(["m1"]);
+    const hole = await failing.readSharedRefs(CONVO, "link", { limit: 10 });
+    expect(hole.items).toEqual([]);
+
+    // And the retry lands it. This is the part the two-half signature exists for:
+    // the text half was already current, so a combined signature would have
+    // skipped this pass and left the hole open for good.
+    writer.consider([message("m1")]);
+    await writer.flush();
+    const filled = await failing.readSharedRefs(CONVO, "link", { limit: 10 });
+    expect(filled.items).toHaveLength(1);
+  });
+});

@@ -25,6 +25,8 @@ import {
   IDENTITY_STORE,
   MESSAGES_DB_NAME,
   MESSAGES_DB_VERSION,
+  PRE_RESET_SEARCH_DB_VERSION,
+  SHARED_REFS_STORES,
   SEARCH_META_STORE,
   SEARCH_POSTINGS_STORE,
   SEARCH_STORES,
@@ -76,9 +78,11 @@ async function deleteDatabase(): Promise<void> {
   });
 }
 
-// The layout that shipped immediately before this one. Anything below it was
-// dropped when the row table went back to one record per row.
-const PREVIOUS_SHIPPED_SEARCH_VERSION = MESSAGES_DB_VERSION - 1;
+// The last layout the text-index reset targets, which is what this file's
+// reset tests must seed. Deriving it from MESSAGES_DB_VERSION would point them at
+// the refs version instead, whose whole purpose was to leave a shipped text index
+// alone — the test would then assert the opposite of the design.
+const PREVIOUS_SHIPPED_SEARCH_VERSION = PRE_RESET_SEARCH_DB_VERSION;
 const IDENTITY_USER_ID = "user-a";
 
 function identitySentinel() {
@@ -101,7 +105,11 @@ function createDatabaseAtVersion(
     const request = indexedDB.open(MESSAGES_DB_NAME, version);
     request.addEventListener("upgradeneeded", () => {
       const db = request.result;
-      for (const name of [IDENTITY_STORE, ...SEARCH_STORES]) {
+      for (const name of [
+        IDENTITY_STORE,
+        ...SEARCH_STORES,
+        ...SHARED_REFS_STORES,
+      ]) {
         if (!db.objectStoreNames.contains(name)) {
           db.createObjectStore(name);
         }
@@ -153,6 +161,11 @@ describe("shared messages database", () => {
     try {
       expect(db.objectStoreNames.contains(IDENTITY_STORE)).toBe(true);
       for (const name of SEARCH_STORES) {
+        expect(db.objectStoreNames.contains(name)).toBe(true);
+      }
+      // The refs stores are created by the same upgrade, so a device that never
+      // opens search before the panel still gets a schema the panel can use.
+      for (const name of SHARED_REFS_STORES) {
         expect(db.objectStoreNames.contains(name)).toBe(true);
       }
     } finally {

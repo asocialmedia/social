@@ -29,6 +29,12 @@ import {
   normalizeSearchText,
   searchQueryTokens,
 } from "./message-search";
+import type {
+  SharedRefKind,
+  SharedRefsCounts,
+  SharedRefsPage,
+  SharedRefsWriteRow,
+} from "./shared-refs-format";
 
 // Stamped on every record this build writes; a record carrying a different
 // number reads as absent rather than being misread.
@@ -275,6 +281,38 @@ export interface SearchIndexStore {
     messageIds: string[]
   ) => Promise<void>;
   writeMeta: (meta: SearchIndexMeta) => Promise<void>;
+
+  // ---- shared-content refs (the details panel's Media/Posts/Links tabs) ----
+  //
+  // A SEPARATE index inside the same store, with its own version, its own
+  // forward index, and its own counts record. It is separate so that adding refs
+  // cannot invalidate a conversation's shipping text rows, and so a refs failure
+  // cannot break search: `putEntries` and `putSharedRefs` are distinct
+  // transactions, and a caller that loses the second still has the first.
+  //
+  // Every method is best-effort in the same way the rest of this contract is: a
+  // rejection is read by callers as "not indexed", and the panel falls back to
+  // the decrypted window it can read live.
+  putSharedRefs: (
+    conversationId: string,
+    rows: Map<string, SharedRefsWriteRow>
+  ) => Promise<void>;
+  // One descending page of a kind, newest first. `options.after` is the previous
+  // page's cursor, which the caller gets back as the next `after`.
+  readSharedRefs: (
+    conversationId: string,
+    kind: SharedRefKind,
+    options?: { after?: string; limit: number }
+  ) => Promise<SharedRefsPage>;
+  // Per-kind totals, so a tab can label itself without reading a page. Absent
+  // means "nothing stored", which is the same thing as zero for a label.
+  readSharedRefsCounts: (
+    conversationId: string
+  ) => Promise<SharedRefsCounts | null>;
+  removeSharedRefs: (
+    conversationId: string,
+    messageIds: string[]
+  ) => Promise<void>;
 }
 
 // ---- shared logic ----------------------------------------------------------

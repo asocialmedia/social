@@ -15,14 +15,26 @@
 //   retried batch, an overlapping page, or a second device can never duplicate a
 //   posting. That is what makes the backfill safe to resume.
 
+import type { MessagePayload } from "./crypto";
 import { extractSearchableText } from "./message-search";
-import type { SearchablePayload } from "./message-search";
+import { extractSharedRefs } from "./message-shared-refs";
+import type { SharedRefs } from "./message-shared-refs";
 import { buildSearchIndexEntry } from "./search-index-format";
 import type { SearchIndexEntry, SearchIndexStore } from "./search-index-format";
+import type { SharedRefsWriteRow } from "./shared-refs-format";
 
 // Mirrors the decryptor's public shape; injected so the writer is testable
 // without WebCrypto or a DOM.
-export type IndexablePayload = SearchablePayload;
+// The writer's payload lookup returns the FULL decrypted payload, not the loose
+// view `extractSearchableText` accepts.
+//
+// That is not a nicety: the details panel's tabs are derived from the attachment
+// and post references, which `SearchablePayload` deliberately does not carry. A
+// looser lookup type would mean either casting at the extraction site or leaving
+// the panel blind to every post and image, and the cast is the version of this
+// that fails silently. `SearchablePayload` still exists, as the narrower contract
+// the text extractor genuinely needs.
+export type IndexablePayload = MessagePayload;
 
 export interface IndexableMessage {
   createdAt: Date | string;
@@ -143,11 +155,38 @@ export function isStorageExhausted(error: unknown): boolean {
   );
 }
 
-// Identifies an entry's content so a re-index can be skipped without decrypting
-// twice. Derived from the built entry, not the payload, so it is stable for
-// identical text regardless of how it arrived.
-function entrySignature(entry: SearchIndexEntry): string {
-  return JSON.stringify([entry.createdAt, entry.senderId, entry.tokens]);
+// Identifies a row's TEXT so a re-index can be skipped without decrypting twice.
+// Derived from the built entry, not the payload, so it is stable for identical
+// content regardless of how it arrived.
+function textSignature(entry: SearchIndexEntry | null): string | null {
+  return entry
+    ? JSON.stringify([entry.createdAt, entry.senderId, entry.tokens])
+    : null;
+}
+
+// The same for the REFS, and that is load-bearing rather than thoroughness.
+// Swapping one link for another leaves every token identical, so a text-only
+// signature calls the row current and the panel goes on showing a URL the message
+// no longer contains. Media is the same story: an image swapped for a GIF changes
+// no word.
+function refsSignature(refs: SharedRefs | null): string | null {
+  return refs
+    ? JSON.stringify([
+        refs.postIds,
+        refs.links,
+        refs.media.map((image) => [image.url, image.kind, image.imageIndex]),
+      ])
+    : null;
+}
+
+// What this writer believes is stored for a message, per index. The two halves are
+// tracked SEPARATELY and skipped only when both match, which is the fix for a real
+// bug: a single combined signature meant a message whose text row committed while
+// its refs write failed looked "current" on the next pass, so the retry that was
+// supposed to close the hole skipped it forever.
+interface WrittenState {
+  refs: string | null;
+  text: string | null;
 }
 
 export function createMessageIndexWriter(
@@ -161,10 +200,11 @@ export function createMessageIndexWriter(
     store,
     subscribeToPayloads,
   } = options;
-  // Ids whose index entry we believe is current, with the signature of the text
-  // it was built from. A mismatch on the next flush is what triggers a rewrite
-  // for an edited message.
-  const written = new Map<string, string>();
+  // Ids whose stored rows we believe are current, with the signature each half was
+  // built from. A mismatch on the next flush is what triggers a rewrite for an
+  // edited message -- and because the halves are compared separately, a half that
+  // failed to write is retried instead of being mistaken for current.
+  const written = new Map<string, WrittenState>();
   const pending = new Map<string, IndexableMessage>();
   const removed = new Set<string>();
   // Handle for the pending coalescing window, so a timer that has not fired yet
@@ -248,6 +288,23 @@ export function createMessageIndexWriter(
       return lastResult;
     }
     const batch = new Map<string, SearchIndexEntry>();
+    // The two ref-side collections, split because they mean different things:
+    // `refsBatch` is what to persist, and `textless` remembers the messages that
+    // have shareable content but no searchable text — a captionless GIF, or a
+    // bare image — which the text index cannot hold a row for and which would
+    // otherwise be dropped from both.
+    const refsBatch = new Map<string, SharedRefsWriteRow>();
+    const textless = new Map<string, SharedRefs>();
+    // Messages that HAD refs and now have none, so their stored rows can be
+    // dropped. Tracked as an explicit list rather than left to the write path's
+    // own "replace" step, because a message whose refs went away to zero is not in
+    // `refsBatch` at all — and without this, an edit that strips the last link
+    // leaves the old row in the store forever, with nothing left pointing at it.
+    //
+    // Keyed off what is actually stored, so this stays empty for the text-only
+    // majority: sending every plain text message through a delete would double the
+    // write traffic of every batch for no effect.
+    const refsRemoved: string[] = [];
     // Collected and applied as ONE transaction after the pass. Awaiting a
     // removal per row inside this loop would mean one IndexedDB transaction per
     // deleted message: the write amplification this module exists to avoid.
@@ -282,23 +339,53 @@ export function createMessageIndexWriter(
         senderId: message.senderId,
         text: payloadText(payload),
       });
-      if (!built) {
-        // Nothing searchable (empty body, whitespace, captionless media). Not
-        // queued: re-checking every batch would be busy work. Any previous entry
-        // goes, so an edit to empty cannot leave a stale hit behind.
+      // The same payload, read for what the details panel's tabs list. Derived
+      // here rather than in a second pass so the text row and the refs row can
+      // never come from different reads of a message that is being edited.
+      const refs = extractSharedRefs(payload);
+      if (!built && !refs) {
+        // Nothing searchable and nothing shareable (an empty body, or a
+        // captionless text message). Not queued: re-checking every batch would
+        // be busy work. Any previous entry goes, so an edit to empty cannot leave
+        // a stale hit behind.
         pending.delete(id);
         durable.delete(id);
         settledEmpty.push(id);
         toRemove.push(id);
         continue;
       }
-      const signature = entrySignature(built);
-      if (written.get(id) === signature) {
+      // Skipped only when BOTH halves already match what is stored, so the
+      // transcript re-considering on every decrypt tick costs nothing while a
+      // failed half is retried.
+      const nextText = textSignature(built);
+      const nextRefs = refsSignature(refs);
+      const state = written.get(id);
+      if (state && state.text === nextText && state.refs === nextRefs) {
         pending.delete(id);
         durable.delete(id);
         continue;
       }
-      batch.set(id, built);
+      if (built) {
+        batch.set(id, built);
+      } else if (refs) {
+        // Refs with no searchable text. The text index cannot hold a row with no
+        // tokens, but the refs can, and this is exactly the message that would
+        // otherwise be dropped from both.
+        textless.set(id, refs);
+      }
+      if (refs) {
+        refsBatch.set(id, {
+          createdAt: new Date(message.createdAt).getTime(),
+          messageId: id,
+          refs,
+          senderId: message.senderId,
+        });
+      } else if (state?.refs !== null && state?.refs !== undefined) {
+        // Refs went to zero on an edit: schedule the old rows for deletion. Keyed
+        // off what was stored rather than off a side set, so the two cannot
+        // disagree about whether a message has refs.
+        refsRemoved.push(id);
+      }
     }
 
     if (toRemove.length > 0) {
@@ -309,7 +396,13 @@ export function createMessageIndexWriter(
       try {
         await store.putEntries(conversationId, batch);
         for (const [id, entry] of batch) {
-          written.set(id, entrySignature(entry));
+          // Only the TEXT half is settled by this transaction; the refs half is
+          // left as it was, so a failed refs write below still reads as
+          // out-of-date on the next pass.
+          written.set(id, {
+            refs: written.get(id)?.refs ?? null,
+            text: textSignature(entry),
+          });
           pending.delete(id);
         }
         for (const id of batch.keys()) {
@@ -328,6 +421,64 @@ export function createMessageIndexWriter(
         if (isStorageExhausted(error)) {
           onStorageFull?.();
         }
+      }
+    }
+
+    // Refs, in their OWN transaction and their OWN failure domain. A ref that
+    // cannot be written leaves the tab showing the decrypted window instead of
+    // the stored list; the reverse is not true, and a refs bug must not be able to
+    // take search down with it.
+    if (refsBatch.size > 0 || textless.size > 0) {
+      const onlyRefs = new Map<string, SharedRefsWriteRow>();
+      for (const [id, row] of refsBatch) {
+        onlyRefs.set(id, row);
+      }
+      try {
+        await store.putSharedRefs(conversationId, onlyRefs);
+        for (const [id, row] of refsBatch) {
+          written.set(id, {
+            refs: refsSignature(row.refs),
+            text: written.get(id)?.text ?? null,
+          });
+          pending.delete(id);
+          durable.delete(id);
+          // Only a message that has never been written is "committed" from the
+          // refs side; a message that also had text was already counted above, and
+          // counting it twice would make the walk's coverage counts disagree with
+          // the store.
+          if (!batch.has(id)) {
+            committed.push(id);
+          }
+        }
+        textless.clear();
+      } catch (error) {
+        // Left queued and durable, so the next batch retries: an unwritten ref is
+        // a hole in the panel's list, and the hole closes on the next write rather
+        // than needing a re-walk.
+        for (const id of refsBatch.keys()) {
+          durable.add(id);
+        }
+        if (isStorageExhausted(error)) {
+          onStorageFull?.();
+        }
+      }
+    }
+
+    if (refsRemoved.length > 0) {
+      // Deliberately outside the `refsBatch` try block: this is a delete, so a
+      // failure leaves rows the user can still see rather than rows they cannot,
+      // and re-indexing the message repairs it on the next pass.
+      try {
+        await store.removeSharedRefs(conversationId, refsRemoved);
+        for (const id of refsRemoved) {
+          const state = written.get(id);
+          if (state) {
+            written.set(id, { ...state, refs: null });
+          }
+        }
+      } catch {
+        // Nothing to surface: the text rows are already current, and the stale
+        // ref row is invisible to the reader until the next re-index of it.
       }
     }
 
@@ -390,6 +541,18 @@ export function createMessageIndexWriter(
       if (isStorageExhausted(error)) {
         onStorageFull?.();
       }
+    }
+    // Refs, alongside the text rows and for the same reason: a deleted or hidden
+    // message whose refs survived would go on showing its media and links in the
+    // panel, which is the "delete for me" promise broken in the one place the user
+    // goes looking for the conversation's contents.
+    try {
+      await store.removeSharedRefs(conversationId, ids);
+    } catch {
+      // A rejected refs delete is repaired by the next re-index of the message, and
+      // the row is already gone from the transcript either way. Never surfaced:
+      // the text delete above is the one the search bar reports on, and a failure
+      // here must not turn a successful delete into a visible error.
     }
   }
 

@@ -59,6 +59,9 @@ import {
   SEARCH_POSTINGS_STORE,
   SEARCH_ROW_IDS_STORE,
   SEARCH_ROWS_STORE,
+  SHARED_REFS_COUNTS_STORE,
+  SHARED_REFS_MESSAGE_STORE,
+  SHARED_REFS_STORE,
 } from "./message-db";
 import {
   expandPrefixTerm,
@@ -81,6 +84,22 @@ import type {
   SearchIndexRowLookup,
   SearchIndexStore,
 } from "./search-index-format";
+import {
+  buildSharedRefRecords,
+  emptySharedRefsCounts,
+  isSharedRefKind,
+  isSharedRefTimeKey,
+  sharedRefRange,
+  sharedRefTimeKey,
+  SHARED_REFS_FORMAT_VERSION,
+} from "./shared-refs-format";
+import type {
+  SharedRefKind,
+  SharedRefRecord,
+  SharedRefsCounts,
+  SharedRefsPage,
+  SharedRefsWriteRow,
+} from "./shared-refs-format";
 
 // Name and version are shared with the identity key store, which opens the same
 // database. See message-db.ts: disagreeing versions throw VersionError, and the
@@ -91,6 +110,9 @@ const PENDING_STORE = SEARCH_PENDING_STORE;
 const POSTINGS_STORE = SEARCH_POSTINGS_STORE;
 const ROW_IDS_STORE = SEARCH_ROW_IDS_STORE;
 const ROWS_STORE = SEARCH_ROWS_STORE;
+const REFS_STORE = SHARED_REFS_STORE;
+const REFS_MESSAGE_STORE = SHARED_REFS_MESSAGE_STORE;
+const REFS_COUNTS_STORE = SHARED_REFS_COUNTS_STORE;
 const SEARCH_STORES = [
   HEADER_STORE,
   META_STORE,
@@ -98,6 +120,9 @@ const SEARCH_STORES = [
   POSTINGS_STORE,
   ROW_IDS_STORE,
   ROWS_STORE,
+  REFS_STORE,
+  REFS_MESSAGE_STORE,
+  REFS_COUNTS_STORE,
 ];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -460,6 +485,109 @@ function isStoredMeta(value: unknown): value is SearchIndexMeta {
   );
 }
 
+// ---- shared-content refs -----------------------------------------------------
+//
+// Versioned on its own, NOT by `isCurrentVersion`: a future text-index bump
+// invalidates the text rows and forces a re-walk, and the refs read here must
+// keep working through that. Sharing one version constant would make a text
+// search schema change silently empty the details panel's media and links.
+
+// A ref record this build can read. The three kinds are disjoint by shape — a
+// post record carries `postId`, a media record `mediaKind` plus `url`, a link
+// record `url` alone — so a record cannot pass this check and be unreadable, and
+// cannot claim a kind it does not have.
+function isStoredRef(value: unknown): value is SharedRefRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "version" in value &&
+    value.version === SHARED_REFS_FORMAT_VERSION &&
+    "createdAt" in value &&
+    typeof value.createdAt === "number" &&
+    "index" in value &&
+    typeof value.index === "number" &&
+    "messageId" in value &&
+    typeof value.messageId === "string" &&
+    "senderId" in value &&
+    typeof value.senderId === "string"
+  );
+}
+
+function isStoredRefsCounts(value: unknown): value is SharedRefsCounts {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "version" in value &&
+    value.version === SHARED_REFS_FORMAT_VERSION &&
+    "conversationId" in value &&
+    typeof value.conversationId === "string" &&
+    "media" in value &&
+    typeof value.media === "number" &&
+    "post" in value &&
+    typeof value.post === "number" &&
+    "link" in value &&
+    typeof value.link === "number"
+  );
+}
+
+// Which tab a record belongs to, read off its shape. Mirrors the memory
+// backend's helper because the two must classify identically, and a disagreement
+// here would show a post in the Links tab only on one backend.
+function refKindOf(record: SharedRefRecord): SharedRefKind {
+  if (record.postId !== undefined) {
+    return "post";
+  }
+  return record.mediaKind === undefined ? "link" : "media";
+}
+
+// The keys a message owns, as stored in the forward index. A record this build
+// cannot read reads as "owns nothing", which makes a delete a no-op rather than
+// a wrong deletion: the next walk re-derives the message and rewrites it.
+function isStoredRefKeys(
+  value: unknown
+): value is { keys: string[]; version: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "version" in value &&
+    value.version === SHARED_REFS_FORMAT_VERSION &&
+    "keys" in value &&
+    Array.isArray(value.keys)
+  );
+}
+
+// Deletes a message's refs and decrements the counts, inside the caller's
+// transaction. Shared by the write path (an edit that replaced a message's refs)
+// and the delete path, so the two can never disagree about what a message owns.
+async function deleteRefKeys(
+  refStore: IDBObjectStore,
+  forwardStore: IDBObjectStore,
+  counts: SharedRefsCounts,
+  conversationId: string,
+  messageId: string
+): Promise<void> {
+  const stored = await requestAsPromise<unknown>(
+    forwardStore.get([conversationId, messageId])
+  );
+  if (!isStoredRefKeys(stored)) {
+    return;
+  }
+  // oxlint-disable no-await-in-loop -- one readwrite transaction; Promise.all
+  // would issue requests outside the transaction's lifetime, which throws
+  for (const key of stored.keys) {
+    // Stored as `kind\u0000timeKey`, because an IndexedDB key is an array and the
+    // forward index is a flat string list: splitting it back is how a delete finds
+    // the exact records to remove without a scan.
+    const [kind = "", timeKey = ""] =
+      typeof key === "string" ? key.split("\u0000") : [];
+    if (isSharedRefKind(kind) && timeKey !== "") {
+      await requestAsPromise(refStore.delete([conversationId, kind, timeKey]));
+      counts[kind] = Math.max(0, counts[kind] - 1);
+    }
+  }
+  await requestAsPromise(forwardStore.delete([conversationId, messageId]));
+}
+
 // A stored posting list: the rows, and the creation time of each.
 //
 // Both arrays travel in one record because they must agree. Split across two
@@ -541,6 +669,19 @@ function rowIdKey(conversationId: string, messageId: string): [string, string] {
 // all three stores.
 function conversationKeyRange(conversationId: string): IDBKeyRange {
   return IDBKeyRange.bound([conversationId, ""], [conversationId, "￿"]);
+}
+
+// The same idea for the refs store's [conversationId, kind, timeKey] keys.
+//
+// It needs its own bound and cannot borrow the two-part one above: IndexedDB keys
+// are ordered arrays, and a bound with two components does not contain keys with
+// three. Every component has to be bounded, which is also why the eviction path
+// cannot reuse `conversationKeyRange` for this store.
+function refsKeyRange(conversationId: string): IDBKeyRange {
+  return IDBKeyRange.bound(
+    [conversationId, "", ""],
+    [conversationId, "￿", "￿"]
+  );
 }
 
 // ---- reads -------------------------------------------------------------------
@@ -897,11 +1038,23 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         // lifetime are rejected, and these are all issued here.
         // oxlint-disable no-await-in-loop
         for (const name of SEARCH_STORES) {
+          // Each store is cleared with the bound ITS key shape needs. The two are
+          // not interchangeable: an IndexedDB key is an ordered array, and a
+          // two-part bound does not contain three-part keys, so reusing the text
+          // index's range over the refs stores would clear nothing and leave a
+          // conversation's media behind after eviction.
+          if (name === REFS_STORE) {
+            await requestAsPromise(
+              tx.objectStore(name).delete(refsKeyRange(conversationId))
+            );
+            continue;
+          }
           const store = tx.objectStore(name);
           const keyedByConversationAlone =
             name === HEADER_STORE ||
             name === META_STORE ||
-            name === PENDING_STORE;
+            name === PENDING_STORE ||
+            name === REFS_COUNTS_STORE;
           await requestAsPromise(
             keyedByConversationAlone
               ? store.delete(conversationId)
@@ -1024,6 +1177,86 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       })();
     },
 
+    putSharedRefs(conversationId, rows) {
+      if (storageUnavailable() || rows.size === 0) {
+        return Promise.resolve();
+      }
+      return runTransaction(
+        [REFS_STORE, REFS_MESSAGE_STORE, REFS_COUNTS_STORE],
+        "readwrite",
+        async (tx) => {
+          const refStore = tx.objectStore(REFS_STORE);
+          const forwardStore = tx.objectStore(REFS_MESSAGE_STORE);
+          const countsStore = tx.objectStore(REFS_COUNTS_STORE);
+
+          const stored = await requestAsPromise<unknown>(
+            countsStore.get(conversationId)
+          );
+          const counts: SharedRefsCounts = isStoredRefsCounts(stored)
+            ? { ...stored }
+            : emptySharedRefsCounts(conversationId);
+
+          // oxlint-disable no-await-in-loop -- one readwrite transaction; requests
+          // issued on a transaction outside its callback's lifetime are rejected, so
+          // these must be issued here and awaited in order
+          for (const [messageId, write] of rows) {
+            // Old refs go first. Leaving them behind would show the user two
+            // things at once: the URL a message used to carry and the one it
+            // carries now, neither of which is a message they can read.
+            await deleteRefKeys(
+              refStore,
+              forwardStore,
+              counts,
+              conversationId,
+              messageId
+            );
+
+            const { records } = buildSharedRefRecords({
+              createdAt: write.createdAt,
+              messageId,
+              refs: write.refs,
+              senderId: write.senderId,
+            } as SharedRefsWriteRow);
+            if (records.length === 0) {
+              // Refs went away entirely (an edit that stripped them). No forward
+              // entry, because "no refs stored" IS the state to resume from.
+              continue;
+            }
+
+            const keys: string[] = [];
+            for (const record of records) {
+              const kind = refKindOf(record);
+              const timeKey = sharedRefTimeKey(
+                record.createdAt,
+                record.messageId,
+                record.index
+              );
+              await requestAsPromise(
+                refStore.put(
+                  { ...record, version: SHARED_REFS_FORMAT_VERSION },
+                  [conversationId, kind, timeKey]
+                )
+              );
+              counts[kind] += 1;
+              keys.push(`${kind}\u0000${timeKey}`);
+            }
+            await requestAsPromise(
+              forwardStore.put({ keys, version: SHARED_REFS_FORMAT_VERSION }, [
+                conversationId,
+                messageId,
+              ])
+            );
+          }
+
+          await requestAsPromise(
+            countsStore.put(
+              { ...counts, version: SHARED_REFS_FORMAT_VERSION },
+              conversationId
+            )
+          );
+        }
+      );
+    },
     query(conversationId, tokens, limit, options) {
       if (
         storageUnavailable() ||
@@ -1218,6 +1451,85 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
 
     // One point read of the allocator's high-water mark. No scan, so this stays
     // cheap enough to run for a coverage label on every open.
+    readSharedRefs(conversationId, kind, options) {
+      if (storageUnavailable()) {
+        return Promise.resolve(emptyRefsPage());
+      }
+      const limit = Math.max(1, options?.limit ?? 50);
+      const { lower, upper } = sharedRefRange(
+        conversationId,
+        kind,
+        options?.after
+      );
+      return runTransaction([REFS_STORE], "readonly", async (tx) => {
+        const store = tx.objectStore(REFS_STORE);
+        // `prev` rather than `next`: IndexedDB walks a range in ascending key
+        // order, and this read is newest-first, so the cursor runs backwards. The
+        // key order IS the time order, which is the whole reason the key carries
+        // the kind and a padded timestamp.
+        //
+        // BOTH bounds open. A closed lower bound would include the cursor's own
+        // row, so every page turn repeated the boundary message — a 10-row
+        // conversation read as 12 rows across three pages, with two duplicates.
+        const range = IDBKeyRange.bound(lower, upper, true, true);
+        const items: SharedRefRecord[] = [];
+        let lastTimeKey: string | undefined;
+        let hasMore = false;
+        // A cursor has no promise-based form, so the read is written against its
+        // events. oxlint-disable: IDB cursor lifecycle is event-based, and the
+        // alternative (a get per row) turns one range read into O(page) requests.
+        // oxlint-disable-next-line promise/avoid-new, no-await-in-loop
+        await new Promise<void>((resolve, reject) => {
+          const request = store.openCursor(range, "prev");
+          request.addEventListener("success", () => {
+            const cursor = request.result;
+            if (!cursor || items.length >= limit) {
+              if (cursor && items.length >= limit) {
+                // One record past the page, so `hasMore` is a fact about the
+                // store rather than an inference from the page size, and a caller
+                // never renders a "load more" that would find nothing.
+                hasMore = true;
+              }
+              resolve();
+              return;
+            }
+            const { key, value } = cursor;
+            // The third key component is the sort key; the first two are the
+            // conversation and the kind, both already fixed by the range.
+            const timeKey = Array.isArray(key) ? key[2] : undefined;
+            if (isStoredRef(value) && isSharedRefTimeKey(timeKey)) {
+              items.push(value);
+              lastTimeKey = timeKey;
+            }
+            cursor.continue();
+          });
+          request.addEventListener("error", () => {
+            reject(request.error ?? new Error("idb cursor"));
+          });
+        });
+        const page: SharedRefsPage = {
+          hasMore,
+          items,
+        };
+        if (hasMore && lastTimeKey !== undefined) {
+          page.after = lastTimeKey;
+        }
+        return page;
+      });
+    },
+    readSharedRefsCounts(conversationId) {
+      if (storageUnavailable()) {
+        return Promise.resolve(null);
+      }
+      return runTransaction([REFS_COUNTS_STORE], "readonly", async (tx) => {
+        const stored = await requestAsPromise<unknown>(
+          tx.objectStore(REFS_COUNTS_STORE).get(conversationId)
+        );
+        // A record from another version reads as "nothing stored", which for a
+        // label is the same as zero, and the next write rebuilds it.
+        return isStoredRefsCounts(stored) ? { ...stored } : null;
+      });
+    },
     readStats(conversationId) {
       if (storageUnavailable()) {
         return Promise.resolve({ indexedRowCount: 0 });
@@ -1301,6 +1613,43 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       );
     },
 
+    removeSharedRefs(conversationId, messageIds) {
+      if (storageUnavailable() || messageIds.length === 0) {
+        return Promise.resolve();
+      }
+      return runTransaction(
+        [REFS_STORE, REFS_MESSAGE_STORE, REFS_COUNTS_STORE],
+        "readwrite",
+        async (tx) => {
+          const refStore = tx.objectStore(REFS_STORE);
+          const forwardStore = tx.objectStore(REFS_MESSAGE_STORE);
+          const countsStore = tx.objectStore(REFS_COUNTS_STORE);
+          const stored = await requestAsPromise<unknown>(
+            countsStore.get(conversationId)
+          );
+          const counts: SharedRefsCounts = isStoredRefsCounts(stored)
+            ? { ...stored }
+            : emptySharedRefsCounts(conversationId);
+
+          for (const messageId of messageIds) {
+            // oxlint-disable-next-line no-await-in-loop -- one transaction, order is irrelevant
+            await deleteRefKeys(
+              refStore,
+              forwardStore,
+              counts,
+              conversationId,
+              messageId
+            );
+          }
+          await requestAsPromise(
+            countsStore.put(
+              { ...counts, version: SHARED_REFS_FORMAT_VERSION },
+              conversationId
+            )
+          );
+        }
+      );
+    },
     writeMeta(meta) {
       if (storageUnavailable()) {
         return Promise.resolve();
@@ -1334,7 +1683,13 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         await requestAsPromise(store.put([...messageIds], conversationId));
       });
     },
+
+    // ---- shared-content refs ----
   };
+}
+
+function emptyRefsPage(): SharedRefsPage {
+  return { hasMore: false, items: [] };
 }
 
 // Test seam: closes the cached connection and deletes the database, so a test

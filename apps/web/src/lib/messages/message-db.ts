@@ -22,8 +22,16 @@ export const MESSAGES_DB_NAME = "asm-messages";
 
 // The row table went back to one record per row; existing search indexes are
 // dropped and rebuilt by walking history, while identity material is never reset.
-export const MESSAGES_DB_VERSION = 9;
-export const RESET_SEARCH_STORES_BELOW_VERSION = MESSAGES_DB_VERSION;
+export const MESSAGES_DB_VERSION = 10;
+export const RESET_SEARCH_STORES_BELOW_VERSION = 9;
+// The last layout the text-index reset targets. Tests that need "a database from
+// before the per-row layout" seed THIS version, not MESSAGES_DB_VERSION - 1: the
+// refs stores raised the version without touching the text index, so the version
+// below the current one is a layout that is still perfectly valid and must
+// survive the upgrade. Deriving the test fixture from the current version is how a
+// test ends up asserting that a shipped index gets thrown away.
+export const PRE_RESET_SEARCH_DB_VERSION =
+  RESET_SEARCH_STORES_BELOW_VERSION - 1;
 
 export const IDENTITY_STORE = "identity-keys";
 // The token dictionary and the row-id allocator, one record per conversation. The
@@ -66,6 +74,31 @@ export const SEARCH_STORES = [
   SEARCH_PENDING_STORE,
 ] as const;
 
+// The shared-content refs index (the details panel's Media/Posts/Links tabs),
+// keyed for a one-sided read rather than for the text index's needs.
+//
+//   - [conversationId, kind, timeKey] -> one ref. A tab reads "the newest N
+//     media, then the next N" as a single descending range over this store, which
+//     is why the key carries the kind and a sortable time: the alternative (one
+//     record per message, filtered in the client) reads every ref of all three
+//     kinds to answer a question about one.
+//   - [conversationId, messageId] -> the keys that message owns. A delete or hide
+//     cannot find a message's refs from the ref store alone, and this is the only
+//     reverse direction anything needs.
+export const SHARED_REFS_STORE = "shared-refs";
+export const SHARED_REFS_MESSAGE_STORE = "shared-refs-message";
+// Per-conversation, per-kind totals, so a tab can label itself without reading a
+// page. Its own record because the search meta is rewritten on every backfill
+// page and sharing one would reintroduce the read-modify-write race that forced
+// the row allocator into its own store.
+export const SHARED_REFS_COUNTS_STORE = "shared-refs-counts";
+
+export const SHARED_REFS_STORES = [
+  SHARED_REFS_STORE,
+  SHARED_REFS_MESSAGE_STORE,
+  SHARED_REFS_COUNTS_STORE,
+] as const;
+
 // Every store in the database, created if absent. Called from BOTH owners'
 // upgradeneeded handlers: the one that opens first builds the whole schema, so
 // the other never depends on being the upgrader.
@@ -87,8 +120,15 @@ export function ensureMessagesSchema(
     }
   }
   // Current stores are created if absent, so whichever owner opens first builds a
-  // schema the other can use.
-  for (const name of [IDENTITY_STORE, ...SEARCH_STORES]) {
+  // schema the other can use. The refs stores are versioned by record (see
+  // SHARED_REFS_FORMAT_VERSION) rather than dropped with the text index, so a
+  // future text-index rebuild does not throw away a conversation's media and
+  // links and make the panel re-walk history to get them back.
+  for (const name of [
+    IDENTITY_STORE,
+    ...SEARCH_STORES,
+    ...SHARED_REFS_STORES,
+  ]) {
     if (!db.objectStoreNames.contains(name)) {
       db.createObjectStore(name);
     }

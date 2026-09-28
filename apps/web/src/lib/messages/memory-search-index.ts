@@ -26,6 +26,17 @@ import type {
   SearchIndexRowTable,
   SearchIndexStore,
 } from "./search-index-format";
+import {
+  buildSharedRefRecords,
+  emptySharedRefsCounts,
+  sharedRefTimeKey,
+} from "./shared-refs-format";
+import type {
+  SharedRefKind,
+  SharedRefRecord,
+  SharedRefsCounts,
+  SharedRefsPage,
+} from "./shared-refs-format";
 
 interface ConversationIndex {
   posting: Map<string, SearchIndexRowList>;
@@ -33,6 +44,18 @@ interface ConversationIndex {
   // touches those lists. Without it, either operation is O(distinct tokens).
   tokensByRow: Map<number, string[]>;
   table: SearchIndexRowTable;
+}
+
+// Which tab a record belongs to, read off its shape rather than carried
+// redundantly. The three kinds are disjoint by construction — a media record has
+// a url and a mediaKind, a post record a postId, a link record a url and no kind
+// — so the test cannot be ambiguous, and a record cannot disagree with itself
+// about which list it is in.
+function recordForKind(record: SharedRefRecord): SharedRefKind {
+  if (record.postId !== undefined) {
+    return "post";
+  }
+  return record.mediaKind === undefined ? "link" : "media";
 }
 
 const listFor = (
@@ -64,6 +87,34 @@ const removeFromToken = (
   }
 };
 
+// One conversation's stored refs, three ways: per kind for the descending read,
+// per message for a delete or an edit, and the counts for the tab labels. The
+// three are only ever written together, so a read cannot see rows the label does
+// not count or the reverse.
+interface ConversationRefs {
+  byKind: Map<SharedRefKind, Map<string, SharedRefRecord>>;
+  byMessage: Map<string, [SharedRefKind, string][]>;
+  counts: SharedRefsCounts;
+}
+
+// Drops a message's stored refs and keeps the counts honest, so the tab label and
+// the rows can never disagree. Returns how many were dropped, which the caller
+// needs to know whether a write changed anything. Module scope: it closes over
+// nothing in the store, so a per-store copy would only be re-created each call.
+function dropRefs(refs: ConversationRefs, messageId: string): number {
+  const keys = refs.byMessage.get(messageId);
+  if (!keys) {
+    return 0;
+  }
+  for (const [kind, timeKey] of keys) {
+    if (refs.byKind.get(kind)?.delete(timeKey)) {
+      refs.counts[kind] = Math.max(0, refs.counts[kind] - 1);
+    }
+  }
+  refs.byMessage.delete(messageId);
+  return keys.length;
+}
+
 export function createMemorySearchIndexStore(): SearchIndexStore & {
   conversations: () => string[];
   readPostingList: (
@@ -86,6 +137,25 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
   // would see another store's conversation state.
   const metaByConversation = new Map<string, SearchIndexMeta>();
   const pendingByConversation = new Map<string, string[]>();
+  const refsByConversation = new Map<string, ConversationRefs>();
+  // Refs for one conversation. Kept per KIND as well as per message: a page read
+  // is a slice of one tab's list, so it must not walk the other two.
+  const refsFor = (conversationId: string): ConversationRefs => {
+    let refs = refsByConversation.get(conversationId);
+    if (!refs) {
+      refs = {
+        byKind: new Map<SharedRefKind, Map<string, SharedRefRecord>>([
+          ["link", new Map()],
+          ["media", new Map()],
+          ["post", new Map()],
+        ]),
+        byMessage: new Map<string, [SharedRefKind, string][]>(),
+        counts: emptySharedRefsCounts(conversationId),
+      };
+      refsByConversation.set(conversationId, refs);
+    }
+    return refs;
+  };
 
   const indexFor = (conversationId: string): ConversationIndex => {
     let index = byConversation.get(conversationId);
@@ -108,6 +178,10 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       // with no rows, and the next backfill would skip straight past the gap.
       metaByConversation.delete(conversationId);
       pendingByConversation.delete(conversationId);
+      // Refs and their counts, for the same reason and the same consequence: a
+      // surviving counts record would tell the panel a cleared conversation still
+      // has media.
+      refsByConversation.delete(conversationId);
       return Promise.resolve();
     },
 
@@ -187,6 +261,45 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
     // Postings stay keyed by token TEXT here. Interning them to dictionary ids
     // is a storage detail of the persistent backend, whose key is a stored
     // field; in memory there is nothing to look up by id.
+    putSharedRefs(conversationId, rows) {
+      if (rows.size === 0) {
+        return Promise.resolve();
+      }
+      const refs = refsFor(conversationId);
+      for (const [messageId, write] of rows) {
+        // A rewrite drops the previous refs FIRST. Leaving them behind would show
+        // the user two things: the URL a message used to carry and the one it
+        // carries now, neither of which is a message they can read.
+        dropRefs(refs, messageId);
+
+        const { records } = buildSharedRefRecords({
+          createdAt: write.createdAt,
+          messageId,
+          refs: write.refs,
+          senderId: write.senderId,
+        });
+        if (records.length === 0) {
+          // Refs went away entirely (an edit that stripped them). No forward
+          // entry, because "no refs stored" IS the state to resume from.
+          continue;
+        }
+
+        const keys: [SharedRefKind, string][] = [];
+        for (const record of records) {
+          const kind = recordForKind(record);
+          const timeKey = sharedRefTimeKey(
+            record.createdAt,
+            record.messageId,
+            record.index
+          );
+          refs.byKind.get(kind)?.set(timeKey, record);
+          refs.counts[kind] += 1;
+          keys.push([kind, timeKey]);
+        }
+        refs.byMessage.set(messageId, keys);
+      }
+      return Promise.resolve();
+    },
     query(conversationId, tokens, limit, options) {
       const index = indexFor(conversationId);
       const empty: SearchIndexPostingList = {
@@ -301,6 +414,55 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return Promise.resolve(out);
     },
 
+    // Newest first, walking down from the newest key of the kind. Mirrors the
+    // persistent backend's keyset read exactly, including the `after` ceiling, so
+    // the fallback store and the real one page the same way.
+    readSharedRefs(conversationId, kind, options) {
+      const refs = refsByConversation.get(conversationId);
+      if (!refs) {
+        return Promise.resolve({ hasMore: false, items: [] });
+      }
+      const byKind = refs.byKind.get(kind);
+      if (!byKind) {
+        return Promise.resolve({ hasMore: false, items: [] });
+      }
+      // Sorted by key, not merely reversed: a Map iterates in INSERTION order,
+      // which is album order, so reversing it would hand back the oldest ref first
+      // and the `after` cursor would never advance -- every page an identical copy
+      // of page one. The key's leading component is the timestamp and its last is
+      // the inverted ref index, so a DESCENDING key sort is exactly the newest-first
+      // order the IndexedDB cursor produces, and the two backends stay
+      // interchangeable.
+      const descending = [...byKind.entries()].toSorted(([a], [b]) =>
+        b.localeCompare(a)
+      );
+      // `after` is a CEILING because the cursor walks DOWN, and it is strict: a key
+      // equal to it is excluded, or the page that produced the cursor repeats
+      // forever.
+      const after = options?.after;
+      const start =
+        after === undefined
+          ? 0
+          : descending.findIndex(([timeKey]) => timeKey < after);
+      const visible =
+        start < 0 ? [] : descending.slice(start, start + (options?.limit ?? 0));
+      const page: SharedRefsPage = {
+        hasMore: start >= 0 && start + visible.length < descending.length,
+        items: visible.map(([, record]) => record),
+      };
+      const last = visible.at(-1)?.[0];
+      if (page.hasMore && last !== undefined) {
+        page.after = last;
+      }
+      return Promise.resolve(page);
+    },
+
+    readSharedRefsCounts(conversationId) {
+      // A copy: the caller reads totals, and a store handing out its own counts
+      // object would let a caller corrupt the label of every later read.
+      const counts = refsByConversation.get(conversationId)?.counts;
+      return Promise.resolve(counts ? { ...counts } : null);
+    },
     readStats(conversationId) {
       // Cumulative rows interned, from the row table's high-water mark. Matches
       // the persistent backends' allocator semantics, so the coverage label reads
@@ -325,6 +487,16 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return Promise.resolve();
     },
 
+    removeSharedRefs(conversationId, messageIds) {
+      const refs = refsByConversation.get(conversationId);
+      if (!refs) {
+        return Promise.resolve();
+      }
+      for (const messageId of messageIds) {
+        dropRefs(refs, messageId);
+      }
+      return Promise.resolve();
+    },
     tokenCount(conversationId) {
       return indexFor(conversationId).posting.size;
     },

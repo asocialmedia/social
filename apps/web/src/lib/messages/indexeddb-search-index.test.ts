@@ -26,12 +26,16 @@ import {
   MESSAGES_DB_NAME,
   MESSAGES_DB_VERSION,
   OBSOLETE_SEARCH_STORES,
+  PRE_RESET_SEARCH_DB_VERSION,
   SEARCH_HEADER_STORE,
   SEARCH_META_STORE,
   SEARCH_PENDING_STORE,
   SEARCH_POSTINGS_STORE,
   SEARCH_ROW_IDS_STORE,
   SEARCH_ROWS_STORE,
+  SHARED_REFS_COUNTS_STORE,
+  SHARED_REFS_MESSAGE_STORE,
+  SHARED_REFS_STORE,
 } from "./message-db";
 import {
   buildSearchIndexEntry,
@@ -44,6 +48,11 @@ import type {
   SearchIndexEntry,
   SearchIndexStore,
 } from "./search-index-format";
+import {
+  refRow,
+  rowsFor,
+  runSharedRefsStoreSuite,
+} from "./shared-refs-store.contract.test";
 
 const HEADER_STORE = SEARCH_HEADER_STORE;
 const META_STORE = SEARCH_META_STORE;
@@ -967,7 +976,7 @@ describe("indexeddb schema versioning", () => {
   // the index, so they are dropped. An empty index that re-walks is the honest
   // outcome: rebuilds are already the recovery path for a lost row.
   test("a previous-layout database drops its obsolete stores rather than misread them", async () => {
-    const previousVersion = MESSAGES_DB_VERSION - 1;
+    const previousVersion = PRE_RESET_SEARCH_DB_VERSION;
     await seedDatabaseAtVersion(
       previousVersion,
       ["search-alloc", POSTINGS_STORE, "search-tables"],
@@ -1026,7 +1035,7 @@ describe("indexeddb schema versioning", () => {
   test("an upgrade drops the previous layout's search data but keeps identity material", async () => {
     const IDENTITY_STORE_NAME = "identity-keys";
     const SENTINEL = "identity-must-survive";
-    const previousVersion = MESSAGES_DB_VERSION - 1;
+    const previousVersion = PRE_RESET_SEARCH_DB_VERSION;
     await seedDatabaseAtVersion(
       previousVersion,
       [IDENTITY_STORE_NAME, POSTINGS_STORE, META_STORE],
@@ -1567,3 +1576,138 @@ describe("posting write batching", () => {
     expect([...(all.get("deploy") ?? [])]).toEqual([1]);
   });
 });
+
+describe("shared refs on the persistent backend", () => {
+  // Inside a describe with its own reset, because the suite is registered at
+  // import time and this file's resets are scoped to the blocks above. Without
+  // one, each test inherits the previous test's rows and the counts assertions
+  // read as if the store had failed to write.
+  beforeEach(async () => {
+    await resetIndexedDbSearchIndexStoreForTests();
+  });
+
+  // The shared refs contract, run against this backend. The same suite runs
+  // against the in-memory backend in shared-refs-memory-index.test.ts: one
+  // statement of what a store must do, asserted on both, is what stops the
+  // persistent and fallback implementations from drifting.
+  runSharedRefsStoreSuite("indexeddb", () => createTestStore());
+
+  // The two things fake-indexeddb is the only place these can be proven, because
+  // the in-memory backend cannot fail either way.
+  test("refs survive a new store instance, as every other record does", async () => {
+    const store = createTestStore();
+    await store.putSharedRefs("c1", rowsFor("media", 2));
+
+    const reopened = createTestStore();
+    const page = await reopened.readSharedRefs("c1", "media", { limit: 10 });
+    expect(page.items).toHaveLength(2);
+    const counts = await reopened.readSharedRefsCounts("c1");
+    expect(counts?.media).toBe(2);
+  });
+
+  // The bug this pins: a three-part key is NOT covered by the two-part range the
+  // text index uses, so reusing it here would leave a conversation's media on
+  // disk after eviction cleared everything else.
+  test("clearing a conversation removes its refs, not just its text rows", async () => {
+    const store = createTestStore();
+    await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
+    await store.putSharedRefs("c1", rowsFor("media", 2));
+
+    await store.clearConversation("c1");
+
+    const db = await openRawForInspection();
+    try {
+      const tx = db.transaction(
+        [
+          SHARED_REFS_STORE,
+          SHARED_REFS_MESSAGE_STORE,
+          SHARED_REFS_COUNTS_STORE,
+        ],
+        "readonly"
+      );
+      for (const name of [SHARED_REFS_STORE, SHARED_REFS_MESSAGE_STORE]) {
+        // oxlint-disable-next-line no-await-in-loop -- one transaction, sequential reads
+        const count = await new Promise<number>((resolve, reject) => {
+          const request = tx.objectStore(name).count();
+          request.addEventListener("success", () => resolve(request.result));
+          request.addEventListener("error", () => reject(request.error));
+        });
+        expect({ count, name }).toStrictEqual({ count: 0, name });
+      }
+    } finally {
+      db.close();
+    }
+    // And the reader agrees, so a reopened tab cannot show a cleared
+    // conversation's media.
+    expect(await store.readSharedRefsCounts("c1")).toBeNull();
+  });
+
+  test("a rewrite after a reopen still replaces, not appends", async () => {
+    const store = createTestStore();
+    const original = rowsFor("link", 1);
+    const messageId = [...original.keys()][0] as string;
+    await store.putSharedRefs("c1", original);
+
+    const reopened = createTestStore();
+    await reopened.putSharedRefs(
+      "c1",
+      new Map([
+        [
+          messageId,
+          refRow("link", 0, { url: "https://example.com/after-reload" }),
+        ],
+      ])
+    );
+
+    const page = await reopened.readSharedRefs("c1", "link", { limit: 10 });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.url).toBe("https://example.com/after-reload");
+  });
+
+  test("a one-message album keeps every image, and paging between them", async () => {
+    const store = createTestStore();
+    // Ten images in one message: the case where a page turn can land in the
+    // middle of one message's refs, and where a per-page index would renumber
+    // images a virtualized row is already mounted on.
+    await store.putSharedRefs(
+      "c1",
+      new Map([["m-album", albumRow("m-album", 10)]])
+    );
+    const first = await store.readSharedRefs("c1", "media", { limit: 4 });
+    const second = await store.readSharedRefs("c1", "media", {
+      after: first.after,
+      limit: 4,
+    });
+    const third = await store.readSharedRefs("c1", "media", {
+      after: second.after,
+      limit: 4,
+    });
+    const all = [...first.items, ...second.items, ...third.items];
+    expect(all).toHaveLength(10);
+    // Album order, restored across the page seam: a newest-first cursor walks the
+    // index tiebreak backwards, so without the run reversal a ten-image album
+    // would open 9, 8, 7 rather than in the order it was sent.
+    expect(all.map((record) => record.index)).toStrictEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ]);
+    expect(all.every((record) => record.messageId === "m-album")).toBe(true);
+  });
+});
+
+// A single message carrying `count` images, as a ten-image album.
+function albumRow(messageId: string, count: number) {
+  return {
+    createdAt: 1_700_000_000_000,
+    messageId,
+    refs: {
+      links: [] as string[],
+      media: Array.from({ length: count }, (_unused, index) => ({
+        imageIndex: index,
+        kind: "image" as const,
+        url: `https://i.example/${messageId}/${index}`,
+      })),
+      postIds: [] as string[],
+    },
+    senderId: "user-a",
+  };
+}
