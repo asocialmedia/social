@@ -26,14 +26,42 @@ import {
 
 export const PULL_THRESHOLD = 90;
 
+// The chip's resting distance below the top of the scroll container. Screens
+// that begin under a notch add their safe-area inset on top of this.
+export const PULL_LOADER_TOP = 12;
+
 // `.panel-3d` on hsl(var(--background-alt)).
-const CHIP_LIGHT = {
+interface ChipRecipe {
+  background: string;
+  border: string;
+  shadows: string;
+}
+
+const CHIP_LIGHT: ChipRecipe = {
   background: "#f3f4f6",
   border: "rgba(0, 0, 0, 0.12)",
   shadows: APPLE_PANEL_SHADOWS,
-} as const;
-const CHIP_DARK = {
+};
+const CHIP_DARK: ChipRecipe = {
   background: "#171717",
+  border: "rgba(255, 255, 255, 0.12)",
+  shadows: APPLE_PANEL_SHADOWS_DARK,
+};
+
+// Screens that pull with content behind the chip - the profile page, where the
+// chip drops onto the banner photo - need a fill that lets that content show
+// through. A solid disc over a photograph reads as a glitch, because the photo
+// is visibly occluded by a flat shape and then revealed again as the chip
+// slides away. These keep the same 3D edges and shadow, but paint a translucent
+// version of the surface so what is underneath stays legible, with the alpha
+// tuned opaque enough to still separate the chip from a busy image behind it.
+const CHIP_LIGHT_TRANSLUCENT: ChipRecipe = {
+  background: "rgba(243, 244, 246, 0.72)",
+  border: "rgba(0, 0, 0, 0.12)",
+  shadows: APPLE_PANEL_SHADOWS,
+};
+const CHIP_DARK_TRANSLUCENT: ChipRecipe = {
+  background: "rgba(23, 23, 23, 0.72)",
   border: "rgba(255, 255, 255, 0.12)",
   shadows: APPLE_PANEL_SHADOWS_DARK,
 } as const;
@@ -75,20 +103,30 @@ function timing(
 export function PullLoader({
   failed,
   message: updatedMessage = "Feed updated",
+  offsetTop = PULL_LOADER_TOP,
   onSettle,
   refreshing,
   registerUpdate,
+  translucent = false,
 }: {
   // The refresh that just finished failed: the pill says so.
   failed: boolean;
   // The pill's success text. Defaults to the feed's, since the loader was
   // built there; other screens name their own.
   message?: string;
+  // Where the chip rests, in points from the top of the scroll container. Screens
+  // whose top edge sits under a notch or a punch-hole camera pass their safe
+  // area inset plus this default, so the chip is never parked in the cutout.
+  offsetTop?: number;
   // Fired as the chip starts sliding away, so the list can glide home with
   // it.
   onSettle: () => void;
   refreshing: boolean;
   registerUpdate: RefObject<((distance: number) => void) | null>;
+  // Set on screens where the chip drops over imagery rather than over the flat
+  // page background, so the content behind it shows through instead of being
+  // covered by a solid disc.
+  translucent?: boolean;
 }) {
   const { isDark, theme } = useAppTheme();
   // Progress lives here so pull gestures do not re-render the list: FeedList
@@ -200,7 +238,10 @@ export function PullLoader({
     };
   }, [appear, progress, refreshing]);
 
-  const chip = isDark ? CHIP_DARK : CHIP_LIGHT;
+  let chip = isDark ? CHIP_DARK : CHIP_LIGHT;
+  if (translucent) {
+    chip = isDark ? CHIP_DARK_TRANSLUCENT : CHIP_LIGHT_TRANSLUCENT;
+  }
   const message = failed ? "Couldn't refresh" : updatedMessage;
   // Scale tracks the pull (70% -> 100%) and holds full size once parked.
   const scale = appear.interpolate({
@@ -209,7 +250,7 @@ export function PullLoader({
   });
 
   return (
-    <View pointerEvents="none" style={styles.wrap}>
+    <View pointerEvents="none" style={[styles.wrap, { top: offsetTop }]}>
       {/* Measures the label once so the pill knows how wide to open. */}
       <Text
         onLayout={(event) => {
@@ -371,7 +412,9 @@ const styles = StyleSheet.create({
     left: 0,
     position: "absolute",
     right: 0,
-    top: 12,
+    // Replaced per-instance by offsetTop; this is the fallback for callers that
+    // do not pass one.
+    top: PULL_LOADER_TOP,
     zIndex: 20,
   },
 });

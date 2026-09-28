@@ -120,13 +120,21 @@ export interface PullToRefresh {
 export function usePullToRefresh({
   failed,
   onRefresh,
+  offsetTop,
   refreshing,
+  translucent = false,
   updatedMessage = "Feed updated",
 }: {
   // The refresh that just finished failed: the pill says so.
   failed: boolean;
   onRefresh: () => void;
+  // Where the chip rests. Screens that start under a notch or punch-hole pass
+  // their safe-area inset here so the pill is never parked in the cutout.
+  offsetTop?: number;
   refreshing: boolean;
+  // Set on screens where the chip drops over imagery rather than over the flat
+  // page background, so what is behind it shows through.
+  translucent?: boolean;
   // The pill's text. Defaults to the feed's, since that is the common case.
   updatedMessage?: string;
 }): PullToRefresh {
@@ -228,12 +236,22 @@ export function usePullToRefresh({
       <PullLoader
         failed={failed}
         message={updatedMessage}
+        offsetTop={offsetTop}
         onSettle={onSettle}
         refreshing={refreshing}
         registerUpdate={pullUpdateRef}
+        translucent={translucent}
       />
     ),
-    [failed, onSettle, pullUpdateRef, refreshing, updatedMessage]
+    [
+      failed,
+      offsetTop,
+      onSettle,
+      pullUpdateRef,
+      refreshing,
+      translucent,
+      updatedMessage,
+    ]
   );
 
   return {
