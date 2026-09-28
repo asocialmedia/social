@@ -4,6 +4,7 @@ export {
   type AuthConfig,
   createAuthConfig,
   type EmailService,
+  resolveAuthBaseUrl,
   type SocialProvidersConfig,
 } from "./config";
 export * from "./hybrid-session-store";

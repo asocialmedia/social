@@ -23,6 +23,33 @@ function createHandler() {
   });
 }
 
+function createLoggingHandler() {
+  const logs: { level: string; message: string }[] = [];
+  const logger: HttpLogger = {
+    debug: () => {},
+    error: (obj: Record<string, unknown>, message?: string) => {
+      logs.push({ level: "error", message: message ?? "" });
+    },
+    info: (obj: Record<string, unknown>, message?: string) => {
+      logs.push({ level: "info", message: message ?? "" });
+    },
+    warn: (obj: Record<string, unknown>, message?: string) => {
+      logs.push({ level: "warn", message: message ?? "" });
+    },
+  };
+  const handler = createHttpHandler({
+    appRouter: {} as Parameters<typeof createHttpHandler>[0]["appRouter"],
+    authInstance: {
+      api: { getSession: mockGetSession },
+      handler: mockAuthHandler,
+    },
+    createContext: () => ({ session: null, user: null }),
+    logger,
+    trpcFetchHandler: mockTrpcFetchHandler,
+  });
+  return { handler, logs };
+}
+
 describe("auth service http handler", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
@@ -171,39 +198,59 @@ describe("auth service http handler", () => {
   });
 });
 
-describe("oauth callback logging", () => {
+describe("health probe logging", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     mockAuthHandler.mockClear();
     mockTrpcFetchHandler.mockClear();
   });
 
-  function createLoggingHandler() {
-    const logs: { level: string; message: string }[] = [];
-    const logger: HttpLogger = {
-      debug: () => {},
-      error: (obj: Record<string, unknown>, message?: string) => {
-        logs.push({ level: "error", message: message ?? "" });
-      },
-      info: (obj: Record<string, unknown>, message?: string) => {
-        logs.push({ level: "info", message: message ?? "" });
-      },
-      warn: (obj: Record<string, unknown>, message?: string) => {
-        logs.push({ level: "warn", message: message ?? "" });
-      },
-    };
-    const handler = createHttpHandler({
-      appRouter: {} as Parameters<typeof createHttpHandler>[0]["appRouter"],
-      authInstance: {
-        api: { getSession: mockGetSession },
-        handler: mockAuthHandler,
-      },
-      createContext: () => ({ session: null, user: null }),
-      logger,
-      trpcFetchHandler: mockTrpcFetchHandler,
-    });
-    return { handler, logs };
-  }
+  // The Dockerfile runs HEALTHCHECK against /api/health every 30s, so a passing
+  // probe was writing a "request completed" line at info every 30 seconds per
+  // replica, which is what buried the real traffic in the production log.
+  test("does not log a health check that passed", async () => {
+    const { handler, logs } = createLoggingHandler();
+
+    const res = await handler(new Request("http://localhost/api/health"));
+
+    expect(res.status).toBe(200);
+    expect(
+      logs.filter((entry) => entry.message === "request completed")
+    ).toEqual([]);
+  });
+
+  test("still logs ordinary requests", async () => {
+    const { handler, logs } = createLoggingHandler();
+
+    await handler(new Request("http://localhost/api/auth/get-session"));
+
+    expect(
+      logs.filter((entry) => entry.message === "request completed")
+    ).toHaveLength(1);
+  });
+
+  test("still logs a failed request, so the filter cannot swallow errors", async () => {
+    // The probe filter is scoped to the health path and to a 2xx: a 500 from
+    // anywhere else is exactly the line someone is looking for in production.
+    const { handler, logs } = createLoggingHandler();
+    mockTrpcFetchHandler.mockImplementationOnce(() =>
+      Promise.resolve(new Response("boom", { status: 500 }))
+    );
+
+    await handler(new Request("http://localhost/api/trpc/boom"));
+
+    expect(
+      logs.filter((entry) => entry.message === "request completed")
+    ).toHaveLength(1);
+  });
+});
+
+describe("oauth callback logging", () => {
+  beforeEach(() => {
+    mockGetSession.mockClear();
+    mockAuthHandler.mockClear();
+    mockTrpcFetchHandler.mockClear();
+  });
 
   test("logs accepted oauth callbacks at info level", async () => {
     mockAuthHandler.mockImplementationOnce(() =>

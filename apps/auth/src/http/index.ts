@@ -41,6 +41,14 @@ const TRPC_AUTH_PATHS = [
 // (/api/auth/callback/google, /api/auth/callback/reddit, ...).
 const OAUTH_CALLBACK_PATTERN = /^\/api\/auth\/callback\/[a-z-]+$/;
 
+// The Dockerfile's HEALTHCHECK, every 30 seconds against a healthy container.
+const HEALTH_PROBE_PATH = "/api/health";
+
+/** A health probe that passed is infrastructure chatter, not a request. */
+function isRoutineHealthProbe(pathname: string, status: number): boolean {
+  return pathname === HEALTH_PROBE_PATH && status < 400;
+}
+
 // Allowed origins are derived from env — no hardcoded prod URLs.
 // Local-only origins are explicitly dev-only and never accepted in production.
 const DEV_ONLY_ORIGINS = [
@@ -193,7 +201,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders(request), status: 204 });
     }
-    if (pathname === "/api/health") {
+    if (pathname === HEALTH_PROBE_PATH) {
       return Response.json(
         {
           service: "auth",
@@ -338,16 +346,22 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       );
     }
 
-    log.info(
-      {
-        duration_ms: Date.now() - startedAt,
-        method: request.method,
-        path: pathname,
-        request_id: request.headers.get("x-request-id") ?? undefined,
-        status: response.status,
-      },
-      "request completed"
-    );
+    // The container healthcheck in the Dockerfile curls /api/health every 30s, so
+    // a passing probe is not an event: at info it wrote thousands of identical
+    // lines a day and buried the requests worth reading. A probe that did not
+    // succeed still logs - that is the signal - and so does everything else.
+    if (!isRoutineHealthProbe(pathname, response.status)) {
+      log.info(
+        {
+          duration_ms: Date.now() - startedAt,
+          method: request.method,
+          path: pathname,
+          request_id: request.headers.get("x-request-id") ?? undefined,
+          status: response.status,
+        },
+        "request completed"
+      );
+    }
 
     return addSecurityHeaders(response);
   };
