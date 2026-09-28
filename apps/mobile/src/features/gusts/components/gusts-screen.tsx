@@ -554,6 +554,7 @@ export function GustsScreen() {
           <FlatList
             data={posts}
             decelerationRate="fast"
+            disableIntervalMomentum
             getItemLayout={(_, index) => ({
               index,
               length: pageHeight,
@@ -562,6 +563,20 @@ export function GustsScreen() {
             initialNumToRender={2}
             keyExtractor={(item) => item.id}
             maxToRenderPerBatch={3}
+            onMomentumScrollEnd={(event) => {
+              if (pageHeight > 0) {
+                const nextIndex = Math.round(
+                  event.nativeEvent.contentOffset.y / pageHeight
+                );
+                if (
+                  nextIndex >= 0 &&
+                  nextIndex < posts.length &&
+                  nextIndex !== activeIndex
+                ) {
+                  setActiveIndex(nextIndex);
+                }
+              }
+            }}
             onScroll={(event) => {
               scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
             }}
@@ -573,6 +588,7 @@ export function GustsScreen() {
             renderItem={renderItem}
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            snapToAlignment="start"
             snapToInterval={pageHeight}
             viewabilityConfig={VIEWABILITY}
             windowSize={5}
@@ -589,7 +605,12 @@ export function GustsScreen() {
 
   return (
     <View
-      onLayout={(event) => setPageHeight(event.nativeEvent.layout.height)}
+      onLayout={(event) => {
+        const height = Math.round(event.nativeEvent.layout.height);
+        if (height > 0 && height !== pageHeight) {
+          setPageHeight(height);
+        }
+      }}
       style={[styles.root, { backgroundColor: onVideo ? "#000000" : panelBg }]}
     >
       <StatusBar style={onVideo || isDark ? "light" : "dark"} />
