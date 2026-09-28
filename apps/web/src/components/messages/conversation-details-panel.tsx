@@ -21,7 +21,8 @@ import {
   Volume2,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import type React from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
@@ -48,33 +49,22 @@ import { useSharedRefsReader } from "./use-shared-refs-reader";
 
 type Peer = MessageConversationData["members"][number]["user"];
 
-// The conversation's contact card: who you are talking to, what you want to do
-// about it, and everything the two of you have shared.
-//
-// Opened from the thread header (its avatar/name button), it is a side sheet on
-// desktop and a full-screen sheet on mobile — one surface, because a phone has
-// no room for a pane beside a transcript.
-//
-// The three content tabs are all built from the transcript this client has
-// decrypted so far, the same constraint the fullscreen media viewer works under:
-// a payload's type is unknowable until its ciphertext is decrypted, so the lists
-// grow as history pages load. Each tab says so when it is empty rather than
-// claiming the conversation has nothing.
-export function ConversationDetailsPanel({
-  detail,
-  indexingRefs,
-  messages,
-  onClose,
-  onJumpToMessage,
-  onRequestDecrypts,
-  peer,
-  presence,
-  refsRefreshToken,
-  searchIndexStore,
-}: {
+export interface ConversationDetailsBodyProps {
+  // Whether this copy is the dialog's accessible name and description. The sheet
+  // needs Radix's Title/Description so the dialog announces who it is about; the
+  // pinned rail is a plain aside, where the same text is a heading and a
+  // paragraph. Passing one flag rather than the two elements keeps the header's
+  // markup and copy in a single place, which is the point of sharing it.
+  asDialog?: boolean;
   detail: ConversationDetailResponse;
+  indexingRefs: boolean;
   messages: readonly SharedContentMessage[];
-  onClose: () => void;
+  // Optional because the rail has nothing to close: it is pinned for as long as
+  // the conversation is open. Every call site here is best-effort — a media tile
+  // closes the sheet so the viewer is not stacked over it, and "View profile"
+  // closes it so the sheet is gone when the thread unmounts. With no sheet, both
+  // steps are simply not needed.
+  onClose?: () => void;
   // Asks the thread to decrypt the loaded window, because a payload's type is
   // unknowable until it is decrypted and the decryptor's LRU only holds what the
   // transcript has recently needed. This is the FALLBACK source now: the tabs
@@ -94,15 +84,49 @@ export function ConversationDetailsPanel({
   // Bumped by the thread whenever the index commits, so the tabs re-read what a
   // walk or a live message just wrote.
   refsRefreshToken: number;
-  // A backfill walk is running, so the tabs can say "indexing" instead of
-  // implying the list is the whole conversation.
-  indexingRefs: boolean;
-}) {
+  // The heading the thread focuses when the header's name button is pressed on a
+  // viewport where the rail is already visible. `tabIndex={-1}` on the node
+  // itself, because a heading is not a control and must not be one tab stop away.
+  titleRef?: React.Ref<HTMLHeadingElement>;
+}
+
+// The conversation's contact card: who you are talking to, what you want to do
+// about it, and everything the two of you have shared.
+//
+// The CONTENT, with no presentation of its own. It has two callers: the sheet,
+// which is the whole surface below `lg`, and the rail that replaces the online
+// friends list beside the transcript from `lg` up. They must never both be
+// mounted (see detailsPlacement), because this component is where the reads and
+// the cursors live.
+//
+// The three content tabs read the local refs index, which covers history the
+// decryptor has long since evicted, and fall back to the decrypted window when
+// there is no index to read at all. Each tab says which it is rather than
+// claiming the conversation has nothing.
+export function ConversationDetailsBody({
+  asDialog = false,
+  detail,
+  indexingRefs,
+  messages,
+  onClose,
+  onJumpToMessage,
+  onRequestDecrypts,
+  peer,
+  presence,
+  refsRefreshToken,
+  searchIndexStore,
+  titleRef,
+}: ConversationDetailsBodyProps) {
   const conversationId = detail.conversation.id;
   const queryClient = useQueryClient();
   // True while a tile is being jumped to, so the tabs can hold the panel rather
   // than let the user act on a list that is about to be replaced underneath them.
   const [openingMedia, setOpeningMedia] = useState(false);
+  // The mute switch is addressed by a label, and the id it hangs off was a
+  // constant -- correct only while one copy of this content exists. A per-instance
+  // id keeps the pairing right in a sheet, in a rail, and in a DOM that briefly
+  // holds both during a resize.
+  const muteId = useId();
   const theme = resolveConversationTheme(detail.prefs.themeKey);
   const openConversationMedia = useOpenConversationMedia();
 
@@ -226,7 +250,10 @@ export function ConversationDetailsPanel({
       if (!jumped) {
         return;
       }
-      onClose();
+      // Steps out of the way only where there is a sheet to step out of. Two
+      // stacked modal surfaces fight over the overlay and focus; the rail is not
+      // one, so the viewer opens over it and the rail is still there afterwards.
+      onClose?.();
       openConversationMedia?.({
         imageIndex: item.imageIndex,
         messageId: item.messageId,
@@ -240,178 +267,235 @@ export function ConversationDetailsPanel({
   }
 
   return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <DetailsHeader
+        asDialog={asDialog}
+        muted={muted}
+        mutedSince={prefs.mutedAt}
+        peer={peer}
+        presence={presence}
+        theme={theme}
+        titleRef={titleRef}
+      />
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pb-3">
+          <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
+            <Link
+              className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
+              href={`/users/${peer.username}`}
+              onClick={onClose}
+            >
+              <RowIcon icon={<UserRound className="size-4" />} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">View profile</span>
+                <span className="text-muted-foreground block truncate text-xs">
+                  @{peer.username}
+                </span>
+              </span>
+              <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+            </Link>
+
+            <div className="flex items-center gap-3 px-3.5 py-3">
+              <RowIcon
+                icon={
+                  muted ? (
+                    <BellOff className="size-4" />
+                  ) : (
+                    <Volume2 className="size-4" />
+                  )
+                }
+              />
+              <label className="min-w-0 flex-1" htmlFor={muteId}>
+                <span className="block text-sm font-medium">Mute</span>
+                <span className="text-muted-foreground block truncate text-xs">
+                  {prefs.mutedAt
+                    ? `${mutedSinceLabel(prefs.mutedAt)} · no unread badge`
+                    : "Notifications and the unread badge"}
+                </span>
+              </label>
+              <Switch
+                checked={muted}
+                id={muteId}
+                onCheckedChange={handleMuteChange}
+              />
+            </div>
+
+            <ThemeRow
+              onChange={handleThemeChange}
+              selectedKey={prefs.themeKey}
+            />
+
+            <ActionRow
+              icon={<Ban className="size-4" />}
+              label="Block"
+              onClick={() => notifyNotWired("Blocking")}
+              sublabel="Stop messages both ways"
+              tone="destructive"
+            />
+            <ActionRow
+              icon={<Flag className="size-4" />}
+              label="Report"
+              onClick={() => notifyNotWired("Reporting")}
+              sublabel="Send this chat to moderation"
+              tone="destructive"
+            />
+          </div>
+        </div>
+
+        <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
+          <div className="px-4 pb-2">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger className="gap-1.5 text-xs" value="media">
+                Media
+                <Count value={refs.counts.media} />
+              </TabsTrigger>
+              <TabsTrigger className="gap-1.5 text-xs" value="posts">
+                Posts
+                <Count value={refs.counts.post} />
+              </TabsTrigger>
+              <TabsTrigger className="gap-1.5 text-xs" value="links">
+                Links
+                <Count value={refs.counts.link} />
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <TabsContent
+            className="mt-0 min-h-0 flex-1 overflow-hidden"
+            value="media"
+          >
+            <ConversationSharedMediaTab
+              hasMore={
+                refs.state === "indexed" &&
+                refs.media.length < refs.counts.media
+              }
+              indexing={refs.state === "indexing"}
+              items={refs.media}
+              loadMore={refs.loadMoreMedia}
+              onOpen={handleOpenMedia}
+              opening={openingMedia}
+              readError={refs.mediaError}
+            />
+          </TabsContent>
+          <TabsContent
+            className="mt-0 min-h-0 flex-1 overflow-hidden"
+            value="posts"
+          >
+            <ConversationSharedPostsTab
+              hasMore={
+                refs.state === "indexed" && refs.posts.length < refs.counts.post
+              }
+              indexing={refs.state === "indexing"}
+              items={refs.posts}
+              loadMore={refs.loadMorePosts}
+              readError={refs.postsError}
+            />
+          </TabsContent>
+          <TabsContent
+            className="mt-0 min-h-0 flex-1 overflow-hidden"
+            value="links"
+          >
+            <ConversationSharedLinksTab
+              hasMore={
+                refs.state === "indexed" && refs.links.length < refs.counts.link
+              }
+              indexing={refs.state === "indexing"}
+              items={refs.links}
+              loadMore={refs.loadMoreLinks}
+              readError={refs.linksError}
+            />
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}
+
+// The details surface as a DIALOG: a side sheet from `sm` up and full-screen below,
+// which is the whole surface wherever a phone has no room for a pane beside a
+// transcript. From `lg` the thread renders the same content in a pinned rail
+// instead, and never both — see detailsPlacement.
+//
+// A dialog and a rail differ in more than position: the sheet traps focus, closes
+// on Escape and on an outside press, and has to name itself for a screen reader.
+// All of that is Radix's, and all of it belongs to the wrapper rather than to the
+// content, which is why the body below knows nothing about being modal.
+export function ConversationDetailsPanel({
+  onClose,
+  ...props
+}: ConversationDetailsBodyProps & { onClose: () => void }) {
+  return (
     <Sheet onOpenChange={(open) => !open && onClose()} open>
       <SheetContent
         className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
         side="right"
       >
-        <Header
-          muted={muted}
-          mutedSince={prefs.mutedAt}
-          peer={peer}
-          presence={presence}
-          theme={theme}
-        />
-
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="px-4 pb-3">
-            <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
-              <Link
-                className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
-                href={`/users/${peer.username}`}
-                onClick={onClose}
-              >
-                <RowIcon icon={<UserRound className="size-4" />} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    View profile
-                  </span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    @{peer.username}
-                  </span>
-                </span>
-                <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-              </Link>
-
-              <div className="flex items-center gap-3 px-3.5 py-3">
-                <RowIcon
-                  icon={
-                    muted ? (
-                      <BellOff className="size-4" />
-                    ) : (
-                      <Volume2 className="size-4" />
-                    )
-                  }
-                />
-                <label className="min-w-0 flex-1" htmlFor="dm-mute">
-                  <span className="block text-sm font-medium">Mute</span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    {prefs.mutedAt
-                      ? `${mutedSinceLabel(prefs.mutedAt)} · no unread badge`
-                      : "Notifications and the unread badge"}
-                  </span>
-                </label>
-                <Switch
-                  checked={muted}
-                  id="dm-mute"
-                  onCheckedChange={handleMuteChange}
-                />
-              </div>
-
-              <ThemeRow
-                onChange={handleThemeChange}
-                selectedKey={prefs.themeKey}
-              />
-
-              <ActionRow
-                icon={<Ban className="size-4" />}
-                label="Block"
-                onClick={() => notifyNotWired("Blocking")}
-                sublabel="Stop messages both ways"
-                tone="destructive"
-              />
-              <ActionRow
-                icon={<Flag className="size-4" />}
-                label="Report"
-                onClick={() => notifyNotWired("Reporting")}
-                sublabel="Send this chat to moderation"
-                tone="destructive"
-              />
-            </div>
-          </div>
-
-          <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
-            <div className="px-4 pb-2">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger className="gap-1.5 text-xs" value="media">
-                  Media
-                  <Count value={refs.counts.media} />
-                </TabsTrigger>
-                <TabsTrigger className="gap-1.5 text-xs" value="posts">
-                  Posts
-                  <Count value={refs.counts.post} />
-                </TabsTrigger>
-                <TabsTrigger className="gap-1.5 text-xs" value="links">
-                  Links
-                  <Count value={refs.counts.link} />
-                </TabsTrigger>
-              </TabsList>
-            </div>
-
-            <TabsContent
-              className="mt-0 min-h-0 flex-1 overflow-hidden"
-              value="media"
-            >
-              <ConversationSharedMediaTab
-                hasMore={
-                  refs.state === "indexed" &&
-                  refs.media.length < refs.counts.media
-                }
-                indexing={refs.state === "indexing"}
-                items={refs.media}
-                loadMore={refs.loadMoreMedia}
-                onOpen={handleOpenMedia}
-                opening={openingMedia}
-                readError={refs.mediaError}
-              />
-            </TabsContent>
-            <TabsContent
-              className="mt-0 min-h-0 flex-1 overflow-hidden"
-              value="posts"
-            >
-              <ConversationSharedPostsTab
-                hasMore={
-                  refs.state === "indexed" &&
-                  refs.posts.length < refs.counts.post
-                }
-                indexing={refs.state === "indexing"}
-                items={refs.posts}
-                loadMore={refs.loadMorePosts}
-                readError={refs.postsError}
-              />
-            </TabsContent>
-            <TabsContent
-              className="mt-0 min-h-0 flex-1 overflow-hidden"
-              value="links"
-            >
-              <ConversationSharedLinksTab
-                hasMore={
-                  refs.state === "indexed" &&
-                  refs.links.length < refs.counts.link
-                }
-                indexing={refs.state === "indexing"}
-                items={refs.links}
-                loadMore={refs.loadMoreLinks}
-                readError={refs.linksError}
-              />
-            </TabsContent>
-          </Tabs>
-        </div>
+        <ConversationDetailsBody asDialog onClose={onClose} {...props} />
       </SheetContent>
     </Sheet>
   );
 }
 
-// The conversation header, doubling as the sheet's accessible name so the dialog
-// announces who it is about. The bloom behind the avatar is the chat accent, so
-// the pane shows the theme it is describing.
-function Header({
+// The conversation header. In the sheet it doubles as the dialog's accessible name,
+// so the dialog announces who it is about; in the rail the same text is a heading
+// and a paragraph, because a dialog's title wiring is meaningless outside one.
+//
+// The bloom behind the avatar is the chat accent, so the pane shows the theme it is
+// describing.
+function DetailsHeader({
+  asDialog,
   muted,
   mutedSince,
   peer,
   presence,
   theme,
+  titleRef,
 }: {
+  asDialog: boolean;
   muted: boolean;
   mutedSince: string | null;
   peer: Peer;
   presence: "idle" | "online" | null;
   theme: { from: string; to: string };
+  titleRef?: React.Ref<HTMLHeadingElement>;
 }) {
+  // One markup, two elements. Both render an `h2` with the same classes, so the
+  // heading looks and reads identically either way; only Radix's registration
+  // differs.
+  const name = (
+    <>
+      <span className="truncate">{peer.displayName ?? peer.username}</span>
+      <UserBadge
+        badge={peer.badge}
+        badges={peer.badges}
+        communityRoles={peer.communityMemberships}
+      />
+    </>
+  );
+  const description = (
+    <>
+      <span>@{peer.username}</span>
+      {presence ? (
+        <>
+          <span aria-hidden>·</span>
+          <span>{presence === "online" ? "Online now" : "Idle"}</span>
+        </>
+      ) : null}
+      {muted ? (
+        <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+          <BellOff className="size-2.5" />
+          {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
+        </span>
+      ) : null}
+    </>
+  );
+
   return (
-    // `pointer-events-none` because this block has no controls of its own and it
-    // is painted over the primitive's close button, which sits in the same
-    // corner at `top-4 right-4`. Without this the X is visible but unclickable.
+    // `pointer-events-none` because this block has no controls of its own and, in
+    // the sheet, it is painted over the primitive's close button, which sits in
+    // the same corner at `top-4 right-4`. Without this the X is visible but
+    // unclickable.
     <div className="pointer-events-none relative shrink-0 overflow-hidden border-b border-[hsl(var(--border))]">
       {/* Inline rather than a styled class because the colour is the member's
           stored theme, not a token the stylesheet knows: this is data, not a
@@ -440,30 +524,36 @@ function Header({
           ) : null}
         </div>
 
-        <SheetTitle className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <span className="truncate">{peer.displayName ?? peer.username}</span>
-          <UserBadge
-            badge={peer.badge}
-            badges={peer.badges}
-            communityRoles={peer.communityMemberships}
-          />
-        </SheetTitle>
+        {asDialog ? (
+          <SheetTitle
+            className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight"
+            ref={titleRef}
+          >
+            {name}
+          </SheetTitle>
+        ) : (
+          // Focusable without being a tab stop: the thread focuses this heading
+          // when the header's name button is pressed on a viewport where this
+          // pane is already visible, and a heading that cannot take focus would
+          // make that press a no-op.
+          <h2
+            className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight"
+            ref={titleRef}
+            tabIndex={-1}
+          >
+            {name}
+          </h2>
+        )}
 
-        <SheetDescription className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-          <span>@{peer.username}</span>
-          {presence ? (
-            <>
-              <span aria-hidden>·</span>
-              <span>{presence === "online" ? "Online now" : "Idle"}</span>
-            </>
-          ) : null}
-          {muted ? (
-            <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-              <BellOff className="size-2.5" />
-              {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
-            </span>
-          ) : null}
-        </SheetDescription>
+        {asDialog ? (
+          <SheetDescription className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
+            {description}
+          </SheetDescription>
+        ) : (
+          <p className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
+            {description}
+          </p>
+        )}
       </div>
     </div>
   );

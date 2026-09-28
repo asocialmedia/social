@@ -134,6 +134,11 @@ export default function ClientMessages() {
         </div>
 
         <ActiveFriendsRail
+          // With a thread open the details pane takes the right-hand slot on
+          // wide screens, so the online list yields it there and only there --
+          // the drawer below `lg` is untouched, which is why this is a separate
+          // prop rather than `open`.
+          desktopSuperseded={Boolean(pendingConversation)}
           onClose={() => setRailOpen(false)}
           onSelect={(userId) => {
             // Clicking an online friend opens a fresh conversation with them;

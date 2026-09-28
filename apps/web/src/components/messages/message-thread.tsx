@@ -35,6 +35,11 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { ConversationDetailsPanel } from "@/components/messages/conversation-details-panel";
+import {
+  ConversationDetailsRail,
+  DetailsRailToggleIcon,
+} from "@/components/messages/conversation-details-rail";
+import { detailsPlacement } from "@/components/messages/details-placement";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
 import {
@@ -227,6 +232,10 @@ const COVERAGE_REFRESH_DEBOUNCE_MS = 1500;
 // Explicit jumps are unaffected and their success ends the pause early via the
 // failure-count reset.
 const AUTO_FILL_STAND_DOWN_MS = 5000;
+// Where the desktop details pane remembers that it was folded. A window
+// preference rather than a per-conversation one, so it is read once and applies to
+// every thread.
+const DETAILS_RAIL_COLLAPSED_KEY = "asm:dm:details-rail-collapsed";
 
 // What a search jump is currently doing with the transcript. One owner, so the
 // automatic history fill can stand down while a jump is using that loader, and
@@ -605,9 +614,41 @@ export function MessageThread({
     rect: PaneRect;
   } | null>(null);
   // The conversation's contact card (avatar, actions, shared media/posts/links).
-  // Mounted only while open, so its three indexes cost nothing when the user is
-  // just reading the thread.
+  // Below `lg` this is a sheet the user opens; from `lg` up it is a pane beside
+  // the transcript, shown without being asked for. Mounted only while one of those
+  // is showing, so its three indexes cost nothing when the user is just reading
+  // the thread.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Whether this viewport pins the details pane beside the transcript, replacing
+  // the online friends rail. Resolved from the media query rather than left to a
+  // CSS class, because the rule is about what is MOUNTED: a display-none copy of
+  // the pane would still read the refs index, keep its own cursors over the same
+  // store, and count as a second consumer of the backfill walk.
+  //
+  // `64rem` rather than `1024px` so it tracks the `lg` class exactly -- the CSS and
+  // this have to agree on one number, and `rem` is the unit the class is defined
+  // in. Starts false so the first client render matches the server's, which means
+  // no pane for the frame before the query resolves.
+  const [desktopDetails, setDesktopDetails] = useState(false);
+  // Whether the user has folded the desktop pane to its edge. Desktop only: below
+  // `lg` the details are a sheet with its own dismissal, and a phone has no width
+  // to fold away.
+  //
+  // Persisted, because it is a preference about the window rather than about the
+  // conversation -- a user who folds the pane to read wants it folded on the next
+  // thread too, and re-asking on every conversation is how a "remember me" flag
+  // gets ignored. Read in an effect rather than as a lazy initializer so the first
+  // client render matches the server's, which is the same reason the media query
+  // above is not read during render.
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  // The rail's heading, so pressing the header's name button on a desktop can move
+  // focus to the pane that is already on screen instead of opening a second copy
+  // of it.
+  const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
+  // Set when a press asked for a pane that was folded: the body is not mounted yet,
+  // so its heading cannot take focus in the same commit and the focus would land
+  // nowhere.
+  const focusRailWhenMountedRef = useRef(false);
   // Coarse-pointer devices (touch) get a bottom sheet instead of a side popover.
   // State (not just a ref) because it changes what is rendered; set in an effect
   // to avoid an SSR/client hydration mismatch.
@@ -671,6 +712,86 @@ export function MessageThread({
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, []);
+
+  // Which details surface this viewport shows, as a fact rather than two
+  // independent booleans: see details-placement.ts for why the interaction
+  // between them has to be decided in one place.
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 64rem)");
+    setDesktopDetails(query.matches);
+    const onChange = (event: MediaQueryListEvent) =>
+      setDesktopDetails(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  const placement = detailsPlacement({
+    desktopViewport: desktopDetails,
+    requested: detailsOpen,
+  });
+  // Whether anything is actually showing. A folded pane is not a consumer even
+  // though `placement` still says "rail": the body is unmounted, so there is
+  // nothing reading the index, and letting the walk continue would fetch and
+  // decrypt a conversation's whole history for a pane the user just put away.
+  const detailsVisible =
+    placement === "sheet" || (placement === "rail" && !detailsCollapsed);
+
+  // The stored preference, read once the viewport is known to be a desktop one --
+  // reading it below `lg` would apply a window preference to the sheet, which has
+  // its own dismissal and no width to fold.
+  useEffect(() => {
+    if (!desktopDetails) {
+      return;
+    }
+    try {
+      setDetailsCollapsed(
+        localStorage.getItem(DETAILS_RAIL_COLLAPSED_KEY) === "1"
+      );
+    } catch {
+      // A blocked storage (private browsing on some engines) just means the
+      // preference does not survive the reload.
+    }
+  }, [desktopDetails]);
+
+  const toggleDetailsRail = useCallback(() => {
+    setDetailsCollapsed((collapsed) => {
+      const next = !collapsed;
+      try {
+        localStorage.setItem(DETAILS_RAIL_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // Not being able to remember it is not worth an error.
+      }
+      return next;
+    });
+  }, []);
+
+  const expandDetailsRail = useCallback(() => {
+    setDetailsCollapsed(false);
+    try {
+      localStorage.setItem(DETAILS_RAIL_COLLAPSED_KEY, "0");
+    } catch {
+      // As above.
+    }
+  }, []);
+
+  // Folds the pane, giving focus somewhere real. Without this the focus is on the
+  // button that is about to unmount, and the next Tab continues from the
+  // transcript's end rather than from where the user was.
+  //
+  // Keyed on the two things whose change can mount the body, rather than left to
+  // run on every render: a ref's `current` is not a dependency, and the thread
+  // re-renders on every keystroke and every arrival.
+  useEffect(() => {
+    if (!focusRailWhenMountedRef.current) {
+      return;
+    }
+    const heading = detailsTitleRef.current;
+    if (!heading) {
+      return;
+    }
+    focusRailWhenMountedRef.current = false;
+    heading.focus();
+  }, [detailsCollapsed, placement]);
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -2940,15 +3061,17 @@ export function MessageThread({
     searchIndexStore,
   ]);
 
-  // Leaving the conversation, or closing BOTH consumers, must not leave a walk
+  // Leaving the conversation, or closing EVERY consumer, must not leave a walk
   // running: it would keep fetching and decrypting for a thread nobody is reading.
   // The report is cleared too: it belongs to the ended session, and a stale
   // `stopped` would veto the next session's auto-start.
   //
-  // "Both" rather than "search", because the details panel reads the same index:
-  // closing search while the panel is open must not stop a walk whose output the
-  // user is still looking at.
-  const walkWanted = searchOpen || detailsOpen;
+  // "Every" rather than "search", because the details surface reads the same
+  // index: closing search while the details are showing must not stop a walk whose
+  // output the user is still looking at. `detailsVisible` rather than `placement`
+  // because the pinned pane is a consumer without the user ever asking for it, and
+  // because a pane the user has folded is not a consumer at all.
+  const walkWanted = searchOpen || detailsVisible;
   useEffect(() => {
     if (walkWanted) {
       return;
@@ -3011,11 +3134,14 @@ export function MessageThread({
   // owns them); there is no manual stop by design, so the flag below is always
   // true and stopping only ever comes from close, hide, or teardown.
   //
-  // The panel counts as a consumer because its tabs read this same index. Without
-  // it, opening the panel on a device that has never walked the conversation
-  // would show only the decrypted slice and report "no media" for a chat full of
-  // it -- the exact false answer the walk exists to prevent.
-  const wantsIndexing = searchOpen || detailsOpen;
+  // The details surface counts as a consumer because its tabs read this same
+  // index. Without it, showing the details on a device that has never walked the
+  // conversation would show only the decrypted slice and report "no media" for a
+  // chat full of it -- the exact false answer the walk exists to prevent. On a
+  // desktop this is now the default view, so this walk starts on entering a
+  // conversation rather than on opening a panel -- and folding the pane withdraws
+  // the consumer, which stops the walk again.
+  const wantsIndexing = searchOpen || detailsVisible;
   useEffect(() => {
     if (
       shouldAutoStartWalk({
@@ -3033,7 +3159,6 @@ export function MessageThread({
     }
   }, [
     coverage,
-    detailsOpen,
     persistedChainVerified,
     persistedCovered,
     searchIndexStore,
@@ -3944,6 +4069,28 @@ export function MessageThread({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mediaViewerKey, openSearch, searchOpen]);
 
+  // Pressing the peer's name opens the details below `lg`. From `lg` the pane is
+  // already on screen, so the press instead moves focus to it -- otherwise the
+  // button would be a no-op there, and opening a dialog over the pane would show
+  // the same content twice.
+  const handleOpenDetails = useCallback(() => {
+    if (placement !== "rail") {
+      setDetailsOpen(true);
+      return;
+    }
+    if (detailsCollapsed) {
+      focusRailWhenMountedRef.current = true;
+      expandDetailsRail();
+      return;
+    }
+    const heading = detailsTitleRef.current;
+    if (!heading) {
+      return;
+    }
+    heading.focus();
+    heading.scrollIntoView({ block: "nearest" });
+  }, [detailsCollapsed, expandDetailsRail, placement]);
+
   if (!detail) {
     return <MessageThreadSkeleton />;
   }
@@ -3968,360 +4115,394 @@ export function MessageThread({
 
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
-      <div
-        className="flex h-full min-h-0 flex-1 flex-col"
-        // The member's stored chat theme, published as custom properties the
-        // `.bubble-sent` recipe reads. Setting them here (rather than keying a
-        // class off the theme) keeps one typed palette the single source for both
-        // the swatch the user picked and the bubbles it paints.
-        style={chatThemeVars(detail)}
-      >
-        <ThreadHeader
-          conversation={detail}
-          onBack={onBack}
-          onOpenDetails={() => setDetailsOpen(true)}
-          onOpenSearch={openSearch}
-          onToggleRail={onToggleRail}
-          peer={peer}
-          peerPresence={peerPresence}
-          peerTyping={peerTyping}
-          privateKey={privateKey}
-        />
-
-        {searchOpen ? (
-          <MessageSearchBar
-            activePosition={searchActivePosition}
-            // Jump in flight counts as work: the anchored read and the walk
-            // behind it are the slowest requests this bar can be waiting on.
-            indexing={transcriptFetching || jumpLoading}
-            canIndexOlder={canIndexOlder}
-            fullyCovered={fullyCovered}
-            indexedCount={search.indexedTotal}
-            indexFailed={coverage?.state === "failed"}
-            indexingOlder={indexingOlder}
-            inputRef={searchInputRef}
-            jumpError={jumpError}
-            listPageError={search.listPageError}
-            listPageStale={search.listPageStale}
-            matchCount={search.totalMatches}
-            onClose={dismissSearch}
-            onIndexOlder={startIndexingOlder}
-            onNext={searchNext}
-            onPage={changeSearchPage}
-            onPrevious={searchPrevious}
-            onQueryChange={handleSearchQueryChange}
-            onSubmit={searchSubmit}
-            onToggleView={toggleSearchView}
-            page={searchPageSlice.page}
-            pageCount={searchPageSlice.pageCount}
-            query={search.query}
-            storageEvictedCount={storagePressure.evictedCount}
-            storageFull={storagePressure.storageFull}
-            rangeEnd={searchPageSlice.rangeEnd}
-            rangeStart={searchPageSlice.rangeStart}
-            resultCount={searchPageSlice.pageResults.length}
-            totalResults={search.totalMatches}
-            view={searchView}
+      {/* The transcript and, from `lg` up, the details pane. The row is the
+          OUTER element rather than a grid cell so the pane can be a sibling of
+          the whole thread column: it holds the pane's own scroller, and a nested
+          one would steal the wheel from the transcript. */}
+      <div className="flex h-full min-h-0 flex-1">
+        <div
+          className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+          // The member's stored chat theme, published as custom properties the
+          // `.bubble-sent` recipe reads. Setting them here (rather than keying a
+          // class off the theme) keeps one typed palette the single source for both
+          // the swatch the user picked and the bubbles it paints.
+          style={chatThemeVars(detail)}
+        >
+          <ThreadHeader
+            conversation={detail}
+            detailsRailCollapsed={detailsCollapsed}
+            onBack={onBack}
+            onOpenDetails={handleOpenDetails}
+            onOpenSearch={openSearch}
+            onToggleDetailsRail={toggleDetailsRail}
+            onToggleRail={onToggleRail}
+            showDetailsRail={placement === "rail"}
+            peer={peer}
+            peerPresence={peerPresence}
+            peerTyping={peerTyping}
+            privateKey={privateKey}
           />
-        ) : null}
 
-        <div className="relative min-h-0 flex-1">
-          {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
-          <div
-            // `overflow-anchor: none` disables the browser's own scroll
-            // anchoring, which otherwise competes with the virtualizer's
-            // scrollTop compensation when rows above the viewport re-measure
-            // (decrypt, image load) — the two corrections fight and the
-            // viewport jitters while scrolling up.
-            //
-            // The desktop gestures are delegated here (one listener set for the
-            // whole transcript, not per row): right click opens the options
-            // pane beside the message, double click replies, and a drag slides
-            // to toggle multi-select. Touch has a single gesture, a tap that
-            // opens the same pane. `select-none` during select mode keeps a drag
-            // from starting a native text selection.
-            className={cn(
-              "hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]",
-              selectionActive && "select-none"
-            )}
-            onClick={handleTranscriptClick}
-            onContextMenu={handleTranscriptContextMenu}
-            onDoubleClick={handleTranscriptDoubleClick}
-            onPointerCancel={handlePointerEnd}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerEnd}
-            ref={scrollRef}
-          >
-            {allMessages.length === 0 ? (
-              <div className="flex min-h-full flex-col">
-                <div className="flex flex-1 flex-col items-center justify-center text-center">
-                  <div className="px-6 py-5">
-                    <p className="text-muted-foreground text-sm">
-                      Say hi to {peer?.displayName ?? "them"}
-                    </p>
-                    <p className="text-muted-foreground/70 mt-1 text-xs">
-                      Messages here are encrypted.
-                    </p>
-                  </div>
-                </div>
-                {peerTyping ? (
-                  <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div
-                  style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    position: "relative",
-                    width: "100%",
-                  }}
-                >
-                  {virtualItems.map((virtualItem) => {
-                    const message = allMessages[virtualItem.index];
-                    if (!message) {
-                      return null;
-                    }
-                    const groupMeta = getMessageGroupMeta(
-                      allMessages,
-                      virtualItem.index
-                    );
-                    return (
-                      <div
-                        data-index={virtualItem.index}
-                        data-message-id={message.id}
-                        key={virtualItem.key}
-                        ref={rowVirtualizer.measureElement}
-                        style={{
-                          left: 0,
-                          position: "absolute",
-                          top: 0,
-                          transform: `translateY(${virtualItem.start}px)`,
-                          width: "100%",
-                        }}
-                      >
-                        <VirtualRow
-                          conversationId={conversationId}
-                          groupMeta={groupMeta}
-                          highlighted={jumpTargetId === message.id}
-                          historyVersion={historyVersion}
-                          message={message}
-                          messagesById={messagesById}
-                          myUserId={userId ?? ""}
-                          onEdit={handleEdit}
-                          onReply={handleReply}
-                          onRequest={requestDecrypt}
-                          onRetry={retryDecrypt}
-                          peerName={peer?.displayName ?? "them"}
-                          scrolling={scrolling}
-                          selected={selectedIds.has(message.id)}
-                          selectionActive={selectionActive}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-                {peerTyping ? (
-                  <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
-                ) : null}
-              </>
-            )}
-          </div>
-
-          {transcriptBusy ? (
-            <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
-              <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {transcriptLoadingLabel}
-              </span>
-            </div>
+          {searchOpen ? (
+            <MessageSearchBar
+              activePosition={searchActivePosition}
+              // Jump in flight counts as work: the anchored read and the walk
+              // behind it are the slowest requests this bar can be waiting on.
+              indexing={transcriptFetching || jumpLoading}
+              canIndexOlder={canIndexOlder}
+              fullyCovered={fullyCovered}
+              indexedCount={search.indexedTotal}
+              indexFailed={coverage?.state === "failed"}
+              indexingOlder={indexingOlder}
+              inputRef={searchInputRef}
+              jumpError={jumpError}
+              listPageError={search.listPageError}
+              listPageStale={search.listPageStale}
+              matchCount={search.totalMatches}
+              onClose={dismissSearch}
+              onIndexOlder={startIndexingOlder}
+              onNext={searchNext}
+              onPage={changeSearchPage}
+              onPrevious={searchPrevious}
+              onQueryChange={handleSearchQueryChange}
+              onSubmit={searchSubmit}
+              onToggleView={toggleSearchView}
+              page={searchPageSlice.page}
+              pageCount={searchPageSlice.pageCount}
+              query={search.query}
+              storageEvictedCount={storagePressure.evictedCount}
+              storageFull={storagePressure.storageFull}
+              rangeEnd={searchPageSlice.rangeEnd}
+              rangeStart={searchPageSlice.rangeStart}
+              resultCount={searchPageSlice.pageResults.length}
+              totalResults={search.totalMatches}
+              view={searchView}
+            />
           ) : null}
 
-          {!pinnedToBottom && allMessages.length > 0 ? (
-            <button
-              aria-label={
-                arrivalCount > 0
-                  ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
-                  : "Scroll to latest messages"
-              }
-              className="icon-btn-3d motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
-              onClick={jumpToBottom}
-              title="Scroll to latest"
-              type="button"
+          <div className="relative min-h-0 flex-1">
+            {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
+            <div
+              // `overflow-anchor: none` disables the browser's own scroll
+              // anchoring, which otherwise competes with the virtualizer's
+              // scrollTop compensation when rows above the viewport re-measure
+              // (decrypt, image load) — the two corrections fight and the
+              // viewport jitters while scrolling up.
+              //
+              // The desktop gestures are delegated here (one listener set for the
+              // whole transcript, not per row): right click opens the options
+              // pane beside the message, double click replies, and a drag slides
+              // to toggle multi-select. Touch has a single gesture, a tap that
+              // opens the same pane. `select-none` during select mode keeps a drag
+              // from starting a native text selection.
+              className={cn(
+                "hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]",
+                selectionActive && "select-none"
+              )}
+              onClick={handleTranscriptClick}
+              onContextMenu={handleTranscriptContextMenu}
+              onDoubleClick={handleTranscriptDoubleClick}
+              onPointerCancel={handlePointerEnd}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerEnd}
+              ref={scrollRef}
             >
-              <ArrowDown className="h-5 w-5" />
-              {arrivalCount > 0 ? (
-                <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
-                  {formatArrivalCount(arrivalCount)}
+              {allMessages.length === 0 ? (
+                <div className="flex min-h-full flex-col">
+                  <div className="flex flex-1 flex-col items-center justify-center text-center">
+                    <div className="px-6 py-5">
+                      <p className="text-muted-foreground text-sm">
+                        Say hi to {peer?.displayName ?? "them"}
+                      </p>
+                      <p className="text-muted-foreground/70 mt-1 text-xs">
+                        Messages here are encrypted.
+                      </p>
+                    </div>
+                  </div>
+                  {peerTyping ? (
+                    <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      position: "relative",
+                      width: "100%",
+                    }}
+                  >
+                    {virtualItems.map((virtualItem) => {
+                      const message = allMessages[virtualItem.index];
+                      if (!message) {
+                        return null;
+                      }
+                      const groupMeta = getMessageGroupMeta(
+                        allMessages,
+                        virtualItem.index
+                      );
+                      return (
+                        <div
+                          data-index={virtualItem.index}
+                          data-message-id={message.id}
+                          key={virtualItem.key}
+                          ref={rowVirtualizer.measureElement}
+                          style={{
+                            left: 0,
+                            position: "absolute",
+                            top: 0,
+                            transform: `translateY(${virtualItem.start}px)`,
+                            width: "100%",
+                          }}
+                        >
+                          <VirtualRow
+                            conversationId={conversationId}
+                            groupMeta={groupMeta}
+                            highlighted={jumpTargetId === message.id}
+                            historyVersion={historyVersion}
+                            message={message}
+                            messagesById={messagesById}
+                            myUserId={userId ?? ""}
+                            onEdit={handleEdit}
+                            onReply={handleReply}
+                            onRequest={requestDecrypt}
+                            onRetry={retryDecrypt}
+                            peerName={peer?.displayName ?? "them"}
+                            scrolling={scrolling}
+                            selected={selectedIds.has(message.id)}
+                            selectionActive={selectionActive}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {peerTyping ? (
+                    <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            {transcriptBusy ? (
+              <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+                <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {transcriptLoadingLabel}
                 </span>
-              ) : null}
-            </button>
-          ) : null}
+              </div>
+            ) : null}
 
-          {optionsMessage && optionsTarget ? (
-            <MessageOptionsMenu
-              anchorRect={optionsTarget.rect}
-              canDeleteForEveryone={
-                optionsMessage.senderId === userId && !optionsMessage.deletedAt
-              }
-              canEdit={
-                !optionsMessage.deletedAt &&
-                optionsMessage.senderId === userId &&
-                isWithinEditWindow(optionsMessage.createdAt)
-              }
-              createdAt={optionsMessage.createdAt}
-              editedAt={optionsMessage.editedAt}
-              onClose={closeOptions}
-              onCopy={() => handleOptionsCopy(optionsMessage)}
-              onDeleteForEveryone={() =>
-                requestDeleteForEveryone(optionsMessage)
-              }
-              onDeleteForMe={() => requestDeleteForMe(optionsMessage)}
-              onEdit={() => handleEdit(optionsMessage)}
-              onReply={() => handleReply(optionsMessage)}
-              onSelect={() => handleOptionsSelect(optionsMessage)}
-              preferEnd={optionsTarget.preferEnd}
-              presentation={coarsePointer ? "sheet" : "popover"}
-              receipt={optionsReceipt}
-            />
-          ) : null}
-
-          {pendingDelete ? (
-            <MessageDeleteDialog
-              busy={deleteBusy}
-              copy={messageDeleteCopy({
-                count:
-                  pendingDelete.scope === "for-everyone"
-                    ? 1
-                    : pendingDelete.messageIds.length,
-                scope: pendingDelete.scope,
-              })}
-              onConfirm={() => {
-                void confirmPendingDelete();
-              }}
-              onOpenChange={(open) => {
-                // Ignore a dismissal while the request is in flight so the busy
-                // state cannot be abandoned mid-delete. The node stays mounted
-                // (pendingDelete is retained) so the close can animate and focus
-                // returns to the invoker.
-                if (!open && !deleteBusy) {
-                  setDeleteOpen(false);
+            {!pinnedToBottom && allMessages.length > 0 ? (
+              <button
+                aria-label={
+                  arrivalCount > 0
+                    ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
+                    : "Scroll to latest messages"
                 }
-              }}
-              open={deleteOpen}
-            />
-          ) : null}
+                className="icon-btn-3d motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
+                onClick={jumpToBottom}
+                title="Scroll to latest"
+                type="button"
+              >
+                <ArrowDown className="h-5 w-5" />
+                {arrivalCount > 0 ? (
+                  <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
+                    {formatArrivalCount(arrivalCount)}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
 
-          {/* The list view is a state of the same surface, not a separate pane:
+            {optionsMessage && optionsTarget ? (
+              <MessageOptionsMenu
+                anchorRect={optionsTarget.rect}
+                canDeleteForEveryone={
+                  optionsMessage.senderId === userId &&
+                  !optionsMessage.deletedAt
+                }
+                canEdit={
+                  !optionsMessage.deletedAt &&
+                  optionsMessage.senderId === userId &&
+                  isWithinEditWindow(optionsMessage.createdAt)
+                }
+                createdAt={optionsMessage.createdAt}
+                editedAt={optionsMessage.editedAt}
+                onClose={closeOptions}
+                onCopy={() => handleOptionsCopy(optionsMessage)}
+                onDeleteForEveryone={() =>
+                  requestDeleteForEveryone(optionsMessage)
+                }
+                onDeleteForMe={() => requestDeleteForMe(optionsMessage)}
+                onEdit={() => handleEdit(optionsMessage)}
+                onReply={() => handleReply(optionsMessage)}
+                onSelect={() => handleOptionsSelect(optionsMessage)}
+                preferEnd={optionsTarget.preferEnd}
+                presentation={coarsePointer ? "sheet" : "popover"}
+                receipt={optionsReceipt}
+              />
+            ) : null}
+
+            {pendingDelete ? (
+              <MessageDeleteDialog
+                busy={deleteBusy}
+                copy={messageDeleteCopy({
+                  count:
+                    pendingDelete.scope === "for-everyone"
+                      ? 1
+                      : pendingDelete.messageIds.length,
+                  scope: pendingDelete.scope,
+                })}
+                onConfirm={() => {
+                  void confirmPendingDelete();
+                }}
+                onOpenChange={(open) => {
+                  // Ignore a dismissal while the request is in flight so the busy
+                  // state cannot be abandoned mid-delete. The node stays mounted
+                  // (pendingDelete is retained) so the close can animate and focus
+                  // returns to the invoker.
+                  if (!open && !deleteBusy) {
+                    setDeleteOpen(false);
+                  }
+                }}
+                open={deleteOpen}
+              />
+            ) : null}
+
+            {/* The list view is a state of the same surface, not a separate pane:
               the bar above switches its own controls, and this only swaps the
               body. Layering over the transcript (rather than replacing it)
               keeps the virtualizer's measured rows and scroll anchor, so
               jumping from a result and returning lands where it should. */}
-          {searchView === "list" ? (
-            <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
-              <MessageSearchResults
-                activeIndex={Math.max(searchListIndexClamped, 0)}
-                allMessages={allMessages}
-                indexing={transcriptFetching}
-                indexingOlder={indexingOlder}
-                listPageError={search.listPageError}
-                listPageLoading={search.listPageLoading}
-                listPageStale={search.listPageStale}
-                myUserId={userId ?? ""}
-                onJump={jumpFromList}
-                query={search.query}
-                results={searchPageSlice.pageResults}
-                totalMatches={search.totalMatches}
-                truncated={search.truncated}
-              />
+            {searchView === "list" ? (
+              <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
+                <MessageSearchResults
+                  activeIndex={Math.max(searchListIndexClamped, 0)}
+                  allMessages={allMessages}
+                  indexing={transcriptFetching}
+                  indexingOlder={indexingOlder}
+                  listPageError={search.listPageError}
+                  listPageLoading={search.listPageLoading}
+                  listPageStale={search.listPageStale}
+                  myUserId={userId ?? ""}
+                  onJump={jumpFromList}
+                  query={search.query}
+                  results={searchPageSlice.pageResults}
+                  totalMatches={search.totalMatches}
+                  truncated={search.truncated}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          {selectionActive ? (
+            <div className="panel-3d mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2">
+              <span
+                aria-live="polite"
+                className="text-sm font-medium tabular-nums"
+              >
+                {selectedIds.size} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn-3d-gray inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                  disabled={selectedIds.size === 0}
+                  onClick={requestDeleteSelectedForMe}
+                  type="button"
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete for me
+                </button>
+                <button
+                  aria-label="Cancel selection"
+                  className="icon-btn-3d text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full"
+                  onClick={clearSelection}
+                  type="button"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
             </div>
+          ) : null}
+
+          <MessageComposer
+            conversation={detail}
+            editTarget={editTarget}
+            replyTarget={replyTarget}
+            onEditCancel={() => setEditTarget(null)}
+            onEditSave={handleEditSave}
+            onReplyCancel={() => setReplyTarget(null)}
+            onSent={() => {
+              scheduleRead();
+              // Sending always returns the user to the newest message, even from
+              // mid-history, matching every mainstream chat client.
+              jumpToBottom();
+            }}
+          />
+
+          {mediaViewerKey ? (
+            <ConversationMediaViewer
+              anchorKey={mediaViewerKey}
+              hasOlder={hasPreviousPage}
+              isFetchingOlder={isFetchingPreviousPage}
+              messages={allMessages}
+              onActive={handleViewerActive}
+              onClose={closeViewer}
+              onLoadOlder={loadOlderMedia}
+              onPosition={handleViewerPosition}
+            />
+          ) : null}
+
+          {/* The dialog, below `lg` only. Keyed by conversation: its reader holds
+            cursors, rows and counts for one conversation, and remounting on a
+            switch is both cheaper and safer than resetting them -- a read in
+            flight during the switch resolves against the old cursors. */}
+          {placement === "sheet" ? (
+            <ConversationDetailsPanel
+              key={detail.conversation.id}
+              detail={detail}
+              // A walk in flight, so the tabs can say "indexing" rather than imply
+              // the list is the whole conversation.
+              indexingRefs={coverage?.state === "running"}
+              messages={allMessages}
+              onClose={() => setDetailsOpen(false)}
+              // The same jump the search results use, so a tile for a message this
+              // device has not paged in lands the transcript on that message and
+              // then opens the viewer on it.
+              onJumpToMessage={jumpToMessage}
+              onRequestDecrypts={requestLoadedDecrypts}
+              peer={peer}
+              presence={peerPresence}
+              // The index the tabs read, and the token that says it changed. The
+              // same store and the same signal search uses, rather than a second
+              // subscription that would re-read on a different schedule.
+              refsRefreshToken={searchIndex?.refreshToken ?? 0}
+              searchIndexStore={searchIndexStore}
+            />
           ) : null}
         </div>
 
-        {selectionActive ? (
-          <div className="panel-3d mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2">
-            <span
-              aria-live="polite"
-              className="text-sm font-medium tabular-nums"
-            >
-              {selectedIds.size} selected
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                className="btn-3d-gray inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                disabled={selectedIds.size === 0}
-                onClick={requestDeleteSelectedForMe}
-                type="button"
-              >
-                <Trash2 className="size-3.5" />
-                Delete for me
-              </button>
-              <button
-                aria-label="Cancel selection"
-                className="icon-btn-3d text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full"
-                onClick={clearSelection}
-                type="button"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <MessageComposer
-          conversation={detail}
-          editTarget={editTarget}
-          replyTarget={replyTarget}
-          onEditCancel={() => setEditTarget(null)}
-          onEditSave={handleEditSave}
-          onReplyCancel={() => setReplyTarget(null)}
-          onSent={() => {
-            scheduleRead();
-            // Sending always returns the user to the newest message, even from
-            // mid-history, matching every mainstream chat client.
-            jumpToBottom();
-          }}
-        />
-
-        {mediaViewerKey ? (
-          <ConversationMediaViewer
-            anchorKey={mediaViewerKey}
-            hasOlder={hasPreviousPage}
-            isFetchingOlder={isFetchingPreviousPage}
-            messages={allMessages}
-            onActive={handleViewerActive}
-            onClose={closeViewer}
-            onLoadOlder={loadOlderMedia}
-            onPosition={handleViewerPosition}
-          />
-        ) : null}
-
-        {/* Keyed by conversation: the panel's reader holds cursors, rows and
-            counts for one conversation, and remounting on a switch is both
-            cheaper and safer than resetting them — a read in flight during the
-            switch resolves against the old cursors. */}
-        {detailsOpen ? (
-          <ConversationDetailsPanel
+        {/* The pane, from `lg` up, replacing the online friends rail. An `aside`
+            and not a dialog: nothing here is modal, nothing traps focus, and
+            there is no close -- it is the state of this conversation rather than
+            something the user opened. The same `hidden lg:flex` pair the friends
+            rail uses, so a stale media query costs an invisible pane for a frame
+            rather than a layout that cannot fit. */}
+        {placement === "rail" ? (
+          <ConversationDetailsRail
             key={detail.conversation.id}
+            collapsed={detailsCollapsed}
             detail={detail}
-            // A walk in flight, so the tabs can say "indexing" rather than imply
-            // the list is the whole conversation.
             indexingRefs={coverage?.state === "running"}
             messages={allMessages}
-            onClose={() => setDetailsOpen(false)}
-            // The same jump the search results use, so a tile for a message this
-            // device has not paged in lands the transcript on that message and
-            // then opens the viewer on it.
+            onExpand={expandDetailsRail}
             onJumpToMessage={jumpToMessage}
             onRequestDecrypts={requestLoadedDecrypts}
             peer={peer}
             presence={peerPresence}
-            // The index the tabs read, and the token that says it changed. The
-            // same store and the same signal search uses, rather than a second
-            // subscription that would re-read on a different schedule.
             refsRefreshToken={searchIndex?.refreshToken ?? 0}
             searchIndexStore={searchIndexStore}
+            titleRef={detailsTitleRef}
           />
         ) : null}
       </div>
@@ -4727,20 +4908,31 @@ const VirtualRow = memo(
 
 function ThreadHeader({
   conversation,
+  detailsRailCollapsed,
   onBack,
   onOpenDetails,
   onOpenSearch,
+  onToggleDetailsRail,
   onToggleRail,
   peer,
   peerPresence,
   peerTyping,
   privateKey,
+  showDetailsRail,
 }: {
   conversation: ConversationDetailResponse;
+  // Desktop only, and only while the pane is the one on screen. Below `lg` the
+  // details are a sheet with its own close button, so a fold control there would
+  // be a second way to dismiss the same thing.
+  detailsRailCollapsed: boolean;
   onBack: () => void;
   onOpenDetails: () => void;
   onOpenSearch: () => void;
+  onToggleDetailsRail: () => void;
   onToggleRail: () => void;
+  // Whether the desktop pane is on screen, which is the inverse of the online
+  // friends button below: one of the two is always present from `lg` up.
+  showDetailsRail: boolean;
   peer:
     | ConversationDetailResponse["conversation"]["members"][number]["user"]
     | undefined;
@@ -4895,6 +5087,26 @@ function ThreadHeader({
       >
         <Search className="h-4 w-4" />
       </button>
+
+      {/* The two rail controls are mutually exclusive by viewport rather than by
+          state: from `lg` the pane replaces the online list, so its fold control
+          appears and the friends button does not. */}
+      {showDetailsRail ? (
+        <button
+          aria-label={
+            detailsRailCollapsed ? "Show chat details" : "Hide chat details"
+          }
+          aria-expanded={!detailsRailCollapsed}
+          className="icon-btn-3d hidden h-8 w-8 shrink-0 items-center justify-center rounded-full lg:flex"
+          onClick={onToggleDetailsRail}
+          title={
+            detailsRailCollapsed ? "Show chat details" : "Hide chat details"
+          }
+          type="button"
+        >
+          <DetailsRailToggleIcon collapsed={detailsRailCollapsed} />
+        </button>
+      ) : null}
 
       <button
         aria-label="Online friends"
