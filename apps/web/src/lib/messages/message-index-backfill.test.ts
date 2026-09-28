@@ -301,6 +301,41 @@ describe("message index backfill", () => {
     expect(harness.decrypted).toHaveLength(0);
   });
 
+  // The refs half of the verdict, and the whole reason it is a separate field: it
+  // has to track `reachedStart` exactly, because a verdict that claims text
+  // coverage the refs index does not share is what makes the details pane report
+  // "no media" for a conversation full of it.
+  test("a run that reaches the start covers the refs index too", async () => {
+    const result = await harness.backfill.run();
+    expect(result.reachedStart).toBe(true);
+    expect(result.refsReachedStart).toBe(true);
+    const meta = await harness.store.readMeta(CONVO);
+    expect(meta?.refsReachedStart).toBe(true);
+  });
+
+  test("a run that stops on its budget claims neither, and resumes to both", async () => {
+    const bounded = makeHarness({ maxPages: 3, pages: 50 });
+    const result = await bounded.backfill.run();
+    expect(result.reachedStart).toBe(false);
+    // Same as the text verdict: a partial range covered a partial range, and
+    // claiming otherwise is what the marker exists to prevent.
+    expect(result.refsReachedStart).toBe(false);
+    const meta = await bounded.store.readMeta(CONVO);
+    expect(meta?.refsReachedStart).toBe(false);
+
+    const second = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage: bounded.fetchPage,
+      maxPages: 100,
+      pageDelayMs: 1,
+      store: bounded.store,
+      writer: bounded.writer,
+    });
+    const resumed = await second.run();
+    expect(resumed.refsReachedStart).toBe(true);
+  });
+
   test("stops on its page budget and reports the conversation is not covered", async () => {
     const bounded = makeHarness({ maxPages: 3, pages: 50 });
     const result = await bounded.backfill.run();

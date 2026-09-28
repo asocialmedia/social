@@ -11,6 +11,7 @@ function input(
     coverage: null,
     persistedChainVerified: false,
     persistedCovered: false,
+    persistedRefsCovered: false,
     running: false,
     storeReady: true,
     wantsIndexing: true,
@@ -51,16 +52,85 @@ describe("shouldAutoStartWalk", () => {
           coverage: null,
           persistedChainVerified: true,
           persistedCovered: true,
+          persistedRefsCovered: true,
         })
       )
     ).toBe(false);
     expect(
       shouldAutoStartWalk(
         input({
-          coverage: { reachedStart: true, state: "done" },
+          coverage: {
+            reachedStart: true,
+            refsReachedStart: true,
+            state: "done",
+          },
           persistedCovered: false,
         })
       )
+    ).toBe(false);
+  });
+
+  // The bug this half exists for. Refs were added after the coverage verdict was,
+  // so a conversation indexed by an older build carries `reachedStart: true` over
+  // an EMPTY refs store. The walk skips it -- correctly, the text IS covered -- and
+  // the details pane then reports "no media" for a conversation full of it,
+  // permanently. Treating a missing refs half as "not covered" is what repairs it,
+  // and the user does nothing: the pane is a consumer on desktop, so the walk
+  // starts on entry and the next open finds the marker.
+  test("a text-covered conversation with no refs verdict re-walks once", () => {
+    expect(
+      shouldAutoStartWalk(
+        input({
+          coverage: null,
+          persistedChainVerified: true,
+          persistedCovered: true,
+          persistedRefsCovered: false,
+        })
+      )
+    ).toBe(true);
+  });
+
+  test("an ABSENT refs half is unknown, not a definite false", () => {
+    // The distinction that decides the above. A record written before the field
+    // existed has no `refsReachedStart` at all, and reading that as a definite
+    // "not covered" would be right once and wrong forever: the walk would restart
+    // on every open of a fully covered conversation. Absent has to mean "wait",
+    // exactly as it does for the other two halves.
+    const withoutTheField = {
+      autoIndex: true,
+      coverage: null,
+      persistedChainVerified: true,
+      persistedCovered: true,
+      running: false,
+      storeReady: true,
+      wantsIndexing: true,
+      writerReady: true,
+    } as ShouldAutoStartWalkInput;
+    expect(shouldAutoStartWalk(withoutTheField)).toBe(false);
+  });
+
+  test("a run this session is trusted only as far as it went", () => {
+    // Reached the start, but under a build that predates refs: text is covered and
+    // the pane is not, so the policy still has work to do.
+    expect(
+      shouldAutoStartWalk(
+        input({
+          coverage: {
+            reachedStart: true,
+            refsReachedStart: false,
+            state: "done",
+          },
+          persistedChainVerified: true,
+          persistedCovered: true,
+          persistedRefsCovered: true,
+        })
+      )
+    ).toBe(true);
+  });
+
+  test("waits for the refs verdict before the first start", () => {
+    expect(
+      shouldAutoStartWalk(input({ coverage: null, persistedRefsCovered: null }))
     ).toBe(false);
   });
 

@@ -61,6 +61,12 @@ export interface BackfillProgress {
   // True once the walk reached the oldest message, so there is no older history
   // left to index. The UI uses this to stop offering "index older messages".
   reachedStart: boolean;
+  // Whether this run also derived each message's shared refs (media, posts,
+  // links) across the range it walked. Reported separately because the auto-start
+  // policy trusts a run only as far as it actually went, and because a run that
+  // reached the start under a build that predates refs says nothing about them.
+  // Written to the persisted verdict by the same call that writes `reachedStart`.
+  refsReachedStart: boolean;
   // Newest id this run indexed, for the progress line.
   latestIndexedId: string | null;
   // Oldest id reached, persisted so the next run resumes here.
@@ -205,6 +211,7 @@ export function createMessageIndexBackfill(
     pageCount: 0,
     pendingCount: 0,
     reachedStart: false,
+    refsReachedStart: false,
     state: "idle",
   };
 
@@ -221,6 +228,12 @@ export function createMessageIndexBackfill(
 
   // The cursor only ever moves forward through committed pages, so a failed or
   // aborted page leaves the persisted position pointing at real indexed history.
+  //
+  // `refsReachedStart` is written here, alongside `reachedStart` and never
+  // separately, because the two mean the same range: a run that reached the oldest
+  // message derived that message's shared refs on the way, in the same writer pass.
+  // Writing them in one place is what keeps the verdict from claiming a text
+  // coverage the refs index does not share.
   async function persistCursor(
     oldestReachedId: string | null,
     reachedStart: boolean,
@@ -235,6 +248,7 @@ export function createMessageIndexBackfill(
         cursorVerified: chainVerified,
         indexedThroughId: oldestReachedId,
         reachedStart,
+        refsReachedStart: reachedStart,
         updatedAt: Date.now(),
       });
     } catch {
@@ -654,6 +668,7 @@ export function createMessageIndexBackfill(
       oldestReachedId,
       pendingCount: pending,
       reachedStart,
+      refsReachedStart: reachedStart,
     });
     return progress;
   }

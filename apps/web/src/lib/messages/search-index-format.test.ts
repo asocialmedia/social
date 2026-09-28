@@ -130,6 +130,7 @@ describe("emptySearchIndexMeta", () => {
       lastAccessedAt: 0,
       pendingIds: [],
       reachedStart: false,
+      refsReachedStart: false,
       updatedAt: 0,
       version: SEARCH_INDEX_FORMAT_VERSION,
     });

@@ -182,6 +182,28 @@ export interface SearchIndexMeta {
   // non-monotonically must clear this (and reachedStart) for the conversation,
   // or the walk will keep resuming below the imported rows and never see them.
   cursorVerified: boolean;
+  // True once a walk reached the oldest message AND derived that message's
+  // shared refs (its media, posts and links) on the way.
+  //
+  // The one field here that is about the refs index rather than the text index,
+  // and it exists because a verdict cannot answer a question it was never asked.
+  // Refs were added after the verdict was, so a conversation indexed by an older
+  // build carries `reachedStart: true` with an EMPTY refs store: the walk skips it
+  // (correctly -- the text is covered) and the details pane then reports "no
+  // media" for a conversation full of it, permanently. Inheriting that verdict into
+  // the refs index is what produced the false answer.
+  //
+  // So the marker is a property of the VERDICT, not a per-row fact: it asks
+  // whether the run that earned `reachedStart` was one that wrote refs. Absent
+  // reads as false, which is what makes an old verdict self-heal -- the walk runs
+  // once more, and the writer derives refs idempotently for every row it touches.
+  // Rows it could not decrypt stay in the durable pending queue and are retried
+  // through the same write path, so they are not lost and not double-counted.
+  //
+  // Any build that adds a new per-message artifact to the writer needs a marker
+  // like this, or it inherits every verdict ever written and inherits the false
+  // answer with it.
+  refsReachedStart: boolean;
   updatedAt: number;
   version: number;
 }
@@ -194,6 +216,7 @@ export function emptySearchIndexMeta(conversationId: string): SearchIndexMeta {
     lastAccessedAt: 0,
     pendingIds: [],
     reachedStart: false,
+    refsReachedStart: false,
     updatedAt: 0,
     version: SEARCH_INDEX_FORMAT_VERSION,
   };

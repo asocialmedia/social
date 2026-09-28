@@ -486,6 +486,14 @@ export function MessageThread({
   const [persistedChainVerified, setPersistedChainVerified] = useState<
     boolean | null
   >(null);
+  // Whether that verdict also covered the shared-refs index, which the details
+  // pane's tabs read. A verdict written before refs existed is text-only, and
+  // trusting it as a reason to skip the walk is what left the pane reporting "no
+  // media" for conversations full of it. Absent reads as false, so the next open
+  // repairs the conversation by itself.
+  const [persistedRefsCovered, setPersistedRefsCovered] = useState<
+    boolean | null
+  >(null);
   // Whether the index writer instance exists. Auto-start must wait for it: a
   // start attempt before it does silently no-ops and never retries.
   const [writerReady, setWriterReady] = useState(false);
@@ -2714,6 +2722,7 @@ export function MessageThread({
     let cancelled = false;
     setPersistedCovered(null);
     setPersistedChainVerified(null);
+    setPersistedRefsCovered(null);
     const resolve = async () => {
       try {
         const resolved = await resolveSearchIndexStore();
@@ -2769,6 +2778,10 @@ export function MessageThread({
                   ...current,
                   cursorVerified: false,
                   reachedStart: false,
+                  // Cleared with the verdict it belonged to. Leaving a refs
+                  // marker on a conversation whose coverage was just disproved
+                  // would let a later run skip the repair this write is for.
+                  refsReachedStart: false,
                   updatedAt: Date.now(),
                 });
               } catch {
@@ -2779,11 +2792,15 @@ export function MessageThread({
           if (!cancelled) {
             setPersistedCovered(covered);
             setPersistedChainVerified(chainVerified);
+            // Read as false when absent, so an older verdict that predates refs
+            // heals rather than persisting.
+            setPersistedRefsCovered(meta?.refsReachedStart === true && covered);
           }
         } catch {
           if (!cancelled) {
             setPersistedCovered(false);
             setPersistedChainVerified(false);
+            setPersistedRefsCovered(false);
           }
         }
       } catch {
@@ -2792,6 +2809,7 @@ export function MessageThread({
           setSearchIndex(null);
           setPersistedCovered(false);
           setPersistedChainVerified(false);
+          setPersistedRefsCovered(false);
         }
       }
     };
@@ -3016,6 +3034,10 @@ export function MessageThread({
           // and the chain verdict go together from here on.
           setPersistedCovered(true);
           setPersistedChainVerified(true);
+          // And the refs half, for the same reason: this run wrote each message's
+          // media, posts and links in the same pass it wrote the text, so it
+          // covered both indexes and the pane can stop offering to index older.
+          setPersistedRefsCovered(true);
         }
       },
       pageDelayMs: BACKFILL_PAGE_DELAY_MS,
@@ -3102,6 +3124,7 @@ export function MessageThread({
           coverage,
           persistedChainVerified,
           persistedCovered,
+          persistedRefsCovered,
           running: backfillRef.current !== null,
           storeReady: searchIndexStore !== null,
           // The tab is visible and a consumer is open, which is exactly the
@@ -3121,6 +3144,7 @@ export function MessageThread({
     coverage,
     persistedChainVerified,
     persistedCovered,
+    persistedRefsCovered,
     searchIndexStore,
     startIndexingOlder,
     walkWanted,
@@ -3149,6 +3173,7 @@ export function MessageThread({
         coverage,
         persistedChainVerified,
         persistedCovered,
+        persistedRefsCovered,
         running: backfillRef.current !== null,
         storeReady: searchIndexStore !== null,
         wantsIndexing,
@@ -3161,6 +3186,7 @@ export function MessageThread({
     coverage,
     persistedChainVerified,
     persistedCovered,
+    persistedRefsCovered,
     searchIndexStore,
     startIndexingOlder,
     walkEpoch,
@@ -3281,9 +3307,15 @@ export function MessageThread({
   // from an earlier session (covered flag plus verified cursor chain -- either
   // half missing means the walk must re-prove it), or a transcript that paged
   // to the start (the API returning no older page means there is no older page).
+  // All three verdict halves, for the same reason the walk needs all three: a
+  // conversation whose TEXT is covered but whose refs are not is not covered as
+  // far as anything on screen can tell, and reporting it as covered is what put
+  // "no media" on a chat full of it.
   const fullyCovered =
-    coverage?.reachedStart === true ||
-    (persistedCovered === true && persistedChainVerified === true) ||
+    (coverage?.reachedStart === true && coverage.refsReachedStart === true) ||
+    (persistedCovered === true &&
+      persistedChainVerified === true &&
+      persistedRefsCovered === true) ||
     (hasPreviousPage === false && allMessages.length > 0);
   const indexingOlder = coverage?.state === "running";
   // Offered only when there is genuinely older history this device has not
