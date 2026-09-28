@@ -3,7 +3,7 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
 import type { ReactNode, Ref } from "react";
-import { useCallback, useState } from "react";
+import { useEffect } from "react";
 
 // The scroll + absolutely-positioned-rows shell shared by the details panel's
 // three tabs. The transcript owns an equivalent inline (message-thread.tsx);
@@ -79,54 +79,89 @@ export function VirtualRowsFrame({
   );
 }
 
-// The line under a list that says what is NOT shown yet, which is a different
-// statement for each of the three cases and the difference matters:
-//
-//   - a walk still running: more is coming, and saying so beats an empty-looking
-//     list that will fill in a minute;
-//   - more stored: an explicit button, because a scroll-triggered read would fire
-//     a query the user did not ask for and could not stop;
-//   - neither: nothing at all, so a fully-shown list is not annotated with a
-//     caveat about the index it does not need.
-// Why an empty list is empty when the READ itself failed. A different answer from
-// "this conversation has none" and from "a background walk has not arrived yet",
-// and the one thing that must not be said when it is true is the indexing
-// sentence: promising a backfill that is not running is the confident wrong answer
-// this whole file exists to avoid.
+// How close to the end of a list the next page starts reading. A page is a local
+// keyset read of sixty rows, so this is about smoothness rather than cost: starting
+// a row or two early means the reader never sees the list stop and then start.
+export const AUTO_LOAD_LAST_ROWS = 2;
+
+// Whether an empty list is empty because the READ failed. A different answer from
+// "this conversation has none" and from "a background walk has not arrived yet", and
+// the one thing that must not be said when it is true is the indexing sentence:
+// promising a backfill that is not running is the confident wrong answer this file
+// exists to avoid.
 export const READ_FAILED_FOOTNOTE =
   "Couldn't read the saved index, so this is only what this device has loaded.";
 
+// Whether a virtualized list should read its next page.
+//
+// Auto-loading is right here BECAUSE the read is local. `loadMore` goes to the local
+// refs index -- a keyset read of sixty rows out of IndexedDB, no request, no
+// rate-limit budget, nothing a reader would ever want to refuse. The expensive part
+// of this feature is the BACKFILL WALK, which fetches history over the network; that
+// one is separately gated, runs on its own, and reports itself with its own line.
+// Conflating the two is what put a button on the end of these lists, with a comment
+// claiming a read the reader had not asked for.
+//
+// A list shorter than the pane is the case a scroll trigger misses entirely: there
+// is nothing to scroll, so every row is already visible and the only way the pane
+// fills is to keep reading. The threshold covers it by construction -- when the last
+// row is above it, it is also the last row.
+export function shouldAutoLoadMore(input: {
+  hasMore: boolean;
+  // -1 when no rows are laid out yet, which is the first paint before the
+  // virtualizer has a scroll element.
+  lastVisibleRow: number;
+  readError: boolean;
+  rowCount: number;
+}): boolean {
+  if (!input.hasMore || input.readError || input.lastVisibleRow < 0) {
+    return false;
+  }
+  return input.lastVisibleRow >= input.rowCount - AUTO_LOAD_LAST_ROWS;
+}
+
+// Reads the next page once the end of the list comes into view.
+//
+// Keyed on the last visible row AND the row count rather than on an intersecting
+// sentinel. After a page lands the sentinel has moved but is still on screen, so an
+// IntersectionObserver would report no change and the chain would stall until the
+// reader scrolled again -- which is the whole failure mode of a naive
+// infinite-scroll sentinel. A row count that changed re-runs this, and that is what
+// keeps the list filling until it is longer than the pane.
+export function useAutoLoadMore(input: {
+  hasMore: boolean;
+  lastVisibleRow: number;
+  loadMore: () => Promise<void>;
+  readError: boolean;
+  rowCount: number;
+}): void {
+  const { hasMore, lastVisibleRow, loadMore, readError, rowCount } = input;
+  useEffect(() => {
+    if (!shouldAutoLoadMore({ hasMore, lastVisibleRow, readError, rowCount })) {
+      return;
+    }
+    // `readPage` serializes itself, so a burst of these from a fast scroll collapses
+    // into one read rather than racing cursors.
+    void loadMore();
+  }, [hasMore, lastVisibleRow, loadMore, readError, rowCount]);
+}
+
+// The line under a list that says what is NOT shown yet.
+//
+// It says nothing about ordinary paging because there is nothing to say: the next
+// page is read when the reader reaches it, silently, like every other list in the
+// app. What is left is the two cases where the list genuinely is not the whole
+// conversation and the reader could otherwise believe it is -- a background walk
+// still running, and a store this device cannot read.
 export function ListFooter({
   indexing,
-  hasMore,
-  loadMore,
   noun,
   readError,
 }: {
-  hasMore: boolean;
   indexing: boolean;
-  loadMore: () => Promise<void>;
   noun: string;
   readError: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
-
-  // Cleared on BOTH paths, which is the whole content of this callback. Setting it
-  // and never clearing it made the button permanently disabled after one press, so
-  // a list could be paged exactly once per session however much history it had.
-  // `readPage` swallows its own failures, so the rejection arm is belt-and-braces --
-  // but a rejected promise that never cleared the flag would be the same bug again.
-  const handleLoad = useCallback(async () => {
-    setBusy(true);
-    try {
-      await loadMore();
-    } catch {
-      // `readPage` swallows its own failures, so this arm only stops a rejection
-      // from stranding a disabled button.
-    }
-    setBusy(false);
-  }, [loadMore]);
-
   if (readError) {
     return (
       <p className="text-muted-foreground/80 py-3 text-center text-[11px]">
@@ -146,26 +181,7 @@ export function ListFooter({
       </p>
     );
   }
-  if (!hasMore) {
-    return null;
-  }
-  return (
-    <div className="flex justify-center py-3">
-      <button
-        className="btn-3d-gray inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-60"
-        disabled={busy}
-        onClick={() => {
-          void handleLoad();
-        }}
-        type="button"
-      >
-        {busy ? (
-          <Loader2 className="size-3 animate-spin motion-reduce:animate-none" />
-        ) : null}
-        Load older {noun}
-      </button>
-    </div>
-  );
+  return null;
 }
 
 // The one empty state all three tabs share. The footnote is not a nicety.

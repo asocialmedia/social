@@ -10,6 +10,7 @@ import {
   EmptyShared,
   ListFooter,
   READ_FAILED_FOOTNOTE,
+  useAutoLoadMore,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
 import { EMPTY_FOOTNOTE } from "./conversation-shared-posts-tab";
@@ -57,6 +58,18 @@ export function ConversationSharedLinksTab({
   const totalSize = rowVirtualizer.getTotalSize();
   const virtualItems = rowVirtualizer.getVirtualItems();
 
+  // Rows here are measured rather than fixed, so the threshold deliberately starts
+  // the read a couple of rows early: a card can be taller than its estimate while a
+  // query resolves, and reaching the bottom mid-measure is what makes a measured
+  // list stutter.
+  useAutoLoadMore({
+    hasMore,
+    lastVisibleRow: virtualItems.at(-1)?.index ?? -1,
+    loadMore,
+    readError,
+    rowCount: items.length,
+  });
+
   return (
     <VirtualRowsFrame
       empty={
@@ -69,13 +82,7 @@ export function ConversationSharedLinksTab({
       }
       footer={
         items.length === 0 ? null : (
-          <ListFooter
-            hasMore={hasMore}
-            indexing={indexing}
-            loadMore={loadMore}
-            noun="links"
-            readError={readError}
-          />
+          <ListFooter indexing={indexing} noun="links" readError={readError} />
         )
       }
       isEmpty={items.length === 0}

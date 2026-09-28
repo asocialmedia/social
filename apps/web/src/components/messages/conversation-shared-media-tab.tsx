@@ -11,6 +11,7 @@ import {
   EmptyShared,
   ListFooter,
   READ_FAILED_FOOTNOTE,
+  useAutoLoadMore,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
 import { EMPTY_FOOTNOTE } from "./conversation-shared-posts-tab";
@@ -90,6 +91,17 @@ export function ConversationSharedMediaTab({
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
 
+  // `virtualItems.at(-1)` is the last row actually laid out, which for a grid of
+  // fixed-height rows is exact -- no measurement to wait on, so the read starts on
+  // the frame the end of the list becomes visible.
+  useAutoLoadMore({
+    hasMore,
+    lastVisibleRow: virtualItems.at(-1)?.index ?? -1,
+    loadMore,
+    readError,
+    rowCount,
+  });
+
   // Pre-measurement there is no width to divide, so the virtualizer would be
   // sized from a negative row height. One frame of placeholders, laid out like
   // the real grid, keeps the pane from jumping when the measurement lands, and
@@ -132,13 +144,7 @@ export function ConversationSharedMediaTab({
       }
       footer={
         items.length === 0 ? null : (
-          <ListFooter
-            hasMore={hasMore}
-            indexing={indexing}
-            loadMore={loadMore}
-            noun="media"
-            readError={readError}
-          />
+          <ListFooter indexing={indexing} noun="media" readError={readError} />
         )
       }
       isEmpty={items.length === 0}
