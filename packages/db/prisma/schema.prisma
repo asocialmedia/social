@@ -153,10 +153,24 @@ model MessageConversationMember {
   // Null means the peer has never acked (pre-feature history included), so those
   // messages show no delivery claim rather than a fabricated one.
   lastDeliveredAt DateTime?
-  createdAt       DateTime            @default(now())
+  // Per-member DM preferences, so they are DM-scoped by construction (every
+  // message conversation is a 1:1 pair keyed by `pairKey`).
+  //
+  // `mutedAt` is when THIS member muted the thread: a null means unmuted, a
+  // timestamp means muted, and the timestamp is preserved (not nulled) so the
+  // mute is a real event rather than a boolean flip. It suppresses the
+  // conversation's unread badge for this member only — the peer is unaffected.
+  mutedAt   DateTime?
+  // Chat theme key this member picked for this conversation. A null means "app
+  // default" and is resolved client-side, so a new theme can ship without a
+  // backfill. Synced across the member's devices like every other preference.
+  themeKey  String?
+  createdAt DateTime  @default(now())
 
   @@id([conversationId, userId])
   @@index([userId])
+  // Serves the unread-badge seed, which now skips muted memberships.
+  @@index([userId, mutedAt])
   @@map("message_conversation_members")
 }
 
