@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
+import { ConversationRow } from "@/components/messages/conversation-list-item";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -14,16 +15,28 @@ import {
   searchMessageUsers,
 } from "@/lib/messages/client";
 import type { SearchUserResult } from "@/lib/messages/client";
+import type { ConversationListLayout } from "@/lib/messages/conversation-list-layout";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
 
+import { useConversationPreviewRequests } from "./use-conversation-preview-requests";
+
+// A stable empty array, so the rail's call into the preview hook does not look
+// like a new list on every render.
+const NO_ITEMS: never[] = [];
+
 interface ConversationListProps {
   activeConversationId: string | null;
+  // Which shape the list takes. Decided by the page (see conversation-list-layout)
+  // because it depends on the route and the viewport, neither of which the list
+  // owns.
+  layout: ConversationListLayout;
   onSelect: (conversationId: string) => void;
 }
 
 export function ConversationList({
   activeConversationId,
+  layout,
   onSelect,
 }: ConversationListProps) {
   const { user } = useSession();
@@ -41,6 +54,12 @@ export function ConversationList({
     queryKey: ["message-conversations", user?.id],
     refetchInterval: 30_000,
   });
+  const items = data?.items ?? NO_ITEMS;
+
+  // Previews are what the full list is FOR, and the rail shows none, so the rail
+  // asks the decryptor for nothing rather than decrypting twenty conversations to
+  // throw the text away.
+  useConversationPreviewRequests(layout === "full" ? items : NO_ITEMS);
 
   const refetchList = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -191,16 +210,85 @@ export function ConversationList({
     ));
   }
 
-  function renderConversations() {
+  function renderSearchPopover() {
+    if (!searchOpen) {
+      return null;
+    }
+    return (
+      <div
+        className={cn(
+          "panel-3d absolute top-16 z-50 rounded-2xl p-2",
+          // The rail is 64px wide with no room to open into, so its popover sits
+          // to the side of it; the full list has the width, so it opens over its
+          // own rows.
+          layout === "full"
+            ? "inset-x-2"
+            : "left-full ml-2 w-72 max-w-[calc(100vw-5.5rem)]"
+        )}
+      >
+        <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
+          <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+          <input
+            autoFocus
+            className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search people you follow…"
+            value={query}
+          />
+        </div>
+        <div className="mt-2 flex max-h-80 flex-col overflow-y-auto">
+          {renderSearchResults()}
+        </div>
+      </div>
+    );
+  }
+
+  function renderFullList() {
+    if (isLoading) {
+      return <ConversationListSkeleton full />;
+    }
+    if (items.length === 0) {
+      return (
+        <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
+          <MessageCircle className="text-muted-foreground/40 h-6 w-6" />
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            No conversations yet. Search for someone you follow to start one.
+          </p>
+        </div>
+      );
+    }
+    const myId = user?.id ?? "";
+    return items.map((item) => {
+      const peer = item.conversation.members.find(
+        (member) => member.userId !== myId
+      )?.user;
+      const presence = peer
+        ? (onlineUsers.find((candidate) => candidate.id === peer.id)?.status ??
+          null)
+        : null;
+      return (
+        <ConversationRow
+          active={item.conversation.id === activeConversationId}
+          item={item}
+          key={item.conversation.id}
+          myUserId={myId}
+          onSelect={onSelect}
+          presence={presence}
+        />
+      );
+    });
+  }
+
+  function renderRail() {
     if (isLoading) {
       return <ConversationListSkeleton />;
     }
-    if (!data || data.items.length === 0) {
+    if (items.length === 0) {
       return (
         <MessageCircle className="text-muted-foreground/40 mt-6 h-6 w-6" />
       );
     }
-    return data.items.map((item) => {
+    return items.map((item) => {
       const myId = user?.id ?? "";
       const myMember = item.conversation.members.find(
         (member) => member.userId === myId
@@ -226,10 +314,10 @@ export function ConversationList({
         <button
           aria-label={label}
           className={cn(
-            "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors",
+            "relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors",
             active
               ? "border-border/60 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
-              : "pill-3d-hover"
+              : "hover:bg-muted/50"
           )}
           key={item.conversation.id}
           onClick={() => onSelect(item.conversation.id)}
@@ -262,14 +350,35 @@ export function ConversationList({
     });
   }
 
+  // A phone with a conversation open shows that conversation and nothing else; the
+  // thread's back button is what brings the list back.
+  if (layout === "hidden") {
+    return null;
+  }
+
+  const full = layout === "full";
+
   return (
-    <div className="relative flex w-16 shrink-0 flex-col border-r border-[hsl(var(--border))]">
+    <div
+      className={cn(
+        "relative flex shrink-0 flex-col border-r border-[hsl(var(--border))]",
+        full ? "w-full md:w-72 xl:w-80" : "w-16 items-center"
+      )}
+    >
       {/* Discord-style icon rail: no header, just the search trigger. */}
-      <div className="border-border/60 flex h-14 shrink-0 items-center justify-center border-b">
+      <div
+        className={cn(
+          "border-border/60 flex h-14 shrink-0 items-center gap-2 border-b",
+          full ? "justify-between px-4" : "justify-center px-0"
+        )}
+      >
+        {full ? (
+          <h2 className="text-sm font-semibold tracking-tight">Messages</h2>
+        ) : null}
         <button
           aria-label="Search people"
           className={cn(
-            "icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full",
+            "icon-btn-3d flex h-9 w-9 cursor-pointer items-center justify-center rounded-full",
             searchOpen && "border-border/60 bg-primary/15 border"
           )}
           onClick={() => setSearchOpen((open) => !open)}
@@ -283,27 +392,16 @@ export function ConversationList({
         </button>
       </div>
 
-      <div className="hide-native-scrollbar flex flex-1 flex-col items-center gap-1.5 overflow-y-auto p-2">
-        {renderConversations()}
+      <div
+        className={cn(
+          "hide-native-scrollbar flex flex-1 flex-col overflow-y-auto",
+          full ? "gap-0.5 p-2" : "items-center gap-1.5 p-2"
+        )}
+      >
+        {full ? renderFullList() : renderRail()}
       </div>
 
-      {searchOpen ? (
-        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 max-w-[calc(100vw-5.5rem)] overflow-hidden rounded-2xl p-2 shadow-none">
-          <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
-            <Search className="text-muted-foreground h-4 w-4 shrink-0" />
-            <input
-              autoFocus
-              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search people you follow…"
-              value={query}
-            />
-          </div>
-          <div className="mt-2 flex max-h-80 flex-col overflow-y-auto">
-            {renderSearchResults()}
-          </div>
-        </div>
-      ) : null}
+      {renderSearchPopover()}
     </div>
   );
 }
