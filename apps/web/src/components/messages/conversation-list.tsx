@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, Search, X } from "lucide-react";
+import { BellOff, MessageCircle, Search, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -202,17 +202,26 @@ export function ConversationList({
     }
     return data.items.map((item) => {
       const myId = user?.id ?? "";
+      const myMember = item.conversation.members.find(
+        (member) => member.userId === myId
+      );
       const peer = item.conversation.members.find(
         (member) => member.userId !== myId
       )?.user;
+      // Mute is this member's own preference, so the indicator is read off their
+      // membership row rather than anything the peer can see.
+      const muted = Boolean(myMember?.mutedAt);
       const presence = peer
         ? onlineUsers.find((u) => u.id === peer.id)
         : undefined;
       const active = item.conversation.id === activeConversationId;
+      // Spelled out rather than nested in the JSX: a mute and an unread count are
+      // two independent facts about the same row, and a muted chat carries no
+      // count at all, so the unread branch wins when both are somehow present.
       const label =
         item.unreadCount > 0
           ? `${peer?.displayName ?? "Conversation"}, ${item.unreadCount} unread message${item.unreadCount === 1 ? "" : "s"}`
-          : (peer?.displayName ?? "Conversation");
+          : `${peer?.displayName ?? "Conversation"}${muted ? ", muted" : ""}`;
       return (
         <button
           aria-label={label}
@@ -236,6 +245,11 @@ export function ConversationList({
                   presence.status === "online" ? "bg-green-500" : "bg-amber-500"
                 )}
               />
+            ) : null}
+            {muted ? (
+              <span className="bg-background absolute -bottom-0.5 -left-0.5 flex size-3.5 items-center justify-center rounded-full">
+                <BellOff className="text-muted-foreground size-2.5" />
+              </span>
             ) : null}
           </div>
           {item.unreadCount > 0 ? (
