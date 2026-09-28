@@ -19,6 +19,7 @@ import {
   Palette,
   UserRound,
   Volume2,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -406,15 +407,25 @@ export function ConversationDetailsBody({
   );
 }
 
-// The details surface as a DIALOG: a side sheet from `sm` up and full-screen below,
-// which is the whole surface wherever a phone has no room for a pane beside a
-// transcript. From `lg` the thread renders the same content in a pinned rail
-// instead, and never both — see detailsPlacement.
+// The details surface as a DIALOG, and from below `lg` that means a BOTTOM sheet:
+// full width, most of the height, arriving from the edge the thumb is nearest.
 //
-// A dialog and a rail differ in more than position: the sheet traps focus, closes
-// on Escape and on an outside press, and has to name itself for a screen reader.
-// All of that is Radix's, and all of it belongs to the wrapper rather than to the
-// content, which is why the body below knows nothing about being modal.
+// It used to slide in from the right at every width. On a desktop panel a sideways
+// arrival is right -- it is a pane, and panes live at the side. On a phone it read as
+// a page pushed in from off-screen, and the content inside is a profile rather than
+// a page: the idiom for "a thing about what you are looking at" on a touch screen is
+// up from the bottom. Same mount below `lg`, different edge.
+//
+// The dismissal is explicit rather than implied. The primitive's close is a 16px
+// icon in the extreme corner, and on a full-width sheet it was the ONLY way out:
+// there is no dark overlay to tap when the sheet covers the screen, and a phone has
+// no Escape key. That is not a small target, it is a missing control, so this
+// renders its own at a touch size over the banner and turns the primitive's off.
+//
+// A dialog and a rail differ in more than geometry: the sheet traps focus, closes on
+// Escape and on an outside press, and has to name itself for a screen reader. All of
+// that is Radix's, and all of it belongs to the wrapper rather than to the content,
+// which is why the body below knows nothing about being modal.
 export function ConversationDetailsPanel({
   onClose,
   ...props
@@ -422,9 +433,20 @@ export function ConversationDetailsPanel({
   return (
     <Sheet onOpenChange={(open) => !open && onClose()} open>
       <SheetContent
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
-        side="right"
+        // `overflow-hidden` so the banner is clipped by the rounded top corners
+        // rather than squaring them off.
+        className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-2xl border-t p-0"
+        showCloseButton={false}
+        side="bottom"
       >
+        <button
+          aria-label="Close chat details"
+          className="bg-background/70 text-foreground border-border/60 hover:bg-background/90 absolute top-3 right-3 z-10 flex size-9 items-center justify-center rounded-full border backdrop-blur-md transition-colors"
+          onClick={onClose}
+          type="button"
+        >
+          <X className="size-4" />
+        </button>
         <ConversationDetailsBody asDialog onClose={onClose} {...props} />
       </SheetContent>
     </Sheet>
