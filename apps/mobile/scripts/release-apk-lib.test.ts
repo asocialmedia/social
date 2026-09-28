@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { ANDROID_SPLIT_ABIS } from "../plugins/abi-splits";
+import { ANDROID_SPLIT_ABIS } from "../plugins/with-android-abi-splits";
 import {
   describeMissingReleaseApk,
   resolveReleaseApk,

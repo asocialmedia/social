@@ -31,7 +31,10 @@ import { fileURLToPath } from "node:url";
 
 import { $ } from "bun";
 
-import { ANDROID_SPLIT_ABIS, isAndroidSplitAbi } from "../plugins/abi-splits";
+import {
+  ANDROID_SPLIT_ABIS,
+  isAndroidSplitAbi,
+} from "../plugins/with-android-abi-splits";
 import {
   googleServicesCandidates,
   pickFirstExisting,
