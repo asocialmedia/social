@@ -129,7 +129,6 @@ export function ConversationDetailsBody({
   // id keeps the pairing right in a sheet, in a rail, and in a DOM that briefly
   // holds both during a resize.
   const muteId = useId();
-  const theme = resolveConversationTheme(detail.prefs.themeKey);
   const openConversationMedia = useOpenConversationMedia();
 
   // Re-runs as history pages load, and only asks for rows the decryptor does not
@@ -276,7 +275,6 @@ export function ConversationDetailsBody({
         mutedSince={prefs.mutedAt}
         peer={peer}
         presence={presence}
-        theme={theme}
         titleRef={titleRef}
       />
 
@@ -443,18 +441,17 @@ export function ConversationDetailsPanel({
 // so the dialog announces who it is about; in the rail the same text is a heading
 // and a paragraph, because a dialog's title wiring is meaningless outside one.
 //
-// The backdrop is the peer's own banner -- the same image their profile paints --
-// and only when they have none does the chat accent stand in for it. That fallback
-// is why `theme` is still a prop: a conversation whose peer never uploaded a header
-// must not fall back to nothing, because a bare panel edge gives the pane no sense
-// of being someone's place rather than a settings page.
+// The banner is the peer's own, the one they picked in profile settings, rather
+// than a decorative accent: this pane is the closest thing to their profile inside a
+// chat, and an image they chose says more about who they are than a colour derived
+// from a chat theme. It falls back exactly as the profile page does -- blurred
+// avatar, then a gradient -- so a member with no banner still gets a header.
 function DetailsHeader({
   asDialog,
   muted,
   mutedSince,
   peer,
   presence,
-  theme,
   titleRef,
 }: {
   asDialog: boolean;
@@ -462,9 +459,12 @@ function DetailsHeader({
   mutedSince: string | null;
   peer: Peer;
   presence: "idle" | "online" | null;
-  theme: { from: string; to: string };
   titleRef?: React.Ref<HTMLHeadingElement>;
 }) {
+  // A banner URL can 404 or be a revoked key, and an empty rectangle is worse than
+  // the fallback. Same reasoning as the profile page, which tracks this too.
+  const [bannerFailed, setBannerFailed] = useState(false);
+
   // One markup, two elements. Both render an `h2` with the same classes, so the
   // heading looks and reads identically either way; only Radix's registration
   // differs.
@@ -496,60 +496,61 @@ function DetailsHeader({
     </>
   );
 
-  // The banner fails the same way the profile page's does: it renders nothing and
-  // the fallback paints through, rather than leaving a broken-image frame.
-  const [bannerFailed, setBannerFailed] = useState(false);
-  const bannerUrl = peer.bannerUrl && !bannerFailed ? peer.bannerUrl : null;
+  let banner: React.ReactNode;
+  if (peer.bannerUrl && !bannerFailed) {
+    banner = (
+      <Image
+        alt=""
+        className="object-cover"
+        fill
+        onError={() => setBannerFailed(true)}
+        sizes="(max-width: 1024px) 100vw, 320px"
+        src={getSecureImageUrl(peer.bannerUrl)}
+        unoptimized
+      />
+    );
+  } else if (peer.avatarUrl) {
+    // Their own avatar, blown up and blurred, so the header is still theirs. The
+    // scale keeps the blur from showing the transparent edges of a cut-out avatar.
+    banner = (
+      <Image
+        alt=""
+        className="object-cover"
+        fill
+        sizes="(max-width: 1024px) 100vw, 320px"
+        src={getSecureImageUrl(peer.avatarUrl)}
+        style={{
+          filter: "blur(10px) brightness(0.75)",
+          transform: "scale(1.15)",
+        }}
+        unoptimized
+      />
+    );
+  } else {
+    banner = (
+      <div className="absolute inset-0 bg-linear-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+    );
+  }
 
   return (
     // `pointer-events-none` because this block has no controls of its own and, in
     // the sheet, it is painted over the primitive's close button, which sits in
     // the same corner at `top-4 right-4`. Without this the X is visible but
     // unclickable.
-    <div className="pointer-events-none relative shrink-0 overflow-hidden border-b border-[hsl(var(--border))]">
-      {bannerUrl ? (
-        // The peer's own header, full-bleed across the pane's top. A short
-        // pane means a short crop, so the image is anchored to its centre-top
-        // the way the profile page is: faces and logos live there, and a
-        // centre crop is what cuts them off.
-        <div
-          aria-hidden
-          className="absolute inset-x-0 top-0 h-28 overflow-hidden"
-        >
-          <Image
-            alt=""
-            className="object-cover"
-            fill
-            onError={() => setBannerFailed(true)}
-            sizes="(min-width: 1280px) 320px, 288px"
-            src={getSecureImageUrl(bannerUrl)}
-            unoptimized
-          />
-          {/* Two washes, both from the panel's own surface colour, so the image
-              dissolves into the pane instead of ending on a crop line. This is
-              the same brush the suggestion rows use, at portrait scale. */}
-          <div className="absolute inset-0 bg-linear-to-b from-[hsl(var(--background-alt)/0.15)] via-transparent to-[hsl(var(--background-alt))]" />
-          <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]" />
-        </div>
-      ) : (
-        // No banner: the chat accent stands in. Inline rather than a styled class
-        // because the colour is the member's stored theme, not a token the
-        // stylesheet knows -- this is data, not a recipe.
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-20 h-44"
-          style={{
-            background: `radial-gradient(70% 70% at 50% 55%, ${theme.from}38, transparent 70%)`,
-          }}
-        />
-      )}
+    //
+    // No border under it: the banner already separates the header from what
+    // follows, and a hairline on top of an image reads as a seam rather than as an
+    // edge.
+    <div className="pointer-events-none relative shrink-0 overflow-hidden">
+      <div className="bg-muted/20 relative h-24">
+        {banner}
+        {/* Fades the banner into the pane's own background, so the crop has no hard
+            bottom edge and the avatar's ring reads as a hole in the image. */}
+        <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background))] to-transparent" />
+      </div>
 
-      <div className="relative flex flex-col items-center px-6 pb-5 text-center">
-        {/* Pulled up over the banner's bottom edge, the way the profile page
-            hangs its avatar off its own banner. The ring is what separates the
-            two images where they meet; without it the avatar reads as part of
-            the banner's picture. */}
-        <div className="relative -mt-10">
+      <div className="relative -mt-12 flex flex-col items-center px-6 pb-5 text-center">
+        <div className="relative">
           <UserAvatar
             avatarUrl={peer.avatarUrl}
             className="ring-4 ring-[hsl(var(--background))]"
