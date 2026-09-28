@@ -134,7 +134,12 @@ export default function CommunityCreateRoute() {
         slot,
       });
       if (!result) {
-        // The reader dismissed the install gate, so nothing was uploaded.
+        // Nothing was uploaded: the reader dismissed the install gate, or
+        // cancelled the picker. Both are ordinary outcomes, so the slot is
+        // released here as well as on the error path - leaving it set would
+        // keep both imagery controls disabled behind a spinner for the rest of
+        // the wizard.
+        setUploadingSlot(null);
         return;
       }
       if (slot === "avatar") {
