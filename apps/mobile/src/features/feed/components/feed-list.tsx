@@ -456,10 +456,16 @@ export function FeedList({
               onEndReached={fetchNext}
               onEndReachedThreshold={0.5}
               onMomentumScrollEnd={(event) => {
-                scrollMemory.set(memoryKey, event.nativeEvent.contentOffset.y);
+                scrollMemory.set(
+                  memoryKey,
+                  Math.max(0, event.nativeEvent.contentOffset.y)
+                );
               }}
               onScroll={(event) => {
                 const offsetY = event.nativeEvent.contentOffset.y;
+                if (offsetY >= 0) {
+                  scrollMemory.set(memoryKey, offsetY);
+                }
                 if (enabledRef.current) {
                   reportFeedScroll(offsetY);
                 }
