@@ -19,33 +19,91 @@ import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl, getSecureImageUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 
+import { postEmbedFailure, postEmbedRetries } from "./post-embed-failure";
+
 interface PostEmbedProps {
   mine: boolean;
   postId: string;
 }
 
+// Carries the status, because the status is the whole answer. React Query keeps the
+// error it was given, so a bare Error would lose the one piece of information that
+// separates "this post is gone" from "this request failed" -- and the card would go
+// back to claiming the first for both.
+class PostEmbedFetchError extends Error {
+  readonly status: number | undefined;
+
+  constructor(message: string, status: number | undefined) {
+    super(message);
+    this.name = "PostEmbedFetchError";
+    this.status = status;
+  }
+}
+
+function statusOf(error: unknown): number | undefined {
+  return error instanceof PostEmbedFetchError ? error.status : undefined;
+}
+
 export function PostEmbed({ mine, postId }: PostEmbedProps) {
-  const { data, isError } = useQuery({
+  const { data, error, isError, isFetching, refetch } = useQuery({
     queryFn: async () => {
-      const response = await fetch(`/api/posts/${postId}`);
+      let response: Response;
+      try {
+        response = await fetch(`/api/posts/${postId}`);
+      } catch {
+        // No response at all: offline, a dropped connection, an aborted request.
+        // Carried as "no status" so it lands on the retryable side, which is the
+        // only safe side for a request that never got to ask.
+        throw new PostEmbedFetchError("Request failed", undefined);
+      }
       if (!response.ok) {
-        throw new Error("not found");
+        throw new PostEmbedFetchError(
+          response.statusText || "Request failed",
+          response.status
+        );
       }
       const json = (await response.json()) as { post: PostData };
       return json.post;
     },
     queryKey: ["message-post-embed", postId],
-    retry: 1,
+    // Status-aware: a 404 is the server's final answer and repeating the request
+    // cannot change it, so retrying it spends a request to be told the same thing.
+    retry: postEmbedRetries,
     // A virtualized transcript mounts and unmounts the same post card as rows
     // recycle; a short stale window keeps a fling from refetching each time.
     staleTime: 5 * 60 * 1000,
   });
 
   if (isError) {
+    // The one case where the old copy is true: the server answered, and the answer
+    // was "not for you" -- deleted, or in a private community the viewer cannot
+    // read. Deliberately no retry control, because there is nothing to retry.
+    if (postEmbedFailure(statusOf(error)) === "gone") {
+      return (
+        <span className="text-xs italic opacity-70">
+          <FileText className="mr-1 inline h-3.5 w-3.5" />
+          Post no longer available
+        </span>
+      );
+    }
+    // Everything else: say what is true, which is that the card could not load, and
+    // offer the one action that might fix it. The button refetches this query key,
+    // so it also heals every other mounted copy of the same post -- the one in the
+    // transcript and the one in the details pane share it.
     return (
-      <span className="text-xs italic opacity-70">
-        <FileText className="mr-1 inline h-3.5 w-3.5" />
-        Post no longer available
+      <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        Couldn&apos;t load this post
+        <button
+          className="hover:text-foreground underline underline-offset-2 disabled:opacity-60"
+          disabled={isFetching}
+          onClick={() => {
+            void refetch();
+          }}
+          type="button"
+        >
+          {isFetching ? "Retrying…" : "Retry"}
+        </button>
       </span>
     );
   }
