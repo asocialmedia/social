@@ -16,7 +16,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { detailsPlacement } from "./details-placement";
+import { detailsPlacement, showsDetailsRailToggle } from "./details-placement";
 import type { DetailsPlacementInput } from "./details-placement";
 
 function input(
@@ -67,6 +67,26 @@ describe("detailsPlacement", () => {
         input({ collapsed: true, desktopViewport: false, requested: true })
       )
     ).toBe("sheet");
+  });
+
+  // The regression this pins: the fold control was gated on the placement, so
+  // folding -- which resolves the placement to `none` -- unmounted the very button
+  // that would have reopened the pane. Folding became a one-way trip, and the only
+  // thing that could bring the pane back was the 48px stub, which is also gone.
+  test("the fold control outlives the pane it reopens", () => {
+    const folded = input({ collapsed: true, desktopViewport: true });
+    // The pane is gone...
+    expect(detailsPlacement(folded)).toBe("none");
+    // ...but the room for it is not, so the control stays.
+    expect(showsDetailsRailToggle(folded.desktopViewport)).toBe(true);
+  });
+
+  test("the fold control is a viewport question, not a placement one", () => {
+    // No below-`lg` state has one: a phone has no pane to fold, and the sheet
+    // carries its own dismissal.
+    expect(showsDetailsRailToggle(false)).toBe(false);
+    // And no desktop state can lose it, folded or not.
+    expect(showsDetailsRailToggle(true)).toBe(true);
   });
 
   test("every input resolves to exactly one placement", () => {

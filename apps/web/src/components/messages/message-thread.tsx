@@ -40,7 +40,10 @@ import {
   ConversationDetailsRail,
   DetailsRailToggleIcon,
 } from "@/components/messages/conversation-details-rail";
-import { detailsPlacement } from "@/components/messages/details-placement";
+import {
+  detailsPlacement,
+  showsDetailsRailToggle,
+} from "@/components/messages/details-placement";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
 import {
@@ -4128,7 +4131,7 @@ export function MessageThread({
             onOpenSearch={openSearch}
             onToggleDetailsRail={toggleDetailsRail}
             onToggleRail={onToggleRail}
-            showDetailsRail={placement === "rail"}
+            showDetailsRail={showsDetailsRailToggle(desktopDetails)}
             peer={peer}
             peerPresence={peerPresence}
             peerTyping={peerTyping}
@@ -4919,8 +4922,13 @@ function ThreadHeader({
   onOpenSearch: () => void;
   onToggleDetailsRail: () => void;
   onToggleRail: () => void;
-  // Whether the desktop pane is on screen, which is the inverse of the online
-  // friends button below: one of the two is always present from `lg` up.
+  // Whether this viewport is one where the pane belongs, which is a question about
+  // the screen rather than about the pane's current state. The distinction is the
+  // whole reason this prop exists: folding resolves the placement to `none`, so
+  // gating the toggle on the pane being SHOWN hid the control the moment it was used
+  // and folding became a one-way trip. The way back has to outlive the thing it
+  // brings back. The inverse of the online friends button below: one of the two is
+  // always present from `lg` up.
   showDetailsRail: boolean;
   peer:
     | ConversationDetailResponse["conversation"]["members"][number]["user"]
@@ -5077,9 +5085,10 @@ function ThreadHeader({
         <Search className="h-4 w-4" />
       </button>
 
-      {/* The two rail controls are mutually exclusive by viewport rather than by
-          state: from `lg` the pane replaces the online list, so its fold control
-          appears and the friends button does not. */}
+      {/* Persistent for as long as this viewport has room for the pane, whatever the
+          pane is currently doing. The two rail controls are mutually exclusive by
+          VIEWPORT rather than by state: from `lg` the pane replaces the online list,
+          so its fold control appears and the friends button does not. */}
       {showDetailsRail ? (
         <button
           aria-label={

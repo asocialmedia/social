@@ -45,3 +45,14 @@ export function detailsPlacement({
   }
   return requested ? "sheet" : "none";
 }
+
+// Whether the thread header offers the pane's fold control.
+//
+// A question about the VIEWPORT, and deliberately not derived from the placement --
+// which is the mistake this function exists to rule out. Folding resolves the
+// placement to `none`, so a control gated on "the pane is showing" unmounts at the
+// exact moment it is used, and folding becomes a one-way trip with no way back. The
+// way back has to outlive the thing it brings back.
+export function showsDetailsRailToggle(desktopViewport: boolean): boolean {
+  return desktopViewport;
+}
