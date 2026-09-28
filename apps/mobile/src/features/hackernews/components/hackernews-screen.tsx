@@ -22,6 +22,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MobileHeader } from "../../home/components/mobile-header";
@@ -401,7 +402,7 @@ export function HackerNewsScreen() {
             story={item}
           />
         )}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       />
       <MobileHeader
         user={

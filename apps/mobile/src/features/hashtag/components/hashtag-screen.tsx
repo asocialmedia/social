@@ -21,6 +21,7 @@ import { ExplorePostCard } from "@/features/explore/components/explore-post-card
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MobileHeader } from "../../home/components/mobile-header";
@@ -203,7 +204,7 @@ export function HashtagScreen() {
             viewerId={user?.id ?? null}
           />
         )}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       />
       <MobileHeader
         user={

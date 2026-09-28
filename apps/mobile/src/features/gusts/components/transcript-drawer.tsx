@@ -25,6 +25,7 @@ import {
 import zephImage from "@/assets/images/zeph.png";
 import { toast } from "@/components/feedback/toast";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 
 import {
@@ -167,7 +168,10 @@ export function TranscriptDrawer({
     );
   } else if (cues.length === 0 && rawTranscript?.trim()) {
     body = (
-      <ScrollView contentContainerStyle={styles.rawWrap}>
+      <ScrollView
+        contentContainerStyle={styles.rawWrap}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+      >
         <Text style={styles.rawText}>{rawTranscript.trim()}</Text>
       </ScrollView>
     );
@@ -190,6 +194,7 @@ export function TranscriptDrawer({
       <ScrollView
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       >
         {visible.map((cue) => {
           const live = isCueActive(cue, currentTime);

@@ -13,6 +13,7 @@ import { OtpInput } from "@/features/auth/components/otp-input";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -274,7 +275,7 @@ export function AccountTab({
     <ScrollView
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
+      showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
     >
       <SettingsSectionHeader
         description="Your username, email and sign-in methods"

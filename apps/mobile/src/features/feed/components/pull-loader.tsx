@@ -17,6 +17,7 @@ import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { REFRESH_TIMING } from "@/lib/refresh-timing";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
@@ -113,7 +114,7 @@ export function PullLoader({
   }, [labelWidth, onSettle]);
 
   useEffect(() => {
-    // oxlint-disable-next-line react/immutability -- ref-held setter registration, same as FeedScrollbar
+    // oxlint-disable-next-line react/immutability -- ref-held setter registration, so a pull gesture writes progress without re-rendering the list
     registerUpdate.current = setProgress;
     return () => {
       // oxlint-disable-next-line react/immutability -- clearing our registration on unmount
@@ -129,7 +130,7 @@ export function PullLoader({
       badge.setValue(0);
       label.setValue(0);
       // A refresh that did not come from a pull still shows the chip.
-      const drop = timing(appear, 1, 220, SPRING_EASE);
+      const drop = timing(appear, 1, REFRESH_TIMING.chipDropIn, SPRING_EASE);
       drop.start();
       return () => {
         drop.stop();
@@ -144,16 +145,19 @@ export function PullLoader({
       CHIP_SIZE - CHIP_INSET + LABEL_GAP + labelWidthRef.current + LABEL_TRAIL;
     const done = Animated.sequence([
       // Spinner out, badge pops in.
-      timing(badge, 1, 180, SPRING_EASE),
+      timing(badge, 1, REFRESH_TIMING.badgeIn, SPRING_EASE),
       // The chip widens into the pill while the label slides in.
       Animated.parallel([
-        timing(width, pillWidth, 260, SPRING_EASE),
-        Animated.sequence([Animated.delay(90), timing(label, 1, 200)]),
+        timing(width, pillWidth, REFRESH_TIMING.pillOpen, SPRING_EASE),
+        Animated.sequence([
+          Animated.delay(REFRESH_TIMING.labelInDelay),
+          timing(label, 1, REFRESH_TIMING.labelIn),
+        ]),
       ]),
-      Animated.delay(1100),
+      Animated.delay(REFRESH_TIMING.hold),
       // Label slides back out, the pill folds back into the chip.
-      timing(label, 0, 150),
-      timing(width, CHIP_SIZE, 220, SPRING_EASE),
+      timing(label, 0, REFRESH_TIMING.labelOut),
+      timing(width, CHIP_SIZE, REFRESH_TIMING.pillFold, SPRING_EASE),
     ]);
     done.start(({ finished }) => {
       if (!finished) {
@@ -161,7 +165,7 @@ export function PullLoader({
         return;
       }
       onSettleRef.current();
-      timing(appear, 0, 240, SPRING_EASE).start(() => {
+      timing(appear, 0, REFRESH_TIMING.chipExit, SPRING_EASE).start(() => {
         settlingRef.current = false;
         badge.setValue(0);
       });
@@ -189,7 +193,7 @@ export function PullLoader({
     if (!released) {
       return;
     }
-    const retreat = timing(appear, 0, 160);
+    const retreat = timing(appear, 0, REFRESH_TIMING.pullRetreat);
     retreat.start();
     return () => {
       retreat.stop();

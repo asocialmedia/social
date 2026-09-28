@@ -4,6 +4,7 @@
 // (authClient.getCookie). Pure and injectable for testing: cookie, apiBase
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 import type { FeedPost, PostsPage } from "./feed-types";
@@ -32,10 +33,7 @@ function callFeedApi(
   options: ApiCallOptions & { body?: string; method?: string }
 ): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = {};
-  if (options.cookie) {
-    headers.cookie = options.cookie;
-  }
+  const headers = withAuthHeaders({}, options.cookie);
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }

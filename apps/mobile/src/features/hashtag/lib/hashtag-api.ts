@@ -6,6 +6,7 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export class HashtagApiError extends Error {
@@ -82,7 +83,7 @@ export async function fetchHashtagPage(
 ): Promise<{ nextCursor: string | null; posts: FeedPost[] }> {
   const response = await getWithTimeout(
     `${options.apiBase}${buildHashtagPath(tag, cursor)}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
   if (!response.ok) {

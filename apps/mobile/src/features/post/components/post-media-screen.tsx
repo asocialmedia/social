@@ -84,6 +84,7 @@ import { resolveProfileImageUrl } from "@/features/home/components/profile-utils
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -788,6 +789,7 @@ export function PostMediaScreen({
         ref={pagerRef}
         renderItem={renderPage}
         showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         style={styles.pager}
       />
       {uiVisible ? (
@@ -1013,7 +1015,7 @@ export function PostMediaScreen({
             style={styles.sheetBackdrop}
           >
             <Pressable style={styles.sheet}>
-              <ScrollView>
+              <ScrollView showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}>
                 <PostComments postId={post.id} viewerId={viewerId} />
               </ScrollView>
             </Pressable>
@@ -1034,7 +1036,10 @@ export function PostMediaScreen({
           >
             <Pressable style={styles.sheet}>
               <Text style={styles.sheetTitle}>Transcript</Text>
-              <ScrollView style={styles.transcriptList}>
+              <ScrollView
+                style={styles.transcriptList}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+              >
                 {transcriptCues.length === 0 ? (
                   <Text style={styles.transcriptEmpty}>
                     No transcript for this video.

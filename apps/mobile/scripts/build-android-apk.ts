@@ -71,6 +71,32 @@ const DEFAULT_ABI = "arm64-v8a";
 // `universalApk false` - no plain app-release.apk alongside them.
 const APK_OUTPUT_DIR = path.join(APP_DIR, "build", "outputs", "apk", "release");
 
+// bundleRelease writes the single, universal Android App Bundle here.
+const BUNDLE_OUTPUT_DIR = path.join(
+  APP_DIR,
+  "build",
+  "outputs",
+  "bundle",
+  "release"
+);
+const BUNDLE_FILE_NAME = "app-release.aab";
+
+type BuildMode = "apk" | "bundle" | "all";
+
+function resolveBuildMode(): BuildMode {
+  const flags = new Set(process.argv.slice(2));
+  if (flags.has("--all")) {
+    return "all";
+  }
+  if (flags.has("--bundle") || flags.has("--aab")) {
+    return "bundle";
+  }
+  if (flags.has("--apk")) {
+    return "apk";
+  }
+  return "apk";
+}
+
 // The Expo template's generated gradle.properties caps the build daemon at
 // 2 GiB of heap and 512 MiB of metaspace, and a release build with the ABI
 // split outgrows both: Gradle reported "running out of JVM Metaspace" part-way
@@ -343,11 +369,14 @@ function findApksigner(): string {
   return path.join(buildTools, apksignerPath);
 }
 
-async function assertTooling(): Promise<void> {
+async function assertTooling(mode: BuildMode): Promise<void> {
   if (!(process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT)) {
     fail("ANDROID_HOME (or ANDROID_SDK_ROOT) must point at an Android SDK.");
   }
   await $`java -version`.quiet();
+  if (mode === "bundle" || mode === "all") {
+    await $`jarsigner -help`.quiet();
+  }
 }
 
 // The ABI the release APK is built for. Validated up front: an ABI the split
@@ -363,7 +392,8 @@ function resolveAbi(): string {
 }
 
 async function main(): Promise<void> {
-  await assertTooling();
+  const mode = resolveBuildMode();
+  await assertTooling(mode);
   const abi = resolveAbi();
   const { cleanup, keyAlias, keyPassword, sourcePath, storePassword } =
     await resolveKeystore();
@@ -394,56 +424,97 @@ async function main(): Promise<void> {
     step("Provisioning release keystore");
     await copyFile(sourcePath, path.join(APP_DIR, "release.keystore"));
 
-    step(`Building release APK for ${abi} (this takes a while)`);
-    await $`./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=${abi} -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
-      .cwd(ANDROID_DIR)
-      .env({
-        ...process.env,
-        ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_ALIAS: keyAlias,
-        ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_PASSWORD: keyPassword,
-        ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_FILE: "release.keystore",
-        ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_PASSWORD: storePassword,
-      });
-
-    // The split names the artifact per ABI, so the requested one has to be
-    // selected out of the output directory rather than assumed. An unreadable
-    // directory is reported as an empty one, so the failure names the file it
-    // wanted rather than a bare ENOENT.
-    const built = resolveReleaseApk({
-      abi,
-      files: await readdir(APK_OUTPUT_DIR).catch(() => []),
-    });
-    if (built.kind === "missing") {
-      fail(describeMissingReleaseApk(built, APK_OUTPUT_DIR));
-    }
-    const apkSource = path.join(APK_OUTPUT_DIR, built.fileName);
-    await access(apkSource).catch(() => {
-      fail(`Expected APK not found at ${apkSource}`);
-    });
-
-    step("Verifying APK signature");
-    await $`${findApksigner()} verify --print-certs ${apkSource}`;
-
     const packageJson = JSON.parse(
       await readFile(path.join(MOBILE_DIR, "package.json"), "utf-8")
     ) as { version?: string };
     const version = packageJson.version ?? "0.0.0";
-    const apkName = `asocialmedia-v${version}.apk`;
-
-    step("Packaging artifact");
     await mkdir(ARTIFACT_DIR, { recursive: true });
-    const destination = path.join(ARTIFACT_DIR, apkName);
-    await copyFile(apkSource, destination);
-    const sha = new Bun.CryptoHasher("sha256");
-    sha.update(await readFile(destination));
-    const digest = sha.digest("hex");
-    await Bun.write(`${destination}.sha256`, `${digest}  ${apkName}\n`);
+
+    const gradleEnv = {
+      ...process.env,
+      ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_ALIAS: keyAlias,
+      ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_PASSWORD: keyPassword,
+      ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_FILE: "release.keystore",
+      ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_PASSWORD: storePassword,
+    };
+
+    if (mode === "bundle" || mode === "all") {
+      step("Building release App Bundle (.aab) (this takes a while)");
+      await $`./gradlew bundleRelease --no-daemon -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
+        .cwd(ANDROID_DIR)
+        .env(gradleEnv);
+
+      const bundleSource = path.join(BUNDLE_OUTPUT_DIR, BUNDLE_FILE_NAME);
+      await access(bundleSource).catch(() => {
+        fail(`Expected AAB bundle not found at ${bundleSource}`);
+      });
+
+      step("Verifying AAB signature");
+      await $`jarsigner -verify ${bundleSource}`;
+
+      const aabName = `asocialmedia-v${version}.aab`;
+      step("Packaging AAB artifact");
+      const aabDestination = path.join(ARTIFACT_DIR, aabName);
+      await copyFile(bundleSource, aabDestination);
+      const aabSha = new Bun.CryptoHasher("sha256");
+      aabSha.update(await readFile(aabDestination));
+      const aabDigest = aabSha.digest("hex");
+      await Bun.write(`${aabDestination}.sha256`, `${aabDigest}  ${aabName}\n`);
+
+      console.log(`AAB:      ${aabDestination}`);
+      console.log(`SHA-256:  ${aabDigest}`);
+    }
+
+    if (mode === "apk" || mode === "all") {
+      step(`Building release APK for ${abi} (this takes a while)`);
+      await $`./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=${abi} -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
+        .cwd(ANDROID_DIR)
+        .env(gradleEnv);
+
+      // The split names the artifact per ABI, so the requested one has to be
+      // selected out of the output directory rather than assumed. An unreadable
+      // directory is reported as an empty one, so the failure names the file it
+      // wanted rather than a bare ENOENT.
+      const built = resolveReleaseApk({
+        abi,
+        files: await readdir(APK_OUTPUT_DIR).catch(() => []),
+      });
+      if (built.kind === "missing") {
+        fail(describeMissingReleaseApk(built, APK_OUTPUT_DIR));
+      }
+      const apkSource = path.join(APK_OUTPUT_DIR, built.fileName);
+      await access(apkSource).catch(() => {
+        fail(`Expected APK not found at ${apkSource}`);
+      });
+
+      step("Verifying APK signature");
+      await $`${findApksigner()} verify --print-certs ${apkSource}`;
+
+      const apkName = `asocialmedia-v${version}.apk`;
+      step("Packaging APK artifact");
+      const destination = path.join(ARTIFACT_DIR, apkName);
+      await copyFile(apkSource, destination);
+      const sha = new Bun.CryptoHasher("sha256");
+      sha.update(await readFile(destination));
+      const digest = sha.digest("hex");
+      await Bun.write(`${destination}.sha256`, `${digest}  ${apkName}\n`);
+
+      console.log(`APK:      ${destination}`);
+      console.log(`SHA-256:  ${digest}`);
+    }
 
     step("Done");
-    console.log(`APK:      ${destination}`);
-    console.log(`SHA-256:  ${digest}`);
     console.log(`Version:  v${version}`);
-    console.log(`\nInstall with: adb install -r "${destination}"`);
+    if (mode === "apk" || mode === "all") {
+      console.log(
+        `\nInstall APK with: adb install -r "${path.join(ARTIFACT_DIR, `asocialmedia-v${version}.apk`)}"`
+      );
+    }
+    if (mode === "bundle" || mode === "all") {
+      console.log(
+        `Upload AAB to Play Console: ${path.join(ARTIFACT_DIR, `asocialmedia-v${version}.aab`)}`
+      );
+    }
   } finally {
     // Remove every provisioned copy of the production keystore, on success and
     // failure alike: the scratch dir the CI secret was decoded into, and the

@@ -1,6 +1,7 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export const COMMUNITY_DISCOVERY_CATEGORIES = [
@@ -158,7 +159,7 @@ function parseNumberMap(value: unknown): Record<string, number> {
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }
@@ -233,9 +234,7 @@ async function mutateCommunity(
   label: string
 ): Promise<CommunityMutationResult> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = options.cookie
-    ? { cookie: options.cookie }
-    : {};
+  const headers = withAuthHeaders({}, options.cookie);
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }

@@ -437,6 +437,38 @@ describe("install-token gate", () => {
       expect(res.status).toBe(200);
     });
   });
+
+  test("allows native mutations that carry a session cookie", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          CHANGE_API,
+          {
+            cookie: "better-auth.session_token=test-session-token-xyz",
+            host: "asocialmedia.cc",
+          },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  test("allows native mutations that carry a Bearer authorization token", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          CHANGE_API,
+          {
+            authorization: "Bearer test-session-token-xyz",
+            host: "asocialmedia.cc",
+          },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(200);
+    });
+  });
 });
 
 describe("proxy middleware matcher config", () => {

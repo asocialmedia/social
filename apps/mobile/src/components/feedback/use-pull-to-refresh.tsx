@@ -25,6 +25,7 @@ import {
   PULL_THRESHOLD,
   PullLoader,
 } from "@/features/feed/components/pull-loader";
+import { REFRESH_TIMING } from "@/lib/refresh-timing";
 
 // Rubber-band factor on the Android pan, so the pull never feels 1:1.
 const PULL_RESISTANCE = 0.55;
@@ -211,9 +212,11 @@ export function usePullToRefresh({
   }, [pullRef, pullUpdateRef, refreshing]);
 
   // Fired as the loader starts sliding away, so the list glides home with it.
+  // Same duration as the chip's exit: they are one motion, and the list used to
+  // outlive the chip by 60ms, which read as the list dragging behind the pill.
   const onSettle = useCallback(() => {
     Animated.timing(pullShift, {
-      duration: 240,
+      duration: REFRESH_TIMING.chipExit,
       easing: Easing.bezier(0.32, 0.72, 0, 1),
       toValue: 0,
       useNativeDriver: Platform.OS !== "web",

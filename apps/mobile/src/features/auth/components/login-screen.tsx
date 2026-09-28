@@ -44,6 +44,7 @@ import {
   describeOAuthRedirectError,
 } from "@/features/auth/lib/auth-errors";
 import { useSessionContext } from "@/features/auth/state/session";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import {
   ERROR_SHADOWS,
   ICON_BUTTON_SHADOWS_DARK,
@@ -294,7 +295,7 @@ export default function LoginScreen() {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
           >
             <Animated.View
               style={[styles.animatedCardWrapper, animatedShakeStyle]}

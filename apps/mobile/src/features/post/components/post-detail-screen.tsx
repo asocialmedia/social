@@ -53,6 +53,7 @@ import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -493,7 +494,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
         }}
         ref={scrollRef}
         scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       >
         {renderThread()}
         {showEddies ? (

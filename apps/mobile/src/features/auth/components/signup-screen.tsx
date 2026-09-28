@@ -44,6 +44,7 @@ import { validateSignup } from "@/features/auth/lib/auth-validation";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useSignupState } from "@/features/auth/state/signup-state";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import {
   ERROR_SHADOWS,
   INPUT_ERROR_SHADOWS,
@@ -428,7 +429,7 @@ export default function SignupScreen() {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
           >
             <Animated.View style={[styles.cardWrapper, animatedShakeStyle]}>
               <View

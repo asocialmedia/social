@@ -16,7 +16,6 @@ import { SessionProvider } from "@/features/auth/state/session";
 import { ComposerModal } from "@/features/composer/components/composer-modal";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { SpotlightModal } from "@/features/search/components/spotlight-modal";
-import { UpdateGate } from "@/features/update/components/update-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
@@ -83,7 +82,6 @@ export default function RootLayout() {
             auth call in it, so a fresh install is verified before signing in. */}
           <InstallProvider>
             <SessionProvider>
-              <UpdateGate />
               {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
               <PushRegistrar />

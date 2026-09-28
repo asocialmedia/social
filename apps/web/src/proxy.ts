@@ -334,11 +334,30 @@ export async function proxy(request: NextRequest) {
     !isInstallTokenExemptPath(request.nextUrl.pathname) &&
     hasNoOriginMetadata(request)
   ) {
-    const presented = request.headers.get(INSTALL_TOKEN_HEADER);
-    if (!verifyInstallToken(presented, installSecret)) {
-      return withSecurityHeaders(
-        NextResponse.json({ error: "install-token-required" }, { status: 403 })
+    // Authenticated requests carrying a session cookie or Bearer token have
+    // already verified human identity during signup. The route handler and
+    // Better Auth will validate the session; demanding an install token
+    // on every mutation would block signed-in native users.
+    const cookie = request.headers.get("cookie") || "";
+    const authHeader = request.headers.get("authorization") || "";
+    const hasBearer =
+      authHeader.toLowerCase().startsWith("bearer ") &&
+      authHeader.slice(7).trim().length > 0;
+    const hasCookie =
+      /(?:^|;\s*)(?:__Secure-)?(?:better-auth\.)?session_token=[^;]+/.test(
+        cookie
       );
+
+    if (!hasBearer && !hasCookie) {
+      const presented = request.headers.get(INSTALL_TOKEN_HEADER);
+      if (!verifyInstallToken(presented, installSecret)) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { error: "install-token-required" },
+            { status: 403 }
+          )
+        );
+      }
     }
   }
 

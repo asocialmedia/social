@@ -64,6 +64,7 @@ import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { formatNumber } from "@/lib/format-number";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { ProfileViewTab } from "../lib/profile-tab-memory";
@@ -1000,6 +1001,7 @@ export function ProfileFeed({
           onEndReached={feed.hasMore ? feed.fetchNext : undefined}
           onEndReachedThreshold={0.6}
           renderItem={renderItem}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         />
       </Animated.View>
 

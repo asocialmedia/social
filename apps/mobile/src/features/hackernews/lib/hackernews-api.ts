@@ -4,6 +4,7 @@
 //   POST   /api/hackernews/bookmark-states   (batched, one round trip)
 //   POST   /api/hackernews/:id/bookmark      DELETE to unbookmark
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export const HN_SORT_OPTIONS = [
@@ -137,7 +138,7 @@ export function buildHnPath({
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }
@@ -196,10 +197,10 @@ export async function fetchHnBookmarkStates(
       `${options.apiBase}/api/hackernews/bookmark-states`,
       {
         body: JSON.stringify({ storyIds: ids.slice(0, 200) }),
-        headers: {
-          "content-type": "application/json",
-          ...(options.cookie ? { cookie: options.cookie } : null),
-        },
+        headers: withAuthHeaders(
+          { "content-type": "application/json" },
+          options.cookie
+        ),
         method: "POST",
       }
     );
@@ -234,7 +235,7 @@ export async function setHnBookmark(
     const response = await (options.baseFetch ?? fetch)(
       `${options.apiBase}/api/hackernews/${storyId}/bookmark`,
       {
-        headers: options.cookie ? { cookie: options.cookie } : {},
+        headers: withAuthHeaders({}, options.cookie),
         method: bookmarked ? "POST" : "DELETE",
       }
     );

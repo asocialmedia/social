@@ -47,6 +47,7 @@ import {
 import { useVideoCaptionsStore } from "@/features/feed/state/video-captions-store";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -571,7 +572,7 @@ export function GustsScreen() {
             removeClippedSubviews
             renderItem={renderItem}
             scrollEventThrottle={16}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             snapToInterval={pageHeight}
             viewabilityConfig={VIEWABILITY}
             windowSize={5}
