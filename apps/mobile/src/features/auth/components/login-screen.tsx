@@ -88,12 +88,16 @@ export default function LoginScreen() {
   // (mirrors the web's /login/error page). A cold start lands with the param
   // already set, so it seeds the banner; while the screen is up, the session
   // provider captures the same URL itself and returns the message directly.
-  const { error: redirectErrorCode } = useLocalSearchParams<{
+  const { error: redirectErrorCode, reason } = useLocalSearchParams<{
     error?: string;
+    reason?: string;
   }>();
-  const [error, setError] = useState<string | null>(() =>
-    describeOAuthRedirectError(redirectErrorCode)
-  );
+  const [error, setError] = useState<string | null>(() => {
+    if (reason === "session-ended") {
+      return "Your session ended. Please sign in again.";
+    }
+    return describeOAuthRedirectError(redirectErrorCode);
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [activeSocial, setActiveSocial] = useState<
     "google" | "reddit" | "passkey" | null
