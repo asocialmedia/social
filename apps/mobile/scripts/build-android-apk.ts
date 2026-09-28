@@ -71,6 +71,17 @@ const DEFAULT_ABI = "arm64-v8a";
 // `universalApk false` - no plain app-release.apk alongside them.
 const APK_OUTPUT_DIR = path.join(APP_DIR, "build", "outputs", "apk", "release");
 
+// The Expo template's generated gradle.properties caps the build daemon at
+// 2 GiB of heap and 512 MiB of metaspace, and a release build with the ABI
+// split outgrows both: Gradle reported "running out of JVM Metaspace" part-way
+// through the build, and :app:packageRelease then failed with "Java heap space"
+// from PackageAndroidArtifact's splitter, which holds the whole native lib tree
+// once per split.
+//
+// Passed on the command line rather than written into gradle.properties, because
+// `expo prebuild --clean` regenerates that file and would discard the edit.
+const GRADLE_JVM_ARGS = "-Xmx4g -XX:MaxMetaspaceSize=1g";
+
 function step(message: string): void {
   console.log(`\n\u001B[1m==> ${message}\u001B[0m`);
 }
@@ -384,7 +395,7 @@ async function main(): Promise<void> {
     await copyFile(sourcePath, path.join(APP_DIR, "release.keystore"));
 
     step(`Building release APK for ${abi} (this takes a while)`);
-    await $`./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=${abi}`
+    await $`./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=${abi} -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
       .cwd(ANDROID_DIR)
       .env({
         ...process.env,
