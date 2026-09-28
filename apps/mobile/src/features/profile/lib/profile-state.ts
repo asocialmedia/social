@@ -189,6 +189,7 @@ function mergePages(
 
 export function useProfile(username: string): {
   profile: ProfileHeaderProfile | null;
+  refresh: () => Promise<void>;
   status: "error" | "loading" | "success";
   reload: () => void;
   follow: (next: boolean) => Promise<void>;
@@ -276,10 +277,24 @@ export function useProfile(username: string): {
     [key, runWithInstallToken]
   );
 
+  // Pull-to-refresh for the header. `reload` cannot be reused here: it only
+  // marks the entry stale and nudges the first-load effect, and that effect
+  // bails on a fresh entry, so nothing would be refetched. This calls the
+  // loader directly, which is single-flighted, so a refresh already in flight
+  // joins the same request rather than duplicating it.
+  const refresh = useCallback(async () => {
+    if (!key) {
+      return;
+    }
+    profileCache.markStale(key);
+    await loadProfile(key, usernameKey);
+  }, [key, usernameKey]);
+
   return {
     follow,
     isFollowing: resource.data?.isFollowing ?? false,
     profile: resource.data,
+    refresh,
     reload,
     status: profileStatus(resource),
   };
@@ -399,10 +414,44 @@ export function useProfileFeed({
     setReloadToken((value) => value + 1);
   }, [key, tabEnabled, userId]);
 
+  // Pull-to-refresh. Deliberately not `retry`: that re-runs the first-page
+  // effect, which is keyed on a cache entry that already holds data, so the
+  // list would keep its stale rows and the cache would refuse the write
+  // (setData replaces, and isFresh short-circuits the effect entirely). This
+  // fetches page one outright and swaps the list wholesale, which is what a
+  // refresh means: page two onwards is dropped along with its cursor.
+  //
+  // The promise is what lets the pull loader hold its chip until the new page
+  // has actually landed, instead of spinning for a fixed guess at the latency.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refresh = useCallback(async () => {
+    if (!tabEnabled || !userId || inFlight.current !== null) {
+      return;
+    }
+    inFlight.current = key;
+    setIsRefreshing(true);
+    try {
+      const cookie = await authClient.getCookie();
+      const page = await fetchProfileFeedPage(userId, tab, null, {
+        apiBase: getApiBaseUrl(),
+        cookie,
+      });
+      profileFeedCache.setData(key, page);
+    } catch (error) {
+      // A failed refresh leaves the rows already on screen alone; setError
+      // keeps the data, so the pull loader's "failed" chip is the only signal.
+      profileFeedCache.setError(key, errorMessage(error));
+    }
+    setIsRefreshing(false);
+    inFlight.current = null;
+  }, [key, tab, tabEnabled, userId]);
+
   const retryFetchNext = resource.status === "error" ? retry : fetchNext;
   const base = {
     error: resource.error,
     hasMore: Boolean(resource.data?.nextCursor),
+    refresh,
+    refreshing: isRefreshing,
     reload: retry,
     status: feedStatus(isLoadingMore, resource),
   };

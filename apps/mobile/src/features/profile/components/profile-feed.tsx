@@ -16,13 +16,17 @@ import {
   Animated,
   FlatList,
   PanResponder,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import type { ViewStyle } from "react-native";
+import type {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ViewStyle,
+} from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 
 import noMediaImage from "@/assets/images/nomedia.png";
 import noSearchImage from "@/assets/images/nosearch.png";
@@ -30,6 +34,7 @@ import notFoundImage from "@/assets/images/notfound.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
+import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { deleteEddie } from "@/features/composer/lib/publish-api";
 import { DeleteEddieDialog } from "@/features/eddies/components/delete-eddie-dialog";
 import {
@@ -67,6 +72,8 @@ import { formatNumber } from "@/lib/format-number";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
+import type { ProfileFeedItem, ProfileFeedRow } from "../lib/profile-feed-rows";
+import { chunkFeedRows, shouldPinTabs } from "../lib/profile-feed-rows";
 import type { ProfileViewTab } from "../lib/profile-tab-memory";
 import type {
   ProfileFeedView,
@@ -74,11 +81,7 @@ import type {
   ProfileReply,
 } from "../lib/profile-view-model";
 import { mediaTileAspect } from "../lib/profile-view-model";
-
-type ProfileFeedItem =
-  | { kind: "post"; value: FeedPost }
-  | { kind: "media"; value: ProfileMedia }
-  | { kind: "reply"; value: ProfileReply };
+import { ProfileTabSkeleton } from "./profile-tab-skeleton";
 
 function isMediaFeed(
   feed: ProfileFeedView
@@ -113,20 +116,19 @@ function openPostRoute(
 function ProfileTabState({
   feed,
   onRetry,
+  tab,
 }: {
   feed: ProfileFeedView;
   onRetry: () => void;
+  tab: ProfileViewTab;
 }) {
   const { theme } = useAppTheme();
   if (feed.status === "loading" || feed.status === "idle") {
-    return (
-      <View style={styles.loading}>
-        <Spinner3D size={48} />
-        <Text style={[styles.loadingText, { color: theme.dividerText }]}>
-          Loading profile…
-        </Text>
-      </View>
-    );
+    // A skeleton, not a spinner. This renders below an already-settled header
+    // and a settled tab strip, so a spinner would blink in the middle of a
+    // stable screen every time a tab is switched. The placeholder is shaped per
+    // tab so the layout does not jump when the data lands.
+    return <ProfileTabSkeleton tab={tab} />;
   }
   if (feed.status === "error") {
     return (
@@ -705,7 +707,13 @@ export function ProfileFeed({
   isOwnProfile = false,
   locked = false,
   onSwipeNavigate,
+  refreshProfile,
+  stickyTabs,
+  onTabsPinChange,
+  stickyTop,
   tab,
+  tabsRestingY,
+  topInset,
   viewerId,
 }: {
   feed: ProfileFeedView;
@@ -713,7 +721,27 @@ export function ProfileFeed({
   isOwnProfile?: boolean;
   locked?: boolean;
   onSwipeNavigate?: (direction: -1 | 1) => void;
+  // Fires when the tab strip pins or unpins, so the screen can stand the back
+  // button down while the strip is pinned.
+  onTabsPinChange?: (pinned: boolean) => void;
+  // Refetches the header's profile record on pull, so the counts and follow
+  // state in the banner come back fresh alongside the tab's rows.
+  refreshProfile: () => unknown;
+  // The tab strip, rendered again as a pinned bar once the profile header has
+  // scrolled past. It is the same element the header already contains, so the
+  // two never disagree about which tab is active.
+  stickyTabs?: React.ReactElement;
   tab: ProfileViewTab;
+  // The in-flow tab strip's scroll offset, measured by the screen. null until
+  // the first layout pass, which simply means "do not pin yet".
+  tabsRestingY: number | null;
+  // The y the pinned strip is drawn at, measured by the screen as the bottom
+  // edge of its fixed back/settings bar. Passed in rather than derived here so
+  // the strip and the bar it has to clear can never disagree.
+  stickyTop: number;
+  // Safe-area top inset, so the pull loader can drop below the status bar and
+  // the camera cutout instead of hiding behind them.
+  topInset: number;
   viewerId: string | null;
 }) {
   const router = useRouter();
@@ -724,38 +752,66 @@ export function ProfileFeed({
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
 
-  // Tab change smooth slide animation
-  const activeTabTrackedRef = useRef(tab);
-  const slideAnim = useMemo(() => new Animated.Value(0), []);
-  const opacityAnim = useMemo(() => new Animated.Value(1), []);
+  // Tab changes used to run a slide-and-fade on this whole viewport and force a
+  // FlatList remount by keying it on the column count. Both were wrong here:
+  // the profile header is the list's ListHeaderComponent, so animating the
+  // viewport slid and dimmed the header, and the remount threw it away and
+  // rebuilt it (banner, avatar, bio) on every 1-column <-> 2-column switch.
+  // Switching tabs now only swaps the rows; the header stays mounted and
+  // still, and the tab area shows its own spinner while the tab loads.
+  const listRef = useRef<FlatList<ProfileFeedRow>>(null);
+  const previousTabRef = useRef(tab);
 
   useEffect(() => {
-    if (activeTabTrackedRef.current !== tab) {
-      const tabOrder: ProfileViewTab[] = viewerId
-        ? ["posts", "gusts", "responses", "eddies", "amplified", "media"]
-        : ["posts", "gusts", "media"];
-      const nextIndex = tabOrder.indexOf(tab);
-      const prevIndex = tabOrder.indexOf(activeTabTrackedRef.current);
-      const direction = nextIndex >= prevIndex ? 1 : -1;
-      activeTabTrackedRef.current = tab;
-
-      slideAnim.setValue(direction * 32);
-      opacityAnim.setValue(0.7);
-
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          duration: 180,
-          toValue: 0,
-          useNativeDriver: Platform.OS !== "web",
-        }),
-        Animated.timing(opacityAnim, {
-          duration: 180,
-          toValue: 1,
-          useNativeDriver: Platform.OS !== "web",
-        }),
-      ]).start();
+    if (previousTabRef.current === tab) {
+      return;
     }
-  }, [opacityAnim, slideAnim, tab, viewerId]);
+    previousTabRef.current = tab;
+    // The keyed remount this replaced used to reset the scroll position as a side
+    // effect. Without it, a tab switch would leave the incoming tab scrolled to
+    // the outgoing tab's offset, so scroll back to the top (which sits just
+    // under the profile header) to keep the previous behaviour.
+    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+  }, [tab]);
+
+  // Pull-to-refresh, the same 3D loader the home feed uses rather than the
+  // stock RefreshControl, so a refresh here reads identically to one there.
+  // Both the header's profile and the active tab's page are refetched, since a
+  // pull is a request to see the profile as it is now: the follower and post
+  // counts in the header move as often as the rows do. The tab refresh owns
+  // the spinner, since the header reload keeps its current data on screen and
+  // would otherwise flash a skeleton over the whole page.
+  const pull = usePullToRefresh({
+    failed: feed.status === "error",
+    // The chip drops onto the banner photo here rather than onto flat page
+    // background, so it takes a translucent fill to stop reading as a solid
+    // disc sliding over an image, and it rests below the status bar and camera
+    // cutout so the text is never hidden behind them.
+    offsetTop: topInset > 0 ? topInset + 10 : 12,
+    onRefresh: () => {
+      void feed.refresh();
+      refreshProfile();
+    },
+    refreshing: feed.refreshing,
+    translucent: true,
+    updatedMessage: "Profile updated",
+  });
+
+  // The list does not move on a pull. It used to carry a translateY of
+  // pull.pullShift, which dragged the profile header down with it, because the
+  // header is the list's ListHeaderComponent and therefore inherits any
+  // translation applied to the list. That reads badly here in a way it does not
+  // on the home feed: here the top of the content is a full-bleed banner photo,
+  // so sliding it leaves the page background exposed above it and the banner
+  // visibly detaches from the top of the screen. Two earlier attempts to keep
+  // the header still inside the list (counter-translating it, and splitting the
+  // motion) both read as tearing, because a list and its header cannot move
+  // independently.
+  //
+  // So the motion is dropped rather than fought: the pull gesture stays wired,
+  // and the loader still animates in and the refresh still fires, but the
+  // content holds still. The header keeps scrolling away normally on swipe,
+  // which is what the sticky tab bar is for.
 
   // Swipe navigation PanResponder tracking horizontal gestures
   const panResponder = useMemo(
@@ -876,17 +932,17 @@ export function ProfileFeed({
   );
 
   const twoColumns = gustsGrid || isMediaFeed(feed);
-  let columnStyle: ViewStyle | undefined;
+  let rowStyle: ViewStyle | undefined;
   if (gustsGrid) {
-    columnStyle = styles.gustRow;
+    rowStyle = styles.gustRow;
   } else if (isMediaFeed(feed)) {
-    columnStyle = styles.mediaRow;
+    rowStyle = styles.mediaRow;
   }
 
   const onReplyDeleted = useCallback(() => feed.reload(), [feed]);
 
-  const renderItem = useCallback(
-    ({ item }: { item: ProfileFeedItem }) => {
+  const renderCell = useCallback(
+    (item: ProfileFeedItem) => {
       if (item.kind === "media") {
         return <MediaTile item={item.value} onOpen={openMedia} />;
       }
@@ -931,6 +987,90 @@ export function ProfileFeed({
     ]
   );
 
+  // Sticky tab bar. The strip normally lives inside the profile header, which is
+  // the list's ListHeaderComponent, so it scrolls away with the banner. Once the
+  // list has scrolled past the strip's resting offset we fade a pinned copy in
+  // over the top. The offset is measured by the screen (where the markup is)
+  // rather than hardcoded, because the header's length varies: the bio wraps,
+  // the banner adapts to the safe-area inset, and the sign-in gate appears for
+  // guests. The header is the first thing in the content container, which has no
+  // top padding, so the strip's y inside the header is also its scroll offset.
+  //
+  // The pinned flag is stored together with the tab it was measured under, and
+  // only honoured when that tab is still the active one. A tab switch (whether
+  // from the strip or the swipe gesture) scrolls back to the top, which puts the
+  // in-flow strip on screen again; keying on the tab means the pinned copy
+  // stands down without an effect that resets it, which would otherwise be a
+  // setState-in-effect and an extra render on every switch.
+  const [pinState, setPinState] = useState<{
+    pinned: boolean;
+    tab: ProfileViewTab;
+  }>({ pinned: false, tab });
+  const stickyOpacity = useMemo(() => new Animated.Value(0), []);
+  const tabsPinned = pinState.tab === tab && pinState.pinned;
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const nextPinned = shouldPinTabs(
+        event.nativeEvent.contentOffset.y,
+        tabsRestingY,
+        stickyTop
+      );
+      setPinState((current) =>
+        current.pinned === nextPinned && current.tab === tab
+          ? current
+          : { pinned: nextPinned, tab }
+      );
+    },
+    [stickyTop, tab, tabsRestingY]
+  );
+
+  useEffect(() => {
+    Animated.timing(stickyOpacity, {
+      duration: 140,
+      toValue: tabsPinned ? 1 : 0,
+      useNativeDriver: true,
+    }).start();
+  }, [stickyOpacity, tabsPinned]);
+
+  // Report the pin up so the screen can stand the back button down while the
+  // strip is pinned. The back button lives in the screen's fixed top bar, so it
+  // has no way to observe the list's scroll offset on its own.
+  useEffect(() => {
+    onTabsPinChange?.(tabsPinned);
+  }, [onTabsPinChange, tabsPinned]);
+
+  // A single-cell row renders the cell directly so the single-column tabs keep
+  // their exact previous layout. A two-cell row supplies the row container the
+  // old columnWrapperStyle used to provide, with each cell taking a column.
+  // The sticky pin and the pull's iOS bounce reading both need the same scroll
+  // event, so chain them rather than picking a winner.
+  const handleContentScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      handleScroll(event);
+      pull.onScroll(event);
+    },
+    [handleScroll, pull]
+  );
+
+  const handleScrollEndDrag = useCallback(() => pull.onScrollEndDrag(), [pull]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: ProfileFeedRow }) => {
+      const [first, second] = item.cells;
+      if (!second) {
+        return renderCell(first);
+      }
+      return (
+        <View style={rowStyle}>
+          <View style={styles.gridCell}>{renderCell(first)}</View>
+          <View style={styles.gridCell}>{renderCell(second)}</View>
+        </View>
+      );
+    },
+    [renderCell, rowStyle]
+  );
+
   const renderSeparator = useCallback(() => {
     if (twoColumns || tab === "eddies") {
       return null;
@@ -942,12 +1082,12 @@ export function ProfileFeed({
     );
   }, [tab, theme.cardBorder, twoColumns]);
 
-  const keyExtractor = useCallback(
-    (item: ProfileFeedItem) => `${item.kind}:${item.value.id}`,
-    []
-  );
+  const keyExtractor = useCallback((item: ProfileFeedRow) => item.key, []);
 
-  const items = feedItems(feed);
+  const items = useMemo(
+    () => chunkFeedRows(feedItems(feed), twoColumns),
+    [feed, twoColumns]
+  );
   const handleRetry = useCallback(() => feed.fetchNext(), [feed]);
 
   const renderFooter = () => {
@@ -966,70 +1106,104 @@ export function ProfileFeed({
   };
 
   return (
-    <View style={styles.rootContainer} {...panResponder.panHandlers}>
-      <Animated.View
-        style={[
-          styles.animatedViewport,
-          {
-            opacity: opacityAnim,
-            transform: [{ translateX: slideAnim }],
-          },
-        ]}
-      >
-        <FlatList
-          ItemSeparatorComponent={renderSeparator}
-          ListEmptyComponent={
-            feed.status === "success" ? (
-              <EmptyProfileTab isOwnProfile={isOwnProfile} tab={tab} />
-            ) : null
-          }
-          ListFooterComponent={renderFooter}
-          ListHeaderComponent={
-            <>
-              {header}
-              {locked ? null : (
-                <ProfileTabState feed={feed} onRetry={handleRetry} />
-              )}
-            </>
-          }
-          columnWrapperStyle={columnStyle}
-          contentContainerStyle={styles.list}
-          data={items}
-          key={twoColumns ? "grid" : "list"}
-          keyExtractor={keyExtractor}
-          numColumns={twoColumns ? 2 : 1}
-          onEndReached={feed.hasMore ? feed.fetchNext : undefined}
-          onEndReachedThreshold={0.6}
-          renderItem={renderItem}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-        />
-      </Animated.View>
+    <GestureDetector gesture={pull.gesture}>
+      <View style={styles.rootContainer} {...panResponder.panHandlers}>
+        <GestureDetector gesture={pull.nativeScrollGesture}>
+          <FlatList
+            ItemSeparatorComponent={renderSeparator}
+            ListEmptyComponent={
+              feed.status === "success" ? (
+                <EmptyProfileTab isOwnProfile={isOwnProfile} tab={tab} />
+              ) : null
+            }
+            ListFooterComponent={renderFooter}
+            ListHeaderComponent={
+              <View>
+                {header}
+                {locked ? null : (
+                  <ProfileTabState
+                    feed={feed}
+                    onRetry={handleRetry}
+                    tab={tab}
+                  />
+                )}
+              </View>
+            }
+            contentContainerStyle={styles.list}
+            data={items}
+            keyExtractor={keyExtractor}
+            onEndReached={feed.hasMore ? feed.fetchNext : undefined}
+            onEndReachedThreshold={0.6}
+            onScroll={handleContentScroll}
+            onScrollEndDrag={handleScrollEndDrag}
+            ref={listRef}
+            renderItem={renderItem}
+            scrollEventThrottle={16}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+          />
+        </GestureDetector>
 
-      <ShareSheet
-        description="Share this post with your network"
-        onClose={() => setSharePost(null)}
-        post={sharePost}
-        shareUrl={getSharePostUrl}
-        title="Share post"
-      />
-      <MoreMenu
-        anchor={menuAnchor}
-        entries={entries}
-        onAction={onAction}
-        onClose={() => {
-          setMenuAnchor(null);
-          setMenuPost(null);
-        }}
-      />
-      {overflow.dialogs}
-    </View>
+        {pull.loader}
+
+        {stickyTabs ? (
+          <>
+            {/* The band between the top of the screen and the pinned strip has
+                to be filled too, not just the strip itself. The fixed top bar
+                that holds the settings button is deliberately transparent (the
+                banner sits behind it at rest), so without this the list would
+                scroll visibly through that gap once the tabs pinned. It shares
+                the strip's opacity, so it appears only while pinned and the
+                banner is untouched before that. */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.stickyBackdrop,
+                { backgroundColor: theme.containerBg, height: stickyTop },
+                { opacity: stickyOpacity },
+              ]}
+            />
+            <Animated.View
+              pointerEvents={tabsPinned ? "auto" : "none"}
+              style={[
+                styles.stickyTabs,
+                // Directly under the status bar, in the same band the screen's
+                // top bar occupies rather than below it. The bar's own buttons
+                // share this band: the back button has faded out by the time the
+                // strip appears, and the settings button is a small circle that
+                // sits above the strip by design. Pinning lower than this is what
+                // left the dead space above the labels.
+                { top: stickyTop },
+                { opacity: stickyOpacity },
+              ]}
+            >
+              {stickyTabs}
+            </Animated.View>
+          </>
+        ) : null}
+
+        <ShareSheet
+          description="Share this post with your network"
+          onClose={() => setSharePost(null)}
+          post={sharePost}
+          shareUrl={getSharePostUrl}
+          title="Share post"
+        />
+        <MoreMenu
+          anchor={menuAnchor}
+          entries={entries}
+          onAction={onAction}
+          onClose={() => {
+            setMenuAnchor(null);
+            setMenuPost(null);
+          }}
+        />
+        {overflow.dialogs}
+      </View>
+    </GestureDetector>
   );
 }
 
 const styles = StyleSheet.create({
-  animatedViewport: {
-    flex: 1,
-  },
   caughtUpContainer: {
     alignItems: "center",
     gap: 12,
@@ -1081,6 +1255,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   footer: { alignItems: "center", paddingVertical: 18 },
+  gridCell: { flex: 1 },
   gustGridChip: {
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -1133,12 +1308,19 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
   },
-  gustRow: { gap: 12, paddingHorizontal: 16, paddingTop: 14 },
+  gustRow: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
   itemSeparator: {
     height: StyleSheet.hairlineWidth,
     width: "100%",
   },
   list: { paddingBottom: 28 },
+  // The pull shifts the whole list down as the user drags, so the header goes
+  // with it. flex: 1 keeps the list filling the screen while shifted.
   loading: {
     alignItems: "center",
     gap: 10,
@@ -1195,7 +1377,12 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   mediaImage: { height: "100%", width: "100%" },
-  mediaRow: { gap: 10, paddingHorizontal: 12, paddingTop: 12 },
+  mediaRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+  },
   mediaTile: {
     borderRadius: 12,
     borderWidth: 1,
@@ -1313,6 +1500,27 @@ const styles = StyleSheet.create({
   },
   rootContainer: {
     flex: 1,
+  },
+  // Pinned copy of the tab strip. Above the list so rows scroll underneath it,
+  // and filled by the strip's own background so nothing shows through the gap.
+  // zIndex only, never elevation: on Android elevation would draw a drop shadow
+  // along the strip's bottom border.
+  stickyBackdrop: {
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    // Just under the strip, which is zIndex 20. Never elevation: on Android that
+    // would draw a drop shadow along the strip's bottom border.
+    zIndex: 19,
+  },
+  stickyTabs: {
+    left: 0,
+    position: "absolute",
+    right: 0,
+    // top is supplied at the call site from the safe-area inset, so the strip
+    // clears the fixed back/settings bar above it.
+    zIndex: 20,
   },
   waveformBar: {
     backgroundColor: "#f97316",

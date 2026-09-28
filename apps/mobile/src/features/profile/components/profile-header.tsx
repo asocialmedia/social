@@ -17,6 +17,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { BioContent } from "@/features/home/components/bio-content";
 import {
   formatJoinedDate,
@@ -93,21 +95,44 @@ function SocialIcon({ color, kind }: { color: string; kind: string }) {
   return name ? <FontAwesome6 color={color} name={name} size={15} /> : null;
 }
 
-function getFollowButtonStyles(isFollowing: boolean, isDark: boolean) {
-  if (isFollowing) {
-    return {
-      colors: isDark
-        ? (["#4a4a4a", "#333333"] as const)
-        : (["#f7f8fa", "#e4e7ec"] as const),
-      shadow: isDark ? BTN_3D_GRAY_SHADOWS_DARK : BTN_3D_GRAY_SHADOWS,
-      textColor: isDark ? "#ffffff" : "#1f2430",
-    };
-  }
+// Web's `.follow-btn-3d` (apps/web/src/app/globals.css) and `.btn-3d-gray`
+// (packages/ui/styles/globals.css), light + dark. The web follow button keeps
+// its orange fill in BOTH states and swaps only the label between "Follow" and
+// "Following", so there is no second colour pair to carry here - the old native
+// version greyed the button out while following, which web never does.
+function getFollowButtonStyles(isDark: boolean) {
   return {
-    colors: ["#ff9500", "#e65500"] as const,
+    colors: ["#ff9500", "#e65500"] as [string, string],
     shadow: isDark ? FOLLOW_BUTTON_SHADOWS : FOLLOW_BUTTON_SHADOWS_LIGHT,
     textColor: "#ffffff",
   };
+}
+
+// `.btn-3d-gray`: the neutral pill web puts on the Message button.
+function getGrayButtonStyles(isDark: boolean) {
+  return {
+    colors: (isDark ? ["#4a4a4a", "#333333"] : ["#f7f8fa", "#e4e7ec"]) as [
+      string,
+      string,
+    ],
+    shadow: isDark ? BTN_3D_GRAY_SHADOWS_DARK : BTN_3D_GRAY_SHADOWS,
+    textColor: isDark ? "#ffffff" : "#1f2430",
+  };
+}
+
+// Web's EditProfileButton, light + dark.
+function getEditButtonStyles(isDark: boolean) {
+  return isDark
+    ? {
+        color: "#ffffff",
+        gradient: ["#8f96a3", "#5c6370"] as [string, string],
+        shadows: EDIT_PROFILE_SHADOWS_DARK,
+      }
+    : {
+        color: "#1c1f26",
+        gradient: ["#e4e7ec", "#c6ccd5"] as [string, string],
+        shadows: EDIT_PROFILE_SHADOWS,
+      };
 }
 
 export function ProfileHeader({
@@ -141,7 +166,9 @@ export function ProfileHeader({
   const flame = getAuraFlameStyle(profile.aura);
   const joined = formatJoinedDate(profile.createdAt);
   const role = profile.communityMemberships?.[0];
-  const followStyles = getFollowButtonStyles(isFollowing, isDark);
+  const followStyles = getFollowButtonStyles(isDark);
+  const grayStyles = getGrayButtonStyles(isDark);
+  const editStyles = getEditButtonStyles(isDark);
   const openSocial = useCallback(async (href: string) => {
     try {
       await Linking.openURL(href);
@@ -183,33 +210,20 @@ export function ProfileHeader({
                 accessibilityRole="button"
                 onPress={onEdit}
                 style={({ pressed }) => [
-                  styles.editButton,
-                  {
-                    boxShadow: isDark
-                      ? EDIT_PROFILE_SHADOWS_DARK
-                      : EDIT_PROFILE_SHADOWS,
-                    transform: [{ translateY: pressed ? 1 : 0 }],
-                  },
+                  styles.buttonPressable,
+                  { transform: [{ translateY: pressed ? 1 : 0 }] },
                 ]}
               >
-                <LinearGradient
-                  colors={
-                    isDark ? ["#8f96a3", "#5c6370"] : ["#e4e7ec", "#c6ccd5"]
-                  }
-                  end={{ x: 0.5, y: 1 }}
-                  start={{ x: 0.5, y: 0 }}
-                  style={styles.editButtonGradient}
+                <Gradient3D
+                  colors={editStyles.gradient}
+                  shadows={editStyles.shadows}
+                  style={styles.editButton}
                 >
-                  <Pencil color={isDark ? "#ffffff" : "#1c1f26"} size={14} />
-                  <Text
-                    style={[
-                      styles.editText,
-                      { color: isDark ? "#ffffff" : "#1c1f26" },
-                    ]}
-                  >
+                  <Pencil color={editStyles.color} size={14} />
+                  <Text style={[styles.editText, { color: editStyles.color }]}>
                     Edit profile
                   </Text>
-                </LinearGradient>
+                </Gradient3D>
               </Pressable>
             ) : (
               <>
@@ -219,19 +233,15 @@ export function ProfileHeader({
                   disabled={!canFollow}
                   onPress={onFollow}
                   style={({ pressed }) => [
-                    styles.followButton,
+                    styles.buttonPressable,
                     !canFollow && styles.disabled,
-                    {
-                      boxShadow: followStyles.shadow,
-                      transform: [{ translateY: pressed ? 1 : 0 }],
-                    },
+                    { transform: [{ translateY: pressed ? 1 : 0 }] },
                   ]}
                 >
-                  <LinearGradient
+                  <Gradient3D
                     colors={followStyles.colors}
-                    end={{ x: 0.5, y: 1 }}
-                    start={{ x: 0.5, y: 0 }}
-                    style={styles.followButtonGradient}
+                    shadows={followStyles.shadow}
+                    style={styles.followButton}
                   >
                     {isFollowing ? null : (
                       <UserPlus color="#ffffff" size={14} />
@@ -244,7 +254,7 @@ export function ProfileHeader({
                     >
                       {isFollowing ? "Following" : "Follow"}
                     </Text>
-                  </LinearGradient>
+                  </Gradient3D>
                 </Pressable>
                 <Pressable
                   accessibilityLabel="Message"
@@ -252,37 +262,26 @@ export function ProfileHeader({
                   disabled={!canMessage}
                   onPress={onMessage}
                   style={({ pressed }) => [
-                    styles.messageButton,
+                    styles.buttonPressable,
                     !canMessage && styles.disabled,
-                    {
-                      boxShadow: isDark
-                        ? BTN_3D_GRAY_SHADOWS_DARK
-                        : BTN_3D_GRAY_SHADOWS,
-                      transform: [{ translateY: pressed ? 1 : 0 }],
-                    },
+                    { transform: [{ translateY: pressed ? 1 : 0 }] },
                   ]}
                 >
-                  <LinearGradient
-                    colors={
-                      isDark ? ["#4a4a4a", "#333333"] : ["#f7f8fa", "#e4e7ec"]
-                    }
-                    end={{ x: 0.5, y: 1 }}
-                    start={{ x: 0.5, y: 0 }}
-                    style={styles.messageButtonGradient}
+                  <Gradient3D
+                    colors={grayStyles.colors}
+                    shadows={grayStyles.shadow}
+                    style={styles.messageButton}
                   >
-                    <MessageCircle
-                      color={isDark ? "#ffffff" : "#1f2430"}
-                      size={15}
-                    />
+                    <MessageCircle color={grayStyles.textColor} size={15} />
                     <Text
                       style={[
                         styles.messageText,
-                        { color: isDark ? "#ffffff" : "#1f2430" },
+                        { color: grayStyles.textColor },
                       ]}
                     >
                       Message
                     </Text>
-                  </LinearGradient>
+                  </Gradient3D>
                 </Pressable>
               </>
             )}
@@ -297,6 +296,7 @@ export function ProfileHeader({
               badge={profile.badge}
               badges={profile.badges}
               communityRoles={profile.communityMemberships}
+              large
             />
           </View>
           <Text style={[styles.username, { color: theme.dividerText }]}>
@@ -386,23 +386,14 @@ export function ProfileHeader({
               Aura
             </Text>
           </View>
-          <Pressable
-            accessibilityLabel="Share profile"
-            accessibilityRole="button"
-            onPress={onShare}
-            style={({ pressed }) => [
-              styles.shareButton,
-              {
-                backgroundColor: isDark ? "#232323" : theme.cardBg,
-                boxShadow: isDark
-                  ? ICON_BUTTON_SHADOWS_DARK
-                  : ICON_BUTTON_SHADOWS_LIGHT,
-                transform: [{ translateY: pressed ? 1 : 0 }],
-              },
-            ]}
-          >
-            <Share2 color={theme.dividerText} size={16} />
-          </Pressable>
+          <View style={styles.shareButton}>
+            <IconButton3D
+              accessibilityLabel="Share profile"
+              icon={Share2}
+              onPress={onShare}
+              size={36}
+            />
+          </View>
         </View>
       </View>
     </View>
@@ -466,16 +457,15 @@ const styles = StyleSheet.create({
   bannerWrap: { overflow: "hidden" },
   bio: { marginTop: 12 },
   blurred: { opacity: 0.72, transform: [{ scale: 1.15 }] },
+  // The Pressable only carries the press feedback. The 3D surface itself is the
+  // Gradient3D inside it, so this wrapper must not clip or round anything: the
+  // recipe's outer ring (0 0 0 1px) is drawn outside the element's bounds and an
+  // overflow: "hidden" here would cut that ring off, which is exactly the single
+  // border look being fixed. The 1px drop on press is web's :active transform.
+  buttonPressable: { borderRadius: 9999 },
   content: { paddingHorizontal: 16 },
   disabled: { opacity: 0.45 },
   editButton: {
-    borderRadius: 9999,
-    height: 36,
-    overflow: "hidden",
-  },
-  editButtonGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
     gap: 6,
     height: 36,
@@ -483,13 +473,6 @@ const styles = StyleSheet.create({
   },
   editText: { fontFamily: "SofiaProBold", fontSize: 14 },
   followButton: {
-    borderRadius: 9999,
-    height: 36,
-    overflow: "hidden",
-  },
-  followButtonGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
     gap: 5,
     height: 36,
@@ -508,13 +491,6 @@ const styles = StyleSheet.create({
   },
   inlineValue: { fontFamily: "SofiaProBold", fontSize: 14 },
   messageButton: {
-    borderRadius: 9999,
-    height: 36,
-    overflow: "hidden",
-  },
-  messageButtonGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
     gap: 5,
     height: 36,
@@ -532,11 +508,11 @@ const styles = StyleSheet.create({
   nameRow: { alignItems: "center", flexDirection: "row", gap: 6 },
   role: { fontFamily: "SofiaProReg", fontSize: 13, marginTop: 8 },
   root: { borderBottomColor: "rgba(128,128,128,0.25)", borderBottomWidth: 1 },
+  // Keeps the share button hard right in the aura row. The sizing and the 3D
+  // recipe itself now come from IconButton3D, so this wrapper only reserves the
+  // 36x36 footprint and carries the auto margin.
   shareButton: {
-    alignItems: "center",
-    borderRadius: 18,
     height: 36,
-    justifyContent: "center",
     marginLeft: "auto",
     width: 36,
   },
