@@ -207,9 +207,12 @@ export function MessageBubble({
     // colored bubble entirely: no background, border, shadow, or padding.
     bubbleClass = "flex flex-col items-start text-sm";
   } else if (mine) {
+    // The own-bubble recipe lives in `@layer components` so a DM chat theme can
+    // repaint it through the thread's `--chat-accent-*` custom properties. No
+    // gradient/shadow utility may sit next to it: utilities outrank the layer and
+    // would silently pin the bubble to the default accent.
     bubbleClass = cn(
-      "px-3.5 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]",
-      "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+      "bubble-sent px-3.5 py-2 text-sm text-white",
       // Corner shaping: the thread-edge corners tighten across a run's seams so
       // it reads as one block, while the inner corners stay round.
       roundingClasses
