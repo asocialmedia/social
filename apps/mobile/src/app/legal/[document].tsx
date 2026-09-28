@@ -27,7 +27,11 @@ import {
   resolveLegalDocument,
 } from "@/features/legal/lib/legal-document";
 import type { LegalDocument } from "@/features/legal/lib/legal-document";
-import { decideLegalNavigation } from "@/features/legal/lib/legal-navigation";
+import {
+  LEGAL_LINK_BRIDGE_SCRIPT,
+  decideLegalNavigation,
+  parseLegalLinkMessage,
+} from "@/features/legal/lib/legal-navigation";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -47,6 +51,16 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
   const apiBase = getApiBaseUrl();
   const url = `${apiBase}${legalDocumentPath(document)}`;
 
+  // Back out of the document, to wherever the reader arrived from, or to the
+  // feed when this screen was opened directly.
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/");
+  }, [router]);
+
   // Hands a link to whichever system app can open it, and gets the reader off
   // this screen when nothing can.
   const openExternally = useCallback(
@@ -55,43 +69,51 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
         await Linking.openURL(target);
       } catch {
         // A dead link must not leave the reader on a document that never opened.
-        if (router.canGoBack()) {
-          router.back();
-          return;
-        }
-        router.replace("/");
+        goBack();
       }
     },
-    [router]
+    [goBack]
   );
 
-  // Only the document itself is loaded in-app. Anything that navigates away from
-  // it is a real external link, and the decision is made on the request, before
-  // the load starts: a callback that only watches navigation reports the new
-  // page once it is already there, which renders GitHub under this title bar
-  // with no way back to the document.
-  const allowNavigation = useCallback(
-    (target: string, isTopFrame: boolean) => {
+  // Runs the document's own exit routes. The web app is client-rendered, so
+  // these links are soft navigations that never reach the WebView delegate -
+  // they arrive through onMessage instead - and a hard navigation (a redirect,
+  // a form post) is refused here and comes through the same way, so both paths
+  // end up in one decision.
+  const followLink = useCallback(
+    (target: string) => {
       const decision = decideLegalNavigation({
         apiBase,
-        documentUrl: url,
+        document,
         target,
       });
-      if (decision === "allow") {
-        return true;
+      // `allow` and `block` both end the tap here: `allow` is a same-path link
+      // the page handles itself, and a subframe resource is not somewhere to
+      // take the reader.
+      if (decision.kind === "switch-document") {
+        // The other policy is a screen of this app. Replaced rather than pushed
+        // so backing out of it returns where the reader came from, not to a
+        // second copy of the document they just left.
+        router.replace({
+          params: { document: decision.document },
+          pathname: "/legal/[document]",
+        });
+        return;
       }
-      // A subframe is a resource the document asked for, not a destination the
-      // reader chose, so an off-origin one is dropped rather than sent to the
-      // system browser.
-      if (decision === "open-externally" && isTopFrame) {
-        // Deliberately not awaited: the native side blocks on this callback
-        // until it returns, so awaiting here would hold the navigation decision
+      if (decision.kind === "leave") {
+        // "Back to feed" and anything else on the site's own origin: the web
+        // app, not the document.
+        goBack();
+        return;
+      }
+      if (decision.kind === "open-externally") {
+        // Deliberately not awaited: the native side blocks on the navigation
+        // callback until it returns, so awaiting here would hold that decision
         // open until the system browser had come up.
         void openExternally(target);
       }
-      return false;
     },
-    [apiBase, openExternally, url]
+    [apiBase, document, goBack, openExternally, router]
   );
 
   return (
@@ -101,13 +123,7 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
           accessibilityLabel="Go back"
           accessibilityRole="button"
           hitSlop={8}
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-              return;
-            }
-            router.replace("/");
-          }}
+          onPress={goBack}
           style={styles.back}
         >
           <Text style={[styles.backText, { color: theme.inputText }]}>
@@ -160,6 +176,10 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
         </View>
       ) : (
         <WebView
+          // Claims the taps that would leave the document before the page acts
+          // on them. Without it the web app's own router takes over and renders
+          // the feed inside this screen, under a legal title bar.
+          injectedJavaScriptBeforeContentLoaded={LEGAL_LINK_BRIDGE_SCRIPT}
           onError={() => {
             setFailed(true);
             setLoading(false);
@@ -167,12 +187,33 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
           onLoadEnd={() => {
             setLoading(false);
           }}
-          onShouldStartLoadWithRequest={(request) =>
-            allowNavigation(request.url, request.isTopFrame)
-          }
+          onMessage={(event) => {
+            const target = parseLegalLinkMessage(event.nativeEvent.data);
+            if (target) {
+              followLink(target);
+            }
+          }}
+          onShouldStartLoadWithRequest={(request) => {
+            // The backstop for navigations the bridge never sees: a redirect, a
+            // form post, or a page rendered without the injected script. A
+            // subframe is a resource the document asked for, not a destination
+            // the reader chose, so an off-origin one is dropped silently.
+            const decision = decideLegalNavigation({
+              apiBase,
+              document,
+              target: request.url,
+            });
+            if (decision.kind === "allow") {
+              return true;
+            }
+            if (request.isTopFrame) {
+              followLink(request.url);
+            }
+            return false;
+          }}
           // The API base is plain http in development, so this cannot be
           // narrowed to https. It is not the reader-facing gate either: every
-          // navigation is decided on the request in onShouldStartLoadWithRequest.
+          // navigation is decided in onShouldStartLoadWithRequest and onMessage.
           originWhitelist={["https://*", "http://*"]}
           pullToRefreshEnabled
           renderLoading={() => <View />}

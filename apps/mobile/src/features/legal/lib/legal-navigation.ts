@@ -1,87 +1,196 @@
-// Deciding, before a navigation starts, whether the legal-document WebView may
-// follow it. No React Native imports, so it is unit-testable on Node.
+// Deciding where a link in the legal document goes, and getting that decision
+// made before the reader is somewhere they cannot get back from. No React
+// Native imports, so it is unit-testable on Node.
 //
-// The documents are the web app's own pages and they do link out: the Privacy
-// Policy names the source repository, the Terms link a support address. A
-// navigation callback that only observes a load cannot refuse it, so following
-// one of those links loads a third-party site underneath the app's
-// legal-document title bar, with no way back to the document. The decision has
-// to be made on parsed origins, while the navigation is still a request, so an
-// external link can be handed to the system browser and refused in-app.
+// The documents are the web app's own pages, and their chrome links out in
+// three different ways:
+//
+//   - in-page anchors, which belong to the page
+//   - the cross-link to the other policy (/toc <-> /privacy)
+//   - "Back to feed" to /
+//   - and the GitHub repository the Privacy Policy names
+//
+// Only the first is a continuation of the document. A pre-navigation check
+// alone is not enough for the rest: the web app is a client-rendered Next app,
+// so those links are soft navigations (a history.pushState) that never reach
+// the WebView delegate - iOS and Android both only report real document
+// navigations, and by the time `onNavigationStateChange` fires on iOS the feed
+// is already rendered under the legal title bar. So the page also reports the
+// taps themselves (see LEGAL_LINK_BRIDGE_SCRIPT) and this same decision runs
+// again on the native side.
 
-/**
- * `allow`      - the document may navigate to it.
- * `open-externally` - the reader meant to leave; hand it to the system browser
- *   and refuse it in the WebView.
- * `block`      - nothing sensible to do with it, and nothing to show the reader
- *   either: an unparseable URL, or a scheme no link in a legal document needs.
- */
-export type LegalNavigationDecision = "allow" | "open-externally" | "block";
+import { LEGAL_DOCUMENTS } from "./legal-document";
+import type { LegalDocument } from "./legal-document";
+
+export type LegalNavigationDecision =
+  // The document itself, at any anchor. Stay in the WebView.
+  | { kind: "allow" }
+  // The other policy. A screen of this app, not a page of this document.
+  | { document: LegalDocument; kind: "switch-document" }
+  // Anywhere else on the site's own origin, which is the web app, not the
+  // document - the feed behind "Back to feed" among others.
+  | { kind: "leave" }
+  // Off-origin, or a scheme the system can open for us.
+  | { kind: "open-externally" }
+  // Nothing sensible to do with it, and nothing to show the reader either.
+  | { kind: "block" };
 
 // Schemes the system can open. `about:blank` is handled separately: it is the
 // WebView's own neutral document rather than anything a link points at.
 const OPENABLE_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:"]);
 
-/** Parses a base URL, or null when it is not a URL at all. */
-function parseOrigin(value: string | undefined): string | null {
-  if (!value) {
-    return null;
-  }
+/** The origin the documents are served from, or null when it cannot be read. */
+function apiOrigin(apiBase: string): string | null {
   try {
-    return new URL(value).origin;
+    const { origin } = new URL(apiBase);
+    // An opaque origin ("null") is what a non-http scheme parses to.
+    return origin === "null" ? null : origin;
   } catch {
     return null;
   }
 }
 
-/**
- * Whether a parsed target sits on one of the document's own origins.
- *
- * Origins are compared after parsing rather than as string prefixes: a prefix
- * test accepts `https://asocialmedia.cc.evil.example`, which is the whole
- * reason this is not `startsWith`.
- */
-function isOwnOrigin(target: URL, bases: (string | undefined)[]): boolean {
-  return bases.some((base) => {
-    const origin = parseOrigin(base);
-    // An opaque origin ("null") is what a non-http scheme parses to, so a base
-    // that cannot be resolved never matches anything.
-    return origin !== null && origin !== "null" && origin === target.origin;
-  });
+/** A comparable path: no query, no fragment, no trailing slash. */
+function pathOf(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const { pathname } = new URL(value);
+    const trimmed = pathname.replace(/\/+$/, "");
+    return trimmed || "/";
+  } catch {
+    return null;
+  }
 }
 
 export function decideLegalNavigation({
   apiBase,
-  documentUrl,
+  document,
   target,
 }: {
   // Where the API - and therefore the document - is served from.
   apiBase: string;
-  documentUrl: string;
+  // The document currently on screen.
+  document: LegalDocument;
   target: string;
 }): LegalNavigationDecision {
   if (target === "about:blank") {
-    return "allow";
+    return { kind: "allow" };
   }
 
   let parsed: URL;
   try {
     parsed = new URL(target);
   } catch {
-    return "block";
+    return { kind: "block" };
   }
 
   if (!OPENABLE_SCHEMES.has(parsed.protocol)) {
-    return "block";
+    return { kind: "block" };
   }
 
   // mailto: and tel: have no origin to compare and no page to load, so they go
   // straight to whatever app the reader uses for them.
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return "open-externally";
+    return { kind: "open-externally" };
   }
 
-  return isOwnOrigin(parsed, [documentUrl, apiBase])
-    ? "allow"
-    : "open-externally";
+  const origin = apiOrigin(apiBase);
+  if (origin === null) {
+    // The document itself could not be loaded either, so no target can be
+    // proven to be ours. Refusing beats handing a reader's tap to a browser.
+    return { kind: "block" };
+  }
+
+  // Compared as parsed origins, never as string prefixes: a prefix test accepts
+  // `https://asocialmedia.cc.evil.example`, which is the whole reason this is
+  // not startsWith.
+  if (parsed.origin !== origin) {
+    return { kind: "open-externally" };
+  }
+
+  const targetPath = pathOf(target);
+  for (const [key, entry] of Object.entries(LEGAL_DOCUMENTS)) {
+    if (pathOf(`${apiBase}${entry.path}`) !== targetPath) {
+      continue;
+    }
+    return key === document
+      ? { kind: "allow" }
+      : { document: key as LegalDocument, kind: "switch-document" };
+  }
+
+  // Same origin, not a document: this is the web app, and the reader meant to
+  // leave the document rather than to page through it.
+  return { kind: "leave" };
 }
+
+/**
+ * Parses what the injected bridge posts. Returns null for anything
+ * unrecognised so a malformed message can never crash the screen.
+ */
+export function parseLegalLinkMessage(raw: unknown): string | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const { url } = parsed as { url?: unknown };
+  return typeof url === "string" && url.length > 0 ? url : null;
+}
+
+// Installed into the document before its own scripts run, so the first tap is
+// already captured. It claims a click only when the tap would leave the
+// document: an in-page anchor, or a link back to the same path, is the page's
+// own business and is left alone.
+//
+// A plain string rather than a serialised function: a release build compiles
+// through Hermes, where Function.prototype.toString does not hand back
+// re-evaluable source.
+export const LEGAL_LINK_BRIDGE_SCRIPT = `(function () {
+  if (window.__asmLegalLinkBridge) {
+    return;
+  }
+  window.__asmLegalLinkBridge = true;
+  function path(value) {
+    return value.length > 1 ? value.replace(/\\/+$/, "") : value;
+  }
+  document.addEventListener(
+    "click",
+    function (event) {
+      var node = event.target;
+      var anchor = node && node.closest ? node.closest("a[href]") : null;
+      if (!anchor) {
+        return;
+      }
+      var href = anchor.getAttribute("href");
+      if (!href || href.charAt(0) === "#") {
+        return;
+      }
+      var resolved;
+      try {
+        resolved = new URL(href, window.location.href);
+      } catch (error) {
+        return;
+      }
+      if (path(resolved.pathname) === path(window.location.pathname)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ url: resolved.href })
+        );
+      }
+    },
+    true
+  );
+})();`;
