@@ -56,6 +56,13 @@ export interface DecryptorOptions {
 const DEFAULT_CONCURRENCY = 6;
 const DEFAULT_CACHE_CAP = 2000;
 
+// How many decrypted payloads the cache holds before evicting. Exported because
+// it is also the ceiling on what any consumer can usefully ask to decrypt: a
+// request for more than this would decrypt rows and immediately evict them again,
+// so a caller that wants "everything" must page instead (see the details panel's
+// bulk request in message-thread.tsx).
+export const MESSAGE_DECRYPTOR_CACHE_CAP = DEFAULT_CACHE_CAP;
+
 // Shared empty set returned for conversations with no failures, so the common
 // case allocates nothing.
 const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();

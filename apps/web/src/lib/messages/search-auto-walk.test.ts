@@ -12,20 +12,23 @@ function input(
     persistedChainVerified: false,
     persistedCovered: false,
     running: false,
-    searchOpen: true,
     storeReady: true,
+    wantsIndexing: true,
     writerReady: true,
     ...overrides,
   };
 }
 
 describe("shouldAutoStartWalk", () => {
-  test("starts on a fresh search session over partially covered history", () => {
+  test("starts on a fresh session over partially covered history", () => {
     expect(shouldAutoStartWalk(input())).toBe(true);
   });
 
-  test("stays quiet when search is closed", () => {
-    expect(shouldAutoStartWalk(input({ searchOpen: false }))).toBe(false);
+  test("stays quiet when nothing is asking for history-wide results", () => {
+    // The details panel is the second caller: while it is open the same walk
+    // runs, so a fresh device that opens the panel and searches once does not pay
+    // for two walks over the same history.
+    expect(shouldAutoStartWalk(input({ wantsIndexing: false }))).toBe(false);
   });
 
   test("waits for the store and the writer instead of no-op starting", () => {

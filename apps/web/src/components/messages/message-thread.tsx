@@ -21,7 +21,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import {
   memo,
   useCallback,
@@ -35,6 +34,7 @@ import {
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { ConversationDetailsPanel } from "@/components/messages/conversation-details-panel";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
 import {
@@ -73,6 +73,7 @@ import type {
   ConversationDetailResponse,
   MessagePageAxis,
 } from "@/lib/messages/client";
+import { resolveConversationTheme } from "@/lib/messages/conversation-theme";
 import {
   editMessagePayload,
   exportPublicKeyJwk,
@@ -84,7 +85,10 @@ import {
 } from "@/lib/messages/crypto";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
-import { messageDecryptor } from "@/lib/messages/decryptor";
+import {
+  MESSAGE_DECRYPTOR_CACHE_CAP,
+  messageDecryptor,
+} from "@/lib/messages/decryptor";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
 import { createHistoryReadCoordinator } from "@/lib/messages/history-read-coordinator";
 import type { HistoryReadToken } from "@/lib/messages/history-read-coordinator";
@@ -600,6 +604,10 @@ export function MessageThread({
     preferEnd: boolean;
     rect: PaneRect;
   } | null>(null);
+  // The conversation's contact card (avatar, actions, shared media/posts/links).
+  // Mounted only while open, so its three indexes cost nothing when the user is
+  // just reading the thread.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // Coarse-pointer devices (touch) get a bottom sheet instead of a side popover.
   // State (not just a ref) because it changes what is rendered; set in an effect
   // to avoid an SSR/client hydration mismatch.
@@ -1536,6 +1544,48 @@ export function MessageThread({
         return;
       }
       messageDecryptor.request([toDecryptItem(message)], { getBaseKeys });
+    },
+    [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
+  );
+
+  // Bulk request behind the details panel. Its three tabs are built from
+  // decrypted payloads, and the decryptor's LRU drops rows the transcript
+  // scrolled past, so a panel opened after a long scroll would list only what
+  // happened to still be cached and its counts would shrink as the reader
+  // scrolled. Asking for the loaded window up front makes the panel a view of the
+  // loaded transcript rather than of the LRU's luck.
+  //
+  // Bounded, and bounded deliberately. The request asks for no more than the
+  // decryptor's cache holds, newest first: a 200k-message conversation with
+  // thousands of pages loaded would otherwise spend real CPU decrypting rows the
+  // cache evicts before the next read, and the panel could never show them. What
+  // the user gets is the newest N shared items, which is also what they are
+  // looking at; older history is reachable by scrolling the thread, which loads
+  // and decrypts it a page at a time. request() skips anything cached, queued, in
+  // flight, or permanently failed, so a repeat call tops the window up for free.
+  const requestLoadedDecrypts = useCallback(
+    (messages: readonly MessageData[]) => {
+      if (!detail || !rootKeyStore || !userId) {
+        return;
+      }
+      const items: DecryptItem[] = [];
+      // Walk newest to oldest and stop at the cap, so a mostly-decrypted window
+      // spends its budget on rows that are actually missing.
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (items.length >= MESSAGE_DECRYPTOR_CACHE_CAP) {
+          break;
+        }
+        const message = messages[index];
+        if (!message || message.deletedAt) {
+          continue;
+        }
+        if (messageDecryptor.get(message.id) === undefined) {
+          items.push(toDecryptItem(message));
+        }
+      }
+      if (items.length > 0) {
+        messageDecryptor.request(items, { getBaseKeys });
+      }
     },
     [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
   );
@@ -2890,18 +2940,23 @@ export function MessageThread({
     searchIndexStore,
   ]);
 
-  // Leaving the conversation, or closing search, must not leave a walk running:
-  // it would keep fetching and decrypting for a thread nobody is reading.
+  // Leaving the conversation, or closing BOTH consumers, must not leave a walk
+  // running: it would keep fetching and decrypting for a thread nobody is reading.
   // The report is cleared too: it belongs to the ended session, and a stale
   // `stopped` would veto the next session's auto-start.
+  //
+  // "Both" rather than "search", because the details panel reads the same index:
+  // closing search while the panel is open must not stop a walk whose output the
+  // user is still looking at.
+  const walkWanted = searchOpen || detailsOpen;
   useEffect(() => {
-    if (searchOpen) {
+    if (walkWanted) {
       return;
     }
     backfillRef.current?.stop();
     backfillAbortRef.current?.abort();
     setCoverage(null);
-  }, [searchOpen]);
+  }, [walkWanted]);
 
   // A hidden tab does no walks: decrypting hundreds of pages for a screen
   // nobody is looking at is battery and bandwidth spent for nothing. Becoming
@@ -2909,7 +2964,7 @@ export function MessageThread({
   // (a stopped run never chains on its own, so without this the walk would
   // wait for search to reopen).
   useEffect(() => {
-    if (!searchOpen) {
+    if (!walkWanted) {
       return;
     }
     const onVisibilityChange = () => {
@@ -2925,8 +2980,10 @@ export function MessageThread({
           persistedChainVerified,
           persistedCovered,
           running: backfillRef.current !== null,
-          searchOpen: true,
           storeReady: searchIndexStore !== null,
+          // The tab is visible and a consumer is open, which is exactly the
+          // condition the policy asks about.
+          wantsIndexing: true,
           writerReady,
         })
       ) {
@@ -2942,17 +2999,23 @@ export function MessageThread({
     persistedChainVerified,
     persistedCovered,
     searchIndexStore,
-    searchOpen,
     startIndexingOlder,
+    walkWanted,
     writerReady,
   ]);
 
-  // Automatic catch-up. Opening search on partially covered history starts the
-  // walk, and each run that yields on its page budget chains the next while
-  // search stays open -- the 25-page bound paces the work, chaining only
-  // removes the clicks. Failed runs never chain (the Retry button owns them);
-  // there is no manual stop by design, so the flag below is always true and
-  // stopping only ever comes from close, hide, or teardown.
+  // Automatic catch-up. Opening search OR the details panel on partially covered
+  // history starts the walk, and each run that yields on its page budget chains
+  // the next while a consumer stays open -- the 25-page bound paces the work,
+  // chaining only removes the clicks. Failed runs never chain (the Retry button
+  // owns them); there is no manual stop by design, so the flag below is always
+  // true and stopping only ever comes from close, hide, or teardown.
+  //
+  // The panel counts as a consumer because its tabs read this same index. Without
+  // it, opening the panel on a device that has never walked the conversation
+  // would show only the decrypted slice and report "no media" for a chat full of
+  // it -- the exact false answer the walk exists to prevent.
+  const wantsIndexing = searchOpen || detailsOpen;
   useEffect(() => {
     if (
       shouldAutoStartWalk({
@@ -2961,8 +3024,8 @@ export function MessageThread({
         persistedChainVerified,
         persistedCovered,
         running: backfillRef.current !== null,
-        searchOpen,
         storeReady: searchIndexStore !== null,
+        wantsIndexing,
         writerReady,
       })
     ) {
@@ -2970,12 +3033,13 @@ export function MessageThread({
     }
   }, [
     coverage,
+    detailsOpen,
     persistedChainVerified,
     persistedCovered,
     searchIndexStore,
-    searchOpen,
     startIndexingOlder,
     walkEpoch,
+    wantsIndexing,
     writerReady,
   ]);
 
@@ -3904,10 +3968,18 @@ export function MessageThread({
 
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
-      <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div
+        className="flex h-full min-h-0 flex-1 flex-col"
+        // The member's stored chat theme, published as custom properties the
+        // `.bubble-sent` recipe reads. Setting them here (rather than keying a
+        // class off the theme) keeps one typed palette the single source for both
+        // the swatch the user picked and the bubbles it paints.
+        style={chatThemeVars(detail)}
+      >
         <ThreadHeader
           conversation={detail}
           onBack={onBack}
+          onOpenDetails={() => setDetailsOpen(true)}
           onOpenSearch={openSearch}
           onToggleRail={onToggleRail}
           peer={peer}
@@ -4224,9 +4296,54 @@ export function MessageThread({
             onPosition={handleViewerPosition}
           />
         ) : null}
+
+        {/* Keyed by conversation: the panel's reader holds cursors, rows and
+            counts for one conversation, and remounting on a switch is both
+            cheaper and safer than resetting them — a read in flight during the
+            switch resolves against the old cursors. */}
+        {detailsOpen ? (
+          <ConversationDetailsPanel
+            key={detail.conversation.id}
+            detail={detail}
+            // A walk in flight, so the tabs can say "indexing" rather than imply
+            // the list is the whole conversation.
+            indexingRefs={coverage?.state === "running"}
+            messages={allMessages}
+            onClose={() => setDetailsOpen(false)}
+            // The same jump the search results use, so a tile for a message this
+            // device has not paged in lands the transcript on that message and
+            // then opens the viewer on it.
+            onJumpToMessage={jumpToMessage}
+            onRequestDecrypts={requestLoadedDecrypts}
+            peer={peer}
+            presence={peerPresence}
+            // The index the tabs read, and the token that says it changed. The
+            // same store and the same signal search uses, rather than a second
+            // subscription that would re-read on a different schedule.
+            refsRefreshToken={searchIndex?.refreshToken ?? 0}
+            searchIndexStore={searchIndexStore}
+          />
+        ) : null}
       </div>
     </ConversationMediaViewerProvider>
   );
+}
+
+// The chat theme's custom properties for the thread root, or undefined when the
+// conversation has not resolved yet (the recipe's own fallbacks paint the app
+// default until it does).
+function chatThemeVars(
+  detail: ConversationDetailResponse | undefined
+): React.CSSProperties | undefined {
+  if (!detail) {
+    return undefined;
+  }
+  const theme = resolveConversationTheme(detail.prefs.themeKey);
+  return {
+    "--chat-accent-from": theme.cssVars.accentFrom,
+    "--chat-accent-ring": theme.cssVars.accentRing,
+    "--chat-accent-to": theme.cssVars.accentTo,
+  } as React.CSSProperties;
 }
 
 interface VirtualRowProps {
@@ -4611,6 +4728,7 @@ const VirtualRow = memo(
 function ThreadHeader({
   conversation,
   onBack,
+  onOpenDetails,
   onOpenSearch,
   onToggleRail,
   peer,
@@ -4620,6 +4738,7 @@ function ThreadHeader({
 }: {
   conversation: ConversationDetailResponse;
   onBack: () => void;
+  onOpenDetails: () => void;
   onOpenSearch: () => void;
   onToggleRail: () => void;
   peer:
@@ -4712,33 +4831,48 @@ function ThreadHeader({
         <ArrowLeft className="h-4 w-4" />
       </button>
 
-      <div className="min-w-0 flex-1">
-        <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
-          <Link
-            className="min-w-0 truncate hover:underline"
-            href={peer ? `/users/${peer.username}` : "#"}
-          >
-            {peer?.displayName ?? "Conversation"}
-          </Link>
-          <UserBadge
-            badge={peer?.badge}
-            badges={peer?.badges}
-            communityRoles={peer?.communityMemberships}
-          />
-        </p>
-        {peerTyping ? (
-          <p className="text-primary truncate text-xs font-medium">typing…</p>
-        ) : (
-          <p className="text-muted-foreground truncate text-xs">
-            <Link
-              className="hover:underline"
-              href={peer ? `/users/${peer.username}` : "#"}
-            >
+      {/* Avatar + identity is ONE control: it opens the conversation's contact
+          card (actions, shared media/posts/links). It was previously two links
+          straight to the profile, which is still one tap away inside that card. */}
+      <button
+        className="pill-3d-hover group -ml-1 flex min-w-0 flex-1 items-center gap-2 rounded-xl py-1 pr-2 pl-1 text-left"
+        onClick={onOpenDetails}
+        title={`${peer?.displayName ?? "Conversation"} — conversation details`}
+        type="button"
+      >
+        <span className="relative shrink-0">
+          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={32} />
+          {peerPresence ? (
+            <span
+              className={cn(
+                "ring-background absolute right-0 bottom-0 size-2.5 rounded-full border-2",
+                peerPresence === "online" ? "bg-green-500" : "bg-amber-500"
+              )}
+            />
+          ) : null}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+            <span className="min-w-0 truncate group-hover:underline">
+              {peer?.displayName ?? "Conversation"}
+            </span>
+            <UserBadge
+              badge={peer?.badge}
+              badges={peer?.badges}
+              communityRoles={peer?.communityMemberships}
+            />
+          </span>
+          {peerTyping ? (
+            <span className="text-primary block truncate text-xs font-medium">
+              typing…
+            </span>
+          ) : (
+            <span className="text-muted-foreground block truncate text-xs">
               {presenceLabel(peerPresence, peer?.username)}
-            </Link>
-          </p>
-        )}
-      </div>
+            </span>
+          )}
+        </span>
+      </button>
 
       {fingerprint ? (
         <button

@@ -9,8 +9,15 @@ export interface AutoWalkCoverage {
 }
 
 export interface ShouldAutoStartWalkInput {
-  // Closing search stops runs; background work never serves an unread thread.
-  searchOpen: boolean;
+  // Something is asking for history-wide results, which is what a walk builds.
+  // Search does, and so does the details panel: its Media/Posts/Links tabs read
+  // the same index, so on a device that has never walked this conversation they
+  // would otherwise show only the decrypted slice and call it "no media".
+  //
+  // One predicate for both, not two walks: the `running` guard below already makes
+  // a second concurrent walk impossible, and both consumers read the same store,
+  // so a shared walk is strictly better than either having its own.
+  wantsIndexing: boolean;
   // Starting before both resolve silently no-ops with no retry: the effect
   // never re-fires.
   storeReady: boolean;
@@ -36,11 +43,11 @@ export function shouldAutoStartWalk(input: ShouldAutoStartWalkInput): boolean {
     persistedChainVerified,
     persistedCovered,
     running,
-    searchOpen,
     storeReady,
+    wantsIndexing,
     writerReady,
   } = input;
-  if (!searchOpen || !storeReady || !writerReady || !autoIndex || running) {
+  if (!wantsIndexing || !storeReady || !writerReady || !autoIndex || running) {
     return false;
   }
   if (coverage?.reachedStart === true) {

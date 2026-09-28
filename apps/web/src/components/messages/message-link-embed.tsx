@@ -15,10 +15,6 @@ import { PostEmbed } from "./post-embed";
 // and predictable row height, and a single re-measure when the preview lands.
 // Every other link stays a tappable LinkBadge pill inside the text.
 //
-// A link that points at an asocialmedia post is rendered as the rich in-app
-// post card instead of a generic external preview, so sharing from the feed
-// and pasting the same URL into a chat converge on one look.
-//
 // The payload is decrypted client-side, so the server never sees the body; the
 // URL is resolved at render time through the same rate-limited, SSRF-guarded,
 // Redis-cached /api/link-preview endpoint the feed uses at publish time.
@@ -29,7 +25,21 @@ export function MessageLinkEmbed({
   content: string;
   mine: boolean;
 }) {
-  const url = extractPostUrls(content)[0] ?? null;
+  return <LinkEmbedCard mine={mine} url={extractPostUrls(content)[0] ?? ""} />;
+}
+
+// One URL, resolved to a card. Extracted from MessageLinkEmbed so the details
+// panel's "Shared links" tab lists the same previews the thread unfurls instead
+// of growing a second unfurling path that could drift from this one.
+//
+// A link that points at an asocialmedia post renders as the rich in-app post
+// card instead of a generic external preview, so sharing from the feed and
+// pasting the same URL into a chat converge on one look.
+//
+// `url` is "" when there is nothing to show, which is also what makes this safe
+// to render unconditionally: the query stays mounted (hooks must not be
+// conditional) and simply never runs.
+export function LinkEmbedCard({ mine, url }: { mine: boolean; url: string }) {
   const internalPostId = url
     ? postIdFromUrl(
         url,
