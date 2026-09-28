@@ -10,7 +10,14 @@ import type { NotificationTarget } from "@asm/notifications/shared";
 import { Image } from "expo-image";
 import { Redirect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import errorImage from "@/assets/images/error.png";
 import noNotificationsImage from "@/assets/images/noNotifications.png";
@@ -22,7 +29,10 @@ import {
   reportFeedScroll,
 } from "@/features/feed/lib/header-visibility";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
-import { MobileHeader } from "@/features/home/components/mobile-header";
+import {
+  MobileHeader,
+  headerSlide,
+} from "@/features/home/components/mobile-header";
 import { unreadCountStore } from "@/features/notifications/state/unread-store";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -282,51 +292,74 @@ export function NotificationsScreen() {
             : null
         }
       />
-      <View style={styles.tabs}>
-        <FeedTabs
-          active={activeTab}
-          fill
-          onChange={(tab) => setActiveTab(tab)}
-          tabs={TAB_DEFS}
+      <Animated.View
+        style={[
+          styles.content,
+          {
+            // The header slides up and away on scroll; the tab strip and the list
+            // below it travel the same distance, so the strip takes the header's
+            // place instead of leaving a gap above it. This is the same shared
+            // value HomeScreen follows, so the two screens stay in step.
+            // marginBottom extends the content below the fold so translating up
+            // does not expose a blank strip at the bottom.
+            marginBottom: -HEADER_BAR_HEIGHT,
+            transform: [
+              {
+                translateY: headerSlide.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, -HEADER_BAR_HEIGHT],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.tabs}>
+          <FeedTabs
+            active={activeTab}
+            fill
+            onChange={(tab) => setActiveTab(tab)}
+            tabs={TAB_DEFS}
+          />
+        </View>
+        <FlatList
+          {...LIST_VIRTUALIZATION_PROPS}
+          // flexGrow lets the empty/loading/error slot centre vertically instead
+          // of collapsing to the top; harmless once rows exist.
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: HEADER_BAR_HEIGHT,
+          }}
+          data={active.items}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={
+            active.status === "loading-more" ? <NotificationsSkeleton /> : null
+          }
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
+          onScroll={(event) =>
+            reportFeedScroll(event.nativeEvent.contentOffset.y)
+          }
+          renderItem={({ item, index }) => (
+            <View
+              style={
+                index > 0
+                  ? { borderTopColor: theme.cardBorder, borderTopWidth: 1 }
+                  : undefined
+              }
+            >
+              <NotificationRow
+                notification={item}
+                onDismiss={handleDismiss}
+                onOpen={handleOpen}
+              />
+            </View>
+          )}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         />
-      </View>
-      <FlatList
-        {...LIST_VIRTUALIZATION_PROPS}
-        // flexGrow lets the empty/loading/error slot centre vertically instead
-        // of collapsing to the top; harmless once rows exist.
-        contentContainerStyle={{
-          flexGrow: 1,
-          paddingBottom: HEADER_BAR_HEIGHT,
-        }}
-        data={active.items}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={listEmpty}
-        ListFooterComponent={
-          active.status === "loading-more" ? <NotificationsSkeleton /> : null
-        }
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.5}
-        onScroll={(event) =>
-          reportFeedScroll(event.nativeEvent.contentOffset.y)
-        }
-        renderItem={({ item, index }) => (
-          <View
-            style={
-              index > 0
-                ? { borderTopColor: theme.cardBorder, borderTopWidth: 1 }
-                : undefined
-            }
-          >
-            <NotificationRow
-              notification={item}
-              onDismiss={handleDismiss}
-              onOpen={handleOpen}
-            />
-          </View>
-        )}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-      />
+      </Animated.View>
       <MobileBottomNav />
     </View>
   );
@@ -342,6 +375,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     padding: 24,
+  },
+  // The tab strip and the list travel together as the header hides. flex: 1
+  // lets the list absorb the space the header vacates.
+  content: {
+    flex: 1,
   },
   emptyBody: {
     fontFamily: "SofiaProReg",
