@@ -21,7 +21,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import {
   memo,
   useCallback,
@@ -162,7 +161,6 @@ import {
 } from "@/lib/messages/wait-for-decrypts";
 import { cn } from "@/lib/utils";
 import { getMessageMediaId } from "@/lib/utils/image-url";
-import { withViewTransition } from "@/lib/view-transition";
 
 import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
@@ -642,7 +640,6 @@ export function MessageThread({
   // this have to agree on one number, and `rem` is the unit the class is defined
   // in. Starts false so the first client render matches the server's, which means
   // no pane for the frame before the query resolves.
-  const router = useRouter();
   const [desktopDetails, setDesktopDetails] = useState(false);
   // Whether the user has folded the desktop pane to its edge. Desktop only: below
   // `lg` the details are a sheet with its own dismissal, and a phone has no width
@@ -4071,20 +4068,25 @@ export function MessageThread({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mediaViewerKey, openSearch, searchOpen]);
 
-  // Pressing the peer's name goes to their profile. It is the control that shows
-  // their picture and name, so it reads as a link to them, and the pane beside the
-  // transcript already answers every question about the conversation itself.
+  // Pressing the peer's name and picture toggles the details pane on a wide screen,
+  // and opens the sheet below `lg`.
   //
-  // Below `lg` there is no pane, so the press opens the sheet instead: the sheet is
+  // A toggle is what this control is shaped like. It sits at the top of the thread,
+  // it is the only way to bring the pane back once it is folded, and the pane is the
+  // thing it belongs to -- so the row that shows the peer is also the row that shows
+  // and hides their card. It was a link to the profile before that, which duplicated
+  // the pane's own "View profile" row and left the pane with no dedicated control.
+  //
+  // Below `lg` there is no pane to toggle, so the press opens the sheet: that is
   // where the profile link, mute and the shared content live, and a phone has no
   // other way in.
-  const handleOpenDetails = useCallback(() => {
-    if (placement !== "rail" || !peer) {
+  const handleToggleDetails = useCallback(() => {
+    if (!desktopDetails) {
       setDetailsOpen(true);
       return;
     }
-    withViewTransition(() => router.push(`/users/${peer.username}`));
-  }, [peer, placement, router]);
+    toggleDetailsRail();
+  }, [desktopDetails, toggleDetailsRail]);
 
   if (!detail) {
     return <MessageThreadSkeleton />;
@@ -4127,7 +4129,7 @@ export function MessageThread({
             conversation={detail}
             detailsRailCollapsed={detailsCollapsed}
             onBack={onBack}
-            onOpenDetails={handleOpenDetails}
+            onToggleDetails={handleToggleDetails}
             onOpenSearch={openSearch}
             onToggleDetailsRail={toggleDetailsRail}
             onToggleRail={onToggleRail}
@@ -4902,8 +4904,8 @@ function ThreadHeader({
   conversation,
   detailsRailCollapsed,
   onBack,
-  onOpenDetails,
   onOpenSearch,
+  onToggleDetails,
   onToggleDetailsRail,
   onToggleRail,
   peer,
@@ -4918,8 +4920,8 @@ function ThreadHeader({
   // be a second way to dismiss the same thing.
   detailsRailCollapsed: boolean;
   onBack: () => void;
-  onOpenDetails: () => void;
   onOpenSearch: () => void;
+  onToggleDetails: () => void;
   onToggleDetailsRail: () => void;
   onToggleRail: () => void;
   // Whether this viewport is one where the pane belongs, which is a question about
@@ -5020,12 +5022,20 @@ function ThreadHeader({
         <ArrowLeft className="h-4 w-4" />
       </button>
 
-      {/* Avatar + identity is ONE control: it opens the conversation's contact
-          card (actions, shared media/posts/links). It was previously two links
-          straight to the profile, which is still one tap away inside that card. */}
+      {/* Avatar + identity is ONE control: it toggles the conversation's contact
+          card (actions, shared media/posts/links) on a wide screen, and opens it as a
+          sheet below `lg`.
+
+          No hover wash. `pill-3d-hover` painted a grey gradient across the whole row,
+          which on a header that already has a hoverable control beside it read as a
+          selection rather than as affordance. What is left is the underline on the
+          name and an explicit `cursor-pointer` -- buttons do not get one from
+          Tailwind v4's preflight, so a control that only looks clickable would not
+          say so. */}
       <button
-        className="pill-3d-hover group -ml-1 flex min-w-0 flex-1 items-center gap-2 rounded-xl py-1 pr-2 pl-1 text-left"
-        onClick={onOpenDetails}
+        aria-expanded={showDetailsRail ? !detailsRailCollapsed : undefined}
+        className="group -ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl py-1 pr-2 pl-1 text-left"
+        onClick={onToggleDetails}
         title={`${peer?.displayName ?? "Conversation"} — conversation details`}
         type="button"
       >
