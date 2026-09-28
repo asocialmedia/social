@@ -371,6 +371,9 @@ export const messageConversationInclude = {
           avatarUrl: true,
           badge: true,
           badges: true,
+          // The peer's header image, so the conversation details pane paints the
+          // same banner their profile does instead of a synthetic glow.
+          bannerUrl: true,
           // Badged community roles, so the conversation header and message
           // rows show the same role banners as every other surface.
           communityMemberships: getCommunityRoleSelect(),

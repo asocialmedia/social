@@ -20,6 +20,7 @@ import {
   UserRound,
   Volume2,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useEffect, useId, useState } from "react";
@@ -38,6 +39,7 @@ import {
 } from "@/lib/messages/conversation-theme";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import { cn, formatRelativeDate } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import type { SharedContentMessage } from "./conversation-shared-content";
 import { ConversationSharedLinksTab } from "./conversation-shared-links-tab";
@@ -441,8 +443,11 @@ export function ConversationDetailsPanel({
 // so the dialog announces who it is about; in the rail the same text is a heading
 // and a paragraph, because a dialog's title wiring is meaningless outside one.
 //
-// The bloom behind the avatar is the chat accent, so the pane shows the theme it is
-// describing.
+// The backdrop is the peer's own banner -- the same image their profile paints --
+// and only when they have none does the chat accent stand in for it. That fallback
+// is why `theme` is still a prop: a conversation whose peer never uploaded a header
+// must not fall back to nothing, because a bare panel edge gives the pane no sense
+// of being someone's place rather than a settings page.
 function DetailsHeader({
   asDialog,
   muted,
@@ -491,24 +496,60 @@ function DetailsHeader({
     </>
   );
 
+  // The banner fails the same way the profile page's does: it renders nothing and
+  // the fallback paints through, rather than leaving a broken-image frame.
+  const [bannerFailed, setBannerFailed] = useState(false);
+  const bannerUrl = peer.bannerUrl && !bannerFailed ? peer.bannerUrl : null;
+
   return (
     // `pointer-events-none` because this block has no controls of its own and, in
     // the sheet, it is painted over the primitive's close button, which sits in
     // the same corner at `top-4 right-4`. Without this the X is visible but
     // unclickable.
     <div className="pointer-events-none relative shrink-0 overflow-hidden border-b border-[hsl(var(--border))]">
-      {/* Inline rather than a styled class because the colour is the member's
-          stored theme, not a token the stylesheet knows: this is data, not a
-          recipe, so it cannot live in `@layer components`. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-24 h-56"
-        style={{
-          background: `radial-gradient(60% 60% at 50% 60%, ${theme.from}40, transparent 72%)`,
-        }}
-      />
-      <div className="relative flex flex-col items-center px-6 pt-7 pb-5 text-center">
-        <div className="relative">
+      {bannerUrl ? (
+        // The peer's own header, full-bleed across the pane's top. A short
+        // pane means a short crop, so the image is anchored to its centre-top
+        // the way the profile page is: faces and logos live there, and a
+        // centre crop is what cuts them off.
+        <div
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-28 overflow-hidden"
+        >
+          <Image
+            alt=""
+            className="object-cover"
+            fill
+            onError={() => setBannerFailed(true)}
+            sizes="(min-width: 1280px) 320px, 288px"
+            src={getSecureImageUrl(bannerUrl)}
+            unoptimized
+          />
+          {/* Two washes, both from the panel's own surface colour, so the image
+              dissolves into the pane instead of ending on a crop line. This is
+              the same brush the suggestion rows use, at portrait scale. */}
+          <div className="absolute inset-0 bg-linear-to-b from-[hsl(var(--background-alt)/0.15)] via-transparent to-[hsl(var(--background-alt))]" />
+          <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]" />
+        </div>
+      ) : (
+        // No banner: the chat accent stands in. Inline rather than a styled class
+        // because the colour is the member's stored theme, not a token the
+        // stylesheet knows -- this is data, not a recipe.
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 -top-20 h-44"
+          style={{
+            background: `radial-gradient(70% 70% at 50% 55%, ${theme.from}38, transparent 70%)`,
+          }}
+        />
+      )}
+
+      <div className="relative flex flex-col items-center px-6 pb-5 text-center">
+        {/* Pulled up over the banner's bottom edge, the way the profile page
+            hangs its avatar off its own banner. The ring is what separates the
+            two images where they meet; without it the avatar reads as part of
+            the banner's picture. */}
+        <div className="relative -mt-10">
           <UserAvatar
             avatarUrl={peer.avatarUrl}
             className="ring-4 ring-[hsl(var(--background))]"
