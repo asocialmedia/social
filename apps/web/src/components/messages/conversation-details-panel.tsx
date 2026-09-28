@@ -86,10 +86,6 @@ export interface ConversationDetailsBodyProps {
   // Bumped by the thread whenever the index commits, so the tabs re-read what a
   // walk or a live message just wrote.
   refsRefreshToken: number;
-  // The heading the thread focuses when the header's name button is pressed on a
-  // viewport where the rail is already visible. `tabIndex={-1}` on the node
-  // itself, because a heading is not a control and must not be one tab stop away.
-  titleRef?: React.Ref<HTMLHeadingElement>;
 }
 
 // The conversation's contact card: who you are talking to, what you want to do
@@ -117,7 +113,6 @@ export function ConversationDetailsBody({
   presence,
   refsRefreshToken,
   searchIndexStore,
-  titleRef,
 }: ConversationDetailsBodyProps) {
   const conversationId = detail.conversation.id;
   const queryClient = useQueryClient();
@@ -275,7 +270,6 @@ export function ConversationDetailsBody({
         mutedSince={prefs.mutedAt}
         peer={peer}
         presence={presence}
-        titleRef={titleRef}
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -452,14 +446,12 @@ function DetailsHeader({
   mutedSince,
   peer,
   presence,
-  titleRef,
 }: {
   asDialog: boolean;
   muted: boolean;
   mutedSince: string | null;
   peer: Peer;
   presence: "idle" | "online" | null;
-  titleRef?: React.Ref<HTMLHeadingElement>;
 }) {
   // A banner URL can 404 or be a revoked key, and an empty rectangle is worse than
   // the fallback. Same reasoning as the profile page, which tracks this too.
@@ -567,22 +559,11 @@ function DetailsHeader({
         </div>
 
         {asDialog ? (
-          <SheetTitle
-            className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight"
-            ref={titleRef}
-          >
+          <SheetTitle className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
             {name}
           </SheetTitle>
         ) : (
-          // Focusable without being a tab stop: the thread focuses this heading
-          // when the header's name button is pressed on a viewport where this
-          // pane is already visible, and a heading that cannot take focus would
-          // make that press a no-op.
-          <h2
-            className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight"
-            ref={titleRef}
-            tabIndex={-1}
-          >
+          <h2 className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
             {name}
           </h2>
         )}

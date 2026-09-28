@@ -21,6 +21,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   memo,
   useCallback,
@@ -158,6 +159,7 @@ import {
 } from "@/lib/messages/wait-for-decrypts";
 import { cn } from "@/lib/utils";
 import { getMessageMediaId } from "@/lib/utils/image-url";
+import { withViewTransition } from "@/lib/view-transition";
 
 import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
@@ -637,6 +639,7 @@ export function MessageThread({
   // this have to agree on one number, and `rem` is the unit the class is defined
   // in. Starts false so the first client render matches the server's, which means
   // no pane for the frame before the query resolves.
+  const router = useRouter();
   const [desktopDetails, setDesktopDetails] = useState(false);
   // Whether the user has folded the desktop pane to its edge. Desktop only: below
   // `lg` the details are a sheet with its own dismissal, and a phone has no width
@@ -649,14 +652,6 @@ export function MessageThread({
   // client render matches the server's, which is the same reason the media query
   // above is not read during render.
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
-  // The rail's heading, so pressing the header's name button on a desktop can move
-  // focus to the pane that is already on screen instead of opening a second copy
-  // of it.
-  const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
-  // Set when a press asked for a pane that was folded: the body is not mounted yet,
-  // so its heading cannot take focus in the same commit and the focus would land
-  // nowhere.
-  const focusRailWhenMountedRef = useRef(false);
   // Coarse-pointer devices (touch) get a bottom sheet instead of a side popover.
   // State (not just a ref) because it changes what is rendered; set in an effect
   // to avoid an SSR/client hydration mismatch.
@@ -734,15 +729,15 @@ export function MessageThread({
   }, []);
 
   const placement = detailsPlacement({
+    collapsed: detailsCollapsed,
     desktopViewport: desktopDetails,
     requested: detailsOpen,
   });
-  // Whether anything is actually showing. A folded pane is not a consumer even
-  // though `placement` still says "rail": the body is unmounted, so there is
-  // nothing reading the index, and letting the walk continue would fetch and
-  // decrypt a conversation's whole history for a pane the user just put away.
-  const detailsVisible =
-    placement === "sheet" || (placement === "rail" && !detailsCollapsed);
+  // Whether anything is showing, which is now the same question `placement` already
+  // answered. It used to be derived separately, and the two drifted: a folded pane
+  // still counted as a rail, so the walk kept fetching a conversation's whole history
+  // for a pane the user had just put away.
+  const detailsVisible = placement !== "none";
 
   // The stored preference, read once the viewport is known to be a desktop one --
   // reading it below `lg` would apply a window preference to the sheet, which has
@@ -772,34 +767,6 @@ export function MessageThread({
       return next;
     });
   }, []);
-
-  const expandDetailsRail = useCallback(() => {
-    setDetailsCollapsed(false);
-    try {
-      localStorage.setItem(DETAILS_RAIL_COLLAPSED_KEY, "0");
-    } catch {
-      // As above.
-    }
-  }, []);
-
-  // Folds the pane, giving focus somewhere real. Without this the focus is on the
-  // button that is about to unmount, and the next Tab continues from the
-  // transcript's end rather than from where the user was.
-  //
-  // Keyed on the two things whose change can mount the body, rather than left to
-  // run on every render: a ref's `current` is not a dependency, and the thread
-  // re-renders on every keystroke and every arrival.
-  useEffect(() => {
-    if (!focusRailWhenMountedRef.current) {
-      return;
-    }
-    const heading = detailsTitleRef.current;
-    if (!heading) {
-      return;
-    }
-    focusRailWhenMountedRef.current = false;
-    heading.focus();
-  }, [detailsCollapsed, placement]);
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -4101,27 +4068,20 @@ export function MessageThread({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mediaViewerKey, openSearch, searchOpen]);
 
-  // Pressing the peer's name opens the details below `lg`. From `lg` the pane is
-  // already on screen, so the press instead moves focus to it -- otherwise the
-  // button would be a no-op there, and opening a dialog over the pane would show
-  // the same content twice.
+  // Pressing the peer's name goes to their profile. It is the control that shows
+  // their picture and name, so it reads as a link to them, and the pane beside the
+  // transcript already answers every question about the conversation itself.
+  //
+  // Below `lg` there is no pane, so the press opens the sheet instead: the sheet is
+  // where the profile link, mute and the shared content live, and a phone has no
+  // other way in.
   const handleOpenDetails = useCallback(() => {
-    if (placement !== "rail") {
+    if (placement !== "rail" || !peer) {
       setDetailsOpen(true);
       return;
     }
-    if (detailsCollapsed) {
-      focusRailWhenMountedRef.current = true;
-      expandDetailsRail();
-      return;
-    }
-    const heading = detailsTitleRef.current;
-    if (!heading) {
-      return;
-    }
-    heading.focus();
-    heading.scrollIntoView({ block: "nearest" });
-  }, [detailsCollapsed, expandDetailsRail, placement]);
+    withViewTransition(() => router.push(`/users/${peer.username}`));
+  }, [peer, placement, router]);
 
   if (!detail) {
     return <MessageThreadSkeleton />;
@@ -4523,18 +4483,15 @@ export function MessageThread({
         {placement === "rail" ? (
           <ConversationDetailsRail
             key={detail.conversation.id}
-            collapsed={detailsCollapsed}
             detail={detail}
             indexingRefs={coverage?.state === "running"}
             messages={allMessages}
-            onExpand={expandDetailsRail}
             onJumpToMessage={jumpToMessage}
             onRequestDecrypts={requestLoadedDecrypts}
             peer={peer}
             presence={peerPresence}
             refsRefreshToken={searchIndex?.refreshToken ?? 0}
             searchIndexStore={searchIndexStore}
-            titleRef={detailsTitleRef}
           />
         ) : null}
       </div>
@@ -5150,9 +5107,12 @@ function ThreadHeader({
         <Users className="h-4 w-4" />
       </button>
 
+      {/* Below `lg` only. On a wide screen the conversation list is right there and
+          picking a thread is how you leave one; a close control beside a pinned pane
+          reads as the way out of THAT pane, which is the one thing it does not do. */}
       <button
         aria-label="Close chat"
-        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full lg:hidden"
         onClick={onBack}
         title="Close chat"
         type="button"
