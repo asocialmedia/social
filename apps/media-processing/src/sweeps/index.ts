@@ -19,6 +19,7 @@ import {
   prisma,
   toPrismaDateTime,
 } from "@asm/db";
+import { MEDIA_PIPELINE_VERSION } from "@asm/media";
 import { Worker } from "bullmq";
 
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
@@ -363,6 +364,233 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   return { enqueued };
 }
 
+export const STORAGE_INTEGRITY_GRACE_MS = 60 * 60 * 1000; // 1 hour
+// Read per run, not at import, so the batch size is tunable per pass and the
+// round-robin wrap can be exercised in tests.
+function storageIntegrityBatch(): number {
+  return Number(process.env.MEDIA_INTEGRITY_BATCH ?? 50);
+}
+// Round-robin cursor: a first-N-by-age verifier would re-check the same
+// healthy rows forever and never reach the rest of the corpus. In-memory is
+// enough - the worker is one process, and a second replica would just cover
+// its own slice of the same order.
+let integrityCursor: null | string = null;
+
+// Storage integrity: catches READY rows whose bytes have gone missing from
+// storage. derivedHealSweep only rescues rows with zero derivative ROWS, so a
+// row whose rows exist while the objects behind them are gone - the crash
+// between publish and upload, a restored bucket, storage that lost a prefix -
+// is invisible to it and stays broken until a viewer hits a failed read.
+//
+// The repair is a single enqueue: processMedia writes every derivative object
+// to S3 BEFORE persisting its row, and persistMediaDerivatives only skips the
+// redundant row insert, so a re-run re-uploads the bytes that vanished.
+// A missing SOURCE is the one thing nothing can regenerate, so the row is
+// retired with a failureCode instead - the feed then shows a placeholder
+// rather than a player that can never load.
+export async function storageIntegritySweep(): Promise<{
+  checked: number;
+  healed: number;
+  retired: number;
+}> {
+  if (!workerEnv.BACKFILL_ENABLED) {
+    return { checked: 0, healed: 0, retired: 0 };
+  }
+  const cutoff = toPrismaDateTime(
+    new Date(Date.now() - STORAGE_INTEGRITY_GRACE_MS)
+  );
+  const candidates = await prisma.orm.public.PostMedia.select(
+    "id",
+    "customThumbnailKey",
+    "key",
+    "originalKey",
+    "publishedKey",
+    "thumbnailKey"
+  )
+    .where((media) =>
+      and(
+        ...(integrityCursor ? [media.id.gt(integrityCursor)] : []),
+        media.status.eq("READY"),
+        media.failureCode.isNull(),
+        media.createdAt.lt(cutoff),
+        media._type.in([...DERIVED_HEAL_TYPES])
+      )
+    )
+    .orderBy((media) => media.id.asc())
+    .limit(storageIntegrityBatch())
+    .all();
+
+  let checked = 0;
+  let healed = 0;
+  let retired = 0;
+  for (const row of candidates) {
+    const sourceKey = row.publishedKey || row.originalKey || row.key || "";
+    if (!sourceKey) {
+      continue;
+    }
+    try {
+      // A missing SOURCE is the one thing nothing can regenerate, so the row is
+      // retired and the feed falls back to a placeholder rather than a player
+      // that can never load. It is also the one destructive action here, so it
+      // needs two definitive NoSuchKey answers: an unreadable storage is
+      // "unknown", not data loss, and must leave the row untouched.
+      const sourceProbe = await probeObject(sourceKey);
+      if (sourceProbe === "unknown") {
+        console.error(
+          `Storage-integrity could not read ${sourceKey} for ${row.id}; leaving it for the next pass`
+        );
+        continue;
+      }
+      if (sourceProbe === "absent" && (await confirmMissing(sourceKey))) {
+        await prisma.orm.public.PostMedia.where({ id: row.id }).update({
+          failureCode: "storage-missing",
+          failureDetail: {
+            detail:
+              "source object missing from storage; nothing can regenerate it",
+            key: sourceKey,
+          },
+          status: "FAILED",
+        });
+        retired += 1;
+        mediaLogger.warn(
+          { key: sourceKey, mediaId: row.id },
+          "storage-integrity retired row with no source bytes"
+        );
+        continue;
+      }
+
+      const derivatives = await prisma.orm.public.PostMediaDerivatives.select(
+        "key",
+        "kind",
+        "pipelineVersion",
+        "variant"
+      )
+        .where({ mediaId: row.id })
+        .all();
+      const missing: string[] = [];
+      // A missing object from an OLD pipeline version can never be repaired:
+      // the process job writes version-stamped keys and never revisits the
+      // retired ones. Re-enqueueing on those would re-run the whole transcode
+      // every cycle and never clear the report, so only current-version
+      // breakage triggers a heal.
+      const repairable: string[] = [];
+      const probed = new Set<string>();
+      let undeterminable = false;
+      for (const derivative of derivatives) {
+        if (probed.has(derivative.key)) {
+          continue;
+        }
+        probed.add(derivative.key);
+        const probe = await probeObject(derivative.key);
+        if (probe === "unknown") {
+          undeterminable = true;
+          continue;
+        }
+        if (probe === "present") {
+          continue;
+        }
+        missing.push(`${derivative.kind}/${derivative.variant}`);
+        if (derivative.pipelineVersion === MEDIA_PIPELINE_VERSION) {
+          repairable.push(derivative.key);
+        }
+      }
+      // The thumbnail columns are served directly by the read route, so a
+      // lost object there 404s every feed card for this post even when the
+      // derivative rows are all intact. thumbnailKey is written from the
+      // current version's poster key, so a miss here is always repairable.
+      for (const thumbKey of [row.thumbnailKey, row.customThumbnailKey]) {
+        if (!thumbKey || probed.has(thumbKey)) {
+          continue;
+        }
+        probed.add(thumbKey);
+        const probe = await probeObject(thumbKey);
+        if (probe === "unknown") {
+          undeterminable = true;
+          continue;
+        }
+        if (probe === "absent") {
+          missing.push(`thumb:${thumbKey}`);
+          repairable.push(thumbKey);
+        }
+      }
+
+      // A row with an unreadable object is not a verified row: counting it
+      // would report storage as healthy while objects stay unproven.
+      if (undeterminable) {
+        continue;
+      }
+      checked += 1;
+      if (missing.length > 0) {
+        mediaLogger.warn(
+          { mediaId: row.id, missing },
+          "storage-integrity found missing objects"
+        );
+      }
+      if (repairable.length > 0) {
+        await enqueueMediaProcess(row.id, {
+          jobIdSuffix: `integrity-${Date.now()}`,
+        });
+        healed += 1;
+        mediaLogger.warn(
+          { mediaId: row.id, repairable },
+          "storage-integrity re-enqueued row with missing derivatives"
+        );
+      }
+    } catch (error) {
+      // One unreachable object or one refused enqueue must not strand the rest
+      // of the batch; the cursor still advances so the row is re-checked next
+      // cycle.
+      console.error(`Storage-integrity check failed for ${row.id}:`, error);
+    }
+  }
+
+  const last = candidates.at(-1);
+  // Running off the end wraps back to the start, so a small corpus is simply
+  // re-verified each cycle.
+  integrityCursor =
+    candidates.length < storageIntegrityBatch() ? null : (last?.id ?? null);
+
+  if (checked > 0 || retired > 0) {
+    mediaLogger.info(
+      { checked, healed, retired },
+      "storage-integrity sweep verified READY media"
+    );
+  }
+  return { checked, healed, retired };
+}
+
+// A HEAD-only existence probe. Never downloads bytes, so verifying a row costs
+// one request per object and nothing else.
+//
+// The third state is the point. rustfs answers a genuinely missing key with
+// NoSuchKey, but a refused connection or a 5xx is ALSO an S3Error, so a
+// catch-all that read every failure as "absent" would let one storage blip
+// retire a whole batch of perfectly healthy media as FAILED. Only a
+// definitive NoSuchKey is proof of data loss; anything else is "unknown",
+// which never mutates a row.
+type ObjectProbe = "absent" | "present" | "unknown";
+
+async function probeObject(key: string): Promise<ObjectProbe> {
+  try {
+    await getS3().file(key).stat();
+    return "present";
+  } catch (error) {
+    const {code} = (error as { code?: string });
+    return code === "NoSuchKey" || code === "NotFound" ? "absent" : "unknown";
+  }
+}
+
+// A second probe before the one destructive action in this sweep. objectExists
+// in ../s3 collapses every failure to "not there", which is fine for a
+// liveness check but must never gate a permanent state change on its own.
+async function confirmMissing(key: string): Promise<boolean> {
+  if ((await probeObject(key)) !== "absent") {
+    return false;
+  }
+  await Bun.sleep(500);
+  return (await probeObject(key)) === "absent";
+}
+
 export const MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS = 3;
 export const TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -531,6 +759,9 @@ export async function registerSweepSchedulers(connectionOptions: {
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
   await queue.upsertJobScheduler("media-derived-heal", { every: daily });
+  await queue.upsertJobScheduler("media-storage-integrity", {
+    every: thirtyMinutes,
+  });
   await queue.upsertJobScheduler("media-transcription-backfill", {
     every: thirtyMinutes,
   });
@@ -553,6 +784,9 @@ export async function registerSweepSchedulers(connectionOptions: {
         }
         case "media-derived-heal": {
           return await derivedHealSweep();
+        }
+        case "media-storage-integrity": {
+          return await storageIntegritySweep();
         }
         case "media-transcription-backfill": {
           return await transcriptionBackfillSweep();
