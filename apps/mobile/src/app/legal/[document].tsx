@@ -10,7 +10,7 @@
 // browser: a titled bar with a working back control and an external-link
 // escape for the handful of links the documents contain.
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -20,7 +20,6 @@ import {
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
-import type { WebViewNavigation } from "react-native-webview";
 
 import {
   legalDocumentPath,
@@ -28,6 +27,7 @@ import {
   resolveLegalDocument,
 } from "@/features/legal/lib/legal-document";
 import type { LegalDocument } from "@/features/legal/lib/legal-document";
+import { decideLegalNavigation } from "@/features/legal/lib/legal-navigation";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -44,22 +44,55 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const title = legalDocumentTitle(document);
-  const url = `${getApiBaseUrl()}${legalDocumentPath(document)}`;
+  const apiBase = getApiBaseUrl();
+  const url = `${apiBase}${legalDocumentPath(document)}`;
 
-  // Only the document itself is loaded in-app. Anything that navigates away
-  // from it is a real external link, so it goes to the system browser rather
-  // than stranding the user in a webview with no way back.
-  const onNavigation = async (target: WebViewNavigation) => {
-    if (target.url.startsWith(url) || target.url.startsWith(getApiBaseUrl())) {
-      return;
-    }
-    try {
-      await Linking.openURL(target.url);
-    } catch {
-      // A dead link must not trap the user on a blank frame.
-      router.back();
-    }
-  };
+  // Hands a link to whichever system app can open it, and gets the reader off
+  // this screen when nothing can.
+  const openExternally = useCallback(
+    async (target: string) => {
+      try {
+        await Linking.openURL(target);
+      } catch {
+        // A dead link must not leave the reader on a document that never opened.
+        if (router.canGoBack()) {
+          router.back();
+          return;
+        }
+        router.replace("/");
+      }
+    },
+    [router]
+  );
+
+  // Only the document itself is loaded in-app. Anything that navigates away from
+  // it is a real external link, and the decision is made on the request, before
+  // the load starts: a callback that only watches navigation reports the new
+  // page once it is already there, which renders GitHub under this title bar
+  // with no way back to the document.
+  const allowNavigation = useCallback(
+    (target: string, isTopFrame: boolean) => {
+      const decision = decideLegalNavigation({
+        apiBase,
+        documentUrl: url,
+        target,
+      });
+      if (decision === "allow") {
+        return true;
+      }
+      // A subframe is a resource the document asked for, not a destination the
+      // reader chose, so an off-origin one is dropped rather than sent to the
+      // system browser.
+      if (decision === "open-externally" && isTopFrame) {
+        // Deliberately not awaited: the native side blocks on this callback
+        // until it returns, so awaiting here would hold the navigation decision
+        // open until the system browser had come up.
+        void openExternally(target);
+      }
+      return false;
+    },
+    [apiBase, openExternally, url]
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
@@ -134,7 +167,12 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
           onLoadEnd={() => {
             setLoading(false);
           }}
-          onNavigationStateChange={onNavigation}
+          onShouldStartLoadWithRequest={(request) =>
+            allowNavigation(request.url, request.isTopFrame)
+          }
+          // The API base is plain http in development, so this cannot be
+          // narrowed to https. It is not the reader-facing gate either: every
+          // navigation is decided on the request in onShouldStartLoadWithRequest.
           originWhitelist={["https://*", "http://*"]}
           pullToRefreshEnabled
           renderLoading={() => <View />}
