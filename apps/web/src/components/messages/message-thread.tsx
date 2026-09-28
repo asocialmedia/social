@@ -141,6 +141,10 @@ import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
 import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
 import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
 import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
+import {
+  firstUnreadMessageId,
+  UNREAD_DIVIDER_LABEL,
+} from "@/lib/messages/unread-marker";
 import { useConversationSearch } from "@/lib/messages/use-conversation-search";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
@@ -458,6 +462,27 @@ export function MessageThread({
   // messages have arrived since it last was (the Telegram-style badge).
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [arrivalCount, setArrivalCount] = useState(0);
+  // The reader's read watermark as it was when this conversation opened.
+  //
+  // Frozen on the first render `detail` exists, because it MOVES: opening the
+  // thread marks the conversation read, and a later refetch of the detail would
+  // hand back the advanced value. Reading the boundary off that would erase the
+  // divider a moment after painting it -- the opposite of the point, which is to
+  // say where the reader left off for as long as they are looking at it. The next
+  // visit has no unread messages, so the divider is gone on arrival, which is what
+  // "removed once I revisit" means.
+  //
+  // Set during render rather than in an effect so the boundary is known in the same
+  // commit the transcript first has messages. In an effect the landing below would
+  // already have scrolled to the bottom and the divider would arrive as a second
+  // jump.
+  const [openWatermark, setOpenWatermark] = useState<
+    Date | string | null | undefined
+  >();
+  // Whether the reader has touched the composer, which is the other way the divider
+  // goes away. Local only: sending is a reason to stop saying "new messages", not a
+  // reason to claim the history was read.
+  const [unreadDismissed, setUnreadDismissed] = useState(false);
   // Chat search is one session with two view states. The search bar renders
   // differently per view and owns every control, so the thread holds the mode
   // plus the list's page and active row and routes one set of key handlers.
@@ -853,6 +878,43 @@ export function MessageThread({
     : null;
 
   const userId = user?.id;
+
+  // Freeze the read watermark on the first render the conversation detail exists
+  // for. Set during render rather than in an effect so the boundary is known in the
+  // same commit the transcript first has messages -- in an effect, the landing below
+  // would already have scrolled to the bottom and the divider would arrive as a
+  // second jump.
+  if (detail && openWatermark === undefined) {
+    const myMember = detail.conversation.members.find(
+      (member) => member.userId === userId
+    );
+    setOpenWatermark(myMember?.lastReadAt ?? null);
+  }
+
+  // Where the unread run starts, derived from the frozen watermark and whatever the
+  // transcript currently holds.
+  //
+  // A derivation rather than a captured id, so it can still arrive: the newest page
+  // usually loads after the conversation detail, and an id captured the moment the
+  // detail resolved would be captured against an empty list. It also moves the
+  // divider UP when older unread pages are prepended, which is right -- scrolling
+  // into history extends the unread run rather than starting a new one.
+  //
+  // Null when the boundary is older than the loaded window, in which case the
+  // transcript shows no divider and opens at the newest page. Reaching a boundary
+  // that far back needs a read anchored on a TIME, which the history endpoint does
+  // not take; the common case -- a handful of unread messages, well inside the
+  // newest page -- does not need it.
+  const unreadAnchorId = useMemo(
+    () =>
+      firstUnreadMessageId({
+        lastReadAt: openWatermark,
+        messages: allMessages,
+        myUserId: userId ?? "",
+      }),
+    [allMessages, openWatermark, userId]
+  );
+  const showUnreadDivider = unreadAnchorId !== null && !unreadDismissed;
 
   // Seed the peer watermarks from the conversation detail. Merged, never
   // lowered, so a detail refetch cannot retract a receipt the realtime stream
@@ -1909,8 +1971,41 @@ export function MessageThread({
   // after the first measurement pass corrects the estimated row heights,
   // which otherwise leaves the view a little short of the true end.
   const hasLandedRef = useRef(false);
+  // Whether the transcript has been taken to the unread boundary. Separate from
+  // `hasLandedRef` because the boundary can resolve AFTER the first landing -- the
+  // conversation detail's watermark and the newest page rarely arrive in the same
+  // commit -- and that later arrival has to still be able to move the viewport, or
+  // the reader is left at the bottom with the divider somewhere above them.
+  const unreadLandedRef = useRef(false);
   useLayoutEffect(() => {
-    if (hasLandedRef.current || allMessages.length === 0 || !detail) {
+    if (allMessages.length === 0 || !detail) {
+      return;
+    }
+    const unreadIndex =
+      showUnreadDivider && unreadAnchorId
+        ? allMessages.findIndex((message) => message.id === unreadAnchorId)
+        : -1;
+    if (unreadIndex !== -1) {
+      if (unreadLandedRef.current) {
+        return;
+      }
+      unreadLandedRef.current = true;
+      // The generic landing is done too: the reader has been placed, just not at
+      // the bottom.
+      hasLandedRef.current = true;
+      // `start` rather than `center`: the divider is the row's first child, so
+      // aligning the row's top to the viewport's shows the rule and the message it
+      // introduces together.
+      rowVirtualizer.scrollToIndex(unreadIndex, { align: "start" });
+      // Re-anchored a frame later, once the rows above have measured at their real
+      // heights, which is what stops the boundary drifting the way an unmeasured
+      // landing does.
+      const frame = requestAnimationFrame(() => {
+        rowVirtualizer.scrollToIndex(unreadIndex, { align: "start" });
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+    if (hasLandedRef.current) {
       return;
     }
     hasLandedRef.current = true;
@@ -1919,7 +2014,7 @@ export function MessageThread({
       rowVirtualizer.scrollToEnd();
     });
     return () => cancelAnimationFrame(frame);
-  }, [allMessages.length, detail, rowVirtualizer]);
+  }, [allMessages, detail, rowVirtualizer, showUnreadDivider, unreadAnchorId]);
 
   // Track the pinned state from actual scroll position. Passive listener with
   // change-gated state writes, so scrolling never triggers a render storm.
@@ -4258,6 +4353,9 @@ export function MessageThread({
                             groupMeta={groupMeta}
                             highlighted={jumpTargetId === message.id}
                             historyVersion={historyVersion}
+                            unreadDivider={
+                              showUnreadDivider && message.id === unreadAnchorId
+                            }
                             message={message}
                             messagesById={messagesById}
                             myUserId={userId ?? ""}
@@ -4429,6 +4527,10 @@ export function MessageThread({
             onEditCancel={() => setEditTarget(null)}
             onEditSave={handleEditSave}
             onReplyCancel={() => setReplyTarget(null)}
+            // Typing is the reader acknowledging what is on screen, so the rule
+            // stops saying "new". Local only: it is not a claim that the history was
+            // read, and the server is not told anything by a keystroke.
+            onDraftInput={() => setUnreadDismissed(true)}
             onSent={() => {
               scheduleRead();
               // Sending always returns the user to the newest message, even from
@@ -4526,6 +4628,8 @@ interface VirtualRowProps {
   groupMeta: MessageGroupMeta;
   highlighted: boolean;
   historyVersion: number;
+  // This row is where the reader left off, so it carries the rule above it.
+  unreadDivider: boolean;
   message: MessageData;
   messagesById: Map<string, MessageData>;
   myUserId: string;
@@ -4623,6 +4727,7 @@ function VirtualRowInner({
   scrolling,
   selected,
   selectionActive,
+  unreadDivider,
 }: VirtualRowProps) {
   const mine = message.senderId === myUserId;
   const payload = useDecryptEntry(message.id);
@@ -4710,9 +4815,17 @@ function VirtualRowInner({
   // inconsistent between them. Tighter inside a group, a slight gap between
   // groups, and a centered time pill above a paused break.
   const spacingClass = groupMeta.isLastInGroup ? "pb-3" : "pb-0.5";
-  const divider = groupMeta.showTimeDivider ? (
-    <TimeDivider at={message.createdAt} />
-  ) : null;
+  // The unread rule sits ABOVE the time divider when both apply: the reader's place
+  // in the conversation is the more specific fact, and the timestamp still reads
+  // correctly underneath it.
+  const divider = (
+    <>
+      {unreadDivider ? <UnreadDivider /> : null}
+      {groupMeta.showTimeDivider ? (
+        <TimeDivider at={message.createdAt} />
+      ) : null}
+    </>
+  );
   // Where this message sits in its sender-run, for the shared corner shaping.
   const position = bubblePosition(
     groupMeta.isFirstInGroup,
@@ -4894,6 +5007,7 @@ const VirtualRow = memo(
     prev.scrolling === next.scrolling &&
     prev.selected === next.selected &&
     prev.selectionActive === next.selectionActive &&
+    prev.unreadDivider === next.unreadDivider &&
     prev.onEdit === next.onEdit &&
     prev.onReply === next.onReply &&
     prev.onRequest === next.onRequest &&
@@ -5025,7 +5139,7 @@ function ThreadHeader({
       {/* Avatar + identity is ONE control: it toggles the conversation's contact
           card (actions, shared media/posts/links) on a wide screen, and opens it as a
           sheet below `lg`.
-
+          
           No hover wash. `pill-3d-hover` painted a grey gradient across the whole row,
           which on a header that already has a hoverable control beside it read as a
           selection rather than as affordance. What is left is the underline on the
@@ -5152,6 +5266,22 @@ function ThreadHeader({
 // the divider window. It lives inside the message's own virtual row, so the
 // virtualizer's item count stays equal to the message count and scroll
 // anchoring is untouched; measureElement already absorbs the extra height.
+// The rule that says the messages below it arrived after the reader last looked.
+// A centered label between two hairlines, which is how every chat client draws it:
+// unmistakable in a scroll, and it does not read as a message of its own the way a
+// left-aligned row would.
+function UnreadDivider() {
+  return (
+    <div className="flex items-center gap-2 pt-1 pb-2">
+      <span aria-hidden className="bg-primary/40 h-px flex-1" />
+      <span className="text-primary text-[10px] font-semibold tracking-wide uppercase">
+        {UNREAD_DIVIDER_LABEL}
+      </span>
+      <span aria-hidden className="bg-primary/40 h-px flex-1" />
+    </div>
+  );
+}
+
 function TimeDivider({ at }: { at: Date | string }) {
   const label = formatTimeDivider(at);
   if (!label) {

@@ -49,6 +49,7 @@ interface MessageComposerProps {
     id: string;
     payloadType: MessagePayload["type"];
   } | null;
+  onDraftInput: () => void;
   onEditCancel: () => void;
   onEditSave: (content: string) => Promise<boolean>;
   onReplyCancel: () => void;
@@ -101,6 +102,7 @@ async function sendWithRatchetRetry(
 export function MessageComposer({
   conversation,
   editTarget,
+  onDraftInput,
   onEditCancel,
   onEditSave,
   onReplyCancel,
@@ -677,6 +679,11 @@ export function MessageComposer({
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
+            // The reader is writing into this conversation, which is when a "new
+            // messages" marker has done its job.
+            if (value.length > 0) {
+              onDraftInput();
+            }
             // Typing heartbeats are meaningless while editing an existing
             // message; skip them so an edit never pings the peer.
             if (!editing && value.trim().length > 0) {
