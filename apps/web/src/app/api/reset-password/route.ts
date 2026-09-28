@@ -3,6 +3,10 @@ import { connection } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
+import {
+  checkResetPasswordToken,
+  resetPasswordTokenIdentifier,
+} from "@/lib/auth/reset-password-token";
 
 // Mobile-facing twin of the web reset form's server action. The native client
 // cannot invoke a Server Action, so this exposes the same audited flow
@@ -42,7 +46,8 @@ export async function POST(req: NextRequest) {
 // `reset-password:{token}` identifier. Validate the token against that row so
 // the confirm form accepts links issued by the auth service's
 // /request-password-reset flow (the legacy PasswordResetToken model is unused
-// and would reject every valid link).
+// and would reject every valid link). The decision itself lives in
+// @/lib/auth/reset-password-token so it is testable without a request scope.
 export async function GET(req: NextRequest) {
   // A reset token is a single-use secret looked up per request, so this can
   // never be prerendered or cached. The claim also keeps the Prisma read out of
@@ -53,7 +58,7 @@ export async function GET(req: NextRequest) {
   try {
     const token = req.nextUrl.searchParams.get("token");
 
-    if (!token || typeof token !== "string" || token.length === 0) {
+    if (!token) {
       return Response.json(
         { error: "Invalid token" },
         {
@@ -64,20 +69,17 @@ export async function GET(req: NextRequest) {
     }
 
     const resetToken = await prisma.orm.public.Verification.where({
-      identifier: `reset-password:${token}`,
+      identifier: resetPasswordTokenIdentifier(token),
     }).first();
 
-    if (!resetToken) {
-      return Response.json(
-        { error: "Token not found" },
-        {
-          headers: { "Content-Type": "application/json" },
-          status: 404,
-        }
-      );
-    }
+    const check = checkResetPasswordToken({
+      storedExpiresAt: resetToken
+        ? fromPrismaDateTime(resetToken.expiresAt)
+        : null,
+      token,
+    });
 
-    if (fromPrismaDateTime(resetToken.expiresAt) < new Date()) {
+    if (check.kind === "expired" && resetToken) {
       await prisma.orm.public.Verification.where({
         id: resetToken.id,
       }).delete();
@@ -87,6 +89,16 @@ export async function GET(req: NextRequest) {
         {
           headers: { "Content-Type": "application/json" },
           status: 400,
+        }
+      );
+    }
+
+    if (check.kind === "unknown-token") {
+      return Response.json(
+        { error: "Token not found" },
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 404,
         }
       );
     }
