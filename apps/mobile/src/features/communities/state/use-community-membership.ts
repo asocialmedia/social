@@ -8,7 +8,7 @@
 // its server-rendered page; native has no such render, so the detail screen
 // records the visit on open instead.
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -80,14 +80,37 @@ export function useCommunityMembership({
     [initialMembership, slug, snapshot]
   );
 
+  // The same fallback, held in a ref so `patch` can keep a stable identity.
+  // Closing over `current` instead would make `patch` a function of the
+  // snapshot it writes, and the membership read below is keyed on `patch`: one
+  // response would change the identity, re-arm the effect, and keep the screen
+  // requesting membership for as long as it stayed open.
+  const freshRef = useRef<Snapshot>({
+    canModerate: false,
+    membership: initialMembership,
+    slug,
+    subscribed: false,
+  });
+  useEffect(() => {
+    freshRef.current = {
+      canModerate: false,
+      membership: initialMembership,
+      slug,
+      subscribed: false,
+    };
+  }, [initialMembership, slug]);
+
+  // Only the slug is read here, and the base is derived inside the updater, so a
+  // write is always applied to the snapshot for the community the caller is
+  // looking at even if it lands after a navigation.
   const patch = useCallback(
     (next: Partial<Snapshot>) => {
       setSnapshot((value) => ({
-        ...(value.slug === slug ? value : current),
+        ...(value.slug === slug ? value : freshRef.current),
         ...next,
       }));
     },
-    [current, slug]
+    [slug]
   );
 
   const options = useCallback(
@@ -106,6 +129,10 @@ export function useCommunityMembership({
   // Seed the bell and the moderation flag from the dedicated membership read.
   // Without it the bell would sit at "off" until the first write, and a
   // moderator would not know they can moderate.
+  //
+  // One read per viewer and community, and nothing else: the response only
+  // writes the snapshot, so every dependency here has to be an input to the
+  // request rather than something the response changes.
   useEffect(() => {
     if (!isLoggedIn) {
       return;
