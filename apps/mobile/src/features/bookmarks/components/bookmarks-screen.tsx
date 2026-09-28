@@ -1,7 +1,7 @@
 // oxlint-disable no-nested-ternary, no-void, react/todo, react/set-state-in-effect, promise/prefer-await-to-then, unicorn/no-useless-undefined
 import { useRouter } from "expo-router";
 import { Bookmark, Clapperboard, Heart, Terminal } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -81,33 +81,61 @@ export function BookmarksScreen() {
   const [data, setData] = useState<BookmarkData>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const viewerId = user?.id ?? null;
+
+  // Every request is numbered, and the view it was issued for is remembered.
+  // A response may only land if it is still the newest request *and* the tab
+  // and viewer it was asked for are the ones on screen: a tab switch starts
+  // another request, and without this a slow earlier one would replace the
+  // active tab's results - HackerNews rows rendered as posts, with a count
+  // counted from the other tab's list. The sign-out case matters too, since
+  // nothing starts a replacement request when the viewer goes away.
+  const latestRequestRef = useRef(0);
+  const currentViewRef = useRef({ tab, viewerId });
+  useEffect(() => {
+    currentViewRef.current = { tab, viewerId };
+  }, [tab, viewerId]);
 
   const load = useCallback(async () => {
+    const requestId = latestRequestRef.current + 1;
+    latestRequestRef.current = requestId;
     if (!user) {
       router.replace("/(auth)/login");
       return;
     }
+    const requestedTab = tab;
+    const requestedViewer = viewerId;
+    const isCurrent = () =>
+      latestRequestRef.current === requestId &&
+      currentViewRef.current.tab === requestedTab &&
+      currentViewRef.current.viewerId === requestedViewer;
     setLoading(true);
     setError(null);
     try {
       const cookie = await authClient.getCookie();
       const options = { apiBase: getApiBaseUrl(), cookie };
       let next: BookmarkData;
-      if (tab === "hackernews") {
+      if (requestedTab === "hackernews") {
         next = await fetchBookmarkedHn(options);
-      } else if (tab === "likes") {
+      } else if (requestedTab === "likes") {
         next = await fetchLikedPosts(options);
       } else {
-        next = await fetchBookmarkedPosts(tab, options);
+        next = await fetchBookmarkedPosts(requestedTab, options);
+      }
+      if (!isCurrent()) {
+        return;
       }
       setData(next);
     } catch {
+      if (!isCurrent()) {
+        return;
+      }
       setError("We couldn’t load your bookmarks.");
       setLoading(false);
       return;
     }
     setLoading(false);
-  }, [router, tab, user]);
+  }, [router, tab, user, viewerId]);
 
   useEffect(() => {
     if (!isPending) {
@@ -208,7 +236,7 @@ export function BookmarksScreen() {
             Tap the bookmark on a post to keep it here.
           </Text>
         </View>
-      ) : (
+      ) : loading ? null : (
         <FlatList<FeedPost | HnStory>
           {...LIST_VIRTUALIZATION_PROPS}
           contentContainerStyle={styles.list}
