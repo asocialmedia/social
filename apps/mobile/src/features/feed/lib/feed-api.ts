@@ -113,6 +113,43 @@ export async function fetchFeedHead(
   return page.posts;
 }
 
+/**
+ * The id of the newest post in a feed variant, or null when the viewer can see
+ * nothing yet - one row, not a page.
+ *
+ * This is the cheap first tier of the new-content probe. The probe used to pull
+ * a whole head page (twenty viewer-resolved posts, their vote and bookmark
+ * joins, and a Redis view-count read for all twenty) every 45 seconds, only to
+ * compare the first id against what was already on screen. The same question
+ * answers itself from one row, and the full page is only worth fetching once
+ * that row says something arrived.
+ *
+ * Only the variants whose route honours `take` can be asked for a single row;
+ * the others fall back to the page, which is the behaviour this replaces.
+ */
+export async function fetchFeedHeadId(
+  variant: FeedVariant,
+  options: ApiCallOptions
+): Promise<string | null> {
+  const endpoint = FEED_ENDPOINTS[variant];
+  const path = HEAD_ID_VARIANTS.has(variant) ? `${endpoint}?take=1` : endpoint;
+  const response = await callFeedApi(path, options);
+  if (!response.ok) {
+    throw new FeedApiError(
+      `Feed request failed (${response.status})`,
+      response.status
+    );
+  }
+  return parsePostsPage(await readJson(response)).posts[0]?.id ?? null;
+}
+
+// Routes that accept ?take= and can therefore answer with a single row. Checked
+// against the web app's feed routes, which own the query.
+const HEAD_ID_VARIANTS: ReadonlySet<FeedVariant> = new Set<FeedVariant>([
+  "latest",
+  "personalized",
+]);
+
 export interface VoteInfo {
   aura: number;
   userVote: number;

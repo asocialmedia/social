@@ -77,6 +77,8 @@ export default function HomeFeed({
     feedKey = "latest";
     endpoint = "/api/posts/latest";
   }
+  // Only these two routes honour ?take= and can answer the probe with one row.
+  const probeSupportsSingleRow = isLatest || isPersonalized;
   const queryKey = useMemo(
     () => ["post-feed", feedKey, user?.id ?? "guest"],
     [feedKey, user?.id]
@@ -196,6 +198,19 @@ export default function HomeFeed({
   const { clearNewItems, newItems: newPosts } = useNewContentProbe({
     enabled: !excludePostId && !communitySlug,
     fetchHead: async () => {
+      // Cheap first: one row answers "did anything arrive?". The full head page -
+      // twenty viewer-resolved posts, their vote and bookmark joins, and a view
+      // count read for all twenty - is only worth fetching once that row says
+      // something new, which on an idle screen is almost never. Same badge, same
+      // merge, a fraction of the work per poll.
+      if (probeSupportsSingleRow && globalPosts.length > 0) {
+        const head = await kyInstance
+          .get(endpoint, { searchParams: { take: 1 } })
+          .json<PostsPage>();
+        if (globalPosts.some((post) => post.id === head.posts[0]?.id)) {
+          return [];
+        }
+      }
       const fresh = await kyInstance.get(endpoint).json<PostsPage>();
       return fresh.posts;
     },
