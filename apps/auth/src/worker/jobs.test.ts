@@ -249,6 +249,55 @@ describe("worker job processors", () => {
     expect(mockUserDelete).toHaveBeenCalled();
   });
 
+  test("processInactiveUsersSweep counts retained accounts instead of logging each", async () => {
+    // A seeded corpus is almost entirely undeletable, and a line per retained
+    // account buried the rest of the startup log in hundreds of identical
+    // lines. The count belongs in the summary; the identities are debug-only.
+    userDeleteError = {
+      constraint: "aura_logs_userId_fkey",
+      sqlState: "23001",
+    };
+    const info: { msg?: string; obj: Record<string, unknown> }[] = [];
+    const debug: { msg?: string; obj: Record<string, unknown> }[] = [];
+    const logger = {
+      debug: (obj: Record<string, unknown>, msg?: string) => {
+        debug.push({ msg, obj });
+      },
+      error: () => {
+        /* unused */
+      },
+      info: (obj: Record<string, unknown>, msg?: string) => {
+        info.push({ msg, obj });
+      },
+      warn: () => {
+        /* unused */
+      },
+    };
+
+    const { processInactiveUsersSweep } = await import("./jobs");
+    await processInactiveUsersSweep(logger);
+
+    const finished = info.filter(
+      (entry) => entry.msg === "inactive user sweep finished"
+    );
+    expect(finished).toHaveLength(1);
+    expect(finished[0]?.obj).toMatchObject({ deleted: 0, retained: 1 });
+    expect(
+      info.some(
+        (entry) =>
+          entry.msg ===
+          "inactive user retained because related records restrict deletion"
+      )
+    ).toBe(false);
+    expect(
+      debug.some(
+        (entry) =>
+          entry.msg ===
+          "inactive user retained because related records restrict deletion"
+      )
+    ).toBe(true);
+  });
+
   test("processExpiredTokens deletes expired reset tokens", async () => {
     const { processExpiredTokens } = await import("./jobs");
 

@@ -376,6 +376,12 @@ export async function processInactiveUsersSweep(
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const batchSize = 100;
     const skippedUserIds: string[] = [];
+    // Retained accounts are counted, not narrated. A seeded development corpus
+    // is almost entirely undeletable - every seeded post, comment and vote
+    // references its author - so one line per user turned a single sweep at
+    // boot into hundreds of identical lines and buried everything else in the
+    // startup log. The identities stay available at debug.
+    let retained = 0;
 
     const deleteBatch = async (): Promise<number> => {
       const batch = await prisma.orm.public.Users.select("id")
@@ -414,7 +420,8 @@ export async function processInactiveUsersSweep(
         }
         if (userId) {
           skippedUserIds.push(userId);
-          log.info(
+          retained += 1;
+          log.debug(
             { constraint: "foreign_key", userId },
             "inactive user retained because related records restrict deletion"
           );
@@ -428,7 +435,10 @@ export async function processInactiveUsersSweep(
     };
 
     const totalDeleted = await deleteBatch();
-    log.info({ deleted: totalDeleted }, "inactive user sweep finished");
+    log.info(
+      { deleted: totalDeleted, retained },
+      "inactive user sweep finished"
+    );
     return totalDeleted;
   });
 }
