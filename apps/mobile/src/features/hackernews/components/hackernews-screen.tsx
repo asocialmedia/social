@@ -1,46 +1,61 @@
 // The HackerNews screen, ported from web's `app/(main)/hackernews/` and
-// `components/hackernews/hn-feed.tsx`: the three sort tabs, the five type
-// filters, a search field, and the paged story list. The 429 state gets its own
-// treatment rather than an error, because the upstream feed recovers on its own.
+// `components/hackernews/`: the three sort tabs, the search field with its
+// type-filter menu, and the paged story list.
+//
+// The chrome is pinned above the list the way web pins it, and the header is
+// the FIRST child of the root. It is not positioned: MobileHeader is a plain
+// SafeAreaView + bar that expects to be the first flex child and takes the top
+// of the screen from wherever it sits. Rendering it after the list pinned it to
+// the bottom edge, and the list's hardcoded `paddingTop: 56` was standing in
+// for a header that was never above it.
+import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Clock, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Animated, FlatList, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import noSearchImage from "@/assets/images/nosearch.png";
+import notFoundImage from "@/assets/images/notfound.png";
 import { toast } from "@/components/feedback/toast";
+import { themeText } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
+import { FeedTabs } from "@/features/feed/components/feed-tabs";
+import {
+  HEADER_BAR_HEIGHT,
+  reportFeedScroll,
+  resetHeaderScroll,
+} from "@/features/feed/lib/header-visibility";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
+import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
-import { MobileHeader } from "../../home/components/mobile-header";
+import { MobileBottomNav } from "../../home/components/mobile-bottom-nav";
+import { headerSlide, MobileHeader } from "../../home/components/mobile-header";
 import {
   fetchHnBookmarkStates,
   fetchHnPage,
   HnApiError,
-  HN_FILTER_OPTIONS,
   HN_SORT_OPTIONS,
   setHnBookmark,
 } from "../lib/hackernews-api";
 import type { HnFilter, HnSort, HnStory } from "../lib/hackernews-api";
+import { HnFeedSkeleton, HnFeedSkeletonCard } from "./hn-feed-skeleton";
+import { HnSearchBar } from "./hn-search-bar";
 import { HnStoryCard, hnItemUrl } from "./hn-story-card";
 
 export function HackerNewsScreen() {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const router = useRouter();
-  const { user } = useSessionContext();
+  const insets = useSafeAreaInsets();
+  const { isPending, user } = useSessionContext();
+  const showUser = !isPending && Boolean(user);
+  const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
   const openComposer = useComposerStore((state) => state.open);
   const setDraft = useComposerStore((state) => state.setDraft);
 
@@ -93,6 +108,8 @@ export function HackerNewsScreen() {
   // Seeded once and refreshed with each load, so the relative times on the rows
   // are stable across a re-render instead of moving on every frame.
   const [now, setNow] = useState(() => Date.now());
+  const [dockHeight, setDockHeight] = useState(56);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Web debounces the search field before it reaches the feed; the same 300ms
   // is applied here so typing does not fire a request per keystroke.
@@ -147,49 +164,49 @@ export function HackerNewsScreen() {
     [filter, options, query, sort, stories, user]
   );
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      setStatus("loading");
-      setError(null);
-      try {
-        const resolved = await options();
-        const result = await fetchHnPage(
-          { page: 1, search: query, sort, type: filter },
-          resolved
+  const fetchFirstPage = useCallback(async () => {
+    setStatus("loading");
+    setError(null);
+    try {
+      const resolved = await options();
+      const result = await fetchHnPage(
+        { page: 1, search: query, sort, type: filter },
+        resolved
+      );
+      setRateLimited(result.rateLimited);
+      setStories(result.stories);
+      setNow(Date.now());
+      setPage(1);
+      setStatus("success");
+      if (user && result.stories.length > 0) {
+        setBookmarks(
+          await fetchHnBookmarkStates(
+            result.stories.map((story) => story.id),
+            resolved
+          )
         );
-        if (!active) {
-          return;
-        }
-        setRateLimited(result.rateLimited);
-        setStories(result.stories);
-        setNow(Date.now());
-        setPage(1);
-        setStatus("success");
-        if (user && result.stories.length > 0) {
-          setBookmarks(
-            await fetchHnBookmarkStates(
-              result.stories.map((story) => story.id),
-              resolved
-            )
-          );
-        }
-      } catch (loadError) {
-        if (!active) {
-          return;
-        }
-        setError(
-          loadError instanceof HnApiError
-            ? loadError.message
-            : "Couldn't load HackerNews right now."
-        );
-        setStatus("error");
       }
-    })();
-    return () => {
-      active = false;
-    };
+    } catch (loadError) {
+      setError(
+        loadError instanceof HnApiError
+          ? loadError.message
+          : "Couldn't load HackerNews right now."
+      );
+      setStatus("error");
+    }
   }, [filter, options, query, sort, user]);
+
+  // The first page is the effect: resetting the status before the fetch runs is
+  // the point, and fetchFirstPage does that synchronously before it awaits.
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- see above
+    void fetchFirstPage();
+  }, [fetchFirstPage]);
+
+  // The hide-on-scroll signal is module state shared with MobileHeader and the
+  // dock, so leaving the page with the bar hidden would hand that state to the
+  // next screen. FeedList resets it on the way out too.
+  useEffect(() => resetHeaderScroll, []);
 
   const toggleBookmark = (story: HnStory) => {
     if (!user) {
@@ -219,195 +236,118 @@ export function HackerNewsScreen() {
     })();
   };
 
-  const header = useMemo(
-    () => (
-      <View style={styles.header}>
-        <View style={styles.searchWrap}>
-          <Search color={theme.dividerText} size={17} />
-          <TextInput
-            autoCapitalize="none"
-            autoCorrect={false}
-            onChangeText={setSearch}
-            placeholder="Search stories"
-            placeholderTextColor={theme.inputPlaceholder}
-            returnKeyType="search"
-            style={[styles.searchInput, { color: theme.inputText }]}
-            value={search}
-          />
-          {search ? (
-            <Pressable
-              accessibilityLabel="Clear search"
-              hitSlop={8}
-              onPress={() => {
-                setSearch("");
-              }}
-            >
-              <X color={theme.dividerText} size={16} />
-            </Pressable>
-          ) : null}
-        </View>
-        <View style={styles.tabs}>
-          {HN_SORT_OPTIONS.map((option) => {
-            const selected = option.value === sort;
-            return (
-              <Pressable
-                accessibilityRole="tab"
-                accessibilityState={{ selected }}
-                key={option.value}
-                onPress={() => {
-                  setSort(option.value);
-                }}
-                style={[
-                  styles.tab,
-                  selected && {
-                    backgroundColor: "rgba(230, 85, 0, 0.08)",
-                    borderColor: "#e65500",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    { color: selected ? "#e65500" : theme.dividerText },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={styles.filters}>
-          {HN_FILTER_OPTIONS.map((option) => {
-            const selected = option.value === filter;
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                key={option.value}
-                onPress={() => {
-                  setFilter(option.value);
-                }}
-                style={styles.filter}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    { color: selected ? "#e65500" : theme.dividerText },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-    ),
-    [filter, search, sort, theme]
+  // Web collapses the top bar on scroll down and leaves the sort tabs pinned
+  // under it. Native does the same by sliding the header out and bringing the
+  // block below it up by exactly the bar height, with the matching negative
+  // margin so the block extends past the fold and no strip is left behind.
+  const followUp = headerSlide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -HEADER_BAR_HEIGHT],
+  });
+
+  // Web's LoadMoreSkeleton appears for the duration of the next page fetch and
+  // the footer clears on settle, so this owns both halves of that state rather
+  // than the list re-deriving them.
+  const appendPage = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      await load(page + 1, true);
+    } catch {
+      // Web swallows a failed page fetch too: the rows already on screen stay,
+      // and the next end-reached tries again.
+    }
+    setLoadingMore(false);
+  }, [load, page]);
+
+  const handleEndReached = () => {
+    if (status !== "success" || rateLimited || loadingMore) {
+      return;
+    }
+    void appendPage();
+  };
+
+  const renderSeparator = () => (
+    <View style={[styles.separator, { borderBottomColor: theme.cardBorder }]} />
   );
 
   // The four empty states are resolved together so the loading, rate-limited,
-  // error and genuinely-empty cases cannot drift apart.
-  const renderEmpty = () => {
+  // error and genuinely-empty cases cannot drift apart. Web treats a 429 as an
+  // error with its own art and copy (the upstream feed recovers on its own), so
+  // this does too rather than dressing it up as a distinct feature.
+  const listEmpty = useMemo(() => {
     if (status === "loading") {
-      return <ActivityIndicator color="#ff9500" style={styles.loader} />;
+      return <HnFeedSkeleton />;
     }
     if (rateLimited) {
       return (
-        <View style={styles.state}>
-          <Clock color={theme.dividerText} size={30} />
-          <Text style={[styles.stateTitle, { color: theme.inputText }]}>
-            HackerNews is busy
+        <View style={[styles.state, styles.stateError]}>
+          <Image
+            contentFit="contain"
+            source={noSearchImage}
+            style={styles.stateArt}
+          />
+          <Text
+            style={[
+              styles.stateTitle,
+              { color: themeText(isDark).destructive },
+            ]}
+          >
+            Rate limit exceeded. Please try again later.
           </Text>
-          <Text style={[styles.stateBody, { color: theme.dividerText }]}>
-            Too many requests right now. Give it a moment and pull to refresh.
+          <Text style={[styles.stateHint, { color: theme.dividerText }]}>
+            You&apos;re moving too fast, take a breather and try again.
           </Text>
         </View>
       );
     }
     if (status === "error") {
       return (
-        <View style={styles.state}>
-          <Text style={[styles.stateBody, { color: theme.dividerText }]}>
-            {error}
-          </Text>
-          <Pressable
-            accessibilityLabel="Try again"
-            accessibilityRole="button"
-            onPress={() => {
-              void load(1, false);
-            }}
-            style={styles.retry}
+        <View style={[styles.state, styles.stateError]}>
+          <Image
+            contentFit="contain"
+            source={noSearchImage}
+            style={styles.stateArt}
+          />
+          <Text
+            style={[
+              styles.stateTitle,
+              { color: themeText(isDark).destructive },
+            ]}
           >
-            <Text style={styles.retryText}>Try again</Text>
-          </Pressable>
+            An error occurred while loading stories.
+          </Text>
+          <Text style={[styles.stateHint, { color: theme.dividerText }]}>
+            {error ?? "Please try refreshing the page."}
+          </Text>
         </View>
       );
     }
     return (
       <View style={styles.state}>
-        <Search color={theme.dividerText} size={30} />
+        <Image
+          contentFit="contain"
+          source={notFoundImage}
+          style={styles.stateArt}
+        />
         <Text style={[styles.stateTitle, { color: theme.inputText }]}>
           No stories found
         </Text>
-        <Text style={[styles.stateBody, { color: theme.dividerText }]}>
-          Try a different search or filter.
+        <Text style={[styles.stateHint, { color: theme.dividerText }]}>
+          Try a different search or filter to find more stories.
         </Text>
       </View>
     );
-  };
+  }, [error, isDark, rateLimited, status, theme.dividerText, theme.inputText]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <FlatList
-        {...LIST_VIRTUALIZATION_PROPS}
-        contentContainerStyle={styles.content}
-        data={stories}
-        keyExtractor={(story) => String(story.id)}
-        ListEmptyComponent={renderEmpty()}
-        ListHeaderComponent={header}
-        onEndReached={() => {
-          if (status === "success" && !rateLimited) {
-            void load(page + 1, true);
-          }
-        }}
-        onEndReachedThreshold={0.6}
-        onRefresh={() => {
-          void load(1, false);
-        }}
-        refreshing={status === "loading" && stories.length > 0}
-        renderItem={({ item }) => (
-          <HnStoryCard
-            bookmarked={bookmarks[item.id] ?? false}
-            now={now}
-            onReshare={reshare}
-            onToggleBookmark={toggleBookmark}
-            // A HackerNews story is not a post on this platform, so the row
-            // opens the story's own link, falling back to its discussion.
-            onVisit={(story) => {
-              const target = story.url ?? hnItemUrl(story.id);
-              void (async () => {
-                try {
-                  await Linking.openURL(target);
-                } catch {
-                  toast({
-                    description: "Couldn't open that link",
-                    title: "No luck",
-                    variant: "destructive",
-                  });
-                }
-              })();
-            }}
-            story={item}
-          />
-        )}
-        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-      />
       <MobileHeader
+        onSearchPress={() => useSearchStore.getState().open()}
+        unreadCount={unreadCount}
         user={
           user
             ? {
+                avatarUrl: user.image ?? null,
                 id: user.id,
                 image: user.image,
                 username: user.username ?? user.name,
@@ -415,53 +355,109 @@ export function HackerNewsScreen() {
             : null
         }
       />
+      <Animated.View
+        style={[
+          styles.content,
+          {
+            marginBottom: -HEADER_BAR_HEIGHT,
+            transform: [{ translateY: followUp }],
+          },
+        ]}
+      >
+        <FeedTabs active={sort} onChange={setSort} tabs={HN_SORT_OPTIONS} />
+        <View
+          style={[styles.searchRow, { borderBottomColor: theme.cardBorder }]}
+        >
+          <HnSearchBar
+            filter={filter}
+            onFilterChange={setFilter}
+            onSearchChange={setSearch}
+            search={search}
+          />
+        </View>
+        <FlatList
+          {...LIST_VIRTUALIZATION_PROPS}
+          contentContainerStyle={{
+            flexGrow: 1,
+            // Clears the dock, and the bar height so the last row stays
+            // reachable while the header is showing over the top of it.
+            paddingBottom: dockHeight + insets.bottom + HEADER_BAR_HEIGHT + 24,
+          }}
+          data={stories}
+          ItemSeparatorComponent={renderSeparator}
+          keyExtractor={(story) => String(story.id)}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={loadingMore ? <HnFeedSkeletonCard /> : null}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
+          onRefresh={() => {
+            void fetchFirstPage();
+          }}
+          onScroll={(event) =>
+            reportFeedScroll(event.nativeEvent.contentOffset.y)
+          }
+          refreshing={status === "loading" && stories.length > 0}
+          renderItem={({ item }) => (
+            <HnStoryCard
+              bookmarked={bookmarks[item.id] ?? false}
+              now={now}
+              onReshare={reshare}
+              onToggleBookmark={toggleBookmark}
+              // A HackerNews story is not a post on this platform, so the row
+              // opens the story's own link, falling back to its discussion.
+              onVisit={(story) => {
+                const target = story.url ?? hnItemUrl(story.id);
+                void (async () => {
+                  try {
+                    await Linking.openURL(target);
+                  } catch {
+                    toast({
+                      description: "Couldn't open that link",
+                      title: "No luck",
+                      variant: "destructive",
+                    });
+                  }
+                })();
+              }}
+              story={item}
+            />
+          )}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+          style={styles.list}
+        />
+      </Animated.View>
+      <MobileBottomNav onHeightChange={setDockHeight} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: 8, paddingBottom: 40, paddingTop: 56 },
-  filter: { paddingHorizontal: 4, paddingVertical: 4 },
-  filterText: { fontFamily: "SofiaProMed", fontSize: 12 },
-  filters: { flexDirection: "row", gap: 14, paddingHorizontal: 2 },
-  header: { gap: 10, paddingBottom: 4 },
-  loader: { marginTop: 32 },
-  retry: {
-    borderColor: "#ff9500",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-  },
-  retryText: { color: "#ff9500", fontFamily: "SofiaProMed", fontSize: 14 },
+  content: { flex: 1 },
+  // The list takes the rest of the column. Stated rather than implied because
+  // RN's default flexShrink is 0, so a scroll view without it would size to its
+  // content and push the chrome off the top instead of scrolling under it.
+  list: { flex: 1 },
   root: { flex: 1 },
-  searchInput: {
-    flex: 1,
-    fontFamily: "SofiaProReg",
-    fontSize: 14,
-    minHeight: 40,
+  searchRow: {
+    borderBottomWidth: 1,
+    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
   },
-  searchWrap: {
+  separator: { borderBottomWidth: 1, height: 1 },
+  state: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 10,
+    flexGrow: 1,
+    gap: 12,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 64,
   },
-  state: { alignItems: "center", gap: 8, padding: 32 },
-  stateBody: {
-    fontFamily: "SofiaProReg",
-    fontSize: 14,
-    lineHeight: 19,
-    textAlign: "center",
-  },
-  stateTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
-  tab: {
-    borderCurve: "continuous",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  tabText: { fontFamily: "SofiaProMed", fontSize: 13 },
-  tabs: { flexDirection: "row", gap: 8 },
+  stateArt: { height: 176, width: 211 },
+  // Web's error block is `justify-end` with pt-10 pb-16, so the art sits low
+  // on the screen rather than floating in the middle of it.
+  stateError: { justifyContent: "flex-end", paddingBottom: 64, paddingTop: 40 },
+  stateHint: { fontFamily: "SofiaProReg", fontSize: 12, textAlign: "center" },
+  stateTitle: { fontFamily: "SofiaProBold", fontSize: 14, textAlign: "center" },
 });

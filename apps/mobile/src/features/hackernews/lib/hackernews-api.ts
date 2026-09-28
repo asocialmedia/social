@@ -15,9 +15,12 @@ export const HN_SORT_OPTIONS = [
 
 export type HnSort = (typeof HN_SORT_OPTIONS)[number]["value"];
 
+// Web's HN_FILTER_OPTIONS, in web's order and with web's labels. The glyph
+// each entry draws is a react-native concern, so it lives with the filter menu
+// rather than here, which keeps this list free of any UI import.
 export const HN_FILTER_OPTIONS = [
-  { label: "All", value: "all" },
-  { label: "Stories", value: "story" },
+  { label: "All Stories", value: "all" },
+  { label: "News", value: "story" },
   { label: "Jobs", value: "job" },
   { label: "Show HN", value: "show" },
   { label: "Ask HN", value: "ask" },

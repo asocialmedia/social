@@ -4,12 +4,17 @@
 // chips, and finally the two row actions ("Reshare as fleet" into the composer
 // and "Copy" of the link).
 //
-// The orange wash web applies on hover has no native equivalent, so the row
-// carries the resting state only rather than faking a hover it cannot detect.
+// The row carries no surface of its own. Web draws the feed as bare padded rows
+// split by hairline `Separator`s, so an earlier port that gave every story a
+// rounded bordered card was wrong twice over: it added chrome the page does not
+// have, and it hid the dividers that are what separates one story from the
+// next. Only the hover orange wash is missing here, which is a pointer state a
+// touch surface has no equivalent for.
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import {
   Bookmark,
+  Clock,
   Copy,
   Link2,
   MessageCircle,
@@ -22,7 +27,7 @@ import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
-import { RAIL_ACTIVE, metaChip } from "@/components/surface/recipes";
+import { hnChip, hnLink, RAIL_ACTIVE } from "@/components/surface/recipes";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -100,7 +105,8 @@ export function HnStoryCard({
   story: HnStory;
 }) {
   const { isDark, theme } = useAppTheme();
-  const chip = metaChip(isDark);
+  const chip = hnChip(isDark);
+  const linkColor = hnLink(isDark);
   // Web links the title to the story and the comments chip to the discussion.
   // The port had both pointing at the story, under a label that said
   // "discussion", so the chip went somewhere other than where it claimed.
@@ -140,12 +146,7 @@ export function HnStoryCard({
   }, [story.title, target]);
 
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
-      ]}
-    >
+    <View style={styles.card}>
       <View style={styles.top}>
         <View style={styles.brand}>
           <Gradient3D
@@ -166,9 +167,11 @@ export function HnStoryCard({
           </Text>
         </View>
         <View style={styles.topRight}>
+          <Clock color={theme.dividerText} size={12} />
           <Text style={[styles.time, { color: theme.dividerText }]}>
             {timeAgo(story.time, now)}
           </Text>
+          {/* Save control at the row's top-right, matching post cards. */}
           <Pressable
             accessibilityLabel={bookmarked ? "Remove bookmark" : "Save story"}
             accessibilityRole="button"
@@ -189,7 +192,7 @@ export function HnStoryCard({
                 <Bookmark color="#ffffff" fill="#ffffff" size={16} />
               </Gradient3D>
             ) : (
-              <Bookmark color={chip.color} size={16} />
+              <Bookmark color={theme.dividerText} size={16} />
             )}
           </Pressable>
         </View>
@@ -215,7 +218,11 @@ export function HnStoryCard({
           <View
             style={[
               styles.domain,
-              { backgroundColor: chip.background, borderColor: chip.border },
+              {
+                backgroundColor: chip.background,
+                borderColor: chip.border,
+                boxShadow: chip.shadows,
+              },
             ]}
           >
             <Link2 color={chip.color} size={12} />
@@ -230,10 +237,20 @@ export function HnStoryCard({
       </View>
 
       <View style={styles.chips}>
-        <View
+        <Pressable
+          accessibilityLabel={`Open the HackerNews profile of ${story.by}`}
+          accessibilityRole="link"
+          hitSlop={4}
+          onPress={() => {
+            openExternal(hnUserUrl(story.by));
+          }}
           style={[
             styles.chip,
-            { backgroundColor: chip.background, borderColor: chip.border },
+            {
+              backgroundColor: chip.background,
+              borderColor: chip.border,
+              boxShadow: chip.shadows,
+            },
           ]}
         >
           <User color={chip.color} size={12} />
@@ -243,11 +260,15 @@ export function HnStoryCard({
           >
             {story.by}
           </Text>
-        </View>
+        </Pressable>
         <View
           style={[
             styles.chip,
-            { backgroundColor: chip.background, borderColor: chip.border },
+            {
+              backgroundColor: chip.background,
+              borderColor: chip.border,
+              boxShadow: chip.shadows,
+            },
           ]}
         >
           <ThumbsUp color={chip.color} size={12} />
@@ -258,20 +279,28 @@ export function HnStoryCard({
         <Pressable
           accessibilityLabel={`Open the HackerNews discussion, ${story.comments} comments`}
           accessibilityRole="link"
+          hitSlop={4}
           onPress={() => {
             openExternal(discussionUrl);
           }}
           style={[
             styles.chip,
-            { backgroundColor: chip.background, borderColor: chip.border },
+            {
+              backgroundColor: chip.background,
+              borderColor: chip.border,
+              boxShadow: chip.shadows,
+            },
           ]}
         >
           <MessageCircle color={chip.color} size={12} />
+          {/* Web wraps the word "comment(s)" in `hidden sm:inline`, so a phone
+              shows the count alone. */}
           <Text style={[styles.chipText, { color: chip.color }]}>
-            {story.comments} {story.comments === 1 ? "comment" : "comments"}
+            {story.comments}
           </Text>
         </Pressable>
       </View>
+
       <View style={styles.actions}>
         <Pressable
           accessibilityLabel="Reshare this story as a fleet"
@@ -280,8 +309,9 @@ export function HnStoryCard({
           onPress={() => onReshare(story)}
           style={styles.action}
         >
-          <Share2 color={chip.color} size={14} />
-          <Text style={[styles.actionText, { color: chip.color }]}>
+          {/* rotate-90 on web: the glyph reads as a reshare, not a share. */}
+          <Share2 color={linkColor} size={14} style={styles.actionIcon} />
+          <Text style={[styles.actionText, { color: linkColor }]}>
             Reshare as fleet
           </Text>
         </Pressable>
@@ -294,8 +324,8 @@ export function HnStoryCard({
           }}
           style={[styles.action, styles.actionEnd]}
         >
-          <Copy color={chip.color} size={14} />
-          <Text style={[styles.actionText, { color: chip.color }]}>Copy</Text>
+          <Copy color={linkColor} size={14} />
+          <Text style={[styles.actionText, { color: linkColor }]}>Copy</Text>
         </Pressable>
       </View>
     </View>
@@ -305,55 +335,64 @@ export function HnStoryCard({
 const styles = StyleSheet.create({
   action: {
     alignItems: "center",
+    borderRadius: 8,
     flexDirection: "row",
-    gap: 6,
-    paddingVertical: 6,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   actionEnd: { marginLeft: "auto" },
+  actionIcon: { transform: [{ rotate: "90deg" }] },
   actionText: { fontFamily: "SofiaProMed", fontSize: 12 },
   actions: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8,
-    paddingTop: 2,
+    gap: 6,
+    marginTop: 2,
+    paddingTop: 8,
   },
   brand: { alignItems: "center", flexDirection: "row", gap: 8, minWidth: 0 },
   brandText: {
     fontFamily: "SofiaProBold",
     fontSize: 10,
-    letterSpacing: 0.6,
+    // tracking-wide (0.025em) at 10px.
+    letterSpacing: 0.25,
     textTransform: "uppercase",
   },
-  card: {
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 6,
-    padding: 12,
-  },
+  // Web: `flex flex-col gap-1.5 p-3` with no background, border or radius.
+  card: { gap: 6, padding: 12 },
   chip: {
     alignItems: "center",
-    borderRadius: 999,
+    borderCurve: "continuous",
+    borderRadius: 9999,
     borderWidth: 1,
     flexDirection: "row",
     gap: 4,
-    maxWidth: 120,
+    // max-w-17.5, the pre-sm clamp on web's byline chip.
+    maxWidth: 70,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 2,
   },
-  chipText: { fontFamily: "SofiaProReg", fontSize: 11 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 2 },
+  chipText: { fontFamily: "SofiaProReg", fontSize: 12 },
+  chips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 2,
+  },
   domain: {
     alignItems: "center",
-    borderRadius: 999,
+    borderCurve: "continuous",
+    borderRadius: 9999,
     borderWidth: 1,
     flexDirection: "row",
     gap: 4,
+    marginTop: 2,
     maxWidth: "40%",
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  domainText: { fontFamily: "SofiaProReg", fontSize: 11 },
+  domainText: { fontFamily: "SofiaProReg", fontSize: 12 },
   logo: { height: 20, width: 20 },
   logoText: {
     color: "#ffffff",
@@ -368,9 +407,9 @@ const styles = StyleSheet.create({
   },
   saveActive: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
   time: { fontFamily: "SofiaProReg", fontSize: 11 },
-  title: { fontFamily: "SofiaProBold", fontSize: 14, lineHeight: 19 },
+  title: { fontFamily: "SofiaProBold", fontSize: 14, lineHeight: 20 },
   titlePress: { flex: 1, minWidth: 0 },
-  titleRow: { alignItems: "flex-start", flexDirection: "row", gap: 10 },
+  titleRow: { alignItems: "flex-start", flexDirection: "row", gap: 12 },
   top: {
     alignItems: "center",
     flexDirection: "row",
