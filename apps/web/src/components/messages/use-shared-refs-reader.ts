@@ -57,9 +57,9 @@ export interface SharedRefsReader {
   counts: { link: number; media: number; post: number };
   links: SharedLinkItem[];
   linksError: boolean;
-  loadMoreLinks: () => void;
-  loadMorePosts: () => void;
-  loadMoreMedia: () => void;
+  loadMoreLinks: () => Promise<void>;
+  loadMorePosts: () => Promise<void>;
+  loadMoreMedia: () => Promise<void>;
   media: SharedMediaItem[];
   mediaError: boolean;
   posts: SharedPostItem[];
@@ -75,6 +75,11 @@ interface PagingState {
   after: Record<SharedRefKind, string | undefined>;
   done: Record<SharedRefKind, boolean>;
   inFlight: Record<SharedRefKind, boolean>;
+  // Whether this kind has ever held a row, which is what decides whether a read
+  // has just established its cursor or has moved it. Not derivable from `after`:
+  // a top-of-list read returns a page and legitimately leaves the cursor alone
+  // when rows are already held, and both cases leave `after` looking the same.
+  started: Record<SharedRefKind, boolean>;
   // The index token these cursors belong to. A read started under an older token
   // is discarded on arrival: a walk that committed while it was in flight has
   // already added rows above its cursor, so appending its page puts a newer
@@ -87,11 +92,43 @@ function newPagingState(token: number): PagingState {
     after: { link: undefined, media: undefined, post: undefined },
     done: { link: false, media: false, post: false },
     inFlight: { link: false, media: false, post: false },
+    started: { link: false, media: false, post: false },
     token,
   };
 }
 
 export type ReadMode = "more" | "refresh";
+
+// Where a kind's cursor goes after a page lands.
+//
+// The cursor names the OLDEST row the list holds, so the read that FIRST fills
+// the list has to set it -- not just the reads that extend it. That distinction is
+// a whole bug on its own: the list is filled by a top-of-list read, which
+// legitimately leaves the cursor alone because prepending a page does not move the
+// oldest row. So the cursor stayed unset, the first "load older" went out with no
+// cursor at all and got page one back -- the newest sixty rows -- which the "more"
+// merge then APPENDED, and the grid grew a second copy of its own first screen at
+// the bottom. Every click after that paged correctly, which is what made it look
+// like a one-off rather than a rule.
+//
+// `done` is threaded in only so a read that finds nothing cannot silently un-finish
+// a kind that had already reached the end of the store.
+export function nextPagingCursor(input: {
+  // The cursor the page just returned, i.e. `page.after`.
+  after: string | undefined;
+  // The kind's cursor as it stands, which a read that does not extend the list has
+  // to hand back untouched.
+  currentAfter: string | undefined;
+  currentDone: boolean;
+  hasMore: boolean;
+  mode: ReadMode;
+  started: boolean;
+}): { after: string | undefined; done: boolean } {
+  if (input.mode === "more" || !input.started) {
+    return { after: input.after, done: !input.hasMore };
+  }
+  return { after: input.currentAfter, done: input.currentDone };
+}
 
 // Folds a page into the rows a kind already holds.
 //
@@ -191,10 +228,17 @@ export function useSharedRefsReader(input: {
             // below older ones, and the tab's order stays wrong.
             return;
           }
-          if (mode === "more") {
-            state.after[kind] = page.after;
-            state.done[kind] = !page.hasMore;
-          }
+          const cursor = nextPagingCursor({
+            after: page.after,
+            currentAfter: state.after[kind],
+            currentDone: state.done[kind],
+            hasMore: page.hasMore,
+            mode,
+            started: state.started[kind],
+          });
+          state.after[kind] = cursor.after;
+          state.done[kind] = cursor.done;
+          state.started[kind] = true;
           if (kind === "media") {
             setMedia((current) =>
               mergeRefs(current, page.items.map(sharedRefToMediaItem), mode)
@@ -263,10 +307,11 @@ export function useSharedRefsReader(input: {
     };
   }, [conversationId, readPage, refreshToken, store]);
 
+  // Awaitable on purpose: the footer's button shows a spinner and refuses further
+  // taps while a page is in, and it can only stop doing that if it can see when the
+  // read finished.
   const loadMore = useCallback(
-    (kind: SharedRefKind) => {
-      void readPage(kind, "more");
-    },
+    (kind: SharedRefKind) => readPage(kind, "more"),
     [readPage]
   );
 

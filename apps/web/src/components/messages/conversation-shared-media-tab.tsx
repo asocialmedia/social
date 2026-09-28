@@ -10,6 +10,7 @@ import { getMessageMediaVariantUrl } from "@/lib/utils/image-url";
 import {
   EmptyShared,
   ListFooter,
+  READ_FAILED_FOOTNOTE,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
 import { EMPTY_FOOTNOTE } from "./conversation-shared-posts-tab";
@@ -43,7 +44,7 @@ export function ConversationSharedMediaTab({
   hasMore: boolean;
   indexing: boolean;
   items: readonly ConversationMediaItem[];
-  loadMore: () => void;
+  loadMore: () => Promise<void>;
   onOpen: (item: ConversationMediaItem) => Promise<void> | void;
   opening: boolean;
   readError: boolean;
@@ -55,20 +56,38 @@ export function ConversationSharedMediaTab({
   const columns = width >= THREE_COLUMN_MIN_WIDTH ? 3 : 2;
   const tile = (width - GAP * (columns - 1)) / columns;
   const rowCount = Math.ceil(items.length / columns);
+  // The row pitch, and with it the scroll extent, are ARITHMETIC rather than the
+  // virtualizer's measurement.
+  //
+  // This grid's rows are a pure function of the pane's width -- no `measureElement`,
+  // no reflow, which is why the rows never jitter -- so the extent is knowable
+  // exactly, and asking the virtualizer for it is asking a measuring cache to
+  // report a length that was never measured.
+  //
+  // It reported one row on the first paint of a 60-row list, because the pane's
+  // width arrives a frame after mount. The rows are absolutely positioned inside
+  // the sized container, so a container a fraction of its real height does not clip
+  // them: they escape it, the scroller's scrollable extent becomes the tallest row
+  // rather than the list, and the footer -- which sits after the container in normal
+  // flow -- is painted straight over the images. It also made appended pages appear
+  // to arrive above the viewport, because the extent they were added to was wrong.
+  const rowPitch = tile + GAP;
+  const totalSize = rowCount * rowPitch;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const getScrollElement = useCallback(() => scrollRef.current, []);
   // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream chat recipe, same as the transcript's); rows stay memoized on their own props
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
-    estimateSize: () => tile + GAP,
+    // The same number the extent is computed from, so the virtualizer's own scroll
+    // math and the container it positions inside cannot disagree.
+    estimateSize: () => rowPitch,
     // Keyed on the row's first tile, so a row keeps its identity (and its scroll
     // position) for as long as that item is still in the list.
     getItemKey: (row) => items[row * columns]?.flatKey ?? row,
     getScrollElement,
     overscan: OVERSCAN_ROWS,
   });
-  const totalSize = rowVirtualizer.getTotalSize();
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   // Pre-measurement there is no width to divide, so the virtualizer would be
@@ -106,7 +125,7 @@ export function ConversationSharedMediaTab({
       empty={
         <EmptyShared
           body="Images and GIFs sent in this chat collect here."
-          footnote={EMPTY_FOOTNOTE}
+          footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
           icon={<Images className="size-5" />}
           title="No media yet"
         />

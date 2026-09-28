@@ -9,6 +9,7 @@ import type { SharedPostItem } from "@/lib/messages/shared-refs-format";
 import {
   EmptyShared,
   ListFooter,
+  READ_FAILED_FOOTNOTE,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
 import { PostEmbed } from "./post-embed";
@@ -40,7 +41,7 @@ export function ConversationSharedPostsTab({
   hasMore: boolean;
   indexing: boolean;
   items: readonly SharedPostItem[];
-  loadMore: () => void;
+  loadMore: () => Promise<void>;
   readError: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -62,7 +63,7 @@ export function ConversationSharedPostsTab({
       empty={
         <EmptyShared
           body="Posts shared in this chat collect here."
-          footnote={EMPTY_FOOTNOTE}
+          footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
           icon={<FileText className="size-5" />}
           title="No posts yet"
         />
@@ -105,5 +106,9 @@ export function ConversationSharedPostsTab({
 
 // Why the list may be empty, stated to the reader rather than assumed. The reader
 // knows which case it is, and the same three sentences serve all three tabs.
+//
+// "A background index" rather than "once you open this panel": on a wide screen
+// the details are the pinned pane beside the transcript, so they are already open
+// and the walk is already running. The copy has to stay true for both surfaces.
 export const EMPTY_FOOTNOTE =
-  "Nothing here yet. Older posts are indexed in the background once you open this panel, and without a local index only this device's loaded messages can be searched.";
+  "Nothing here yet. Older posts are indexed in the background while you read, and without a local index only this device's loaded messages can be searched.";

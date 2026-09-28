@@ -9,6 +9,7 @@ import type { SharedLinkItem } from "@/lib/messages/shared-refs-format";
 import {
   EmptyShared,
   ListFooter,
+  READ_FAILED_FOOTNOTE,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
 import { EMPTY_FOOTNOTE } from "./conversation-shared-posts-tab";
@@ -39,7 +40,7 @@ export function ConversationSharedLinksTab({
   hasMore: boolean;
   indexing: boolean;
   items: readonly SharedLinkItem[];
-  loadMore: () => void;
+  loadMore: () => Promise<void>;
   readError: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -61,7 +62,7 @@ export function ConversationSharedLinksTab({
       empty={
         <EmptyShared
           body="Links sent in this chat collect here."
-          footnote={EMPTY_FOOTNOTE}
+          footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
           icon={<Link2 className="size-5" />}
           title="No links yet"
         />

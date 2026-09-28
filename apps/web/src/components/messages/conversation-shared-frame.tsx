@@ -3,7 +3,7 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
 import type { ReactNode, Ref } from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 // The scroll + absolutely-positioned-rows shell shared by the details panel's
 // three tabs. The transcript owns an equivalent inline (message-thread.tsx);
@@ -52,8 +52,19 @@ export function VirtualRowsFrame({
       className="hide-native-scrollbar flex h-full flex-col overflow-y-auto overscroll-contain px-4 pt-1 pb-6"
       ref={scrollRef}
     >
+      {/* `shrink-0` is load-bearing, not tidiness. The scroller is a column flex
+          box, so this div is a flex item and its inline height is only a
+          SUGGESTION: with the default `flex-shrink: 1` the item collapses to the
+          scroller's own height and the height is discarded.
+
+          The rows are absolutely positioned inside it, so a collapsed container does
+          not clip them -- they escape, the scroller's scrollable extent becomes the
+          last visible row rather than the whole list, and the footer below, which
+          sits after the container in normal flow, is painted straight over the
+          images. It also made a newly paged-in row appear above the viewport,
+          because the extent it was added to was the wrong number. */}
       <div
-        className="relative w-full"
+        className="relative w-full shrink-0"
         ref={containerRef}
         style={{ height: isEmpty ? "100%" : totalSize }}
       >
@@ -77,6 +88,14 @@ export function VirtualRowsFrame({
 //     a query the user did not ask for and could not stop;
 //   - neither: nothing at all, so a fully-shown list is not annotated with a
 //     caveat about the index it does not need.
+// Why an empty list is empty when the READ itself failed. A different answer from
+// "this conversation has none" and from "a background walk has not arrived yet",
+// and the one thing that must not be said when it is true is the indexing
+// sentence: promising a backfill that is not running is the confident wrong answer
+// this whole file exists to avoid.
+export const READ_FAILED_FOOTNOTE =
+  "Couldn't read the saved index, so this is only what this device has loaded.";
+
 export function ListFooter({
   indexing,
   hasMore,
@@ -86,11 +105,27 @@ export function ListFooter({
 }: {
   hasMore: boolean;
   indexing: boolean;
-  loadMore: () => void;
+  loadMore: () => Promise<void>;
   noun: string;
   readError: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+
+  // Cleared on BOTH paths, which is the whole content of this callback. Setting it
+  // and never clearing it made the button permanently disabled after one press, so
+  // a list could be paged exactly once per session however much history it had.
+  // `readPage` swallows its own failures, so the rejection arm is belt-and-braces --
+  // but a rejected promise that never cleared the flag would be the same bug again.
+  const handleLoad = useCallback(async () => {
+    setBusy(true);
+    try {
+      await loadMore();
+    } catch {
+      // `readPage` swallows its own failures, so this arm only stops a rejection
+      // from stranding a disabled button.
+    }
+    setBusy(false);
+  }, [loadMore]);
 
   if (readError) {
     return (
@@ -120,8 +155,7 @@ export function ListFooter({
         className="btn-3d-gray inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-60"
         disabled={busy}
         onClick={() => {
-          setBusy(true);
-          loadMore();
+          void handleLoad();
         }}
         type="button"
       >
