@@ -62,7 +62,7 @@
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.0.89",
+      "version": "1.0.90",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",

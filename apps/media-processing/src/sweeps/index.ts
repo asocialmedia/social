@@ -575,7 +575,7 @@ async function probeObject(key: string): Promise<ObjectProbe> {
     await getS3().file(key).stat();
     return "present";
   } catch (error) {
-    const {code} = (error as { code?: string });
+    const { code } = error as { code?: string };
     return code === "NoSuchKey" || code === "NotFound" ? "absent" : "unknown";
   }
 }
