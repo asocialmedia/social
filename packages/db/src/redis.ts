@@ -757,6 +757,71 @@ export async function publishMessageKeysRotated(
   });
 }
 
+// A per-user channel for "something happened in one of your conversations".
+//
+// The per-conversation channel above only reaches clients with that conversation
+// OPEN. The conversation list needs the opposite: it must learn about a message in a
+// thread nobody has open, which is the whole point of a list. So this channel is
+// per USER and its payload is deliberately tiny -- the conversation id, nothing
+// else. Carrying the message would duplicate the conversation channel and hand every
+// idle tab a copy of ciphertext it is not going to read.
+//
+// The event is a SIGNAL rather than data: the only correct response is to refetch
+// the list, which already knows how to order and preview itself. Nothing here is
+// secret, which is also why it is safe to publish to a user id.
+export const MESSAGE_ACTIVITY_CHANNEL_PREFIX = "message-activity:";
+
+export const messageActivityChannel = (userId: string): string =>
+  `${MESSAGE_ACTIVITY_CHANNEL_PREFIX}${userId}`;
+
+export interface MessageActivityEvent {
+  conversationId: string;
+  kind: "message.created";
+}
+
+export function serializeMessageActivityEvent(
+  event: MessageActivityEvent
+): string {
+  return JSON.stringify(event);
+}
+
+export function parseMessageActivityEvent(
+  raw: string
+): MessageActivityEvent | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<MessageActivityEvent>;
+    if (parsed.kind !== "message.created") {
+      return null;
+    }
+    if (
+      typeof parsed.conversationId !== "string" ||
+      parsed.conversationId.length === 0
+    ) {
+      return null;
+    }
+    return { conversationId: parsed.conversationId, kind: parsed.kind };
+  } catch {
+    return null;
+  }
+}
+
+// Best-effort, like every other publish here: a message that is committed must not
+// turn into an error because the fan-out failed. The list's own polling is the
+// fallback when this is not delivered.
+export async function publishMessageActivity(
+  userId: string,
+  event: MessageActivityEvent
+): Promise<void> {
+  try {
+    await redis.publish(
+      messageActivityChannel(userId),
+      serializeMessageActivityEvent(event)
+    );
+  } catch (error) {
+    console.error("Error publishing message activity:", error);
+  }
+}
+
 // Security events use a per-user channel. They carry no credential material:
 // a browser receives only enough information to know whether its own session
 // must close after a server-confirmed revocation.

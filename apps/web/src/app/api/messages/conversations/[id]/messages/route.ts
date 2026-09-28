@@ -2,6 +2,7 @@ import type { MessageData, MessagePage } from "@asm/db";
 import {
   consumeRateLimit,
   prisma,
+  publishMessageActivity,
   publishMessageCreated,
   unreadMessageCache,
 } from "@asm/db";
@@ -368,6 +369,23 @@ export async function POST(
     }
   } catch (error) {
     console.error("Failed to publish message created:", error);
+  }
+  // And tell every member's conversation list that this thread moved, so it
+  // reorders and re-reads its preview without waiting for the next poll. Both
+  // members: the thread moves to the top of the RECIPIENT's list, and the sender's
+  // list has to follow in any other tab they have open. Best-effort, like the
+  // publish above.
+  try {
+    await Promise.all(
+      conversation.members.map((member) =>
+        publishMessageActivity(member.userId, {
+          conversationId: id,
+          kind: "message.created",
+        })
+      )
+    );
+  } catch (error) {
+    console.error("Failed to publish message activity:", error);
   }
 
   return Response.json({ message }, { status: 201 });

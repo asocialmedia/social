@@ -16,6 +16,7 @@ import {
 } from "@/lib/messages/client";
 import type { SearchUserResult } from "@/lib/messages/client";
 import type { ConversationListLayout } from "@/lib/messages/conversation-list-layout";
+import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +67,13 @@ export function ConversationList({
       queryKey: ["message-conversations", user?.id],
     });
   }, [queryClient, user?.id]);
+
+  // A message arriving in ANY conversation re-reads the list, which is what moves
+  // that thread to the top the moment it lands rather than on the next poll. The
+  // event carries only the conversation id, so the response is to refetch: the
+  // server owns the ordering (by conversation activity) and the preview, and
+  // re-deriving either here would be a second implementation to keep in step.
+  useMessageActivity(refetchList);
 
   // Shared create-conversation flow used by both entry points (the custom
   // "new conversation" event and the search result row): creating state,

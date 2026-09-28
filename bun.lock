@@ -138,7 +138,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.97",
+      "version": "1.5.98",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -266,7 +266,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.1.68",
+      "version": "1.1.69",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
