@@ -266,6 +266,15 @@ export async function GET(
       }
       const contentRange = upstream.headers.get("content-range");
       if (!upstream.ok || upstream.status !== 206 || !contentRange) {
+        // A ranged read of a missing object must answer 404, not 500. The
+        // non-ranged path below lets the SDK throw S3ServiceException, which
+        // isObjectNotFoundError maps to 404; throwing a plain Error here made
+        // the same absent asset answer 500 on ranged requests, which is what
+        // <video> sends, so every seek on a lost object looked like a server
+        // fault instead of a missing asset.
+        if (upstream.status === 404) {
+          return mediaError("Not found", 404);
+        }
         throw new Error(
           `Storage range request failed: status=${upstream.status}`
         );

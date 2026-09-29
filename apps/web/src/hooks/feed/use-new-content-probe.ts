@@ -24,6 +24,20 @@ export function findUnseenItems<T extends NewContentItem>(
   return unseen;
 }
 
+// The same question against a RANKED feed (personalized, trending), which is
+// not sorted newest-first. There a post that arrives right now can land
+// anywhere in the page, so both ordering assumptions above break: the leading
+// run stops at the first already-known row and drops the brand-new post sitting
+// below it. A ranked feed therefore answers with a plain set difference over
+// the whole head page, which is also why it can never take the cheap top-row
+// shortcut.
+export function findUnseenRankedItems<T extends NewContentItem>(
+  fresh: T[],
+  knownIds: ReadonlySet<string>
+): T[] {
+  return fresh.filter((item) => !knownIds.has(item.id));
+}
+
 interface UseNewContentProbeOptions<T extends NewContentItem> {
   // Skip probing entirely (e.g. a deep-linked detail feed that is not the
   // active timeline).
@@ -34,6 +48,12 @@ interface UseNewContentProbeOptions<T extends NewContentItem> {
   // Drops items that should never be surfaced as new (gusts only render video).
   filter?: (item: T) => boolean;
   intervalMs?: number;
+  // How the feed orders its rows, and the whole reason the cheap "did anything
+  // arrive?" shortcut is conditional. "newest-first" (the default) can answer
+  // it from the head row alone; "ranked" cannot, so the whole page has to be
+  // read. The caller's fetchHead decides which route it asks - this only
+  // decides how the answer may be read.
+  order?: "newest-first" | "ranked";
   // Clears the badge when the feed identity changes (tab switch, deep link).
   resetKey?: string | number;
   // The posts currently rendered. Changes to this array keep the baseline
@@ -55,6 +75,7 @@ export function useNewContentProbe<T extends NewContentItem>({
   fetchHead,
   filter,
   intervalMs = 45_000,
+  order = "newest-first",
   resetKey,
   visible,
 }: UseNewContentProbeOptions<T>): UseNewContentProbeResult<T> {
@@ -71,6 +92,7 @@ export function useNewContentProbe<T extends NewContentItem>({
   const visibleRef = useRef(visible);
   const fetchHeadRef = useRef(fetchHead);
   const filterRef = useRef(filter);
+  const ranked = order === "ranked";
 
   useEffect(() => {
     visibleRef.current = visible;
@@ -100,16 +122,20 @@ export function useNewContentProbe<T extends NewContentItem>({
       }
       const { current: filterFn } = filterRef;
       const candidates = filterFn ? fresh.filter(filterFn) : fresh;
-      const freshHead = candidates[0]?.id;
-      // Same head means nothing new arrived above what is already rendered,
-      // even if the server reshuffled the body of the page.
-      if (!freshHead || freshHead === current[0]?.id) {
-        return;
+      if (!ranked) {
+        // Chronological feeds: same head means nothing new arrived above what
+        // is already rendered, even if the server reshuffled the body of the
+        // page. A ranked feed skips this entirely - its top row can hold still
+        // while a new post lands further down the page.
+        const freshHead = candidates[0]?.id;
+        if (!freshHead || freshHead === current[0]?.id) {
+          return;
+        }
       }
-      const unseen = findUnseenItems(
-        candidates,
-        new Set(current.map((item) => item.id))
-      );
+      const knownIds = new Set(current.map((item) => item.id));
+      const unseen = ranked
+        ? findUnseenRankedItems(candidates, knownIds)
+        : findUnseenItems(candidates, knownIds);
       if (unseen.length > 0) {
         setBadge({ items: unseen, key: resetKey });
       }
@@ -122,7 +148,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       void probe();
     }, intervalMs);
     return () => window.clearInterval(interval);
-  }, [enabled, intervalMs, resetKey]);
+  }, [enabled, intervalMs, ranked, resetKey]);
 
   const clearNewItems = useCallback(() => {
     setBadge((previous) => ({ ...previous, items: [] }));

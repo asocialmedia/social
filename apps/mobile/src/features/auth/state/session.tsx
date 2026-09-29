@@ -65,19 +65,22 @@ export type SocialResult =
 
 export type SocialProvider = "google" | "reddit";
 
-interface SessionContextValue {
+export interface SignOutOptions {
+  reason?: string;
+}
+
+export interface SessionContextValue {
   isPending: boolean;
+  sessionId: string | null;
   signIn: (identifier: string, password: string) => Promise<SignInResult>;
   signInSocial: (provider: SocialProvider) => Promise<SocialResult>;
   signInPasskey: () => Promise<SignInResult>;
-  /**
-   * Re-reads the session. Anything that changes the signed-in user from
-   * outside the sign-in flows (a username or email change in settings, an
-   * unlinked provider) has to call this, or every surface that reads `user`
-   * keeps rendering the old identity until the app restarts.
-   */
+  // Re-reads the session. Anything that changes the signed-in user from
+  // outside the sign-in flows (a username or email change in settings, an
+  // unlinked provider) has to call this, or every surface that reads `user`
+  // keeps rendering the old identity until the app restarts.
   refresh: () => Promise<void>;
-  signOut: () => Promise<void>;
+  signOut: (options?: SignOutOptions) => Promise<void>;
   user: SessionUser | null;
 }
 
@@ -322,31 +325,42 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return result ?? CANCELLED;
   }, [confirmSession, runWithInstallToken]);
 
-  const signOut = useCallback(async () => {
-    // Unregister this device's push token while the session still exists:
-    // once signOut clears the cookie the server rejects the DELETE, and the
-    // old account's notifications would keep arriving on this device. Capped
-    // so a slow network never holds up signing out.
-    await Promise.race([unregisterPushNotifications(), sleep(3000)]);
-    try {
-      await authClient.signOut();
-    } catch (error) {
-      logError("auth.sign_out_failed", error);
-    }
-    // Per-viewer state (own votes, own bookmarks) must not survive the
-    // account, or the next sign-in would briefly render the previous
-    // viewer's highlights.
-    engagementStore.clear();
-    feedCache.clear();
-    router.replace("/(auth)/login");
-  }, [router]);
+  const signOut = useCallback(
+    async (options?: SignOutOptions) => {
+      // Unregister this device's push token while the session still exists:
+      // once signOut clears the cookie the server rejects the DELETE, and the
+      // old account's notifications would keep arriving on this device. Capped
+      // so a slow network never holds up signing out.
+      await Promise.race([unregisterPushNotifications(), sleep(3000)]);
+      try {
+        await authClient.signOut();
+      } catch (error) {
+        logError("auth.sign_out_failed", error);
+      }
+      // Per-viewer state (own votes, own bookmarks) must not survive the
+      // account, or the next sign-in would briefly render the previous
+      // viewer's highlights.
+      engagementStore.clear();
+      feedCache.clear();
+      if (options?.reason) {
+        router.replace(
+          `/(auth)/login?reason=${encodeURIComponent(options.reason)}`
+        );
+      } else {
+        router.replace("/(auth)/login");
+      }
+    },
+    [router]
+  );
 
   const value = useMemo<SessionContextValue>(() => {
-    const { user: rawUser } = data ?? {};
+    const { session: rawSession, user: rawUser } = data ?? {};
     const sessionUser = rawUser as SessionUser | undefined;
+    const sessionId = (rawSession as { id?: string } | undefined)?.id ?? null;
     return {
       isPending,
       refresh,
+      sessionId,
       signIn,
       signInPasskey,
       signInSocial,

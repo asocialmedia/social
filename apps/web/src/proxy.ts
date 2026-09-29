@@ -2,6 +2,7 @@ import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { hasVerifiedSession } from "@/lib/auth/verify-session";
 import {
   INSTALL_TOKEN_HEADER,
   resolveInstallTokenSecret,
@@ -240,6 +241,40 @@ function withSecurityHeaders(response: NextResponse | Response): Response {
   return response;
 }
 
+// True when a no-origin mutation can show a credential this server accepts.
+//
+// Two credentials qualify, and they are checked in the order that costs least.
+// The install token is stateless and HMAC-verified locally, so it costs nothing
+// and never leaves this process - and it is the one the native app already holds
+// on every request, so the common path pays nothing for this gate at all. Only
+// when it is absent or rejected does the session question get asked, and that
+// question has an answer only from the auth service.
+//
+// A session has to be PROVEN, never assumed. The gate used to read the SHAPE of
+// the credential - a Bearer prefix, a session_token cookie - and treat presence
+// as proof, which made `Authorization: Bearer x` a universal key into every
+// non-exempt mutation: a no-origin script could add to the shared
+// search-suggestion cache, and anything else the routes accept from a signed-in
+// caller, without ever holding a token. Shape is free to write; only a session
+// the auth service resolves is worth anything.
+//
+// Every failure here is a false. An auth service that is down or slow narrows
+// the exemption instead of widening it, and the caller falls back to the
+// install-token requirement the app already knows how to satisfy.
+async function holdsAcceptedCredential(
+  request: NextRequest,
+  installSecret: string
+): Promise<boolean> {
+  const presented = request.headers.get(INSTALL_TOKEN_HEADER);
+  if (verifyInstallToken(presented, installSecret)) {
+    return true;
+  }
+  return await hasVerifiedSession({
+    authorization: request.headers.get("authorization") || "",
+    cookie: request.headers.get("cookie") || "",
+  });
+}
+
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host") || "";
   const hostname = getHostname(host);
@@ -332,14 +367,12 @@ export async function proxy(request: NextRequest) {
     !isLoopback &&
     !SAFE_METHODS.has(request.method) &&
     !isInstallTokenExemptPath(request.nextUrl.pathname) &&
-    hasNoOriginMetadata(request)
+    hasNoOriginMetadata(request) &&
+    !(await holdsAcceptedCredential(request, installSecret))
   ) {
-    const presented = request.headers.get(INSTALL_TOKEN_HEADER);
-    if (!verifyInstallToken(presented, installSecret)) {
-      return withSecurityHeaders(
-        NextResponse.json({ error: "install-token-required" }, { status: 403 })
-      );
-    }
+    return withSecurityHeaders(
+      NextResponse.json({ error: "install-token-required" }, { status: 403 })
+    );
   }
 
   // Per-IP tiered rate limiting for API routes. Fails open on Redis errors;

@@ -49,6 +49,7 @@ import {
 } from "@/features/communities/lib/community-media";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -241,6 +242,7 @@ export default function CommunityCreateRoute() {
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       >
         <MobileHeader user={mobileHeaderUser} />
         <View style={styles.topBar}>

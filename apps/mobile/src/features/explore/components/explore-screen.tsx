@@ -65,6 +65,7 @@ import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { createExpoPoller } from "@/lib/expo-poller";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import {
   LOGIN_BUTTON_SHADOWS,
@@ -687,6 +688,7 @@ export function ExploreScreen() {
             contentContainerStyle={styles.matchRow}
             horizontal
             showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
           >
             {communities.map((community) => (
               <Pressable
@@ -767,6 +769,7 @@ export function ExploreScreen() {
             contentContainerStyle={styles.gustRow}
             horizontal
             showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
           >
             {gusts.map((post) => (
               <ExploreGustTile
@@ -832,7 +835,7 @@ export function ExploreScreen() {
                 onScrollEndDrag={() => pull.onScrollEndDrag()}
                 ref={scrollViewRef}
                 scrollEventThrottle={150}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
               >
                 {header}
                 {empty || (

@@ -18,6 +18,7 @@ import {
 import { themeText } from "@/components/surface/recipes";
 import type { KlipyGif } from "@/features/composer/lib/pick-media";
 import { apiJson } from "@/features/media-upload/lib/upload-api";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 const PLACEHOLDER = "Search KLIPY";
@@ -192,6 +193,7 @@ export function GifPicker({
       <ScrollView
         contentContainerStyle={styles.grid}
         nestedScrollEnabled
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         style={styles.gridScroll}
       >
         {grid}

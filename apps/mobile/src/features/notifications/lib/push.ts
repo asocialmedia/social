@@ -20,12 +20,12 @@
 // else resolves to the notifications list, which always exists.
 
 import Constants from "expo-constants";
-import * as Device from "expo-device";
 import type * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import { pathToNativeRoute } from "./push-path";
@@ -34,9 +34,8 @@ export { pathToNativeRoute } from "./push-path";
 
 const ANDROID_CHANNEL_ID = "default";
 
-// Foreground presentation: show the banner even while the app is open, so a
-// live notification is not silently swallowed. Sound is off in-foreground (the
-// OS plays it; a second cue would double up).
+// Foreground presentation: show the banner and play sound even while the app
+// is open, so live notifications alert visibly and audibly.
 type NotificationsModule = typeof Notifications;
 let notificationsPromise: Promise<NotificationsModule> | null = null;
 
@@ -49,8 +48,8 @@ function loadNotifications(): Promise<NotificationsModule> | null {
     notifications.setNotificationHandler({
       handleNotification: () =>
         Promise.resolve({
-          shouldPlaySound: false,
-          shouldSetBadge: false,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
           shouldShowBanner: true,
           shouldShowList: true,
         }),
@@ -66,23 +65,21 @@ async function ensureAndroidChannel(): Promise<void> {
     return;
   }
   await notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-    importance: notifications.AndroidImportance.DEFAULT,
+    enableLights: true,
+    enableVibrate: true,
+    importance: notifications.AndroidImportance.MAX,
+    lightColor: "#ff9500",
     name: "Notifications",
+    showBadge: true,
+    vibrationPattern: [0, 250, 250, 250],
   });
 }
 
-// The push routes authenticate with the session cookie like every other API
-// route (getSessionFromApi reads only the cookie); without it every register
-// and unregister was a 401.
+// The push routes authenticate with the session cookie and bearer token like every
+// other API route, scoping device tokens to the authenticated user.
 async function sessionHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
   const cookie = await authClient.getCookie();
-  if (cookie) {
-    headers.cookie = cookie;
-  }
-  return headers;
+  return withAuthHeaders({ "Content-Type": "application/json" }, cookie);
 }
 
 export type RunWithInstallToken = <T>(
@@ -149,10 +146,6 @@ let lastRegisteredToken: string | null = null;
 export async function registerForPushNotifications(
   runWithInstallToken: RunWithInstallToken
 ): Promise<string | null> {
-  if (!Device.isDevice) {
-    // Push tokens are not issued to simulators/emulators.
-    return null;
-  }
   if (Platform.OS !== "android") {
     // Only Android is wired: the server delivers via FCM and holds no APNs
     // sender, so registering an iOS token would store an undeliverable row.
@@ -218,6 +211,41 @@ export async function unregisterPushNotifications(): Promise<void> {
     await unregisterToken(lastRegisteredToken);
     lastRegisteredToken = null;
   }
+}
+
+export interface PushReceivedListener {
+  remove: () => void;
+}
+
+// Subscribes to foreground push notifications to trigger live UI refreshes
+// (such as the notification bell badge) the moment an alert arrives.
+export function subscribeToPushReceived(
+  onReceived: (notification: Notifications.Notification) => void
+): PushReceivedListener {
+  let active = true;
+  let removeSubscription: (() => void) | null = null;
+  const notificationPromise = loadNotifications();
+  if (!notificationPromise) {
+    return {
+      remove: () => {
+        /* empty */
+      },
+    };
+  }
+  void (async () => {
+    const notifications = await notificationPromise;
+    if (!active || !notifications) {
+      return;
+    }
+    const sub = notifications.addNotificationReceivedListener(onReceived);
+    removeSubscription = () => sub.remove();
+  })();
+  return {
+    remove: () => {
+      active = false;
+      removeSubscription?.();
+    },
+  };
 }
 
 export interface PushTapListener {

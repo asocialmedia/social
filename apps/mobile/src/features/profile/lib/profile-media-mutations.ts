@@ -12,6 +12,7 @@ import type { UploadPurpose } from "@/features/media-upload/lib/upload-api";
 import type { UploadSource } from "@/features/media-upload/lib/upload-client";
 import { uploadMedia } from "@/features/media-upload/lib/upload-client";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import { pickProfileImage, stabilizePickedImage } from "./profile-media";
@@ -52,10 +53,10 @@ async function linkMedia(
     `${options.apiBase}${linkPath(kind)}`,
     {
       body: JSON.stringify({ mediaId }),
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.cookie ? { cookie: options.cookie } : {}),
-      },
+      headers: withAuthHeaders(
+        { "Content-Type": "application/json" },
+        options.cookie
+      ),
       method: "POST",
     }
   );

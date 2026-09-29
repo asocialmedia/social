@@ -53,6 +53,7 @@ import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -420,7 +421,10 @@ export function PostDetailScreen({ postId }: { postId: string }) {
             accessibilityLabel="Go back"
             accessibilityRole="button"
             onPress={handleGoBack}
-            style={styles.backBtn}
+            style={({ pressed }) => [
+              styles.backBtn,
+              pressed && styles.backBtnPressed,
+            ]}
           >
             <ArrowLeft color={theme.inputText} size={20} />
           </Pressable>
@@ -475,7 +479,10 @@ export function PostDetailScreen({ postId }: { postId: string }) {
           accessibilityLabel="Go back"
           accessibilityRole="button"
           onPress={handleGoBack}
-          style={styles.backBtn}
+          style={({ pressed }) => [
+            styles.backBtn,
+            pressed && styles.backBtnPressed,
+          ]}
         >
           <ArrowLeft color={theme.inputText} size={20} />
         </Pressable>
@@ -493,7 +500,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
         }}
         ref={scrollRef}
         scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       >
         {renderThread()}
         {showEddies ? (
@@ -590,6 +597,10 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: "center",
     width: 36,
+  },
+  backBtnPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.94 }],
   },
   centerWrap: {
     alignItems: "center",

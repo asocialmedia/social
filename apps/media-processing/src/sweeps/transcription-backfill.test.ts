@@ -39,6 +39,7 @@ mock.module("@asm/db", () => ({
   enqueueMediaProcess: () => Promise.resolve(),
   enqueueMediaScan: () => Promise.resolve(),
   globalKnowledgeGraph: {},
+  or: (...filters: unknown[]) => filters,
   prisma: {
     orm: {
       public: {

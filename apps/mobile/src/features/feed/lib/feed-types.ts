@@ -403,6 +403,18 @@ export function findUnseenItems(
   return unseen;
 }
 
+// The same question against a RANKED feed (personalized, trending), which is
+// ordered by score rather than by recency. There a post that just arrived can
+// land anywhere in the head page, so the leading-run walk above would stop at
+// the first already-known row and drop the brand-new post sitting below it. A
+// ranked feed therefore answers with a set difference over the whole page.
+export function findUnseenRankedItems(
+  fresh: FeedPost[],
+  knownIds: ReadonlySet<string>
+): FeedPost[] {
+  return fresh.filter((post) => post && !knownIds.has(post.id));
+}
+
 export function isBookmarkedByUser(
   post: FeedPost,
   userId: string | undefined

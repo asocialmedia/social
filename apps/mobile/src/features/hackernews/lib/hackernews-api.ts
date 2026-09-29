@@ -4,6 +4,7 @@
 //   POST   /api/hackernews/bookmark-states   (batched, one round trip)
 //   POST   /api/hackernews/:id/bookmark      DELETE to unbookmark
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export const HN_SORT_OPTIONS = [
@@ -14,9 +15,12 @@ export const HN_SORT_OPTIONS = [
 
 export type HnSort = (typeof HN_SORT_OPTIONS)[number]["value"];
 
+// Web's HN_FILTER_OPTIONS, in web's order and with web's labels. The glyph
+// each entry draws is a react-native concern, so it lives with the filter menu
+// rather than here, which keeps this list free of any UI import.
 export const HN_FILTER_OPTIONS = [
-  { label: "All", value: "all" },
-  { label: "Stories", value: "story" },
+  { label: "All Stories", value: "all" },
+  { label: "News", value: "story" },
   { label: "Jobs", value: "job" },
   { label: "Show HN", value: "show" },
   { label: "Ask HN", value: "ask" },
@@ -137,7 +141,7 @@ export function buildHnPath({
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }
@@ -196,10 +200,10 @@ export async function fetchHnBookmarkStates(
       `${options.apiBase}/api/hackernews/bookmark-states`,
       {
         body: JSON.stringify({ storyIds: ids.slice(0, 200) }),
-        headers: {
-          "content-type": "application/json",
-          ...(options.cookie ? { cookie: options.cookie } : null),
-        },
+        headers: withAuthHeaders(
+          { "content-type": "application/json" },
+          options.cookie
+        ),
         method: "POST",
       }
     );
@@ -234,7 +238,7 @@ export async function setHnBookmark(
     const response = await (options.baseFetch ?? fetch)(
       `${options.apiBase}/api/hackernews/${storyId}/bookmark`,
       {
-        headers: options.cookie ? { cookie: options.cookie } : {},
+        headers: withAuthHeaders({}, options.cookie),
         method: bookmarked ? "POST" : "DELETE",
       }
     );

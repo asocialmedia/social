@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.1.7",
+  "version": "0.1.23",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -12,7 +12,9 @@
     "ios": "expo start --ios -p 8082",
     "web": "expo start --web -p 8082",
     "check-types": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
-    "build:apk": "bun scripts/build-android-apk.ts"
+    "build:apk": "bun scripts/build-android-apk.ts",
+    "build:bundle": "bun scripts/build-android-apk.ts --bundle",
+    "build:all": "bun scripts/build-android-apk.ts --all"
   },
   "dependencies": {
     "@asm/auth": "workspace:*",
@@ -38,7 +40,6 @@
     "expo-glass-effect": "~57.0.3",
     "expo-image": "~57.0.5",
     "expo-image-picker": "~57.0.19",
-    "expo-intent-launcher": "^57.0.1",
     "expo-linear-gradient": "^57.0.2",
     "expo-linking": "~57.0.10",
     "expo-network": "~57.0.2",

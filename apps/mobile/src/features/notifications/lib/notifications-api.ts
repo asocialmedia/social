@@ -15,6 +15,7 @@ import {
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { FeedApiError } from "@/features/feed/lib/feed-api";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export { groupNotifications } from "@asm/notifications/shared";
@@ -38,10 +39,7 @@ function callNotificationsApi(
   options: ApiCallOptions & { body?: string; method?: string }
 ): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = {};
-  if (options.cookie) {
-    headers.cookie = options.cookie;
-  }
+  const headers = withAuthHeaders({}, options.cookie);
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }

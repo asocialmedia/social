@@ -18,10 +18,12 @@ import { logInfo } from "@/lib/telemetry";
 import {
   registerForPushNotifications,
   resetPushRegistration,
+  subscribeToPushReceived,
   subscribeToPushTokenChanges,
   subscribeToPushTaps,
   unregisterPushNotifications,
 } from "../lib/push";
+import { unreadCountStore } from "../state/unread-store";
 
 export function PushRegistrar() {
   const router = useRouter();
@@ -39,6 +41,15 @@ export function PushRegistrar() {
     );
     return () => listener.remove();
   }, [router]);
+
+  // When a push alert arrives in the foreground, refresh the unread bell count
+  // immediately so the badge updates in real time without waiting for the poll timer.
+  useEffect(() => {
+    const listener = subscribeToPushReceived(() => {
+      void unreadCountStore.refresh();
+    });
+    return () => listener.remove();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -77,6 +88,7 @@ export function PushRegistrar() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void registerForPushNotifications(runWithInstallToken);
+        void unreadCountStore.refresh();
       }
     });
     const tokenSubscription = subscribeToPushTokenChanges(() => {

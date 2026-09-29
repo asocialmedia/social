@@ -4,6 +4,7 @@
 // (authClient.getCookie). Pure and injectable for testing: cookie, apiBase
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 import type { FeedPost, PostsPage } from "./feed-types";
@@ -32,10 +33,7 @@ function callFeedApi(
   options: ApiCallOptions & { body?: string; method?: string }
 ): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = {};
-  if (options.cookie) {
-    headers.cookie = options.cookie;
-  }
+  const headers = withAuthHeaders({}, options.cookie);
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }
@@ -111,6 +109,67 @@ export async function fetchFeedHead(
 ): Promise<FeedPost[]> {
   const page = await fetchFeedPage(variant, null, options);
   return page.posts;
+}
+
+/**
+ * The id of the newest post in a feed variant, or null when the viewer can see
+ * nothing yet - one row, not a page.
+ *
+ * This is the cheap first tier of the new-content probe. The probe used to pull
+ * a whole head page (twenty viewer-resolved posts, their vote and bookmark
+ * joins, and a Redis view-count read for all twenty) every 45 seconds, only to
+ * compare the first id against what was already on screen. The same question
+ * answers itself from one row, and the full page is only worth fetching once
+ * that row says something arrived.
+ *
+ * Only the variants that BOTH honour `take` AND sort newest-first can be asked
+ * for a single row; the rest fall back to the page, which is the behaviour this
+ * replaces. `feedHeadIdIsChangeSignal` is the test, and the probe must honour
+ * it: in a ranked feed the newest row is not the row a new post arrives in, so
+ * "same top id" does not mean "nothing new".
+ */
+export async function fetchFeedHeadId(
+  variant: FeedVariant,
+  options: ApiCallOptions
+): Promise<string | null> {
+  const endpoint = FEED_ENDPOINTS[variant];
+  const path = feedHeadIdIsChangeSignal(variant)
+    ? `${endpoint}?take=1`
+    : endpoint;
+  const response = await callFeedApi(path, options);
+  if (!response.ok) {
+    throw new FeedApiError(
+      `Feed request failed (${response.status})`,
+      response.status
+    );
+  }
+  return parsePostsPage(await readJson(response)).posts[0]?.id ?? null;
+}
+
+// Routes that accept ?take= and can therefore answer with a single row. Checked
+// against the web app's feed routes, which own the query.
+const HEAD_ID_VARIANTS: ReadonlySet<FeedVariant> = new Set<FeedVariant>([
+  "latest",
+]);
+
+// Feeds ordered by score rather than by recency. A post published a second ago
+// lands wherever its score puts it, so the top row can sit unchanged while
+// something new appears eight rows down. Both halves of the one-row probe - "is
+// the newest id one I have not seen?" and "stop at the first id I know" - are
+// only true of a recency-ordered feed.
+const RANKED_VARIANTS: ReadonlySet<FeedVariant> = new Set<FeedVariant>([
+  "personalized",
+  "trending",
+]);
+
+/** True when the top row of this feed reliably changes the moment a post arrives. */
+export function feedHeadIdIsChangeSignal(variant: FeedVariant): boolean {
+  return HEAD_ID_VARIANTS.has(variant);
+}
+
+/** True when the head page is ordered by score, so it must be diffed as a set. */
+export function isRankedFeed(variant: FeedVariant): boolean {
+  return RANKED_VARIANTS.has(variant);
 }
 
 export interface VoteInfo {

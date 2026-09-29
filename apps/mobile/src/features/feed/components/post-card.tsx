@@ -10,7 +10,7 @@
 // event before routing to /users/[username], so they never open the post.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -203,6 +203,16 @@ export function PostCard({
     const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
     router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
   };
+  const openMedia = useCallback(
+    (mediaIndex: number) => {
+      const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
+      router.push({
+        params: { index: String(mediaIndex), postId: shortId },
+        pathname: "/posts/[postId]/media/[index]",
+      });
+    },
+    [post.id, router]
+  );
   const openAuthor = (event: GestureResponderEvent) => {
     event.stopPropagation();
     if (!author?.username) {
@@ -266,6 +276,7 @@ export function PostCard({
         accessibilityLabel={`Open post by ${username}`}
         accessibilityRole="link"
         onPress={openDetail}
+        style={({ pressed }) => (pressed ? styles.cardPressed : undefined)}
       >
         {!hasThreadParent && post.parentPostId ? (
           <ResponseParentRow post={post} />
@@ -424,6 +435,7 @@ export function PostCard({
                               active={active}
                               apiBase={apiBase}
                               attachments={attachments}
+                              onPressMedia={openMedia}
                               postId={post.id}
                             />
                           ) : null}
@@ -440,6 +452,7 @@ export function PostCard({
                             active={active}
                             apiBase={apiBase}
                             attachments={attachments}
+                            onPressMedia={openMedia}
                             postId={post.id}
                           />
                         ) : null}
@@ -576,6 +589,9 @@ const styles = StyleSheet.create({
   card: {
     paddingHorizontal: 16,
     position: "relative",
+  },
+  cardPressed: {
+    opacity: 0.94,
   },
   content: {
     flex: 1,

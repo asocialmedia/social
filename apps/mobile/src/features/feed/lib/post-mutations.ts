@@ -23,6 +23,7 @@
 // than a crash, and the retry policy keeps working without one.
 
 import { HttpError, withRetry } from "@/features/media-upload/lib/retry";
+import { withAuthHeaders } from "@/lib/auth-headers";
 
 import type { ApiCallOptions } from "./feed-api";
 import type { FeedPost } from "./feed-types";
@@ -69,11 +70,13 @@ async function postJson<T>(
     `${options.apiBase.replace(/\/+$/, "")}${path}`,
     {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.cookie ? { cookie: options.cookie } : {}),
-        ...init.headers,
-      },
+      headers: withAuthHeaders(
+        {
+          "Content-Type": "application/json",
+          ...(init.headers as Record<string, string>),
+        },
+        options.cookie
+      ),
     }
   );
   if (!response.ok) {

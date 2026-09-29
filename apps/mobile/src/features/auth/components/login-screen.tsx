@@ -44,6 +44,7 @@ import {
   describeOAuthRedirectError,
 } from "@/features/auth/lib/auth-errors";
 import { useSessionContext } from "@/features/auth/state/session";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import {
   ERROR_SHADOWS,
   ICON_BUTTON_SHADOWS_DARK,
@@ -87,12 +88,16 @@ export default function LoginScreen() {
   // (mirrors the web's /login/error page). A cold start lands with the param
   // already set, so it seeds the banner; while the screen is up, the session
   // provider captures the same URL itself and returns the message directly.
-  const { error: redirectErrorCode } = useLocalSearchParams<{
+  const { error: redirectErrorCode, reason } = useLocalSearchParams<{
     error?: string;
+    reason?: string;
   }>();
-  const [error, setError] = useState<string | null>(() =>
-    describeOAuthRedirectError(redirectErrorCode)
-  );
+  const [error, setError] = useState<string | null>(() => {
+    if (reason === "session-ended") {
+      return "Your session ended. Please sign in again.";
+    }
+    return describeOAuthRedirectError(redirectErrorCode);
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [activeSocial, setActiveSocial] = useState<
     "google" | "reddit" | "passkey" | null
@@ -294,7 +299,7 @@ export default function LoginScreen() {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
           >
             <Animated.View
               style={[styles.animatedCardWrapper, animatedShakeStyle]}

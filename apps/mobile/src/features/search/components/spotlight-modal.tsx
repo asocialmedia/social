@@ -36,6 +36,7 @@ import {
   getAuraFlameStyle,
 } from "@/features/home/components/profile-utils";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -649,7 +650,7 @@ export function SpotlightModal() {
             <ScrollView
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             >
               {/* Skeletons on loading */}
               {loading && hasQuery ? (

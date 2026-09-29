@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Toaster } from "@/components/feedback/toast";
 import { APPLE_PANEL_TOKENS } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { useComposerStore } from "../state/composer-store";
@@ -73,7 +74,7 @@ export function ComposerModal() {
           >
             <ScrollView
               keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             >
               <PostEditor onPublished={close} />
             </ScrollView>

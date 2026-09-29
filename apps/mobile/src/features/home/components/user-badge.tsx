@@ -216,14 +216,25 @@ interface UserBadgeProps {
   badge?: string | null;
   badges?: (string | null)[] | null;
   communityRoles?: readonly CommunityRoleLike[] | null;
+  // Renders the rail at the profile header's larger size instead of the
+  // in-feed default. See BADGE_RAIL_SIZE_LARGE.
+  large?: boolean;
   onToggle?: () => void;
   open?: boolean;
 }
+
+// Web's profile header renders the badge larger than everywhere else (h-8
+// w-24, i.e. 32x96) by passing a className override; its default rail stays
+// h-5 w-15. This mirrors that split: the rail keeps the 20x60 default and the
+// profile header opts up, rather than every badge in the app growing.
+const BADGE_RAIL_SIZE = { height: 20, width: 60 } as const;
+const BADGE_RAIL_SIZE_LARGE = { height: 32, width: 96 } as const;
 
 export function UserBadge({
   badge,
   badges,
   communityRoles,
+  large = false,
   onToggle,
   open = false,
 }: UserBadgeProps) {
@@ -237,13 +248,14 @@ export function UserBadge({
     primary.kind === "platform"
       ? PLATFORM_BADGE_ART[primary.type]
       : ROLE_BADGE_ART[primary.type];
+  const railSize = large ? BADGE_RAIL_SIZE_LARGE : BADGE_RAIL_SIZE;
   const rail = (
     <View style={styles.rail}>
       <Image
         accessibilityLabel=""
         contentFit="contain"
         source={source}
-        style={styles.banner}
+        style={[styles.banner, railSize]}
       />
       {rest.length > 0 ? (
         <View style={[styles.moreChip, { backgroundColor: theme.dividerLine }]}>
