@@ -1,3 +1,96 @@
+================================================================================
+PROJECT NOTICE - NOT PART OF THE LICENCE GRANT
+================================================================================
+
+The GNU Affero General Public License v3.0 below is the licence for this
+software and is reproduced verbatim. Nothing in this notice changes it. It
+records the terms this project applies on top of that licence, in the same way
+that every AGPL project reserves its own name and marks.
+
+Copyright (C) 2026 Singularity Works
+
+--------------------------------------------------------------------------------
+1. Trademarks are not licensed
+--------------------------------------------------------------------------------
+
+The AGPL-3.0 grants you rights to the source code. It grants you no rights to
+the project's identity. The following are trademarks of the project and are NOT
+covered by the licence below:
+
+  - the word "asocialmedia" and the domain asocialmedia.cc
+  - the project logo, wordmark, and icon artwork
+  - "Zeph", the in-app system account, and the artwork associated with it
+  - the names of the product's own vocabulary (fleets, eddies, gusts, Aura)
+
+If you fork this software, keep the licence and publish your source, and choose
+your own name, marks and vocabulary. Do not ship a fork under the asocialmedia
+name, do not use the logo or wordmark, and do not present it as the official
+build. This is the one part of the ask that is actually enforceable, and it is
+how Mastodon, WordPress and Blender handle the same problem.
+
+--------------------------------------------------------------------------------
+2. What the licence does already stop
+--------------------------------------------------------------------------------
+
+For the avoidance of doubt, because this comes up often:
+
+  - You cannot take this code closed. Section 13 requires you to offer the
+    complete corresponding source to every user who interacts with it over a
+    network, not just to the people you hand binaries to.
+  - You cannot strip the licence off a derivative work. Section 13 survives
+    distribution and any modification you make.
+  - You cannot use the code to attack the people running this instance. The
+    hosted service is a separate thing from the software, and its acceptable
+    use is set out in /toc.
+
+What the licence does NOT stop, and we are not pretending otherwise: someone
+forking the code, renaming it, and republishing it in full compliance with
+AGPL-3.0 is legally allowed. The copyleft obligation and the trademark
+reservation are the tools here. A ban on rebranding cannot be bolted onto the
+AGPL without ceasing to be the AGPL. If you need a hard commercial prohibition,
+that is a different licence, and it is a trade-off worth deciding on
+deliberately rather than discovering later.
+
+--------------------------------------------------------------------------------
+3. Contributions
+--------------------------------------------------------------------------------
+
+Contributions are accepted under the same terms. By opening a pull request you
+agree that your contribution is licensed under AGPL-3.0, and that it is your
+work or you have the right to submit it. There is no separate CLA and no
+separate licence to agree to.
+
+What helps a contribution land:
+
+  - It fixes or adds something real. A bug report, a failing test, a real
+    feature, a genuine performance or accessibility fix.
+  - It explains why, and what you tried.
+  - It comes with tests where the change warrants them.
+  - It matches the surrounding code.
+
+What gets closed without ceremony:
+
+  - Generated or AI-written contributions that nobody has read, understood or
+    run. Volume is not a contribution. If you could not explain the diff, it
+    does not belong here.
+  - Formatting-only churn, drive-by refactors, and dependency bumps riding
+    along with an unrelated change.
+  - Anything that attempts to rebrand, relicense, or rebrand-and-publish this
+    project while keeping the asocialmedia name.
+  - Anything that would make the code harder to run than it is today, without a
+    reason that survives the question "why".
+
+--------------------------------------------------------------------------------
+4. Security reports
+--------------------------------------------------------------------------------
+
+Report security issues privately through GitHub's security advisory form rather
+than in a public issue, so a fix can land before the detail is public.
+
+================================================================================
+END OF PROJECT NOTICE - THE LICENCE FOLLOWS, UNMODIFIED
+================================================================================
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
