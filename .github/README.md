@@ -12,11 +12,11 @@
   <br>
 
   <sub>
-    <b>App <a href="https://github.com/asocialmedia/social/releases/latest">v0.1.28</a></b>
-    &nbsp;·&nbsp;
-    <b>Platform <a href="https://github.com/asocialmedia/social/releases/latest">v1.7.64</a></b>
-    &nbsp;·&nbsp;
     <a href="https://asocialmedia.cc">asocialmedia.cc</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/asocialmedia/social/releases/latest">Latest release</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/asocialmedia/social/blob/main/LICENSE">Licence</a>
   </sub>
 
 </div>
@@ -32,15 +32,14 @@
 
 <br>
 
-<a href="https://github.com/asocialmedia/social/releases/latest"><sub>All releases and checksums</sub></a>
+<a href="https://github.com/asocialmedia/social/releases/latest"><sub>All releases, version history and checksums</sub></a>
 
 </div>
-
 <br>
 
-The APK is a signed release build, not a Play Store listing, so Android will ask you to allow installs from your browser the first time. Checksums for every release are published alongside it.
-
-<br>
+No version is written into this file on purpose. The download link above always
+resolves to the newest release, and the releases page is the only place the
+version number lives, so there is nothing here to go stale.
 
 ### _<div align="center"><sub>About</sub></div>_
 
