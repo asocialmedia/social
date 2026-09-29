@@ -1,7 +1,7 @@
 import { clientLog } from "@asm/config/debug";
 import { clsx } from "clsx";
 import type { ClassValue } from "clsx";
-import { formatDate } from "date-fns";
+import { formatDate, isSameDay, isSameYear, subDays } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -62,6 +62,42 @@ export function formatRelativeDate(from: Date | string) {
   } catch (error) {
     clientLog.error("Error formatting date:", error, "Input was:", from);
     return "Invalid date";
+  }
+}
+
+// Full, unambiguous timestamp for the message options pane ("Today at 2:30 PM",
+// "Yesterday at 2:30 PM", "Jan 5 at 2:30 PM", "Jan 5, 2026 at 2:30 PM"). Accepts
+// a Date, an ISO string, or epoch millis (the receipt watermarks are millis).
+// Returns an empty string for a missing/unparseable value so the caller can skip
+// the row instead of printing "Invalid Date".
+export function formatMessageDateTime(
+  value: Date | string | number | null | undefined
+): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  try {
+    const date =
+      typeof value === "string" || typeof value === "number"
+        ? new Date(value)
+        : value;
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const current = new Date();
+    const time = formatDate(date, "h:mm a");
+    if (isSameDay(date, current)) {
+      return `Today at ${time}`;
+    }
+    if (isSameDay(date, subDays(current, 1))) {
+      return `Yesterday at ${time}`;
+    }
+    if (isSameYear(date, current)) {
+      return `${formatDate(date, "MMM d")} at ${time}`;
+    }
+    return `${formatDate(date, "MMM d, yyyy")} at ${time}`;
+  } catch {
+    return "";
   }
 }
 

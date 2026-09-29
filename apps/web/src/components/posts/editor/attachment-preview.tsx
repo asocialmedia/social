@@ -13,32 +13,12 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { formatFileName } from "@/lib/format-file-name";
 import type { UploadStage } from "@/lib/media/media-upload-client";
+import { getUploadProgressInfo } from "@/lib/media/upload-progress";
 import { cn } from "@/lib/utils";
 
 import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
 
-// Single unified progress mapper combining upload byte progression and
-// server-side processing states into one continuous 0-100% flow.
-export function getUploadProgressInfo(
-  stage?: UploadStage,
-  progress?: number
-): { label: string; percent: number } {
-  switch (stage) {
-    case "queued": {
-      return { label: "55% · Queued…", percent: 55 };
-    }
-    case "scanning": {
-      return { label: "75% · Scanning…", percent: 75 };
-    }
-    case "processing": {
-      return { label: "90% · Processing…", percent: 90 };
-    }
-    default: {
-      const p = Math.max(1, Math.min(50, Math.round((progress ?? 0) * 0.5)));
-      return { label: `${p}% · Uploading…`, percent: p };
-    }
-  }
-}
+export { getUploadProgressInfo } from "@/lib/media/upload-progress";
 
 interface AttachmentPreviewProps {
   attachment: {

@@ -11,12 +11,23 @@ import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
 
 interface ActiveFriendsRailProps {
+  // The desktop aside steps aside while a conversation is open, because the
+  // thread's details pane takes that slot: on a wide screen the pane beside the
+  // transcript is the thing worth the width, and a chat's contact card beats a
+  // list of who is online right now.
+  //
+  // Conditional RENDER rather than a class, because the drawer below `lg` reads
+  // the same presence data and must keep working. A `hidden` on the aside would
+  // leave a class fight between `hidden` and `lg:flex` to decide a layout that is
+  // one boolean away from being explicit.
+  desktopSuperseded: boolean;
   onClose: () => void;
   onSelect: (userId: string) => void;
   open: boolean;
 }
 
 export function ActiveFriendsRail({
+  desktopSuperseded,
   onClose,
   onSelect,
   open,
@@ -101,11 +112,14 @@ export function ActiveFriendsRail({
 
   return (
     <>
-      {/* Desktop rail: always visible on lg+. */}
-      <aside className="hide-native-scrollbar bg-background border-border/60 hidden w-72 shrink-0 flex-col overflow-y-auto border-l lg:flex">
-        <RailHeader onlineCount={online.length} />
-        <div className="flex flex-1 flex-col px-4 py-4">{body}</div>
-      </aside>
+      {/* Desktop rail: always visible on lg+ with no conversation open, and
+          replaced by the thread's details pane while one is. */}
+      {desktopSuperseded ? null : (
+        <aside className="hide-native-scrollbar bg-background border-border/60 hidden w-72 shrink-0 flex-col overflow-y-auto border-l lg:flex">
+          <RailHeader onlineCount={online.length} />
+          <div className="flex flex-1 flex-col px-4 py-4">{body}</div>
+        </aside>
+      )}
 
       {/* Mobile drawer: toggled by the header button, overlays the page. */}
       {open ? (

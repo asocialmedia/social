@@ -7,6 +7,7 @@ import {
   getPostPath,
   getPostSlug,
   getPostUrl,
+  postIdFromUrl,
 } from "./post-url";
 
 describe("post-url", () => {
@@ -143,5 +144,61 @@ describe("post-url", () => {
       1
     );
     expect(mediaUrl).toContain("/posts/50769dc7/media/1");
+  });
+});
+
+describe("postIdFromUrl", () => {
+  test("extracts the id from every canonical post URL shape", () => {
+    expect(postIdFromUrl("https://asocialmedia.cc/posts/50769dc7")).toBe(
+      "50769dc7"
+    );
+    expect(
+      postIdFromUrl("https://asocialmedia.cc/posts/50769dc7/hello-world")
+    ).toBe("50769dc7");
+    expect(
+      postIdFromUrl("https://asocialmedia.cc/a/anime/posts/50769dc7/anime-post")
+    ).toBe("50769dc7");
+    expect(postIdFromUrl("https://asocialmedia.cc/gusts?id=50769dc7")).toBe(
+      "50769dc7"
+    );
+    // A full UUID id is preserved (the API resolves either form).
+    expect(
+      postIdFromUrl(
+        "https://asocialmedia.cc/posts/50769dc7-447a-4c66-b02a-67f539c2ab18"
+      )
+    ).toBe("50769dc7-447a-4c66-b02a-67f539c2ab18");
+  });
+
+  test("accepts a relative path", () => {
+    expect(postIdFromUrl("/posts/50769dc7/slug")).toBe("50769dc7");
+  });
+
+  test("returns null for non-post URLs", () => {
+    // A foreign site's /posts/123 is not our post, so it is not an internal
+    // embed (it unfurls as an external link preview instead).
+    expect(postIdFromUrl("https://example.com/posts/123")).toBeNull();
+    expect(postIdFromUrl("https://asocialmedia.cc/users/alice")).toBeNull();
+    expect(postIdFromUrl("https://asocialmedia.cc/")).toBeNull();
+    expect(postIdFromUrl("https://asocialmedia.cc/gusts")).toBeNull();
+    // A too-short gust id is not a real post id.
+    expect(postIdFromUrl("https://asocialmedia.cc/gusts?id=abc")).toBeNull();
+    expect(postIdFromUrl("not a url")).toBeNull();
+    // Built at runtime so the no-script-url lint rule cannot flag the literal.
+    expect(postIdFromUrl(["javascript", "alert(1)"].join(":"))).toBeNull();
+  });
+
+  test("accepts an explicit origin for dev/test hosts", () => {
+    expect(
+      postIdFromUrl(
+        "http://localhost:3000/posts/50769dc7",
+        "http://localhost:3000"
+      )
+    ).toBe("50769dc7");
+    expect(
+      postIdFromUrl(
+        "https://asocialmedia.cc/posts/50769dc7",
+        "http://localhost:3000"
+      )
+    ).toBeNull();
   });
 });

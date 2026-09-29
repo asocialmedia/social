@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
-import { GET, POST } from "./route";
+import { DELETE, GET, POST } from "./route";
 
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
@@ -20,6 +20,33 @@ type IdentityRow = {
 const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
 const mockCreate = mock(() => ({}));
 
+// Reset path: the route runs both deletes inside one transaction callback.
+// Recorded so the tests can assert each delete stayed self-scoped.
+const mockIdentityDelete = mock(() => ({}));
+const mockKeysDeleteAndCount = mock(() => 2);
+let identityWhere: Record<string, unknown> | null = null;
+let keysWhere: Record<string, unknown> | null = null;
+const mockTransaction = mock((fn: (tx: unknown) => Promise<unknown>) =>
+  fn({
+    orm: {
+      public: {
+        MessageConversationKeys: {
+          where: (where: Record<string, unknown>) => {
+            keysWhere = where;
+            return { deleteAndCount: mockKeysDeleteAndCount };
+          },
+        },
+        MessageIdentities: {
+          where: (where: Record<string, unknown>) => {
+            identityWhere = where;
+            return { delete: mockIdentityDelete };
+          },
+        },
+      },
+    },
+  })
+);
+
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
@@ -36,6 +63,7 @@ mock.module("@asm/db", () => ({
         },
       },
     },
+    transaction: mockTransaction,
   },
 }));
 
@@ -171,7 +199,10 @@ describe("POST /api/messages/identity", () => {
     expect(args.masterKeyHash).toBe(validBody.masterKeyHash);
   });
 
-  test("is a no-op when re-provisioning with the same public key", async () => {
+  test("refuses to replace an existing identity", async () => {
+    // Create-only: an existing row owns its keypair, and replacing it would
+    // orphan every conversation key wrapped for the old one. Re-keying is the
+    // explicit DELETE reset path.
     mockFindUnique.mockReturnValueOnce({
       publicKey: "pub-key",
     } as never);
@@ -182,11 +213,27 @@ describe("POST /api/messages/identity", () => {
         method: "POST",
       })
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  test("rejects replacing an existing identity's public key", async () => {
+  test("returns 409 when a concurrent create loses the primary-key race", async () => {
+    // Two tabs can pass the create-only pre-check at once; the loser hits the
+    // primary key and must map to the same conflict as the pre-check.
+    mockCreate.mockImplementationOnce(() => {
+      throw Object.assign(new Error("unique constraint"), { code: "P2002" });
+    });
+    const res = await POST(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    );
+    expect(res.status).toBe(409);
+  });
+
+  test("refuses to replace an existing identity with a different public key", async () => {
     mockFindUnique.mockReturnValueOnce({
       publicKey: "a-different-key",
     } as never);
@@ -199,5 +246,44 @@ describe("POST /api/messages/identity", () => {
     );
     expect(res.status).toBe(409);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/messages/identity", () => {
+  beforeEach(() => {
+    mockGetSession.mockClear();
+    mockIdentityDelete.mockClear();
+    mockKeysDeleteAndCount.mockClear();
+    mockTransaction.mockClear();
+    mockGetSession.mockReturnValue({ user: { id: "user1" } });
+    mockKeysDeleteAndCount.mockReturnValue(2);
+    identityWhere = null;
+    keysWhere = null;
+  });
+
+  test("requires auth", async () => {
+    mockGetSession.mockReturnValueOnce(null);
+    const res = await DELETE();
+    expect(res.status).toBe(401);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  test("deletes only the caller's identity row", async () => {
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    expect(mockIdentityDelete).toHaveBeenCalledTimes(1);
+    // Self-scoped: the owner filter means no other account's identity can be
+    // touched by this endpoint.
+    expect(identityWhere).toEqual({ userId: "user1" });
+  });
+
+  test("deletes only the caller's own key wraps, leaving the peer's intact", async () => {
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, removedKeys: 2 });
+    // Scoped by owner only. Any conversation-wide filter would delete the
+    // peer's wraps and destroy their history, which the reset must never do.
+    expect(keysWhere).toEqual({ ownerUserId: "user1" });
+    expect(keysWhere).not.toHaveProperty("conversationId");
   });
 });

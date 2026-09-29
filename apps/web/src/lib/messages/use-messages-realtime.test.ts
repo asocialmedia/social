@@ -1,6 +1,65 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseServerSentFrame, shouldCatchUp } from "./use-messages-realtime";
+import {
+  parseMessageEvent,
+  parseServerSentFrame,
+  shouldCatchUp,
+} from "./use-messages-realtime";
+
+describe("parseMessageEvent", () => {
+  test("preserves the read watermark for conversation.read", () => {
+    expect(
+      parseMessageEvent(
+        JSON.stringify({
+          conversationId: "convo-1",
+          kind: "conversation.read",
+          readAt: "2026-01-01T00:00:00.000Z",
+          userId: "u1",
+        })
+      )
+    ).toEqual({
+      conversationId: "convo-1",
+      deliveredAt: undefined,
+      kind: "conversation.read",
+      message: undefined,
+      readAt: "2026-01-01T00:00:00.000Z",
+      userId: "u1",
+    });
+  });
+
+  test("rejects conversation.read without a read timestamp", () => {
+    expect(
+      parseMessageEvent(
+        JSON.stringify({
+          conversationId: "convo-1",
+          kind: "conversation.read",
+          userId: "u1",
+        })
+      )
+    ).toBeNull();
+  });
+
+  test("rejects conversation.delivered without a delivered timestamp", () => {
+    expect(
+      parseMessageEvent(
+        JSON.stringify({
+          conversationId: "convo-1",
+          kind: "conversation.delivered",
+          userId: "u1",
+        })
+      )
+    ).toBeNull();
+  });
+
+  test("rejects unknown event kinds", () => {
+    expect(
+      parseMessageEvent(
+        JSON.stringify({ conversationId: "convo-1", kind: "bogus" })
+      )
+    ).toBeNull();
+    expect(parseMessageEvent("not json")).toBeNull();
+  });
+});
 
 describe("parseServerSentFrame", () => {
   test("splits event type and data", () => {

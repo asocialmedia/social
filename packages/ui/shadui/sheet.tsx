@@ -77,9 +77,15 @@ const SheetContent = ({
   className,
   children,
   ref,
+  // Off for a surface that provides its own dismissal. The default below is a
+  // 16px icon with no padding, which is a fine affordance on a desktop panel and a
+  // poor one on a touch screen; a bottom sheet at a thumb's reach wants a control
+  // it can actually hit, so the caller that decides the height also decides this.
+  showCloseButton = true,
   ...props
 }: SheetContentProps & {
   ref?: React.Ref<ElementRef<typeof Content> | null>;
+  showCloseButton?: boolean;
 }) => (
   <SheetPortal>
     <SheetOverlay />
@@ -88,10 +94,12 @@ const SheetContent = ({
       ref={ref}
       {...props}
     >
-      <Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
-        <Cross2Icon className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </Close>
+      {showCloseButton ? (
+        <Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <Cross2Icon className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </Close>
+      ) : null}
       {children}
     </Content>
   </SheetPortal>

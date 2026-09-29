@@ -1,7 +1,11 @@
-import { prisma } from "@asm/db";
+import { prisma, publishMessageKeysRotated } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
+import {
+  getConversationForUser,
+  isUniqueConstraintViolation,
+  parseJsonBody,
+} from "@/lib/messages/server";
 
 export interface WrappedKeyPayload {
   encryptedKey: {
@@ -9,6 +13,8 @@ export interface WrappedKeyPayload {
     iv: string;
   };
   ownerUserId: string;
+  // Root-key epoch. Omitted by legacy clients, which means epoch 1.
+  version?: number;
 }
 
 export async function POST(
@@ -53,27 +59,83 @@ export async function POST(
     }
   }
 
+  // Epochs are conversation-wide: both members' wraps for a version denote the
+  // same root, so the ceiling is the conversation's highest version, not a
+  // per-owner one. Accept the next epoch (current max + 1) or any already-seen
+  // version (a no-op idempotent heal); reject a backwards or absurdly jumped
+  // version. Appends cannot clobber an existing wrap thanks to the
+  // (conversationId, ownerUserId, version) unique index.
+  const highest = await prisma.orm.public.MessageConversationKeys.select(
+    "version"
+  )
+    .where({ conversationId: id })
+    .orderBy((key) => key.version.desc())
+    .first();
+  const maxVersion = highest?.version ?? 0;
+
+  const rows = keys.map((key) => {
+    const version = key.version ?? 1;
+    if (!Number.isInteger(version) || version < 1 || version > maxVersion + 1) {
+      return null;
+    }
+    return {
+      conversationId: id,
+      encryptedKey: key.encryptedKey.ciphertext,
+      iv: key.encryptedKey.iv,
+      ownerUserId: key.ownerUserId,
+      version,
+    };
+  });
+  if (rows.some((row) => row === null)) {
+    return Response.json({ error: "Invalid key version" }, { status: 409 });
+  }
+
   // Create-only: a wrapped key may never be overwritten. Once a key exists for
-  // an owner it is immutable, so a re-run (heal path, concurrent retry) is a
-  // no-op instead of replacing the ciphertext the peer relies on.
-  const existingKeys = await prisma.orm.public.MessageConversationKeys.select(
-    "ownerUserId"
+  // an (owner, version) it is immutable, so a re-run (heal path, concurrent
+  // retry) is a no-op instead of replacing the ciphertext the peer relies on.
+  // Prisma 8 has no createMany/skipDuplicates, so each row is written on its own
+  // and a unique-index collision is treated as "already present" rather than a
+  // failure - that also makes a concurrent retry safe.
+  const existing = await prisma.orm.public.MessageConversationKeys.select(
+    "ownerUserId",
+    "version"
   )
     .where({ conversationId: id })
     .all();
-  const existingOwners = new Set(existingKeys.map((key) => key.ownerUserId));
-  await Promise.all(
-    keys
-      .filter((key) => !existingOwners.has(key.ownerUserId))
-      .map((key) =>
-        prisma.orm.public.MessageConversationKeys.create({
-          conversationId: id,
-          encryptedKey: key.encryptedKey.ciphertext,
-          iv: key.encryptedKey.iv,
-          ownerUserId: key.ownerUserId,
-        })
-      )
+  const existingPairs = new Set(
+    existing.map((key) => `${key.ownerUserId}:${key.version}`)
   );
+
+  const pending = rows.filter(
+    (row): row is NonNullable<typeof row> =>
+      row !== null && !existingPairs.has(`${row.ownerUserId}:${row.version}`)
+  );
+  const results = await Promise.all(
+    pending.map(async (row) => {
+      try {
+        await prisma.orm.public.MessageConversationKeys.create(row);
+        return true;
+      } catch (error) {
+        // A concurrent retry inserting the same (owner, version) pair loses the
+        // unique index; that is the same no-op, not a failure.
+        if (isUniqueConstraintViolation(error)) {
+          return false;
+        }
+        throw error;
+      }
+    })
+  );
+  const written = results.filter(Boolean).length;
+
+  // Tell the peer's open threads to refetch the conversation detail. A new
+  // epoch means their cached wraps are stale and every new message would fail
+  // to decrypt until a reload. Only announce when rows were actually written:
+  // an idempotent re-run has nothing new for the peer to pick up. Publishing is
+  // best-effort (the peer's retry-on-error path still heals without it), so a
+  // pub/sub failure must not fail the key write.
+  if (written > 0) {
+    await publishMessageKeysRotated(id, user.id);
+  }
 
   return Response.json({ ok: true });
 }

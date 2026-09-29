@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     await prisma.orm.public.Blocks.create({ blockedId, blockerId: user.id });
   }
 
-  // Defense in depth for the E2EE layer: strip the blocked party's wrapped
+  // Defense in depth for the message-encryption layer: strip the blocked party's wrapped
   // conversation key so they can no longer fetch the root key through the API
   // (the shared conversation gate already returns 404 for a blocked pair).
   // The blocker's own key row is untouched, so their client keeps working.

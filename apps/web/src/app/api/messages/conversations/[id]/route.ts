@@ -23,7 +23,8 @@ export async function GET(
     prisma.orm.public.MessageConversationKeys.select(
       "encryptedKey",
       "iv",
-      "ownerUserId"
+      "ownerUserId",
+      "version"
     )
       .where({ conversationId: id })
       .all(),
@@ -31,6 +32,14 @@ export async function GET(
       and(message.conversationId.eq(id), message.senderId.eq(user.id))
     ).aggregate((aggregate) => ({ count: aggregate.count() })),
   ]);
+
+  // The caller's own preferences, lifted out of the member list so the client
+  // never has to pick "my" row out of a two-element array. The conversation
+  // payload still carries every member row (the thread reads the peer's), so
+  // this is a convenience read, not a privacy boundary.
+  const myMember = conversation.members.find(
+    (member) => member.userId === user.id
+  );
 
   return Response.json({
     conversation,
@@ -40,7 +49,12 @@ export async function GET(
         iv: key.iv,
       },
       ownerUserId: key.ownerUserId,
+      version: key.version,
     })),
     mySentCount: mySentCount.count,
+    prefs: {
+      mutedAt: myMember?.mutedAt?.toISOString() ?? null,
+      themeKey: myMember?.themeKey ?? null,
+    },
   });
 }

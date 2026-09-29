@@ -1132,6 +1132,52 @@
   }
 }
 
+/* Jump-to-message shimmer: one white sweep, left to right, the band slanted so
+   it crosses the bubble diagonally.
+
+   The skew lives in the keyframes on both ends: a keyframe on `transform`
+   replaces the whole matrix, so a base `skewX` would snap off on frame one.
+   Travel is `translate3d` only, so the sweep runs on the compositor with no
+   layout and no per-frame repaint of the bubble. */
+@keyframes msg-jump-shimmer {
+  from {
+    transform: translate3d(-200%, 0, 0) skewX(-20deg);
+  }
+  to {
+    transform: translate3d(100%, 0, 0) skewX(-20deg);
+  }
+}
+
+/* Clip the travelling band to the bubble's own rounded shape. Scoped to the
+   shimmer so the bubble's normal overflow behaviour is untouched. */
+.msg-jump-shimmer {
+  overflow: hidden;
+}
+
+.msg-jump-shimmer::after {
+  content: "";
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  left: 50%;
+  width: 50%;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.6) 50%,
+    transparent 100%
+  );
+  transform: translate3d(-200%, 0, 0) skewX(-20deg);
+  animation: msg-jump-shimmer 800ms ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-jump-shimmer::after {
+    display: none;
+  }
+}
+
 .auth-button-shadow {
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
 }

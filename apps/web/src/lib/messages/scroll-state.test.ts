@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatArrivalCount,
+  INSTANT_JUMP_DISTANCE_PX,
   isNearBottom,
+  jumpBehavior,
   MAX_BADGE_COUNT,
   nextArrivalCount,
 } from "./scroll-state";
@@ -35,6 +37,38 @@ describe("isNearBottom", () => {
     expect(
       isNearBottom({ clientHeight: 0, scrollHeight: 0, scrollTop: 0 })
     ).toBe(true);
+  });
+});
+
+describe("jumpBehavior", () => {
+  test("animates a short hop to the bottom", () => {
+    // 100px from the end
+    expect(jumpBehavior(viewport(500))).toBe("smooth");
+  });
+
+  test("jumps instantly past the instant-distance threshold", () => {
+    // 1001px from the end, one pixel over the threshold
+    expect(jumpBehavior(viewport(0, 1401, 400))).toBe("auto");
+  });
+
+  test("animates exactly at the threshold", () => {
+    // 1000px from the end: the boundary stays animated
+    expect(jumpBehavior(viewport(0, 1400, 400))).toBe("smooth");
+  });
+
+  test("honours a custom instant distance", () => {
+    expect(jumpBehavior(viewport(0, 1400, 400), 10_000)).toBe("smooth");
+    expect(jumpBehavior(viewport(0, 1400, 400), 100)).toBe("auto");
+  });
+
+  test("jumps instantly when the viewport is unmeasured", () => {
+    expect(
+      jumpBehavior({ clientHeight: 0, scrollHeight: 0, scrollTop: 0 })
+    ).toBe("auto");
+  });
+
+  test("exposes the default threshold", () => {
+    expect(INSTANT_JUMP_DISTANCE_PX).toBeGreaterThan(0);
   });
 });
 

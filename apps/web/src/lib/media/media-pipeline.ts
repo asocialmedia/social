@@ -660,7 +660,7 @@ export async function createInitiatedUpload(input: {
     originalKey,
   });
 
-  // Message attachments are end-to-end encrypted payloads; the server can
+  // Message attachments live inside encrypted payloads; the server can
   // never link them to posts, so orphan cleanup does not apply to them.
   if (purpose !== "message") {
     try {

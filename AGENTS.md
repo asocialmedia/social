@@ -16,6 +16,16 @@
 - every comment must be single-line `//` comments only. NEVER use `/* */`, `/** */` (JSDoc), or any block comment, anywhere, in any file, for any reason. A multi-line explanation is just several `//` lines stacked. The only exception is the `{/* ... */}` expression form required inside JSX children, which is a syntax requirement, not a comment style choice.
 - use git for version control, and commit your changes with descriptive commit messages in the format of `feat`: New feature, `fix`: Bug fix, `docs`: Documentation, `style`: Formatting, `refactor`: Code change, `test`: Adding tests, `chore`: Maintenance, `perf`: Performance, `ci`: Continuous integration, `build`: Build system, `revert`: Revert changes, `wip`: Work in progress example: `feat[MODULE]: Add new module`
 
+# Messages encryption:
+
+Messages use **server-recoverable encryption, not end-to-end encryption**: the backup key is derived from the identity row the server stores, so anyone who can read the database can read every message. This is a deliberate product decision (Telegram-cloud semantics) — messages are encrypted in transit and at rest and access is gated by session + membership, which protects against everyone who is not the database operator. Do not re-label it as "end-to-end" in UI or docs, and do not "harden" it back into a scheme where recovery breaks for real users.
+
+Anything that changes how message keys are derived, stored, wrapped, or recovered must keep all three of these true in the same PR:
+
+1. **Recovery is automatic and the stored row is the source.** The master key is derived (PBKDF2) from a random seed hash persisted with the identity, so a fresh device with no local storage and no user input must always recover (see `apps/web/src/lib/messages/crypto.ts` and the provider's `unlockIdentity`). Guarded by "the stored row alone derives the backup key" in `crypto.test.ts` and the invariants in `recovery-invariants.test.ts`.
+2. **Abandoned verifier rows still unlock where possible.** The short-lived scheme derived from a raw secret held only on one device. Keep the device-secret attempt in `unlockIdentity` so those rows are not stranded; they are otherwise cleared by a reset. Never re-introduce a user-facing secret or a passkey/PRF credential — neither is needed once recovery is server-side.
+3. **A lost key degrades, never bricks.** When a row cannot be read, there must be a self-scoped reset path that loses only the resetting account's own history and leaves the peer's intact (`DELETE /api/messages/identity`, and versioned wraps in `MessageConversationKey`). Bump the conversation-key `version` rather than overwriting a wrap: the peer's older epochs must stay readable.
+
 # UI:
 
 Every raised surface in this app is the same construction: a hairline outer edge, a bright inner lip that catches light, on a surface one step above the page. These recipes live in `packages/ui/styles/globals.css`, inside `@layer components`:

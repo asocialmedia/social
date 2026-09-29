@@ -1,0 +1,523 @@
+[
+  {
+    "id": "dropConstraint.message_conversation_keys.message_conversation_keys_conversationId_ownerUserId_key",
+    "label": "Drop constraint \"message_conversation_keys_conversationId_ownerUserId_key\" on \"message_conversation_keys\"",
+    "operationClass": "destructive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_conversation_keys_conversationId_ownerUserId_key",
+        "table": "message_conversation_keys"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_conversation_keys_conversationId_ownerUserId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_keys_conversationId_ownerUserId_key",
+          "public",
+          "\"public\".\"message_conversation_keys\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop constraint \"message_conversation_keys_conversationId_ownerUserId_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_keys\" DROP CONSTRAINT \"message_conversation_keys_conversationId_ownerUserId_key\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_conversation_keys_conversationId_ownerUserId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_keys_conversationId_ownerUserId_key",
+          "public",
+          "\"public\".\"message_conversation_keys\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.message_hidden",
+    "label": "Create table \"message_hidden\"",
+    "summary": "Creates table \"message_hidden\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_hidden"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_hidden\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_hidden\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_hidden\"",
+        "sql": "CREATE TABLE \"public\".\"message_hidden\" (\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"messageId\" text NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_hidden_pkey\" PRIMARY KEY (\"messageId\", \"userId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_hidden\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_hidden\""]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversation_keys.version",
+    "label": "Add column \"version\" to \"message_conversation_keys\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "version",
+        "table": "message_conversation_keys"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"version\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_keys", "version"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"version\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_keys\" ADD COLUMN \"version\" int4 DEFAULT 1 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"version\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_keys", "version"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversation_members.lastDeliveredAt",
+    "label": "Add column \"lastDeliveredAt\" to \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "lastDeliveredAt",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"lastDeliveredAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "lastDeliveredAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"lastDeliveredAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_members\" ADD COLUMN \"lastDeliveredAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"lastDeliveredAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "lastDeliveredAt"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversation_members.mutedAt",
+    "label": "Add column \"mutedAt\" to \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "mutedAt",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"mutedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "mutedAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"mutedAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_members\" ADD COLUMN \"mutedAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"mutedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "mutedAt"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversation_members.themeKey",
+    "label": "Add column \"themeKey\" to \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "themeKey",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"themeKey\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "themeKey"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"themeKey\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_members\" ADD COLUMN \"themeKey\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"themeKey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "themeKey"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.messages.editedAt",
+    "label": "Add column \"editedAt\" to \"messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "editedAt",
+        "table": "messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"editedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "messages", "editedAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"editedAt\"",
+        "sql": "ALTER TABLE \"public\".\"messages\" ADD COLUMN \"editedAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"editedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "messages", "editedAt"]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_conversation_keys.message_conversation_keys_conversationId_ownerUserId_versio_key",
+    "label": "Add unique constraint on \"message_conversation_keys\" (conversationId, ownerUserId, version)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_conversation_keys_conversationId_ownerUserId_versio_key",
+        "table": "message_conversation_keys"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_conversation_keys_conversationId_ownerUserId_versio_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_keys_conversationId_ownerUserId_versio_key",
+          "public",
+          "\"public\".\"message_conversation_keys\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_conversation_keys_conversationId_ownerUserId_versio_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_keys\" ADD CONSTRAINT \"message_conversation_keys_conversationId_ownerUserId_versio_key\" UNIQUE (\"conversationId\", \"ownerUserId\", \"version\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_conversation_keys_conversationId_ownerUserId_versio_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_keys_conversationId_ownerUserId_versio_key",
+          "public",
+          "\"public\".\"message_conversation_keys\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_conversation_keys.message_conversation_keys_conversationId_ownerUserId_idx",
+    "label": "Create index \"message_conversation_keys_conversationId_ownerUserId_idx\" on \"message_conversation_keys\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_conversation_keys_conversationId_ownerUserId_idx",
+        "table": "message_conversation_keys"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_conversation_keys_conversationId_ownerUserId_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_keys_conversationId_ownerUserId_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_conversation_keys_conversationId_ownerUserId_idx\"",
+        "sql": "CREATE INDEX \"message_conversation_keys_conversationId_ownerUserId_idx\" ON \"public\".\"message_conversation_keys\" (\"conversationId\", \"ownerUserId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_conversation_keys_conversationId_ownerUserId_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_keys_conversationId_ownerUserId_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_conversation_members.message_conversation_members_userId_mutedAt_idx",
+    "label": "Create index \"message_conversation_members_userId_mutedAt_idx\" on \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_conversation_members_userId_mutedAt_idx",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_conversation_members_userId_mutedAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_members_userId_mutedAt_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_conversation_members_userId_mutedAt_idx\"",
+        "sql": "CREATE INDEX \"message_conversation_members_userId_mutedAt_idx\" ON \"public\".\"message_conversation_members\" (\"userId\", \"mutedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_conversation_members_userId_mutedAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_members_userId_mutedAt_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_hidden.message_hidden_userId_idx",
+    "label": "Create index \"message_hidden_userId_idx\" on \"message_hidden\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_hidden_userId_idx",
+        "table": "message_hidden"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_hidden_userId_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_hidden_userId_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_hidden_userId_idx\"",
+        "sql": "CREATE INDEX \"message_hidden_userId_idx\" ON \"public\".\"message_hidden\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_hidden_userId_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_hidden_userId_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.messages.messages_conversationId_id_idx",
+    "label": "Create index \"messages_conversationId_id_idx\" on \"messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "messages_conversationId_id_idx",
+        "table": "messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"messages_conversationId_id_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"messages_conversationId_id_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"messages_conversationId_id_idx\"",
+        "sql": "CREATE INDEX \"messages_conversationId_id_idx\" ON \"public\".\"messages\" (\"conversationId\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"messages_conversationId_id_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"messages_conversationId_id_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_hidden.message_hidden_messageId_fkey",
+    "label": "Add foreign key \"message_hidden_messageId_fkey\" on \"message_hidden\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_hidden_messageId_fkey",
+        "table": "message_hidden"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_hidden_messageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_hidden_messageId_fkey",
+          "public",
+          "\"public\".\"message_hidden\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_hidden_messageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_hidden\"\nADD CONSTRAINT \"message_hidden_messageId_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_hidden_messageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_hidden_messageId_fkey",
+          "public",
+          "\"public\".\"message_hidden\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_hidden.message_hidden_userId_fkey",
+    "label": "Add foreign key \"message_hidden_userId_fkey\" on \"message_hidden\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_hidden_userId_fkey",
+        "table": "message_hidden"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_hidden_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_hidden_userId_fkey",
+          "public",
+          "\"public\".\"message_hidden\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_hidden_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_hidden\"\nADD CONSTRAINT \"message_hidden_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_hidden_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_hidden_userId_fkey",
+          "public",
+          "\"public\".\"message_hidden\""
+        ]
+      }
+    ]
+  }
+]
