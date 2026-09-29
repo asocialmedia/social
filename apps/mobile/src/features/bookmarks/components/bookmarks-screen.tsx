@@ -21,6 +21,7 @@ import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MobileBottomNav } from "../../home/components/mobile-bottom-nav";
@@ -267,7 +268,7 @@ export function BookmarksScreen() {
               />
             )
           }
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         />
       )}
       <MobileBottomNav />

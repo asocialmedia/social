@@ -6,6 +6,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import {
   admin as adminPlugin,
+  bearer,
   captcha,
   emailOTP,
   haveIBeenPwned,
@@ -447,6 +448,9 @@ export function createAuthConfig(config: AuthConfig = {}) {
       // rewrites OAuth magic-link/verify deep-link redirects, so email login
       // flows are unaffected; the scheme must stay in trustedOrigins below.
       expo(),
+      // Accepts Authorization: Bearer <session_token> headers from native apps
+      // and converts them to authenticated sessions on all Better Auth endpoints.
+      bearer(),
       jwt(),
       adminPlugin(),
       twoFactor({

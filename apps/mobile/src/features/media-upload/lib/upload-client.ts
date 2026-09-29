@@ -88,8 +88,13 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 function friendlyMessage(error: unknown, fallback: string): string {
   if (error instanceof HttpError) {
-    if (error.status === 401 || error.status === 403) {
+    if (error.status === 401) {
       return "Session expired - sign in and re-upload";
+    }
+    if (error.status === 403) {
+      return error.message && error.message !== "Request failed (403)"
+        ? error.message
+        : "Upload not permitted";
     }
     if (error.status === 429) {
       return "Slow down a little - uploads are rate limited";
@@ -238,13 +243,18 @@ export async function watchMediaStatus(
       if (error instanceof UploadError || isAbortError(error)) {
         throw error;
       }
-      if (
-        error instanceof HttpError &&
-        (error.status === 401 || error.status === 403)
-      ) {
+      if (error instanceof HttpError && error.status === 401) {
         throw new UploadError(
           "processing",
           "Session expired - sign in and re-upload",
+          mediaId,
+          error
+        );
+      }
+      if (error instanceof HttpError && error.status === 403) {
+        throw new UploadError(
+          "processing",
+          friendlyMessage(error, "Upload not permitted"),
           mediaId,
           error
         );

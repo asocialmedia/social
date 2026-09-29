@@ -9,6 +9,7 @@ import { normalizePostsData } from "@/features/feed/lib/feed-types";
 // web's hide/unhide server actions). Pure and injectable like feed-api:
 // cookie, apiBase and baseFetch come from the caller, so it unit-tests on
 // Bun without React Native.
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export type GustTab = "latest" | "personalized";
@@ -54,10 +55,7 @@ function request(
   options: ApiCallOptions & { body?: unknown; method?: string }
 ): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = {};
-  if (options.cookie) {
-    headers.cookie = options.cookie;
-  }
+  const headers = withAuthHeaders({}, options.cookie);
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }

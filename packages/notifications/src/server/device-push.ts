@@ -83,7 +83,7 @@ let cachedAccessToken: FcmAccessTokenCache | null = null;
 
 function resolveFcmServiceAccountCached() {
   const raw = process.env.FCM_SERVICE_ACCOUNT_JSON ?? null;
-  if (cachedRaw !== raw) {
+  if (cachedRaw !== raw || cachedAccount === null) {
     cachedRaw = raw;
     cachedAccount = resolveFcmServiceAccount();
   }
@@ -95,5 +95,5 @@ function resolveFcmServiceAccountCached() {
 export function isDevicePushConfigured(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  return Boolean(env.FCM_SERVICE_ACCOUNT_JSON?.trim());
+  return resolveFcmServiceAccount(env) !== null;
 }

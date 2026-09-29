@@ -5,18 +5,20 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ErrorBoundary } from "@/components/feedback/error-boundary";
 import { StartupGate } from "@/components/feedback/startup-splash";
 import { Toaster } from "@/components/feedback/toast";
 import { InstallVerificationGate } from "@/features/auth/components/install-verification-gate";
+import { SessionRevocationGuard } from "@/features/auth/components/session-revocation-guard";
 import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
 import { ComposerModal } from "@/features/composer/components/composer-modal";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { SpotlightModal } from "@/features/search/components/spotlight-modal";
-import { UpdateGate } from "@/features/update/components/update-gate";
+import { SupportGate } from "@/features/support/components/support-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
@@ -83,37 +85,63 @@ export default function RootLayout() {
             auth call in it, so a fresh install is verified before signing in. */}
           <InstallProvider>
             <SessionProvider>
-              <UpdateGate />
+              {/* Launch-time support check. The app it replaced downloaded a
+                release APK and launched the system installer, which Play Store
+                policy forbids; this asks the server whether the running build is
+                still served and hands an out-of-date one to the store. Inside
+                the session provider so the check shares the API base. */}
+              <SupportGate />
               {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
               <PushRegistrar />
+              {/* Real-time session revocation listener (SSE stream). Terminates
+                the local session immediately if revoked remotely or on 401. */}
+              <SessionRevocationGuard />
               <Stack
                 screenOptions={{
-                  animation: "fade",
-                  animationDuration: 200,
+                  animation:
+                    Platform.OS === "ios" ? "default" : "slide_from_right",
                   contentStyle: { backgroundColor: theme.containerBg },
                   headerShown: false,
                 }}
               >
-                <Stack.Screen name="index" />
+                <Stack.Screen name="index" options={{ animation: "none" }} />
+                <Stack.Screen name="posts" />
                 <Stack.Screen name="notifications" />
                 <Stack.Screen name="bookmarks" />
                 <Stack.Screen
                   name="gusts"
-                  options={{ contentStyle: { backgroundColor: "#000000" } }}
+                  options={{
+                    animation: "fade_from_bottom",
+                    animationDuration: 250,
+                    contentStyle: { backgroundColor: "#000000" },
+                    presentation: "fullScreenModal",
+                  }}
                 />
                 <Stack.Screen name="users/[username]" />
                 <Stack.Screen name="users/[username]/followers" />
                 <Stack.Screen name="users/[username]/following" />
                 <Stack.Screen name="discover" />
                 <Stack.Screen name="communities" />
-                <Stack.Screen name="communities/create" />
+                <Stack.Screen
+                  name="communities/create"
+                  options={{
+                    animation: "slide_from_bottom",
+                    presentation: "modal",
+                  }}
+                />
                 <Stack.Screen name="a/[slug]" />
                 <Stack.Screen name="legal/[document]" />
                 <Stack.Screen name="hashtag/[tag]" />
                 <Stack.Screen name="hackernews" />
                 <Stack.Screen name="settings" />
-                <Stack.Screen name="(auth)" />
+                <Stack.Screen
+                  name="(auth)"
+                  options={{
+                    animation: "fade",
+                    animationDuration: 200,
+                  }}
+                />
               </Stack>
               {/* Shown only when a mutating request needs the install credential
                 and none is stored yet, so browsing never pays the cost. */}

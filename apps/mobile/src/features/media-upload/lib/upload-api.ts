@@ -8,6 +8,7 @@
 // the retry policy and the UI can tell a rate limit from a rejection.
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { withAuthHeaders } from "@/lib/auth-headers";
 
 import { uploadRateBudget } from "./rate-budget";
 import { AbortError, HttpError, parseRetryAfter } from "./retry";
@@ -87,11 +88,8 @@ export async function apiJson<T>(
   if (path.startsWith("/api/upload")) {
     await uploadRateBudget.acquire();
   }
-  const headers: Record<string, string> = { ...options.headers };
   const cookie = await authClient.getCookie();
-  if (cookie) {
-    headers.cookie = cookie;
-  }
+  const headers = withAuthHeaders({ ...options.headers }, cookie);
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }

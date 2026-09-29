@@ -1,4 +1,5 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export interface SearchUserResult {
@@ -169,7 +170,7 @@ async function readJson(response: Response): Promise<unknown> {
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }
@@ -232,9 +233,7 @@ function searchWrite(
   options: ApiCallOptions
 ): Promise<boolean> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = {
-    ...(options.cookie ? { cookie: options.cookie } : null),
-  };
+  const headers: Record<string, string> = withAuthHeaders({}, options.cookie);
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }

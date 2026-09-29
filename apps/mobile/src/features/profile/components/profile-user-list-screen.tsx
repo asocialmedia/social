@@ -17,6 +17,7 @@ import { fetchProfileUserList, useProfile } from "@/features/profile";
 import type { ProfileListKind, ProfileUserListItem } from "@/features/profile";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { mutateFollow } from "../lib/profile-api";
@@ -397,7 +398,7 @@ export function ProfileUserListScreen({ kind }: { kind: ProfileListKind }) {
           />
         }
         renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       />
     );
   }

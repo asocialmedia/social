@@ -50,6 +50,12 @@ mock.module("better-auth", () => ({
 }));
 mock.module("better-auth/plugins", () => ({
   admin: () => ({}),
+  // config.ts registers this plugin (it is what lets the native app
+  // authenticate with `Authorization: Bearer <session_token>`). The mock
+  // replaces the module wholesale, so a named import the real module exports
+  // but the mock omits fails module resolution and takes the whole file down
+  // before a single test runs. Keep this list in step with config.ts's imports.
+  bearer: () => ({}),
   captcha: () => ({}),
   emailOTP: () => ({}),
   haveIBeenPwned: () => ({}),

@@ -11,6 +11,7 @@ import { UserAvatar } from "@/components/avatar/user-avatar";
 import { themeText } from "@/components/surface/recipes";
 import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { ReplyTarget } from "../state/composer-store";
@@ -86,7 +87,11 @@ export function ResponsePreview({
             </Pressable>
           </View>
           {replyTo.content ? (
-            <ScrollView nestedScrollEnabled style={styles.contentScroll}>
+            <ScrollView
+              nestedScrollEnabled
+              style={styles.contentScroll}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            >
               <Text style={[styles.content, { color: text.foreground }]}>
                 {replyTo.content}
               </Text>

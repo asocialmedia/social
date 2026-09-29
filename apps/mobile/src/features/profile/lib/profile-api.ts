@@ -8,6 +8,7 @@ import {
   normalizePostData,
   normalizePostsData,
 } from "@/features/feed/lib/feed-types";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 import type { ProfileViewTab } from "./profile-tab-memory";
@@ -81,7 +82,7 @@ async function readJson(response: Response): Promise<unknown> {
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }
@@ -420,7 +421,7 @@ export async function mutateFollow(
   const response = await baseFetch(
     `${options.apiBase}/api/users/${encodeURIComponent(userId)}/followers`,
     {
-      headers: options.cookie ? { cookie: options.cookie } : {},
+      headers: withAuthHeaders({}, options.cookie),
       method: follow ? "POST" : "DELETE",
     }
   );

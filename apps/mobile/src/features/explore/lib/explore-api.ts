@@ -5,6 +5,7 @@ import {
   normalizePostsData,
 } from "@/features/feed/lib/feed-types";
 import type { ExploreTab } from "@/features/feed/state/tab-store";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export class ExploreApiError extends Error {
@@ -145,7 +146,7 @@ export function buildExploreGustsPath(cursor: string | null): string {
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }
@@ -306,10 +307,10 @@ export async function mutateExploreFollow(
     `${options.apiBase}/api/users/${encodeURIComponent(userId)}/followers`,
     {
       body: JSON.stringify({}),
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.cookie ? { cookie: options.cookie } : {}),
-      },
+      headers: withAuthHeaders(
+        { "Content-Type": "application/json" },
+        options.cookie
+      ),
       method: next ? "POST" : "DELETE",
     }
   );

@@ -6,7 +6,7 @@
 // unit-testable without network or a database.
 
 import type { NotificationRecord } from "../shared/types";
-import { sendDevicePush } from "./device-push";
+import { isDevicePushConfigured, sendDevicePush } from "./device-push";
 import type { DevicePushResult, DeviceTarget } from "./device-push";
 import type { PushLogger } from "./log";
 import { resolveVapidConfig, sendWebPush } from "./web-push";
@@ -119,10 +119,7 @@ export async function dispatchNotificationPush(
 export function isPushConfigured(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  return (
-    resolveVapidConfig(env) !== null ||
-    Boolean(env.FCM_SERVICE_ACCOUNT_JSON?.trim())
-  );
+  return resolveVapidConfig(env) !== null || isDevicePushConfigured(env);
 }
 
 // Emits the unconfigured warning at most once per process.

@@ -76,6 +76,11 @@ interface ProfileFeedViewBase {
   error: string | null;
   fetchNext: () => void;
   hasMore: boolean;
+  // Pull-to-refresh. Replaces the tab's list with a fresh page one and resolves
+  // when it has landed, so the pull loader can hold its chip for the real
+  // latency. `refreshing` is true only for that window.
+  refresh: () => Promise<void>;
+  refreshing: boolean;
   // Re-runs the tab's first page from scratch, used after a mutation that
   // removes a row (a deleted eddie) so the list cannot keep a dead entry.
   reload: () => void;

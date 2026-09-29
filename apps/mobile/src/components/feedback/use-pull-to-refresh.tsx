@@ -25,6 +25,7 @@ import {
   PULL_THRESHOLD,
   PullLoader,
 } from "@/features/feed/components/pull-loader";
+import { REFRESH_TIMING } from "@/lib/refresh-timing";
 
 // Rubber-band factor on the Android pan, so the pull never feels 1:1.
 const PULL_RESISTANCE = 0.55;
@@ -119,13 +120,21 @@ export interface PullToRefresh {
 export function usePullToRefresh({
   failed,
   onRefresh,
+  offsetTop,
   refreshing,
+  translucent = false,
   updatedMessage = "Feed updated",
 }: {
   // The refresh that just finished failed: the pill says so.
   failed: boolean;
   onRefresh: () => void;
+  // Where the chip rests. Screens that start under a notch or punch-hole pass
+  // their safe-area inset here so the pill is never parked in the cutout.
+  offsetTop?: number;
   refreshing: boolean;
+  // Set on screens where the chip drops over imagery rather than over the flat
+  // page background, so what is behind it shows through.
+  translucent?: boolean;
   // The pill's text. Defaults to the feed's, since that is the common case.
   updatedMessage?: string;
 }): PullToRefresh {
@@ -211,9 +220,11 @@ export function usePullToRefresh({
   }, [pullRef, pullUpdateRef, refreshing]);
 
   // Fired as the loader starts sliding away, so the list glides home with it.
+  // Same duration as the chip's exit: they are one motion, and the list used to
+  // outlive the chip by 60ms, which read as the list dragging behind the pill.
   const onSettle = useCallback(() => {
     Animated.timing(pullShift, {
-      duration: 240,
+      duration: REFRESH_TIMING.chipExit,
       easing: Easing.bezier(0.32, 0.72, 0, 1),
       toValue: 0,
       useNativeDriver: Platform.OS !== "web",
@@ -225,12 +236,22 @@ export function usePullToRefresh({
       <PullLoader
         failed={failed}
         message={updatedMessage}
+        offsetTop={offsetTop}
         onSettle={onSettle}
         refreshing={refreshing}
         registerUpdate={pullUpdateRef}
+        translucent={translucent}
       />
     ),
-    [failed, onSettle, pullUpdateRef, refreshing, updatedMessage]
+    [
+      failed,
+      offsetTop,
+      onSettle,
+      pullUpdateRef,
+      refreshing,
+      translucent,
+      updatedMessage,
+    ]
   );
 
   return {

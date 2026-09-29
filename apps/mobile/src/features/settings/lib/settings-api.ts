@@ -10,6 +10,7 @@
 //   - Reads return null rather than throwing when the viewer is signed out, so
 //     a guest opening settings sees empty state instead of an error.
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { withAuthHeaders } from "@/lib/auth-headers";
 
 export type SettingsMutationResult =
   | { kind: "error"; message: string; status: number }
@@ -69,9 +70,7 @@ export async function mutateSettings(
   options: ApiCallOptions,
   fallbackMessage: string
 ): Promise<SettingsMutationResult> {
-  const headers: Record<string, string> = {
-    ...(options.cookie ? { cookie: options.cookie } : null),
-  };
+  const headers: Record<string, string> = withAuthHeaders({}, options.cookie);
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }
@@ -112,7 +111,7 @@ export async function readSettings<T>(
   try {
     const response = await (options.baseFetch ?? fetch)(
       `${options.apiBase}${path}`,
-      { headers: options.cookie ? { cookie: options.cookie } : {} }
+      { headers: withAuthHeaders({}, options.cookie) }
     );
     if (!response.ok) {
       return null;

@@ -69,20 +69,20 @@ export interface SseStreamOptions {
   eventName: string;
   baseFetch?: typeof fetch;
   onStatusChange?: (status: SseStatus) => void;
-  /** Aborts the in-flight request and stops reconnecting. */
+  // Called when the endpoint responds with 401 Unauthorized, halting retries.
+  onUnauthorized?: () => void;
+  // Aborts the in-flight request and stops reconnecting.
   signal?: AbortSignal;
-  /** Injected for tests; defaults to the platform timer. */
+  // Injected for tests; defaults to the platform timer.
   setTimeoutFn?: typeof setTimeout;
   clearTimeoutFn?: typeof clearTimeout;
 }
 
 export type SseStatus = "connecting" | "live" | "reconnecting" | "closed";
 
-/**
- * Opens `url` and keeps it open, reporting every frame whose event name
- * matches. Resolves when the stream ends and the caller should stop; retries
- * with backoff until aborted.
- */
+// Opens `url` and keeps it open, reporting every frame whose event name
+// matches. Resolves when the stream ends and the caller should stop; retries
+// with backoff until aborted.
 export async function readSseStream({
   baseFetch = fetch,
   clearTimeoutFn = clearTimeout,
@@ -90,6 +90,7 @@ export async function readSseStream({
   eventName,
   onEvent,
   onStatusChange,
+  onUnauthorized,
   setTimeoutFn = setTimeout,
   signal,
   url,
@@ -98,12 +99,33 @@ export async function readSseStream({
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
   let retryDelay = SSE_INITIAL_RETRY_MS;
+  let currentStatus: SseStatus | null = null;
+
+  const updateStatus = (next: SseStatus) => {
+    if (currentStatus === next) {
+      return;
+    }
+    currentStatus = next;
+    onStatusChange?.(next);
+  };
+
+  const stop = () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    controller?.abort();
+    if (retryTimer !== null) {
+      clearTimeoutFn(retryTimer);
+    }
+    updateStatus("closed");
+  };
 
   const connect = async (): Promise<void> => {
     if (stopped) {
       return;
     }
-    onStatusChange?.("connecting");
+    updateStatus("connecting");
     controller = new AbortController();
     const onAbort = () => controller?.abort();
     signal?.addEventListener("abort", onAbort);
@@ -117,12 +139,17 @@ export async function readSseStream({
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
+        if (response.status === 401) {
+          onUnauthorized?.();
+          stop();
+          return;
+        }
         throw new Error(`Stream returned ${response.status}`);
       }
       // A stream that opened is healthy again, so the next drop starts over
       // from the shortest delay rather than the backoff ceiling.
       retryDelay = SSE_INITIAL_RETRY_MS;
-      onStatusChange?.("live");
+      updateStatus("live");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -152,7 +179,7 @@ export async function readSseStream({
       if (stopped) {
         return;
       }
-      onStatusChange?.("reconnecting");
+      updateStatus("reconnecting");
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
@@ -167,15 +194,6 @@ export async function readSseStream({
     }, delay);
   };
 
-  const stop = () => {
-    stopped = true;
-    controller?.abort();
-    if (retryTimer !== null) {
-      clearTimeoutFn(retryTimer);
-    }
-    onStatusChange?.("closed");
-  };
-
   if (signal) {
     if (signal.aborted) {
       stop();
@@ -186,6 +204,6 @@ export async function readSseStream({
 
   await connect();
   if (stopped) {
-    onStatusChange?.("closed");
+    updateStatus("closed");
   }
 }

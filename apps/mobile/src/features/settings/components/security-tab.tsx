@@ -20,6 +20,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -190,7 +191,7 @@ export function SecurityTab() {
     <ScrollView
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
+      showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
     >
       <SettingsSectionHeader
         description="Password, two-factor, passkeys and sessions"

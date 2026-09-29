@@ -3,19 +3,17 @@
 // when switching tabs, like web's useFeedScrollMemory), the new-content
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { ReactElement, ReactNode, RefObject } from "react";
+import type { ReactElement, ReactNode } from "react";
 import {
   Animated,
   FlatList,
-  PanResponder,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import type { PanResponderInstance, ViewToken } from "react-native";
+import type { ViewToken } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 
 import errorImage from "@/assets/images/error.png";
@@ -27,6 +25,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { FeedVariant } from "../lib/feed-api";
@@ -55,189 +54,6 @@ import { usePostOverflow } from "./use-post-overflow";
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
 const scrollMemory = new Map<string, number>();
-
-// Floating feed scrollbar: native port of web's FeedScrollbar. The system
-// indicator is hidden; an orange 3D thumb overlays the right edge, appears
-// while scrolling, auto-hides after 800ms, and drags to scroll.
-const SCROLL_MIN_THUMB = 48;
-const SCROLL_MAX_THUMB = 96;
-const SCROLL_HIDE_DELAY = 800;
-
-const SCROLL_THUMB_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1px 1.5px rgba(255, 255, 255, 0.6), 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.08)";
-const SCROLL_THUMB_SHADOWS_DARK =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1px 1.5px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(255, 255, 255, 0.4), 0 2px 4px rgba(0, 0, 0, 0.12)";
-
-interface ScrollMetrics {
-  container: number;
-  content: number;
-  offset: number;
-}
-
-function FeedScrollbar({
-  listRef,
-  metricsRef,
-  registerRef,
-}: {
-  listRef: RefObject<FlatList<FeedThreadGroup> | null>;
-  metricsRef: RefObject<ScrollMetrics>;
-  registerRef: RefObject<((offset: number) => void) | null>;
-}) {
-  const { isDark } = useAppTheme();
-  const [geometry, setGeometry] = useState({
-    height: 0,
-    translate: 0,
-    visible: false,
-  });
-  const [showing, setShowing] = useState(false);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef({ height: 0, offset: 0, translate: 0 });
-  const dragStart = useRef({ offset: 0, translate: 0 });
-  const [panResponder, setPanResponder] = useState<PanResponderInstance | null>(
-    null
-  );
-
-  useEffect(() => {
-    const timer = hideTimer.current;
-    return () => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    };
-  }, []);
-
-  const show = useCallback(() => {
-    setShowing(true);
-    if (hideTimer.current) {
-      clearTimeout(hideTimer.current);
-    }
-    hideTimer.current = setTimeout(() => {
-      hideTimer.current = null;
-      setShowing(false);
-    }, SCROLL_HIDE_DELAY);
-  }, []);
-
-  const update = (offset: number) => {
-    const metrics = metricsRef.current;
-    if (!metrics) {
-      return;
-    }
-    metrics.offset = offset;
-    const { container, content } = metrics;
-    if (!container || content <= container) {
-      setGeometry((current) =>
-        current.visible ? { ...current, visible: false } : current
-      );
-      return;
-    }
-    const height = Math.min(
-      Math.max((container / content) * container, SCROLL_MIN_THUMB),
-      SCROLL_MAX_THUMB
-    );
-    const maxTranslate = container - height;
-    const scrollable = content - container;
-    const translate = scrollable > 0 ? (offset / scrollable) * maxTranslate : 0;
-    latest.current = { height, offset, translate };
-    setGeometry((current) =>
-      current.height === height &&
-      current.translate === translate &&
-      current.visible
-        ? current
-        : { height, translate, visible: true }
-    );
-    show();
-  };
-
-  useEffect(() => {
-    registerRef.current = update;
-    return () => {
-      registerRef.current = null;
-    };
-  });
-
-  // Built once in an effect (never during render): the handlers only touch
-  // refs and stable setState, so the first instance stays valid for life.
-  useEffect(() => {
-    const responder = PanResponder.create({
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        dragStart.current = {
-          offset: latest.current.offset,
-          translate: latest.current.translate,
-        };
-        if (hideTimer.current) {
-          clearTimeout(hideTimer.current);
-          hideTimer.current = null;
-        }
-        setShowing(true);
-      },
-      onPanResponderMove: (_, gesture) => {
-        const metrics = metricsRef.current;
-        const list = listRef.current;
-        if (!(metrics && list)) {
-          return;
-        }
-        const { container, content } = metrics;
-        const scrollable = content - container;
-        if (scrollable <= 0) {
-          return;
-        }
-        const maxTranslate = container - latest.current.height;
-        if (maxTranslate <= 0) {
-          return;
-        }
-        const translate = Math.min(
-          Math.max(dragStart.current.translate + gesture.dy, 0),
-          maxTranslate
-        );
-        const offset = (translate / maxTranslate) * scrollable;
-        latest.current = { ...latest.current, offset, translate };
-        setGeometry((current) => ({ ...current, translate }));
-        list.scrollToOffset({ animated: false, offset });
-      },
-      onPanResponderRelease: () => {
-        show();
-      },
-      onPanResponderTerminate: () => {
-        show();
-      },
-      onStartShouldSetPanResponder: () => true,
-    });
-    // oxlint-disable-next-line react/set-state-in-effect -- one-time responder setup; handlers are stable for the component's life
-    setPanResponder(responder);
-  }, [dragStart, hideTimer, latest, listRef, metricsRef, show]);
-
-  if (!geometry.visible) {
-    return null;
-  }
-  return (
-    <View style={[styles.scrollTrack, { pointerEvents: "box-none" }]}>
-      <LinearGradient
-        colors={["#ff9500", "#e65500"]}
-        end={{ x: 0.5, y: 1 }}
-        start={{ x: 0.5, y: 0 }}
-        style={[
-          styles.scrollThumb,
-          {
-            borderColor: isDark
-              ? "rgba(170, 60, 0, 0.95)"
-              : "rgba(170, 60, 0, 0.5)",
-            boxShadow: isDark
-              ? SCROLL_THUMB_SHADOWS_DARK
-              : SCROLL_THUMB_SHADOWS,
-            height: geometry.height,
-            opacity: showing ? 1 : 0,
-            transform: [
-              { translateY: geometry.translate },
-              { translateX: showing ? 0 : 6 },
-            ],
-          },
-        ]}
-        {...panResponder?.panHandlers}
-      />
-    </View>
-  );
-}
 
 const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
   {
@@ -293,12 +109,6 @@ export function FeedList({
   const { theme } = useAppTheme();
   const { user } = useSessionContext();
   const listRef = useRef<FlatList<FeedThreadGroup>>(null);
-  const metricsRef = useRef<ScrollMetrics>({
-    container: 0,
-    content: 0,
-    offset: 0,
-  });
-  const scrollbarUpdate = useRef<((offset: number) => void) | null>(null);
 
   // Latest viewable ids are retained so the tab can publish them when it
   // becomes enabled; the FlatList retains the first closure, so enabled is
@@ -643,22 +453,19 @@ export function FeedList({
               data={groups}
               keyExtractor={(group) => group.id}
               {...LIST_VIRTUALIZATION_PROPS}
-              onContentSizeChange={(_, height) => {
-                metricsRef.current.content = height;
-                scrollbarUpdate.current?.(metricsRef.current.offset);
-              }}
               onEndReached={fetchNext}
               onEndReachedThreshold={0.5}
-              onLayout={(event) => {
-                metricsRef.current.container = event.nativeEvent.layout.height;
-                scrollbarUpdate.current?.(metricsRef.current.offset);
-              }}
               onMomentumScrollEnd={(event) => {
-                scrollMemory.set(memoryKey, event.nativeEvent.contentOffset.y);
+                scrollMemory.set(
+                  memoryKey,
+                  Math.max(0, event.nativeEvent.contentOffset.y)
+                );
               }}
               onScroll={(event) => {
                 const offsetY = event.nativeEvent.contentOffset.y;
-                scrollbarUpdate.current?.(offsetY);
+                if (offsetY >= 0) {
+                  scrollMemory.set(memoryKey, offsetY);
+                }
                 if (enabledRef.current) {
                   reportFeedScroll(offsetY);
                 }
@@ -674,7 +481,7 @@ export function FeedList({
               removeClippedSubviews={false}
               ref={listRef}
               scrollEventThrottle={16}
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
               viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
               renderItem={({ item: group }) => (
                 <View
@@ -713,11 +520,6 @@ export function FeedList({
           </GestureDetector>
         </Animated.View>
         {pull.loader}
-        <FeedScrollbar
-          listRef={listRef}
-          metricsRef={metricsRef}
-          registerRef={scrollbarUpdate}
-        />
         {newItems.length > 0 ? (
           <NewContentPill
             authors={authors}
@@ -864,21 +666,6 @@ const styles = StyleSheet.create({
   listWrap: {
     flex: 1,
     position: "relative",
-  },
-  scrollThumb: {
-    borderRadius: 9999,
-    borderWidth: 1,
-    marginRight: 2,
-    width: 6,
-  },
-  scrollTrack: {
-    alignItems: "flex-end",
-    bottom: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: 10,
-    zIndex: 30,
   },
   stateWrap: {
     flex: 1,

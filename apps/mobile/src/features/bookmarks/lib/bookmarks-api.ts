@@ -1,6 +1,7 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 export interface HnStory {
@@ -52,7 +53,7 @@ function parseHnStory(value: unknown): HnStory | null {
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
-    { headers: options.cookie ? { cookie: options.cookie } : {} },
+    { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );
 }

@@ -15,8 +15,8 @@ import {
   markAllNotificationsRead,
 } from "../lib/notifications-api";
 
-// Same cadence as web's useUnreadNotificationCount.
-export const UNREAD_POLL_INTERVAL_MS = 60 * 1000;
+// Polling cadence for unread notifications count.
+export const UNREAD_POLL_INTERVAL_MS = 20 * 1000;
 
 type Listener = (count: number) => void;
 
@@ -87,6 +87,7 @@ class UnreadCountStore {
       onPoll: () => this.refresh(),
     });
     this.poller.start();
+    void this.refresh();
   }
 
   stop(): void {

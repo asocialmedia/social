@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { HomeTab } from "../state/tab-store";
@@ -171,6 +172,7 @@ export function FeedTabs<T extends string = HomeTab>({
           horizontal
           ref={scrollRef}
           showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         >
           {content}
         </ScrollView>

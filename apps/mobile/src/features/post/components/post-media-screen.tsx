@@ -84,6 +84,7 @@ import { resolveProfileImageUrl } from "@/features/home/components/profile-utils
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -788,6 +789,7 @@ export function PostMediaScreen({
         ref={pagerRef}
         renderItem={renderPage}
         showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         style={styles.pager}
       />
       {uiVisible ? (
@@ -796,9 +798,10 @@ export function PostMediaScreen({
             accessibilityLabel="Close viewer"
             accessibilityRole="button"
             onPress={handleClose}
-            style={[
+            style={({ pressed }) => [
               styles.closeBtn,
               { boxShadow: DARK_CHIP_SHADOWS, top: insets.top + 12 },
+              pressed && styles.circleBtnPressed,
             ]}
           >
             <LinearGradient
@@ -814,9 +817,10 @@ export function PostMediaScreen({
             accessibilityLabel="Share this media"
             accessibilityRole="button"
             onPress={() => setShareOpen(true)}
-            style={[
+            style={({ pressed }) => [
               styles.moreBtn,
               { boxShadow: DARK_CHIP_SHADOWS, top: insets.top + 12 },
+              pressed && styles.circleBtnPressed,
             ]}
           >
             <LinearGradient
@@ -834,7 +838,10 @@ export function PostMediaScreen({
                 accessibilityLabel="Previous media"
                 accessibilityRole="button"
                 onPress={() => goTo(currentIndex - 1)}
-                style={styles.prevBtn}
+                style={({ pressed }) => [
+                  styles.prevBtn,
+                  pressed && styles.circleBtnPressed,
+                ]}
               >
                 <ChevronLeft color="#ffffff" size={24} />
               </Pressable>
@@ -842,7 +849,10 @@ export function PostMediaScreen({
                 accessibilityLabel="Next media"
                 accessibilityRole="button"
                 onPress={() => goTo(currentIndex + 1)}
-                style={styles.nextBtn}
+                style={({ pressed }) => [
+                  styles.nextBtn,
+                  pressed && styles.circleBtnPressed,
+                ]}
               >
                 <ChevronRight color="#ffffff" size={24} />
               </Pressable>
@@ -1013,7 +1023,7 @@ export function PostMediaScreen({
             style={styles.sheetBackdrop}
           >
             <Pressable style={styles.sheet}>
-              <ScrollView>
+              <ScrollView showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}>
                 <PostComments postId={post.id} viewerId={viewerId} />
               </ScrollView>
             </Pressable>
@@ -1034,7 +1044,10 @@ export function PostMediaScreen({
           >
             <Pressable style={styles.sheet}>
               <Text style={styles.sheetTitle}>Transcript</Text>
-              <ScrollView style={styles.transcriptList}>
+              <ScrollView
+                style={styles.transcriptList}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+              >
                 {transcriptCues.length === 0 ? (
                   <Text style={styles.transcriptEmpty}>
                     No transcript for this video.
@@ -1184,6 +1197,10 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: 40,
+  },
+  circleBtnPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.93 }],
   },
   closeBtn: {
     borderRadius: 9999,

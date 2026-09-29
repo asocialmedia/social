@@ -14,6 +14,8 @@
 // Android collapses same-collapseKey messages in the tray, mirroring web
 // push's tag behavior; the `data.path` is what the app's tap handler reads.
 
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { SignJWT, importPKCS8 } from "jose";
@@ -136,11 +138,36 @@ async function fetchWithTimeout(
   }
 }
 
-// Resolves the service account from env, or null when push is unconfigured.
+// Resolves the service account from env, or from asocialmedia-adminsdk.json on disk,
+// or null when push is unconfigured.
 export function resolveFcmServiceAccount(
   env: NodeJS.ProcessEnv = process.env
 ): FcmServiceAccount | null {
-  return parseServiceAccount(env.FCM_SERVICE_ACCOUNT_JSON);
+  const fromEnv = parseServiceAccount(env.FCM_SERVICE_ACCOUNT_JSON);
+  if (fromEnv) {
+    return fromEnv;
+  }
+  if (env === process.env) {
+    try {
+      const candidates = [
+        path.resolve(process.cwd(), "asocialmedia-adminsdk.json"),
+        path.resolve(process.cwd(), "../../asocialmedia-adminsdk.json"),
+        path.resolve(process.cwd(), "../asocialmedia-adminsdk.json"),
+      ];
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          const fileContent = readFileSync(candidate, "utf-8");
+          const fromFile = parseServiceAccount(fileContent);
+          if (fromFile) {
+            return fromFile;
+          }
+        }
+      }
+    } catch {
+      // push degrades gracefully to off on filesystem errors
+    }
+  }
+  return null;
 }
 
 // Mints an OAuth2 access token for the messaging scope. `now` and `fetchImpl`
@@ -215,7 +242,13 @@ export async function getFcmAccessToken(
 interface FcmMessage {
   android: {
     collapseKey: string;
-    notification: { channelId: string; tag: string };
+    notification: {
+      channelId: string;
+      defaultSound?: boolean;
+      defaultVibrateTimings?: boolean;
+      notificationPriority?: string;
+      tag: string;
+    };
     priority: "HIGH";
   };
   data: Record<string, string>;
@@ -232,10 +265,21 @@ export function buildFcmMessage(
   return {
     android: {
       collapseKey: payload.tag,
-      notification: { channelId: "default", tag: payload.tag },
+      notification: {
+        channelId: "default",
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        notificationPriority: "PRIORITY_MAX",
+        tag: payload.tag,
+      },
       priority: "HIGH",
     },
-    data: { notificationId: notification.id, path: payload.path },
+    data: {
+      body: payload.body,
+      notificationId: notification.id,
+      path: payload.path,
+      title: payload.title,
+    },
     notification: { body: payload.body, title: payload.title },
     token,
   };

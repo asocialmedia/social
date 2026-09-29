@@ -135,4 +135,26 @@ describe("readSseStream", () => {
     });
     expect(sent.cookie).toBe("session=abc");
   });
+
+  test("a 401 response calls onUnauthorized and stops retrying", async () => {
+    let unauthorizedCalled = false;
+    const statuses: string[] = [];
+    let fetchCount = 0;
+    await readSseStream({
+      baseFetch: (() => {
+        fetchCount += 1;
+        return Promise.resolve(new Response("unauthorized", { status: 401 }));
+      }) as unknown as typeof fetch,
+      eventName: "comment",
+      onEvent: () => {},
+      onStatusChange: (status) => statuses.push(status),
+      onUnauthorized: () => {
+        unauthorizedCalled = true;
+      },
+      url: "https://api.test/stream",
+    });
+    expect(unauthorizedCalled).toBe(true);
+    expect(fetchCount).toBe(1);
+    expect(statuses).toEqual(["connecting", "closed"]);
+  });
 });

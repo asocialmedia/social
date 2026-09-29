@@ -36,6 +36,7 @@ import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import {
   LOGIN_BUTTON_SHADOWS,
   LOGIN_BUTTON_SHADOWS_LIGHT,
@@ -232,6 +233,7 @@ export function CommunitiesScreen() {
           contentContainerStyle={styles.categoryRow}
           horizontal
           showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         >
           {COMMUNITY_DISCOVERY_CATEGORIES.map((item) => {
             const active = item.key === category;
@@ -485,7 +487,7 @@ export function CommunitiesScreen() {
                     />
                   </View>
                 )}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
               />
             </GestureDetector>
           </Animated.View>

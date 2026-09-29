@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { reelsPanel } from "@/components/media/gif-picker";
 import { themeText } from "@/components/surface/recipes";
 import { EddieThread } from "@/features/eddies/components/eddie-thread";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 const SHEET_EASE = Easing.bezier(0.32, 0.72, 0, 1);
@@ -136,6 +137,7 @@ export function GustEddiesSheet({
           <ScrollView
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             style={styles.scroll}
           >
             <EddieThread postId={postId} variant="reels" viewerId={viewerId} />

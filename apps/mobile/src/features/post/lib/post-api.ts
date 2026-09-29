@@ -14,6 +14,7 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { FeedApiError } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
 function callPostApi(
@@ -21,10 +22,7 @@ function callPostApi(
   options: ApiCallOptions & { body?: string; method?: string }
 ): Promise<Response> {
   const baseFetch = options.baseFetch ?? fetch;
-  const headers: Record<string, string> = {};
-  if (options.cookie) {
-    headers.cookie = options.cookie;
-  }
+  const headers = withAuthHeaders({}, options.cookie);
   if (options.body !== undefined) {
     headers["content-type"] = "application/json";
   }

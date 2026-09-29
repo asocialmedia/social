@@ -9,6 +9,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { FossBanner } from "@/components/misc/foss-banner";
 import { useSessionContext } from "@/features/auth/state/session";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MobileHeader } from "../../home/components/mobile-header";
@@ -56,7 +57,7 @@ export function SettingsScreen() {
       {tab === "profile" ? (
         <ScrollView
           contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         >
           <View style={styles.profileLead}>
             <Text style={[styles.leadTitle, { color: theme.inputText }]}>
