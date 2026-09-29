@@ -72,6 +72,19 @@ describe("withAndroidAbiSplits", () => {
     expect(await applyMod(template)).toContain("universalApk false");
   });
 
+  it("enables the split for assemble tasks but not for bundle tasks", async () => {
+    // AGP 8.9+ fails :app:buildReleasePreBundle with "Multiple
+    // shrunk-resources files found" when ABI splits are on alongside
+    // shrinkResources, so bundleRelease must see enable false while
+    // assembleRelease keeps enable true. See
+    // https://issuetracker.google.com/402800800
+    const result = await applyMod(template);
+    expect(result).toContain(
+      'enable !gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }'
+    );
+    expect(result).not.toMatch(/enable true/);
+  });
+
   it("is idempotent, so a repeated prebuild cannot nest the block", async () => {
     const once = await applyMod(template);
     const twice = await applyMod(once);
