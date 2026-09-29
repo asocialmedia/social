@@ -3,8 +3,8 @@ import {
   and,
   fromPrismaDateTime,
   prisma,
-  toPrismaDateTime,
   unreadMessageCache,
+  unreadMessageWhere,
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -26,13 +26,16 @@ export async function GET() {
   // conversation is bounded by its OWN read watermark - the global earliest
   // read would over-count threads the user has already read. Conversations
   // with a blocked partner are excluded entirely: blocked pairs must not see
-  // each other's activity, unread badges included.
+  // each other's activity, unread badges included. Conversations the member has
+  // muted are excluded for the same reason a mute exists at all: no badge.
   const [memberships, iBlocked, blockedMe] = await Promise.all([
     prisma.orm.public.MessageConversationMembers.select(
       "conversationId",
       "lastReadAt"
     )
-      .where({ userId: user.id })
+      .where((member) =>
+        and(member.userId.eq(user.id), member.mutedAt.isNull())
+      )
       .all(),
     prisma.orm.public.Blocks.select("blockedId")
       .where({ blockerId: user.id })
@@ -72,19 +75,14 @@ export async function GET() {
   if (visibleMemberships.length > 0) {
     const counts = await Promise.all(
       visibleMemberships.map((membership) =>
-        prisma.orm.public.Messages.where((message) =>
-          and(
-            message.conversationId.eq(membership.conversationId),
-            message.createdAt.gt(
-              toPrismaDateTime(
-                membership.lastReadAt
-                  ? fromPrismaDateTime(membership.lastReadAt)
-                  : new Date(0)
-              )
-            ),
-            message.deletedAt.isNull(),
-            message.senderId.notIn([user.id])
-          )
+        prisma.orm.public.Messages.where(
+          unreadMessageWhere({
+            conversationId: membership.conversationId,
+            lastReadAt: membership.lastReadAt
+              ? fromPrismaDateTime(membership.lastReadAt)
+              : null,
+            userId: user.id,
+          })
         ).aggregate((aggregate) => ({ count: aggregate.count() }))
       )
     );

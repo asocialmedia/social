@@ -4,6 +4,7 @@ import {
   publishConversationRead,
   toPrismaDateTime,
   unreadMessageCache,
+  unreadMessageWhere,
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -33,28 +34,34 @@ export async function POST(
   }
 
   // Decrement the badge by exactly the number of messages that were unread.
-  // Aligned with the writer: the sender never accrues a badge, and deleted
-  // messages do not count, so the decrement cannot over-credit.
-  const unreadResult = await prisma.orm.public.Messages.where((message) =>
-    and(
-      message.conversationId.eq(id),
-      message.createdAt.gt(
-        toPrismaDateTime(myMember.lastReadAt ?? new Date(0))
-      ),
-      message.deletedAt.isNull(),
-      message.senderId.notIn([user.id])
-    )
+  // Aligned with the writer: the sender never accrues a badge, deleted
+  // messages do not count, and "delete for me" rows drop out, so the decrement
+  // cannot over-credit.
+  const unreadResult = await prisma.orm.public.Messages.where(
+    unreadMessageWhere({
+      conversationId: id,
+      lastReadAt: myMember.lastReadAt,
+      userId: user.id,
+    })
   ).aggregate((aggregate) => ({ count: aggregate.count() }));
   const unread = unreadResult.count;
   if (unread > 0) {
     await unreadMessageCache.decrement(user.id, unread);
   }
 
+  const readAt = new Date();
+
   await prisma.orm.public.MessageConversationMembers.where((member) =>
     and(member.conversationId.eq(id), member.userId.eq(user.id))
-  ).update({ lastReadAt: toPrismaDateTime(new Date()) });
+  ).update({
+    // Reading implies delivery, so advance both watermarks in one write: a
+    // sender that only learns the read watermark still counts every earlier own
+    // message as delivered.
+    lastDeliveredAt: toPrismaDateTime(readAt),
+    lastReadAt: toPrismaDateTime(readAt),
+  });
 
-  await publishConversationRead(id, user.id);
+  await publishConversationRead(id, user.id, readAt.toISOString());
 
   return Response.json({ ok: true });
 }

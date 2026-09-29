@@ -86,16 +86,21 @@ describe("message event (de)serialization", () => {
   });
 
   test("round-trips a conversation.read event", () => {
+    // A read event carries the read timestamp, so a receiver can patch its
+    // delivery watermark without refetching the conversation detail.
     const raw = serializeMessageEvent({
       conversationId: "convo-1",
       kind: "conversation.read",
+      readAt: "2026-01-01T00:00:00.000Z",
       userId: "u1",
     });
     expect(parseMessageEvent(raw)).toEqual({
       conversation: undefined,
       conversationId: "convo-1",
+      deliveredAt: undefined,
       kind: "conversation.read",
       message: undefined,
+      readAt: "2026-01-01T00:00:00.000Z",
       userId: "u1",
     });
   });

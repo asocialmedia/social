@@ -2,8 +2,10 @@ import {
   and,
   fromPrismaDateTime,
   getMessageConversationDataQuery,
+  or,
   prisma,
   toPrismaDateTime,
+  visibleToUser,
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -50,11 +52,18 @@ type ConversationQueryData = NonNullable<
   >
 >;
 
+// The conversation row as the query returns it, with the preview message
+// included. The preview's element type comes from the caller's own query rather
+// than a hand-written parallel type, so adding a column to the preview select
+// cannot silently drop out of this shape.
+// The preview row, as the query returns it: scalars plus the Prisma 8 temporal
+// values for the three timestamp columns the select carries.
 interface RawMessage {
   ciphertext: string;
   conversationId: string;
   createdAt: ConversationQueryData["createdAt"];
   deletedAt: ConversationQueryData["createdAt"] | null;
+  editedAt: ConversationQueryData["createdAt"] | null;
   id: string;
   iv: string;
   ratchetIndex: number;
@@ -116,6 +125,7 @@ function mapConversation(
       deletedAt: message.deletedAt
         ? fromPrismaDateTime(message.deletedAt)
         : null,
+      editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
     })),
     pairKey: conversation.pairKey,
     updatedAt: fromPrismaDateTime(conversation.updatedAt),
@@ -160,6 +170,18 @@ export async function GET(request: Request) {
   let conversationQuery = getMessageConversationDataQuery(prisma.orm)
     .include("messages", (message) =>
       message
+        .where(visibleToUser(user.id))
+        .select(
+          "ciphertext",
+          "conversationId",
+          "createdAt",
+          "deletedAt",
+          "editedAt",
+          "id",
+          "iv",
+          "ratchetIndex",
+          "senderId"
+        )
         .orderBy([(row) => row.createdAt.desc(), (row) => row.id.desc()])
         .limit(1)
     )
@@ -215,32 +237,58 @@ export async function GET(request: Request) {
     return !other || !hiddenPartnerIds.has(other.userId);
   });
 
-  const pageIds = visibleConversations.map((conversation) => conversation.id);
-  let earliestReadAt: number | null = null;
+  // One grouped query for the whole page instead of a count round-trip per
+  // conversation. Each member's own read watermark bounds its conversation's
+  // unread set, so the query fetches only genuinely-unread rows rather than
+  // every message since epoch 0 (a page-wide "earliest" bound would let one
+  // never-read thread pull all messages across the page).
+  const readAtByConversation = new Map<string, Date>();
   for (const conversation of visibleConversations) {
     const myMember = conversation.members.find(
       (member) => member.userId === user.id
     );
-    const readAt = myMember?.lastReadAt?.getTime() ?? 0;
-    if (earliestReadAt === null || readAt < earliestReadAt) {
-      earliestReadAt = readAt;
-    }
+    readAtByConversation.set(
+      conversation.id,
+      myMember?.lastReadAt ?? new Date(0)
+    );
   }
   const unreadRows =
-    pageIds.length === 0
+    visibleConversations.length === 0
       ? []
-      : await prisma.orm.public.Messages.select("conversationId", "createdAt")
+      : await prisma.orm.public.Messages.select("conversationId")
           .where((message) =>
             and(
-              message.conversationId.in(pageIds),
-              message.createdAt.gt(
-                toPrismaDateTime(new Date(earliestReadAt ?? 0))
+              // Per-conversation bound: each OR branch carries its own
+              // watermark, so a never-read thread cannot drag in every message
+              // on the page.
+              or(
+                ...visibleConversations.map((conversation) =>
+                  and(
+                    message.conversationId.eq(conversation.id),
+                    message.createdAt.gt(
+                      toPrismaDateTime(
+                        readAtByConversation.get(conversation.id) ?? new Date(0)
+                      )
+                    )
+                  )
+                )
               ),
               message.deletedAt.isNull(),
+              message.hiddenFor.none((hidden) => hidden.userId.eq(user.id)),
               message.senderId.notIn([user.id])
             )
           )
           .all();
+
+  // Bucket the (already watermark-filtered) unread rows in one pass. No further
+  // per-row compare is needed: every row cleared its own conversation's bound.
+  const unreadCountByConversation = new Map<string, number>();
+  for (const row of unreadRows) {
+    unreadCountByConversation.set(
+      row.conversationId,
+      (unreadCountByConversation.get(row.conversationId) ?? 0) + 1
+    );
+  }
 
   const items: ConversationListItem[] = visibleConversations.map(
     (conversation) => {
@@ -248,15 +296,15 @@ export async function GET(request: Request) {
       const myMember = conversation.members.find(
         (member) => member.userId === user.id
       );
-      const lastReadAt = myMember?.lastReadAt ?? new Date(0);
-      const unreadCount = lastMessage
-        ? unreadRows.filter(
-            (row) =>
-              row.conversationId === conversation.id &&
-              fromPrismaDateTime(row.createdAt) > lastReadAt
-          ).length
-        : 0;
-      return toListItem(conversation, lastMessage, unreadCount);
+      const unreadCount = unreadCountByConversation.get(conversation.id) ?? 0;
+      // A muted chat keeps its messages but loses its badge: mute is this
+      // member's own preference, so it is applied here rather than by filtering
+      // the query (which would also drop the thread from the rail).
+      return toListItem(
+        conversation,
+        lastMessage,
+        myMember?.mutedAt ? 0 : unreadCount
+      );
     }
   );
 

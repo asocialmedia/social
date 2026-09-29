@@ -8,8 +8,13 @@
     "noEmit": true,
     // The scripts/ folder sits outside the bun workspaces graph (apps/*,
     // packages/*), so workspace packages never get node_modules links here.
-    // Map them by name so ops scripts can import shared code normally.
+    // Map them by name so ops scripts can import shared code normally. A few
+    // scripts also import apps/web modules directly, which pull in modules that
+    // use the web app's own alias, so that alias is mapped here too: `paths`
+    // REPLACES the inherited map rather than extending it, and without this the
+    // transitive `@/...` imports of any file a script reaches fail to resolve.
     "paths": {
+      "@/*": ["../apps/web/src/*"],
       "@asm/db": ["../packages/db/index.ts"]
     }
   }

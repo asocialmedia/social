@@ -212,8 +212,36 @@ function getHubClient(): IoRedis {
         }
       }
     });
+    // A fresh connection starts subscribed to nothing. Any channels still in
+    // hubListeners belong to streams that outlived the old client (a hard
+    // "end", not a reconnect ioredis handles itself), so restore them or those
+    // streams would silently go deaf. Brand-new channels are subscribed by
+    // subscribeToChannel right after this.
+    void restoreHubSubscriptions(hubClient);
   }
   return hubClient;
+}
+
+// Re-establishes every channel that still has listeners on a freshly created
+// shared subscriber connection. A channel whose last listener left while this
+// runs is skipped rather than left as a phantom subscription.
+async function restoreHubSubscriptions(client: IoRedis): Promise<void> {
+  const channels = [...hubListeners.keys()];
+  await Promise.all(
+    channels.map(async (channel) => {
+      if (!hubListeners.has(channel)) {
+        return;
+      }
+      try {
+        await client.subscribe(channel);
+      } catch (error) {
+        console.error(
+          `Failed to restore channel subscription ${channel}:`,
+          error
+        );
+      }
+    })
+  );
 }
 
 // Subscribes `listener` to `channel`. The first stream on a channel triggers
@@ -515,7 +543,7 @@ export async function publishResponseDeleted(
   await publishResponseEvent({ kind: "response.deleted", postId, response });
 }
 
-// ---- E2EE messages ---------------------------------------------------------
+// ---- messages --------------------------------------------------------------
 // Real-time DMs: message writes are published to a per-conversation Redis
 // channel and fanned out to open SSE streams, mirroring the comments stack.
 // Ciphertext is safe to broadcast; the plaintext never leaves the client.
@@ -527,13 +555,35 @@ export interface MessageStreamEvent {
   kind:
     | "message.created"
     | "message.deleted"
+    // The sender rewrote an existing message's ciphertext in place (same
+    // ratchet index, fresh IV). Carries the updated row so an open thread can
+    // patch its cache and re-decrypt just that message instead of refetching.
+    | "message.edited"
     | "conversation.created"
     | "conversation.read"
-    | "typing.started";
+    // A member confirmed receipt (not necessarily read) of messages up to a
+    // watermark. Carries the acker's id and the new watermark; a sender uses it
+    // to flip its own bubbles to Delivered live. No plaintext, safe to broadcast.
+    | "conversation.delivered"
+    | "typing.started"
+    // A member posted new wrapped root keys (a first send in a new
+    // conversation, a heal, or an identity reset that rotated the epoch). The
+    // payload is deliberately empty: the only correct response is to refetch
+    // the conversation detail, because the wraps and/or the peer's identity
+    // public key may have changed and a stale copy silently fails every
+    // decrypt. Carries no key material, so it is safe to broadcast.
+    | "keys.rotated";
   conversationId: string;
   message?: unknown;
   conversation?: unknown;
   userId?: string;
+  // ISO timestamp of the newest message a member has acked as delivered. Present
+  // only on `conversation.delivered`.
+  deliveredAt?: string;
+  // ISO timestamp at which a member read the conversation. Present only on
+  // `conversation.read`, so the sender patches its read watermark in place
+  // instead of refetching the conversation detail.
+  readAt?: string;
 }
 
 export function serializeMessageEvent(event: MessageStreamEvent): string {
@@ -546,9 +596,12 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
+      parsed.kind !== "message.edited" &&
       parsed.kind !== "conversation.created" &&
       parsed.kind !== "conversation.read" &&
-      parsed.kind !== "typing.started"
+      parsed.kind !== "conversation.delivered" &&
+      parsed.kind !== "typing.started" &&
+      parsed.kind !== "keys.rotated"
     ) {
       return null;
     }
@@ -557,7 +610,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     }
     if (
       (parsed.kind === "message.created" ||
-        parsed.kind === "message.deleted") &&
+        parsed.kind === "message.deleted" ||
+        parsed.kind === "message.edited") &&
       parsed.message === undefined
     ) {
       return null;
@@ -571,11 +625,26 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (parsed.kind === "typing.started" && typeof parsed.userId !== "string") {
       return null;
     }
+    if (
+      parsed.kind === "conversation.delivered" &&
+      (typeof parsed.userId !== "string" ||
+        typeof parsed.deliveredAt !== "string")
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "conversation.read" &&
+      (typeof parsed.userId !== "string" || typeof parsed.readAt !== "string")
+    ) {
+      return null;
+    }
     return {
       conversation: parsed.conversation,
       conversationId: parsed.conversationId,
+      deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
       message: parsed.message,
+      readAt: parsed.readAt,
       userId: parsed.userId,
     };
   } catch {
@@ -618,13 +687,45 @@ export async function publishMessageDeleted(
   });
 }
 
+// An in-place rewrite: the same message id with a new ciphertext/IV (and
+// `editedAt`). No key material rides along, so it is safe to broadcast; the
+// receiver re-decrypts the row with the ratchet index it already had.
+export async function publishMessageEdited(
+  conversationId: string,
+  message: unknown
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.edited",
+    message,
+  });
+}
+
 export async function publishConversationRead(
   conversationId: string,
-  userId: string
+  userId: string,
+  readAt: string
 ): Promise<void> {
   await publishMessageEvent({
     conversationId,
     kind: "conversation.read",
+    readAt,
+    userId,
+  });
+}
+
+// A member confirmed receipt of messages up to `deliveredAt` (an ISO string).
+// The sender folds this to flip its own bubbles to Delivered without refetching
+// the transcript.
+export async function publishConversationDelivered(
+  conversationId: string,
+  userId: string,
+  deliveredAt: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    deliveredAt,
+    kind: "conversation.delivered",
     userId,
   });
 }
@@ -638,6 +739,87 @@ export async function publishTypingStarted(
     kind: "typing.started",
     userId,
   });
+}
+
+// Signals that a member posted new wrapped root keys, so every other open
+// thread refetches the conversation detail instead of trusting a snapshot whose
+// wraps or peer public key may now be stale. Sent by the keys route after a
+// successful append (the first send in a conversation, an epoch rotation, or a
+// missing-peer-wrap heal). No key material rides along.
+export async function publishMessageKeysRotated(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "keys.rotated",
+    userId,
+  });
+}
+
+// A per-user channel for "something happened in one of your conversations".
+//
+// The per-conversation channel above only reaches clients with that conversation
+// OPEN. The conversation list needs the opposite: it must learn about a message in a
+// thread nobody has open, which is the whole point of a list. So this channel is
+// per USER and its payload is deliberately tiny -- the conversation id, nothing
+// else. Carrying the message would duplicate the conversation channel and hand every
+// idle tab a copy of ciphertext it is not going to read.
+//
+// The event is a SIGNAL rather than data: the only correct response is to refetch
+// the list, which already knows how to order and preview itself. Nothing here is
+// secret, which is also why it is safe to publish to a user id.
+export const MESSAGE_ACTIVITY_CHANNEL_PREFIX = "message-activity:";
+
+export const messageActivityChannel = (userId: string): string =>
+  `${MESSAGE_ACTIVITY_CHANNEL_PREFIX}${userId}`;
+
+export interface MessageActivityEvent {
+  conversationId: string;
+  kind: "message.created";
+}
+
+export function serializeMessageActivityEvent(
+  event: MessageActivityEvent
+): string {
+  return JSON.stringify(event);
+}
+
+export function parseMessageActivityEvent(
+  raw: string
+): MessageActivityEvent | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<MessageActivityEvent>;
+    if (parsed.kind !== "message.created") {
+      return null;
+    }
+    if (
+      typeof parsed.conversationId !== "string" ||
+      parsed.conversationId.length === 0
+    ) {
+      return null;
+    }
+    return { conversationId: parsed.conversationId, kind: parsed.kind };
+  } catch {
+    return null;
+  }
+}
+
+// Best-effort, like every other publish here: a message that is committed must not
+// turn into an error because the fan-out failed. The list's own polling is the
+// fallback when this is not delivered.
+export async function publishMessageActivity(
+  userId: string,
+  event: MessageActivityEvent
+): Promise<void> {
+  try {
+    await redis.publish(
+      messageActivityChannel(userId),
+      serializeMessageActivityEvent(event)
+    );
+  } catch (error) {
+    console.error("Error publishing message activity:", error);
+  }
 }
 
 // Security events use a per-user channel. They carry no credential material:

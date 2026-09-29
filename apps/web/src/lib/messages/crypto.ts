@@ -1,28 +1,40 @@
-// Client-side E2EE primitives for Messages. Everything here runs in the
-// browser (and in bun unit tests); the server never sees plaintext, private
-// keys, master keys, or conversation keys.
+// Client-side encryption primitives for Messages. Everything here runs in the
+// browser (and in bun unit tests).
 //
-// Trust model: each user owns an ECDH P-256 identity keypair. The public half
-// is stored in plaintext on the server so anyone can derive a shared secret
-// to wrap conversation keys for that user. The private half is backed up on
-// the server encrypted under a master key derived (PBKDF2) from the account's
-// random 64-char backup SECRET itself. The server stores only a SHA-256 hash
-// of that secret, used purely as a verifier: knowing the hash does NOT allow
-// re-deriving the master key (preimage resistance), so a database reader can
-// no longer decrypt the backup. The raw secret lives only on the user's
-// device(s); unlocking on a new device requires the user to supply it.
+// Trust model (server-recoverable, "Telegram-cloud" semantics — NOT E2EE):
+// each user owns an ECDH P-256 identity keypair. The public half is stored in
+// plaintext on the server so anyone can derive a shared secret to wrap
+// conversation keys for that user. The private half is backed up on the server
+// encrypted under a master key derived (PBKDF2) from a random per-identity
+// value whose SHA-256 hash is stored in the SAME row. Deriving the backup key
+// from that stored row is exactly what automatic recovery does, so anyone who
+// can read the database can decrypt the backup and every message wrapped under
+// it. That is an accepted trade-off: messages are encrypted in transit and at
+// rest and access is gated by session + membership, which protects against
+// everyone who is not the database operator. See AGENTS.md for the threat
+// model before changing anything here.
 //
-// Legacy rows: identities created before this scheme stored the hash and
-// derived from it, making them decryptable from the DB row alone. Unlock
-// still accepts those rows via the legacy derivation so existing accounts
-// keep working; they become safe again the next time the identity is
-// re-enabled (re-provisioned backup).
+// A second, short-lived scheme ("verifier rows") derived the master key from a
+// raw random secret held only on the user's device and stored just its hash.
+// Those rows cannot be auto-recovered; unlock still accepts them when this
+// device still holds the raw secret, and they are otherwise abandoned by the
+// reset path.
 //
 // Per-conversation, a fresh random 256-bit root key is wrapped for each
 // participant via ECDH(myPrivate, theirPublic) + HKDF + AES-GCM. Message
 // keys are ratcheted forward from the root: the i-th message from sender S
 // uses HKDF(root, "asm:ratchet:" + S + ":" + i), giving backward secrecy if a
 // root key is ever compromised.
+
+import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+
+import {
+  closeOnVersionChange,
+  ensureMessagesSchema,
+  IDENTITY_STORE,
+  MESSAGES_DB_NAME,
+  MESSAGES_DB_VERSION,
+} from "./message-db";
 
 export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
@@ -312,6 +324,14 @@ export async function deriveMessageKey(
   );
 }
 
+// One image inside a grouped media message. Dimensions are captured at upload
+// so the receiver can reserve the tile box before the bytes arrive.
+export interface MediaImageRef {
+  height?: number;
+  url: string;
+  width?: number;
+}
+
 export type MessagePayload =
   | {
       type: "text";
@@ -327,14 +347,52 @@ export type MessagePayload =
       replyToSenderId?: string;
     }
   | {
+      // Grouped album form, used by every new sender. One message carries up to
+      // MAX_MESSAGE_ATTACHMENTS images so a multi-image send lands as a single
+      // transcript row instead of N separate bubbles.
+      type: "media";
+      kind: "gif" | "image";
+      images: MediaImageRef[];
+      // Optional caption typed alongside the attachments.
+      content?: string;
+      replyToId?: string;
+      replyToSenderId?: string;
+    }
+  | {
+      // Legacy single-image form, still produced by older clients. Kept
+      // readable so existing history never becomes undecryptable.
       type: "media";
       kind: "gif" | "image";
       url: string;
+      content?: string;
       width?: number;
       height?: number;
       replyToId?: string;
       replyToSenderId?: string;
     };
+
+// Normalizes both media shapes into one list so renderers, reply labels, and
+// lightboxes never branch on the payload version.
+export function getMediaImages(
+  content: Extract<MessagePayload, { type: "media" }>
+): MediaImageRef[] {
+  if ("images" in content) {
+    return content.images;
+  }
+  return [{ height: content.height, url: content.url, width: content.width }];
+}
+
+// Returns a copy of a payload with its text rewritten. An edit only ever
+// changes the human-visible body (the text of a text message, the caption of a
+// media album or post share); every structural field — type, images, postId,
+// reply linkage — is preserved so the message keeps its shape. The ratchet
+// index lives on the row, not the payload, so it is untouched by design.
+export function editMessagePayload(
+  payload: MessagePayload,
+  content: string
+): MessagePayload {
+  return { ...payload, content };
+}
 
 export interface EncryptedMessage {
   ciphertext: string;
@@ -420,8 +478,13 @@ function parseMessagePayload(plaintext: string): MessagePayload {
   if (payload.type === "post" && typeof payload.postId !== "string") {
     throw new Error("Invalid post payload");
   }
-  if (payload.type === "media" && !isValidMediaPayload(payload)) {
-    throw new Error("Invalid media payload");
+  if (payload.type === "media") {
+    if (!isValidMediaPayload(payload)) {
+      throw new Error("Invalid media payload");
+    }
+    if (payload.content !== undefined && typeof payload.content !== "string") {
+      throw new Error("Invalid media caption");
+    }
   }
   return payload as MessagePayload;
 }
@@ -441,43 +504,97 @@ function parseMessagePayload(plaintext: string): MessagePayload {
 const RELATIVE_MEDIA_PATH_RE =
   /^\/api\/media\/[A-Za-z0-9_-]+(?:\/v\/[A-Za-z0-9.-]+)?(?:\?[A-Za-z0-9_=&%.-]+)?$/;
 
+// Shape-tolerant view of a media payload so both the grouped-album and legacy
+// single-URL forms validate through one path. Every field is `unknown` because
+// the value arrives from parsed, peer-controlled JSON.
+interface RawMediaPayload {
+  height?: unknown;
+  images?: unknown;
+  kind?: unknown;
+  url?: unknown;
+  width?: unknown;
+}
+
 function isValidMediaPayload(
   payload: Partial<Extract<MessagePayload, { type: "media" }>>
 ): boolean {
-  if (payload.kind !== "gif" && payload.kind !== "image") {
+  const raw = payload as RawMediaPayload;
+  if (raw.kind !== "gif" && raw.kind !== "image") {
     return false;
   }
-  if (typeof payload.url !== "string") {
+  // The grouped form is detected by key presence, not array truthiness: a
+  // present-but-malformed `images` (null, a non-array) must be rejected rather
+  // than silently falling through to the legacy URL check.
+  if ("images" in raw) {
+    return isValidMediaImageList(raw.images);
+  }
+  return isValidMediaImage(raw);
+}
+
+function isValidMediaImageList(images: unknown): boolean {
+  if (
+    !Array.isArray(images) ||
+    images.length === 0 ||
+    images.length > MAX_MESSAGE_ATTACHMENTS
+  ) {
+    return false;
+  }
+  return images.every((image) => {
+    if (typeof image !== "object" || image === null) {
+      return false;
+    }
+    return isValidMediaImage(image as RawMediaPayload);
+  });
+}
+
+function isValidMediaImage(image: RawMediaPayload): boolean {
+  if (typeof image.url !== "string") {
     return false;
   }
   // Dimensions are attacker-controlled (they ride in the peer's payload) and
   // flow into CSS aspect-ratio, so accept only sane positive integers.
   if (
-    !isValidMediaDimension(payload.width) ||
-    !isValidMediaDimension(payload.height)
+    !isValidMediaDimension(image.width) ||
+    !isValidMediaDimension(image.height)
   ) {
     return false;
   }
-  if (RELATIVE_MEDIA_PATH_RE.test(payload.url)) {
+  return isAllowedMediaUrl(image.url);
+}
+
+// A media URL must resolve to a same-origin proxy path or an external scheme.
+// Only https is accepted in production; http is tolerated for localhost/loopback
+// so local development against a local object store works. Same-origin app
+// proxy paths (/api/media/<id>) are also accepted: that is how message
+// attachments are stored (see uploadMessageMedia), and they resolve against the
+// recipient's own origin, so no cross-origin leak is possible. Anything else
+// (protocol-relative, javascript:, data:, path traversal) is rejected because
+// the URL comes from the peer's encrypted payload. Relative paths are matched
+// with a strict character class instead of the URL constructor so `new URL` is
+// never handed a scheme-relative input. Both the original proxy path and the
+// pipeline derivative path (/v/<name>) are accepted, since senders may embed
+// either.
+function isAllowedMediaUrl(url: string): boolean {
+  if (RELATIVE_MEDIA_PATH_RE.test(url)) {
     return true;
   }
-  let url: URL;
+  let parsed: URL;
   try {
-    url = new URL(payload.url);
+    parsed = new URL(url);
   } catch {
     return false;
   }
-  if (url.protocol === "https:") {
+  if (parsed.protocol === "https:") {
     return true;
   }
   // Plain http is a local-development affordance only: loopback in dev. It is
   // never accepted in production, where a peer could otherwise force the
   // recipient's browser to make insecure/plaintext requests.
-  if (url.protocol === "http:") {
+  if (parsed.protocol === "http:") {
     const isLoopback =
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "::1";
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1";
     return process.env.NODE_ENV !== "production" && isLoopback;
   }
   return false;
@@ -520,10 +637,10 @@ export async function generateFingerprint(
 
 // ---- account backup secret -----------------------------------------------------
 
-// Fully automatic, account-scoped backup secret: a random 64-character value
-// generated once per account. Only its SHA-256 hash is ever stored (server
-// side, with the identity), and that hash is the actual secret used for the
-// PBKDF2 master key, so no user input is needed to enable or unlock.
+// Random per-identity seed. Its SHA-256 hash is stored with the identity and
+// used as the PBKDF2 input for the backup key, so the server can re-derive the
+// backup key from the row alone (automatic recovery). The raw value is
+// discarded immediately and is no longer persisted anywhere.
 export function generateAccountSecret(length = ACCOUNT_SECRET_LENGTH): string {
   // base64url encodes 3 bytes as 4 characters, so derive the random-byte count
   // from the requested length. That keeps the returned secret exactly `length`
@@ -554,20 +671,28 @@ export async function hashAccountSecret(secret: string): Promise<string> {
 
 // The unwrapped identity private key is cached per device so the user does not
 // have to re-enter their secret every session. It never leaves this origin.
-const IDB_NAME = "asm-messages";
-const IDB_STORE = "identity-keys";
+const IDB_STORE = IDENTITY_STORE;
 const LS_KEY_PREFIX = "asm_msg_key_";
 
 function openStore(): Promise<IDBDatabase> {
   // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IDB_NAME, 1);
-    request.addEventListener("upgradeneeded", () => {
-      if (!request.result.objectStoreNames.contains(IDB_STORE)) {
-        request.result.createObjectStore(IDB_STORE);
-      }
+    // The SHARED version, not a private one. Requesting a lower version than the
+    // database already has throws VersionError, so opening this at 1 while the
+    // search index had created the database at a higher version made identity
+    // key storage fail outright.
+    const request = indexedDB.open(MESSAGES_DB_NAME, MESSAGES_DB_VERSION);
+    request.addEventListener("upgradeneeded", (event) => {
+      // The shared schema builder, so this owner's store exists even when the
+      // search index created the database first. It is idempotent and only resets
+      // search stores on a version whose keying cannot be migrated, so an
+      // identity upgrade never costs a rebuilt index.
+      ensureMessagesSchema(request.result, event.oldVersion);
     });
-    request.addEventListener("success", () => resolve(request.result));
+    request.addEventListener("success", () => {
+      closeOnVersionChange(request.result);
+      resolve(request.result);
+    });
     request.addEventListener("error", () => reject(request.error));
   });
 }
@@ -675,14 +800,12 @@ export async function clearStoredPrivateKey(userId: string): Promise<void> {
   }
 }
 
-// ---- device-scoped backup-secret storage ------------------------------------
+// ---- device-scoped legacy backup-secret storage ------------------------------
 
-// The raw backup secret must live ONLY on the user's device: it is the input
-// to the master-key KDF and its SHA-256 is merely a verifier on the server.
-// Keeping it here lets the same device re-derive the master key without
-// prompting, while a database reader still learns nothing. A NEW device must
-// ask the user for this secret; there is deliberately no server-side path to
-// recover it.
+// Storage for the raw secret of the short-lived "verifier" scheme. It is only
+// READ now: current identities derive their backup key from the stored hash, so
+// nothing writes this key anymore. Keeping the reader lets a device that still
+// holds a verifier-row secret unlock it instead of needing a reset.
 const LS_SECRET_PREFIX = "asm_msg_secret_";
 
 export function getStoredAccountSecret(userId: string): string | null {
@@ -690,22 +813,8 @@ export function getStoredAccountSecret(userId: string): string | null {
     return null;
   }
   try {
-    // Device-local E2EE material by design; see the block comment above.
-    return localStorage.getItem(`${LS_SECRET_PREFIX}${userId}`); // codeql[js/clear-text-storage-of-sensitive-data]
+    return localStorage.getItem(`${LS_SECRET_PREFIX}${userId}`);
   } catch {
     return null;
-  }
-}
-
-export function setStoredAccountSecret(userId: string, secret: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    // Device-local E2EE material by design; see the block comment above.
-    localStorage.setItem(`${LS_SECRET_PREFIX}${userId}`, secret); // codeql[js/clear-text-storage-of-sensitive-data]
-  } catch {
-    // Restricted storage environments lose convenience, not security: the
-    // unlock flow falls back to prompting for the secret.
   }
 }

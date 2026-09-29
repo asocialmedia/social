@@ -4,38 +4,54 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUp,
+  Check,
   Clapperboard,
   ImagePlus,
   Loader2,
   MessageSquareQuote,
+  Pencil,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
+import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
 import {
   MessagesApiError,
   appendMessageToLastPage,
   ensureConversationKeys,
+  fetchConversationDetail,
   sendEncryptedMessage,
   sendTypingIndicator,
-  uploadMessageMedia,
 } from "@/lib/messages/client";
-import type {
-  ConversationDetailResponse,
-  MessageMediaUpload,
-} from "@/lib/messages/client";
+import type { ConversationDetailResponse } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import type { MessagePage } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
 
+// Cropper is heavy; only pull it in when a sender edits an image.
+const MessageImageEditDialog = dynamic(
+  () => import("@/components/messages/message-image-edit-dialog"),
+  { ssr: false }
+);
+
 interface MessageComposerProps {
   conversation: ConversationDetailResponse;
+  editTarget: {
+    content: string;
+    id: string;
+    payloadType: MessagePayload["type"];
+  } | null;
+  onDraftInput: () => void;
+  onEditCancel: () => void;
+  onEditSave: (content: string) => Promise<boolean>;
   onReplyCancel: () => void;
   onSent: () => void;
   replyTarget: {
@@ -85,6 +101,10 @@ async function sendWithRatchetRetry(
 
 export function MessageComposer({
   conversation,
+  editTarget,
+  onDraftInput,
+  onEditCancel,
+  onEditSave,
   onReplyCancel,
   onSent,
   replyTarget,
@@ -93,12 +113,58 @@ export function MessageComposer({
   const { privateKey } = useMessagesIdentity();
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sendingMedia, setSendingMedia] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastTypingRef = useRef(0);
+  // The message id whose text the textarea currently holds. When it changes,
+  // the composer replaces its draft with that message's body; comparing the id
+  // (not the string) means typing in an active edit is never clobbered by a
+  // re-render.
+  const seededEditIdRef = useRef<string | null>(null);
+
+  const conversationId = conversation.conversation.id;
+  const editing = editTarget !== null;
+
+  // Seed the textarea when entering edit mode (or switching between messages).
+  // Deferred through a microtask so the effect body never sets state
+  // synchronously, matching the repo's pattern for derived-state sync.
+  useEffect(() => {
+    const target = editTarget;
+    if (!target) {
+      seededEditIdRef.current = null;
+      return;
+    }
+    if (seededEditIdRef.current === target.id) {
+      return;
+    }
+    seededEditIdRef.current = target.id;
+    queueMicrotask(() => {
+      setText(target.content);
+    });
+  }, [editTarget]);
+
+  const {
+    addFiles,
+    attachments,
+    canSend,
+    claimAttachments,
+    isUploading,
+    readyGroups,
+    removeAttachment,
+    removeAttachments,
+    replaceAttachmentFile,
+    restoreAttachments,
+    retryAttachment,
+  } = useMessageAttachments(conversationId);
+
+  const editingAttachment = attachments.find(
+    (attachment) => attachment.id === editingId
+  );
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -137,11 +203,29 @@ export function MessageComposer({
       try {
         // Unwrap the root key (cached per conversation). This also heals any
         // missing wrapped key rows from a conversation created before this
-        // device had keys.
+        // device had keys. The refresh callback guards the rotate path: if our
+        // cached detail is stale (the peer rotated or reset), refetch it before
+        // minting a new epoch so we never wrap for a superseded peer key.
         const rootKey = await ensureConversationKeys(
           conversation.conversation,
           privateKey,
-          user.id
+          user.id,
+          {
+            refreshConversation: async () => {
+              try {
+                const fresh = await fetchConversationDetail(
+                  conversation.conversation.id
+                );
+                queryClient.setQueryData(
+                  ["message-conversation", conversation.conversation.id],
+                  fresh
+                );
+                return fresh.conversation;
+              } catch {
+                return null;
+              }
+            },
+          }
         );
         if (!rootKey) {
           toast({
@@ -223,117 +307,174 @@ export function MessageComposer({
     ]
   );
 
-  const handleSend = useCallback(async () => {
+  const handleEditSave = useCallback(async () => {
     const content = text.trim();
-    if (!content || sending || !user || !privateKey || !peer) {
+    if (savingEdit || !editing) {
+      return;
+    }
+    // A text message must keep a body; a media/post caption may be cleared.
+    if (editTarget?.payloadType === "text" && content.length === 0) {
+      return;
+    }
+    setSavingEdit(true);
+    const ok = await onEditSave(content);
+    setSavingEdit(false);
+    if (ok) {
+      setText("");
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus({ preventScroll: true });
+      });
+    }
+  }, [editing, editTarget?.payloadType, onEditSave, savingEdit, text]);
+
+  const handleSend = useCallback(async () => {
+    // Edit mode repurposes the send button into "save changes".
+    if (editing) {
+      await handleEditSave();
+      return;
+    }
+    const content = text.trim();
+    if (sending) {
+      return;
+    }
+    if (attachments.length === 0 && !content) {
+      return;
+    }
+    // Attachments must all be uploaded and READY before any goes out: the
+    // serving route gates on that status, so a premature send would hand the
+    // peer a 404.
+    if (attachments.length > 0 && !canSend) {
+      return;
+    }
+    if (!user || !privateKey || !peer) {
       return;
     }
 
     setSending(true);
     try {
-      const payload = replyTarget
-        ? {
-            content,
-            replyToId: replyTarget.id,
-            replyToSenderId: replyTarget.senderId,
-            type: "text" as const,
-          }
-        : { content, type: "text" as const };
-      const ok = await sendPayload(payload);
-      // Clear the sending flag BEFORE focusing: the textarea is disabled while
-      // `busy`, and a disabled element cannot receive focus, so focusing first
-      // was a no-op. The frame callback then runs after React has re-enabled
-      // it, so the caret actually lands. preventScroll keeps the just-scrolled
-      // transcript from being yanked by the browser focusing the composer.
-      setSending(false);
-      if (ok) {
-        requestAnimationFrame(() => {
-          textareaRef.current?.focus({ preventScroll: true });
-        });
-      }
-    } catch (error) {
-      // Reset before rethrowing so the sending flag clears on the failure
-      // path too (replaces the previous `finally` clause).
-      setSending(false);
-      throw error;
-    }
-  }, [peer, privateKey, replyTarget, sendPayload, sending, text, user]);
-
-  const handleSendMedia = useCallback(
-    async (media: MessageMediaUpload) => {
-      if (sendingMedia || sending) {
-        return;
-      }
-      setSendingMedia(true);
-      try {
-        await sendPayload(
-          {
-            height: media.height ?? undefined,
-            kind: media.kind,
+      if (readyGroups.length > 0) {
+        let first = true;
+        for (const group of readyGroups) {
+          const payload: MessagePayload = {
+            content: first && content ? content : undefined,
+            images: group.images,
+            kind: group.kind,
             type: "media",
-            url: media.url,
-            width: media.width ?? undefined,
-          },
-          // Media is its own message; keep any typed draft and active reply.
-          { preserveInput: true }
-        );
-      } catch (error) {
-        // Reset before rethrowing so the flag clears on the failure path too
-        // (replaces the previous `finally` clause).
-        setSendingMedia(false);
-        throw error;
+            ...(first && replyTarget
+              ? {
+                  replyToId: replyTarget.id,
+                  replyToSenderId: replyTarget.senderId,
+                }
+              : {}),
+          };
+          // Stop treating these rows as discardable BEFORE awaiting the send.
+          // Once the server has the media ids it cannot tell a row backing a
+          // sent message from an abandoned draft, so a discard racing this send
+          // (unmount on conversation switch, onSent's re-renders) would clear
+          // the conversation link and 404 the image for the peer for good.
+          const claimed = claimAttachments(group.attachmentIds);
+          // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
+          const ok = await sendPayload(payload);
+          if (!ok) {
+            // Nothing referenced these rows, so re-stage them: the sender can
+            // retry, and they stay reclaimable if they leave the thread.
+            restoreAttachments(claimed);
+            // Leave the failed group and any unsent ones staged and tracked so
+            // the sender can retry and their media rows are still reclaimed if
+            // they leave the thread. Groups already sent above stay removed.
+            setSending(false);
+            return;
+          }
+          // The send landed, so the rows belong to a message now: drop the
+          // tiles without discarding. `claimed` already detached them, so this
+          // is bookkeeping only.
+          removeAttachments(group.attachmentIds, { discard: false });
+          first = false;
+        }
+      } else {
+        const payload = replyTarget
+          ? {
+              content,
+              replyToId: replyTarget.id,
+              replyToSenderId: replyTarget.senderId,
+              type: "text" as const,
+            }
+          : { content, type: "text" as const };
+        const ok = await sendPayload(payload);
+        if (!ok) {
+          setSending(false);
+          return;
+        }
       }
-      setSendingMedia(false);
+    } catch {
+      // sendPayload surfaces its own failures via toast; just release the flag
+      // so the composer stays usable.
+      setSending(false);
+      return;
+    }
+    // Clear the sending flag BEFORE focusing: the textarea is disabled while
+    // `busy`, and a disabled element cannot receive focus, so focusing first
+    // was a no-op. The frame callback then runs after React has re-enabled
+    // it, so the caret actually lands. preventScroll keeps the just-scrolled
+    // transcript from being yanked by the browser focusing the composer.
+    setSending(false);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  }, [
+    attachments.length,
+    canSend,
+    claimAttachments,
+    editing,
+    handleEditSave,
+    peer,
+    privateKey,
+    readyGroups,
+    removeAttachments,
+    replyTarget,
+    restoreAttachments,
+    sendPayload,
+    sending,
+    text,
+    user,
+  ]);
+
+  const handleFilesSelected = useCallback(
+    (files: FileList | File[] | null) => {
+      const list = files ? [...files] : [];
+      if (list.length > 0) {
+        addFiles(list);
+      }
     },
-    [sendPayload, sending, sendingMedia]
+    [addFiles]
   );
 
-  const conversationId = conversation.conversation.id;
-
-  const handleFileSelected = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      handleFilesSelected(event.target.files);
       event.target.value = "";
-      if (!file) {
-        return;
-      }
-      if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
-        toast({
-          description: "Messages support images and GIFs only.",
-          title: "Unsupported File",
-          variant: "destructive",
-        });
-        return;
-      }
-      try {
-        const media = await uploadMessageMedia(file, "image", conversationId);
-        await handleSendMedia(media);
-      } catch {
-        toast({
-          description: "Couldn't upload that image, try again?",
-          title: "Upload Failed",
-          variant: "destructive",
-        });
-      }
     },
-    [conversationId, handleSendMedia]
+    [handleFilesSelected]
   );
 
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
       setGifPickerOpen(false);
       try {
-        const blob = await fetch(gif.url).then((response) => {
-          if (!response.ok) {
-            throw new Error("Failed to fetch GIF");
-          }
-          return response.blob();
-        });
+        const response = await fetch(gif.url);
+        if (!response.ok) {
+          toast({
+            description: "Couldn't add that GIF, try another?",
+            title: "GIF Failed",
+            variant: "destructive",
+          });
+          return;
+        }
+        const blob = await response.blob();
         const file = new File([blob], `${gif.slug || "gif"}.gif`, {
           type: "image/gif",
         });
-        const media = await uploadMessageMedia(file, "gif", conversationId);
-        await handleSendMedia(media);
+        addFiles([file]);
       } catch {
         toast({
           description: "Couldn't add that GIF, try another?",
@@ -342,11 +483,63 @@ export function MessageComposer({
         });
       }
     },
-    [conversationId, handleSendMedia]
+    [addFiles]
   );
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    if (event.dataTransfer.types.includes("Files")) {
+      event.preventDefault();
+      setDragActive(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    // Ignore leaves that stay inside the composer (fired when moving between
+    // child elements), so the highlight does not flicker.
+    if (event.currentTarget.contains(event.relatedTarget as Node)) {
+      return;
+    }
+    setDragActive(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragActive(false);
+      handleFilesSelected(event.dataTransfer.files);
+    },
+    [handleFilesSelected]
+  );
+
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const { files } = event.clipboardData ?? {};
+      if (files && files.length > 0) {
+        event.preventDefault();
+        handleFilesSelected(files);
+      }
+    },
+    [handleFilesSelected]
+  );
+
+  const handleEditAttachment = useCallback((id: string) => {
+    setEditingId(id);
+  }, []);
+
+  // Leaving edit mode must not leave the edited body sitting in the composer as
+  // the next draft; clear it back to empty.
+  const handleCancelEdit = useCallback(() => {
+    setText("");
+    onEditCancel();
+  }, [onEditCancel]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Escape" && editing) {
+        event.preventDefault();
+        handleCancelEdit();
+        return;
+      }
       // While an IME composition is in flight the Enter key confirms the
       // candidate, not the message; only send on a bare Enter.
       if (
@@ -358,14 +551,66 @@ export function MessageComposer({
         void handleSend();
       }
     },
-    [handleSend]
+    [editing, handleCancelEdit, handleSend]
   );
 
-  const busy = sending || sendingMedia;
+  const busy = sending || savingEdit;
+  // In edit mode only the text matters: attachments are hidden, so the button
+  // is enabled purely by a non-empty body. A media/post caption may be cleared
+  // to remove it, so an empty body is allowed for those types.
+  const emptyBodyBlocksSave =
+    editTarget?.payloadType === "text" && text.trim().length === 0;
+  const sendDisabled = editing
+    ? busy || emptyBodyBlocksSave
+    : busy ||
+      isUploading ||
+      (attachments.length > 0 ? !canSend : text.trim().length === 0);
+
+  // The send button doubles as a save button in edit mode; a spinner wins while
+  // either request is in flight.
+  function renderSendIcon() {
+    if (busy) {
+      return <Loader2 className="h-4 w-4 animate-spin" />;
+    }
+    if (editing) {
+      return <Check className="h-4 w-4" />;
+    }
+    return <ArrowUp className="h-4 w-4" />;
+  }
 
   return (
-    <div className="border-border/60 shrink-0 border-t px-4 py-3">
-      {replyTarget ? (
+    <div
+      className={cn(
+        "border-border/60 shrink-0 border-t px-4 py-3 transition-colors",
+        dragActive && "bg-[#ff9500]/5"
+      )}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {editing ? (
+        <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
+          <Pencil className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <span className="text-muted-foreground">Editing message</span>
+            {editTarget.content ? (
+              <span className="text-muted-foreground block truncate">
+                {editTarget.content}
+              </span>
+            ) : null}
+          </div>
+          <button
+            aria-label="Cancel edit"
+            className="icon-btn-3d ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+            onClick={handleCancelEdit}
+            type="button"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      {replyTarget && !editing ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <MessageSquareQuote className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
           <div className="min-w-0">
@@ -393,8 +638,8 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      {gifPickerOpen ? (
-        <div className="apple-panel mb-2 w-full rounded-2xl p-2">
+      {gifPickerOpen && !editing ? (
+        <div className="panel-3d mb-2 w-full rounded-2xl p-2">
           <KlipyGifPicker
             disabled={busy}
             onSelect={(gif) => {
@@ -404,13 +649,26 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      <div className="reels-input flex items-center gap-2 rounded-2xl! px-3 py-2">
+      {editing ? null : (
+        <MessageAttachmentStrip
+          attachments={attachments}
+          onEdit={handleEditAttachment}
+          onRemove={removeAttachment}
+          onRetry={retryAttachment}
+        />
+      )}
+
+      <div className="reels-input relative flex items-center gap-2 rounded-2xl! px-3 py-2">
+        {dragActive ? (
+          <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-[#ff9500]/70 bg-black/5 text-xs font-medium text-[#ff9500]">
+            Drop images to attach
+          </span>
+        ) : null}
         <input
           accept="image/*"
           className="hidden"
-          onChange={(event) => {
-            void handleFileSelected(event);
-          }}
+          multiple
+          onChange={handleFileInputChange}
           ref={fileInputRef}
           type="file"
         />
@@ -421,7 +679,14 @@ export function MessageComposer({
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
-            if (value.trim().length > 0) {
+            // The reader is writing into this conversation, which is when a "new
+            // messages" marker has done its job.
+            if (value.length > 0) {
+              onDraftInput();
+            }
+            // Typing heartbeats are meaningless while editing an existing
+            // message; skip them so an edit never pings the peer.
+            if (!editing && value.trim().length > 0) {
               // Typing indicators are throttled to one heartbeat per 3s; the
               // peer's client auto-clears after a timeout.
               const now = Date.now();
@@ -432,7 +697,12 @@ export function MessageComposer({
             }
           }}
           onKeyDown={handleKeyDown}
-          placeholder={`Message ${peer?.user.displayName ?? "them"}…`}
+          onPaste={handlePaste}
+          placeholder={
+            editing
+              ? "Edit message…"
+              : `Message ${peer?.user.displayName ?? "them"}…`
+          }
           ref={textareaRef}
           rows={1}
           value={text}
@@ -442,9 +712,9 @@ export function MessageComposer({
           className={cn(
             "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
             "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            busy && "opacity-50"
+            (busy || editing) && "opacity-50"
           )}
-          disabled={busy}
+          disabled={busy || editing}
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
@@ -457,18 +727,18 @@ export function MessageComposer({
             gifPickerOpen
               ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
               : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            busy && "opacity-50"
+            (busy || editing) && "opacity-50"
           )}
-          disabled={busy}
+          disabled={busy || editing}
           onClick={() => setGifPickerOpen((prev) => !prev)}
           type="button"
         >
           <Clapperboard className="size-4" />
         </button>
         <button
-          aria-label="Send message"
+          aria-label={editing ? "Save edit" : "Send message"}
           className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-          disabled={busy || text.trim().length === 0}
+          disabled={sendDisabled}
           onClick={() => {
             void handleSend();
           }}
@@ -478,13 +748,21 @@ export function MessageComposer({
           onMouseDown={(event) => event.preventDefault()}
           type="button"
         >
-          {sending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ArrowUp className="h-4 w-4" />
-          )}
+          {renderSendIcon()}
         </button>
       </div>
+
+      {editingAttachment ? (
+        <MessageImageEditDialog
+          file={editingAttachment.file}
+          kind={editingAttachment.kind}
+          objectUrl={editingAttachment.objectUrl}
+          onClose={() => setEditingId(null)}
+          onSave={(file) => {
+            replaceAttachmentFile(editingAttachment.id, file);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

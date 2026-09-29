@@ -34,7 +34,22 @@ mock.module("@asm/db", () => ({
           select: () => ({ where: () => ({ all: () => Promise.resolve([]) }) }),
         },
         MessageConversationMembers: {
-          select: () => ({ where: () => ({ all: mockMemberships }) }),
+          // The badge seed skips muted memberships, so the where is a predicate
+          // that must tolerate the mutedAt column.
+          select: () => ({
+            where: (
+              predicate?: (member: {
+                mutedAt: { isNull: () => unknown };
+                userId: { eq: (id: string) => unknown };
+              }) => unknown
+            ) => {
+              predicate?.({
+                mutedAt: { isNull: () => ({}) },
+                userId: { eq: () => ({}) },
+              } as never);
+              return { all: mockMemberships };
+            },
+          }),
         },
         Messages: {
           where: (
@@ -42,6 +57,11 @@ mock.module("@asm/db", () => ({
               conversationId: { eq: (id: string) => unknown };
               createdAt: { gt: (value: Date) => unknown };
               deletedAt: { isNull: () => unknown };
+              // "Delete for me": the shared unread predicate filters hidden rows
+              // out, so the accessor must offer the relation predicate.
+              hiddenFor: {
+                none: (predicate: (hidden: unknown) => unknown) => unknown;
+              };
               senderId: { notIn: (ids: string[]) => unknown };
             }) => unknown
           ) => {
@@ -62,6 +82,12 @@ mock.module("@asm/db", () => ({
                 },
               },
               deletedAt: { isNull: () => ({}) },
+              hiddenFor: {
+                none: (relationFilter: (hidden: unknown) => unknown) => {
+                  relationFilter({ userId: { eq: () => ({}) } });
+                  return {};
+                },
+              },
               senderId: {
                 notIn: (ids) => {
                   senderIds = ids;

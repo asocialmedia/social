@@ -19,49 +19,129 @@ import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl, getSecureImageUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 
+import { postEmbedFailure, postEmbedRetries } from "./post-embed-failure";
+
 interface PostEmbedProps {
   mine: boolean;
   postId: string;
 }
 
+// Carries the status, because the status is the whole answer. React Query keeps the
+// error it was given, so a bare Error would lose the one piece of information that
+// separates "this post is gone" from "this request failed" -- and the card would go
+// back to claiming the first for both.
+class PostEmbedFetchError extends Error {
+  readonly status: number | undefined;
+
+  constructor(message: string, status: number | undefined) {
+    super(message);
+    this.name = "PostEmbedFetchError";
+    this.status = status;
+  }
+}
+
+function statusOf(error: unknown): number | undefined {
+  return error instanceof PostEmbedFetchError ? error.status : undefined;
+}
+
 export function PostEmbed({ mine, postId }: PostEmbedProps) {
-  const { data, isError } = useQuery({
+  const { data, error, isError, isFetching, refetch } = useQuery({
     queryFn: async () => {
-      const response = await fetch(`/api/posts/${postId}`);
+      let response: Response;
+      try {
+        response = await fetch(`/api/posts/${postId}`);
+      } catch {
+        // No response at all: offline, a dropped connection, an aborted request.
+        // Carried as "no status" so it lands on the retryable side, which is the
+        // only safe side for a request that never got to ask.
+        throw new PostEmbedFetchError("Request failed", undefined);
+      }
       if (!response.ok) {
-        throw new Error("not found");
+        throw new PostEmbedFetchError(
+          response.statusText || "Request failed",
+          response.status
+        );
       }
       const json = (await response.json()) as { post: PostData };
       return json.post;
     },
     queryKey: ["message-post-embed", postId],
-    retry: 1,
+    // Status-aware: a 404 is the server's final answer and repeating the request
+    // cannot change it, so retrying it spends a request to be told the same thing.
+    retry: postEmbedRetries,
+    // A virtualized transcript mounts and unmounts the same post card as rows
+    // recycle; a short stale window keeps a fling from refetching each time.
+    staleTime: 5 * 60 * 1000,
   });
 
   if (isError) {
+    // The one case where the old copy is true: the server answered, and the answer
+    // was "not for you" -- deleted, or in a private community the viewer cannot
+    // read. Deliberately no retry control, because there is nothing to retry.
+    if (postEmbedFailure(statusOf(error)) === "gone") {
+      return (
+        <span className="text-xs italic opacity-70">
+          <FileText className="mr-1 inline h-3.5 w-3.5" />
+          Post no longer available
+        </span>
+      );
+    }
+    // Everything else: say what is true, which is that the card could not load, and
+    // offer the one action that might fix it. The button refetches this query key,
+    // so it also heals every other mounted copy of the same post -- the one in the
+    // transcript and the one in the details pane share it.
     return (
-      <span className="text-xs italic opacity-70">
-        <FileText className="mr-1 inline h-3.5 w-3.5" />
-        Post no longer available
+      <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        Couldn&apos;t load this post
+        <button
+          className="hover:text-foreground underline underline-offset-2 disabled:opacity-60"
+          disabled={isFetching}
+          onClick={() => {
+            void refetch();
+          }}
+          type="button"
+        >
+          {isFetching ? "Retrying…" : "Retry"}
+        </button>
       </span>
     );
   }
 
   if (!data) {
-    // Loading skeleton in the message bubble while the post is fetched.
+    // Loading skeleton shaped like the loaded card (author row, text block,
+    // h-40 cover, footer) so the query resolving does not grow the bubble and
+    // force the transcript to re-measure mid-scroll.
     return (
       <div
         className={cn(
-          "mt-1 w-full max-w-72 animate-pulse rounded-xl border p-3",
+          "mt-1 w-full max-w-72 animate-pulse overflow-hidden rounded-xl border",
           mine ? "border-white/40 bg-black/25" : "border-border/60 bg-muted/50"
         )}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 px-3 pt-2.5">
           <div className="size-6 rounded-full bg-current opacity-20" />
-          <div className="h-3 w-1/3 rounded bg-current opacity-20" />
+          <div className="min-w-0 flex-1">
+            <div className="h-3 w-1/3 rounded bg-current opacity-20" />
+            <div className="mt-1 h-2.5 w-1/4 rounded bg-current opacity-15" />
+          </div>
         </div>
-        <div className="mt-2.5 h-3 w-3/4 rounded bg-current opacity-20" />
-        <div className="mt-1.5 h-3 w-2/3 rounded bg-current opacity-20" />
+        <div className="space-y-1.5 px-3 py-2">
+          <div className="h-3 w-3/4 rounded bg-current opacity-20" />
+          <div className="h-3 w-2/3 rounded bg-current opacity-20" />
+        </div>
+        <div className="px-3 pb-2">
+          <div className="h-40 w-full rounded-lg bg-current opacity-15" />
+        </div>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 border-t px-3 py-1.5",
+            mine ? "border-white/15" : "border-border/50"
+          )}
+        >
+          <div className="h-2.5 w-16 rounded bg-current opacity-20" />
+          <div className="h-2.5 w-12 rounded bg-current opacity-20" />
+        </div>
       </div>
     );
   }
@@ -213,7 +293,9 @@ function PostEmbedCard({ data, mine }: { data: PostData; mine: boolean }) {
                 <Image
                   alt=""
                   className="h-full w-full object-cover"
+                  decoding="async"
                   fill
+                  loading="lazy"
                   sizes="(max-width: 640px) 50vw, 320px"
                   src={getMediaProxyUrl(previews[0])}
                   unoptimized
@@ -223,7 +305,9 @@ function PostEmbedCard({ data, mine }: { data: PostData; mine: boolean }) {
               <Image
                 alt=""
                 className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                decoding="async"
                 fill
+                loading="lazy"
                 sizes="(max-width: 640px) 50vw, 320px"
                 src={getMediaProxyUrl(previews[0])}
                 unoptimized

@@ -272,6 +272,7 @@ namespace public {
     mentions                   Mentions[]
     messageConversationKeys    MessageConversationKeys[]
     messageConversationMembers MessageConversationMembers[]
+    messageHiddens             MessageHiddens[]
     messageIdentities          MessageIdentities?
     messages                   Messages[]
     passkeys                   Passkey[]
@@ -572,12 +573,19 @@ namespace public {
     ownerUserId    String
     encryptedKey   String
     iv             String
+    // Root-key epoch. A member may hold several wraps for the same conversation:
+    // an identity reset (lost device secret) mints a fresh root and appends a new
+    // version, while older wraps stay readable so the peer keeps its history.
+    // Readers select the wrap matching the message's keyVersion; payloads without
+    // one are epoch 1. Append-only, so a wrap is never overwritten.
+    version        Int                  @default(1)
     ratchetCounter Int                  @default(0)
     createdAt      Timestamp(3)         @default(now())
     conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_conversationId_fkey", index: false)
     ownerUser      Users                @relation(fields:[ownerUserId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_ownerUserId_fkey", index: false)
 
-    @@unique([conversationId, ownerUserId], map: "message_conversation_keys_conversationId_ownerUserId_key")
+    @@unique([conversationId, ownerUserId, version], map: "message_conversation_keys_conversationId_ownerUserId_versio_key")
+    @@index([conversationId, ownerUserId], map: "message_conversation_keys_conversationId_ownerUserId_idx")
     @@map("message_conversation_keys")
   }
 
@@ -585,12 +593,31 @@ namespace public {
     conversationId String
     userId         String
     lastReadAt     Timestamp(3)?
-    createdAt      Timestamp(3)         @default(now())
+    // Watermark: the createdAt of the newest message this member has confirmed
+    // receipt of. A sender reads their peer's watermark to label each own message
+    // Delivered (peer watermark >= createdAt) without a per-message receipt row.
+    // Null means the peer has never acked (pre-feature history included), so those
+    // messages show no delivery claim rather than a fabricated one.
+    lastDeliveredAt Timestamp(3)?
+    // Per-member DM preferences, so they are DM-scoped by construction (every
+    // message conversation is a 1:1 pair keyed by pairKey).
+    // mutedAt is when THIS member muted the thread: null means unmuted, a
+    // timestamp means muted, and the timestamp is preserved (not nulled) so the
+    // mute is a real event rather than a boolean flip. It suppresses the
+    // conversation's unread badge for this member only; the peer is unaffected.
+    mutedAt Timestamp(3)?
+    // Chat theme key this member picked for this conversation. Null means app
+    // default and is resolved client-side, so a new theme can ship without a
+    // backfill. Synced across the member's devices like every other preference.
+    themeKey  String?
+    createdAt Timestamp(3) @default(now())
     conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
     user           Users                @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
 
     @@id([conversationId, userId], map: "message_conversation_members_pkey")
     @@index([userId], map: "message_conversation_members_userId_idx")
+    // Serves the unread-badge seed, which now skips muted memberships.
+    @@index([userId, mutedAt], map: "message_conversation_members_userId_mutedAt_idx")
     @@map("message_conversation_members")
   }
 
@@ -617,13 +644,47 @@ namespace public {
     ratchetIndex   Int                  @default(0)
     createdAt      Timestamp(3)         @default(now())
     deletedAt      Timestamp(3)?
+    // Set when the sender rewrites this message's ciphertext in place. The
+    // ratchet index never changes (the edit re-encrypts under the same derived
+    // key with a fresh IV), so receivers re-decrypt the row instead of appending
+    // a new one. Null means never edited.
+    editedAt       Timestamp(3)?
     conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
     sender         Users                @relation(fields:[senderId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
+    hiddenFor      MessageHiddens[]
 
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
+    // Every history read filters on conversationId and orders by id (the cursor
+    // sort key), so this is the index that actually serves the thread. The
+    // (conversationId, createdAt) index above cannot be used for an id-ordered
+    // range scan, which left Postgres scanning the primary key backwards and
+    // discarding every row belonging to another conversation. Measured on a 2M
+    // row table: a typical small DM's page went 178ms -> 0.64ms.
+    @@index([conversationId, id], map: "messages_conversationId_id_idx")
     @@unique([conversationId, senderId, ratchetIndex], map: "messages_conversationId_senderId_ratchetIndex_key")
     @@index([senderId], map: "messages_senderId_idx")
     @@map("messages")
+  }
+
+  // "Delete for me": a per-user hide that leaves the peer's copy intact. Kept as
+  // a separate join table (not a column on Messages) because the same row is
+  // visible to one member and hidden from the other; the sender's own global
+  // delete keeps using Messages.deletedAt. Composite primary key gives the
+  // natural "one hide per (message, user)" guarantee and an index for the hot
+  // list/thread filter (hiddenFor: { none: { userId } }). Cascade on both FKs so
+  // a purged message or account cannot strand rows.
+  model MessageHiddens {
+    messageId String
+    userId    String
+    createdAt Timestamp(3) @default(now())
+    // index: false - the composite primary key already leads with messageId, so
+    // a separate messageId index would only duplicate it on a table that grows.
+    message   Messages  @relation(fields:[messageId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_messageId_fkey", index: false)
+    user      Users     @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_userId_fkey")
+
+    @@id([messageId, userId], map: "message_hidden_pkey")
+    @@index([userId], map: "message_hidden_userId_idx")
+    @@map("message_hidden")
   }
 
   model Notifications {
