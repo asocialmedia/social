@@ -22,25 +22,31 @@ export const emailConfig = {
     features: [
       {
         description:
-          "Experience all your social media in one place. asocialmedia seamlessly aggregates content from Twitter, Reddit, 4chan, and more into a single, customizable feed. No more platform hopping!",
+          "Four feeds you can switch between at any time. The For you feed builds a picture of your taste from what you read, amplify, bookmark and discuss, so it gets sharper the longer you stay.",
         emoji: "🌐 ",
-        title: "Unified Social Feed",
+        title: "A Feed That Learns You",
       },
       {
         description:
-          "Take control of your social media consumption with powerful filters, custom categories, and real-time updates. Save time and never miss important content from your favorite platforms.",
+          "Most platforms count likes. Aura is a reputation ledger across everything you actually do here, with credibility weighting and a daily ceiling so it cannot be farmed.",
         emoji: "⚡ ",
-        title: "Streamlined Experience",
+        title: "Aura, Not Likes",
       },
       {
         description:
-          "asocialmedia is proudly Free and Open Source Software (FOSS). Inspect the code, suggest features, contribute improvements, and help build a more connected social media experience for everyone. More eyes make for better software!",
-        emoji: "🐙 ",
-        title: "Open Source Freedom",
+          "Founding a community takes earned standing, not a free signup, and every community sets its own rules. You can read the whole platform as a guest, with no account at all.",
+        emoji: "🪪 ",
+        title: "Earned Communities",
       },
     ],
     logoUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-logo.png",
   },
+
+  // The same brand line the site, the web manifest and the app description use.
+  // It is restated rather than imported: the auth service is its own deployable
+  // and must not take a dependency on @asm/ui to read one string. Keep it in
+  // step with `brandLine` in packages/ui/meta/site.ts.
+  brandLine: "The social network that knows you back.",
 
   company: {
     name: "asocialmedia",
@@ -65,7 +71,7 @@ export const emailConfig = {
 
   project: {
     description:
-      "asocialmedia is a social media aggregator that aggregates content from various social media platforms and displays them in a single feed. Completely FOSS and open to contributions.",
+      "asocialmedia is an open social network where the feed learns your taste, Aura records your reputation, and communities are earned rather than spammed. There are no ads.",
     links: {
       contribute: "https://github.com/asocialmedia/social/contribute",
       discord: "https://discordapp.com/users/parazeeknova",
@@ -93,12 +99,15 @@ export const emailConfig = {
     passwordReset: {
       buttonText: "Reset Password",
       expiryTime: "1 hour",
-      subject: "Reset Your Password",
+      subject: "Reset your asocialmedia password",
     },
     verification: {
       buttonText: "Verify Email Address",
       expiryTime: "1 hour",
-      subject: "🎉 One Last Step to Join the asocialmedia!",
+      // Was "🎉 One Last Step to Join the asocialmedia!" — an article before a
+      // mass noun. This is the first thing a new user reads from us, so it
+      // says the one useful thing and drops the emoji.
+      subject: "Verify your email to join asocialmedia",
     },
   },
 };
