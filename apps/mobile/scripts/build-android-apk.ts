@@ -116,6 +116,50 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+// Gradle resolves `foojay-resolver-convention` from the plugin portal at the
+// very start of the build, before compiling anything, and the portal 303s the
+// real JAR to a separate artifact CDN. That makes the first phase of every
+// clean build depend on two hosts staying reachable, and a runner that cannot
+// reach them fails with "Plugin ... was not found in any of the following
+// sources" while every other repository is configured correctly. The version is
+// valid and the artifact resolves, so retrying is the fix rather than pinning
+// or vendoring a version that is not actually wrong.
+//
+// Scoped to resolution failures on purpose: a compile or lint error must still
+// fail immediately rather than burning three full builds re-reporting it.
+const GRADLE_RESOLUTION_FAILURE =
+  /was not found in any of the following sources|could not resolve (?:plugin artifact|all files|.*artifact)/i;
+const GRADLE_MAX_ATTEMPTS = 3;
+
+async function runGradle(args: string[], gradleEnv: NodeJS.ProcessEnv) {
+  // Sequential on purpose: each attempt must wait for the previous one to fail
+  // before retrying, which is exactly what `no-await-in-loop` discourages.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await $`./gradlew ${args} --no-daemon -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
+        .cwd(ANDROID_DIR)
+        .env(gradleEnv);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const lastAttempt = attempt >= GRADLE_MAX_ATTEMPTS;
+      if (!GRADLE_RESOLUTION_FAILURE.test(message) || lastAttempt) {
+        throw error;
+      }
+      // Gradle caches a failed resolution negatively for the daemon's lifetime,
+      // but each attempt here is a fresh process, so this genuinely retries the
+      // network rather than replaying the same cached miss.
+      const backoffSeconds = 10 * attempt;
+      console.warn(
+        `\nGradle could not resolve a build dependency (attempt ${attempt}/${GRADLE_MAX_ATTEMPTS}). ` +
+          `Retrying in ${backoffSeconds}s: this is a plugin-portal network failure, not a build error.`
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await Bun.sleep(backoffSeconds * 1000);
+    }
+  }
+}
+
 async function readCredentialFile(name: string): Promise<string | null> {
   try {
     const contents = await readFile(path.join(SIGNING_DIR, name), "utf-8");
@@ -440,9 +484,7 @@ async function main(): Promise<void> {
 
     if (mode === "bundle" || mode === "all") {
       step("Building release App Bundle (.aab) (this takes a while)");
-      await $`./gradlew bundleRelease --no-daemon -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
-        .cwd(ANDROID_DIR)
-        .env(gradleEnv);
+      await runGradle(["bundleRelease"], gradleEnv);
 
       const bundleSource = path.join(BUNDLE_OUTPUT_DIR, BUNDLE_FILE_NAME);
       await access(bundleSource).catch(() => {
@@ -467,9 +509,10 @@ async function main(): Promise<void> {
 
     if (mode === "apk" || mode === "all") {
       step(`Building release APK for ${abi} (this takes a while)`);
-      await $`./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=${abi} -Dorg.gradle.jvmargs=${GRADLE_JVM_ARGS}`
-        .cwd(ANDROID_DIR)
-        .env(gradleEnv);
+      await runGradle(
+        ["assembleRelease", `-PreactNativeArchitectures=${abi}`],
+        gradleEnv
+      );
 
       // The split names the artifact per ABI, so the requested one has to be
       // selected out of the output directory rather than assumed. An unreadable
