@@ -138,11 +138,99 @@ interface FindManyArgs {
   };
 }
 
+// A row as the unscanned-query would see it, so the mock can apply the WHERE
+// rather than hand back whichever fixture list matches the status. Asserting
+// the shape of the query proves nothing about which rows it selects; this lets
+// a test plant rows that must be picked up AND rows that must be left alone.
+interface UnscannedRow {
+  _type: string;
+  createdAt: Date;
+  id: string;
+  originalKey: null | string;
+  pipelineVersion: null | string;
+  publishedKey: null | string;
+  status: string;
+}
+
+function quarantined(
+  id: string,
+  overrides: Partial<UnscannedRow> = {}
+): UnscannedRow {
+  return {
+    // Long past the grace window, so the age predicate always lets it through.
+    _type: "IMAGE",
+    createdAt: new Date(0),
+    id,
+    originalKey: `quarantine/${id}/upload`,
+    pipelineVersion: null,
+    publishedKey: null,
+    status: "QUARANTINED",
+    ...overrides,
+  };
+}
+
+// Applies a flattened WHERE to one row. Only the operators these two queries
+// actually use are implemented; anything else fails loudly rather than
+// silently passing, so a new predicate cannot slip through untested.
+function rowMatches(
+  row: UnscannedRow,
+  where: Record<string, unknown>
+): boolean {
+  for (const [field, expected] of Object.entries(where)) {
+    const actual = (row as unknown as Record<string, unknown>)[field];
+    if (field === OR_SLOT) {
+      const arms = expected as Record<string, unknown>[];
+      if (!arms.some((arm) => rowMatches(row, arm))) {
+        return false;
+      }
+      continue;
+    }
+    if (
+      expected &&
+      typeof expected === "object" &&
+      !(expected instanceof Date)
+    ) {
+      const clause = expected as Record<string, unknown>;
+      if ("not" in clause) {
+        // `{ not: null }` reads as "is not null": the row has to DIFFER from
+        // it, so equality is the mismatch.
+        if (actual === clause.not) {
+          return false;
+        }
+        continue;
+      }
+      if ("lt" in clause) {
+        if (!((actual as Date) < (clause.lt as Date))) {
+          return false;
+        }
+        continue;
+      }
+      if ("in" in clause) {
+        if (!(clause.in as unknown[]).includes(actual)) {
+          return false;
+        }
+        continue;
+      }
+      if ("startsWith" in clause) {
+        if (!String(actual).startsWith(String(clause.startsWith))) {
+          return false;
+        }
+        continue;
+      }
+      throw new Error(`rowMatches does not implement ${field}`);
+    }
+    if (actual !== expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
 let prismaDisabled = false;
 let failFirstEnqueue = false;
 let failFirstScanEnqueue = false;
 let readyRows: { id: string }[] = [];
-let unscannedRows: { id: string }[] = [];
+let unscannedRows: UnscannedRow[] = [];
 const derivativeCounts: Record<string, number> = {};
 const enqueuedMediaIds: string[] = [];
 const enqueuedScanMediaIds: string[] = [];
@@ -158,8 +246,11 @@ function createQuery() {
       }
       const where = Object.assign({}, ...filters.map(flattenFilter));
       findManyArgs.push({ take, where });
+      if (where.status === "READY") {
+        return Promise.resolve(readyRows);
+      }
       return Promise.resolve(
-        where.status === "READY" ? readyRows : unscannedRows
+        unscannedRows.filter((row) => rowMatches(row, where))
       );
     },
     limit: (value: number) => {
@@ -328,7 +419,7 @@ describe("derived-heal sweep", () => {
   });
 
   test("re-enqueues unscanned quarantine stragglers with a jobId suffix", async () => {
-    unscannedRows = [{ id: "m-quarantined" }, { id: "m-scanning" }];
+    unscannedRows = [quarantined("m-quarantined"), quarantined("m-scanning")];
     const result = await derivedHealSweep();
     expect(result).toEqual({ enqueued: 2 });
     expect(enqueuedScanMediaIds).toEqual(["m-quarantined", "m-scanning"]);
@@ -347,15 +438,67 @@ describe("derived-heal sweep", () => {
     // row that published once, lost its published object, and was reset to
     // QUARANTINED to republish. Without the second arm the latter would sit
     // there forever if its scan job were swallowed.
-    expect(unscannedWhere.originalKey).toEqual({ startsWith: "quarantine/" });
     expect(unscannedWhere.orAlternatives).toEqual([
       { pipelineVersion: null },
       { publishedKey: null },
     ]);
+    // Any source will do, wherever it is filed. Requiring the quarantine
+    // prefix excluded the two shapes that most need this net: a row migrated
+    // off the legacy key, and a row the storage-integrity sweep reset to
+    // republish from a surviving legacy key. Both park in QUARANTINED pointing
+    // at a `media/...` object, and were stranded for good when their scan job
+    // went missing. A row with no source at all still has nothing to scan, so
+    // the null is filtered instead.
+    expect(unscannedWhere.originalKey).toEqual({ not: null });
+  });
+
+  test("rescues a stranded row whose source is not under quarantine/", async () => {
+    unscannedRows = [
+      // Reset to republish from a surviving legacy key: parked in QUARANTINED,
+      // pipelineVersion set from a prior publish, no published key, and the
+      // source filed under media/ rather than quarantine/. This is the row the
+      // old prefix filter threw away, so a swallowed scan job stranded it for
+      // good even though the bytes were sitting right there.
+      quarantined("m-legacy", {
+        originalKey: "media/m-legacy/original.mp4",
+        pipelineVersion: "3",
+        publishedKey: null,
+      }),
+      // A row migrated off the legacy key is the same shape, and the same gap.
+      quarantined("m-migrated", { originalKey: "media/m-migrated/original" }),
+      // Fresh upload: covered before and still covered.
+      quarantined("m-fresh"),
+    ];
+
+    const result = await derivedHealSweep();
+
+    expect(enqueuedScanMediaIds).toEqual(["m-legacy", "m-migrated", "m-fresh"]);
+    expect(result).toEqual({ enqueued: 3 });
+  });
+
+  test("does not queue a row with no source, or one that is still READY", async () => {
+    unscannedRows = [
+      // Nothing to scan: the reset found no surviving copy either.
+      quarantined("m-nosource", { originalKey: null }),
+      // Already published and healthy, so it is not this branch's business.
+      quarantined("m-ready", {
+        originalKey: "media/m-ready/original.mp4",
+        pipelineVersion: "3",
+        publishedKey: "media/m-ready/published.mp4",
+        status: "READY",
+      }),
+      // Mid-scan, which the scan's own restart recovery owns.
+      quarantined("m-scanning", { status: "SCANNING" }),
+    ];
+
+    const result = await derivedHealSweep();
+
+    expect(enqueuedScanMediaIds).toEqual([]);
+    expect(result).toEqual({ enqueued: 0 });
   });
 
   test("unscanned rescue continues past one failed scan enqueue", async () => {
-    unscannedRows = [{ id: "m-dead" }, { id: "m-alive" }];
+    unscannedRows = [quarantined("m-dead"), quarantined("m-alive")];
     failFirstScanEnqueue = true;
     (
       globalThis as unknown as Record<string, unknown>

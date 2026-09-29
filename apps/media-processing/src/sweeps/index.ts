@@ -330,19 +330,28 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   // rows - a stuck SCANNING row is recovered when its worker restarts and
   // the claim flips it back through the pipeline.
   //
-  // Two shapes land here, and both mean the same thing: the row is holding
-  // unscanned bytes and nothing is going to scan them. Either it never went
-  // through the pipeline (pipelineVersion is null), or it DID publish once and
-  // has since lost its published object and been reset to QUARANTINED to
-  // republish - in which case pipelineVersion is set but the published key is
-  // not, and without the second arm such a row would sit in QUARANTINED
-  // forever if its scan job were swallowed. A published row is READY, so
-  // requiring the missing published key keeps every healthy row out.
+  // Three shapes land here, and all three mean the same thing: the row is
+  // holding unscanned bytes and nothing is going to scan them. Either it never
+  // went through the pipeline (pipelineVersion is null), or it DID publish once
+  // and has since lost its published object and been reset to QUARANTINED to
+  // republish (pipelineVersion set, publishedKey not). A published row is READY,
+  // so requiring the missing published key keeps every healthy row out.
+  //
+  // This deliberately does NOT require originalKey to sit under quarantine/.
+  // That is true of a fresh upload and false of two real shapes: a row migrated
+  // off the legacy key, whose originalKey is the live serving object, and a row
+  // the storage-integrity sweep reset to republish from a surviving legacy key.
+  // Both park in QUARANTINED with nothing pointing at quarantine/, so filtering
+  // on the prefix silently excluded exactly the rows most likely to have lost
+  // their scan job - stranding them for good. Re-enqueueing is safe for any of
+  // them: the scan stage claims QUARANTINED rows conditionally, and it only
+  // deletes originalKey on rejection when that key is under quarantine/, so a
+  // live serving object is never reaped by a retry.
   const unscanned = await prisma.orm.public.PostMedia.select("id")
     .where((media) =>
       and(
         media.createdAt.lt(cutoffTemporal),
-        media.originalKey.like("quarantine/%"),
+        media.originalKey.isNotNull(),
         or(media.pipelineVersion.isNull(), media.publishedKey.isNull()),
         media.status.eq("QUARANTINED"),
         media._type.in([...DERIVED_HEAL_TYPES])
@@ -585,14 +594,26 @@ export async function storageIntegritySweep(): Promise<{
           status: "QUARANTINED",
         });
         if (reset > 0) {
-          await enqueueMediaScan(row.id, {
-            jobIdSuffix: `integrity-republish-${Date.now()}`,
-          });
-          republished += 1;
-          mediaLogger.warn(
-            { gone: goneKeys.join(", "), mediaId: row.id, scanSource },
-            "storage-integrity requeued row to republish from a surviving source"
-          );
+          // The reset is already committed, so a failed enqueue leaves the row
+          // in QUARANTINED with a source and no job. That is recoverable -
+          // derivedHealSweep re-enqueues any stranded QUARANTINED row - but it
+          // is a hole worth saying out loud, because the row is unservable until
+          // something picks it up.
+          try {
+            await enqueueMediaScan(row.id, {
+              jobIdSuffix: `integrity-republish-${Date.now()}`,
+            });
+            republished += 1;
+            mediaLogger.warn(
+              { gone: goneKeys.join(", "), mediaId: row.id, scanSource },
+              "storage-integrity requeued row to republish from a surviving source"
+            );
+          } catch (error) {
+            mediaLogger.error(
+              { error: String(error), mediaId: row.id, scanSource },
+              "row was reset for republish but the scan enqueue failed; leaving it to the derived-heal net"
+            );
+          }
         }
         continue;
       }
