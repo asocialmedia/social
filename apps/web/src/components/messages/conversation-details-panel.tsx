@@ -559,7 +559,13 @@ function DetailsHeader({
     // follows, and a hairline on top of an image reads as a seam rather than as an
     // edge.
     <div className="pointer-events-none relative shrink-0 overflow-hidden">
-      <div className="bg-muted/20 relative h-24">
+      {/* `overflow-hidden` is load-bearing, not tidiness. The banner image is `fill`
+          and scaled up so its blur has no visible edge, which means it is TALLER
+          than this box (168px against 96px). Without clipping it bleeds out of the
+          bottom, past the fade that is supposed to dissolve it, and reappears
+          un-faded behind the avatar -- the same mascot rendered twice, once faded
+          above and once raw below, with a hard line where the fade stops. */}
+      <div className="bg-muted/20 relative h-24 overflow-hidden">
         {banner}
         {/* Fades the banner into the pane's own background, so the crop has no hard
             bottom edge. Full-strength at the very bottom, where there is no banner
