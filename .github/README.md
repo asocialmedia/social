@@ -7,16 +7,45 @@
   <br>
 
   <h3><strong>asocialmedia</strong></h3>
-  <sub><em>"Your entire internet, finally yours."</em></sub>
+  <sub><em>"The social network that knows you back."</em></sub>
+
+  <br>
+
+  <sub>
+    <a href="https://asocialmedia.cc">asocialmedia.cc</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/asocialmedia/social/releases/latest">Latest release</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/asocialmedia/social/blob/main/LICENSE">Licence</a>
+  </sub>
 
 </div>
 <br>
 
-### _<div align="center"><sub>About - The What's & Why's?</sub></div>_
+### <div align="center"><sub>Get the app</sub></div>
 
-You post. You discover. You engage. You build a reputation. And the longer you're here, the more asocialmedia understands you what you care about, what you create, what kind of chaos you enjoy at 2am. It's a living, breathing feed that grows with you, not against you.
+<div align="center">
 
-Oh, and it's open. Because the audacity of building this should be public.
+| Android | iOS |
+| :-- | :-- |
+| <a href="https://github.com/asocialmedia/social/releases/latest/download/asocialmedia-latest.apk"><b>Download the latest APK</b></a><br><sub>signed release build, arm64</sub> | <b>Coming soon</b><br><sub>not on the App Store yet</sub> |
+
+<br>
+
+<a href="https://github.com/asocialmedia/social/releases/latest"><sub>All releases, version history and checksums</sub></a>
+
+</div>
+<br>
+
+No version is written into this file on purpose. The download link above always resolves to the newest release, and the releases page is the only place the version number lives, so there is nothing here to go stale.
+
+### _<div align="center"><sub>About</sub></div>_
+
+You post. You discover. You engage. You build a reputation. And the longer you're here, the more asocialmedia understands you: what you care about, what you create, what kind of chaos you enjoy at 2am. It's a living, breathing feed that grows with you, not against you.
+
+There are no ads here, and no ads coming.
+
+Oh, and it's open. Because the audacity of building this should be public. Read the [licence and contribution terms](https://github.com/asocialmedia/social/blob/main/LICENSE) before you fork it.
 
 <br>
 
@@ -63,7 +92,7 @@ This isn't a feature list. It's a different way of thinking about what social so
       <a href="https://asocialmedia.cc">
         <img src="https://zr2.asocialmedia.cc/Assets/asm.png" alt="asocialmedia Logo" width="80px"/><br>
         <strong>asocialmedia</strong><br>
-        <sub>Social media aggregator</sub>
+        <sub>An open social network</sub>
       </a>
     </td>
     <td align="center">

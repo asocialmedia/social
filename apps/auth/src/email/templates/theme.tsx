@@ -57,6 +57,16 @@ export const code: CSSProperties = {
   margin: "0 0 16px",
 };
 
+// The brand line closes every transactional email. It is the same sentence the
+// site, the manifest and the app description use, so a forwarded verification
+// email carries the positioning with it.
+export const brandLine: CSSProperties = {
+  color: "#7b7b82",
+  fontSize: "13px",
+  lineHeight: "20px",
+  margin: "24px 0 0",
+};
+
 export const EmailBanner = () => (
   // oxlint-disable-next-line jsx-a11y/alt-text
   <img

@@ -4,6 +4,7 @@ import {
   EmailBanner,
   actionLink,
   bannerUrl,
+  brandLine,
   code,
   container,
   heading,
@@ -32,6 +33,7 @@ export const VerificationEmail = ({
         <a href={verificationUrl} style={actionLink}>
           {verificationUrl}
         </a>
+        <p style={brandLine}>{emailConfig.brandLine}</p>
       </div>
     </body>
   </html>
@@ -52,6 +54,7 @@ export const getVerificationEmailHtml = (
   const safeUrl = escapeHtml(verificationUrl);
   const expiryTime = escapeHtml(emailConfig.templates.verification.expiryTime);
   const companyName = escapeHtml(emailConfig.company.name);
+  const brand = escapeHtml(emailConfig.brandLine);
 
   return Promise.resolve(`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html dir="ltr" lang="en">
@@ -71,6 +74,7 @@ export const getVerificationEmailHtml = (
             <p style="margin:0 0 16px">
               <a href="${safeUrl}" style="color:#ff9500;display:inline-block;font-size:15px;font-weight:600;max-width:100%;overflow-wrap:anywhere;text-decoration:underline" target="_blank">${safeUrl}</a>
             </p>
+            <p style="color:#7b7b82;font-size:13px;line-height:20px;margin:24px 0 0">${brand}</p>
           </td>
         </tr>
       </tbody>

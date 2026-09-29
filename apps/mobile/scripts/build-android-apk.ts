@@ -71,6 +71,11 @@ const DEFAULT_ABI = "arm64-v8a";
 // `universalApk false` - no plain app-release.apk alongside them.
 const APK_OUTPUT_DIR = path.join(APP_DIR, "build", "outputs", "apk", "release");
 
+// The unversioned alias published next to the versioned APK so
+// `releases/latest/download/asocialmedia-latest.apk` is a stable link. Keep in
+// step with the download link in .github/README.md.
+const LATEST_APK_NAME = "asocialmedia-latest.apk";
+
 // bundleRelease writes the single, universal Android App Bundle here.
 const BUNDLE_OUTPUT_DIR = path.join(
   APP_DIR,
@@ -567,7 +572,22 @@ async function main(): Promise<void> {
       const digest = sha.digest("hex");
       await Bun.write(`${destination}.sha256`, `${digest}  ${apkName}\n`);
 
+      // A second copy under a version-independent name. Release assets are
+      // otherwise named after the version, which means a README link to "the
+      // latest APK" has to be rewritten on every release or it rots. GitHub
+      // resolves releases/latest/download/<asset> against the newest
+      // non-prerelease release, so publishing this name alongside the
+      // versioned one gives the project one link that never needs editing.
+      const latestName = LATEST_APK_NAME;
+      const latestDestination = path.join(ARTIFACT_DIR, latestName);
+      await copyFile(destination, latestDestination);
+      await Bun.write(
+        `${latestDestination}.sha256`,
+        `${digest}  ${latestName}\n`
+      );
+
       console.log(`APK:      ${destination}`);
+      console.log(`Latest:   ${latestDestination}`);
       console.log(`SHA-256:  ${digest}`);
     }
 

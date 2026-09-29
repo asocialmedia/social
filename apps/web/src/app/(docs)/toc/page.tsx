@@ -6,10 +6,10 @@ import TermsPage from "./client-toc";
 export const metadata: Metadata = {
   alternates: { canonical: "/toc" },
   description:
-    "Terms and conditions for using asocialmedia. Learn about your rights, content ownership, acceptable use guidelines, and community standards on our open source platform.",
+    "Terms and conditions for using asocialmedia. Your rights, content ownership, acceptable use guidelines, community standards, and the licence the software itself ships under.",
   openGraph: {
     description:
-      "Terms and conditions for using asocialmedia. User rights, acceptable use policy, and community guidelines for our open source social platform.",
+      "Your rights, content ownership, acceptable use, and the open source licence asocialmedia ships under.",
     siteName: siteConfig.name,
     title: `Terms and Conditions — ${siteConfig.name}`,
     type: "website",

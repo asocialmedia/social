@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { emailConfig } from "../config";
 import {
   getPasswordResetEmailHtml,
   PasswordResetEmail,
@@ -69,5 +70,33 @@ describe("email templates", () => {
     });
 
     expect(element).toBeDefined();
+  });
+
+  test("verification email closes with the brand line", async () => {
+    const html = await getVerificationEmailHtml("http://localhost:3000/verify");
+
+    expect(html).toContain(emailConfig.brandLine);
+  });
+
+  test("email config makes no aggregator claims", () => {
+    // asocialmedia is not a cross-platform aggregator and never has been. The
+    // old copy claimed it pulled Twitter, Reddit and 4chan into one feed, which
+    // was false and would ship the moment a template rendered `assets.features`.
+    const serialised = JSON.stringify(emailConfig).toLowerCase();
+
+    for (const claim of ["aggregat", "twitter", "reddit", "4chan"]) {
+      expect(serialised).not.toContain(claim);
+    }
+  });
+
+  test("email subjects read as plain English", () => {
+    // The verification subject used to be "🎉 One Last Step to Join the
+    // asocialmedia!", which puts an article in front of a mass noun.
+    expect(emailConfig.templates.verification.subject).toBe(
+      "Verify your email to join asocialmedia"
+    );
+    expect(emailConfig.templates.passwordReset.subject).toBe(
+      "Reset your asocialmedia password"
+    );
   });
 });

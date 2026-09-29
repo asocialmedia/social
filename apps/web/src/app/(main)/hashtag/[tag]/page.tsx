@@ -67,14 +67,23 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   }
 
   const { count } = tag;
-  const title = `#${tag.name} posts`;
-  const description = `${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tag.name} on asocialmedia. Explore the latest eddies and join the conversation.`;
+  const title = `#${tag.name} on ${siteConfig.name}`;
+  // Fleets, not "eddies": an eddie is a comment, a fleet is a post. The old
+  // wording leaked a term that means the opposite of what it described, and
+  // "post" was the only search-relevant noun in the sentence.
+  const description = `Browse ${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tag.name} on asocialmedia, newest first. Read the whole thread as a guest, no account needed.`;
   const url = absoluteUrl(`/hashtag/${encodeURIComponent(tag.name)}`);
 
   return {
     alternates: { canonical: `/hashtag/${encodeURIComponent(tag.name)}` },
     description,
-    keywords: [tag.name, `${tag.name} posts`, `${tag.name} community`],
+    keywords: [
+      `#${tag.name}`,
+      `${tag.name} posts`,
+      `${tag.name} social media`,
+      `${tag.name} community`,
+      `what is ${tag.name}`,
+    ],
     openGraph: {
       description,
       images: [
