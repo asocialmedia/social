@@ -15,6 +15,7 @@ export * from "./src/communities/service";
 export * from "./src/communities/slug";
 export { communityVisibilityWhere } from "./src/communities/visibility";
 export { visibleToUser, unreadMessageWhere } from "./src/messages/visibility";
+export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
 export * from "./src/users/badges";
 export * from "./queue";
 export * from "./src/client";
