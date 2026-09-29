@@ -500,25 +500,51 @@ export async function storageIntegritySweep(): Promise<{
         continue;
       }
       if (!servedAlive && goneKeys.length > 0) {
-        // The served object is gone. Before writing the row off, look for the
-        // one copy a rescan could still promote: the retained quarantine
-        // original. Retiring here would be the destructive, irreversible choice
-        // - quarantine GC deletes originalKey from FAILED rows once retention
-        // passes, so a recoverable loss would harden into losing the last copy.
-        const [originalKey] = retained;
-        const originalProbe = originalKey
-          ? await probeAuthoritative(originalKey)
-          : "absent";
-        if (originalKey) {
-          probed.add(originalKey);
+        // The object the route serves is gone. Before writing the row off, look
+        // for ANY copy of the bytes a rescan could still promote.
+        //
+        // The retained quarantine original is the usual one. The OTHER key
+        // column matters just as much, though: the scan stage writes
+        // publishedKey and then the legacy key in two separate updates, so a row
+        // can lose its published object and still have live bytes filed under
+        // `key` - the pre-pipeline serving object, which is the same original
+        // the scan stage would promote. When retention has already cleared
+        // originalKey, retiring on the served key alone would throw away bytes
+        // that are still on disk, and the row would 404 for as long as the
+        // pointer to them survived.
+        //
+        // Both are only ever used as a SCAN SOURCE. Nothing repoints publishedKey
+        // at an existing object: that object is an unsanitised original, and the
+        // published key is contractually the stripped, watermarked, C2PA-stamped
+        // copy. Re-running the scan is what re-applies those.
+        const alternateKey =
+          servedKey === row.publishedKey && row.key && row.key !== servedKey
+            ? row.key
+            : null;
+        const survivors = dedupeKeys([...retained, alternateKey]);
+        let scanSource: null | string = null;
+        let unprovenSource = false;
+        for (const candidate of survivors) {
+          probed.add(candidate);
+          const probe = await probeAuthoritative(candidate);
+          if (probe === "present") {
+            scanSource = candidate;
+            break;
+          }
+          if (probe === "unknown") {
+            unprovenSource = true;
+          }
         }
-        if (originalProbe === "unknown") {
+        if (unprovenSource && !scanSource) {
           console.error(
-            `Storage-integrity could not read ${originalKey} for ${row.id}; leaving it for the next pass`
+            `Storage-integrity could not read a surviving source for ${row.id}; leaving it for the next pass`
           );
           continue;
         }
-        if (originalProbe === "absent") {
+        if (!scanSource) {
+          // Nothing anywhere still holds the bytes. Retiring is now the honest
+          // answer, and the only irreversible one - quarantine GC deletes
+          // originalKey from FAILED rows once retention passes.
           await prisma.orm.public.PostMedia.where({ id: row.id }).update({
             failureCode: "storage-missing",
             failureDetail: {
@@ -537,18 +563,24 @@ export async function storageIntegritySweep(): Promise<{
         }
         // Republish rather than retire: put the row back in QUARANTINED with no
         // published key, which is exactly the state the scan stage is built to
-        // claim, and hand it to the queue. Clearing publishedKey also takes the
-        // row out of quarantine GC's published-rows branch, so the surviving
-        // original cannot be deleted out from under the recovery. The row
-        // leaves this sweep's candidate set with the reset, so a slow queue
-        // cannot spin the recovery, and derivedHealSweep re-enqueues the scan
-        // if the job is swallowed.
+        // claim, point originalKey at whichever copy survived, and hand it to the
+        // queue. Clearing publishedKey also takes the row out of quarantine
+        // GC's published-rows branch, so the surviving source cannot be deleted
+        // out from under the recovery. The row leaves this sweep's candidate set
+        // with the reset, so a slow queue cannot spin the recovery, and
+        // derivedHealSweep re-enqueues the scan if the job is swallowed.
+        //
+        // Pointing originalKey at a legacy `media/...` object is the same
+        // tolerance legacyMigrationSweep relies on: the scan stage only deletes
+        // originalKey on rejection when it sits under quarantine/, so a live
+        // serving object is never reaped by a failed rescan.
         const reset = await prisma.orm.public.PostMedia.where({
           id: row.id,
         }).updateAndCount({
           failureCode: null,
           failureDetail: null,
           key: "",
+          originalKey: scanSource,
           publishedKey: null,
           status: "QUARANTINED",
         });
@@ -558,8 +590,8 @@ export async function storageIntegritySweep(): Promise<{
           });
           republished += 1;
           mediaLogger.warn(
-            { gone: goneKeys.join(", "), mediaId: row.id, originalKey },
-            "storage-integrity requeued row to republish from its quarantine original"
+            { gone: goneKeys.join(", "), mediaId: row.id, scanSource },
+            "storage-integrity requeued row to republish from a surviving source"
           );
         }
         continue;
@@ -741,9 +773,13 @@ async function probeAuthoritative(key: string): Promise<ObjectProbe> {
     return first;
   }
   await Bun.sleep(500);
-  const second = await probeObject(key);
-  // The retry answering means the first was a blip, so the bytes are there.
-  return second === "absent" ? "absent" : "present";
+  // The retry's verdict is the one that counts, INCLUDING when the retry cannot
+  // reach storage. "unknown" has to stay unknown: reporting a transport fault as
+  // "present" would certify an object this process never actually read, and the
+  // sweep would then count the row as verified on the strength of a guess. A
+  // first miss plus an unreadable retry is unproven, and unproven never mutates
+  // a row - it just leaves it for the next pass.
+  return await probeObject(key);
 }
 
 // The key columns overlap: a pipeline row dual-writes the same object into

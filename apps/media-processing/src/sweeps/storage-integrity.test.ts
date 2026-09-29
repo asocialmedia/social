@@ -51,7 +51,9 @@ interface SharedState {
   replaceWith: null | string;
   rows: SweepRow[];
   scanned: EnqueueCall[];
-  sequences: Record<string, boolean[]>;
+  // Per-probe scripted answers for a key: true = present, false = absent,
+  // "unknown" = the storage fault that must never be read as "present".
+  sequences: Record<string, ProbeSequence[]>;
   throwOn: null | string;
   updates: UpdateCall[];
   wheres: Record<string, unknown>[];
@@ -83,6 +85,8 @@ function seed(): SharedState {
   (globalThis as unknown as Record<string, unknown>).__si_state = next;
   return next;
 }
+
+type ProbeSequence = boolean | "unknown";
 
 type QueryFilter =
   | { field: string; op: string; value: unknown }
@@ -329,7 +333,11 @@ mock.module("../s3", () => ({
         }
         const sequence = current.sequences[key];
         if (sequence && sequence.length > 0) {
-          return (sequence.shift() as boolean)
+          const answer = sequence.shift() as ProbeSequence;
+          if (answer === "unknown") {
+            return Promise.reject(unreachableError());
+          }
+          return answer
             ? Promise.resolve({ size: 1 })
             : Promise.reject(missingKeyError());
         }
@@ -565,6 +573,10 @@ describe("storage-integrity sweep", () => {
           failureCode: null,
           failureDetail: null,
           key: "",
+          // The scan stage reads originalKey, so the surviving copy is named
+          // there whether it was already filed there or arrived under the legacy
+          // key column.
+          originalKey: "quarantine/m1/upload",
           publishedKey: null,
           status: "QUARANTINED",
         },
@@ -575,6 +587,85 @@ describe("storage-integrity sweep", () => {
     // Never retired: retirement is what let GC delete the last copy.
     expect(current.updates[0]?.data.failureCode).toBeNull();
     expect(current.enqueued).toEqual([]);
+  });
+
+  test("a surviving legacy key republishes after retention has cleared the original", async () => {
+    const current = state();
+    // The worst shape: the object the route serves is gone, retention already
+    // cleared originalKey, and the only bytes left on disk are the pre-pipeline
+    // object the legacy key column still points at. Retiring here would discard
+    // a copy that is still there, and the row would 404 for as long as the
+    // pointer to those bytes survives.
+    current.rows = [row("m1", { key: "m1/legacy", originalKey: null })];
+    current.present = new Set(["m1/legacy"]);
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0, republished: 1 });
+    expect(current.scanned).toHaveLength(1);
+    // The scan stage reads originalKey, so that is where the surviving copy has
+    // to be named - the row cannot be republished from `key` as it stands.
+    expect(current.updates).toEqual([
+      {
+        data: {
+          failureCode: null,
+          failureDetail: null,
+          key: "",
+          originalKey: "m1/legacy",
+          publishedKey: null,
+          status: "QUARANTINED",
+        },
+        id: "m1",
+        kind: "updateAndCount",
+      },
+    ]);
+    expect(current.updates[0]?.data.status).not.toBe("FAILED");
+  });
+
+  test("retires only when no copy of the bytes survives anywhere", async () => {
+    const current = state();
+    // Same shape, but the legacy object is gone too, so there is genuinely
+    // nothing left to promote.
+    current.rows = [row("m1", { key: "m1/legacy", originalKey: null })];
+    current.present = new Set<string>();
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0, retired: 1 });
+    expect(current.scanned).toEqual([]);
+    expect(current.updates[0]?.data.status).toBe("FAILED");
+  });
+
+  test("a confirming probe that cannot reach storage leaves the row unproven", async () => {
+    const current = state();
+    current.rows = [row("m1", { customThumbnailKey: "cover/source.jpg" })];
+    current.present = new Set(["m1/published"]);
+    // The first HEAD says gone; the confirming one hits a storage fault. The
+    // verdict is UNKNOWN, not "present" - reporting a transport error as a hit
+    // would certify an object this process never read, and the row would be
+    // counted as verified with a cover still broken.
+    current.sequences = { "cover/source.jpg": [false, "unknown"] };
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0 });
+    // Nothing is cleared, and nothing is claimed to be healthy.
+    expect(current.updates).toEqual([]);
+  });
+
+  test("a confirming probe that cannot reach storage never retires a source", async () => {
+    const current = state();
+    // The same conflation on the source path: absent, then unreadable. That is
+    // unproven, not a hit, so the row must not be certified nor written off.
+    current.rows = [row("m1", { originalKey: null })];
+    current.sequences = { "m1/published": [false, "unknown"] };
+    current.present = new Set<string>();
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0 });
+    expect(current.updates).toEqual([]);
+    expect(current.scanned).toEqual([]);
   });
 
   test("a republish never runs when the quarantine original is also gone", async () => {
