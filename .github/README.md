@@ -37,9 +37,7 @@
 </div>
 <br>
 
-No version is written into this file on purpose. The download link above always
-resolves to the newest release, and the releases page is the only place the
-version number lives, so there is nothing here to go stale.
+No version is written into this file on purpose. The download link above always resolves to the newest release, and the releases page is the only place the version number lives, so there is nothing here to go stale.
 
 ### _<div align="center"><sub>About</sub></div>_
 
