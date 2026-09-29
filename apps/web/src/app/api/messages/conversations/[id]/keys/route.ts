@@ -110,32 +110,36 @@ export async function POST(
     (row): row is NonNullable<typeof row> =>
       row !== null && !existingPairs.has(`${row.ownerUserId}:${row.version}`)
   );
-  const results = await Promise.all(
+  await Promise.all(
     pending.map(async (row) => {
       try {
         await prisma.orm.public.MessageConversationKeys.create(row);
-        return true;
       } catch (error) {
         // A concurrent retry inserting the same (owner, version) pair loses the
         // unique index; that is the same no-op, not a failure.
-        if (isUniqueConstraintViolation(error)) {
-          return false;
+        if (!isUniqueConstraintViolation(error)) {
+          throw error;
         }
-        throw error;
       }
     })
   );
-  const written = results.filter(Boolean).length;
 
   // Tell the peer's open threads to refetch the conversation detail. A new
-  // epoch means their cached wraps are stale and every new message would fail
-  // to decrypt until a reload. Only announce when rows were actually written:
-  // an idempotent re-run has nothing new for the peer to pick up. Publishing is
-  // best-effort (the peer's retry-on-error path still heals without it), so a
-  // pub/sub failure must not fail the key write.
-  if (written > 0) {
-    await publishMessageKeysRotated(id, user.id);
-  }
+  // epoch means their cached wraps are stale and every new message fails to
+  // decrypt until they reload.
+  //
+  // Announce on every accepted write, including one that inserted nothing.
+  // Gating on `written > 0` looks like it drops no-op noise, but it loses a real
+  // case: the wraps are stored, the publish fails, and the client retries. The
+  // retry inserts nothing, so the gate suppresses the announcement the first
+  // attempt already failed to deliver, and the peer is never told at all. The
+  // peer's own fallback refetches on a decrypt failure, but only once per key
+  // signature, so a failed refetch leaves an open thread unable to decrypt
+  // until something else refreshes it. A duplicate announcement costs the peer
+  // one refetch; a missed one costs them the conversation.
+  //
+  // Publishing stays best-effort, so a pub/sub failure must not fail the write.
+  await publishMessageKeysRotated(id, user.id);
 
   return Response.json({ ok: true });
 }

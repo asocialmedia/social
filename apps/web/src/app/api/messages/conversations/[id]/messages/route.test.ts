@@ -39,6 +39,9 @@ const mockConsumeRateLimit = mock(() =>
 );
 const mockTransaction = mock((fn: (tx: unknown) => unknown) => fn(txClient));
 
+// The peer's membership row, so a test can mark the chat muted on their side.
+let peerMutedAt: Date | null = null;
+
 // What the composed Prisma 8 read resolved to, so assertions can inspect the
 // where/orderBy/limit the route actually built instead of Prisma 7 call args.
 interface RecordedQuery {
@@ -159,7 +162,10 @@ mock.module("@/lib/messages/server", () => ({
     conversationId === "convo-1" && userId === "user1"
       ? {
           id: "convo-1",
-          members: [{ userId: "user1" }, { userId: "user2" }],
+          members: [
+            { userId: "user1" },
+            { mutedAt: peerMutedAt, userId: "user2" },
+          ],
         }
       : null,
   messageSenderSelect: () => ({ sender: true }),
@@ -232,6 +238,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     mockPublishCreated.mockClear();
     mockNextRatchetIndex.mockClear();
     mockKeyUpdateAndCount.mockClear();
+    peerMutedAt = null;
     mockConversationUpdate.mockClear();
     mockTransaction.mockClear();
     mockGetSession.mockClear();
@@ -256,6 +263,26 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       params: Promise.resolve({ id: "convo-1" }),
     });
     expect(res.status).toBe(401);
+  });
+
+  test("does not accrue unread for a peer who muted the chat", async () => {
+    // A mute exists so the badge stays off, and the unread seed excludes muted
+    // memberships, so incrementing here would grow a counter the seed would
+    // never justify.
+    peerMutedAt = new Date("2026-01-01T00:00:00.000Z");
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockIncrement).not.toHaveBeenCalled();
+  });
+
+  test("still accrues unread for a peer who has not muted", async () => {
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockIncrement).toHaveBeenCalledWith("user2");
   });
 
   test("rejects invalid ciphertext payloads", async () => {

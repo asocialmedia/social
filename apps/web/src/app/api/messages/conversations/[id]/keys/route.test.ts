@@ -162,13 +162,18 @@ describe("POST /api/messages/conversations/:id/keys", () => {
     expect(mockPublishKeysRotated).toHaveBeenCalledWith("convo-1", "user1");
   });
 
-  test("stays silent when the write was an idempotent no-op", async () => {
-    // An already-present (owner, version) wrap is filtered out before the
-    // write, so nothing new lands and no event is published.
+  test("announces even when the write was an idempotent no-op", async () => {
+    // A retry after a failed publish inserts nothing, because the wraps are
+    // already there. Staying silent there loses the announcement the first
+    // attempt already failed to deliver, and the peer only refetches its wraps
+    // once per key signature, so a failed refetch leaves the thread unable to
+    // decrypt until something else refreshes it. The duplicate announcement
+    // costs the peer one refetch; a missed one costs them the conversation.
     maxVersion = 1;
     existingWraps = [{ ownerUserId: "user1", version: 2 }];
     const res = await post(keyBody(2));
     expect(res.status).toBe(200);
-    expect(mockPublishKeysRotated).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockPublishKeysRotated).toHaveBeenCalledWith("convo-1", "user1");
   });
 });

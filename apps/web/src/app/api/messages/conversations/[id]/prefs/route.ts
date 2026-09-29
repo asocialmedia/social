@@ -1,4 +1,10 @@
-import { and, fromPrismaDateTime, prisma, toPrismaDateTime } from "@asm/db";
+import {
+  and,
+  fromPrismaDateTime,
+  prisma,
+  toPrismaDateTime,
+  unreadMessageCache,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { isConversationThemeKey } from "@/lib/messages/conversation-theme";
@@ -95,6 +101,17 @@ export async function PATCH(
   // means the row was removed between the check and this write.
   if (!member) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  // Mute changes what the unread seed is allowed to count, so the cached
+  // counter is now wrong in both directions: muting has to drop the badge for
+  // messages already counted, and unmuting has to bring it back. The counter
+  // carries no TTL and is only rebuilt when absent, so resetting is the only
+  // thing that forces the next read to reseed from the database. Best-effort:
+  // the preference is already durable and a failed reset just delays the
+  // correction to the next read.
+  if (hasMuted) {
+    await unreadMessageCache.reset(user.id);
   }
 
   return Response.json({

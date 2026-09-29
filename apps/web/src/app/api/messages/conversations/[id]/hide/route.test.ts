@@ -12,6 +12,9 @@ const mockCreateAndCount = mock((_rows: unknown) => 0);
 let lastMessageQueryIds: string[] = [];
 let _lastHiddenQueryIds: string[] = [];
 const mockDecrement = mock((_userId: string, _count: number) => 0);
+// Set to make the next insert lose a race, the way it would if a concurrent
+// request had already inserted the same (messageId, userId) pair.
+let loseNextInsert = false;
 
 const READ_AT = new Date("2026-01-01T00:00:00.000Z");
 
@@ -47,6 +50,18 @@ mock.module("@asm/db", () => ({
     orm: {
       public: {
         MessageHiddens: {
+          // The route inserts one row at a time so it can tell which inserts
+          // actually won, and credits the badge from those alone.
+          create: (row: { messageId: string; userId: string }) => {
+            if (loseNextInsert) {
+              loseNextInsert = false;
+              throw Object.assign(new Error("duplicate key"), {
+                code: "23505",
+              });
+            }
+            mockCreateAndCount([row]);
+            return row;
+          },
           createAndCount: (rows: { messageId: string; userId: string }[]) =>
             mockCreateAndCount(rows),
           select: () => ({
@@ -267,6 +282,29 @@ describe("POST /api/messages/conversations/:id/hide", () => {
     expect(await res.json()).toEqual({ hidden: 1 });
     expect(mockCreateAndCount).toHaveBeenCalledTimes(1);
     expect(mockDecrement).toHaveBeenCalledWith("user1", 1);
+  });
+
+  test("does not double-credit when a concurrent hide wins the insert", async () => {
+    // Two requests hide the same unread message. Both read the already-hidden
+    // set before either writes, so both classify it as newly hidden, but the
+    // composite primary key lets only one insert through. The badge credit has
+    // to follow the insert, not the intent, or the counter drops below the real
+    // unread count.
+    mockMessageRows.mockReturnValueOnce([
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m1",
+        senderId: "user2",
+      },
+    ]);
+    loseNextInsert = true;
+    const res = await POST(hideRequest({ messageIds: ["m1"] }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ hidden: 0 });
+    // The message is hidden, but this request did not hide it, so it must not
+    // claim the badge credit.
+    expect(mockDecrement).not.toHaveBeenCalled();
   });
 
   test("keeps the hide successful when the badge credit fails", async () => {

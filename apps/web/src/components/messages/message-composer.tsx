@@ -374,7 +374,16 @@ export function MessageComposer({
           // the conversation link and 404 the image for the peer for good.
           const claimed = claimAttachments(group.attachmentIds);
           // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
-          const ok = await sendPayload(payload);
+          const ok = await sendPayload(payload).catch((error: unknown) => {
+            // A throw means the request never landed, so these rows still back
+            // no message. They have to be re-staged exactly like the `!ok` path
+            // below: `claimAttachments` detached them from the tracked set, so
+            // without this the tiles are orphaned and the conversation-linked
+            // rows are left with neither a message nor the tile-driven discard
+            // that would eventually reclaim them.
+            restoreAttachments(claimed);
+            throw error;
+          });
           if (!ok) {
             // Nothing referenced these rows, so re-stage them: the sender can
             // retry, and they stay reclaimable if they leave the thread.

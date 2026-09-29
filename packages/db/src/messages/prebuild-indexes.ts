@@ -138,3 +138,35 @@ export async function prebuildDmIndexes(
   }
   return { built, present };
 }
+
+// Runnable directly so the schema-sync image can bundle this file on its own:
+// it imports nothing but `pg`, which that image already depends on, and it does
+// not need the rest of @asm/db. Locally it is reached through
+// `bun run db:prebuild-dm-indexes`, which supplies the env file.
+async function main(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required.");
+  }
+  process.stdout.write(
+    "Pre-building DM indexes with CREATE INDEX CONCURRENTLY\n"
+  );
+  const { built, present } = await prebuildDmIndexes(databaseUrl, {
+    onLog: (message) => process.stdout.write(`${message}\n`),
+  });
+  for (const name of present) {
+    process.stdout.write(`  present  ${name}\n`);
+  }
+  process.stdout.write(
+    built.length === 0
+      ? "Nothing to build; every index already exists.\n"
+      : `Built ${built.length} index(es). The DM migration will now skip them.\n`
+  );
+}
+
+if (import.meta.main) {
+  await main().catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

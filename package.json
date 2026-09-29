@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.7.60",
+  "version": "1.7.61",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -16,7 +16,7 @@
     "db:gen": "bun run --cwd packages/db prisma skills sync && bun run --cwd packages/db prisma contract emit",
     "db:up": "bun run db:gen && bun run --cwd packages/db --env-file=../../.env.test prisma db update",
     "db:migrate": "bun run --filter=@asm/db db:migrate",
-    "db:prebuild-dm-indexes": "bun scripts/maintenance/prebuild-dm-indexes.ts",
+    "db:prebuild-dm-indexes": "bun run --cwd packages/db --env-file=../../.env.test src/messages/prebuild-indexes.ts",
     "dep:check": "bunx sherif -f",
     "predev": "bun scripts/development/dev-preflight.ts",
     "dev": "turbo dev",

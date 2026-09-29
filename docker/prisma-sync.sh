@@ -29,6 +29,16 @@ if ! bunx prisma db sign --no-advance-ref; then
   bunx prisma db sign --contract 095080b42c0e4a508cceacaabdb5fbcf86fe474ec8c63318070ecc8eadf375de --no-advance-ref
 fi
 
+# Build the DM indexes before the migration, so its createIndex operations find
+# them already present and skip. One `db migrate` run is a single transaction and
+# Postgres refuses CREATE INDEX CONCURRENTLY inside one, so without this the
+# migration blocks message writes for the length of the build. The operations
+# carry a to_regclass precheck, so this is idempotent and a no-op on a database
+# that already has them. Best-effort: if it cannot run, the migration still
+# applies, just while holding the lock.
+bun /app/prebuild-dm-indexes.js || \
+  echo "WARNING: index prebuild failed; the migration will build them under a write lock" >&2
+
 bunx prisma db migrate --show
 bunx prisma db migrate --advance-ref db
 bunx prisma db verify

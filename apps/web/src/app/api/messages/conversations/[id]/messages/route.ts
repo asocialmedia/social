@@ -448,9 +448,12 @@ export async function POST(
   }
 
   // The sender always reads their own messages; only the peer accrues unread.
+  // A peer who muted this chat does not: the mute exists precisely so the
+  // badge stays off, and the unread seed excludes muted memberships, so
+  // incrementing here would grow a counter the seed would never justify.
   // Both Redis side effects are best-effort: once the message is committed,
   // a notification failure must not turn a successful send into an error.
-  if (otherMember) {
+  if (otherMember && !otherMember.mutedAt) {
     try {
       await unreadMessageCache.increment(otherMember.userId);
     } catch (error) {
