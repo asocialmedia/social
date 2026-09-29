@@ -38,16 +38,22 @@ import {
 } from "@/theme";
 
 import { fetchSupportPolicy } from "../lib/support-api";
-import { evaluateSupport, parseVersion } from "../lib/support-policy";
+import {
+  evaluateSupport,
+  nextSupportState,
+  parseVersion,
+} from "../lib/support-policy";
+import type { SupportCheck, SupportGateState } from "../lib/support-policy";
 
 // Dev builds are always current by definition: they are the source the next
 // release is cut from, and blocking one on a stale floor would stop a developer
 // dead. Only a shipped binary can be out of support.
 const SUPPORT_CHECK_ENABLED = !__DEV__;
 
-type GateState =
-  | { status: "current" }
-  | { currentVersion: string | null; status: "unsupported" };
+// The verdict shape and its one transition rule live in ../lib/support-policy,
+// as pure functions: "an inconclusive check never moves the verdict" is the
+// whole safety argument of this gate, and it has to be testable without a
+// renderer.
 
 function currentBuildVersion(): string | null {
   return (
@@ -73,33 +79,48 @@ function updateUrl(): string {
 
 export function SupportGate() {
   const { isDark, theme } = useAppTheme();
-  const [state, setState] = useState<GateState>({ status: "current" });
+  const [state, setState] = useState<SupportGateState>({ status: "current" });
+  // Only ever read while the gate is open, to explain why "Check again" appears
+  // to do nothing. It can never be what blocks a build on its own.
+  const [unreachable, setUnreachable] = useState(false);
 
   // Note: callers set a state before invoking; this body never synchronously
   // sets state on the mount-effect path.
+  //
+  // An INCONCLUSIVE check must never move the verdict; only a completed one
+  // may. That matters most on the retry path. The server has already said this
+  // build is unsupported, and a "Check again" that cannot reach the server - or
+  // gets a body it cannot read - says nothing about whether that is still true.
+  // Treating that silence as an answer used to let the one build we know is
+  // retired walk straight back in, which defeats the entire gate. So a failed
+  // check returns without touching the state at all, which leaves the gate
+  // exactly as it was: closed if this build was never retired, open if it was.
   const checkSupport = useCallback(async () => {
+    let check: SupportCheck;
     try {
-      const policy = await fetchSupportPolicy({ apiBase: getApiBaseUrl() });
-      const version = currentBuildVersion();
-      const verdict = evaluateSupport(version, policy);
-      logInfo("support.check", {
-        build: version ?? "unknown",
-        floor: policy.minimumSupported ?? "none",
-        verdict,
-      });
-      if (verdict !== "unsupported") {
-        setState({ status: "current" });
-        return;
-      }
-      setState({ currentVersion: version, status: "unsupported" });
+      check = await fetchSupportPolicy({ apiBase: getApiBaseUrl() });
     } catch (error) {
-      // Offline or a bad gateway: log and let the user in. A confirmed
-      // retirement always blocks; an unknown state never does.
       logWarn("support.check_failed", {
         reason: error instanceof Error ? error.message : String(error),
       });
-      setState({ status: "current" });
+      setUnreachable(true);
+      return;
     }
+    if (!check.ok) {
+      logWarn("support.check_unreachable", {});
+      setUnreachable(true);
+      return;
+    }
+    setUnreachable(false);
+    const version = currentBuildVersion();
+    logInfo("support.check", {
+      build: version ?? "unknown",
+      floor: check.policy.minimumSupported ?? "none",
+      verdict: evaluateSupport(version, check.policy),
+    });
+    // nextSupportState leaves the state untouched when the check did not
+    // complete, so a failed retry cannot close a gate the server already put up.
+    setState((previous) => nextSupportState(previous, check, version));
   }, []);
 
   useEffect(() => {
@@ -171,6 +192,13 @@ export function SupportGate() {
               void openUpdate();
             }}
           />
+          {/* Only after a retry that could not reach the server, so the tap does
+              not look broken. The gate deliberately stays open either way. */}
+          {unreachable ? (
+            <Text style={[styles.unreachable, { color: theme.dividerText }]}>
+              Couldn&apos;t reach the server. This version is still unsupported.
+            </Text>
+          ) : null}
           <Pressable
             hitSlop={6}
             onPress={() => {
@@ -231,6 +259,12 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: "SofiaProBold",
     fontSize: 22,
+    fontWeight: "normal",
+    textAlign: "center",
+  },
+  unreachable: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
     fontWeight: "normal",
     textAlign: "center",
   },

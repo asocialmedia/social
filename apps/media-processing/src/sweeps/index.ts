@@ -461,16 +461,18 @@ export async function storageIntegritySweep(): Promise<{
   let republished = 0;
   let retired = 0;
   for (const row of candidates) {
-    // Every copy that could still hold the source bytes, split by what losing
-    // it means. served: the object the row streams today (publishedKey, plus
-    // the legacy key column that mirrors the same object). original: the
-    // retained quarantine copy of the exact upload, which outlives the served
-    // one until retention expires and is the ONLY thing a rescan can read.
-    // Losing the served copy is survivable while the original lives; losing
-    // both is not, so the two are never collapsed into one fallback chain.
-    const served = dedupeKeys([row.publishedKey, row.key]);
+    // The object the read route will actually stream is `publishedKey || key`
+    // (resolveObjectKey in apps/web/src/app/api/media/[mediaId]/route.ts), so
+    // THAT is what has to be present - not "some copy of the row is". The two
+    // columns are not interchangeable: the scan stage writes publishedKey and
+    // then the legacy key in two separate updates, so a row can carry a live
+    // legacy object under `key` and nothing usable under `publishedKey` (or the
+    // reverse). Probing the pair as alternatives would call such a row healthy
+    // while every request 404s on the key the route prefers, and would skip the
+    // republish the surviving quarantine original could still do.
+    const servedKey = row.publishedKey || row.key || "";
     const retained = dedupeKeys([row.originalKey]);
-    if (served.length === 0 && retained.length === 0) {
+    if (!servedKey && retained.length === 0) {
       continue;
     }
     try {
@@ -478,17 +480,15 @@ export async function storageIntegritySweep(): Promise<{
       let servedAlive = false;
       let unproven = false;
       const goneKeys: string[] = [];
-      for (const key of served) {
-        probed.add(key);
-        const probe = await probeAuthoritative(key);
+      if (servedKey) {
+        probed.add(servedKey);
+        const probe = await probeAuthoritative(servedKey);
         if (probe === "present") {
           servedAlive = true;
-          break;
-        }
-        if (probe === "unknown") {
+        } else if (probe === "unknown") {
           unproven = true;
         } else {
-          goneKeys.push(key);
+          goneKeys.push(servedKey);
         }
       }
       if (unproven && !servedAlive) {
@@ -620,6 +620,15 @@ export async function storageIntegritySweep(): Promise<{
       // burn a full transcode every cycle and count as healed while the URL kept
       // 404ing. Clearing the pointer is the same fallback the author gets when
       // they detach the cover, and the read route then serves the poster.
+      //
+      // This is a destructive edit to a user's choice, so it gets both
+      // safeguards the source deletion has. The probe is confirmed, because one
+      // NoSuchKey is exactly as likely to be a storage hiccup here as it is for
+      // the source, and a transient answer must not cost the author their cover.
+      // And the write is conditional on the key still being the one that was
+      // probed: between reading this row and writing, the author may have
+      // attached a NEW cover, and clearing by id alone would throw that away
+      // because the OLD one is the one that went missing.
       const droppedCustomThumbnail = row.customThumbnailKey;
       if (
         droppedCustomThumbnail &&
@@ -627,19 +636,31 @@ export async function storageIntegritySweep(): Promise<{
         !undeterminable
       ) {
         probed.add(droppedCustomThumbnail);
-        const probe = await probeObject(droppedCustomThumbnail);
+        const probe = await probeAuthoritative(droppedCustomThumbnail);
         if (probe === "unknown") {
           undeterminable = true;
         } else if (probe === "absent") {
           missing.push(`thumb:${droppedCustomThumbnail}`);
-          await prisma.orm.public.PostMedia.where({ id: row.id }).update({
-            customThumbnailKey: null,
-          });
-          repointed += 1;
-          mediaLogger.warn(
-            { key: droppedCustomThumbnail, mediaId: row.id },
-            "storage-integrity cleared an unrecoverable custom thumbnail so serving falls back to the poster"
-          );
+          const cleared = await prisma.orm.public.PostMedia.where((media) =>
+            and(
+              media.id.eq(row.id),
+              media.customThumbnailKey.eq(droppedCustomThumbnail)
+            )
+          ).updateAndCount({ customThumbnailKey: null });
+          if (cleared > 0) {
+            repointed += 1;
+            mediaLogger.warn(
+              { key: droppedCustomThumbnail, mediaId: row.id },
+              "storage-integrity cleared an unrecoverable custom thumbnail so serving falls back to the poster"
+            );
+          } else {
+            // The author replaced the cover while this row was being verified.
+            // Their new choice is not the one that went missing, so it stands.
+            mediaLogger.info(
+              { key: droppedCustomThumbnail, mediaId: row.id },
+              "custom thumbnail was replaced mid-sweep; leaving the new cover alone"
+            );
+          }
         }
       }
 

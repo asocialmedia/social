@@ -12,6 +12,44 @@ export interface SupportPolicy {
   minimumSupported: string | null;
 }
 
+// A completed check and a failed one are different answers, and the caller has
+// to be able to tell them apart. A null floor inside a COMPLETED check is a real
+// answer - "the server supports every build" - that is allowed to lift a gate. A
+// failed check is not an answer at all, and must never be read as the first.
+export type SupportCheck = { ok: true; policy: SupportPolicy } | { ok: false };
+
+// Whether the gate is blocking, and on which build.
+export type SupportGateState =
+  | { status: "current" }
+  | { currentVersion: string | null; status: "unsupported" };
+
+/**
+ * The gate's state transition, as one pure function so the rule that matters is
+ * testable on its own.
+ *
+ * A COMPLETED check may do anything: retire the build, or lift a gate the
+ * server has since stopped supporting (a floor that was lowered, a rollback).
+ * An INCONCLUSIVE check may do nothing at all - not on the launch path, where
+ * silence means "not proven broken", and above all not on the retry path, where
+ * the server has already said this build is retired and a request that could
+ * not reach it says nothing about whether that is still true. Reading silence
+ * as an answer there would let the one build we know is unsupported walk
+ * straight back in, which defeats the entire gate.
+ */
+export function nextSupportState(
+  previous: SupportGateState,
+  check: SupportCheck,
+  currentVersion: string | null
+): SupportGateState {
+  if (!check.ok) {
+    return previous;
+  }
+  if (evaluateSupport(currentVersion, check.policy) === "unsupported") {
+    return { currentVersion, status: "unsupported" };
+  }
+  return { status: "current" };
+}
+
 export type SupportVerdict =
   // A floor is configured and this build is older than it.
   | "unsupported"

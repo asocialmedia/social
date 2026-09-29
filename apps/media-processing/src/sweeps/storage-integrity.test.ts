@@ -44,6 +44,11 @@ interface SharedState {
   present: Set<string>;
   probes: string[];
   queries: number;
+  // Key that, once probed, swaps the row's customThumbnailKey for the value
+  // below - standing in for the author attaching a NEW cover after the sweep
+  // read the row but before it writes. The sweep must not erase that one.
+  replaceAfterProbe: null | string;
+  replaceWith: null | string;
   rows: SweepRow[];
   scanned: EnqueueCall[];
   sequences: Record<string, boolean[]>;
@@ -66,6 +71,8 @@ function seed(): SharedState {
     present: new Set<string>(),
     probes: [],
     queries: 0,
+    replaceAfterProbe: null,
+    replaceWith: null,
     rows: [],
     scanned: [],
     sequences: {},
@@ -137,6 +144,19 @@ function flattenFilter(filter: QueryFilter): Record<string, unknown> {
     return { [filter.field]: filter.value };
   }
   return filter;
+}
+
+// A flattened where is a set of column/value pairs the row must still equal.
+// Every field here is a plain column on SweepRow, so equality is the whole
+// matcher.
+function matchesFilter(
+  candidate: SweepRow,
+  matchers: Record<string, unknown>
+): boolean {
+  return Object.entries(matchers).every(([field, value]) => {
+    const actual = (candidate as unknown as Record<string, unknown>)[field];
+    return actual === value;
+  });
 }
 
 function candidateQuery() {
@@ -222,12 +242,33 @@ mock.module("@asm/db", () => ({
       public: {
         PostMedia: {
           select: () => candidateQuery(),
-          where: (filter: { id: string }) => {
+          where: (filter: unknown) => {
+            // The filter can be a plain object (id only) or a predicate the
+            // query builder evaluates. Both are flattened to one shape, because
+            // a predicate is how the sweep makes a destructive write
+            // CONDITIONAL - clearing a custom thumbnail only while the row still
+            // holds the key that was probed.
+            const matchers = flattenFilter(evaluateFilter(filter));
             const write =
               (data: Record<string, unknown>) =>
               (kind: UpdateCall["kind"]) =>
               () => {
-                state().updates.push({ data, id: filter.id, kind });
+                const current = state();
+                const matches = current.rows.some((candidate) =>
+                  matchesFilter(candidate, matchers)
+                );
+                if (!matches) {
+                  // A conditional write that no longer matches writes nothing,
+                  // which is exactly what makes it safe.
+                  return Promise.resolve(
+                    kind === "updateAndCount" ? 0 : { count: 0 }
+                  );
+                }
+                current.updates.push({
+                  data,
+                  id: String(matchers.id ?? ""),
+                  kind,
+                });
                 // updateAndCount resolves the matched row count, not the row.
                 return Promise.resolve(
                   kind === "updateAndCount" ? 1 : { count: 1 }
@@ -273,6 +314,16 @@ mock.module("../s3", () => ({
       stat: () => {
         const current = state();
         current.probes.push(key);
+        // The author attaches a different cover the moment the sweep looks at
+        // the old one: the row the sweep holds is now stale.
+        if (current.replaceAfterProbe === key && current.replaceWith) {
+          current.replaceAfterProbe = null;
+          for (const candidate of current.rows) {
+            if (candidate.customThumbnailKey === key) {
+              candidate.customThumbnailKey = current.replaceWith;
+            }
+          }
+        }
         if (current.throwOn === key) {
           return Promise.reject(unreachableError());
         }
@@ -389,9 +440,67 @@ describe("storage-integrity sweep", () => {
     // author gets on detach: the read route serves the pipeline poster.
     expect(result).toEqual({ ...CLEAN, repointed: 1 });
     expect(current.enqueued).toEqual([]);
+    // Conditional on the probed key, so it cannot fire against a cover the
+    // author has since replaced.
     expect(current.updates).toEqual([
-      { data: { customThumbnailKey: null }, id: "m1", kind: "update" },
+      {
+        data: { customThumbnailKey: null },
+        id: "m1",
+        kind: "updateAndCount",
+      },
     ]);
+  });
+
+  test("a transient miss never takes the author's cover away", async () => {
+    const current = state();
+    current.rows = [row("m1", { customThumbnailKey: "cover/source.jpg" })];
+    current.present = new Set(["m1/published"]);
+    // The first HEAD says gone, the confirming one says present. A single
+    // NoSuchKey is as likely to be a storage hiccup for the cover as it is for
+    // the source, and clearing on it would cost the user their choice.
+    current.sequences = { "cover/source.jpg": [false, true] };
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual(CLEAN);
+    expect(current.updates).toEqual([]);
+    expect(
+      current.probes.filter((key) => key === "cover/source.jpg")
+    ).toHaveLength(2);
+  });
+
+  test("a cover replaced mid-sweep is left alone", async () => {
+    const current = state();
+    current.rows = [row("m1", { customThumbnailKey: "cover/source.jpg" })];
+    current.present = new Set(["m1/published"]);
+    // The author attaches a new cover while the sweep is verifying the old one.
+    current.replaceAfterProbe = "cover/source.jpg";
+    current.replaceWith = "cover/new.jpg";
+
+    const result = await storageIntegritySweep();
+
+    // Nothing is cleared: the key that went missing is not the one the row
+    // holds any more, so their new choice is not ours to drop.
+    expect(result).toEqual(CLEAN);
+    expect(current.updates).toEqual([]);
+    expect(current.rows[0]?.customThumbnailKey).toBe("cover/new.jpg");
+  });
+
+  test("a lost published key republishes even when a legacy key survives", async () => {
+    const current = state();
+    // The scan writes publishedKey and the legacy key in two separate updates,
+    // so a row can hold a live legacy object under `key` and nothing under
+    // `publishedKey`. The read route resolves `publishedKey || key`, so it
+    // keeps requesting the missing one - this row is broken even though a copy
+    // is sitting right there, and treating the pair as interchangeable would
+    // call it healthy and skip the republish.
+    current.rows = [row("m1", { originalKey: "quarantine/m1/upload" })];
+    current.present = new Set(["m1/original", "quarantine/m1/upload"]);
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0, republished: 1 });
+    expect(current.scanned).toHaveLength(1);
   });
 
   test("a custom thumbnail that is still present is left alone", async () => {

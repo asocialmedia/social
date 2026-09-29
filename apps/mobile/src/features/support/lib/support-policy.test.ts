@@ -3,8 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   compareVersions,
   evaluateSupport,
+  nextSupportState,
   parseVersion,
 } from "./support-policy";
+import type { SupportGateState } from "./support-policy";
 
 describe("parseVersion", () => {
   test("accepts a strict semver", () => {
@@ -67,5 +69,67 @@ describe("evaluateSupport", () => {
     expect(evaluateSupport(null, { minimumSupported: "1.0.0" })).toBe(
       "unknown-version"
     );
+  });
+});
+
+describe("nextSupportState", () => {
+  const CLOSED: SupportGateState = { status: "current" };
+  const BLOCKED: SupportGateState = {
+    currentVersion: "0.1.20",
+    status: "unsupported",
+  };
+
+  test("a completed check below the floor blocks the build", () => {
+    expect(
+      nextSupportState(
+        CLOSED,
+        { ok: true, policy: { minimumSupported: "0.1.21" } },
+        "0.1.20"
+      )
+    ).toEqual(BLOCKED);
+  });
+
+  test("a completed check at or above the floor closes the gate", () => {
+    // Including a server with no floor at all - a rollback. That is a real
+    // answer from a server we reached, so it is allowed to lift a gate.
+    expect(
+      nextSupportState(
+        BLOCKED,
+        { ok: true, policy: { minimumSupported: null } },
+        "0.1.20"
+      )
+    ).toEqual(CLOSED);
+    expect(
+      nextSupportState(
+        BLOCKED,
+        { ok: true, policy: { minimumSupported: "0.1.20" } },
+        "0.1.20"
+      )
+    ).toEqual(CLOSED);
+  });
+
+  test("a failed check never closes a gate the server already put up", () => {
+    // The regression: a "Check again" that cannot reach the server used to
+    // resolve the gate, letting the one build we know is unsupported walk
+    // straight back in. Silence is not an answer.
+    expect(nextSupportState(BLOCKED, { ok: false }, "0.1.20")).toEqual(BLOCKED);
+  });
+
+  test("a failed check never blocks a build that was never retired", () => {
+    // The launch path: silence means "not proven broken", so a first check that
+    // cannot complete must not lock anyone out of the app.
+    expect(nextSupportState(CLOSED, { ok: false }, "0.1.20")).toEqual(CLOSED);
+  });
+
+  test("an unreadable build version is never retired by a completed check", () => {
+    // Nothing about the build is known, so nothing may be concluded from a
+    // floor the server published.
+    expect(
+      nextSupportState(
+        CLOSED,
+        { ok: true, policy: { minimumSupported: "9.9.9" } },
+        null
+      )
+    ).toEqual(CLOSED);
   });
 });

@@ -27,39 +27,68 @@ describe("fetchSupportPolicy", () => {
       minimumSupported: "0.1.18",
     });
 
-    const policy = await fetchSupportPolicy({ ...OPTIONS, baseFetch });
+    const check = await fetchSupportPolicy({ ...OPTIONS, baseFetch });
 
-    expect(policy).toEqual({ minimumSupported: "0.1.18" });
+    expect(check).toEqual({
+      ok: true,
+      policy: { minimumSupported: "0.1.18" },
+    });
     expect(calls[0]).toBe("https://api.test/api/mobile/version");
   });
 
-  test("a server with no floor configured reports no floor", async () => {
+  test("a server with no floor configured is a real answer", async () => {
+    // This is the one completed check that is allowed to lift a gate: the
+    // server was reached and said every build is supported.
     const { baseFetch } = recordingFetch({ latest: "0.1.21" });
     expect(await fetchSupportPolicy({ ...OPTIONS, baseFetch })).toEqual({
-      minimumSupported: null,
+      ok: true,
+      policy: { minimumSupported: null },
     });
   });
 
-  test("a failed check is never a retirement", async () => {
-    // An offline launch or a bad gateway must not lock anyone out of the app:
-    // no floor means every build is supported.
+  test("a failed check is not an answer at all", async () => {
+    // The distinction that matters: an unreachable server must not be reported
+    // as "no floor", or a retry after a confirmed retirement would quietly
+    // un-retire the build and close the gate.
     const { baseFetch } = recordingFetch({ error: "nope" }, 503);
     expect(await fetchSupportPolicy({ ...OPTIONS, baseFetch })).toEqual({
-      minimumSupported: null,
+      ok: false,
     });
   });
 
-  test("a malformed body is never a retirement", async () => {
+  test("a malformed body is not an answer either", async () => {
     const { baseFetch } = recordingFetch("not-an-object");
     expect(await fetchSupportPolicy({ ...OPTIONS, baseFetch })).toEqual({
-      minimumSupported: null,
+      ok: false,
     });
   });
 
-  test("a non-string floor is ignored rather than compared", async () => {
+  test("a 200 whose body is unreadable is not an answer", async () => {
+    const baseFetch = (() =>
+      Promise.resolve(
+        new Response("<html>502</html>", {
+          headers: { "content-type": "text/html" },
+          status: 200,
+        })
+      )) as unknown as typeof fetch;
+    expect(await fetchSupportPolicy({ ...OPTIONS, baseFetch })).toEqual({
+      ok: false,
+    });
+  });
+
+  test("a thrown request is not an answer", async () => {
+    const baseFetch = (() =>
+      Promise.reject(new Error("ECONNREFUSED"))) as unknown as typeof fetch;
+    expect(await fetchSupportPolicy({ ...OPTIONS, baseFetch })).toEqual({
+      ok: false,
+    });
+  });
+
+  test("a non-string floor in a valid body reads as no floor", async () => {
     const { baseFetch } = recordingFetch({ minimumSupported: 18 });
     expect(await fetchSupportPolicy({ ...OPTIONS, baseFetch })).toEqual({
-      minimumSupported: null,
+      ok: true,
+      policy: { minimumSupported: null },
     });
   });
 });
