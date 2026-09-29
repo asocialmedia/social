@@ -27,6 +27,27 @@ export function isNearBottom(
   return scrollHeight - scrollTop - clientHeight <= threshold;
 }
 
+// A jump longer than this skips the smooth-scroll animation. Smooth scrolling
+// suppresses the virtualizer's own scroll compensation, so animating a long
+// distance while rows below resize (decrypt/image growth) leaves the viewport
+// drifting; past a screenful or two an instant landing is both faster and
+// stable. Short hops still animate.
+export const INSTANT_JUMP_DISTANCE_PX = 1000;
+
+// Scroll behavior for "jump to latest": instant when far from the end, smooth
+// for a short hop. An unmeasured viewport jumps instantly.
+export function jumpBehavior(
+  metrics: ScrollMetrics,
+  instantDistance = INSTANT_JUMP_DISTANCE_PX
+): ScrollBehavior {
+  const { clientHeight, scrollHeight, scrollTop } = metrics;
+  if (clientHeight <= 0) {
+    return "auto";
+  }
+  const distance = scrollHeight - scrollTop - clientHeight;
+  return distance > instantDistance ? "auto" : "smooth";
+}
+
 // Display cap for the unread badge so a long absence cannot render a huge
 // number and blow out the button layout.
 export const MAX_BADGE_COUNT = 99;

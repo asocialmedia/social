@@ -9,17 +9,28 @@ import { useCallback, useEffect, useState } from "react";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
 import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { MessageIdentityLocked } from "@/components/messages/message-identity-recovery";
 import { MessageThread } from "@/components/messages/message-thread";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { conversationListLayout } from "@/lib/messages/conversation-list-layout";
 import { cn } from "@/lib/utils";
 
 export default function ClientMessages() {
-  const { status } = useMessagesIdentity();
+  const { status, reset } = useMessagesIdentity();
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
   const dmUserId = searchParams.get("dm");
   const [railOpen, setRailOpen] = useState(false);
+  // Whether the window is wide enough for two panes. `48rem` tracks Tailwind's `md`
+  // exactly; below it the list and the conversation are the same surface shown one
+  // at a time, which is what the thread's back button swaps.
+  //
+  // A media query rather than a CSS class because the choice is about what is
+  // MOUNTED, not just what is painted: a hidden-but-mounted list would keep its
+  // query polling and its preview decrypts running for a pane nobody can see.
+  const desktopList = useMediaQuery("(min-width: 48rem)");
   const keyboardInset = useAppScreenLayout();
 
   // The identity is provisioned automatically by the provider, so the
@@ -69,6 +80,10 @@ export default function ClientMessages() {
     );
   }
 
+  if (status === "locked") {
+    return <MessageIdentityLocked onReset={reset} />;
+  }
+
   if (status === "error") {
     return (
       <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
@@ -80,6 +95,11 @@ export default function ClientMessages() {
       </div>
     );
   }
+
+  const listLayout = conversationListLayout({
+    conversationOpen: Boolean(pendingConversation),
+    desktopViewport: desktopList,
+  });
 
   return (
     <div
@@ -99,10 +119,18 @@ export default function ClientMessages() {
       >
         <ConversationList
           activeConversationId={pendingConversation ?? null}
+          layout={listLayout}
           onSelect={selectConversation}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]">
+        {/* On a phone with a conversation open this is the whole screen; with none
+            open the list above is, so the empty state and its header stand down. */}
+        <div
+          className={cn(
+            "min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
+            listLayout === "full" && !desktopList ? "hidden" : "flex"
+          )}
+        >
           {pendingConversation ? (
             <MessageThread
               conversationId={pendingConversation}
@@ -129,6 +157,11 @@ export default function ClientMessages() {
         </div>
 
         <ActiveFriendsRail
+          // With a thread open the details pane takes the right-hand slot on
+          // wide screens, so the online list yields it there and only there --
+          // the drawer below `lg` is untouched, which is why this is a separate
+          // prop rather than `open`.
+          desktopSuperseded={Boolean(pendingConversation)}
           onClose={() => setRailOpen(false)}
           onSelect={(userId) => {
             // Clicking an online friend opens a fresh conversation with them;

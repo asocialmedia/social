@@ -2,8 +2,27 @@ import { Skeleton } from "@asm/ui/shadui/skeleton";
 
 import { cn } from "@/lib/utils";
 
-// Skeleton for the conversation list.
-export function ConversationListSkeleton() {
+// Skeleton for the conversation list, shaped like whichever form it will take: rows
+// with a name and a preview line for the full list, bare tiles for the rail.
+export function ConversationListSkeleton({ full = false }: { full?: boolean }) {
+  if (full) {
+    return (
+      <div className="flex flex-col gap-0.5 p-2">
+        {[1, 2, 3, 4, 5, 6].map((index) => (
+          <div
+            className="flex items-center gap-3 rounded-2xl px-2.5 py-2.5"
+            key={`convo-skeleton-${index}`}
+          >
+            <Skeleton className="size-11 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-2/5 rounded-md" />
+              <Skeleton className="h-3 w-3/5 rounded-md" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-center gap-1.5 p-2">
       {[1, 2, 3, 4, 5, 6].map((index) => (
@@ -74,11 +93,12 @@ export function ActiveFriendsRailSkeleton() {
 export function MessagesSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-row overflow-hidden">
-      <div className="flex w-16 shrink-0 flex-col border-r border-[hsl(var(--border))]">
-        <div className="border-border/60 flex h-14 shrink-0 items-center justify-center border-b">
+      <div className="flex w-full shrink-0 flex-col border-r border-[hsl(var(--border))] md:w-72 xl:w-80">
+        <div className="border-border/60 flex h-14 shrink-0 items-center justify-between border-b px-4">
+          <Skeleton className="h-4 w-20 rounded-md" />
           <Skeleton className="h-9 w-9 rounded-full" />
         </div>
-        <ConversationListSkeleton />
+        <ConversationListSkeleton full />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]">

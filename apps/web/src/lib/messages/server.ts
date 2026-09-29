@@ -4,7 +4,6 @@ import {
   getUserDataQuery,
   mapUserData,
   prisma,
-  toPrismaDateTime,
 } from "@asm/db";
 
 // The server never sees plaintext, but it does validate membership, follow
@@ -31,7 +30,7 @@ export async function getConversationForUser(
   )
     .include("messageConversationMembers", (member) =>
       member
-        .select("userId", "lastReadAt")
+        .select("userId", "lastReadAt", "mutedAt", "themeKey")
         .include("user", (_user) =>
           getUserDataQuery(prisma.orm, "").include(
             "messageIdentities",
@@ -59,6 +58,7 @@ export async function getConversationForUser(
             lastReadAt: member.lastReadAt
               ? fromPrismaDateTime(member.lastReadAt)
               : null,
+            mutedAt: member.mutedAt ? fromPrismaDateTime(member.mutedAt) : null,
             user: {
               ...mapUserData(member.user),
               messageIdentity: member.user.messageIdentities,
@@ -111,33 +111,6 @@ export function messageSenderSelect() {
   return getUserDataQuery(prisma.orm, "");
 }
 
-// The where clause shared by every unread-message count: the current user's
-// own sent messages never accrue a badge (the writer only increments the
-// peer), and soft-deleted messages are not counted. Kept in one place so the
-// read, list, and badge-seed routes cannot drift.
-type MessageWhereCallback = (message: {
-  conversationId: { eq: (value: string) => ReturnType<typeof and> };
-  createdAt: {
-    gt: (value: ReturnType<typeof toPrismaDateTime>) => ReturnType<typeof and>;
-  };
-  deletedAt: { isNull: () => ReturnType<typeof and> };
-  senderId: { notIn: (value: string[]) => ReturnType<typeof and> };
-}) => ReturnType<typeof and>;
-
-export function unreadMessageWhere(params: {
-  conversationId: string;
-  lastReadAt: Date | null;
-  userId: string;
-}): MessageWhereCallback {
-  return (message) =>
-    and(
-      message.conversationId.eq(params.conversationId),
-      message.createdAt.gt(toPrismaDateTime(params.lastReadAt ?? new Date(0))),
-      message.deletedAt.isNull(),
-      message.senderId.notIn([params.userId])
-    );
-}
-
 // The sender's current ratchet index. The authoritative source is the message
 // count for that (conversation, sender) pair - indexes are dense (0, 1, 2, ...)
 // so the count IS the next index. The atomic per-owner counter on the key row
@@ -145,6 +118,10 @@ export function unreadMessageWhere(params: {
 // counter existed, so take the max of the two. The unique
 // (conversationId, senderId, ratchetIndex) constraint still guards concurrent
 // sends that race between the read and the create.
+//
+// A member can hold several wraps (one per root-key epoch, see
+// MessageConversationKey.version); only the newest epoch is active, so its
+// counter is the one to read.
 export async function nextRatchetIndex(
   conversationId: string,
   senderId: string
@@ -157,6 +134,9 @@ export async function nextRatchetIndex(
           keyRow.ownerUserId.eq(senderId)
         )
       )
+      // A member can hold one wrap per root-key epoch; only the newest is
+      // active, so read that epoch's counter.
+      .orderBy((keyRow) => keyRow.version.desc())
       .first(),
     prisma.orm.public.Messages.where((message) =>
       and(
@@ -180,12 +160,13 @@ export async function parseJsonBody(request: Request): Promise<unknown> {
   }
 }
 
-// Prisma surfaces unique constraint conflicts as P2002.
+// Prisma surfaces unique constraint conflicts as P2002. Prisma 8 does not map
+// driver errors to Prisma codes: they bubble from the pg driver as the
+// PostgreSQL SQLSTATE 23505 (unique_violation), so check both shapes.
 export function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  const { code } = error as { code?: unknown };
+  return code === "23505" || code === "P2002";
 }

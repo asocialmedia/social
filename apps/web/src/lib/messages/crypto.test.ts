@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
+import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+
 import {
   decryptMessage,
   decryptMessageWithBaseKey,
   decryptWithMasterKey,
   deriveMasterKey,
   deriveMessageKey,
+  editMessagePayload,
   encryptMessage,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -14,6 +17,7 @@ import {
   generateFingerprint,
   generateIdentityKeyPair,
   generateRootKey,
+  getMediaImages,
   hashAccountSecret,
   importPrivateKeyJwk,
   importPublicKeyJwk,
@@ -406,6 +410,224 @@ describe("message ratchet", () => {
     });
   });
 
+  test("grouped media album round-trips with a caption", async () => {
+    const rootKey = generateRootKey();
+    const payload = {
+      content: "vacation pics",
+      images: [
+        { height: 240, url: "/api/media/cm1", width: 320 },
+        { height: 480, url: "/api/media/cm2", width: 640 },
+      ],
+      kind: "image" as const,
+      type: "media" as const,
+    };
+    const encrypted = await encryptMessage(
+      rootKey,
+      SENDER_ID,
+      0,
+      CONVO_ID,
+      payload
+    );
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual(payload);
+  });
+
+  test("rejects a media album with no images", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { images: [], kind: "image", type: "media" },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects a media album over the attachment cap", async () => {
+    const rootKey = generateRootKey();
+    const images = Array.from(
+      { length: MAX_MESSAGE_ATTACHMENTS + 1 },
+      (_, index) => ({ url: `/api/media/cm${index}` })
+    );
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { images, kind: "image", type: "media" },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects an album entry with a hostile url", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          images: [
+            { url: "/api/media/cm1" },
+            { url: ["javascript", "alert(1)"].join(":") },
+          ],
+          kind: "image",
+          type: "media",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects an album entry with hostile dimensions", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          images: [{ height: 0, url: "/api/media/cm1", width: 320 }],
+          kind: "image",
+          type: "media",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects an album whose images field is null", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          images: null,
+          kind: "image",
+          type: "media",
+          url: "/api/media/cm1",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects a non-string media caption", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          content: 42,
+          images: [{ url: "/api/media/cm1" }],
+          kind: "image",
+          type: "media",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("getMediaImages normalizes both media shapes", () => {
+    expect(
+      getMediaImages({
+        height: 240,
+        kind: "image",
+        type: "media",
+        url: "/api/media/legacy",
+        width: 320,
+      })
+    ).toEqual([{ height: 240, url: "/api/media/legacy", width: 320 }]);
+
+    const images = [
+      { url: "/api/media/a" },
+      { height: 10, url: "/api/media/b", width: 20 },
+    ];
+    expect(getMediaImages({ images, kind: "image", type: "media" })).toEqual(
+      images
+    );
+  });
+
+  test("editMessagePayload rewrites text and preserves reply linkage", () => {
+    const edited = editMessagePayload(
+      {
+        content: "before",
+        replyToId: "p1",
+        replyToSenderId: "u2",
+        type: "text",
+      },
+      "after"
+    );
+    expect(edited).toEqual({
+      content: "after",
+      replyToId: "p1",
+      replyToSenderId: "u2",
+      type: "text",
+    });
+  });
+
+  test("editMessagePayload rewrites a media caption without touching the album", () => {
+    const images = [{ url: "/api/media/a" }];
+    const edited = editMessagePayload(
+      { content: "old caption", images, kind: "image", type: "media" },
+      "new caption"
+    );
+    expect(edited).toEqual({
+      content: "new caption",
+      images,
+      kind: "image",
+      type: "media",
+    });
+  });
+
+  test("editMessagePayload rewrites a post share caption and keeps the post id", () => {
+    const edited = editMessagePayload(
+      { postId: "post-1", type: "post" },
+      "look at this"
+    );
+    expect(edited).toEqual({
+      content: "look at this",
+      postId: "post-1",
+      type: "post",
+    });
+  });
+
   // Built at runtime so the no-script-url lint rule cannot flag the literal.
   const JS_URL = ["javascript", "alert(1)"].join(":");
   test.each([
@@ -668,5 +890,76 @@ describe("account backup secret", () => {
     const originalPublic = await exportPublicKeyJwk(pair.publicKey);
     expect(recoveredPrivate.x).toBe(originalPublic.x);
     expect(recoveredPrivate.y).toBe(originalPublic.y);
+  });
+
+  test("verifier rows unlock from the raw secret this device still holds", async () => {
+    // The short-lived verifier scheme encrypted under a raw secret and stored
+    // only its hash, so the row alone cannot derive the key. A device that
+    // still holds that secret must still be able to unlock; unlockIdentity
+    // verifies the hash before deriving.
+    const pair = await generateIdentityKeyPair();
+    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const secret = generateAccountSecret();
+    const masterKeyHash = await hashAccountSecret(secret);
+    const masterKey = await deriveMasterKey(secret, salt, 100_000);
+    const backup = await encryptWithMasterKey(
+      masterKey,
+      JSON.stringify(privateKeyJwk)
+    );
+
+    // Device B lost local storage, so it has neither the secret nor the key;
+    // the user supplies the secret from their saved copy. This mirrors
+    // unlockIdentity's verifier-row path: verify the hash, then derive from the
+    // raw secret (NOT the hash) and decrypt.
+    const supplied = secret;
+    const verifier = await hashAccountSecret(supplied);
+    expect(verifier.toLowerCase()).toBe(masterKeyHash.toLowerCase());
+
+    const recoveredKey = await deriveMasterKey(supplied, salt, 100_000);
+    const decrypted = await decryptWithMasterKey(recoveredKey, backup);
+    const recovered = await importPrivateKeyJwk(
+      JSON.parse(decrypted) as JsonWebKey
+    );
+    const recoveredPrivate = await exportPrivateKeyJwk(recovered);
+    const originalPublic = await exportPublicKeyJwk(pair.publicKey);
+    expect(recoveredPrivate.x).toBe(originalPublic.x);
+    expect(recoveredPrivate.y).toBe(originalPublic.y);
+  });
+
+  test("a wrong recovery secret fails the hash check before decryption", async () => {
+    const pair = await generateIdentityKeyPair();
+    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const secret = generateAccountSecret();
+    const masterKeyHash = await hashAccountSecret(secret);
+    const masterKey = await deriveMasterKey(secret, salt, 100_000);
+    await encryptWithMasterKey(masterKey, JSON.stringify(privateKeyJwk));
+
+    const wrongVerifier = await hashAccountSecret(generateAccountSecret());
+    expect(wrongVerifier.toLowerCase()).not.toBe(masterKeyHash.toLowerCase());
+  });
+
+  test("the stored row alone derives the backup key (automatic recovery)", async () => {
+    // Deliberate trade-off of the server-recoverable model: a database reader
+    // who holds the entire identity row derives the same backup key the client
+    // does, because the row is the recovery material. Pinned so the documented
+    // recovery behavior and the accepted risk stay in lockstep.
+    const pair = await generateIdentityKeyPair();
+    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const secret = generateAccountSecret();
+    const masterKeyHash = await hashAccountSecret(secret);
+    const masterKey = await deriveMasterKey(masterKeyHash, salt, 100_000);
+    const backup = await encryptWithMasterKey(
+      masterKey,
+      JSON.stringify(privateKeyJwk)
+    );
+
+    // Everything a DB reader has: the ciphertext, the IV, the salt, the
+    // iteration count, and the seed hash. That is sufficient by design.
+    const rowDerived = await deriveMasterKey(masterKeyHash, salt, 100_000);
+    const decrypted = await decryptWithMasterKey(rowDerived, backup);
+    expect(JSON.parse(decrypted)).toEqual(privateKeyJwk);
   });
 });

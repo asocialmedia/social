@@ -9,7 +9,10 @@ const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockCount = mock(() => 4);
 const mockDecrement = mock(() => 0);
 const mockUpdate = mock((_value: unknown) => ({}));
-const mockPublishRead = mock(() => Promise.resolve());
+const mockPublishRead = mock(
+  (_conversationId: string, _userId: string, _readAt: string) =>
+    Promise.resolve()
+);
 let lastCountWhere: {
   conversationId: string;
   createdAfter: Date;
@@ -32,18 +35,6 @@ mock.module("@/lib/messages/server", () => ({
           ],
         }
       : null,
-  // The shared predicate: an unread message is one the user received (not
-  // sent), not deleted, and newer than the conversation's read watermark.
-  unreadMessageWhere: (params: {
-    conversationId: string;
-    lastReadAt: Date | null;
-    userId: string;
-  }) => ({
-    conversationId: params.conversationId,
-    createdAt: { gt: params.lastReadAt ?? new Date(0) },
-    deletedAt: null,
-    senderId: { not: params.userId },
-  }),
 }));
 
 mock.module("@asm/db", () => ({
@@ -126,6 +117,26 @@ mock.module("@asm/db", () => ({
   },
   publishConversationRead: mockPublishRead,
   unreadMessageCache: { decrement: mockDecrement },
+  // The shared predicate: an unread message is one the user received (not
+  // sent), not deleted, hidden with "delete for me", and newer than the
+  // conversation's read watermark.
+  unreadMessageWhere:
+    (params: {
+      conversationId: string;
+      lastReadAt: Date | null;
+      userId: string;
+    }) =>
+    (message: {
+      conversationId: { eq: (id: string) => unknown };
+      createdAt: { gt: (value: Date) => unknown };
+      deletedAt: { isNull: () => unknown };
+      senderId: { notIn: (ids: string[]) => unknown };
+    }) => ({
+      conversationId: message.conversationId.eq(params.conversationId),
+      createdAt: message.createdAt.gt(params.lastReadAt ?? new Date(0)),
+      deletedAt: message.deletedAt.isNull(),
+      senderId: message.senderId.notIn([params.userId]),
+    }),
 }));
 
 describe("POST /api/messages/conversations/:id/read", () => {
@@ -166,10 +177,20 @@ describe("POST /api/messages/conversations/:id/read", () => {
       userId: "user1",
     });
     const updateValue = mockUpdate.mock.calls[0]?.[0] as {
+      lastDeliveredAt: Date;
       lastReadAt: Date;
     };
     expect(updateValue.lastReadAt).toBeInstanceOf(Date);
-    expect(mockPublishRead).toHaveBeenCalledWith("convo-1", "user1");
+    // Reading implies delivery, so both watermarks advance in one write.
+    expect(updateValue.lastDeliveredAt).toBeInstanceOf(Date);
+    // The read event carries the read timestamp so senders can patch their
+    // watermark without refetching the conversation detail.
+    expect(mockPublishRead).toHaveBeenCalledTimes(1);
+    expect(mockPublishRead).toHaveBeenCalledWith(
+      "convo-1",
+      "user1",
+      expect.any(String)
+    );
   });
 
   test("skips the decrement when there is nothing unread", async () => {

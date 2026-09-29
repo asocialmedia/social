@@ -12,23 +12,31 @@ interface MessageStreamEvent {
   kind:
     | "message.created"
     | "message.deleted"
+    | "message.edited"
     | "conversation.read"
-    | "typing.started";
+    | "conversation.delivered"
+    | "typing.started"
+    | "keys.rotated";
   conversationId: string;
+  deliveredAt?: string;
   message?: unknown;
+  readAt?: string;
   userId?: string;
 }
 
 // Kept client-side (mirrors the @asm/db helper) so the browser bundle never
 // drags in the server-only DB package.
-function parseMessageEvent(raw: string): MessageStreamEvent | null {
+export function parseMessageEvent(raw: string): MessageStreamEvent | null {
   try {
     const parsed = JSON.parse(raw) as Partial<MessageStreamEvent>;
     if (
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
+      parsed.kind !== "message.edited" &&
       parsed.kind !== "conversation.read" &&
-      parsed.kind !== "typing.started"
+      parsed.kind !== "conversation.delivered" &&
+      parsed.kind !== "typing.started" &&
+      parsed.kind !== "keys.rotated"
     ) {
       return null;
     }
@@ -37,7 +45,8 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
     }
     if (
       (parsed.kind === "message.created" ||
-        parsed.kind === "message.deleted") &&
+        parsed.kind === "message.deleted" ||
+        parsed.kind === "message.edited") &&
       parsed.message === undefined
     ) {
       return null;
@@ -45,10 +54,25 @@ function parseMessageEvent(raw: string): MessageStreamEvent | null {
     if (parsed.kind === "typing.started" && typeof parsed.userId !== "string") {
       return null;
     }
+    if (
+      parsed.kind === "conversation.delivered" &&
+      (typeof parsed.userId !== "string" ||
+        typeof parsed.deliveredAt !== "string")
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "conversation.read" &&
+      (typeof parsed.userId !== "string" || typeof parsed.readAt !== "string")
+    ) {
+      return null;
+    }
     return {
       conversationId: parsed.conversationId,
+      deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
       message: parsed.message,
+      readAt: parsed.readAt,
       userId: parsed.userId,
     };
   } catch {
@@ -147,7 +171,9 @@ export function useMessagesRealtime(
   onEvent: (event: {
     conversationId: string;
     kind: MessageStreamEvent["kind"];
+    deliveredAt?: string;
     message?: MessageData;
+    readAt?: string;
     userId?: string;
   }) => void,
   enabled = true,
@@ -185,8 +211,14 @@ export function useMessagesRealtime(
 
       // The server greets every (re)connect with `event: connected`. It
       // carries no message data, but it is the signal to refetch and catch
-      // up on anything published while the stream was down.
+      // up on anything published while the stream was down. It is also the
+      // only proof the stream is alive, so the reconnect backoff resets here
+      // rather than when the fetch returns: a rejected endpoint (rate limit,
+      // auth blip) answers instantly, and resetting on return would pin every
+      // retry at one second and spend shared budget keeping the limiter
+      // tripped instead of backing off.
       if (eventType === "connected") {
+        retryDelay = INITIAL_RETRY_MS;
         const isReconnect = hasConnected;
         hasConnected = true;
         onConnectRef.current?.(isReconnect);
@@ -215,8 +247,10 @@ export function useMessagesRealtime(
 
       onEventRef.current({
         conversationId: event.conversationId,
+        deliveredAt: event.deliveredAt,
         kind: event.kind,
         message,
+        readAt: event.readAt,
         userId: event.userId,
       });
       // No invalidation here: the caller folds creates/deletes straight into
@@ -236,8 +270,11 @@ export function useMessagesRealtime(
           }
         );
 
-        retryDelay = INITIAL_RETRY_MS;
-
+        // No delay reset here: the backoff must survive failed attempts, so it
+        // resets on the server's `connected` greeting instead (see below). A
+        // rate-limited stream endpoint rejects instantly, and resetting here
+        // would pin every retry at one second forever -- each attempt spending
+        // shared rate-limit budget to keep the limiter tripped.
         const reader = openMessageStream(response).getReader();
         const decoder = new TextDecoder();
         let buffer = "";

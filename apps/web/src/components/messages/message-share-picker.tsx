@@ -2,7 +2,7 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
-import { History, Lock, Search, Send } from "lucide-react";
+import { History, Lock, MessageSquareQuote, Search, Send } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -40,7 +40,8 @@ async function sharePostToConversation(
   postId: string,
   privateKey: CryptoKey,
   recipientId: string,
-  senderId: string
+  senderId: string,
+  caption?: string
 ): Promise<void> {
   const { conversation } = await createConversation(recipientId);
   const rootKey = await ensureConversationKeys(
@@ -55,13 +56,19 @@ async function sharePostToConversation(
   // already has in the conversation (the server rejects mismatches with
   // 409). Fetch the current count instead of assuming a fresh thread.
   const { mySentCount } = await fetchConversationDetail(conversation.id);
+  const trimmed = caption?.trim();
+  const payload = {
+    ...(trimmed ? { content: trimmed } : {}),
+    postId,
+    type: "post" as const,
+  };
   try {
     await sendEncryptedMessage(
       conversation.id,
       rootKey,
       senderId,
       mySentCount,
-      { postId, type: "post" }
+      payload
     );
   } catch (error) {
     // A concurrent send can still race us; retry with the server's
@@ -76,7 +83,7 @@ async function sharePostToConversation(
         rootKey,
         senderId,
         error.expectedIndex,
-        { postId, type: "post" }
+        payload
       );
     } else {
       throw error;
@@ -88,6 +95,7 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   const { user } = useSession();
   const { privateKey, status } = useMessagesIdentity();
   const [query, setQuery] = useState("");
+  const [caption, setCaption] = useState("");
   const [results, setResults] = useState<SearchUserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
@@ -161,7 +169,8 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
           postId,
           privateKey,
           recipient.id,
-          user.id
+          user.id,
+          caption
         );
         toast({
           description: `Sent to ${recipient.displayName}`,
@@ -179,7 +188,7 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       // so resetting here matches the previous `finally` semantics.
       setSendingTo(null);
     },
-    [postId, privateKey, user]
+    [caption, postId, privateKey, user]
   );
 
   // Render helpers are declared before any early returns so their function
@@ -267,8 +276,8 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       <div className="flex flex-col items-center gap-2.5 py-4 text-center">
         <Lock className="text-muted-foreground h-6 w-6" />
         <p className="text-muted-foreground max-w-56 text-sm">
-          Messages are end-to-end encrypted and set up automatically. Open
-          Messages once to get started.
+          Messages are encrypted and set up automatically. Open Messages once to
+          get started.
         </p>
         <Button
           asChild
@@ -293,6 +302,18 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search people you follow…"
           value={query}
+        />
+      </div>
+
+      {/* Optional caption sent alongside the post card. */}
+      <div className="reels-input flex h-9 items-center gap-2 px-3">
+        <MessageSquareQuote className="text-muted-foreground h-4 w-4 shrink-0" />
+        <input
+          className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+          maxLength={500}
+          onChange={(event) => setCaption(event.target.value)}
+          placeholder="Add a caption (optional)…"
+          value={caption}
         />
       </div>
 

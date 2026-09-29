@@ -26,6 +26,14 @@ RUN bun build scripts/maintenance/sync-trending-scores.ts \
       --outfile /app/dist/sync-scores.js \
       --external msgpackr-extract
 
+# Standalone so the sync image can run the index prebuild itself. Without it
+# `prisma db migrate` would build messages_conversationId_id_idx inside its
+# transaction and block message writes for the duration; see
+# packages/db/src/messages/prebuild-indexes.ts.
+RUN bun build packages/db/src/messages/prebuild-indexes.ts \
+      --target=bun \
+      --outfile /app/dist/prebuild-dm-indexes.js
+
 FROM oven/bun:1.4
 LABEL org.opencontainers.image.title="Asocialmedia Prisma Schema Sync" \
       org.opencontainers.image.description="Prisma 8 migration service for the PostgreSQL database" \
@@ -39,6 +47,7 @@ COPY packages/db/prisma ./packages/db/prisma
 COPY --from=build /app/packages/db/generated/prisma ./packages/db/generated/prisma
 COPY packages/db/prisma.config.ts ./packages/db/prisma.config.ts
 COPY --from=build /app/dist/sync-scores.js /app/sync-scores.js
+COPY --from=build /app/dist/prebuild-dm-indexes.js /app/prebuild-dm-indexes.js
 COPY docker/prisma-sync.sh /usr/local/bin/prisma-sync.sh
 RUN chmod +x /usr/local/bin/prisma-sync.sh
 

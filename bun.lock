@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.1.23",
+      "version": "0.1.27",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/notifications": "workspace:*",
@@ -153,7 +153,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.25",
+      "version": "1.5.30",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -226,6 +226,7 @@
         "@types/linkify-it": "^5.0.0",
         "@types/react-syntax-highlighter": "^15.5.13",
         "bun-types": "^1.4.0",
+        "fake-indexeddb": "^6.2.5",
         "prisma": "8.0.0-rc.15",
         "tailwindcss": "^4.3.3",
         "typescript": "^7.0.2",
@@ -278,7 +279,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.1.75",
+      "version": "1.1.81",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -306,7 +307,7 @@
     },
     "packages/logger": {
       "name": "@asm/logger",
-      "version": "1.0.12",
+      "version": "1.0.15",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/api-logs": "^0.221.0",
@@ -332,7 +333,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.30",
+      "version": "1.0.34",
       "devDependencies": {
         "@asm/config": "workspace:*",
         "@types/bun": "^1.4.0",
@@ -368,7 +369,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.37",
+      "version": "1.0.42",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",
@@ -2438,6 +2439,8 @@
     "exsolve": ["exsolve@1.1.1", "", {}, "sha512-9U/jZUgjnSGyntRr6y5Muu1MJcwFl6kPu7k8qLF0IMNfLqvw0NZ4nnVDq0RVoZ0RvCyumib4Ez3KYrVfilrw+g=="],
 
     "extendable-error": ["extendable-error@0.1.7", "", {}, "sha512-UOiS2in6/Q0FK0R0q6UY9vYpQ21mr/Qn1KOnte7vsACuNJf514WvCCUHSRCPcgjPT2bAhNIJdlE6bVap1GKmeg=="],
+
+    "fake-indexeddb": ["fake-indexeddb@6.2.5", "", {}, "sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w=="],
 
     "fast-check": ["fast-check@4.10.2", "", { "dependencies": { "pure-rand": "^8.0.0" } }, "sha512-iK2f+YrcmoeGqk6fA0ea2bptcu/itMIm4NfEozq6N25+aG6h7s5HZbB/k1aV7b5w5sFLMCbbtRUsTVR+BgC3xw=="],
 

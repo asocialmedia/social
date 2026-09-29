@@ -15,8 +15,8 @@ export async function PATCH(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Strict field allowlist: a raw body spread into prisma.user.update would
-  // let the caller write role, banned, email or passwordHash on their own row.
+  // Strict field allowlist: a raw body spread into the user update would let the
+  // caller write role, banned, email or passwordHash on their own row.
   let parsedValues: Partial<UpdateUserProfileValues>;
   try {
     parsedValues = updateUserProfileSchema

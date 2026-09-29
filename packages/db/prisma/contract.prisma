@@ -272,6 +272,7 @@ namespace public {
     mentions                   Mentions[]
     messageConversationKeys    MessageConversationKeys[]
     messageConversationMembers MessageConversationMembers[]
+    messageHiddens             MessageHiddens[]
     messageIdentities          MessageIdentities?
     messages                   Messages[]
     passkeys                   Passkey[]
@@ -572,25 +573,31 @@ namespace public {
     ownerUserId    String
     encryptedKey   String
     iv             String
+    version        Int                  @default(1)
     ratchetCounter Int                  @default(0)
     createdAt      Timestamp(3)         @default(now())
     conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_conversationId_fkey", index: false)
     ownerUser      Users                @relation(fields:[ownerUserId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_ownerUserId_fkey", index: false)
 
-    @@unique([conversationId, ownerUserId], map: "message_conversation_keys_conversationId_ownerUserId_key")
+    @@unique([conversationId, ownerUserId, version], map: "message_conversation_keys_conversationId_ownerUserId_versio_key")
+    @@index([conversationId, ownerUserId], map: "message_conversation_keys_conversationId_ownerUserId_idx")
     @@map("message_conversation_keys")
   }
 
   model MessageConversationMembers {
-    conversationId String
-    userId         String
-    lastReadAt     Timestamp(3)?
-    createdAt      Timestamp(3)         @default(now())
-    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
-    user           Users                @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
+    conversationId  String
+    userId          String
+    lastReadAt      Timestamp(3)?
+    lastDeliveredAt Timestamp(3)?
+    mutedAt         Timestamp(3)?
+    themeKey        String?
+    createdAt       Timestamp(3)         @default(now())
+    conversation    MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
+    user            Users                @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
 
     @@id([conversationId, userId], map: "message_conversation_members_pkey")
     @@index([userId], map: "message_conversation_members_userId_idx")
+    @@index([userId, mutedAt], map: "message_conversation_members_userId_mutedAt_idx")
     @@map("message_conversation_members")
   }
 
@@ -617,13 +624,28 @@ namespace public {
     ratchetIndex   Int                  @default(0)
     createdAt      Timestamp(3)         @default(now())
     deletedAt      Timestamp(3)?
+    editedAt       Timestamp(3)?
     conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
     sender         Users                @relation(fields:[senderId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
+    hiddenFor      MessageHiddens[]
 
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
+    @@index([conversationId, id], map: "messages_conversationId_id_idx")
     @@unique([conversationId, senderId, ratchetIndex], map: "messages_conversationId_senderId_ratchetIndex_key")
     @@index([senderId], map: "messages_senderId_idx")
     @@map("messages")
+  }
+
+  model MessageHiddens {
+    messageId String
+    userId    String
+    createdAt Timestamp(3) @default(now())
+    message   Messages     @relation(fields:[messageId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_messageId_fkey", index: false)
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_userId_fkey")
+
+    @@id([messageId, userId], map: "message_hidden_pkey")
+    @@index([userId], map: "message_hidden_userId_idx")
+    @@map("message_hidden")
   }
 
   model Notifications {

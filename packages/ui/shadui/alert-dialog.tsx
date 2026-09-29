@@ -1,6 +1,5 @@
 "use client";
 
-import { buttonVariants } from "@asm/ui/shadui/button";
 import {
   Action,
   Cancel,
@@ -15,6 +14,7 @@ import {
 import type * as React from "react";
 
 import { cn } from "../lib/utils";
+import { buttonVariants } from "./button";
 
 const AlertDialog = Root;
 

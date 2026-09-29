@@ -1,15 +1,19 @@
 import {
   and,
+  consumeRateLimit,
   fromPrismaDateTime,
   getMessageDataQuery,
   prisma,
+  publishMessageActivity,
   publishMessageCreated,
   toPrismaDateTime,
   unreadMessageCache,
+  visibleToUser,
 } from "@asm/db";
 import type { PrismaTransaction } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
 import {
   areBlocked,
   getConversationForUser,
@@ -20,6 +24,46 @@ import {
 import type { MessageData, MessagePage } from "@/lib/messages/types";
 
 const PAGE_SIZE = 30;
+// Upper bound for one page. History indexing (in-conversation search walks the
+// whole thread through this endpoint) asks for larger pages so a long thread
+// costs tens of round trips instead of hundreds; the cap keeps any single
+// response bounded.
+const MAX_PAGE_SIZE = 100;
+// A declared history walk may ask for much larger pages. Covering a conversation
+// is latency-bound, not compute-bound: measured at 200k messages, 100 rows/page
+// takes 11.1 minutes of which 4.9 seconds is actual work, and 500 rows/page cuts
+// it to 2.3 minutes. The walk is paced per REQUEST, so a bigger page is strictly
+// less load on the server for the same politeness, not more. Ordinary transcript
+// reads stay at MAX_PAGE_SIZE so a scroll can never pull a large page.
+const MAX_HISTORY_WALK_PAGE_SIZE = 500;
+
+// History-walk budgets.
+//
+// Two separate limits, because they defend against different things:
+//
+// - A history walk (`?walk=1`) is a client bulk-indexing whole conversations for
+//   search. It is paced on the client and resumable, but a client that lies about
+//   its intent, a buggy retry loop, or several tabs walking at once would still
+//   put sustained load on one conversation's key range. This is the tight budget.
+// - Every cursor page is metered too, more loosely. The walk flag is
+//   client-supplied, so on its own it is a request for honesty rather than a
+//   control; the general ceiling is what actually bounds a client that omits it.
+//   240/minute is four per second, far above how fast a person scrolls.
+//
+// The budgets must sit ABOVE the rate a correctly paced walk generates, or they
+// throttle the client they are meant to protect. A 250ms pacing delay is 240
+// pages/minute, so a 30/minute walk budget stopped a walk after 7 seconds and 30
+// pages: a 5k-message conversation needed two manual restarts and a 200k one
+// needed 67. These are set above 240 with headroom for jitter and for several
+// tabs, and their job is to catch a client that removed its pacing entirely.
+const HISTORY_WALK_LIMIT = 400;
+const HISTORY_WALK_WINDOW_SECONDS = 60;
+// Higher than the walk budget on purpose: a client that omits walk=1 must not be
+// penalised relative to one that declares itself, or every caller would simply
+// stop declaring itself.
+const CURSOR_PAGE_LIMIT = 600;
+const CURSOR_PAGE_WINDOW_SECONDS = 60;
+
 const MAX_CAS_ATTEMPTS = 8;
 
 async function updateMessageRatchetWithCas(
@@ -28,6 +72,8 @@ async function updateMessageRatchetWithCas(
   ownerUserId: string,
   attemptsRemaining = MAX_CAS_ATTEMPTS
 ): Promise<void> {
+  // Only the newest root-key epoch drives the counter; older wraps belong to
+  // epochs the conversation has already rotated past.
   const key = await tx.orm.public.MessageConversationKeys.select(
     "ratchetCounter"
   )
@@ -37,6 +83,7 @@ async function updateMessageRatchetWithCas(
         candidate.ownerUserId.eq(ownerUserId)
       )
     )
+    .orderBy((candidate) => candidate.version.desc())
     .first();
   if (!key) {
     return;
@@ -73,6 +120,7 @@ function mapMessage(message: MessageQueryData): MessageData {
     conversationId: message.conversationId ?? "",
     createdAt: fromPrismaDateTime(message.createdAt),
     deletedAt: message.deletedAt ? fromPrismaDateTime(message.deletedAt) : null,
+    editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
     id: message.id ?? "",
     iv: message.iv ?? "",
     ratchetIndex: message.ratchetIndex ?? 0,
@@ -109,26 +157,173 @@ export async function GET(
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor");
+  const aroundParam = url.searchParams.get("around")?.trim() ?? "";
+  const afterParam = url.searchParams.get("after")?.trim() ?? "";
+  const limitParam = url.searchParams.get("limit")?.trim() ?? "";
+  // Declared by the client, not inferred: a transcript scroll and a search
+  // backfill page through this endpoint identically, so intent is the only thing
+  // that tells them apart.
+  const isHistoryWalk = url.searchParams.get("walk") === "1";
+  // Strict Number (not parseInt) so "10abc" falls back to the default instead
+  // of silently becoming 10.
+  const requestedLimit =
+    limitParam.length > 0 ? Math.trunc(Number(limitParam)) : Number.NaN;
+  const maxPageSize = isHistoryWalk
+    ? MAX_HISTORY_WALK_PAGE_SIZE
+    : MAX_PAGE_SIZE;
+  const pageSize = Number.isInteger(requestedLimit)
+    ? Math.min(Math.max(requestedLimit, 1), maxPageSize)
+    : PAGE_SIZE;
+
+  // The three paging axes are mutually exclusive. Rejecting the ambiguous call
+  // surfaces a client bug instead of silently honouring one and dropping the
+  // other, which would look like a wrong window rather than a bad request.
+  const axisCount = [cursor, aroundParam, afterParam].filter(
+    (value) => value !== null && value.length > 0
+  ).length;
+  if (axisCount > 1) {
+    return Response.json(
+      { error: "Use only one of cursor, around, or after" },
+      { status: 400 }
+    );
+  }
+
+  // Metered before the database is touched, so a rejected walk costs no query.
+  // Only paging reads are metered. An anchored read is a single user-initiated
+  // jump, not a walk, and charging it against a budget would let a transcript
+  // that auto-grows upward throttle a jump the user made once.
+  const isPagingRead =
+    (cursor !== null && cursor.length > 0) ||
+    (afterParam !== null && afterParam.length > 0);
+  if (isHistoryWalk || isPagingRead) {
+    const rate = await consumeRateLimit({
+      bucket: isHistoryWalk ? "messages-history-walk" : "messages-page",
+      identifier: user.id,
+      limit: isHistoryWalk ? HISTORY_WALK_LIMIT : CURSOR_PAGE_LIMIT,
+      windowSeconds: isHistoryWalk
+        ? HISTORY_WALK_WINDOW_SECONDS
+        : CURSOR_PAGE_WINDOW_SECONDS,
+    });
+    if (!rate.allowed) {
+      return Response.json(
+        {
+          error: "Too many history requests, try again shortly",
+          retryAfterSeconds: rate.retryAfterSeconds,
+        },
+        { status: 429 }
+      );
+    }
+  }
+
+  const visible = visibleToUser(user.id);
+
+  // Anchored window: a page centered on one message, so a search hit or a
+  // permalink can open the transcript at that point without walking every page
+  // between the newest message and the target. Two index range scans (older and
+  // newer of the anchor) rather than one OFFSET, so cost is O(limit) no matter
+  // how deep in history the anchor sits.
+  if (aroundParam.length > 0) {
+    const olderCount = Math.ceil(pageSize / 2);
+    const newerCount = pageSize - olderCount;
+    const [older, newer] = await Promise.all([
+      getMessageDataQuery(prisma.orm)
+        .where((message) =>
+          and(
+            message.conversationId.eq(id),
+            message.id.lte(aroundParam),
+            visible(message)
+          )
+        )
+        .orderBy((message) => message.id.desc())
+        .limit(olderCount + 1)
+        .all(),
+      getMessageDataQuery(prisma.orm)
+        .where((message) =>
+          and(
+            message.conversationId.eq(id),
+            message.id.gt(aroundParam),
+            visible(message)
+          )
+        )
+        .orderBy((message) => message.id.asc())
+        .limit(newerCount + 1)
+        .all(),
+    ]);
+    // One extra row on either side is the "is there more" probe, same as the
+    // default read's take(pageSize + 1).
+    const hasOlder = older.length > olderCount;
+    const hasNewer = newer.length > newerCount;
+    const olderPage = hasOlder ? older.slice(0, olderCount) : older;
+    const newerPage = hasNewer ? newer.slice(0, newerCount) : newer;
+    // Oldest-first, the one order the transcript renders in: the older half read
+    // newest-first is reversed, then the newer half appends in ascending order.
+    const messages = [...olderPage.toReversed(), ...newerPage].map(mapMessage);
+    const oldest = messages.at(0);
+    const newest = messages.at(-1);
+    const response: MessagePage = {
+      anchorIndex: messages.findIndex((message) => message.id === aroundParam),
+      messages,
+      nextCursor: hasNewer && newest ? newest.id : null,
+      // The older page includes the anchor itself (lte), so the cursor is the
+      // oldest message actually returned.
+      previousCursor: hasOlder && oldest ? oldest.id : null,
+    };
+    return Response.json(response);
+  }
+
+  // Newer paging. Only reachable after an anchored read, when the transcript
+  // sits in the middle of history and the user scrolls upward past the window.
+  if (afterParam.length > 0) {
+    const rows = await getMessageDataQuery(prisma.orm)
+      .where((message) =>
+        and(
+          message.conversationId.eq(id),
+          message.id.gt(afterParam),
+          visible(message)
+        )
+      )
+      .orderBy((message) => message.id.asc())
+      .limit(pageSize + 1)
+      .all();
+    const messages = rows.map(mapMessage);
+
+    const hasMore = messages.length > pageSize;
+    const page = hasMore ? messages.slice(0, pageSize) : messages;
+    const oldest = page.at(0);
+    const newest = page.at(-1);
+    const response: MessagePage = {
+      messages: page,
+      // Growing older from here is always possible as long as the window does
+      // not start at the very first message, which the transcript detects by the
+      // page being anchored rather than by probing here.
+      nextCursor: hasMore && newest ? newest.id : null,
+      previousCursor: oldest ? oldest.id : null,
+    };
+    return Response.json(response);
+  }
 
   // Newest first from the cursor, then reversed so the client gets oldest-first.
   // The cursor is a message id, so ordering by id keeps the cursor and the sort
   // in the same total order - sorting by createdAt with an id cursor would skip
   // or duplicate messages on long threads where many share a timestamp.
   // (Prisma cuids are time-ordered, so id desc is still newest-first.)
+  // "Delete for me": a hidden message never appears in this user's thread,
+  // even on a cursor page that predates the hide.
   const messageQuery = getMessageDataQuery(prisma.orm)
     .where((message) =>
       and(
         message.conversationId.eq(id),
-        ...(cursor ? [message.id.lt(cursor)] : [])
+        ...(cursor ? [message.id.lt(cursor)] : []),
+        visible(message)
       )
     )
     .orderBy((message) => message.id.desc())
-    .limit(PAGE_SIZE + 1);
+    .limit(pageSize + 1);
   const messageRows = await messageQuery.all();
   const messages = messageRows.map(mapMessage);
 
-  const hasMore = messages.length > PAGE_SIZE;
-  const page = hasMore ? messages.slice(0, PAGE_SIZE) : messages;
+  const hasMore = messages.length > pageSize;
+  const page = hasMore ? messages.slice(0, pageSize) : messages;
   const lastMessage = page.at(-1);
   const previousCursor = hasMore && lastMessage ? lastMessage.id : null;
 
@@ -175,6 +370,12 @@ export async function POST(
     typeof body.ratchetIndex !== "number"
   ) {
     return Response.json({ error: "Invalid message payload" }, { status: 400 });
+  }
+  // Bound the row size on create too, not just on edit. Without it an
+  // authenticated sender can insert arbitrarily large ciphertext and bloat
+  // every thread/list fetch that carries the row.
+  if (body.ciphertext.length > MAX_MESSAGE_CIPHERTEXT_LENGTH) {
+    return Response.json({ error: "Message is too large" }, { status: 413 });
   }
   // Narrowed consts so the transaction closure below sees definite types
   // (property narrowing does not survive into the arrow function).
@@ -247,9 +448,12 @@ export async function POST(
   }
 
   // The sender always reads their own messages; only the peer accrues unread.
+  // A peer who muted this chat does not: the mute exists precisely so the
+  // badge stays off, and the unread seed excludes muted memberships, so
+  // incrementing here would grow a counter the seed would never justify.
   // Both Redis side effects are best-effort: once the message is committed,
   // a notification failure must not turn a successful send into an error.
-  if (otherMember) {
+  if (otherMember && !otherMember.mutedAt) {
     try {
       await unreadMessageCache.increment(otherMember.userId);
     } catch (error) {
@@ -263,6 +467,23 @@ export async function POST(
     }
   } catch (error) {
     console.error("Failed to publish message created:", error);
+  }
+  // And tell every member's conversation list that this thread moved, so it
+  // reorders and re-reads its preview without waiting for the next poll. Both
+  // members: the thread moves to the top of the RECIPIENT's list, and the sender's
+  // list has to follow in any other tab they have open. Best-effort, like the
+  // publish above.
+  try {
+    await Promise.all(
+      conversation.members.map((member) =>
+        publishMessageActivity(member.userId, {
+          conversationId: id,
+          kind: "message.created",
+        })
+      )
+    );
+  } catch (error) {
+    console.error("Failed to publish message activity:", error);
   }
 
   return Response.json({ message }, { status: 201 });
