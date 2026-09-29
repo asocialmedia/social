@@ -524,8 +524,11 @@ function DetailsHeader({
       />
     );
   } else if (peer.avatarUrl) {
-    // Their own avatar, blown up and blurred, so the header is still theirs. The
-    // scale keeps the blur from showing the transparent edges of a cut-out avatar.
+    // Their own avatar, blurred past recognition into an ambient color field.
+    // A light blur keeps the mascot readable and renders it twice, misaligned --
+    // once sharp in the frame and once sliced across the banner -- which is the
+    // "cutting" this header had before. The scale pushes the blur's softened
+    // edges out of the crop so no light band survives at the banner's edge.
     banner = (
       <Image
         alt=""
@@ -534,8 +537,8 @@ function DetailsHeader({
         sizes="(max-width: 1024px) 100vw, 320px"
         src={getSecureImageUrl(peer.avatarUrl)}
         style={{
-          filter: "blur(10px) brightness(0.75)",
-          transform: "scale(1.15)",
+          filter: "blur(28px) brightness(0.6) saturate(1.15)",
+          transform: "scale(1.75)",
         }}
         unoptimized
       />
@@ -559,17 +562,18 @@ function DetailsHeader({
       <div className="bg-muted/20 relative h-24">
         {banner}
         {/* Fades the banner into the pane's own background, so the crop has no hard
-            bottom edge and the avatar's ring reads as a hole in the image. */}
+            bottom edge. Full-strength at the very bottom, where there is no banner
+            left to show. */}
         <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background))] to-transparent" />
       </div>
 
       <div className="relative -mt-12 flex flex-col items-center px-6 pb-5 text-center">
         <div className="relative">
-          <UserAvatar
-            avatarUrl={peer.avatarUrl}
-            className="ring-4 ring-[hsl(var(--background))]"
-            size={96}
-          />
+          {/* No ring: the avatar sits in the ambient field rather than punching a
+              hole in it. The `avatar-ring` recipe the component carries already
+              gives it its own depth, and a pane-colored frame around it is what
+              read as a cut edge against the banner. */}
+          <UserAvatar avatarUrl={peer.avatarUrl} size={96} />
           {presence ? (
             <span
               className={cn(
