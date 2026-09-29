@@ -43,3 +43,12 @@ concepts/
 .expo/
 re/
 .playwright-mcp/
+
+# Service account credentials. These are real Google/Firebase private keys, not
+# fixtures, and `git add -A` will happily stage one that is sitting in the
+# working tree. GitHub push protection blocks them, but only after they are
+# already in a commit, so ignore them up front. Rotate any key that does get
+# committed.
+*-adminsdk.json
+*service-account*.json
+*serviceAccount*.json
