@@ -1,3 +1,4 @@
+import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -14,7 +15,23 @@ import { getPostPath, getPostUrl } from "@/lib/seo/seo";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/discover" },
-  description: "Discover and connect with amazing people on asocialmedia",
+  description:
+    "Explore asocialmedia. Find people worth following, short-form gusts, trending fleets and tags that match what you actually read, tuned from your own activity.",
+  keywords: [
+    "explore social media",
+    "discover people online",
+    "find social media creators",
+    "trending posts",
+    "social media discovery",
+    "asocialmedia explore",
+  ],
+  openGraph: {
+    description:
+      "People, gusts, trending fleets and tags, tuned from what you read. Open to guests.",
+    siteName: siteConfig.name,
+    title: `Explore — ${siteConfig.name}`,
+    type: "website",
+  },
   title: "Explore",
 };
 

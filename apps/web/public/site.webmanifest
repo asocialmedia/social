@@ -1,7 +1,7 @@
 {
-  "name": "asocialmedia - Modern Social Aggregator",
+  "name": "asocialmedia: The social network that knows you back",
   "short_name": "asocialmedia",
-  "description": "A modern social aggregator combining social media, open-source communities, and content creation",
+  "description": "A social network where the feed learns your taste, Aura records your reputation, and communities are earned rather than spammed. No ads, no accounts required to browse.",
   "start_url": "/",
   "id": "/",
   "display": "standalone",
@@ -10,7 +10,7 @@
   "background_color": "#111111",
   "dir": "ltr",
   "lang": "en",
-  "categories": ["social", "community", "productivity"],
+  "categories": ["social", "community", "news"],
   "icons": [
     {
       "src": "/favicon/android-chrome-192x192.png",

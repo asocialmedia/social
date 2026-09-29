@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "Privacy policy and data handling practices for asocialmedia. Learn about our zero surveillance ad tracking, data minimization, and user data ownership.",
   openGraph: {
     description:
-      "Privacy policy and data handling practices for asocialmedia. Open source, zero surveillance ad tracking, and complete user data ownership.",
+      "No ad tracking, data minimisation, and you keep your copyright. What asocialmedia stores and why.",
     siteName: siteConfig.name,
     title: `Privacy Policy — ${siteConfig.name}`,
     type: "website",

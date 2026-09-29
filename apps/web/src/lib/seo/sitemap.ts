@@ -115,6 +115,7 @@ export function buildSitemapIndexXml(entries: SitemapEntry[]): string {
 // guests to login, so listing them only burns crawl budget.
 const CORE_PATHS = [
   "",
+  "/about",
   "/discover",
   "/gusts",
   "/communities",

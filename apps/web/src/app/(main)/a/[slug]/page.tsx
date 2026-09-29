@@ -57,8 +57,15 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     };
   }
 
-  const title = `a/${community.slug} · ${community.name}`;
-  const description = excerpt(community.description, 160);
+  // "a/<slug>" is the URL, not the search term. Someone looking for this
+  // community searches its name, so lead with the name and let the path live
+  // in the canonical instead. An empty description is worse than a generic
+  // one: it hands the SERP snippet to whatever text sits underneath.
+  const title = `${community.name} — an online community on ${siteConfig.name}`;
+  const communityDescription = excerpt(community.description, 160);
+  const description = communityDescription
+    ? `${communityDescription} Read it as a guest, no account needed.`
+    : `Join ${community.name} on ${siteConfig.name}, the social network that knows you back. Read it as a guest, no account needed.`;
   const url = absoluteUrl(`/a/${community.slug}`);
   // Prefer the community's own mark for the card; fall back to the banner so a
   // community with only one upload still previews an image.
@@ -72,7 +79,11 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   return {
     alternates: { canonical: `/a/${community.slug}` },
     description,
-    keywords: [...(community.topics ?? [])],
+    keywords: [
+      community.name.toLowerCase(),
+      `${community.name} community`,
+      ...(community.topics ?? []),
+    ],
     openGraph: {
       description,
       images: image ? [{ alt: title, url: image }] : [],

@@ -60,7 +60,7 @@ export const metadata: Metadata = {
     description: siteConfig.description,
     images: [
       {
-        alt: siteConfig.name,
+        alt: `${siteConfig.name} — ${siteConfig.brandLine}`,
         height: 630,
         url: siteConfig.ogImage,
         width: 1200,
@@ -68,7 +68,7 @@ export const metadata: Metadata = {
     ],
     locale: siteConfig.locale,
     siteName: siteConfig.name,
-    title: siteConfig.name,
+    title: siteConfig.brandLine,
     type: "website",
     url: siteConfig.url,
   },
@@ -85,7 +85,7 @@ export const metadata: Metadata = {
     index: true,
   },
   title: {
-    default: `${siteConfig.name} — Open Source Social Media Platform`,
+    default: `${siteConfig.name} — ${siteConfig.brandLine}`,
     template: `%s | ${siteConfig.name}`,
   },
   twitter: {
@@ -93,7 +93,7 @@ export const metadata: Metadata = {
     creator: siteConfig.twitterCreator,
     description: siteConfig.description,
     images: [siteConfig.ogImage],
-    title: siteConfig.name,
+    title: siteConfig.brandLine,
   },
   verification: {
     google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
@@ -120,7 +120,7 @@ const websiteJsonLd = {
     {
       "@id": `${siteConfig.url}/#website`,
       "@type": "WebSite",
-      alternateName: ["asocialmedia.cc", "asocial media", "asm"],
+      alternateName: ["asocialmedia.cc", "a social media", "asm"],
       description: siteConfig.description,
       inLanguage: "en",
       name: siteConfig.name,
@@ -132,7 +132,7 @@ const websiteJsonLd = {
     {
       "@id": `${siteConfig.url}/#organization`,
       "@type": "Organization",
-      alternateName: ["asocialmedia.cc", "asocial media", "asm"],
+      alternateName: ["asocialmedia.cc", "a social media", "asm"],
       description: siteConfig.description,
       logo: {
         "@type": "ImageObject",
@@ -144,6 +144,39 @@ const websiteJsonLd = {
         siteConfig.links.twitter,
         "https://przknv.cc",
       ],
+      url: siteConfig.url,
+    },
+    // Declares the product as an application, not a generic website, so search
+    // and answer engines can attach app semantics (screenshots, OS support,
+    // feature list) to the brand entity for brand-name queries.
+    {
+      "@id": `${siteConfig.url}/#app`,
+      "@type": "SoftwareApplication",
+      applicationCategory: "SocialNetworkingApplication",
+      applicationSubCategory: "Social network",
+      description: siteConfig.description,
+      featureList: [
+        "A feed that learns your taste and gets more useful the longer you stay",
+        "Aura, a reputation score that tracks real contribution instead of likes",
+        "For you, Latest, Trending and Following feeds, all switchable at any time",
+        "Gusts, a full-screen short-form video feed",
+        "Communities you have to earn standing to found",
+        "Encrypted direct messages with read receipts",
+        "Browse the whole platform as a guest, with no account",
+        "No advertising and no selling of user attention",
+      ],
+      inLanguage: "en",
+      isAccessibleForFree: true,
+      name: siteConfig.name,
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+      },
+      operatingSystem: "Web, Android",
+      publisher: {
+        "@id": `${siteConfig.url}/#organization`,
+      },
       url: siteConfig.url,
     },
   ],

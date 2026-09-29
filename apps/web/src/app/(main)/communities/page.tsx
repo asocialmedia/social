@@ -9,18 +9,21 @@ import ClientComm from "./client-communities";
 export const metadata: Metadata = {
   alternates: { canonical: "/communities" },
   description:
-    "Discover communities on asocialmedia. Find your people, join topic-scoped spaces, and post about what you love.",
+    "Browse online communities on asocialmedia. Every community has to be earned into existence, each one sets its own rules, and you can read all of them as a guest.",
   keywords: [
     "asocialmedia communities",
     "online communities",
+    "topic communities",
     "forums",
     "discussion",
+    "find a community",
+    "community social network",
   ],
   openGraph: {
     description:
-      "Discover communities on asocialmedia. Find your people and join the conversation.",
+      "Communities you have to earn your way into. Each sets its own rules. Readable as a guest.",
     siteName: siteConfig.name,
-    title: "Communities",
+    title: `Communities — ${siteConfig.name}`,
     type: "website",
   },
   title: "Communities",

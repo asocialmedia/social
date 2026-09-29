@@ -9,7 +9,8 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import ClientHackerNews from "./client-hackernews";
 
 export const metadata = {
-  description: "Explore the latest stories from HackerNews",
+  description:
+    "Read HackerNews inside asocialmedia and reshare any story as a fleet to your followers. Sort by score, time or comments, filter News, Jobs, Show HN and Ask HN, and bookmark what you find.",
   title: "HackerNews",
 };
 

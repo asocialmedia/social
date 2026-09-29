@@ -3,6 +3,7 @@ import Link from "next/link";
 // The colophon at the foot of a right rail. Shared by the home rail and the
 // community rail so the two cannot drift apart.
 const FOOTER_LINKS = [
+  { href: "/about", label: "About" },
   { href: "/toc", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
   { href: "https://x.com/parazeeknova", label: "Twitter" },

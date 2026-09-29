@@ -1,5 +1,6 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -17,26 +18,33 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   description:
-    "asocialmedia (asocialmedia.cc) is an open source social media platform. Browse the global feed, join communities, share posts, and follow conversations without an account.",
+    "asocialmedia is the social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn. No ads, and nothing sold to anyone.",
   keywords: [
     "asocialmedia",
     "asocialmedia.cc",
     "asocial media",
-    "global feed",
-    "trending",
-    "social feed",
-    "open source social media",
-    "developer community",
+    "social network",
+    "social media",
+    "personalized social feed",
+    "social feed that learns you",
+    "reputation system social media",
+    "aura social media",
+    "social media without ads",
+    "social media alternative",
+    "guest browsing social media",
   ],
   openGraph: {
     description:
-      "Browse the global feed on asocialmedia — a cozy, open source social platform. See what's trending and join the conversation.",
+      "A feed that learns your taste. Aura that remembers what you contribute. Communities you have to earn. asocialmedia is the social network that knows you back.",
     siteName: siteConfig.name,
-    title: `${siteConfig.name} — Open Source Social Media Platform`,
+    title: siteConfig.brandLine,
     type: "website",
     url: siteConfig.url,
   },
-  title: `${siteConfig.name} — Open Source Social Media Platform`,
+  // `absolute`, not a string: the root layout appends its `%s | name` template
+  // to every child title, which would render the brand twice on the homepage
+  // ("asocialmedia — The social network that knows you back. | asocialmedia").
+  title: { absolute: `${siteConfig.name} — ${siteConfig.brandLine}` },
 };
 
 // The page shell is synchronous so the router can stream it immediately; the
@@ -91,15 +99,17 @@ async function HomeContent() {
     <>
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
       <ClientHome userData={userData} />
-      {/* Visually hidden but present in raw HTML for crawlers / no-JS.
-          Contains brand H1 and canonical crawl links. */}
+      {/* Visually hidden but present in raw HTML for crawlers / no-JS. The
+          homepage is the live feed, so the prose that describes the product
+          lives on /about, not stacked under the timeline. */}
       <div className="sr-only" aria-hidden={false}>
-        <h1>asocialmedia — Open Source Social Media Platform</h1>
+        <h1>{siteConfig.brandLine}</h1>
         <p>
-          Welcome to asocialmedia (asocialmedia.cc). A cozy, open source social
-          platform to share posts, follow communities, and discover discussions.
+          asocialmedia is an open social network where the feed learns your
+          taste, Aura records your reputation, and communities are earned rather
+          than spammed. <Link href="/about">Read what it is.</Link>
         </p>
-        <nav aria-label="Latest eddies">
+        <nav aria-label="Latest fleets">
           <ul>
             {recentPosts.map((post) => (
               <li key={post.id}>
