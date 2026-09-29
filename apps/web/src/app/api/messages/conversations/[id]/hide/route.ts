@@ -131,7 +131,15 @@ export async function POST(
   // someone else already claimed the row.
   // Distinct rows never contend, so these can go in parallel; only a duplicate
   // (messageId, userId) collides, and that one reports itself.
-  const insertedFlags = await Promise.all(
+  //
+  // `allSettled` rather than `all`: each create is its own autocommit
+  // statement, so a sibling that fails part-way leaves the others committed and
+  // durable. Short-circuiting on the first rejection would skip the badge credit
+  // below while those hides stay in the database, which overcounts the badge
+  // until the next reseed. Every outcome is collected first, the credit is
+  // applied for whatever actually landed, and only then is a genuine failure
+  // re-raised.
+  const outcomes = await Promise.allSettled(
     newlyHidden.map(async (row) => {
       try {
         await prisma.orm.public.MessageHiddens.create({
@@ -149,7 +157,10 @@ export async function POST(
   );
   const insertedIds = new Set(
     newlyHidden
-      .filter((_row, index) => insertedFlags[index])
+      .filter(
+        (_row, index) =>
+          outcomes[index]?.status === "fulfilled" && outcomes[index].value
+      )
       .map((row) => row.id)
   );
   const inserted = insertedIds.size;
@@ -165,6 +176,15 @@ export async function POST(
     } catch (error) {
       console.error("Failed to decrement unread count after hide:", error);
     }
+  }
+
+  // Raised only after the credit above, so a partial failure reports honestly to
+  // the caller without leaving the counter stranded above the real count.
+  const failure = outcomes.find(
+    (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected"
+  );
+  if (failure) {
+    throw failure.reason;
   }
 
   return Response.json({ hidden: inserted });

@@ -131,6 +131,29 @@ const GRADLE_RESOLUTION_FAILURE =
   /was not found in any of the following sources|could not resolve (?:plugin artifact|all files|.*artifact)/i;
 const GRADLE_MAX_ATTEMPTS = 3;
 
+// Everything Bun put on the record about a failed command.
+//
+// `error.message` alone is not enough. Bun reports a failed shell as
+// "Failed with exit code 1" and carries the command's own output separately on
+// `stderr`, which is where Gradle writes "* What went wrong: ...". Matching on
+// the message alone therefore never sees a resolution failure, and the retry
+// silently does nothing.
+function gradleFailureText(error: unknown): string {
+  if (typeof error !== "object" || error === null) {
+    return String(error);
+  }
+  const failure = error as {
+    message?: unknown;
+    stderr?: unknown;
+    stdout?: unknown;
+  };
+  return [failure.message, failure.stderr, failure.stdout]
+    .map((part) =>
+      typeof part === "string" || Buffer.isBuffer(part) ? part.toString() : ""
+    )
+    .join("\n");
+}
+
 async function runGradle(args: string[], gradleEnv: NodeJS.ProcessEnv) {
   // Sequential on purpose: each attempt must wait for the previous one to fail
   // before retrying, which is exactly what `no-await-in-loop` discourages.
@@ -141,9 +164,11 @@ async function runGradle(args: string[], gradleEnv: NodeJS.ProcessEnv) {
         .cwd(ANDROID_DIR)
         .env(gradleEnv);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const lastAttempt = attempt >= GRADLE_MAX_ATTEMPTS;
-      if (!GRADLE_RESOLUTION_FAILURE.test(message) || lastAttempt) {
+      if (
+        !GRADLE_RESOLUTION_FAILURE.test(gradleFailureText(error)) ||
+        lastAttempt
+      ) {
         throw error;
       }
       // Gradle caches a failed resolution negatively for the daemon's lifetime,

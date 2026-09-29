@@ -85,6 +85,8 @@ export async function prebuildDmIndexes(
   await client.connect();
   const built: string[] = [];
   const present: string[] = [];
+  const invalidIndexes: string[] = [];
+  let buildFailure: unknown = null;
   try {
     for (const index of INDEXES) {
       // The existence probe has to settle before we decide whether to build.
@@ -114,27 +116,43 @@ export async function prebuildDmIndexes(
         ).toFixed(1)}s`
       );
     }
-    // A CONCURRENTLY build that fails leaves an INVALID index behind. That
-    // index satisfies to_regclass, so the migration's precheck would treat the
-    // work as done and silently skip the rebuild. Catch it here, where it is
-    // still visible and still fixable.
-    const invalid = await client.query<{ indexname: string }>(
-      `SELECT c.relname AS "indexname"
-         FROM pg_index i
-         JOIN pg_class c ON c.oid = i.indexrelid
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE NOT i.indisvalid
-          AND n.nspname = 'public'`
-    );
-    if (invalid.rows.length > 0) {
-      throw new Error(
-        `These indexes failed to build and are INVALID (drop them and re-run): ${invalid.rows
-          .map((row) => row.indexname)
-          .join(", ")}`
-      );
-    }
+  } catch (buildError) {
+    // Report the build failure, but only after the INVALID sweep below, because
+    // a failed CONCURRENTLY build is the thing that leaves an invalid index
+    // behind and that is the more actionable message.
+    buildFailure = buildError;
   } finally {
+    // A CONCURRENTLY build that fails leaves an INVALID index behind, and an
+    // invalid index still satisfies to_regclass. The migration's precheck asks
+    // only whether the name exists, so it would skip the rebuild and the deploy
+    // would finish with an index Postgres will not use. This runs in `finally`
+    // so it also fires when a build threw part-way, which is exactly when the
+    // leftover is most likely.
+    try {
+      const invalid = await client.query<{ indexname: string }>(
+        `SELECT c.relname AS "indexname"
+           FROM pg_index i
+           JOIN pg_class c ON c.oid = i.indexrelid
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE NOT i.indisvalid
+            AND n.nspname = 'public'`
+      );
+      if (invalid.rows.length > 0) {
+        invalidIndexes.push(...invalid.rows.map((row) => row.indexname));
+      }
+    } catch {
+      // The sweep is a diagnostic. If it cannot run, fall through to reporting
+      // whatever the build itself reported rather than masking it.
+    }
     await client.end();
+  }
+  if (invalidIndexes.length > 0) {
+    throw new Error(
+      `These indexes failed to build and are INVALID (drop them and re-run): ${invalidIndexes.join(", ")}`
+    );
+  }
+  if (buildFailure) {
+    throw buildFailure;
   }
   return { built, present };
 }

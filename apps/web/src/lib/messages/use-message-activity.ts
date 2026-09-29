@@ -34,6 +34,61 @@ function openActivityStream(response: Response): ReadableStream<Uint8Array> {
   return response.body;
 }
 
+// What a complete SSE frame asks the client to do. `null` covers the
+// keep-alive comments, which carry nothing to act on.
+export type ActivityFrameAction = "connected" | "activity" | null;
+
+// Reads the `event:` field out of a complete SSE frame.
+//
+// Parses the field rather than scanning the whole frame, so a conversation whose
+// data happens to contain the text "event: connected" is not mistaken for a
+// confirmation. Note this must stay a substring test on the frame string: the
+// obvious "tidier" rewrite is to collect the characters into a Set and test
+// membership, but a Set built from a string holds individual characters, so
+// `has("event: connected")` is permanently false and the stream silently stops
+// doing anything.
+export function activityFrameAction(frame: string): ActivityFrameAction {
+  for (const line of frame.split("\n")) {
+    // A field name runs to the first colon; the value is the rest, trimmed.
+    const separator = line.indexOf(":");
+    if (separator === -1 || line.slice(0, separator).trim() !== "event") {
+      continue;
+    }
+    switch (line.slice(separator + 1).trim()) {
+      case "connected": {
+        return "connected";
+      }
+      case "message-activity": {
+        return "activity";
+      }
+      default: {
+        return null;
+      }
+    }
+  }
+  // Keep-alive comment: no fields at all.
+  return null;
+}
+
+// Splits a decoded buffer into the frames that have fully arrived, returning
+// them alongside the unconsumed tail. A frame is only complete once its
+// terminating blank line is in the buffer, and a chunk boundary can land
+// anywhere, including between the two newlines.
+export function drainActivityFrames(buffer: string): {
+  frames: string[];
+  rest: string;
+} {
+  const frames: string[] = [];
+  let rest = buffer;
+  let boundary = rest.indexOf("\n\n");
+  while (boundary !== -1) {
+    frames.push(rest.slice(0, boundary));
+    rest = rest.slice(boundary + 2);
+    boundary = rest.indexOf("\n\n");
+  }
+  return { frames, rest };
+}
+
 // Listens for "a message landed in one of your conversations" and calls back.
 //
 // The transcript has its own per-conversation stream (`useMessagesRealtime`); this
@@ -74,7 +129,7 @@ export function useMessageActivity(onActivity: () => void): void {
       // Tracked as a timestamp rather than a boolean flag so the rule itself
       // stays in activityRetryDelay, which is unit tested. Declared out here
       // because the reconnect decision happens after the try block.
-      const connectedAt: number | null = null;
+      let connectedAt: number | null = null;
       try {
         const response = await fetch("/api/messages/events", {
           credentials: "same-origin",
@@ -88,8 +143,6 @@ export function useMessageActivity(onActivity: () => void): void {
         // a successful response whose body closes immediately without ever
         // sending `connected`. Resetting here would treat that as a healthy
         // connection and reconnect once a second for the whole outage.
-        let _confirmed = false;
-
         const reader = body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -100,22 +153,17 @@ export function useMessageActivity(onActivity: () => void): void {
             break;
           }
           buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const frame = new Set(buffer.slice(0, boundary));
-            buffer = buffer.slice(boundary + 2);
-            if (frame.has("event: connected")) {
-              // The subscription is genuinely live, so start over from the
-              // top of the backoff ladder for whatever drops next.
-              _confirmed = true;
-              retryDelay = INITIAL_RETRY_MS;
-            }
-            // The keep-alive comments carry nothing to act on; only the activity
-            // frame re-reads the list.
-            if (frame.has("event: message-activity")) {
+          const { frames, rest } = drainActivityFrames(buffer);
+          buffer = rest;
+          for (const frame of frames) {
+            const action = activityFrameAction(frame);
+            if (action === "connected") {
+              // The subscription is genuinely live, so a confirmed connection
+              // puts the ladder back at the floor for whatever drops next.
+              connectedAt = Date.now();
+            } else if (action === "activity") {
               onActivityRef.current();
             }
-            boundary = buffer.indexOf("\n\n");
           }
         }
       } catch {

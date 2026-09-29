@@ -15,6 +15,9 @@ const mockDecrement = mock((_userId: string, _count: number) => 0);
 // Set to make the next insert lose a race, the way it would if a concurrent
 // request had already inserted the same (messageId, userId) pair.
 let loseNextInsert = false;
+// A non-duplicate failure: the insert neither wins nor loses a race, it just
+// breaks, while its siblings in the same batch stay committed.
+let failNextInsert = false;
 
 const READ_AT = new Date("2026-01-01T00:00:00.000Z");
 
@@ -53,6 +56,10 @@ mock.module("@asm/db", () => ({
           // The route inserts one row at a time so it can tell which inserts
           // actually won, and credits the badge from those alone.
           create: (row: { messageId: string; userId: string }) => {
+            if (failNextInsert) {
+              failNextInsert = false;
+              throw new Error("connection terminated unexpectedly");
+            }
             if (loseNextInsert) {
               loseNextInsert = false;
               throw Object.assign(new Error("duplicate key"), {
@@ -143,6 +150,7 @@ describe("POST /api/messages/conversations/:id/hide", () => {
     mockHiddenRows.mockReset();
     mockHiddenRows.mockImplementation(() => []);
     mockCreateAndCount.mockReset();
+    failNextInsert = false;
     mockCreateAndCount.mockImplementation((rows: unknown) => rows.length);
     lastMessageQueryIds = [];
     _lastHiddenQueryIds = [];
@@ -329,5 +337,67 @@ describe("POST /api/messages/conversations/:id/hide", () => {
     const res = await POST(hideRequest({ messageIds: ["ghost"] }), params);
     expect(await res.json()).toEqual({ hidden: 0 });
     expect(mockCreateAndCount).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/messages/conversations/:id/hide partial failure", () => {
+  // These are module-level mocks shared with the suite above, so reset them
+  // here rather than inheriting the previous test's calls.
+  beforeEach(() => {
+    mockDecrement.mockReset();
+    mockDecrement.mockImplementation(() => Promise.resolve());
+    mockCreateAndCount.mockReset();
+    mockCreateAndCount.mockImplementation((rows: unknown) =>
+      Array.isArray(rows) ? rows.length : 0
+    );
+    failNextInsert = false;
+    loseNextInsert = false;
+  });
+
+  test("credits the rows that committed before reporting the failure", () => {
+    // Each insert is its own autocommit statement, so when one breaks the others
+    // are already durable in the database. Bailing out on the first rejection
+    // would skip the badge credit for those, leaving the counter counting
+    // messages that are no longer unread.
+    mockMessageRows.mockReturnValueOnce([
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m1",
+        senderId: "user2",
+      },
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m2",
+        senderId: "user2",
+      },
+    ]);
+    failNextInsert = true;
+    // The request still reports the failure, because one hide genuinely failed.
+    // A throw here is what Next renders as a 500.
+    expect(
+      POST(hideRequest({ messageIds: ["m1", "m2"] }), params)
+    ).rejects.toThrow("connection terminated unexpectedly");
+    // ...but the row that did commit is credited, or the badge overcounts.
+    expect(mockDecrement).toHaveBeenCalledTimes(1);
+    expect(mockDecrement).toHaveBeenCalledWith("user1", 1);
+  });
+
+  test("credits nothing when the only failure happened before any commit", () => {
+    // Guard against over-crediting: only rows that actually landed count.
+    mockMessageRows.mockReturnValueOnce([
+      {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        deletedAt: null,
+        id: "m1",
+        senderId: "user2",
+      },
+    ]);
+    failNextInsert = true;
+    expect(POST(hideRequest({ messageIds: ["m1"] }), params)).rejects.toThrow(
+      "connection terminated unexpectedly"
+    );
+    expect(mockDecrement).not.toHaveBeenCalled();
   });
 });
