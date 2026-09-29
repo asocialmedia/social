@@ -335,6 +335,7 @@ jobs:
               context,
               core,
               prNumber: Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}'),
+              hasAppChanges: '${{ needs.determine-build-matrix.outputs.has-app-changes }}',
             })
 
       - name: Print Prisma sync context

@@ -32,6 +32,7 @@ module.exports = async function resolvePrismaSync({
   context,
   core,
   prNumber,
+  hasAppChanges = "false",
 }) {
   const { owner, repo } = context.repo;
   const { files: changedFiles, truncated } = await selectChangedFiles({
@@ -44,9 +45,21 @@ module.exports = async function resolvePrismaSync({
 
   const relevant = changedFiles.filter(isPrismaSyncFile);
 
+  // Deploying an app is itself a reason to sync, even when the PR touched no
+  // Prisma file.
+  //
+  // This gate used to key only on changed files, so any merge that shipped app
+  // code without touching packages/db skipped the sync entirely. That is how
+  // code querying message_conversation_keys.version reached production while
+  // the database was still one migration behind: the DM merge failed its sync,
+  // and the next apps-only merge sailed through on a schema that had never been
+  // advanced. A stale schema is a property of the database, not of the diff, so
+  // the deploy itself has to be what triggers the check.
+  const appWillDeploy = String(hasAppChanges) === "true";
+
   // A capped file list could have hidden a schema change, so treat truncation as
   // "needs syncing" rather than skipping it.
-  const shouldRun = truncated || relevant.length > 0;
+  const shouldRun = truncated || appWillDeploy || relevant.length > 0;
   if (truncated) {
     core.warning(
       `Changed-file list was truncated at ${changedFiles.length}; running Prisma sync.`
@@ -56,7 +69,7 @@ module.exports = async function resolvePrismaSync({
   core.setOutput("should-run", shouldRun ? "true" : "false");
   core.setOutput("needed-files", relevant.join(", "));
   core.info(
-    `Prisma sync ${shouldRun ? "needed" : "skipped"}. Changed files: ${changedFiles.join(", ")}`
+    `Prisma sync ${shouldRun ? "needed" : "skipped"} (app deploy: ${appWillDeploy}). Changed files: ${changedFiles.join(", ")}`
   );
 };
 
