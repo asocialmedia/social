@@ -122,15 +122,20 @@ export async function fetchFeedHead(
  * answers itself from one row, and the full page is only worth fetching once
  * that row says something arrived.
  *
- * Only the variants whose route honours `take` can be asked for a single row;
- * the others fall back to the page, which is the behaviour this replaces.
+ * Only the variants that BOTH honour `take` AND sort newest-first can be asked
+ * for a single row; the rest fall back to the page, which is the behaviour this
+ * replaces. `feedHeadIdIsChangeSignal` is the test, and the probe must honour
+ * it: in a ranked feed the newest row is not the row a new post arrives in, so
+ * "same top id" does not mean "nothing new".
  */
 export async function fetchFeedHeadId(
   variant: FeedVariant,
   options: ApiCallOptions
 ): Promise<string | null> {
   const endpoint = FEED_ENDPOINTS[variant];
-  const path = HEAD_ID_VARIANTS.has(variant) ? `${endpoint}?take=1` : endpoint;
+  const path = feedHeadIdIsChangeSignal(variant)
+    ? `${endpoint}?take=1`
+    : endpoint;
   const response = await callFeedApi(path, options);
   if (!response.ok) {
     throw new FeedApiError(
@@ -145,8 +150,27 @@ export async function fetchFeedHeadId(
 // against the web app's feed routes, which own the query.
 const HEAD_ID_VARIANTS: ReadonlySet<FeedVariant> = new Set<FeedVariant>([
   "latest",
-  "personalized",
 ]);
+
+// Feeds ordered by score rather than by recency. A post published a second ago
+// lands wherever its score puts it, so the top row can sit unchanged while
+// something new appears eight rows down. Both halves of the one-row probe - "is
+// the newest id one I have not seen?" and "stop at the first id I know" - are
+// only true of a recency-ordered feed.
+const RANKED_VARIANTS: ReadonlySet<FeedVariant> = new Set<FeedVariant>([
+  "personalized",
+  "trending",
+]);
+
+/** True when the top row of this feed reliably changes the moment a post arrives. */
+export function feedHeadIdIsChangeSignal(variant: FeedVariant): boolean {
+  return HEAD_ID_VARIANTS.has(variant);
+}
+
+/** True when the head page is ordered by score, so it must be diffed as a set. */
+export function isRankedFeed(variant: FeedVariant): boolean {
+  return RANKED_VARIANTS.has(variant);
+}
 
 export interface VoteInfo {
   aura: number;

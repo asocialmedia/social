@@ -1055,16 +1055,29 @@ export function ProfileFeed({
 
   const handleScrollEndDrag = useCallback(() => pull.onScrollEndDrag(), [pull]);
 
+  // The row carries its own `grid` flag, because "one cell" means two different
+  // things: a whole row on a single-column tab (rendered bare, which is what
+  // gives those tabs their exact previous layout) and the trailing remainder of
+  // a two-up grid.
+  //
+  // That trailing tile is padded with an empty half-width cell rather than
+  // rendered alone. Both cells are flex: 1, so a lone tile in a row by itself
+  // grows to the full list width - which is the bug - while a tile sharing the
+  // row with an empty sibling lands on exactly the same (width - gap) / 2 a
+  // paired row gives its two tiles, with no separate half-width rule to keep in
+  // step with the row gap.
   const renderItem = useCallback(
     ({ item }: { item: ProfileFeedRow }) => {
       const [first, second] = item.cells;
-      if (!second) {
+      if (!item.grid) {
         return renderCell(first);
       }
       return (
         <View style={rowStyle}>
           <View style={styles.gridCell}>{renderCell(first)}</View>
-          <View style={styles.gridCell}>{renderCell(second)}</View>
+          <View style={styles.gridCell}>
+            {second ? renderCell(second) : null}
+          </View>
         </View>
       );
     },

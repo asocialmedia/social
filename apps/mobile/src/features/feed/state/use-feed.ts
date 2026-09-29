@@ -16,11 +16,18 @@ import { createExpoPoller } from "@/lib/expo-poller";
 import { logWarn } from "@/lib/telemetry";
 
 import type { FeedVariant } from "../lib/feed-api";
-import { fetchFeedHead, fetchFeedHeadId, fetchFeedPage } from "../lib/feed-api";
+import {
+  feedHeadIdIsChangeSignal,
+  fetchFeedHead,
+  fetchFeedHeadId,
+  fetchFeedPage,
+  isRankedFeed,
+} from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
 import {
   filterFeedPosts,
   findUnseenItems,
+  findUnseenRankedItems,
   normalizePostsData,
   sortPostsNewest,
 } from "../lib/feed-types";
@@ -120,18 +127,26 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
           if (known.size === 0) {
             return;
           }
-          // Cheap first: one row answers "did anything arrive?". The full head
-          // page - twenty viewer-resolved posts plus a view-count read - is only
-          // fetched once the newest id is one the reader has not seen, which for
-          // an idle screen is almost never.
-          const headId = await fetchFeedHeadId(variant, options);
-          if (cancelled || !headId || known.has(headId)) {
-            return;
+          // Cheap first, and only where it is sound: one row answers "did
+          // anything arrive?" on a recency-ordered feed, where a post published
+          // now is always the top row. The full head page - twenty
+          // viewer-resolved posts plus a view-count read - is only fetched once
+          // that row says something new, which for an idle screen is almost
+          // never. A ranked feed skips the shortcut and pays for the page: its
+          // new post is not obliged to land at the top, so "same top id" there
+          // means nothing and the page has to be diffed as a whole.
+          if (feedHeadIdIsChangeSignal(variant)) {
+            const headId = await fetchFeedHeadId(variant, options);
+            if (cancelled || !headId || known.has(headId)) {
+              return;
+            }
           }
           const fresh = normalizePostsData(
             await fetchFeedHead(variant, options)
           );
-          const unseen = findUnseenItems(fresh, known);
+          const unseen = isRankedFeed(variant)
+            ? findUnseenRankedItems(fresh, known)
+            : findUnseenItems(fresh, known);
           if (!cancelled && unseen.length > 0) {
             setNewItems(unseen);
           }

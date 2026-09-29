@@ -4,21 +4,21 @@ import { connection } from "next/server";
 import { cache } from "react";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
+import {
+  hasBearerToken,
+  hasSessionCookie,
+} from "@/lib/auth/session-credentials";
 
 export type SessionResponse = { session: Session; user: User } | null;
 
-// Better Auth session cookies always contain "session_token=". Native or API
-// requests may also present an "Authorization: Bearer <token>" header.
-export function hasSessionCookie(cookie: string): boolean {
-  return cookie.includes("session_token=");
-}
-
-export function hasBearerToken(authorization: string): boolean {
-  return (
-    authorization.toLowerCase().startsWith("bearer ") &&
-    authorization.slice(7).trim().length > 0
-  );
-}
+// Re-exported from the shared predicate module so callers keep one import site.
+// Two definitions of "is this a session credential" would eventually disagree
+// about what counts, and the proxy asks the same question without a request
+// context to read headers from.
+export {
+  hasBearerToken,
+  hasSessionCookie,
+} from "@/lib/auth/session-credentials";
 
 export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
   const hdrs = await nextHeaders();

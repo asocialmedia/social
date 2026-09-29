@@ -51,6 +51,19 @@ describe("chunkFeedRows", () => {
     expect(rows[2]?.cells).toHaveLength(1);
   });
 
+  test("marks a lone grid cell as a grid row, not a full-width single row", () => {
+    // The cell count cannot say which layout a row wants: one cell is a whole
+    // row on a single-column tab, but the trailing remainder of a grid, and the
+    // renderer has to wrap the latter in the two-up row container.
+    const grid = chunkFeedRows(items(5), true);
+    expect(grid[2]?.grid).toBe(true);
+    expect(chunkFeedRows(items(1), true)[0]?.grid).toBe(true);
+    const single = chunkFeedRows(items(3), false);
+    for (const row of single) {
+      expect(row.grid).toBe(false);
+    }
+  });
+
   test("handles empty and single-item input without emitting an empty row", () => {
     expect(chunkFeedRows([], true)).toEqual([]);
     expect(chunkFeedRows([], false)).toEqual([]);

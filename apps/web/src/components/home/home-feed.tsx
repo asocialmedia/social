@@ -59,6 +59,28 @@ function flattenUniquePosts(
   return [...new Map(list.map((post) => [post.id, post])).values()];
 }
 
+// Only the chronological feed orders by recency, and only there is the top row
+// a reliable "did anything arrive?" signal: a post published a second ago is
+// always the top row. A RANKED feed (for-you, trending) can hold the exact same
+// top row while a new post lands at position eight, so asking it for one row -
+// and then treating "same top id" as "nothing new" - would hide the arrival the
+// probe exists to catch. Ranked feeds probe the full head page and diff it as a
+// set instead; the one-row shortcut stays a latest-feed optimization.
+//
+// Exported (like HOME_FEED_QUERY_BEHAVIOR) so the test can pin the rule rather
+// than a comment.
+export function probeOrdersNewestFirst(
+  variant: HomeFeedProps["variant"]
+): boolean {
+  return variant === "latest";
+}
+
+export function feedIsRanked(variant: HomeFeedProps["variant"]): boolean {
+  return (
+    variant === "personalized" || variant === "global" || variant === "trending"
+  );
+}
+
 export default function HomeFeed({
   variant = "personalized",
   excludePostId,
@@ -77,8 +99,8 @@ export default function HomeFeed({
     feedKey = "latest";
     endpoint = "/api/posts/latest";
   }
-  // Only these two routes honour ?take= and can answer the probe with one row.
-  const probeSupportsSingleRow = isLatest || isPersonalized;
+  const isRankedFeed = feedIsRanked(variant);
+  const probeSupportsSingleRow = probeOrdersNewestFirst(variant);
   const queryKey = useMemo(
     () => ["post-feed", feedKey, user?.id ?? "guest"],
     [feedKey, user?.id]
@@ -198,11 +220,14 @@ export default function HomeFeed({
   const { clearNewItems, newItems: newPosts } = useNewContentProbe({
     enabled: !excludePostId && !communitySlug,
     fetchHead: async () => {
-      // Cheap first: one row answers "did anything arrive?". The full head page -
-      // twenty viewer-resolved posts, their vote and bookmark joins, and a view
-      // count read for all twenty - is only worth fetching once that row says
-      // something new, which on an idle screen is almost never. Same badge, same
-      // merge, a fraction of the work per poll.
+      // Cheap first, and only where it is sound: one row answers "did anything
+      // arrive?" on a recency-ordered feed. The full head page - twenty
+      // viewer-resolved posts, their vote and bookmark joins, and a view count
+      // read for all twenty - is only worth fetching once that row says
+      // something new, which on an idle screen is almost never. Same badge,
+      // same merge, a fraction of the work per poll. A ranked feed skips the
+      // shortcut and pays for the page, because its new post is not obliged to
+      // be sitting at the top.
       if (probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
           .get(endpoint, { searchParams: { take: 1 } })
@@ -214,6 +239,7 @@ export default function HomeFeed({
       const fresh = await kyInstance.get(endpoint).json<PostsPage>();
       return fresh.posts;
     },
+    order: isRankedFeed ? "ranked" : "newest-first",
     visible: globalPosts,
   });
 

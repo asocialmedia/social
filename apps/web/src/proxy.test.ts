@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import * as actualDb from "@asm/db";
 import { NextRequest } from "next/server";
@@ -253,6 +253,58 @@ describe("install-token gate", () => {
   const SECRET = "unit-test-install-secret";
   const CHANGE_API = "https://asocialmedia.cc/api/some/mutation";
 
+  // The only session token the stand-in auth service below resolves. Everything
+  // else is exactly as a script would send it: right shape, no session behind
+  // it.
+  const REAL_SESSION = "real-session-token";
+  const realFetch = globalThis.fetch;
+
+  // The proxy's gate asks the auth service whether a presented credential
+  // resolves to a live session. Stubbing the network rather than the module
+  // keeps the real resolution in play, so these tests exercise the actual
+  // boundary instead of a stub of it - and module mocks leak across test files
+  // in this runner.
+  function stubAuthService(): void {
+    globalThis.fetch = ((
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ): Promise<Response> => {
+      if (!String(input).includes("/api/auth/get-session")) {
+        return realFetch(input, init);
+      }
+      const headers = new Headers(init?.headers);
+      return Promise.resolve(
+        authServiceResponse(
+          headers.get("authorization") ?? "",
+          headers.get("cookie") ?? ""
+        )
+      );
+    }) as typeof fetch;
+  }
+
+  function authServiceResponse(
+    authorization: string,
+    cookie: string
+  ): Response {
+    const bearer = authorization.replace(/^Bearer\s+/i, "");
+    const cookieToken =
+      /(?:^|;\s*)(?:__Secure-)?(?:better-auth\.)?session_token=(?<token>[^;]+)/.exec(
+        cookie
+      )?.groups?.token;
+    if (bearer !== REAL_SESSION && cookieToken !== REAL_SESSION) {
+      return Response.json(null, { status: 200 });
+    }
+    return Response.json({ session: { id: "s1" }, user: { id: "u1" } });
+  }
+
+  beforeEach(() => {
+    stubAuthService();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
   async function withSecret<T>(run: () => Promise<T>): Promise<T> {
     const original = process.env.MOBILE_INSTALL_SECRET;
     process.env.MOBILE_INSTALL_SECRET = SECRET;
@@ -438,13 +490,52 @@ describe("install-token gate", () => {
     });
   });
 
-  test("allows native mutations that carry a session cookie", async () => {
+  test("blocks a forged bearer value, which is only the SHAPE of a credential", async () => {
     await withSecret(async () => {
+      // The regression this pins: the gate used to read the shape of the
+      // credential rather than proving it, so `Bearer x` was a universal key
+      // into every non-exempt mutation - including the guest branch of
+      // /api/search POST, which writes to the shared suggestion cache.
+      const res = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/search",
+          {
+            authorization: "Bearer x",
+            host: "asocialmedia.cc",
+          },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "install-token-required" });
+    });
+  });
+
+  test("blocks a fabricated session cookie", async () => {
+    await withSecret(async () => {
+      const res = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/search",
+          {
+            cookie: "better-auth.session_token=not-a-real-session",
+            host: "asocialmedia.cc",
+          },
+          "POST"
+        )
+      );
+      expect(res.status).toBe(403);
+    });
+  });
+
+  test("allows a mutation that presents a real session", async () => {
+    await withSecret(async () => {
+      // The auth service is the only thing that can answer this, so the test
+      // stands one in: a resolved session is the whole point of the exemption.
       const res = await proxy(
         makeRequest(
           CHANGE_API,
           {
-            cookie: "better-auth.session_token=test-session-token-xyz",
+            authorization: "Bearer real-session-token",
             host: "asocialmedia.cc",
           },
           "POST"
@@ -454,13 +545,13 @@ describe("install-token gate", () => {
     });
   });
 
-  test("allows native mutations that carry a Bearer authorization token", async () => {
+  test("allows a mutation that presents both a real session and no token", async () => {
     await withSecret(async () => {
       const res = await proxy(
         makeRequest(
           CHANGE_API,
           {
-            authorization: "Bearer test-session-token-xyz",
+            cookie: "better-auth.session_token=real-session-token",
             host: "asocialmedia.cc",
           },
           "POST"

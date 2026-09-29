@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { fetchFeedHead, fetchFeedHeadId } from "./feed-api";
+import {
+  feedHeadIdIsChangeSignal,
+  fetchFeedHead,
+  fetchFeedHeadId,
+  isRankedFeed,
+} from "./feed-api";
 
 // The new-content probe runs every 45 seconds per open client, so what it costs
 // when nothing has happened is the whole point of these: a page of twenty
@@ -60,6 +65,24 @@ describe("fetchFeedHeadId", () => {
       "https://api.test/api/posts/trending",
       "https://api.test/api/posts/following",
     ]);
+  });
+
+  test("does not take the one-row shortcut on a ranked feed", async () => {
+    // /api/posts/for-you DOES read ?take=, but it orders by score: a post that
+    // arrives now can land eighth, leaving the top row untouched. Asking for
+    // one row there would make the probe report "nothing new" for exactly the
+    // arrival it exists to catch.
+    const { baseFetch, calls } = recordingFetch({ posts: [{ id: "p-1" }] });
+
+    await fetchFeedHeadId("personalized", { ...OPTIONS, baseFetch });
+
+    expect(calls[0]).toBe("https://api.test/api/posts/for-you");
+    expect(feedHeadIdIsChangeSignal("personalized")).toBe(false);
+    expect(feedHeadIdIsChangeSignal("latest")).toBe(true);
+    expect(isRankedFeed("personalized")).toBe(true);
+    expect(isRankedFeed("trending")).toBe(true);
+    expect(isRankedFeed("latest")).toBe(false);
+    expect(isRankedFeed("following")).toBe(false);
   });
 
   test("returns null when the viewer can see nothing, which is a real answer", async () => {

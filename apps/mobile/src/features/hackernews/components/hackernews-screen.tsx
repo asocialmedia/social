@@ -45,6 +45,7 @@ import {
   setHnBookmark,
 } from "../lib/hackernews-api";
 import type { HnFilter, HnSort, HnStory } from "../lib/hackernews-api";
+import { createLoadTicket } from "../lib/load-ticket";
 import { HnFeedSkeleton, HnFeedSkeletonCard } from "./hn-feed-skeleton";
 import { HnSearchBar } from "./hn-search-bar";
 import { HnStoryCard, hnItemUrl } from "./hn-story-card";
@@ -130,13 +131,29 @@ export function HackerNewsScreen() {
     []
   );
 
+  // Every load stamps itself with a ticket and only writes back while it is
+  // still the newest. Changing the sort, the type filter or the search while a
+  // request is in flight starts a second load, and the two can settle in either
+  // order - so without this a slow early response lands last and replaces the
+  // list with results for the controls the viewer already moved away from. The
+  // same ticket guards the bookmark read, which is a second await and would
+  // otherwise paint one story set's bookmarks over another. See load-ticket.ts.
+  const loadTicket = useMemo(() => createLoadTicket(), []);
+
   const load = useCallback(
     async (nextPage: number, append: boolean) => {
+      // An append belongs to whatever first page is on screen, so it observes
+      // the current ticket rather than taking a new one: it must not retire the
+      // load it is part of, only go stale when that load is replaced.
+      const isCurrent = loadTicket.current();
       const resolved = await options();
       const result = await fetchHnPage(
         { page: nextPage, search: query, sort, type: filter },
         resolved
       );
+      if (!isCurrent()) {
+        return;
+      }
       setRateLimited(result.rateLimited);
       if (result.rateLimited) {
         return;
@@ -153,18 +170,20 @@ export function HackerNewsScreen() {
       setNow(Date.now());
       setPage(nextPage);
       if (user && next.length > 0) {
-        setBookmarks(
-          await fetchHnBookmarkStates(
-            next.map((story) => story.id),
-            resolved
-          )
+        const states = await fetchHnBookmarkStates(
+          next.map((story) => story.id),
+          resolved
         );
+        if (isCurrent()) {
+          setBookmarks(states);
+        }
       }
     },
-    [filter, options, query, sort, stories, user]
+    [filter, loadTicket, options, query, sort, stories, user]
   );
 
   const fetchFirstPage = useCallback(async () => {
+    const isCurrent = loadTicket.begin();
     setStatus("loading");
     setError(null);
     try {
@@ -173,20 +192,27 @@ export function HackerNewsScreen() {
         { page: 1, search: query, sort, type: filter },
         resolved
       );
+      if (!isCurrent()) {
+        return;
+      }
       setRateLimited(result.rateLimited);
       setStories(result.stories);
       setNow(Date.now());
       setPage(1);
       setStatus("success");
       if (user && result.stories.length > 0) {
-        setBookmarks(
-          await fetchHnBookmarkStates(
-            result.stories.map((story) => story.id),
-            resolved
-          )
+        const states = await fetchHnBookmarkStates(
+          result.stories.map((story) => story.id),
+          resolved
         );
+        if (isCurrent()) {
+          setBookmarks(states);
+        }
       }
     } catch (loadError) {
+      if (!isCurrent()) {
+        return;
+      }
       setError(
         loadError instanceof HnApiError
           ? loadError.message
@@ -194,14 +220,19 @@ export function HackerNewsScreen() {
       );
       setStatus("error");
     }
-  }, [filter, options, query, sort, user]);
+  }, [filter, loadTicket, options, query, sort, user]);
 
   // The first page is the effect: resetting the status before the fetch runs is
-  // the point, and fetchFirstPage does that synchronously before it awaits.
+  // the point, and fetchFirstPage does that synchronously before it awaits. The
+  // cleanup retires the ticket so a load that settles after the screen is gone
+  // writes nothing.
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- see above
     void fetchFirstPage();
-  }, [fetchFirstPage]);
+    return () => {
+      loadTicket.cancel();
+    };
+  }, [fetchFirstPage, loadTicket]);
 
   // The hide-on-scroll signal is module state shared with MobileHeader and the
   // dock, so leaving the page with the bar hidden would hand that state to the

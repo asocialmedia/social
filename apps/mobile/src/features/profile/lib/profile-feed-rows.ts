@@ -14,9 +14,16 @@ export type ProfileFeedItem =
 // keeps one list instance for the whole screen, so the header (the list's
 // ListHeaderComponent) is created once and stays put, and only the rows below it
 // are swapped.
+//
+// `grid` is stamped on the row rather than inferred from the cell count, because
+// "one cell" means two completely different things: a whole row on a
+// single-column tab, and the trailing remainder of a two-up grid. Only the second
+// one must be wrapped in the row container, and getting that backwards is what
+// let a grid's last tile stretch across the full list width.
 export type ProfileFeedRow =
-  | { cells: [ProfileFeedItem]; key: string }
-  | { cells: [ProfileFeedItem, ProfileFeedItem]; key: string };
+  | { cells: [ProfileFeedItem]; grid: false; key: string }
+  | { cells: [ProfileFeedItem]; grid: true; key: string }
+  | { cells: [ProfileFeedItem, ProfileFeedItem]; grid: true; key: string };
 
 // Both grid tabs are two-up, matching web's media-gallery and gusts grid.
 export const GRID_TAB_COLUMNS = 2;
@@ -29,14 +36,18 @@ export function feedItemKey(item: ProfileFeedItem): string {
 }
 
 // Single-column tabs pass straight through; grid tabs are paired up. An odd
-// trailing item still gets a one-cell row so the grid keeps its column width
-// instead of stretching the last tile across the full row.
+// trailing item still gets a one-cell GRID row so the tile keeps its column
+// width instead of stretching across the full row.
 export function chunkFeedRows(
   items: ProfileFeedItem[],
   twoColumns: boolean
 ): ProfileFeedRow[] {
   if (!twoColumns) {
-    return items.map((item) => ({ cells: [item], key: feedItemKey(item) }));
+    return items.map((item) => ({
+      cells: [item],
+      grid: false,
+      key: feedItemKey(item),
+    }));
   }
   const rows: ProfileFeedRow[] = [];
   for (let index = 0; index < items.length; index += GRID_TAB_COLUMNS) {
@@ -45,12 +56,13 @@ export function chunkFeedRows(
     if (first && second) {
       rows.push({
         cells: [first, second],
+        grid: true,
         key: `${feedItemKey(first)}|${feedItemKey(second)}`,
       });
       continue;
     }
     if (first) {
-      rows.push({ cells: [first], key: feedItemKey(first) });
+      rows.push({ cells: [first], grid: true, key: feedItemKey(first) });
     }
   }
   return rows;

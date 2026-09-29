@@ -16,6 +16,7 @@ import {
   enqueueMediaAnalyze,
   enqueueMediaProcess,
   enqueueMediaScan,
+  or,
   prisma,
   toPrismaDateTime,
 } from "@asm/db";
@@ -328,12 +329,21 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   // SCANNING is excluded because processMediaScan only claims QUARANTINED
   // rows - a stuck SCANNING row is recovered when its worker restarts and
   // the claim flips it back through the pipeline.
+  //
+  // Two shapes land here, and both mean the same thing: the row is holding
+  // unscanned bytes and nothing is going to scan them. Either it never went
+  // through the pipeline (pipelineVersion is null), or it DID publish once and
+  // has since lost its published object and been reset to QUARANTINED to
+  // republish - in which case pipelineVersion is set but the published key is
+  // not, and without the second arm such a row would sit in QUARANTINED
+  // forever if its scan job were swallowed. A published row is READY, so
+  // requiring the missing published key keeps every healthy row out.
   const unscanned = await prisma.orm.public.PostMedia.select("id")
     .where((media) =>
       and(
         media.createdAt.lt(cutoffTemporal),
         media.originalKey.like("quarantine/%"),
-        media.pipelineVersion.isNull(),
+        or(media.pipelineVersion.isNull(), media.publishedKey.isNull()),
         media.status.eq("QUARANTINED"),
         media._type.in([...DERIVED_HEAL_TYPES])
       )
@@ -382,19 +392,44 @@ let integrityCursor: null | string = null;
 // between publish and upload, a restored bucket, storage that lost a prefix -
 // is invisible to it and stays broken until a viewer hits a failed read.
 //
-// The repair is a single enqueue: processMedia writes every derivative object
-// to S3 BEFORE persisting its row, and persistMediaDerivatives only skips the
-// redundant row insert, so a re-run re-uploads the bytes that vanished.
-// A missing SOURCE is the one thing nothing can regenerate, so the row is
-// retired with a failureCode instead - the feed then shows a placeholder
-// rather than a player that can never load.
+// Repairs come in three shapes, in decreasing order of what is still on disk:
+//
+//  1. A missing DERIVATIVE is rebuilt by one enqueue: processMedia writes every
+//     derivative object to S3 BEFORE persisting its row, and
+//     persistMediaDerivatives only skips the redundant row insert, so a re-run
+//     re-uploads the bytes that vanished. Same for thumbnailKey, which is
+//     written from the current version's poster key.
+//  2. A missing SOURCE whose quarantine original (originalKey) survived is
+//     rebuilt by handing the row back to the scan stage, which re-verifies and
+//     re-promotes the exact upload out of quarantine. Retiring such a row would
+//     throw away the last copy: quarantine GC deletes originalKey from FAILED
+//     rows once retention passes, so a recoverable storage loss would become
+//     permanent loss of the bytes.
+//  3. A missing source with nothing left anywhere is genuinely unrecoverable,
+//     so the row is retired with a failureCode - the feed then shows a
+//     placeholder rather than a player that can never load.
+//
+// A custom thumbnail is the one object nothing can rebuild: it is a COPY of
+// another row's published original, taken when the author attached it, and the
+// source is not recorded anywhere. Re-running processMedia regenerates the
+// pipeline poster but not the author's cover, so the dangling pointer is
+// cleared instead - the same fallback attachCustomThumbnail performs, which
+// makes the thumbnail URL serve the poster again instead of 404ing forever.
 export async function storageIntegritySweep(): Promise<{
   checked: number;
   healed: number;
+  repointed: number;
+  republished: number;
   retired: number;
 }> {
   if (!workerEnv.BACKFILL_ENABLED) {
-    return { checked: 0, healed: 0, retired: 0 };
+    return {
+      checked: 0,
+      healed: 0,
+      repointed: 0,
+      republished: 0,
+      retired: 0,
+    };
   }
   const cutoff = toPrismaDateTime(
     new Date(Date.now() - STORAGE_INTEGRITY_GRACE_MS)
@@ -422,40 +457,111 @@ export async function storageIntegritySweep(): Promise<{
 
   let checked = 0;
   let healed = 0;
+  let repointed = 0;
+  let republished = 0;
   let retired = 0;
   for (const row of candidates) {
-    const sourceKey = row.publishedKey || row.originalKey || row.key || "";
-    if (!sourceKey) {
+    // Every copy that could still hold the source bytes, split by what losing
+    // it means. served: the object the row streams today (publishedKey, plus
+    // the legacy key column that mirrors the same object). original: the
+    // retained quarantine copy of the exact upload, which outlives the served
+    // one until retention expires and is the ONLY thing a rescan can read.
+    // Losing the served copy is survivable while the original lives; losing
+    // both is not, so the two are never collapsed into one fallback chain.
+    const served = dedupeKeys([row.publishedKey, row.key]);
+    const retained = dedupeKeys([row.originalKey]);
+    if (served.length === 0 && retained.length === 0) {
       continue;
     }
     try {
-      // A missing SOURCE is the one thing nothing can regenerate, so the row is
-      // retired and the feed falls back to a placeholder rather than a player
-      // that can never load. It is also the one destructive action here, so it
-      // needs two definitive NoSuchKey answers: an unreadable storage is
-      // "unknown", not data loss, and must leave the row untouched.
-      const sourceProbe = await probeObject(sourceKey);
-      if (sourceProbe === "unknown") {
+      const probed = new Set<string>();
+      let servedAlive = false;
+      let unproven = false;
+      const goneKeys: string[] = [];
+      for (const key of served) {
+        probed.add(key);
+        const probe = await probeAuthoritative(key);
+        if (probe === "present") {
+          servedAlive = true;
+          break;
+        }
+        if (probe === "unknown") {
+          unproven = true;
+        } else {
+          goneKeys.push(key);
+        }
+      }
+      if (unproven && !servedAlive) {
+        // An unreadable storage is "unknown", not data loss, and must leave the
+        // row untouched.
         console.error(
-          `Storage-integrity could not read ${sourceKey} for ${row.id}; leaving it for the next pass`
+          `Storage-integrity could not read the source for ${row.id}; leaving it for the next pass`
         );
         continue;
       }
-      if (sourceProbe === "absent" && (await confirmMissing(sourceKey))) {
-        await prisma.orm.public.PostMedia.where({ id: row.id }).update({
-          failureCode: "storage-missing",
-          failureDetail: {
-            detail:
-              "source object missing from storage; nothing can regenerate it",
-            key: sourceKey,
-          },
-          status: "FAILED",
+      if (!servedAlive && goneKeys.length > 0) {
+        // The served object is gone. Before writing the row off, look for the
+        // one copy a rescan could still promote: the retained quarantine
+        // original. Retiring here would be the destructive, irreversible choice
+        // - quarantine GC deletes originalKey from FAILED rows once retention
+        // passes, so a recoverable loss would harden into losing the last copy.
+        const [originalKey] = retained;
+        const originalProbe = originalKey
+          ? await probeAuthoritative(originalKey)
+          : "absent";
+        if (originalKey) {
+          probed.add(originalKey);
+        }
+        if (originalProbe === "unknown") {
+          console.error(
+            `Storage-integrity could not read ${originalKey} for ${row.id}; leaving it for the next pass`
+          );
+          continue;
+        }
+        if (originalProbe === "absent") {
+          await prisma.orm.public.PostMedia.where({ id: row.id }).update({
+            failureCode: "storage-missing",
+            failureDetail: {
+              detail:
+                "source object missing from storage; nothing can regenerate it",
+              key: goneKeys.join(", "),
+            },
+            status: "FAILED",
+          });
+          retired += 1;
+          mediaLogger.warn(
+            { key: goneKeys.join(", "), mediaId: row.id },
+            "storage-integrity retired row with no source bytes"
+          );
+          continue;
+        }
+        // Republish rather than retire: put the row back in QUARANTINED with no
+        // published key, which is exactly the state the scan stage is built to
+        // claim, and hand it to the queue. Clearing publishedKey also takes the
+        // row out of quarantine GC's published-rows branch, so the surviving
+        // original cannot be deleted out from under the recovery. The row
+        // leaves this sweep's candidate set with the reset, so a slow queue
+        // cannot spin the recovery, and derivedHealSweep re-enqueues the scan
+        // if the job is swallowed.
+        const reset = await prisma.orm.public.PostMedia.where({
+          id: row.id,
+        }).updateAndCount({
+          failureCode: null,
+          failureDetail: null,
+          key: "",
+          publishedKey: null,
+          status: "QUARANTINED",
         });
-        retired += 1;
-        mediaLogger.warn(
-          { key: sourceKey, mediaId: row.id },
-          "storage-integrity retired row with no source bytes"
-        );
+        if (reset > 0) {
+          await enqueueMediaScan(row.id, {
+            jobIdSuffix: `integrity-republish-${Date.now()}`,
+          });
+          republished += 1;
+          mediaLogger.warn(
+            { gone: goneKeys.join(", "), mediaId: row.id, originalKey },
+            "storage-integrity requeued row to republish from its quarantine original"
+          );
+        }
         continue;
       }
 
@@ -474,7 +580,6 @@ export async function storageIntegritySweep(): Promise<{
       // every cycle and never clear the report, so only current-version
       // breakage triggers a heal.
       const repairable: string[] = [];
-      const probed = new Set<string>();
       let undeterminable = false;
       for (const derivative of derivatives) {
         if (probed.has(derivative.key)) {
@@ -494,23 +599,47 @@ export async function storageIntegritySweep(): Promise<{
           repairable.push(derivative.key);
         }
       }
-      // The thumbnail columns are served directly by the read route, so a
-      // lost object there 404s every feed card for this post even when the
+      // The thumbnail columns are served directly by the read route, so a lost
+      // object there 404s every feed card for this post even when the
       // derivative rows are all intact. thumbnailKey is written from the
-      // current version's poster key, so a miss here is always repairable.
-      for (const thumbKey of [row.thumbnailKey, row.customThumbnailKey]) {
-        if (!thumbKey || probed.has(thumbKey)) {
-          continue;
-        }
-        probed.add(thumbKey);
-        const probe = await probeObject(thumbKey);
+      // current version's poster key, so a miss there is always repairable.
+      if (row.thumbnailKey && !probed.has(row.thumbnailKey)) {
+        probed.add(row.thumbnailKey);
+        const probe = await probeObject(row.thumbnailKey);
         if (probe === "unknown") {
           undeterminable = true;
-          continue;
+        } else if (probe === "absent") {
+          missing.push(`thumb:${row.thumbnailKey}`);
+          repairable.push(row.thumbnailKey);
         }
-        if (probe === "absent") {
-          missing.push(`thumb:${thumbKey}`);
-          repairable.push(thumbKey);
+      }
+      // A custom thumbnail is the author's own cover, copied in from another
+      // row's published original at attach time. Nothing records which row that
+      // was, so no job can recreate the object - processMedia regenerates the
+      // pipeline poster and leaves this key untouched. Re-enqueueing on it would
+      // burn a full transcode every cycle and count as healed while the URL kept
+      // 404ing. Clearing the pointer is the same fallback the author gets when
+      // they detach the cover, and the read route then serves the poster.
+      const droppedCustomThumbnail = row.customThumbnailKey;
+      if (
+        droppedCustomThumbnail &&
+        !probed.has(droppedCustomThumbnail) &&
+        !undeterminable
+      ) {
+        probed.add(droppedCustomThumbnail);
+        const probe = await probeObject(droppedCustomThumbnail);
+        if (probe === "unknown") {
+          undeterminable = true;
+        } else if (probe === "absent") {
+          missing.push(`thumb:${droppedCustomThumbnail}`);
+          await prisma.orm.public.PostMedia.where({ id: row.id }).update({
+            customThumbnailKey: null,
+          });
+          repointed += 1;
+          mediaLogger.warn(
+            { key: droppedCustomThumbnail, mediaId: row.id },
+            "storage-integrity cleared an unrecoverable custom thumbnail so serving falls back to the poster"
+          );
         }
       }
 
@@ -550,13 +679,13 @@ export async function storageIntegritySweep(): Promise<{
   integrityCursor =
     candidates.length < storageIntegrityBatch() ? null : (last?.id ?? null);
 
-  if (checked > 0 || retired > 0) {
+  if (checked > 0 || retired > 0 || republished > 0 || repointed > 0) {
     mediaLogger.info(
-      { checked, healed, retired },
+      { checked, healed, repointed, republished, retired },
       "storage-integrity sweep verified READY media"
     );
   }
-  return { checked, healed, retired };
+  return { checked, healed, repointed, republished, retired };
 }
 
 // A HEAD-only existence probe. Never downloads bytes, so verifying a row costs
@@ -580,15 +709,35 @@ async function probeObject(key: string): Promise<ObjectProbe> {
   }
 }
 
-// A second probe before the one destructive action in this sweep. objectExists
-// in ../s3 collapses every failure to "not there", which is fine for a
-// liveness check but must never gate a permanent state change on its own.
-async function confirmMissing(key: string): Promise<boolean> {
-  if ((await probeObject(key)) !== "absent") {
-    return false;
+// The verdict for a key a decision rests on. The first probe decides, and a
+// definitive "absent" is confirmed by a second one, so a single hiccup can
+// never be read as data loss. objectExists in ../s3 collapses every failure to
+// "not there", which is fine for a liveness check but must never gate a
+// permanent state change on its own.
+async function probeAuthoritative(key: string): Promise<ObjectProbe> {
+  const first = await probeObject(key);
+  if (first !== "absent") {
+    return first;
   }
   await Bun.sleep(500);
-  return (await probeObject(key)) === "absent";
+  const second = await probeObject(key);
+  // The retry answering means the first was a blip, so the bytes are there.
+  return second === "absent" ? "absent" : "present";
+}
+
+// The key columns overlap: a pipeline row dual-writes the same object into
+// publishedKey and the legacy key column, and a quarantined row carries "" in
+// one of them. Probing the same object twice wastes a request and muddies the
+// probe log, so the list is compacted and de-duplicated once, in priority
+// order.
+function dedupeKeys(keys: (null | string | undefined)[]): string[] {
+  const seen = new Set<string>();
+  for (const key of keys) {
+    if (key) {
+      seen.add(key);
+    }
+  }
+  return [...seen];
 }
 
 export const MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS = 3;

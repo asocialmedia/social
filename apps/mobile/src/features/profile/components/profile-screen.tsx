@@ -54,7 +54,8 @@ export function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const { user } = useSessionContext();
-  const { profile, status, reload, follow, isFollowing } = useProfile(username);
+  const { profile, status, reload, refresh, follow, isFollowing } =
+    useProfile(username);
   const [tab, setTab] = useState<ProfileViewTab>("posts");
   const [editing, setEditing] = useState(false);
 
@@ -341,7 +342,15 @@ export function ProfileScreen() {
         locked={locked}
         onSwipeNavigate={handleSwipeNavigate}
         onTabsPinChange={handleTabsPinChange}
-        refreshProfile={reload}
+        // Pull-to-refresh, and it must be `refresh` rather than `reload`. The
+        // two look interchangeable and are not: `reload` only marks the cache
+        // entry stale and bumps a token, and the first-load effect bails on a
+        // still-fresh entry, so a pull moments after opening a profile would
+        // refresh the rows and leave the header exactly as it was - stale
+        // follower counts and follow state behind a "Profile updated" pill.
+        // `refresh` calls the loader directly (single-flighted, so a pull during
+        // an in-flight load joins it rather than duplicating it).
+        refreshProfile={refresh}
         // No safe-area padding here: the feed positions the pinned strip from
         // stickyTop, which is already derived from the inset. Adding paddingTop
         // as well counted the inset twice and pushed the tabs down.

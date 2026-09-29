@@ -163,6 +163,7 @@ mock.module("@asm/db", () => ({
     return Promise.resolve();
   },
   enqueueMediaScan: () => Promise.resolve(),
+  or: (...filters: QueryFilter[]) => ({ filters, kind: "or" }),
   prisma: {
     orm: {
       public: {

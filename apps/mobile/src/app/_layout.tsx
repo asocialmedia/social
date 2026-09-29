@@ -18,6 +18,7 @@ import { SessionProvider } from "@/features/auth/state/session";
 import { ComposerModal } from "@/features/composer/components/composer-modal";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { SpotlightModal } from "@/features/search/components/spotlight-modal";
+import { SupportGate } from "@/features/support/components/support-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
@@ -84,6 +85,12 @@ export default function RootLayout() {
             auth call in it, so a fresh install is verified before signing in. */}
           <InstallProvider>
             <SessionProvider>
+              {/* Launch-time support check. The app it replaced downloaded a
+                release APK and launched the system installer, which Play Store
+                policy forbids; this asks the server whether the running build is
+                still served and hands an out-of-date one to the store. Inside
+                the session provider so the check shares the API base. */}
+              <SupportGate />
               {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
               <PushRegistrar />

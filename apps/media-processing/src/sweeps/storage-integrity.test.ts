@@ -31,9 +31,10 @@ interface EnqueueCall {
   suffix: null | string;
 }
 
-interface RetireCall {
+interface UpdateCall {
   data: Record<string, unknown>;
   id: string;
+  kind: "reset" | "update" | "updateAndCount";
 }
 
 interface SharedState {
@@ -43,10 +44,11 @@ interface SharedState {
   present: Set<string>;
   probes: string[];
   queries: number;
-  retired: RetireCall[];
   rows: SweepRow[];
+  scanned: EnqueueCall[];
   sequences: Record<string, boolean[]>;
   throwOn: null | string;
+  updates: UpdateCall[];
   wheres: Record<string, unknown>[];
 }
 
@@ -64,10 +66,11 @@ function seed(): SharedState {
     present: new Set<string>(),
     probes: [],
     queries: 0,
-    retired: [],
     rows: [],
+    scanned: [],
     sequences: {},
     throwOn: null,
+    updates: [],
     wheres: [],
   };
   (globalThis as unknown as Record<string, unknown>).__si_state = next;
@@ -202,18 +205,41 @@ mock.module("@asm/db", () => ({
     });
     return Promise.resolve();
   },
-  enqueueMediaScan: () => Promise.resolve(),
+  enqueueMediaScan: (mediaId: string, options?: { jobIdSuffix?: string }) => {
+    const current = state();
+    if (!current.backfillEnabled) {
+      throw new Error("must not scan when the sweep is disabled");
+    }
+    current.scanned.push({
+      mediaId,
+      suffix: options?.jobIdSuffix ?? null,
+    });
+    return Promise.resolve();
+  },
+  or: (...filters: QueryFilter[]) => ({ filters, kind: "or" }),
   prisma: {
     orm: {
       public: {
         PostMedia: {
           select: () => candidateQuery(),
-          where: (filter: { id: string }) => ({
-            update: (data: Record<string, unknown>) => {
-              state().retired.push({ data, id: filter.id });
-              return Promise.resolve({ count: 1 });
-            },
-          }),
+          where: (filter: { id: string }) => {
+            const write =
+              (data: Record<string, unknown>) =>
+              (kind: UpdateCall["kind"]) =>
+              () => {
+                state().updates.push({ data, id: filter.id, kind });
+                // updateAndCount resolves the matched row count, not the row.
+                return Promise.resolve(
+                  kind === "updateAndCount" ? 1 : { count: 1 }
+                );
+              };
+            return {
+              update: (data: Record<string, unknown>) =>
+                write(data)("update")(),
+              updateAndCount: (data: Record<string, unknown>) =>
+                write(data)("updateAndCount")(),
+            };
+          },
         },
         PostMediaDerivatives: {
           select: () => derivativeQuery(""),
@@ -282,6 +308,16 @@ beforeEach(() => {
   seed();
 });
 
+// The counters the sweep reports. Spelled out once so every assertion compares
+// the whole shape, which is what catches a repair being mislabelled as a heal.
+const CLEAN = {
+  checked: 1,
+  healed: 0,
+  repointed: 0,
+  republished: 0,
+  retired: 0,
+};
+
 describe("storage-integrity sweep", () => {
   test("a healthy row is verified and left alone", async () => {
     const current = state();
@@ -300,9 +336,10 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 1, healed: 0, retired: 0 });
+    expect(result).toEqual(CLEAN);
     expect(current.enqueued).toEqual([]);
-    expect(current.retired).toEqual([]);
+    expect(current.scanned).toEqual([]);
+    expect(current.updates).toEqual([]);
   });
 
   test("a missing derivative object re-enqueues processing", async () => {
@@ -314,17 +351,17 @@ describe("storage-integrity sweep", () => {
       ],
     };
     // The source survived; the transcoded object did not. The row exists, which
-    // is exactly the state derived-healSweep cannot see.
+    // is exactly the state derivedHealSweep cannot see.
     current.present = new Set(["m1/published"]);
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 1, healed: 1, retired: 0 });
+    expect(result).toEqual({ ...CLEAN, healed: 1 });
     expect(current.enqueued).toHaveLength(1);
     expect(current.enqueued[0]?.mediaId).toBe("m1");
     // A fresh jobId suffix so a dead job holding the dedupe slot is replaced.
     expect(current.enqueued[0]?.suffix).toStartWith("integrity-");
-    expect(current.retired).toEqual([]);
+    expect(current.updates).toEqual([]);
   });
 
   test("a missing thumbnail object re-enqueues processing", async () => {
@@ -334,18 +371,38 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 1, healed: 1, retired: 0 });
+    expect(result).toEqual({ ...CLEAN, healed: 1 });
     expect(current.enqueued).toHaveLength(1);
   });
 
-  test("a missing custom thumbnail object re-enqueues processing", async () => {
+  test("a missing custom thumbnail clears the pointer instead of healing", async () => {
     const current = state();
     current.rows = [row("m1", { customThumbnailKey: "cover/source.jpg" })];
     current.present = new Set(["m1/published"]);
 
     const result = await storageIntegritySweep();
 
-    expect(result.healed).toBe(1);
+    // The custom cover is a COPY of another row's published original, taken at
+    // attach time, and no column records which row. processMedia cannot rebuild
+    // it, so enqueueing it would burn a transcode per pass and report a heal
+    // while the URL kept 404ing. Clearing the pointer is the same fallback the
+    // author gets on detach: the read route serves the pipeline poster.
+    expect(result).toEqual({ ...CLEAN, repointed: 1 });
+    expect(current.enqueued).toEqual([]);
+    expect(current.updates).toEqual([
+      { data: { customThumbnailKey: null }, id: "m1", kind: "update" },
+    ]);
+  });
+
+  test("a custom thumbnail that is still present is left alone", async () => {
+    const current = state();
+    current.rows = [row("m1", { customThumbnailKey: "cover/source.jpg" })];
+    current.present = new Set(["m1/published", "cover/source.jpg"]);
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual(CLEAN);
+    expect(current.updates).toEqual([]);
   });
 
   test("a row whose source is confirmed gone is retired, not re-processed", async () => {
@@ -365,13 +422,76 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 0, healed: 0, retired: 1 });
-    expect(current.retired).toHaveLength(1);
-    expect(current.retired[0]?.id).toBe("m1");
-    expect(current.retired[0]?.data.status).toBe("FAILED");
-    expect(current.retired[0]?.data.failureCode).toBe("storage-missing");
+    expect(result).toEqual({ ...CLEAN, checked: 0, retired: 1 });
+    expect(current.updates).toHaveLength(1);
+    expect(current.updates[0]?.id).toBe("m1");
+    expect(current.updates[0]?.data.status).toBe("FAILED");
+    expect(current.updates[0]?.data.failureCode).toBe("storage-missing");
     // Re-processing cannot invent bytes that are gone, so it must not run.
     expect(current.enqueued).toEqual([]);
+    expect(current.scanned).toEqual([]);
+  });
+
+  test("a surviving quarantine original republishes instead of retiring", async () => {
+    const current = state();
+    // The served object is gone but the retained upload is intact, which is the
+    // state the old publishedKey-wins chain wrote off as unrecoverable.
+    current.rows = [row("m1", { originalKey: "quarantine/m1/upload" })];
+    current.present = new Set(["quarantine/m1/upload"]);
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0, republished: 1 });
+    // Handed back to the scan stage, which claims QUARANTINED rows and
+    // re-promotes the original out of quarantine.
+    expect(current.scanned).toHaveLength(1);
+    expect(current.scanned[0]?.mediaId).toBe("m1");
+    expect(current.scanned[0]?.suffix).toStartWith("integrity-republish-");
+    // The row goes back to the claimable state with no published key, which
+    // also takes it out of quarantine GC's published-rows branch so the
+    // surviving original cannot be deleted mid-recovery.
+    expect(current.updates).toEqual([
+      {
+        data: {
+          failureCode: null,
+          failureDetail: null,
+          key: "",
+          publishedKey: null,
+          status: "QUARANTINED",
+        },
+        id: "m1",
+        kind: "updateAndCount",
+      },
+    ]);
+    // Never retired: retirement is what let GC delete the last copy.
+    expect(current.updates[0]?.data.failureCode).toBeNull();
+    expect(current.enqueued).toEqual([]);
+  });
+
+  test("a republish never runs when the quarantine original is also gone", async () => {
+    const current = state();
+    current.rows = [row("m1", { originalKey: "quarantine/m1/upload" })];
+    current.present = new Set<string>();
+
+    const result = await storageIntegritySweep();
+
+    expect(result).toEqual({ ...CLEAN, checked: 0, retired: 1 });
+    expect(current.scanned).toEqual([]);
+    expect(current.updates[0]?.data.status).toBe("FAILED");
+  });
+
+  test("an unreadable quarantine original never triggers a republish", async () => {
+    const current = state();
+    current.rows = [row("m1", { originalKey: "quarantine/m1/upload" })];
+    current.present = new Set<string>();
+    current.throwOn = "quarantine/m1/upload";
+
+    const result = await storageIntegritySweep();
+
+    // Loss is unproven, so nothing is written and nothing is requeued.
+    expect(result).toEqual({ ...CLEAN, checked: 0 });
+    expect(current.scanned).toEqual([]);
+    expect(current.updates).toEqual([]);
   });
 
   test("one negative probe followed by a hit never retires a good row", async () => {
@@ -383,8 +503,8 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 1, healed: 0, retired: 0 });
-    expect(current.retired).toEqual([]);
+    expect(result).toEqual(CLEAN);
+    expect(current.updates).toEqual([]);
     expect(current.probes.filter((key) => key === "m1/published")).toHaveLength(
       2
     );
@@ -410,9 +530,9 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 1, healed: 0, retired: 0 });
+    expect(result).toEqual(CLEAN);
     expect(current.enqueued).toEqual([]);
-    expect(current.retired).toEqual([]);
+    expect(current.updates).toEqual([]);
   });
 
   test("the thumbnail column is not probed twice when it is also a derivative", async () => {
@@ -433,7 +553,7 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 1, healed: 0, retired: 0 });
+    expect(result).toEqual(CLEAN);
     expect(current.probes.filter((key) => key === "m1/poster")).toHaveLength(1);
   });
 
@@ -455,8 +575,8 @@ describe("storage-integrity sweep", () => {
 
     // m1 was skipped as unproven while m2 was still verified: one unreachable
     // object must not strand its siblings either.
-    expect(result).toEqual({ checked: 1, healed: 0, retired: 0 });
-    expect(current.retired).toEqual([]);
+    expect(result).toEqual(CLEAN);
+    expect(current.updates).toEqual([]);
     expect(current.enqueued).toEqual([]);
     expect(current.probes).toContain("m1/published");
   });
@@ -475,9 +595,9 @@ describe("storage-integrity sweep", () => {
     const result = await storageIntegritySweep();
 
     // Loss is unproven, so no re-enqueue and no "checked".
-    expect(result).toEqual({ checked: 0, healed: 0, retired: 0 });
+    expect(result).toEqual({ ...CLEAN, checked: 0 });
     expect(current.enqueued).toEqual([]);
-    expect(current.retired).toEqual([]);
+    expect(current.updates).toEqual([]);
   });
 
   test("a row with no resolvable source key is skipped without probing", async () => {
@@ -486,7 +606,7 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 0, healed: 0, retired: 0 });
+    expect(result).toEqual({ ...CLEAN, checked: 0 });
     expect(current.probes).toEqual([]);
   });
 
@@ -497,7 +617,7 @@ describe("storage-integrity sweep", () => {
 
     const result = await storageIntegritySweep();
 
-    expect(result).toEqual({ checked: 0, healed: 0, retired: 0 });
+    expect(result).toEqual({ ...CLEAN, checked: 0 });
     expect(current.queries).toBe(0);
     expect(current.probes).toEqual([]);
   });

@@ -4,6 +4,7 @@ import {
   extractInlineMeta,
   filterFeedPosts,
   findUnseenItems,
+  findUnseenRankedItems,
   formatRelativeDate,
   getUserVote,
   groupPostsIntoThreads,
@@ -161,6 +162,31 @@ describe("findUnseenItems", () => {
       findUnseenItems(fresh, new Set(["old"])).map((item) => item.id)
     ).toEqual(["n2", "n1"]);
     expect(findUnseenItems(fresh, new Set(["n2"]))).toEqual([]);
+  });
+});
+
+describe("findUnseenRankedItems", () => {
+  test("keeps a new post that ranked below posts the reader already has", () => {
+    // A score-ordered feed can put an arriving post eighth, so the leading-run
+    // walk would have stopped at the first known id and dropped it entirely.
+    const fresh = [post("old-1"), post("old-2"), post("arrived"), post("o3")];
+    expect(
+      findUnseenRankedItems(fresh, new Set(["old-1", "old-2", "o3"])).map(
+        (item) => item.id
+      )
+    ).toEqual(["arrived"]);
+  });
+
+  test("returns nothing when every ranked row is already on screen", () => {
+    const fresh = [post("a"), post("b")];
+    expect(findUnseenRankedItems(fresh, new Set(["a", "b"]))).toEqual([]);
+  });
+
+  test("returns every row when the reader has nothing yet", () => {
+    const fresh = [post("a"), post("b")];
+    expect(
+      findUnseenRankedItems(fresh, new Set<string>()).map((item) => item.id)
+    ).toEqual(["a", "b"]);
   });
 });
 

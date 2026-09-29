@@ -27,7 +27,14 @@ mock.module("../env", () => ({
 type QueryFilter =
   | { field: string; op: string; value: unknown }
   | { filters: QueryFilter[]; kind: "and" }
+  | { filters: QueryFilter[]; kind: "or" }
   | Record<string, unknown>;
+
+// An OR cannot be flattened into one flat where - the arms are alternatives, not
+// conjuncts - so it is carried through as a single named slot the assertions
+// can read. Nothing in this suite has to EVALUATE it: the mock returns fixture
+// rows by status, and the OR only has to survive into the recorded where.
+const OR_SLOT = "orAlternatives";
 
 function queryField(
   field: string
@@ -50,6 +57,12 @@ function isAndFilter(
   return "kind" in filter && filter.kind === "and";
 }
 
+function isOrFilter(
+  filter: QueryFilter
+): filter is { filters: QueryFilter[]; kind: "or" } {
+  return "kind" in filter && filter.kind === "or";
+}
+
 function isFieldFilter(
   filter: QueryFilter
 ): filter is { field: string; op: string; value: unknown } {
@@ -59,6 +72,11 @@ function isFieldFilter(
 function flattenFilter(filter: QueryFilter): Record<string, unknown> {
   if (isAndFilter(filter)) {
     return Object.assign({}, ...filter.filters.map(flattenFilter));
+  }
+  if (isOrFilter(filter)) {
+    return {
+      [OR_SLOT]: filter.filters.map((arm) => flattenFilter(arm)),
+    };
   }
   if (isFieldFilter(filter)) {
     if (filter.op === "isNull") {
@@ -115,6 +133,7 @@ interface FindManyArgs {
     type?: { in: string[] };
     _type?: { in: string[] };
     originalKey?: unknown;
+    orAlternatives?: Record<string, unknown>[];
     pipelineVersion?: unknown;
   };
 }
@@ -193,6 +212,7 @@ mock.module("@asm/db", () => ({
     enqueuedScanMediaIds.push(mediaId);
     return Promise.resolve();
   },
+  or: (...filters: QueryFilter[]) => ({ filters, kind: "or" }),
   prisma: {
     orm: {
       public: {
@@ -323,8 +343,15 @@ describe("derived-heal sweep", () => {
     if (!unscannedWhere) {
       throw new Error("expected the unscanned-quarantine query");
     }
-    expect(unscannedWhere.pipelineVersion).toBeNull();
+    // Both arms matter: a row that never published (no pipeline version) and a
+    // row that published once, lost its published object, and was reset to
+    // QUARANTINED to republish. Without the second arm the latter would sit
+    // there forever if its scan job were swallowed.
     expect(unscannedWhere.originalKey).toEqual({ startsWith: "quarantine/" });
+    expect(unscannedWhere.orAlternatives).toEqual([
+      { pipelineVersion: null },
+      { publishedKey: null },
+    ]);
   });
 
   test("unscanned rescue continues past one failed scan enqueue", async () => {
