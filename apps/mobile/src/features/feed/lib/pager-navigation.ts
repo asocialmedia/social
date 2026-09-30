@@ -28,6 +28,7 @@ export const DIRECTION_LOCK = 10;
 export const HANDOFF_DISTANCE = 20;
 
 export function clampIndex(index: number, pageCount: number): number {
+  "worklet";
   return Math.min(Math.max(0, index), Math.max(0, pageCount - 1));
 }
 
@@ -40,6 +41,7 @@ export function handoffIndex(
   dx: number,
   pageCount: number
 ): number {
+  "worklet";
   if (dx <= -HANDOFF_DISTANCE) {
     return clampIndex(origin + 1, pageCount);
   }
@@ -57,6 +59,7 @@ export function settleIndex(
   vx: number,
   pageCount: number
 ): number {
+  "worklet";
   if (dx <= -SWIPE_DISTANCE || vx <= -FLICK_VELOCITY) {
     return clampIndex(origin + 1, pageCount);
   }

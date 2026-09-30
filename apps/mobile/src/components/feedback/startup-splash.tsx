@@ -1,16 +1,15 @@
 // Startup chrome: the brand splash (icon + wordmark) and the gate that decides
 // when the platform splash may be dismissed.
 //
-// The native splash is held until the session has resolved, not just the fonts.
-// Hiding it on fonts alone paints the home screen while the session is still
-// pending, and since the inline composer and the header avatar are both gated
-// on a known session, they then arrive a beat AFTER the posts - the composer
-// popping into an already-painted feed. Holding the gate means the first frame
-// the reader sees already knows who they are, so the header, the feed and the
-// composer all arrive together.
+// The native splash hides on fonts, not on the session. Persisted feed rows
+// paint instantly behind it while the session revalidates in the background
+// (stale-while-revalidate), so a slow or offline session never holds the
+// splash. The header and composer already handle a pending session without
+// flashing (they render nothing until known), so the first frame is stable
+// either way.
 //
-// A bounded timeout backstops the gate: a session that never settles (offline,
-// hung request) must not strand someone on the splash.
+// A short timeout backstops the gate: fonts that never settle (missing asset)
+// must not strand someone on the splash.
 import { Image } from "expo-image";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
@@ -24,7 +23,6 @@ import Svg, {
 
 import splashImage from "@/assets/images/splash-icon.png";
 import { ORANGE_GRADIENT } from "@/components/surface/recipes";
-import { useSessionContext } from "@/features/auth/state/session";
 
 // Matches the native splash backgroundColor in app.json, so the hand-off from
 // the platform splash to this overlay is invisible. A fixed brand tone rather
@@ -53,27 +51,25 @@ const WORDMARK_GRADIENT_ID = "brandWordmark";
 const EXIT_DURATION = 420;
 const EXIT_SCALE = 1.06;
 
-// Comfortably longer than a warm session round trip, so the normal path always
-// waits for the real answer and only a genuinely stuck session hits this.
-const MAX_HOLD_MS = 2200;
+// Backstop for fonts that never settle. The normal path hides on fontsReady
+// immediately; only a stuck font load hits this.
+const MAX_HOLD_MS = 1200;
 
 export function StartupGate({ fontsReady }: { fontsReady: boolean }) {
-  const { isPending } = useSessionContext();
   const [overdue, setOverdue] = useState(false);
 
-  // Only armed while the session is genuinely outstanding; the flag is what
-  // releases the gate when the answer never arrives.
+  // Releases the gate when fonts never resolve.
   useEffect(() => {
-    if (!fontsReady || !isPending) {
+    if (fontsReady) {
       return;
     }
     const timer = setTimeout(() => setOverdue(true), MAX_HOLD_MS);
     return () => clearTimeout(timer);
-  }, [fontsReady, isPending]);
+  }, [fontsReady]);
 
-  // Derived rather than assigned in an effect: the gate opens the moment the
-  // session resolves, with no extra render hop in between.
-  const ready = fontsReady && (!isPending || overdue);
+  // Hides on fonts, not on the session. The session revalidates behind the
+  // cached feed instead of holding the splash.
+  const ready = fontsReady || overdue;
 
   useEffect(() => {
     if (!ready) {

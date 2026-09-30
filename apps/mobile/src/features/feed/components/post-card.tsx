@@ -10,7 +10,7 @@
 // event before routing to /users/[username], so they never open the post.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -159,19 +159,23 @@ interface PostCardProps {
   viewerId: string | undefined;
 }
 
-export function PostCard({
-  active = true,
-  hasThreadChild,
-  hasThreadParent,
-  onMore,
-  onOpenDetail,
-  onShare,
-  post,
-  showAlt = false,
-  showCommunity = true,
-  showCommunityReason = false,
-  viewerId,
-}: PostCardProps) {
+// Memoized: lists re-render on scroll, view-count reconciles and visibility
+// updates. Without memo every card re-rendered on every tick, which is the
+// main scroll-jank source on long feeds.
+export const PostCard = memo(
+  ({
+    active = true,
+    hasThreadChild,
+    hasThreadParent,
+    onMore,
+    onOpenDetail,
+    onShare,
+    post,
+    showAlt = false,
+    showCommunity = true,
+    showCommunityReason = false,
+    viewerId,
+  }: PostCardProps) => {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
   const prefetchProfile = usePrefetchProfile();
@@ -518,7 +522,9 @@ export function PostCard({
       ) : null}
     </View>
   );
-}
+  }
+);
+PostCard.displayName = "PostCard";
 
 const styles = StyleSheet.create({
   actionCluster: {

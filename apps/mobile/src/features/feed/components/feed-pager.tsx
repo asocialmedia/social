@@ -1,39 +1,42 @@
-// Swipe pager for the home feed tabs. Dragging horizontally slides between
-// tabs (personalized -> latest -> trending -> following); vertical gestures
-// stay with the feed lists. Mirrors web's use-feed-swipe-navigation tuning:
-// direction locks once the finger travels 10px, 56px of travel (or a fast
-// flick) commits the swipe, edges clamp. Built on PanResponder + the core
-// Animated API so no extra native dependency is needed.
-//
-// The tab hand-off happens mid-drag, not on the animation's completion: the
-// incoming tab is enabled (and fetching) while the finger is still down, so
-// the page the slide lands on is already painted. The index math behind both
-// the hand-off and the release lives in lib/pager-navigation.
-//
-// The responder config is rebuilt every render (cheap object creation) so
-// handlers always close over current values - no latest-refs, which the
-// React Compiler forbids writing during render.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// Swipe pager for the home feed tabs, UI-thread driven.
+// Dragging horizontally slides between tabs; vertical gestures stay with the
+// feed lists. Built on Reanimated shared values + Gesture Handler so the track
+// follows the finger at 60fps without re-rendering React per frame (the old
+// PanResponder + Animated.Value did all moves on the JS thread, which dropped
+// frames while lists mounted).
+// Only the active tab plus neighbours mount their lists; far tabs render an
+// empty page of the same width so geometry stays exact while mount cost drops
+// from four lists to at most three.
+// Handoff + settle math lives in lib/pager-navigation and is unchanged.
+// Worklet rule: gesture callbacks never capture JS refs. Everything the UI
+// thread touches is a shared value; the two scheduleOnRN hops (drag flag,
+// index publish) run on the RN thread through stable callbacks.
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import {
-  Animated,
-  Dimensions,
-  PanResponder,
-  Platform,
-  StyleSheet,
-  View,
-} from "react-native";
-import type {
-  GestureResponderEvent,
-  PanResponderGestureState,
-} from "react-native";
+import { Dimensions, StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
 import {
-  DIRECTION_LOCK,
   clampIndex,
   handoffIndex,
   settleIndex,
 } from "../lib/pager-navigation";
+
+// Tap-driven index change animation. Fast ease-out, same feel as the tab
+// indicator (220ms).
+const TAP_DURATION = 220;
+// Finger-driven settle uses a spring so velocity carries through.
+const SETTLE_SPRING = { dampingRatio: 0.8, duration: 400 } as const;
+// Strong ease-out for tap animations.
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 
 interface FeedPagerProps {
   activeIndex: number;
@@ -46,157 +49,127 @@ export function FeedPager({
   children,
   onIndexChange,
 }: FeedPagerProps) {
+  const pageCount = children.length;
+  const clampedIndex = clampIndex(activeIndex, pageCount);
+  const translateX = useSharedValue(0);
+  const widthSv = useSharedValue(Dimensions.get("window").width);
+  const countSv = useSharedValue(pageCount);
+  const originSv = useSharedValue(clampedIndex);
+  const baseSv = useSharedValue(-clampedIndex * Dimensions.get("window").width);
+  const handedSv = useSharedValue(clampedIndex);
+  const draggingSv = useSharedValue(false);
   const [pageWidth, setPageWidth] = useState(
     () => Dimensions.get("window").width
   );
-  const translateX = useMemo(() => new Animated.Value(0), []);
-  const pageCount = children.length;
-  const clampedIndex = clampIndex(activeIndex, pageCount);
-  const committedIndex = useRef(clampedIndex);
-  const dragBase = useRef(0);
-  // The page a live drag started from. A hand-off may already have moved the
-  // active tab elsewhere, so the release has to measure its travel from here
-  // to stay able to spring back.
-  const dragOrigin = useRef(clampedIndex);
-  // The page last handed over during this drag, so a move only reports an
-  // actual change instead of re-publishing on every touch event.
-  const handedOver = useRef(clampedIndex);
-  const dragging = useRef(false);
-  // Set by a release that already started its settle tween, so the sync
-  // effect below does not restart the same animation one frame later.
-  const settled = useRef<number | null>(null);
+  useEffect(() => {
+    widthSv.set(pageWidth);
+  }, [pageWidth, widthSv]);
+  useEffect(() => {
+    countSv.set(pageCount);
+  }, [countSv, pageCount]);
 
-  const goTo = useCallback(
-    (index: number) => {
-      const next = clampIndex(index, pageCount);
-      committedIndex.current = next;
-      Animated.timing(translateX, {
-        duration: 220,
-        toValue: -next * pageWidth,
-        useNativeDriver: Platform.OS !== "web",
-      }).start(({ finished }) => {
-        if (finished) {
-          return;
-        }
-        // An interrupted animation must never strand the track between
-        // pages: snap to the committed page (the sync effect below then
-        // animates anywhere it still needs to go).
-        translateX.setValue(-committedIndex.current * pageWidth);
-      });
+  // RN-thread hops for the gesture. Stable callbacks so the gesture memo
+  // below never re-creates per render.
+  const setDragging = useCallback(
+    (value: boolean): void => {
+      draggingSv.set(value);
     },
-    [pageCount, pageWidth, translateX]
+    [draggingSv]
   );
 
-  // Tab taps drive from the outside, and width changes (rotation) flow in
-  // through goTo's identity, so this always converges the track to the
-  // clamped page: a mid-gesture measuring change can never leave it
-  // stranded. Two cases stand down. A live drag owns the track - its moves
-  // write translateX directly and the release decides where it lands. And a
-  // release that already named this page is mid-settle toward it, so
-  // re-animating would restart its tween and stall the slide.
+  const publishIndex = useCallback(
+    (index: number): void => {
+      onIndexChange(index);
+    },
+    [onIndexChange]
+  );
+
+  // Tap-driven index change: animate the track to the new page. Stands down
+  // while a live drag owns the track; the gesture's own settle animates it.
+  // Reads draggingSv in an effect (RN thread), never during render.
   useEffect(() => {
-    if (settled.current !== null) {
-      const alreadySettling = settled.current === clampedIndex;
-      settled.current = null;
-      if (alreadySettling) {
-        return;
-      }
-    }
-    if (dragging.current) {
+    if (draggingSv.get()) {
       return;
     }
-    goTo(clampedIndex);
-  }, [clampedIndex, goTo]);
+    translateX.set(
+      withTiming(-clampedIndex * pageWidth, {
+        duration: TAP_DURATION,
+        easing: EASE_OUT,
+      })
+    );
+    originSv.set(clampedIndex);
+    baseSv.set(-clampedIndex * pageWidth);
+    handedSv.set(clampedIndex);
+  }, [baseSv, clampedIndex, draggingSv, handedSv, originSv, pageWidth, translateX]);
 
-  const shouldSetResponder = useCallback(
-    (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
-      if (gesture.numberActiveTouches !== 1) {
-        return false;
-      }
-      const horizontal = Math.abs(gesture.dx);
-      const vertical = Math.abs(gesture.dy);
-      return horizontal > DIRECTION_LOCK && horizontal > vertical;
-    },
-    []
-  );
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.get() }],
+    width: widthSv.get() * countSv.get(),
+  }));
 
-  const handleGrant = useCallback(() => {
-    translateX.stopAnimation();
-    dragging.current = true;
-    const origin = committedIndex.current;
-    dragOrigin.current = origin;
-    handedOver.current = origin;
-    dragBase.current = -origin * pageWidth;
-  }, [pageWidth, translateX]);
-
-  const handleMove = useCallback(
-    (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
-      const min = -(pageCount - 1) * pageWidth;
-      const raw = dragBase.current + gesture.dx;
-      translateX.setValue(Math.min(0, Math.max(min, raw)));
-      // Hand the tab over as soon as the drag points at a neighbour. The
-      // incoming feed starts fetching now, so its posts (and anything else
-      // that mounts per tab) are ready when the track settles instead of
-      // popping in a beat after the slide lands.
-      const next = handoffIndex(dragOrigin.current, gesture.dx, pageCount);
-      if (next !== handedOver.current) {
-        handedOver.current = next;
-        onIndexChange(next);
-      }
-    },
-    [onIndexChange, pageCount, pageWidth, translateX]
-  );
-
-  // The release publishes the page it lands on before animating to it, so the
-  // tab strip and the enabled feed are already right while the track is still
-  // sliding. A spring-back publishes the origin, taking back the mid-drag
-  // hand-off.
-  const settle = useCallback(
-    (index: number) => {
-      dragging.current = false;
-      settled.current = index;
-      onIndexChange(index);
-      goTo(index);
-    },
-    [goTo, onIndexChange]
-  );
-
-  const handleRelease = useCallback(
-    (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
-      settle(
-        settleIndex(dragOrigin.current, gesture.dx, gesture.vx, pageCount)
-      );
-    },
-    [pageCount, settle]
-  );
-
-  const handleTerminate = useCallback(() => {
-    settle(dragOrigin.current);
-  }, [settle]);
-
-  // Memoized so the responder identity is stable across renders. The config
-  // closures only run on touch (never during render), which is exactly where
-  // mutable gesture refs belong - the lint rule cannot see through
-  // PanResponder.create, hence the targeted suppression.
-  /* eslint-disable react/refs -- gesture handlers execute on touch events, never during render */
-  const panResponder = useMemo(
+  /* eslint-disable react/capitalized-calls -- Gesture.Pan is a factory, not a component */
+  const gesture = useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: shouldSetResponder,
-        onPanResponderGrant: handleGrant,
-        onPanResponderMove: handleMove,
-        onPanResponderRelease: handleRelease,
-        onPanResponderTerminate: handleTerminate,
-      }),
+      Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-12, 12])
+        .onBegin(() => {
+          draggingSv.set(true);
+          scheduleOnRN(setDragging, true);
+          const origin = clampIndex(originSv.get(), countSv.get());
+          originSv.set(origin);
+          handedSv.set(origin);
+          baseSv.set(-origin * widthSv.get());
+        })
+        .onUpdate((event) => {
+          const width = widthSv.get();
+          const count = countSv.get();
+          const min = -(count - 1) * width;
+          const raw = baseSv.get() + event.translationX;
+          const clamped = Math.min(0, Math.max(min, raw));
+          translateX.set(clamped);
+          const next = handoffIndex(originSv.get(), event.translationX, count);
+          if (next !== handedSv.get()) {
+            handedSv.set(next);
+            scheduleOnRN(publishIndex, next);
+          }
+        })
+        .onEnd((event) => {
+          draggingSv.set(false);
+          scheduleOnRN(setDragging, false);
+          const count = countSv.get();
+          const width = widthSv.get();
+          const origin = originSv.get();
+          // Gesture velocity is px/sec; settle math wants px/ms.
+          const settled = settleIndex(
+            origin,
+            event.translationX,
+            event.velocityX / 1000,
+            count
+          );
+          originSv.set(settled);
+          handedSv.set(settled);
+          baseSv.set(-settled * width);
+          translateX.set(withSpring(-settled * width, SETTLE_SPRING));
+          scheduleOnRN(publishIndex, settled);
+        })
+        .onFinalize(() => {
+          draggingSv.set(false);
+          scheduleOnRN(setDragging, false);
+        }),
     [
-      handleGrant,
-      handleMove,
-      handleRelease,
-      handleTerminate,
-      shouldSetResponder,
+      baseSv,
+      draggingSv,
+      handedSv,
+      originSv,
+      countSv,
+      publishIndex,
+      setDragging,
+      translateX,
+      widthSv,
     ]
   );
-  /* eslint-enable react/refs */
+  /* eslint-enable react/capitalized-calls */
 
   return (
     <View
@@ -204,24 +177,26 @@ export function FeedPager({
         const { width } = event.nativeEvent.layout;
         if (width > 0 && width !== pageWidth) {
           setPageWidth(width);
-          translateX.setValue(-committedIndex.current * width);
+          if (!draggingSv.get()) {
+            translateX.set(-clampedIndex * width);
+            baseSv.set(-clampedIndex * width);
+          }
         }
       }}
       style={styles.viewport}
     >
-      <Animated.View
-        style={[
-          styles.track,
-          { transform: [{ translateX }], width: pageWidth * pageCount },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        {children.map((child, index) => (
-          <View key={index} style={[styles.page, { width: pageWidth }]}>
-            {child}
-          </View>
-        ))}
-      </Animated.View>
+      <GestureDetector gesture={gesture}>
+        <Animated.View style={[styles.track, animatedStyle]}>
+          {children.map((child, index) => {
+            const near = Math.abs(index - clampedIndex) <= 1;
+            return (
+              <View key={index} style={[styles.page, { width: pageWidth }]}>
+                {near ? child : null}
+              </View>
+            );
+          })}
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }

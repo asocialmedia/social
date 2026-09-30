@@ -11,11 +11,10 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
-  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -26,7 +25,8 @@ import type {
   NativeSyntheticEvent,
   ViewStyle,
 } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { scheduleOnRN } from "react-native-worklets";
 
 import noMediaImage from "@/assets/images/nomedia.png";
 import noSearchImage from "@/assets/images/nosearch.png";
@@ -69,6 +69,7 @@ import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { formatNumber } from "@/lib/format-number";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -240,13 +241,16 @@ function EmptyProfileTab({
 // Web's profile Gusts tab is a 9:16 poster grid (two columns): each tile
 // carries the Gust chip, a two-line content clamp over a bottom scrim, and the
 // view and aura counts. Tapping opens the reel viewer at that gust.
-function GustGridTile({
-  onOpen,
-  post,
-}: {
-  onOpen: (post: FeedPost) => void;
-  post: FeedPost;
-}) {
+// Memoized: grids re-render on scroll and tab switches, and unmemoized tiles
+// were a large share of profile tab jank.
+const GustGridTile = memo(
+  ({
+    onOpen,
+    post,
+  }: {
+    onOpen: (post: FeedPost) => void;
+    post: FeedPost;
+  }) => {
   const apiBase = getApiBaseUrl();
   const video = post.attachments?.find(
     (attachment) => attachment.type === "VIDEO"
@@ -317,7 +321,9 @@ function GustGridTile({
       </LinearGradient>
     </Pressable>
   );
-}
+  }
+);
+GustGridTile.displayName = "GustGridTile";
 
 function renderMediaContent({
   fallbackText,
@@ -408,13 +414,15 @@ function renderMediaContent({
 // Media tile with 1:1 parity with web's media-gallery. Video items display the
 // 3D orange play button badge, audio items show waveform visualizer bars, and
 // the tile frame uses rounded corners matching web's responsive layout.
-function MediaTile({
-  item,
-  onOpen,
-}: {
-  item: ProfileMedia;
-  onOpen: (item: ProfileMedia) => void;
-}) {
+// Memoized for grid scroll performance.
+const MediaTile = memo(
+  ({
+    item,
+    onOpen,
+  }: {
+    item: ProfileMedia;
+    onOpen: (item: ProfileMedia) => void;
+  }) => {
   const { theme } = useAppTheme();
   const apiBase = getApiBaseUrl();
   const aspectRatio = mediaTileAspect(item);
@@ -498,22 +506,25 @@ function MediaTile({
       </Text>
     </View>
   );
-}
+  }
+);
+MediaTile.displayName = "MediaTile";
 
 // Web's profile Eddies tab features a 2-column layout (avatar left, content right),
 // relative timestamp, highlighted reply recipient, inline attachments, embeds,
-// aura rating pill, and a tactile reply button.
-function ReplyRow({
-  item,
-  onDeleted,
-  onOpenPost,
-  viewerId,
-}: {
-  item: ProfileReply;
-  onDeleted: () => void;
-  onOpenPost: (post: FeedPost) => void;
-  viewerId: string | null;
-}) {
+// aura rating pill, and a tactile reply button. Memoized for list scroll.
+const ReplyRow = memo(
+  ({
+    item,
+    onDeleted,
+    onOpenPost,
+    viewerId,
+  }: {
+    item: ProfileReply;
+    onDeleted: () => void;
+    onOpenPost: (post: FeedPost) => void;
+    viewerId: string | null;
+  }) => {
   const { theme } = useAppTheme();
   const author = item.user;
   const displayName = author?.displayName || author?.username || "Unknown";
@@ -699,7 +710,9 @@ function ReplyRow({
       ) : null}
     </View>
   );
-}
+  }
+);
+ReplyRow.displayName = "ReplyRow";
 
 export function ProfileFeed({
   feed,
@@ -813,29 +826,37 @@ export function ProfileFeed({
   // content holds still. The header keeps scrolling away normally on swipe,
   // which is what the sticky tab bar is for.
 
-  // Swipe navigation PanResponder tracking horizontal gestures
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) => {
-          if (gesture.numberActiveTouches !== 1) {
-            return false;
-          }
-          const absDx = Math.abs(gesture.dx);
-          const absDy = Math.abs(gesture.dy);
-          return absDx > 12 && absDx > absDy * 1.35;
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          const { dx, vx } = gesture;
-          if (dx <= -48 || vx <= -0.45) {
-            onSwipeNavigate?.(1);
-          } else if (dx >= 48 || vx >= 0.45) {
-            onSwipeNavigate?.(-1);
-          }
-        },
-      }),
+  // Swipe navigation on the UI thread. The old PanResponder ran on the JS
+  // thread and fought the vertical list for every touch, which is why slides
+  // felt sticky. Gesture Handler locks direction natively and only the commit
+  // hops back to JS, once per swipe. The commit reads no refs so the worklet
+  // never captures a JS object (Worklets forbids touching `.current` from the
+  // UI thread, even through a scheduled callback's closure).
+  const commitSwipe = useCallback(
+    (direction: -1 | 1): void => {
+      onSwipeNavigate?.(direction);
+    },
     [onSwipeNavigate]
   );
+  /* eslint-disable react/capitalized-calls -- Gesture.Pan is a factory, not a component */
+  const swipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-12, 12])
+        .onEnd((event) => {
+          const dx = event.translationX;
+          // Gesture velocity is px/sec; old thresholds were px/ms.
+          const vx = event.velocityX / 1000;
+          if (dx <= -48 || vx <= -0.45) {
+            scheduleOnRN(commitSwipe, 1);
+          } else if (dx >= 48 || vx >= 0.45) {
+            scheduleOnRN(commitSwipe, -1);
+          }
+        }),
+    [commitSwipe]
+  );
+  /* eslint-enable react/capitalized-calls */
 
   const openPost = useCallback(
     (post: FeedPost) => openPostRoute(router, post.id),
@@ -1118,9 +1139,18 @@ export function ProfileFeed({
     return <FeedCaughtUp note={note} />;
   };
 
+  // Pull (vertical) and swipe (horizontal) run simultaneously: direction
+  // locks decide the winner natively, so a vertical pull never triggers a tab
+  // switch and a horizontal swipe never starts a refresh.
+  /* eslint-disable react/capitalized-calls -- Gesture.Simultaneous is a factory, not a component */
+  const outerGestures = useMemo(
+    () => Gesture.Simultaneous(pull.gesture, swipeGesture),
+    [pull.gesture, swipeGesture]
+  );
+  /* eslint-enable react/capitalized-calls */
   return (
-    <GestureDetector gesture={pull.gesture}>
-      <View style={styles.rootContainer} {...panResponder.panHandlers}>
+    <GestureDetector gesture={outerGestures}>
+        <View style={styles.rootContainer}>
         <GestureDetector gesture={pull.nativeScrollGesture}>
           <FlatList
             ItemSeparatorComponent={renderSeparator}
@@ -1145,6 +1175,7 @@ export function ProfileFeed({
             contentContainerStyle={styles.list}
             data={items}
             keyExtractor={keyExtractor}
+            {...LIST_VIRTUALIZATION_PROPS}
             onEndReached={feed.hasMore ? feed.fetchNext : undefined}
             onEndReachedThreshold={0.6}
             onScroll={handleContentScroll}
@@ -1211,7 +1242,7 @@ export function ProfileFeed({
           }}
         />
         {overflow.dialogs}
-      </View>
+        </View>
     </GestureDetector>
   );
 }
