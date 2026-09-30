@@ -10,34 +10,24 @@
   <sub><em>"The social network that knows you back."</em></sub>
 
   <br>
+  <br>
 
-  <sub>
-    <a href="https://asocialmedia.cc">asocialmedia.cc</a>
-    &nbsp;·&nbsp;
-    <a href="https://github.com/asocialmedia/social/releases/latest">Latest release</a>
-    &nbsp;·&nbsp;
-    <a href="https://github.com/asocialmedia/social/blob/main/LICENSE">Licence</a>
-  </sub>
+  <a href="https://github.com/asocialmedia/social/releases/latest"><img src="https://img.shields.io/github/v/release/asocialmedia/social?sort=date&display_name=tag&label=latest&style=flat-square&color=e89b77&labelColor=2b1d16" alt="latest release"/></a>
+  <a href="https://github.com/asocialmedia/social/releases/latest"><img src="https://img.shields.io/github/release-date/asocialmedia/social?label=released&style=flat-square&color=e89b77&labelColor=2b1d16" alt="release date"/></a>
+  <a href="https://asocialmedia.cc"><img src="https://img.shields.io/website?url=https%3A%2F%2Fasocialmedia.cc&label=asocialmedia.cc&style=flat-square&up_color=e89b77&down_color=6e4a3a&up_message=live&labelColor=2b1d16" alt="website status"/></a>
+  <a href="https://github.com/asocialmedia/social/blob/main/LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-e89b77?style=flat-square&labelColor=2b1d16" alt="licence"/></a>
+  <a href="https://github.com/sponsors/parazeeknova"><img src="https://img.shields.io/github/sponsors/parazeeknova?style=flat-square&color=e89b77&labelColor=2b1d16" alt="sponsors"/></a>
 
-</div>
-<br>
+  <br>
+  <br>
 
-### <div align="center"><sub>Get the app</sub></div>
-
-<div align="center">
-
-| Android | iOS |
-| :-- | :-- |
-| <a href="https://github.com/asocialmedia/social/releases/latest/download/asocialmedia-latest.apk"><b>Download the latest APK</b></a><br><sub>signed release build, arm64</sub> | <b>Coming soon</b><br><sub>not on the App Store yet</sub> |
-
-<br>
-
-<a href="https://github.com/asocialmedia/social/releases/latest"><sub>All releases, version history and checksums</sub></a>
+| Website | Android | iOS | Releases | Licence |
+| :--: | :--: | :--: | :--: | :--: |
+| <a href="https://asocialmedia.cc"><b>asocialmedia.cc</b></a><br><sub>live web app</sub> | <a href="https://github.com/asocialmedia/social/releases/latest/download/asocialmedia-latest.apk"><b>APK download</b></a><br><sub>signed, arm64</sub><br><sub><a href="https://github.com/asocialmedia/social/releases/latest/download/asocialmedia-latest.apk.sha256">sha256</a></sub> | <b>Coming soon</b><br><sub>not on the App Store yet</sub> | <a href="https://github.com/asocialmedia/social/releases/latest"><b>Latest release</b></a><br><sub><a href="https://github.com/asocialmedia/social/releases">history and checksums</a></sub> | <a href="https://github.com/asocialmedia/social/blob/main/LICENSE"><b>AGPL-3.0</b></a><br><sub>licence terms</sub> |
 
 </div>
-<br>
 
-No version is written into this file on purpose. The download link above always resolves to the newest release, and the releases page is the only place the version number lives, so there is nothing here to go stale.
+<br>
 
 ### _<div align="center"><sub>About</sub></div>_
 
@@ -53,7 +43,7 @@ Oh, and it's open. Because the audacity of building this should be public. Read 
 
 Most platforms have likes/karma/upvotes. asocialmedia has **Aura**.
 
-Aura is your unified reputation score across everything you do on the platform. Post something brilliant? Aura goes up. Get tipped on a piece of content? Aura goes up. Contribute meaningfully to a community? You guessed it. Aura is not just a vanity number it's a living record of your presence, your contributions, and your credibility on asocialmedia.
+Aura is your unified reputation score across everything you do on the platform. Post something brilliant? Aura goes up. Get tipped on a piece of content? Aura goes up. Contribute meaningfully to a community? You guessed it. Aura is not just a vanity number, it's a living record of your presence, your contributions, and your credibility on asocialmedia.
 
 Think of it like XP in a game, except the game is the internet and the leaderboard is your entire social identity. The more you do, the more it reflects who you actually are. Not who an algorithm decided to boost on a Tuesday.
 
@@ -64,8 +54,6 @@ Think of it like XP in a game, except the game is the internet and the leaderboa
 <p align="center">
   <img src="https://zr2.asocialmedia.cc/Assets/singxzephyr-banner.jpg"
       alt="Singularity Works × asocialmedia collaboration artwork" width="80%">
-  <!-- <img src="https://zr2.asocialmedia.cc/Assets/singxzep-github-banner.jpg"
-      alt="asocialmedia atmospheric artwork" width="80%"> -->
   <br>
   <sub><em>Artwork by the Singularity Works</em></sub>
 </p>
@@ -81,6 +69,16 @@ asocialmedia is built on the premise that one platform, done right, with a smart
 Aura gives you identity. The algorithm gives you signal. Zeph gives you memory. The platform gives you everything else.
 
 This isn't a feature list. It's a different way of thinking about what social software should actually do for the people who use it.
+
+### _<div align="center"><sub>Sponsor</sub></div>_
+
+There are no ads here, and no ads coming. So there is no ad money keeping the lights on either.
+
+asocialmedia has run out of pocket for 2 years of development, with grants via Singularity Works. Sponsors are the long term plan for keeping it that way.
+
+If you want this around in 5 years, [sponsor the project](https://github.com/sponsors/parazeeknova). Every bit goes to infra and build time.
+
+<br>
 
 ### _<div align="center"><sub>Who - Know Us.</sub></div>_
 
