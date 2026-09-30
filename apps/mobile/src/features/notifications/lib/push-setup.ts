@@ -22,7 +22,11 @@ export interface PushSetupStatus {
 }
 
 // Human copy for the notifications screen banner.
-export function pushSetupCopy(status: PushSetupStatus): { action: string; body: string; title: string } {
+export function pushSetupCopy(status: PushSetupStatus): {
+  action: string;
+  body: string;
+  title: string;
+} {
   switch (status.reason) {
     case "ready": {
       return { action: "", body: "", title: "" };
@@ -65,7 +69,9 @@ export function pushSetupCopy(status: PushSetupStatus): { action: string; body: 
     default: {
       return {
         action: "Try again",
-        body: status.detail || "Push registration failed. Foreground the app and try again.",
+        body:
+          status.detail ||
+          "Push registration failed. Foreground the app and try again.",
         title: "Push unavailable",
       };
     }
@@ -108,13 +114,19 @@ export async function getPushSetupStatus(): Promise<PushSetupStatus> {
   try {
     const constantsMod = await import("expo-constants");
     const constants = constantsMod as unknown as {
-      default?: { expoGoConfig?: unknown; executionEnvironment?: string | null };
+      default?: {
+        expoGoConfig?: unknown;
+        executionEnvironment?: string | null;
+      };
       expoGoConfig?: unknown;
       executionEnvironment?: string | null;
     };
     const executionEnvironment =
-      constants.default?.executionEnvironment ?? constants.executionEnvironment ?? null;
-    const expoGoConfig = constants.default?.expoGoConfig ?? constants.expoGoConfig ?? null;
+      constants.default?.executionEnvironment ??
+      constants.executionEnvironment ??
+      null;
+    const expoGoConfig =
+      constants.default?.expoGoConfig ?? constants.expoGoConfig ?? null;
     const { Platform } = await import("react-native");
     const platform = (Platform as unknown as { OS?: string }).OS ?? "unknown";
     const precheck = pushSetupPrecheck({
@@ -129,6 +141,9 @@ export async function getPushSetupStatus(): Promise<PushSetupStatus> {
     }
     return { detail: "ok", reason: "ready" };
   } catch (error) {
-    return { detail: error instanceof Error ? error.message : String(error), reason: "unknown" };
+    return {
+      detail: error instanceof Error ? error.message : String(error),
+      reason: "unknown",
+    };
   }
 }

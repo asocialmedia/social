@@ -291,7 +291,8 @@ export function subscribeToPushTaps(
   };
   const handle = (response: Notifications.NotificationResponse | null) => {
     const path = response?.notification.request.content.data?.path;
-    const route = typeof path === "string" ? pathToNativeRoute(path) : "/notifications";
+    const route =
+      typeof path === "string" ? pathToNativeRoute(path) : "/notifications";
     if (!response) {
       flushPending();
       return;

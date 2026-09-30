@@ -56,7 +56,10 @@ import { usePostOverflow } from "./use-post-overflow";
 const scrollMemory = new Map<string, number>();
 // Stable across renders so the list never re-subscribes viewability on every
 // tick. minimumViewTime avoids flapping during fast flings.
-const STABLE_VIEWABILITY = { minimumViewTime: 300, viewAreaCoveragePercentThreshold: 50 };
+const STABLE_VIEWABILITY = {
+  minimumViewTime: 300,
+  viewAreaCoveragePercentThreshold: 50,
+};
 function feedGroupKey(group: FeedThreadGroup): string {
   return group.id;
 }
@@ -123,7 +126,9 @@ export function FeedList({
   // Session cookie + api base cached once per session, not per scroll. The old
   // code awaited SecureStore on every viewability pass, which stalled the JS
   // thread while scrolling.
-  const networkRef = useRef<{ apiBase: string; cookie?: string }>({ apiBase: getApiBaseUrl() });
+  const networkRef = useRef<{ apiBase: string; cookie?: string }>({
+    apiBase: getApiBaseUrl(),
+  });
   const viewerIdForNetwork = user?.id;
   useEffect(() => {
     void viewerIdForNetwork;
@@ -237,12 +242,9 @@ export function FeedList({
   );
   // Stable row callbacks so memoized PostCards do not re-render on every list
   // tick. Inline closures here used to defeat the memo on every scroll frame.
-  const handleOpenMore = useCallback(
-    (target: FeedPost, anchor: MenuAnchor) => {
-      setMoreTarget({ anchor, post: target });
-    },
-    []
-  );
+  const handleOpenMore = useCallback((target: FeedPost, anchor: MenuAnchor) => {
+    setMoreTarget({ anchor, post: target });
+  }, []);
   const handleShare = useCallback((post: FeedPost) => {
     setSharePost(post);
   }, []);
@@ -359,7 +361,8 @@ export function FeedList({
   });
   // Stable row renderer: same identity across scroll ticks so memoized cards
   // skip re-renders. Depends only on stable callbacks + theme + variant.
-  const showCommunityReason = variant === "trending" || variant === "personalized";
+  const showCommunityReason =
+    variant === "trending" || variant === "personalized";
   const renderGroup = useCallback(
     ({ item: group }: { item: FeedThreadGroup }) => (
       <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
@@ -379,7 +382,15 @@ export function FeedList({
         ))}
       </View>
     ),
-    [altVisibleIds, enabled, handleOpenMore, handleShare, showCommunityReason, theme.cardBorder, userId]
+    [
+      altVisibleIds,
+      enabled,
+      handleOpenMore,
+      handleShare,
+      showCommunityReason,
+      theme.cardBorder,
+      userId,
+    ]
   );
   // Prefetch upcoming images while idle so scrolling never waits on the
   // network for avatars and posters already in the cache window.
@@ -389,35 +400,37 @@ export function FeedList({
     }
     const timer = setTimeout(() => {
       void (async () => {
-      try {
-        const { apiBase } = networkRef.current;
-        const urls: string[] = [];
-        for (const post of posts.slice(0, 20)) {
-          const avatar = post.user?.avatarUrl;
-          if (avatar && urls.length < 30) {
-            urls.push(avatar.startsWith("http") ? avatar : `${apiBase}${avatar}`);
-          }
-          for (const att of post.attachments ?? []) {
-            if (urls.length >= 30) {
-              break;
+        try {
+          const { apiBase } = networkRef.current;
+          const urls: string[] = [];
+          for (const post of posts.slice(0, 20)) {
+            const avatar = post.user?.avatarUrl;
+            if (avatar && urls.length < 30) {
+              urls.push(
+                avatar.startsWith("http") ? avatar : `${apiBase}${avatar}`
+              );
             }
-            const { id } = att as { id?: string };
-            if (id) {
-              urls.push(`${apiBase}/api/media/${id}/image`);
+            for (const att of post.attachments ?? []) {
+              if (urls.length >= 30) {
+                break;
+              }
+              const { id } = att as { id?: string };
+              if (id) {
+                urls.push(`${apiBase}/api/media/${id}/image`);
+              }
             }
           }
-        }
-        for (const url of urls.slice(0, 12)) {
-          try {
-            // eslint-disable-next-line no-await-in-loop -- prefetches resolve one at a time to bound concurrent network use
-            await Image.prefetch(url);
-          } catch {
-            // Prefetch is best-effort.
+          for (const url of urls.slice(0, 12)) {
+            try {
+              // eslint-disable-next-line no-await-in-loop -- prefetches resolve one at a time to bound concurrent network use
+              await Image.prefetch(url);
+            } catch {
+              // Prefetch is best-effort.
+            }
           }
+        } catch {
+          // Prefetch is best-effort.
         }
-      } catch {
-        // Prefetch is best-effort.
-      }
       })();
     }, 1200);
     return () => clearTimeout(timer);

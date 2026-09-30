@@ -269,11 +269,16 @@ export const feedCache = new FeedCache();
 // Persistent snapshot shape for disk. Only success entries with pages are
 // stored, capped to the first two pages per tab so the file stays small and
 // hydration is instant. Loading states are never persisted.
-export type FeedPersistEntry = Pick<TabFeed, "cursor" | "fetchedAt" | "hasMore" | "pages">;
+export type FeedPersistEntry = Pick<
+  TabFeed,
+  "cursor" | "fetchedAt" | "hasMore" | "pages"
+>;
 export const FEED_PERSIST_NAME = "feed-cache-v1";
 export const FEED_PERSIST_MAX_TABS = 8;
 export const FEED_PERSIST_MAX_PAGES = 2;
-export function feedCacheToSnapshot(now: number = Date.now()): Record<string, FeedPersistEntry> {
+export function feedCacheToSnapshot(
+  now: number = Date.now()
+): Record<string, FeedPersistEntry> {
   const out: Record<string, FeedPersistEntry> = {};
   // Access via get() would prune; read the live map through a fresh instance
   // is not possible, so snapshot only keys that still read fresh.
@@ -303,14 +308,19 @@ export function feedCacheToSnapshot(now: number = Date.now()): Record<string, Fe
 // background on mount (use-feed treats stale as refetch-worthy but keeps
 // showing the list, never the skeleton). Expired entries are skipped.
 const HYDRATED_STALE_AFTER_MS = 60 * 1000;
-export function restoreFeedCache(snapshot: Record<string, FeedPersistEntry>): number {
+export function restoreFeedCache(
+  snapshot: Record<string, FeedPersistEntry>
+): number {
   let restored = 0;
   const now = Date.now();
   for (const [key, entry] of Object.entries(snapshot)) {
     if (!entry || !Array.isArray(entry.pages) || entry.pages.length === 0) {
       continue;
     }
-    if (!Number.isFinite(entry.fetchedAt) || now - entry.fetchedAt > FEED_CACHE_RETENTION_MS) {
+    if (
+      !Number.isFinite(entry.fetchedAt) ||
+      now - entry.fetchedAt > FEED_CACHE_RETENTION_MS
+    ) {
       continue;
     }
     const backgroundRefresh = now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
@@ -347,10 +357,13 @@ export function scheduleFeedPersist(): void {
       try {
         const { writeSnapshot } = await import("@/lib/persistent-file");
         const tabs = feedCacheToSnapshot();
-        await writeSnapshot<Record<string, FeedPersistEntry>>(FEED_PERSIST_NAME, {
-          entries: { tabs: { data: tabs, fetchedAt: Date.now() } },
-          version: 1,
-        });
+        await writeSnapshot<Record<string, FeedPersistEntry>>(
+          FEED_PERSIST_NAME,
+          {
+            entries: { tabs: { data: tabs, fetchedAt: Date.now() } },
+            version: 1,
+          }
+        );
       } catch {
         // Persistence must never break the feed.
       }
@@ -363,7 +376,8 @@ export function scheduleFeedPersist(): void {
 export async function hydrateFeedCache(): Promise<number> {
   try {
     const { readSnapshot } = await import("@/lib/persistent-file");
-    const snap = await readSnapshot<Record<string, FeedPersistEntry>>(FEED_PERSIST_NAME);
+    const snap =
+      await readSnapshot<Record<string, FeedPersistEntry>>(FEED_PERSIST_NAME);
     const wrapped = snap.entries["tabs"];
     const data = (wrapped?.data ?? {}) as Record<string, FeedPersistEntry>;
     const count = restoreFeedCache(data);

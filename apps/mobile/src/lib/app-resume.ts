@@ -42,12 +42,17 @@ export function isResumablePath(pathname: string): boolean {
     return false;
   }
   return RESUMABLE_PREFIXES.some((prefix) =>
-    prefix === "/" ? pathname === "/" : pathname === prefix || pathname.startsWith(prefix)
+    prefix === "/"
+      ? pathname === "/"
+      : pathname === prefix || pathname.startsWith(prefix)
   );
 }
 
 // True when the stored resume is fresh enough to restore.
-export function isFreshResume(entry: ResumeState | null | undefined, now: number): boolean {
+export function isFreshResume(
+  entry: ResumeState | null | undefined,
+  now: number
+): boolean {
   if (!entry) {
     return false;
   }
@@ -61,7 +66,9 @@ export function isFreshResume(entry: ResumeState | null | undefined, now: number
 }
 
 // Parses stored JSON. Returns null on any mismatch.
-export function parseResumeState(raw: string | null | undefined): ResumeState | null {
+export function parseResumeState(
+  raw: string | null | undefined
+): ResumeState | null {
   if (!raw) {
     return null;
   }
@@ -70,7 +77,10 @@ export function parseResumeState(raw: string | null | undefined): ResumeState | 
     if (typeof parsed !== "object" || parsed === null) {
       return null;
     }
-    if (typeof parsed.pathname !== "string" || !isResumablePath(parsed.pathname)) {
+    if (
+      typeof parsed.pathname !== "string" ||
+      !isResumablePath(parsed.pathname)
+    ) {
       return null;
     }
     if (!Number.isFinite(parsed.updatedAt)) {
@@ -84,14 +94,22 @@ export function parseResumeState(raw: string | null | undefined): ResumeState | 
         }
       }
     }
-    return { params, pathname: parsed.pathname, updatedAt: parsed.updatedAt as number };
+    return {
+      params,
+      pathname: parsed.pathname,
+      updatedAt: parsed.updatedAt as number,
+    };
   } catch {
     return null;
   }
 }
 
 // Serializes a resume entry.
-export function serializeResumeState(pathname: string, params: Record<string, string> | undefined, now: number): string {
+export function serializeResumeState(
+  pathname: string,
+  params: Record<string, string> | undefined,
+  now: number
+): string {
   return JSON.stringify({ params: params ?? {}, pathname, updatedAt: now });
 }
 
@@ -108,8 +126,14 @@ async function secureStore(): Promise<{
       getItemAsync?: (k: string) => Promise<string | null>;
       setItemAsync?: (k: string, v: string) => Promise<void>;
     };
-    if (typeof store.getItemAsync === "function" && typeof store.setItemAsync === "function") {
-      return { getItemAsync: store.getItemAsync, setItemAsync: store.setItemAsync };
+    if (
+      typeof store.getItemAsync === "function" &&
+      typeof store.setItemAsync === "function"
+    ) {
+      return {
+        getItemAsync: store.getItemAsync,
+        setItemAsync: store.setItemAsync,
+      };
     }
     return null;
   } catch {
@@ -118,7 +142,10 @@ async function secureStore(): Promise<{
 }
 
 // Saves the current route. Best-effort, never throws.
-export async function saveResumeRoute(pathname: string, params?: Record<string, string>): Promise<void> {
+export async function saveResumeRoute(
+  pathname: string,
+  params?: Record<string, string>
+): Promise<void> {
   if (!isResumablePath(pathname)) {
     return;
   }

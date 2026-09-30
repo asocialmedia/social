@@ -5,13 +5,20 @@ import { pushSetupCopy, pushSetupPrecheck } from "./push-setup";
 
 describe("pushSetupPrecheck", () => {
   test("expo go short-circuits", () => {
-    expect(pushSetupPrecheck({ executionEnvironment: "storeClient", platform: "android" })).toBe("expo-go");
+    expect(
+      pushSetupPrecheck({
+        executionEnvironment: "storeClient",
+        platform: "android",
+      })
+    ).toBe("expo-go");
   });
   test("ios unsupported", () => {
     expect(pushSetupPrecheck({ platform: "ios" })).toBe("ios-unsupported");
   });
   test("android dev build passes precheck", () => {
-    expect(pushSetupPrecheck({ executionEnvironment: "bare", platform: "android" })).toBeNull();
+    expect(
+      pushSetupPrecheck({ executionEnvironment: "bare", platform: "android" })
+    ).toBeNull();
   });
 });
 

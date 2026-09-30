@@ -24,11 +24,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import {
-  clampIndex,
-  handoffIndex,
-  settleIndex,
-} from "../lib/pager-navigation";
+import { clampIndex, handoffIndex, settleIndex } from "../lib/pager-navigation";
 
 // Tap-driven index change animation. Fast ease-out, same feel as the tab
 // indicator (220ms).
@@ -100,7 +96,15 @@ export function FeedPager({
     originSv.set(clampedIndex);
     baseSv.set(-clampedIndex * pageWidth);
     handedSv.set(clampedIndex);
-  }, [baseSv, clampedIndex, draggingSv, handedSv, originSv, pageWidth, translateX]);
+  }, [
+    baseSv,
+    clampedIndex,
+    draggingSv,
+    handedSv,
+    originSv,
+    pageWidth,
+    translateX,
+  ]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.get() }],

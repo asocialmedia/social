@@ -62,7 +62,9 @@ export function pruneSnapshot<T>(
 
 // Parses a snapshot file body. Returns empty on any shape mismatch so a
 // corrupt or older file never breaks hydration.
-export function parseSnapshot<T>(raw: string | null | undefined): PersistSnapshot<T> {
+export function parseSnapshot<T>(
+  raw: string | null | undefined
+): PersistSnapshot<T> {
   if (!raw) {
     return emptySnapshot<T>();
   }
@@ -90,7 +92,10 @@ export function parseSnapshot<T>(raw: string | null | undefined): PersistSnapsho
       if (!("data" in candidate)) {
         continue;
       }
-      clean[key] = { data: candidate.data as T, fetchedAt: candidate.fetchedAt as number };
+      clean[key] = {
+        data: candidate.data as T,
+        fetchedAt: candidate.fetchedAt as number,
+      };
     }
     return { entries: clean, version: PERSIST_VERSION };
   } catch {
@@ -106,6 +111,9 @@ export function serializeSnapshot<T>(snapshot: PersistSnapshot<T>): string {
 // File name for a cache. Kept flat in the cache dir so it is easy to inspect
 // with expo-file-system tooling.
 export function snapshotFileName(cacheName: string): string {
-  const safe = cacheName.trim().replaceAll(/[^a-z0-9-_]+/gi, "-").toLowerCase();
+  const safe = cacheName
+    .trim()
+    .replaceAll(/[^a-z0-9-_]+/gi, "-")
+    .toLowerCase();
   return `asm-${safe || "cache"}.json`;
 }

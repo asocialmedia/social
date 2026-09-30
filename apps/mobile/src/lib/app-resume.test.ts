@@ -29,7 +29,9 @@ describe("resume freshness", () => {
     expect(isFreshResume({ pathname: "/", updatedAt: 1000 }, 2000)).toBe(true);
   });
   test("expired", () => {
-    expect(isFreshResume({ pathname: "/", updatedAt: 0 }, 8 * 24 * 3600 * 1000)).toBe(false);
+    expect(
+      isFreshResume({ pathname: "/", updatedAt: 0 }, 8 * 24 * 3600 * 1000)
+    ).toBe(false);
   });
   test("parse round trip", () => {
     clearMemoryResume();

@@ -39,7 +39,7 @@ describe("pruneSnapshot", () => {
     };
     const pruned = pruneSnapshot(snap, 2000, 1000, 2);
     // c expired (1900 old), a+b fresh, cap 2 keeps both.
-    expect(Object.keys(pruned.entries).sort()).toEqual(["a", "b"]);
+    expect(Object.keys(pruned.entries).toSorted()).toEqual(["a", "b"]);
   });
   test("cap evicts oldest", () => {
     const snap = {
@@ -51,21 +51,28 @@ describe("pruneSnapshot", () => {
       version: 1,
     };
     const pruned = pruneSnapshot(snap, 1500, 5000, 2);
-    expect(Object.keys(pruned.entries).sort()).toEqual(["b", "c"]);
+    expect(Object.keys(pruned.entries).toSorted()).toEqual(["b", "c"]);
   });
 });
 
 describe("parseSnapshot", () => {
   test("round trips", () => {
-    const snap = { entries: { k: { data: { x: 1 }, fetchedAt: 42 } }, version: 1 };
-    const parsed = parseSnapshot<typeof snap.entries.k.data>(serializeSnapshot(snap));
+    const snap = {
+      entries: { k: { data: { x: 1 }, fetchedAt: 42 } },
+      version: 1,
+    };
+    const parsed = parseSnapshot<typeof snap.entries.k.data>(
+      serializeSnapshot(snap)
+    );
     expect(parsed.entries["k"]?.data).toEqual({ x: 1 });
   });
   test("corrupt body returns empty", () => {
     expect(parseSnapshot("{nope")).toEqual(emptySnapshot());
   });
   test("wrong version returns empty", () => {
-    expect(parseSnapshot(JSON.stringify({ entries: {}, version: 99 }))).toEqual(emptySnapshot());
+    expect(parseSnapshot(JSON.stringify({ entries: {}, version: 99 }))).toEqual(
+      emptySnapshot()
+    );
   });
 });
 

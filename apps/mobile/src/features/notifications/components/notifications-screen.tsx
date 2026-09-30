@@ -41,9 +41,6 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
-import { getPushSetupStatus, pushSetupCopy } from "../lib/push-setup";
-import type { PushSetupStatus } from "../lib/push-setup";
-
 import type {
   GroupedNotificationItem,
   NotificationTab,
@@ -53,6 +50,8 @@ import {
   fetchNotificationsPage,
   groupFetchedNotifications,
 } from "../lib/notifications-api";
+import { getPushSetupStatus, pushSetupCopy } from "../lib/push-setup";
+import type { PushSetupStatus } from "../lib/push-setup";
 import { NotificationRow } from "./notification-row";
 import { NotificationsSkeleton } from "./notifications-skeleton";
 

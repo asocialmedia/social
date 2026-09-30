@@ -244,83 +244,77 @@ function EmptyProfileTab({
 // Memoized: grids re-render on scroll and tab switches, and unmemoized tiles
 // were a large share of profile tab jank.
 const GustGridTile = memo(
-  ({
-    onOpen,
-    post,
-  }: {
-    onOpen: (post: FeedPost) => void;
-    post: FeedPost;
-  }) => {
-  const apiBase = getApiBaseUrl();
-  const video = post.attachments?.find(
-    (attachment) => attachment.type === "VIDEO"
-  );
-  const image = post.attachments?.find(
-    (attachment) => attachment.type !== "VIDEO"
-  );
-  const flame = getAuraFlameStyle(post.aura ?? 0);
-  const author = post.user?.displayName || post.user?.username || "this Gust";
-  let source: { uri: string } | null = null;
-  if (video) {
-    source = { uri: mediaPosterUrl(apiBase, video.id) };
-  } else if (image) {
-    source = { uri: mediaImageUrl(apiBase, image) };
-  }
-  return (
-    <Pressable
-      accessibilityLabel={`Open Gust by ${author}`}
-      accessibilityRole="button"
-      onPress={() => onOpen(post)}
-      style={styles.gustGridTile}
-    >
-      {source ? (
-        <Image
-          contentFit="cover"
-          source={source}
-          style={[
-            styles.gustGridImage,
-            post.explicitContent ? styles.mediaBlurred : null,
-          ]}
-        />
-      ) : (
-        <View style={[styles.gustGridImage, styles.gustGridFallback]} />
-      )}
-      <View style={styles.gustGridChip}>
-        <Clapperboard color="#f97316" size={10} />
-        <Text style={styles.gustGridChipText}>Gust</Text>
-      </View>
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
-        locations={[0, 0.4, 1]}
-        pointerEvents="none"
-        style={styles.gustGridScrim}
+  ({ onOpen, post }: { onOpen: (post: FeedPost) => void; post: FeedPost }) => {
+    const apiBase = getApiBaseUrl();
+    const video = post.attachments?.find(
+      (attachment) => attachment.type === "VIDEO"
+    );
+    const image = post.attachments?.find(
+      (attachment) => attachment.type !== "VIDEO"
+    );
+    const flame = getAuraFlameStyle(post.aura ?? 0);
+    const author = post.user?.displayName || post.user?.username || "this Gust";
+    let source: { uri: string } | null = null;
+    if (video) {
+      source = { uri: mediaPosterUrl(apiBase, video.id) };
+    } else if (image) {
+      source = { uri: mediaImageUrl(apiBase, image) };
+    }
+    return (
+      <Pressable
+        accessibilityLabel={`Open Gust by ${author}`}
+        accessibilityRole="button"
+        onPress={() => onOpen(post)}
+        style={styles.gustGridTile}
       >
-        {post.content ? (
-          <Text numberOfLines={2} style={styles.gustGridContent}>
-            {post.content}
-          </Text>
-        ) : null}
-        <View style={styles.gustGridMetrics}>
-          <View style={styles.gustGridMetric}>
-            <Eye color="rgba(255,255,255,0.85)" size={11} />
-            <Text style={styles.gustGridMetricText}>
-              {formatNumber(post.viewCount ?? 0)}
-            </Text>
-          </View>
-          <View style={styles.gustGridMetric}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "none"}
-              size={11}
-            />
-            <Text style={styles.gustGridMetricText}>
-              {formatNumber(post.aura ?? 0)}
-            </Text>
-          </View>
+        {source ? (
+          <Image
+            contentFit="cover"
+            source={source}
+            style={[
+              styles.gustGridImage,
+              post.explicitContent ? styles.mediaBlurred : null,
+            ]}
+          />
+        ) : (
+          <View style={[styles.gustGridImage, styles.gustGridFallback]} />
+        )}
+        <View style={styles.gustGridChip}>
+          <Clapperboard color="#f97316" size={10} />
+          <Text style={styles.gustGridChipText}>Gust</Text>
         </View>
-      </LinearGradient>
-    </Pressable>
-  );
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
+          locations={[0, 0.4, 1]}
+          pointerEvents="none"
+          style={styles.gustGridScrim}
+        >
+          {post.content ? (
+            <Text numberOfLines={2} style={styles.gustGridContent}>
+              {post.content}
+            </Text>
+          ) : null}
+          <View style={styles.gustGridMetrics}>
+            <View style={styles.gustGridMetric}>
+              <Eye color="rgba(255,255,255,0.85)" size={11} />
+              <Text style={styles.gustGridMetricText}>
+                {formatNumber(post.viewCount ?? 0)}
+              </Text>
+            </View>
+            <View style={styles.gustGridMetric}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "none"}
+                size={11}
+              />
+              <Text style={styles.gustGridMetricText}>
+                {formatNumber(post.aura ?? 0)}
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+      </Pressable>
+    );
   }
 );
 GustGridTile.displayName = "GustGridTile";
@@ -423,89 +417,89 @@ const MediaTile = memo(
     item: ProfileMedia;
     onOpen: (item: ProfileMedia) => void;
   }) => {
-  const { theme } = useAppTheme();
-  const apiBase = getApiBaseUrl();
-  const aspectRatio = mediaTileAspect(item);
-  const isImage = item.type === "IMAGE";
-  const isVideo = isVideoMedia(item);
-  const isAudio = isAudioMedia(item);
-  const isGenericFile = !isImage && !isVideo && !isAudio;
+    const { theme } = useAppTheme();
+    const apiBase = getApiBaseUrl();
+    const aspectRatio = mediaTileAspect(item);
+    const isImage = item.type === "IMAGE";
+    const isVideo = isVideoMedia(item);
+    const isAudio = isAudioMedia(item);
+    const isGenericFile = !isImage && !isVideo && !isAudio;
 
-  let source: { uri: string } | null = null;
-  if (isVideo) {
-    source = { uri: mediaPosterUrl(apiBase, item.id) };
-  } else if (isAudio || isImage) {
-    source = { uri: mediaImageUrl(apiBase, item) };
-  }
+    let source: { uri: string } | null = null;
+    if (isVideo) {
+      source = { uri: mediaPosterUrl(apiBase, item.id) };
+    } else if (isAudio || isImage) {
+      source = { uri: mediaImageUrl(apiBase, item) };
+    }
 
-  const moderated = item.post?.moderated === true;
-  const showFallback = moderated || isGenericFile || !source;
-  const kind = item.post?.isGust ? "gust" : "post";
-  let fallbackLabel = "profile media";
-  if (isAudio) {
-    fallbackLabel = "post for audio";
-  }
-  const label = moderated
-    ? `Open moderated ${kind}`
-    : (item.altText ?? `Open ${fallbackLabel}`);
-  let fallbackText = item.mimeType ?? "File";
-  if (moderated) {
-    fallbackText = item.post?.isGust ? "Moderated gust" : "Moderated post";
-  }
+    const moderated = item.post?.moderated === true;
+    const showFallback = moderated || isGenericFile || !source;
+    const kind = item.post?.isGust ? "gust" : "post";
+    let fallbackLabel = "profile media";
+    if (isAudio) {
+      fallbackLabel = "post for audio";
+    }
+    const label = moderated
+      ? `Open moderated ${kind}`
+      : (item.altText ?? `Open ${fallbackLabel}`);
+    let fallbackText = item.mimeType ?? "File";
+    if (moderated) {
+      fallbackText = item.post?.isGust ? "Moderated gust" : "Moderated post";
+    }
 
-  return (
-    <View style={styles.mediaTileWrap}>
-      <Pressable
-        accessibilityLabel={label}
-        accessibilityRole="link"
-        onPress={() => onOpen(item)}
-        style={[
-          styles.mediaTile,
-          {
-            aspectRatio,
-            backgroundColor: theme.cardBg,
-            borderColor: theme.cardBorder,
-          },
-        ]}
-      >
-        {renderMediaContent({
-          fallbackText,
-          isAudio,
-          isGenericFile,
-          item,
-          moderated,
-          showFallback,
-          source,
-          theme,
-        })}
+    return (
+      <View style={styles.mediaTileWrap}>
+        <Pressable
+          accessibilityLabel={label}
+          accessibilityRole="link"
+          onPress={() => onOpen(item)}
+          style={[
+            styles.mediaTile,
+            {
+              aspectRatio,
+              backgroundColor: theme.cardBg,
+              borderColor: theme.cardBorder,
+            },
+          ]}
+        >
+          {renderMediaContent({
+            fallbackText,
+            isAudio,
+            isGenericFile,
+            item,
+            moderated,
+            showFallback,
+            source,
+            theme,
+          })}
 
-        {isVideo && !moderated ? (
-          <View style={styles.mediaVideoBadge}>
-            <LinearGradient
-              colors={["#ff9500", "#e65500"]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={styles.mediaBadgeGradient}
-            >
-              <Play
-                color="#ffffff"
-                fill="#ffffff"
-                size={11}
-                style={styles.playIconOffset}
-              />
-            </LinearGradient>
-          </View>
-        ) : null}
-      </Pressable>
+          {isVideo && !moderated ? (
+            <View style={styles.mediaVideoBadge}>
+              <LinearGradient
+                colors={["#ff9500", "#e65500"]}
+                end={{ x: 0.5, y: 1 }}
+                start={{ x: 0.5, y: 0 }}
+                style={styles.mediaBadgeGradient}
+              >
+                <Play
+                  color="#ffffff"
+                  fill="#ffffff"
+                  size={11}
+                  style={styles.playIconOffset}
+                />
+              </LinearGradient>
+            </View>
+          ) : null}
+        </Pressable>
 
-      <Text
-        numberOfLines={1}
-        style={[styles.mediaFooterLink, { color: theme.dividerText }]}
-      >
-        View {item.post?.isGust ? "gust" : "post"}
-      </Text>
-    </View>
-  );
+        <Text
+          numberOfLines={1}
+          style={[styles.mediaFooterLink, { color: theme.dividerText }]}
+        >
+          View {item.post?.isGust ? "gust" : "post"}
+        </Text>
+      </View>
+    );
   }
 );
 MediaTile.displayName = "MediaTile";
@@ -525,191 +519,195 @@ const ReplyRow = memo(
     onOpenPost: (post: FeedPost) => void;
     viewerId: string | null;
   }) => {
-  const { theme } = useAppTheme();
-  const author = item.user;
-  const displayName = author?.displayName || author?.username || "Unknown";
-  const repliedToUsername =
-    item.parent?.user?.username ?? item.post?.user?.username ?? "someone";
-  const { embeds } = useLinkPreviews(item.content);
-  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const ownEddie = Boolean(viewerId) && author?.id === viewerId;
+    const { theme } = useAppTheme();
+    const author = item.user;
+    const displayName = author?.displayName || author?.username || "Unknown";
+    const repliedToUsername =
+      item.parent?.user?.username ?? item.post?.user?.username ?? "someone";
+    const { embeds } = useLinkPreviews(item.content);
+    const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const ownEddie = Boolean(viewerId) && author?.id === viewerId;
 
-  const replyAura =
-    item.votes?.reduce((acc, vote) => acc + (vote.value ?? 0), 0) ?? 0;
-  const flame = getAuraFlameStyle(replyAura);
+    const replyAura =
+      item.votes?.reduce((acc, vote) => acc + (vote.value ?? 0), 0) ?? 0;
+    const flame = getAuraFlameStyle(replyAura);
 
-  const confirmDelete = async () => {
-    setDeleting(true);
-    const ok = await deleteEddie(item.id).then(
-      () => true,
-      () => false
-    );
-    setDeleting(false);
-    if (ok) {
-      setDeleteOpen(false);
-      onDeleted();
-      return;
-    }
-    toast({
-      description: "We couldn't delete that. Try again in a moment.",
-      title: "Delete failed",
-    });
-  };
+    const confirmDelete = async () => {
+      setDeleting(true);
+      const ok = await deleteEddie(item.id).then(
+        () => true,
+        () => false
+      );
+      setDeleting(false);
+      if (ok) {
+        setDeleteOpen(false);
+        onDeleted();
+        return;
+      }
+      toast({
+        description: "We couldn't delete that. Try again in a moment.",
+        title: "Delete failed",
+      });
+    };
 
-  return (
-    <View style={[styles.replyRow, { borderBottomColor: theme.cardBorder }]}>
-      {/* Left: author avatar */}
-      <Pressable
-        accessibilityLabel={`View @${author?.username ?? "user"}'s profile`}
-        onPress={() => onOpenPost(item.post)}
-        style={styles.replyAvatarCol}
-      >
-        <UserAvatar
-          radius={12}
-          seed={author?.username ?? author?.id}
-          size={38}
-          url={author?.avatarUrl ?? null}
-          userId={author?.id}
-          username={author?.username}
-        />
-      </Pressable>
-      {/* Right: header, context, body, embeds, and actions */}
-      <View style={styles.replyMainCol}>
-        <View style={styles.replyHeaderLine}>
-          <Text
-            numberOfLines={1}
-            style={[styles.replyName, { color: theme.inputText }]}
-          >
-            {displayName}
-          </Text>
-          {author ? (
-            <UserBadge badge={author.badge} badges={author.badges} />
-          ) : null}
-          {author?.username ? (
+    return (
+      <View style={[styles.replyRow, { borderBottomColor: theme.cardBorder }]}>
+        {/* Left: author avatar */}
+        <Pressable
+          accessibilityLabel={`View @${author?.username ?? "user"}'s profile`}
+          onPress={() => onOpenPost(item.post)}
+          style={styles.replyAvatarCol}
+        >
+          <UserAvatar
+            radius={12}
+            seed={author?.username ?? author?.id}
+            size={38}
+            url={author?.avatarUrl ?? null}
+            userId={author?.id}
+            username={author?.username}
+          />
+        </Pressable>
+        {/* Right: header, context, body, embeds, and actions */}
+        <View style={styles.replyMainCol}>
+          <View style={styles.replyHeaderLine}>
             <Text
               numberOfLines={1}
-              style={[styles.replyHandle, { color: theme.dividerText }]}
+              style={[styles.replyName, { color: theme.inputText }]}
             >
-              @{author.username}
+              {displayName}
             </Text>
-          ) : null}
-          <Text style={[styles.replyDot, { color: theme.dividerText }]}>·</Text>
-          <Text style={[styles.replyDate, { color: theme.dividerText }]}>
-            {formatRelativeDate(item.createdAt)}
-          </Text>
-          {ownEddie ? (
-            <View style={styles.replyMenuButtonWrap}>
-              <MoreButton onPress={(anchor) => setMenuAnchor(anchor)} />
-            </View>
-          ) : null}
-        </View>
-        <Text style={[styles.replyContext, { color: theme.dividerText }]}>
-          Replying to{" "}
-          <Text style={{ color: "#f97316" }}>@{repliedToUsername}</Text>
-        </Text>
-        <Pressable
-          accessibilityLabel={`Open post for eddie by ${displayName}`}
-          onPress={() => onOpenPost(item.post)}
-          style={styles.replyBodyPressable}
-        >
-          {item.content ? (
-            <BioContent
-              apiBase={getApiBaseUrl()}
-              bio={item.content}
-              textSize={{ fontSize: 14, lineHeight: 20 }}
-            />
-          ) : null}
-
-          {item.attachments.length > 0 ? (
-            <View style={styles.replyAttachments}>
-              {item.attachments.map((attachment) => (
-                <Image
-                  contentFit="cover"
-                  key={attachment.id}
-                  source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
-                  style={styles.replyAttachment}
-                />
-              ))}
-            </View>
-          ) : null}
-
-          {embeds.length > 0 ? (
-            <View style={styles.replyEmbeds}>
-              <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
-            </View>
-          ) : null}
-        </Pressable>
-        {/* Actions: Aura indicator and Reply button */}
-        <View style={styles.replyActionsRow}>
-          <View style={styles.replyAuraPill}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "none"}
-              size={12}
-            />
-            <Text style={[styles.replyAuraText, { color: theme.dividerText }]}>
-              {formatNumber(replyAura)}
+            {author ? (
+              <UserBadge badge={author.badge} badges={author.badges} />
+            ) : null}
+            {author?.username ? (
+              <Text
+                numberOfLines={1}
+                style={[styles.replyHandle, { color: theme.dividerText }]}
+              >
+                @{author.username}
+              </Text>
+            ) : null}
+            <Text style={[styles.replyDot, { color: theme.dividerText }]}>
+              ·
             </Text>
+            <Text style={[styles.replyDate, { color: theme.dividerText }]}>
+              {formatRelativeDate(item.createdAt)}
+            </Text>
+            {ownEddie ? (
+              <View style={styles.replyMenuButtonWrap}>
+                <MoreButton onPress={(anchor) => setMenuAnchor(anchor)} />
+              </View>
+            ) : null}
           </View>
+          <Text style={[styles.replyContext, { color: theme.dividerText }]}>
+            Replying to{" "}
+            <Text style={{ color: "#f97316" }}>@{repliedToUsername}</Text>
+          </Text>
           <Pressable
-            accessibilityLabel="Reply to eddie"
-            accessibilityRole="button"
+            accessibilityLabel={`Open post for eddie by ${displayName}`}
             onPress={() => onOpenPost(item.post)}
-            style={[
-              styles.replyActionButton,
-              {
-                backgroundColor: theme.containerBg,
-                borderColor: theme.cardBorder,
-              },
-            ]}
+            style={styles.replyBodyPressable}
           >
-            <CornerDownRight color={theme.dividerText} size={13} />
-            <Text
-              style={[styles.replyActionText, { color: theme.dividerText }]}
-            >
-              Reply
-            </Text>
+            {item.content ? (
+              <BioContent
+                apiBase={getApiBaseUrl()}
+                bio={item.content}
+                textSize={{ fontSize: 14, lineHeight: 20 }}
+              />
+            ) : null}
+
+            {item.attachments.length > 0 ? (
+              <View style={styles.replyAttachments}>
+                {item.attachments.map((attachment) => (
+                  <Image
+                    contentFit="cover"
+                    key={attachment.id}
+                    source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
+                    style={styles.replyAttachment}
+                  />
+                ))}
+              </View>
+            ) : null}
+
+            {embeds.length > 0 ? (
+              <View style={styles.replyEmbeds}>
+                <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
+              </View>
+            ) : null}
           </Pressable>
+          {/* Actions: Aura indicator and Reply button */}
+          <View style={styles.replyActionsRow}>
+            <View style={styles.replyAuraPill}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "none"}
+                size={12}
+              />
+              <Text
+                style={[styles.replyAuraText, { color: theme.dividerText }]}
+              >
+                {formatNumber(replyAura)}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Reply to eddie"
+              accessibilityRole="button"
+              onPress={() => onOpenPost(item.post)}
+              style={[
+                styles.replyActionButton,
+                {
+                  backgroundColor: theme.containerBg,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+            >
+              <CornerDownRight color={theme.dividerText} size={13} />
+              <Text
+                style={[styles.replyActionText, { color: theme.dividerText }]}
+              >
+                Reply
+              </Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
-      {ownEddie ? (
-        <>
-          <MoreMenu
-            anchor={menuAnchor}
-            entries={
-              menuAnchor
-                ? [
-                    {
-                      action: { type: "delete" },
-                      destructive: true,
-                      icon: Trash2,
-                      label: "Delete",
-                    },
-                  ]
-                : []
-            }
-            onAction={(action) => {
-              setMenuAnchor(null);
-              if (action.type === "delete") {
-                setDeleteOpen(true);
+        {ownEddie ? (
+          <>
+            <MoreMenu
+              anchor={menuAnchor}
+              entries={
+                menuAnchor
+                  ? [
+                      {
+                        action: { type: "delete" },
+                        destructive: true,
+                        icon: Trash2,
+                        label: "Delete",
+                      },
+                    ]
+                  : []
               }
-            }}
-            onClose={() => setMenuAnchor(null)}
-          />
-          <DeleteEddieDialog
-            deleting={deleting}
-            onCancel={() => setDeleteOpen(false)}
-            onConfirm={() => {
-              void confirmDelete();
-            }}
-            open={deleteOpen}
-          />
-        </>
-      ) : null}
-    </View>
-  );
+              onAction={(action) => {
+                setMenuAnchor(null);
+                if (action.type === "delete") {
+                  setDeleteOpen(true);
+                }
+              }}
+              onClose={() => setMenuAnchor(null)}
+            />
+            <DeleteEddieDialog
+              deleting={deleting}
+              onCancel={() => setDeleteOpen(false)}
+              onConfirm={() => {
+                void confirmDelete();
+              }}
+              open={deleteOpen}
+            />
+          </>
+        ) : null}
+      </View>
+    );
   }
 );
 ReplyRow.displayName = "ReplyRow";
@@ -1150,7 +1148,7 @@ export function ProfileFeed({
   /* eslint-enable react/capitalized-calls */
   return (
     <GestureDetector gesture={outerGestures}>
-        <View style={styles.rootContainer}>
+      <View style={styles.rootContainer}>
         <GestureDetector gesture={pull.nativeScrollGesture}>
           <FlatList
             ItemSeparatorComponent={renderSeparator}
@@ -1242,7 +1240,7 @@ export function ProfileFeed({
           }}
         />
         {overflow.dialogs}
-        </View>
+      </View>
     </GestureDetector>
   );
 }
