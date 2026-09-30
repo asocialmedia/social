@@ -12,17 +12,13 @@
   <br>
   <br>
 
-  <a href="https://github.com/asocialmedia/social/releases/latest"><img src="https://img.shields.io/github/v/release/asocialmedia/social?sort=date&display_name=tag&label=latest&style=flat-square&color=e89b77&labelColor=2b1d16" alt="latest release"/></a>
-  <a href="https://github.com/asocialmedia/social/releases/latest"><img src="https://img.shields.io/github/release-date/asocialmedia/social?label=released&style=flat-square&color=e89b77&labelColor=2b1d16" alt="release date"/></a>
-  <a href="https://asocialmedia.cc"><img src="https://img.shields.io/website?url=https%3A%2F%2Fasocialmedia.cc&label=asocialmedia.cc&style=flat-square&up_color=e89b77&down_color=6e4a3a&up_message=live&labelColor=2b1d16" alt="website status"/></a>
-  <a href="https://github.com/asocialmedia/social/blob/main/LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-e89b77?style=flat-square&labelColor=2b1d16" alt="licence"/></a>
-  <a href="https://github.com/sponsors/parazeeknova"><img src="https://img.shields.io/github/sponsors/parazeeknova?style=flat-square&color=e89b77&labelColor=2b1d16" alt="sponsors"/></a>
+<a href="https://github.com/asocialmedia/social/releases/latest"><img src="https://img.shields.io/github/v/release/asocialmedia/social?sort=date&display_name=tag&label=latest&style=flat-square&color=e89b77&labelColor=2b1d16" alt="latest release"/></a> <a href="https://github.com/asocialmedia/social/releases/latest"><img src="https://img.shields.io/github/release-date/asocialmedia/social?label=released&style=flat-square&color=e89b77&labelColor=2b1d16" alt="release date"/></a> <a href="https://asocialmedia.cc"><img src="https://img.shields.io/website?url=https%3A%2F%2Fasocialmedia.cc&label=asocialmedia.cc&style=flat-square&up_color=e89b77&down_color=6e4a3a&up_message=live&labelColor=2b1d16" alt="website status"/></a> <a href="https://github.com/asocialmedia/social/blob/main/LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-e89b77?style=flat-square&labelColor=2b1d16" alt="licence"/></a> <a href="https://github.com/sponsors/parazeeknova"><img src="https://img.shields.io/github/sponsors/parazeeknova?style=flat-square&color=e89b77&labelColor=2b1d16" alt="sponsors"/></a>
 
   <br>
   <br>
 
 | Website | Android | iOS | Releases | Licence |
-| :--: | :--: | :--: | :--: | :--: |
+| :-: | :-: | :-: | :-: | :-: |
 | <a href="https://asocialmedia.cc"><b>asocialmedia.cc</b></a><br><sub>live web app</sub> | <a href="https://github.com/asocialmedia/social/releases/latest/download/asocialmedia-latest.apk"><b>APK download</b></a><br><sub>signed, arm64</sub><br><sub><a href="https://github.com/asocialmedia/social/releases/latest/download/asocialmedia-latest.apk.sha256">sha256</a></sub> | <b>Coming soon</b><br><sub>not on the App Store yet</sub> | <a href="https://github.com/asocialmedia/social/releases/latest"><b>Latest release</b></a><br><sub><a href="https://github.com/asocialmedia/social/releases">history and checksums</a></sub> | <a href="https://github.com/asocialmedia/social/blob/main/LICENSE"><b>AGPL-3.0</b></a><br><sub>licence terms</sub> |
 
 </div>
