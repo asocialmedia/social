@@ -62,7 +62,7 @@
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.0.94",
+      "version": "1.0.95",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -153,7 +153,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.32",
+      "version": "1.5.33",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -279,7 +279,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.1.82",
+      "version": "1.1.83",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -333,7 +333,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.34",
+      "version": "1.0.35",
       "devDependencies": {
         "@asm/config": "workspace:*",
         "@types/bun": "^1.4.0",

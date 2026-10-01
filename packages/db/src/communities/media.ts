@@ -34,6 +34,7 @@ export async function purgeSupersededCommunityMedia(
     .include("communitiesCommunities", (community) => community.select("id"))
     .include("users", (user) => user.select("id"))
     .include("usersUsers", (user) => user.select("id"))
+    .include("messageConversationMembers", (member) => member.select("userId"))
     .where({ id: mediaId })
     .first();
   const ownedByThisCommunity =
@@ -47,7 +48,10 @@ export async function purgeSupersededCommunityMedia(
     media.postId ||
     media.commentId ||
     media.users.length > 0 ||
-    media.usersUsers.length > 0
+    media.usersUsers.length > 0 ||
+    // The same bytes can be somebody's chat wallpaper as well as a community
+    // image, so a community swap must not delete a live wallpaper.
+    media.messageConversationMembers.length > 0
   ) {
     return;
   }

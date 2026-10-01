@@ -47,11 +47,16 @@ export async function processMediaCleanup(
         .include("messageConversation", (conversation) =>
           conversation.select("id")
         )
+        .include("messageConversationMembers", (member) =>
+          member.select("userId")
+        )
         .where({ id: mediaId })
         .first();
 
       // Still orphaned after the grace period (never attached to a post, a
-      // comment, a profile, a conversation, or a community): delete.
+      // comment, a profile, a conversation, a community, or a member's chat
+      // wallpaper): delete. Every owner projection must be listed here, or a
+      // live surface loses its bytes 24h after the upload.
       if (
         !media ||
         media.postId ||
@@ -61,7 +66,8 @@ export async function processMediaCleanup(
         media.usersUsers.length > 0 ||
         media.communities.length > 0 ||
         media.communitiesCommunities.length > 0 ||
-        media.messageConversation
+        media.messageConversation ||
+        media.messageConversationMembers.length > 0
       ) {
         return;
       }

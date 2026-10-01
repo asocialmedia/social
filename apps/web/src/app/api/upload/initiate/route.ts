@@ -22,7 +22,13 @@ const initiateSchema = z.object({
   // reserve the bubble box before the bytes arrive (no scroll jump).
   height: z.number().int().positive().max(16_384).nullish(),
   name: z.string().min(1).max(255),
-  purpose: z.enum(["avatar", "banner", "comment", "message", "post"]).nullish(),
+  // Which surface the upload is for. Selects the byte cap (a wallpaper is far
+  // tighter than a post image) and whether abandoned-upload cleanup is
+  // scheduled. It is deliberately NOT stored on the Media row: ownership comes
+  // from the link that follows, never from what the client asked for.
+  purpose: z
+    .enum(["avatar", "banner", "comment", "message", "post", "wallpaper"])
+    .nullish(),
   // Uppercase hex is accepted but normalized to lowercase so dedup matching
   // (an exact string comparison against stored digests) cannot miss.
   sha256: z
