@@ -8,19 +8,29 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { isConversationThemeKey } from "@/lib/messages/conversation-theme";
+import {
+  isConversationWallpaperKey,
+  isWallpaperDim,
+} from "@/lib/messages/conversation-wallpaper";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
 
-// Per-member DM preferences: mute and chat theme.
+// Per-member DM preferences: mute, chat theme, and chat wallpaper.
 //
-// Scoped to the caller's OWN membership row, so neither preference is visible
-// to or editable by the peer, and both are DM-only for free (a message
+// Scoped to the caller's OWN membership row, so none of these preferences is
+// visible to or editable by the peer, and all are DM-only for free (a message
 // conversation is a 1:1 pair). The panel writes them; every other surface just
 // reads what this returns.
 //
 // Only the keys present in the body are written, so the panel can send one
-// without clobbering the other. Validation is strict rather than
-// best-effort-on-read: an unknown theme key is rejected instead of stored, so a
-// typo cannot leave a member on a theme no client can render.
+// without clobbering the others. Validation is strict rather than
+// best-effort-on-read: an unknown theme or wallpaper key, or a dim that is not
+// one this build can render, is rejected instead of stored, so a typo cannot
+// leave a member on a setting no client can paint.
+//
+// `wallpaperMediaId` is deliberately NOT settable here: an uploaded wallpaper is
+// claimed by the dedicated link route, which is the only place that checks the
+// media row is the caller's own, finished, and a usable image. This route only
+// ever clears it, to keep a preset and an upload from both being set.
 export async function PATCH(
   request: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -40,16 +50,20 @@ export async function PATCH(
   const body = (await parseJsonBody(request)) as {
     muted?: unknown;
     themeKey?: unknown;
+    wallpaperDim?: unknown;
+    wallpaperKey?: unknown;
   } | null;
-  if (!body) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return Response.json({ error: "Invalid body" }, { status: 400 });
   }
 
   const hasMuted = "muted" in body;
   const hasTheme = "themeKey" in body;
-  if (!hasMuted && !hasTheme) {
+  const hasWallpaper = "wallpaperKey" in body;
+  const hasDim = "wallpaperDim" in body;
+  if (!hasMuted && !hasTheme && !hasWallpaper && !hasDim) {
     return Response.json(
-      { error: "Provide muted and/or themeKey" },
+      { error: "Provide muted, themeKey, wallpaperKey and/or wallpaperDim" },
       { status: 400 }
     );
   }
@@ -57,6 +71,11 @@ export async function PATCH(
   const data: {
     mutedAt?: ReturnType<typeof toPrismaDateTime> | null;
     themeKey?: string | null;
+    wallpaperDim?: number | null;
+    wallpaperKey?: string | null;
+    // Only ever written by the wallpaperKey branch, to keep a preset and an
+    // upload from ever both being set. Not settable directly.
+    wallpaperMediaId?: string | null;
   } = {};
 
   if (hasMuted) {
@@ -91,10 +110,46 @@ export async function PATCH(
     }
   }
 
+  if (hasWallpaper) {
+    const { wallpaperKey } = body;
+    if (wallpaperKey === null) {
+      // Explicit null clears the override: no wallpaper, plain app background.
+      // An upload is cleared in the same write, so "no wallpaper" really means
+      // none rather than falling back to one the member picked earlier.
+      data.wallpaperKey = null;
+      data.wallpaperMediaId = null;
+    } else if (isConversationWallpaperKey(wallpaperKey)) {
+      data.wallpaperKey = wallpaperKey;
+      // A preset and an upload are mutually exclusive. Clearing the upload here
+      // is also what stops a set-but-unpainted upload from shadowing the preset
+      // the member just chose.
+      data.wallpaperMediaId = null;
+    } else {
+      return Response.json({ error: "Unknown wallpaperKey" }, { status: 400 });
+    }
+  }
+
+  if (hasDim) {
+    const { wallpaperDim } = body;
+    if (wallpaperDim === null) {
+      data.wallpaperDim = null;
+    } else if (isWallpaperDim(wallpaperDim)) {
+      data.wallpaperDim = wallpaperDim;
+    } else {
+      return Response.json({ error: "Unknown wallpaperDim" }, { status: 400 });
+    }
+  }
+
   const member = await prisma.orm.public.MessageConversationMembers.where(
     (row) => and(row.conversationId.eq(id), row.userId.eq(user.id))
   )
-    .select("mutedAt", "themeKey")
+    .select(
+      "mutedAt",
+      "themeKey",
+      "wallpaperDim",
+      "wallpaperKey",
+      "wallpaperMediaId"
+    )
     .update(data);
 
   // getConversationForUser already proved the membership exists, so a null here
@@ -120,6 +175,12 @@ export async function PATCH(
         ? fromPrismaDateTime(member.mutedAt).toISOString()
         : null,
       themeKey: member.themeKey,
+      wallpaperDim: member.wallpaperDim,
+      wallpaperKey: member.wallpaperKey,
+      // Returned even though this route only ever clears it: the client treats
+      // the response as the whole prefs object, so omitting it would make every
+      // unrelated write look like it removed the member's uploaded wallpaper.
+      wallpaperMediaId: member.wallpaperMediaId,
     },
   });
 }

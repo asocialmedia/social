@@ -55,6 +55,9 @@ export async function GET(
     prefs: {
       mutedAt: myMember?.mutedAt?.toISOString() ?? null,
       themeKey: myMember?.themeKey ?? null,
+      wallpaperDim: myMember?.wallpaperDim ?? null,
+      wallpaperKey: myMember?.wallpaperKey ?? null,
+      wallpaperMediaId: myMember?.wallpaperMediaId ?? null,
     },
   });
 }

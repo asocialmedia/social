@@ -30,7 +30,15 @@ export async function getConversationForUser(
   )
     .include("messageConversationMembers", (member) =>
       member
-        .select("userId", "lastReadAt", "mutedAt", "themeKey")
+        .select(
+          "userId",
+          "lastReadAt",
+          "mutedAt",
+          "themeKey",
+          "wallpaperDim",
+          "wallpaperKey",
+          "wallpaperMediaId"
+        )
         .include("user", (_user) =>
           getUserDataQuery(prisma.orm, "").include(
             "messageIdentities",

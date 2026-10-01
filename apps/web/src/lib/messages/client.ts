@@ -46,6 +46,18 @@ export interface ConversationPrefs {
   mutedAt: string | null;
   // Chat theme key, or null for the app default.
   themeKey: string | null;
+  // How dark the wallpaper is painted, 0-100, or null for the app default.
+  // A plain percentage rather than an index into a table of named stops, so the
+  // member can pick any level and the thumb, the level label and the overlay the
+  // thread paints are all just this one number.
+  wallpaperDim: number | null;
+  // Chat wallpaper key, or null for the app default. Mutually exclusive with
+  // `wallpaperMediaId`: setting one clears the other, so "which wallpaper" is
+  // answered by whichever is non-null.
+  wallpaperKey: string | null;
+  // The member's own uploaded wallpaper, or null. Wins over `wallpaperKey` if
+  // both are somehow set.
+  wallpaperMediaId: string | null;
 }
 
 export interface ConversationDetailResponse {
@@ -265,7 +277,12 @@ export async function fetchConversationDetail(
 // re-muting keeps the original one).
 export async function updateConversationPrefs(
   conversationId: string,
-  prefs: { muted?: boolean; themeKey?: string | null }
+  prefs: {
+    muted?: boolean;
+    themeKey?: string | null;
+    wallpaperDim?: number | null;
+    wallpaperKey?: string | null;
+  }
 ): Promise<ConversationPrefs> {
   const response = await fetch(
     `/api/messages/conversations/${conversationId}/prefs`,
@@ -274,6 +291,50 @@ export async function updateConversationPrefs(
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       method: "PATCH",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as { prefs: ConversationPrefs };
+  return body.prefs;
+}
+
+// Links the caller's own uploaded image as this conversation's custom wallpaper.
+// The image must already be a finished (`READY`) pipeline upload; the route
+// re-checks ownership, type and dimensions against what the decoder measured.
+// Returns the server's refreshed prefs so the caller can paint from the truth
+// rather than from its own optimism.
+export async function setConversationWallpaperUpload(
+  conversationId: string,
+  mediaId: string
+): Promise<ConversationPrefs> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/wallpaper`,
+    {
+      body: JSON.stringify({ mediaId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as { prefs: ConversationPrefs };
+  return body.prefs;
+}
+
+// Unlinks the custom upload, returning the chat to the app default (or whatever
+// preset was last chosen). The route schedules the freed image for cleanup.
+export async function clearConversationWallpaperUpload(
+  conversationId: string
+): Promise<ConversationPrefs> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/wallpaper`,
+    {
+      credentials: "same-origin",
+      method: "DELETE",
     }
   );
   if (!response.ok) {
@@ -475,7 +536,10 @@ export async function linkMessageMedia(
 // Natural image dimensions from the file's first frame, so the sender can
 // encrypt them into the payload and receivers avoid layout shift. Null when
 // the browser cannot decode the file; bubbles fall back to a fixed ratio.
-async function readImageDimensions(
+//
+// Exported because the wallpaper uploader needs the same pre-flight read to
+// reject an image that is too small before spending an upload on it.
+export async function readImageDimensions(
   file: File
 ): Promise<{ height: number; width: number } | null> {
   try {

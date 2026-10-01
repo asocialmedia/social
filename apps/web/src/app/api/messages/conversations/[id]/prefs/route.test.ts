@@ -103,9 +103,15 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
   test("mutes and stores a real timestamp", async () => {
     const res = await PATCH(prefsRequest({ muted: true }), params);
     expect(res.status).toBe(200);
-    // The update only ever sets mutedAt, never the theme, so one cannot clobber
-    // the other when the panel sends them separately.
-    expect(selectColumns).toEqual(["mutedAt", "themeKey"]);
+    // The update only ever sets mutedAt, never the other preferences, so one
+    // cannot clobber another when the panel sends them separately.
+    expect(selectColumns).toEqual([
+      "mutedAt",
+      "themeKey",
+      "wallpaperDim",
+      "wallpaperKey",
+      "wallpaperMediaId",
+    ]);
     expect(Object.keys(updateValue)).toEqual(["mutedAt"]);
     expect(updateValue.mutedAt).toBeInstanceOf(Date);
   });
