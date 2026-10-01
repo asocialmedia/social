@@ -50,6 +50,8 @@ import {
   fetchNotificationsPage,
   groupFetchedNotifications,
 } from "../lib/notifications-api";
+import { getPushSetupStatus, pushSetupCopy } from "../lib/push-setup";
+import type { PushSetupStatus } from "../lib/push-setup";
 import { NotificationRow } from "./notification-row";
 import { NotificationsSkeleton } from "./notifications-skeleton";
 
@@ -91,6 +93,21 @@ export function NotificationsScreen() {
   // Ids dismissed this session, so an in-flight page cannot resurrect a row.
   const dismissedIds = useRef(new Set<string>());
   const unread = useUnreadNotificationCount(viewerId, showUser);
+  // Push diagnostics banner: names why device push is off (Expo Go, emulator,
+  // no Firebase, permission) instead of failing silently.
+  const [pushStatus, setPushStatus] = useState<PushSetupStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const status = await getPushSetupStatus();
+      if (!cancelled && status.reason !== "ready") {
+        setPushStatus(status);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateTab = useCallback(
     (tab: NotificationTab, patch: Partial<TabState>) => {
@@ -322,6 +339,21 @@ export function NotificationsScreen() {
             tabs={TAB_DEFS}
           />
         </View>
+        {pushStatus && pushStatus.reason !== "ready" ? (
+          <View
+            style={[
+              styles.pushBanner,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <Text style={[styles.pushTitle, { color: theme.inputText }]}>
+              {pushSetupCopy(pushStatus).title}
+            </Text>
+            <Text style={[styles.pushBody, { color: theme.dividerText }]}>
+              {pushSetupCopy(pushStatus).body}
+            </Text>
+          </View>
+        ) : null}
         <FlatList
           {...LIST_VIRTUALIZATION_PROPS}
           // flexGrow lets the empty/loading/error slot centre vertically instead
@@ -394,6 +426,22 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     marginTop: 12,
     textAlign: "center",
+  },
+  pushBanner: {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 12,
+  },
+  pushBody: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  pushTitle: {
+    fontFamily: "SofiaProBold",
+    fontSize: 13,
   },
   retry: {
     marginTop: 12,

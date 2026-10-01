@@ -7,8 +7,7 @@
 // dock always sits at the bottom edge; guests see the login banner docked
 // directly above it, like web (the banner measures this dock's height).
 //
-// Wiring notes: active state reads expo-router's pathname (only "/" exists
-// on mobile yet, so Home is the live tab); auth-gated tabs send guests to
+// Wiring notes: active state reads expo-router's pathname; auth-gated tabs send guests to
 // login like web's goToLogin; destinations with no mobile screen yet render
 // as disabled stubs, and the centre action opens the post composer. The
 // hide signal is the shared feed scroll store, so the dock moves in lockstep
@@ -80,15 +79,15 @@ const RIGHT_ITEMS: MobileNavItem[] = [
   },
 ];
 
-// Routes with a mobile screen behind them. Everything else renders as a
-// disabled stub until its screen lands - no dead-feeling fake navigation.
-// /messages is the only one still stubbed; HackerNews now has a screen.
+// Routes with a mobile screen behind them. Everything else renders as a disabled
+// stub until its screen lands - no dead-feeling fake navigation.
 const LIVE_ROUTES = new Set([
   "/",
   "/gusts",
   "/discover",
   "/communities",
   "/hackernews",
+  "/messages",
 ]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline

@@ -3,7 +3,7 @@
 // when switching tabs, like web's useFeedScrollMemory), the new-content
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import {
   Animated,
@@ -54,6 +54,15 @@ import { usePostOverflow } from "./use-post-overflow";
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
 const scrollMemory = new Map<string, number>();
+// Stable across renders so the list never re-subscribes viewability on every
+// tick. minimumViewTime avoids flapping during fast flings.
+const STABLE_VIEWABILITY = {
+  minimumViewTime: 300,
+  viewAreaCoveragePercentThreshold: 50,
+};
+function feedGroupKey(group: FeedThreadGroup): string {
+  return group.id;
+}
 
 const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
   {
@@ -114,6 +123,33 @@ export function FeedList({
   // becomes enabled; the FlatList retains the first closure, so enabled is
   // read through a ref.
   const enabledRef = useRef(enabled);
+  // Session cookie + api base cached once per session, not per scroll. The old
+  // code awaited SecureStore on every viewability pass, which stalled the JS
+  // thread while scrolling.
+  const networkRef = useRef<{ apiBase: string; cookie?: string }>({
+    apiBase: getApiBaseUrl(),
+  });
+  const viewerIdForNetwork = user?.id;
+  useEffect(() => {
+    void viewerIdForNetwork;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cookie = await authClient.getCookie();
+        if (!cancelled) {
+          networkRef.current = { apiBase: getApiBaseUrl(), cookie };
+        }
+      } catch {
+        // Best-effort; view batching retries with fresh credentials.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Re-caches credentials on account switch; the id itself is the re-key,
+    // read here so the effect subscribes to it.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-key on session change only
+  }, [viewerIdForNetwork]);
   const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
   // The autoplay owner the last viewability pass nominated, retained for the
   // same reason as the ids: switching back to this tab restores playback
@@ -194,13 +230,30 @@ export function FeedList({
     viewerId: user?.id ?? null,
   });
 
-  const handleMoreAction = (action: MoreAction) => {
-    const morePost = moreTarget?.post;
-    if (!morePost) {
-      return;
-    }
-    overflow.onAction(action, morePost);
-  };
+  const handleMoreAction = useCallback(
+    (action: MoreAction) => {
+      const morePost = moreTarget?.post;
+      if (!morePost) {
+        return;
+      }
+      overflow.onAction(action, morePost);
+    },
+    [moreTarget, overflow]
+  );
+  // Stable row callbacks so memoized PostCards do not re-render on every list
+  // tick. Inline closures here used to defeat the memo on every scroll frame.
+  const handleOpenMore = useCallback((target: FeedPost, anchor: MenuAnchor) => {
+    setMoreTarget({ anchor, post: target });
+  }, []);
+  const handleShare = useCallback((post: FeedPost) => {
+    setSharePost(post);
+  }, []);
+  const handleCloseShare = useCallback(() => {
+    setSharePost(null);
+  }, []);
+  const handleCloseMore = useCallback(() => {
+    setMoreTarget(null);
+  }, []);
 
   // Restore this tab's scroll position when it (re)mounts with content.
   const memoryKey = `home:${variant}`;
@@ -265,14 +318,13 @@ export function FeedList({
       if (!enabledRef.current) {
         return;
       }
+      // Synchronous batch enqueue with cached credentials: no SecureStore hop
+      // per scroll frame, so fast flings never stall on async IO.
       if (ids.size > 0) {
-        const apiBase = getApiBaseUrl();
-        void (async () => {
-          const cookie = await authClient.getCookie();
-          for (const id of ids) {
-            viewBatcher.mark(id, { apiBase, cookie });
-          }
-        })();
+        const { apiBase, cookie } = networkRef.current;
+        for (const id of ids) {
+          viewBatcher.mark(id, { apiBase, cookie });
+        }
       }
       setVisiblePostIds(new Set(ids));
       // Exactly one tile autoplays, the topmost visible video of this tab.
@@ -307,6 +359,82 @@ export function FeedList({
     onRefresh: refresh,
     refreshing,
   });
+  // Stable row renderer: same identity across scroll ticks so memoized cards
+  // skip re-renders. Depends only on stable callbacks + theme + variant.
+  const showCommunityReason =
+    variant === "trending" || variant === "personalized";
+  const renderGroup = useCallback(
+    ({ item: group }: { item: FeedThreadGroup }) => (
+      <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
+        {group.posts.map((post, index) => (
+          <PostCard
+            active={enabled}
+            hasThreadChild={index < group.posts.length - 1}
+            hasThreadParent={index > 0}
+            key={post.id}
+            onMore={handleOpenMore}
+            onShare={handleShare}
+            post={post}
+            showAlt={altVisibleIds.has(post.id)}
+            showCommunityReason={showCommunityReason}
+            viewerId={userId}
+          />
+        ))}
+      </View>
+    ),
+    [
+      altVisibleIds,
+      enabled,
+      handleOpenMore,
+      handleShare,
+      showCommunityReason,
+      theme.cardBorder,
+      userId,
+    ]
+  );
+  // Prefetch upcoming images while idle so scrolling never waits on the
+  // network for avatars and posters already in the cache window.
+  useEffect(() => {
+    if (!enabled || posts.length === 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const { apiBase } = networkRef.current;
+          const urls: string[] = [];
+          for (const post of posts.slice(0, 20)) {
+            const avatar = post.user?.avatarUrl;
+            if (avatar && urls.length < 30) {
+              urls.push(
+                avatar.startsWith("http") ? avatar : `${apiBase}${avatar}`
+              );
+            }
+            for (const att of post.attachments ?? []) {
+              if (urls.length >= 30) {
+                break;
+              }
+              const { id } = att as { id?: string };
+              if (id) {
+                urls.push(`${apiBase}/api/media/${id}/image`);
+              }
+            }
+          }
+          for (const url of urls.slice(0, 12)) {
+            try {
+              // eslint-disable-next-line no-await-in-loop -- prefetches resolve one at a time to bound concurrent network use
+              await Image.prefetch(url);
+            } catch {
+              // Prefetch is best-effort.
+            }
+          }
+        } catch {
+          // Prefetch is best-effort.
+        }
+      })();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [enabled, posts]);
 
   // Account-only tabs. For you is ranked from the viewer's own signals and
   // Following is their people, so neither means anything without an account;
@@ -451,7 +579,7 @@ export function FeedList({
                 paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
               }}
               data={groups}
-              keyExtractor={(group) => group.id}
+              keyExtractor={feedGroupKey}
               {...LIST_VIRTUALIZATION_PROPS}
               onEndReached={fetchNext}
               onEndReachedThreshold={0.5}
@@ -482,34 +610,8 @@ export function FeedList({
               ref={listRef}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-              viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
-              renderItem={({ item: group }) => (
-                <View
-                  style={[
-                    styles.group,
-                    { borderBottomColor: theme.cardBorder },
-                  ]}
-                >
-                  {group.posts.map((post, index) => (
-                    <PostCard
-                      active={enabled}
-                      hasThreadChild={index < group.posts.length - 1}
-                      hasThreadParent={index > 0}
-                      key={post.id}
-                      onMore={(target, anchor) => {
-                        setMoreTarget({ anchor, post: target });
-                      }}
-                      onShare={setSharePost}
-                      post={post}
-                      showAlt={altVisibleIds.has(post.id)}
-                      showCommunityReason={
-                        variant === "trending" || variant === "personalized"
-                      }
-                      viewerId={userId}
-                    />
-                  ))}
-                </View>
-              )}
+              viewabilityConfig={STABLE_VIEWABILITY}
+              renderItem={renderGroup}
               ListFooterComponent={footer}
               // The composer lives here, as real content. It scrolls away with
               // the first post and returns on pull-down for free, because the
@@ -560,7 +662,7 @@ export function FeedList({
             </View>
           </View>
         ) : null}
-        <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
+        <ShareSheet onClose={handleCloseShare} post={sharePost} />
         <MoreMenu
           anchor={moreTarget?.anchor ?? null}
           entries={
@@ -574,7 +676,7 @@ export function FeedList({
               : []
           }
           onAction={handleMoreAction}
-          onClose={() => setMoreTarget(null)}
+          onClose={handleCloseMore}
         />
         {overflow.dialogs}
       </View>

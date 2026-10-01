@@ -4,9 +4,10 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { enableFreeze } from "react-native-screens";
 
 import { ErrorBoundary } from "@/components/feedback/error-boundary";
 import { StartupGate } from "@/components/feedback/startup-splash";
@@ -22,6 +23,7 @@ import { SupportGate } from "@/features/support/components/support-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
+import { HydrateGate, ResumeGate, ResumeSaver } from "@/lib/resume-gate";
 import { initTelemetry } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -30,6 +32,37 @@ import sofiaProMed from "../../assets/fonts/SofiaProSoftMed.ttf";
 import sofiaProReg from "../../assets/fonts/SofiaProSoftReg.ttf";
 
 void SplashScreen.preventAutoHideAsync();
+// Freeze off-screen native screens so backgrounded routes stop re-rendering
+// while the foreground animates. Best-effort: never break launch.
+try {
+  enableFreeze(true);
+} catch {
+  // react-native-screens not ready; navigation still works unfrozen.
+}
+
+// Defers non-critical launch work past first paint. InteractionManager is
+// deprecated in RN 0.86 (it warns on every launch), so this uses
+// requestIdleCallback with a setTimeout fallback instead.
+function runAfterIdle(work: () => void): () => void {
+  const idle = (
+    globalThis as unknown as {
+      cancelIdleCallback?: (handle: number) => void;
+      requestIdleCallback?: (callback: () => void) => number;
+    }
+  ).requestIdleCallback;
+  if (typeof idle === "function") {
+    const handle = idle(work);
+    return () => {
+      (
+        globalThis as unknown as {
+          cancelIdleCallback?: (handle: number) => void;
+        }
+      ).cancelIdleCallback?.(handle);
+    };
+  }
+  const timer = setTimeout(work, 0);
+  return () => clearTimeout(timer);
+}
 
 export default function RootLayout() {
   const { isDark, theme } = useAppTheme();
@@ -48,24 +81,33 @@ export default function RootLayout() {
     void SystemUI.setBackgroundColorAsync(theme.containerBg);
   }, [theme.containerBg]);
 
-  useEffect(() => {
-    initTelemetry();
-  }, []);
-
-  // Attach the install token to every same-origin request, then hydrate it from
-  // SecureStore. The interceptor is installed first (synchronously) so no early
-  // request escapes without it; the token is attached from the next tick on,
-  // which is why callers must tolerate the header being absent for the first
-  // moments after launch.
+  // Non-critical init runs after the first paint so the bundle evaluates
+  // and the navigator mounts before telemetry or SecureStore IO contend for
+  // the JS thread. The fetch interceptor itself stays synchronous so no early
+  // request escapes without it.
   useEffect(() => {
     installFetchInterceptor(getApiBaseUrl());
-    void loadInstallToken();
+    return runAfterIdle(() => {
+      initTelemetry();
+      void loadInstallToken();
+    });
   }, []);
 
-  // Hiding the native splash is the StartupGate's job: it waits for the
-  // session as well as the fonts, so the home screen's first paint already
-  // knows whether the viewer is signed in and the inline composer arrives with
-  // the feed instead of after it.
+  // Heavy overlays mount after interactions so the home feed paints first.
+  // Composer, spotlight and support gates are not needed for first paint.
+  const [deferredReady, setDeferredReady] = useState(false);
+  useEffect(
+    () =>
+      runAfterIdle(() => {
+        setDeferredReady(true);
+      }),
+    []
+  );
+
+  // Hiding the native splash is the StartupGate's job. It hides on fonts,
+  // not on the session: persisted feed rows paint instantly behind it while
+  // the session revalidates in the background (stale-while-revalidate), so a
+  // slow or offline session never holds the splash.
 
   if (!loaded && !error) {
     return null;
@@ -85,12 +127,20 @@ export default function RootLayout() {
             auth call in it, so a fresh install is verified before signing in. */}
           <InstallProvider>
             <SessionProvider>
+              {/* Disk hydration runs first so cached feed rows are readable on
+                first paint, before any network settles. */}
+              <HydrateGate />
+              {/* Route resume + saver: quit and reopen lands where the reader
+                left off instead of cold-starting on home. */}
+              <ResumeGate />
+              <ResumeSaver />
               {/* Launch-time support check. The app it replaced downloaded a
                 release APK and launched the system installer, which Play Store
                 policy forbids; this asks the server whether the running build is
                 still served and hands an out-of-date one to the store. Inside
-                the session provider so the check shares the API base. */}
-              <SupportGate />
+                the session provider so the check shares the API base. Deferred
+                past first paint: it is not needed to show cached content. */}
+              {deferredReady ? <SupportGate /> : null}
               {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
               <PushRegistrar />
@@ -101,7 +151,15 @@ export default function RootLayout() {
                 screenOptions={{
                   animation:
                     Platform.OS === "ios" ? "default" : "slide_from_right",
+                  // Shorter than the platform default so the destination paints
+                  // sooner; the heavy profile/feed mounts after the transition
+                  // via InteractionManager, not during it.
+                  animationDuration: 200,
                   contentStyle: { backgroundColor: theme.containerBg },
+                  // Frozen off-screen routes stop re-rendering while the
+                  // foreground animates, which is the main home-to-profile
+                  // jank source on low-end Android.
+                  freezeOnBlur: true,
                   headerShown: false,
                 }}
               >
@@ -109,6 +167,12 @@ export default function RootLayout() {
                 <Stack.Screen name="posts" />
                 <Stack.Screen name="notifications" />
                 <Stack.Screen name="bookmarks" />
+                {/* Messages is a two-screen stack: the list, then one thread per
+                    conversation. A push tap lands directly on a thread, which is why
+                    the thread route is registered explicitly rather than relying on a
+                    dynamic segment being discovered at runtime. */}
+                <Stack.Screen name="messages" />
+                <Stack.Screen name="messages/[conversationId]" />
                 <Stack.Screen
                   name="gusts"
                   options={{
@@ -118,7 +182,10 @@ export default function RootLayout() {
                     presentation: "fullScreenModal",
                   }}
                 />
-                <Stack.Screen name="users/[username]" />
+                <Stack.Screen
+                  name="users/[username]"
+                  options={{ animationDuration: 200 }}
+                />
                 <Stack.Screen name="users/[username]/followers" />
                 <Stack.Screen name="users/[username]/following" />
                 <Stack.Screen name="discover" />
@@ -149,10 +216,10 @@ export default function RootLayout() {
                 sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
               />
               {/* The post composer (opened from the dock's + and Respond) and
-                  the app-wide toast stack. */}
-              <ComposerModal />
+                  the app-wide toast stack. Deferred past first paint. */}
+              {deferredReady ? <ComposerModal /> : null}
               {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
-              <SpotlightModal />
+              {deferredReady ? <SpotlightModal /> : null}
               <Toaster />
               {/* Last so it covers the navigator and every overlay above: it
                   holds the platform splash until the session is known, then

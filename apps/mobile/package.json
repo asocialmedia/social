@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.1.29",
+  "version": "0.1.32",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -18,11 +18,15 @@
   },
   "dependencies": {
     "@asm/auth": "workspace:*",
+    "@asm/media": "workspace:*",
     "@asm/notifications": "workspace:*",
     "@better-auth/expo": "^1.7.5",
     "@expo/ui": "~57.0.18",
     "@expo/vector-icons": "^15.1.1",
     "@lobehub/expo-better-auth-passkey": "^1.0.2",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@tailwindcss/postcss": "^4.3.3",
     "better-auth": "^1.7.5",
@@ -47,6 +51,7 @@
     "expo-router": "~57.0.21",
     "expo-secure-store": "^57.0.4",
     "expo-splash-screen": "~57.0.9",
+    "expo-standard-web-crypto": "^57.0.3",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",

@@ -142,7 +142,8 @@ let lastRegisteredToken: string | null = null;
 // Requests permission and registers this device. Safe to call repeatedly:
 // a token already registered this session is not re-sent. Returns the token,
 // or null when push is unavailable (no permission, simulator, no Firebase
-// config in the build).
+// config in the build). Reasons are logged distinctly so diagnostics can tell
+// "Expo Go" apart from "emulator" apart from "no Firebase in this build".
 export async function registerForPushNotifications(
   runWithInstallToken: RunWithInstallToken
 ): Promise<string | null> {
@@ -154,6 +155,8 @@ export async function registerForPushNotifications(
   }
   const notifications = await loadNotifications();
   if (!notifications) {
+    // Expo Go has no native FCM module: raw device tokens are unavailable.
+    // The notifications screen surfaces this with a dev-build hint.
     logInfo("push.skipped", { reason: "Expo Go" });
     return null;
   }
@@ -172,11 +175,13 @@ export async function registerForPushNotifications(
 
   try {
     // The native FCM registration token. Fails on a build without
-    // google-services.json, which is the signal to skip registration.
+    // google-services.json, and on emulators without Play services, which is
+    // the signal to skip registration and surface the matching hint.
     const deviceToken = await notifications.getDevicePushTokenAsync();
     const token =
       typeof deviceToken.data === "string" ? deviceToken.data : null;
     if (!token) {
+      logWarn("push.token_failed", { reason: "empty token" });
       return null;
     }
     if (token === lastRegisteredToken) {
@@ -193,9 +198,10 @@ export async function registerForPushNotifications(
     }
     return null;
   } catch (error) {
-    logWarn("push.token_failed", {
-      reason: error instanceof Error ? error.message : String(error),
-    });
+    const reason = error instanceof Error ? error.message : String(error);
+    // Missing Firebase config and Play-services-less emulators fail here with
+    // distinct native messages; keep the raw reason so the banner can name it.
+    logWarn("push.token_failed", { reason });
     return null;
   }
 }
@@ -272,16 +278,33 @@ export function subscribeToPushTaps(
     };
   }
 
+  // A tap arriving before the navigator mounts used to be dropped, so a cold
+  // start from a notification landed on home instead of the target. Queue it
+  // and flush on the next ready tap or poll, up to once per launch.
+  let pendingPath: string | null = null;
+  const flushPending = (): void => {
+    if (pendingPath && isReady()) {
+      const next = pendingPath;
+      pendingPath = null;
+      navigate(next);
+    }
+  };
   const handle = (response: Notifications.NotificationResponse | null) => {
     const path = response?.notification.request.content.data?.path;
-    if (!isReady()) {
+    const route =
+      typeof path === "string" ? pathToNativeRoute(path) : "/notifications";
+    if (!response) {
+      flushPending();
       return;
     }
-    if (typeof path === "string") {
-      navigate(pathToNativeRoute(path));
-    } else {
-      navigate("/notifications");
+    if (!isReady()) {
+      pendingPath = route;
+      // Retry shortly: the navigator usually mounts within a second of the
+      // tap listener subscribing.
+      setTimeout(flushPending, 1500);
+      return;
     }
+    navigate(route);
   };
 
   void (async () => {

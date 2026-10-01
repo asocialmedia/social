@@ -5,6 +5,13 @@ const { withNativewind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
+// `@noble/*` (the messages crypto) ships untranspiled ESM behind explicit subpath
+// exports (`@noble/curves/nist.js`). Metro resolves those through package exports,
+// which RN 0.79+ enables by default, and Hermes parses the ESM directly, so no
+// `transformIgnorePatterns` override is needed. Deliberately NOT widened here: if a
+// future noble release ships syntax Hermes cannot parse, the fix is a targeted
+// entry rather than a blanket re-transpile of node_modules.
+
 const findExpoRouterRoot = (originModulePath) => {
   const marker = `expo-router${path.sep}build${path.sep}`;
   const index = originModulePath.lastIndexOf(marker);

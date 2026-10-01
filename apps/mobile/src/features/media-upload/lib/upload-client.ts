@@ -66,10 +66,15 @@ export interface UploadCallbacks {
   onBytes?: (percent: number) => void;
   // Fired as soon as the server assigns an id, so a cancel can discard it.
   onMediaId?: (mediaId: string) => void;
+  // True when the server matched existing bytes instead of creating a row, so the
+  // caller knows not to discard it: that media belongs to another message.
+  onDeduplicated?: (deduplicated: boolean) => void;
   onStage?: (stage: UploadStage) => void;
 }
 
 export interface UploadOptions extends UploadCallbacks {
+  // Required for `purpose: "message"`. See InitiateRequest.conversationId.
+  conversationId?: string;
   purpose: UploadPurpose;
   signal?: AbortSignal;
   // Posts attach before READY (web's waitForProcessing:false); comments wait.
@@ -335,6 +340,7 @@ export async function uploadMedia(
       () =>
         initiateUpload(
           {
+            conversationId: options.conversationId,
             height: source.height,
             name: source.name,
             purpose: options.purpose,
@@ -362,6 +368,10 @@ export async function uploadMedia(
     });
     ({ mediaId } = initiated);
     options.onMediaId?.(initiated.mediaId);
+    // `deduplicated` decides whether the caller may discard the row later: a
+    // dedup hit reused media that already exists and belongs to someone else's
+    // message, so discarding it would break that message.
+    options.onDeduplicated?.(initiated.deduplicated);
 
     // Dedup hit: the bytes already exist server-side.
     if (initiated.uploadUrl === null && !initiated.multipartUpload) {

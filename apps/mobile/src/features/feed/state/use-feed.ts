@@ -251,8 +251,13 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     setNewItems([]);
     const current = feedCache.get(cacheKey);
     if (current.status === "idle" || current.stale) {
+      // Cached rows stay on screen while the background refresh runs: patch
+      // to refreshing (not loading) when pages exist so the list never
+      // flashes its skeleton on a stale-while-revalidate mount. Only truly
+      // empty tabs enter loading.
+      const opening = current.pages.length > 0 ? "refreshing" : "loading";
       // oxlint-disable-next-line react/set-state-in-effect -- mount-fill: idle/invalidated tabs enter loading here; the fetch below settles it
-      feedCache.patch(cacheKey, { error: null, status: "loading" });
+      feedCache.patch(cacheKey, { error: null, status: opening });
       // oxlint-disable-next-line react/set-state-in-effect -- mount-fill must kick off the first fetch here; steady state is cache-driven
       void runFetch("replace", null);
     } else if (current.pages.length > 0) {
