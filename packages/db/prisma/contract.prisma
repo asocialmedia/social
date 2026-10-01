@@ -204,6 +204,7 @@ namespace public {
     post                   Posts?                    @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_postId_fkey")
     users                  Users[]                   @relation(name: "users_avatarMediaId_fkey")
     usersUsers             Users[]                   @relation(name: "users_bannerMediaId_fkey")
+    messageConversationMembers MessageConversationMembers[] @relation(name: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@unique([audioOverlayId], map: "post_media_audioOverlayId_key")
     @@index([commentId], map: "post_media_commentId_idx")
@@ -591,13 +592,18 @@ namespace public {
     lastDeliveredAt Timestamp(3)?
     mutedAt         Timestamp(3)?
     themeKey        String?
+    wallpaperKey    String?
+    wallpaperDim    Int?
+    wallpaperMediaId String?
     createdAt       Timestamp(3)         @default(now())
     conversation    MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
     user            Users                @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
+    wallpaperMedia  PostMedia?           @relation(name: "message_conversation_members_wallpaperMediaId_fkey", fields:[wallpaperMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@id([conversationId, userId], map: "message_conversation_members_pkey")
     @@index([userId], map: "message_conversation_members_userId_idx")
     @@index([userId, mutedAt], map: "message_conversation_members_userId_mutedAt_idx")
+    @@unique([wallpaperMediaId], map: "message_conversation_members_wallpaperMediaId_key")
     @@map("message_conversation_members")
   }
 
