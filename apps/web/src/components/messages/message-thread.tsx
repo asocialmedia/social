@@ -82,6 +82,10 @@ import type {
 } from "@/lib/messages/client";
 import { resolveConversationTheme } from "@/lib/messages/conversation-theme";
 import {
+  resolveConversationWallpaper,
+  wallpaperDimOverlay,
+} from "@/lib/messages/conversation-wallpaper";
+import {
   editMessagePayload,
   exportPublicKeyJwk,
   generateFingerprint,
@@ -4205,6 +4209,22 @@ export function MessageThread({
   const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
   const searchActivePosition = activeIndex + 1;
 
+  // The member's own wallpaper and dim. Resolved here rather than inside the
+  // style prop so the same two values could feed the details panel's swatch, and
+  // so a null or unknown stored value lands on "no wallpaper" in one place.
+  // `wallpaper` is null for a cleared key, which is the default and the plain app
+  // background, and the overlay is null both when there is no wallpaper and at a
+  // dim of 0. Both layers are therefore conditional: painting a transparent wash
+  // over an empty background would cost a full-transcript compositing layer for
+  // nothing.
+  const wallpaper = resolveConversationWallpaper(
+    detail.prefs.wallpaperKey,
+    detail.prefs.wallpaperMediaId
+  );
+  const wallpaperDimOverlayValue = wallpaper
+    ? wallpaperDimOverlay(detail.prefs.wallpaperDim)
+    : null;
+
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
       {/* The transcript and, from `lg` up, the details pane. The row is the
@@ -4272,7 +4292,38 @@ export function MessageThread({
             />
           ) : null}
 
-          <div className="relative min-h-0 flex-1">
+          {/* `isolate` is load-bearing. It makes this box a stacking context, so
+              the layers' negative z-index stops at this box's edge instead of
+              escaping behind the ancestors' page background. Without it they
+              would render underneath the whole app and vanish. */}
+          <div className="relative isolate min-h-0 flex-1">
+            {/* The member's wallpaper and its dim, painted behind the
+                transcript. They are siblings of the scroller rather than a
+                background on it: a background would be clipped and repainted by
+                the scroller's own box, and the two layers have to change
+                independently (a wallpaper swap must not reset the dim).
+                `-z-10` puts them behind EVERY child, not just the virtualized
+                rows: the empty state and the typing indicator are ordinary
+                in-flow content, and a positioned sibling at z-index auto would
+                paint over both of them. The dim shares the index with the
+                wallpaper and comes later in tree order, so it still lands on top
+                of the art. Both are aria-hidden and pointer-inert: pure paint. */}
+            {wallpaper ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
+                style={{
+                  backgroundImage: `url(${wallpaper.src})`,
+                }}
+              />
+            ) : null}
+            {wallpaperDimOverlayValue ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -z-10"
+                style={{ backgroundColor: wallpaperDimOverlayValue }}
+              />
+            ) : null}
             {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
             <div
               // `overflow-anchor: none` disables the browser's own scroll

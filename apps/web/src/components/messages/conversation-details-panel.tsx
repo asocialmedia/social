@@ -6,6 +6,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@asm/ui/shadui/sheet";
+import { Slider } from "@asm/ui/shadui/slider";
 import { Switch } from "@asm/ui/shadui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,10 @@ import {
   Check,
   ChevronRight,
   Flag,
+  ImageIcon,
   Palette,
+  Trash2,
+  Upload,
   UserRound,
   Volume2,
   X,
@@ -23,12 +27,23 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { toast } from "@/lib/gooey-toast";
-import { updateConversationPrefs } from "@/lib/messages/client";
+import {
+  rejectionCopy,
+  uploadMediaFile,
+} from "@/lib/media/media-upload-client";
+import type { UploadStage } from "@/lib/media/media-upload-client";
+import {
+  clearConversationWallpaperUpload,
+  readImageDimensions,
+  setConversationWallpaperUpload,
+  updateConversationPrefs,
+} from "@/lib/messages/client";
 import type {
   ConversationDetailResponse,
   ConversationPrefs,
@@ -37,6 +52,19 @@ import {
   CONVERSATION_THEMES,
   resolveConversationTheme,
 } from "@/lib/messages/conversation-theme";
+import {
+  CONVERSATION_WALLPAPERS,
+  MAX_WALLPAPER_DIM,
+  MIN_WALLPAPER_DIM,
+  resolveConversationWallpaper,
+  resolveWallpaperDim,
+  wallpaperDimOverlay,
+} from "@/lib/messages/conversation-wallpaper";
+import {
+  checkWallpaperUpload,
+  WALLPAPER_ACCEPT,
+  wallpaperMimeFor,
+} from "@/lib/messages/conversation-wallpaper-upload";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import type {
   MessageConversationData,
@@ -154,34 +182,61 @@ export function ConversationDetailsBody({
   // while a write is in flight cannot start a second render pass.
   const [prefs, setPrefs] = useState<ConversationPrefs>(detail.prefs);
   const [syncedPrefs, setSyncedPrefs] = useState(detail.prefs);
+  // The dim slider's in-flight value. Radix reports every step of a drag but
+  // commits once, when the thumb is released, so this is what the thumb and the
+  // level label follow while the write is still pending. Deliberately kept OUT of
+  // `prefs`: that state is the last server-confirmed value and is what
+  // `writePrefs` rolls back to, so folding an uncommitted value in would leave a
+  // rejected write with nothing to roll back to.
+  const [pendingDim, setPendingDim] = useState<number | null>(null);
   if (syncedPrefs !== detail.prefs) {
     setSyncedPrefs(detail.prefs);
     setPrefs(detail.prefs);
   }
   const muted = Boolean(prefs.mutedAt);
+  const wallpaperDim = pendingDim ?? prefs.wallpaperDim;
+
+  // The server's answer is the one true version of the row, so it is what local
+  // state AND the shared cache are set from. Written through to the cache as
+  // well as to state, because the thread owns that query: without this, closing
+  // and reopening the pane would show the value from before the write (the
+  // query's stale window is five minutes).
+  const applyServerPrefs = useCallback(
+    (next: ConversationPrefs) => {
+      setPrefs(next);
+      queryClient.setQueryData<ConversationDetailResponse>(
+        ["message-conversation", conversationId],
+        (old) => (old ? { ...old, prefs: next } : old)
+      );
+    },
+    [conversationId, queryClient]
+  );
+
+  // Refetch after a failure that had no optimistic write to undo. The wallpaper
+  // upload and removal paths only touch the cache once the server has answered,
+  // so there is no snapshot to restore and a failure can still have landed
+  // server-side; a refetch is what makes the row tell the truth again.
+  const resyncAfterFailure = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ["message-conversation", conversationId],
+    });
+  }, [conversationId, queryClient]);
 
   const writePrefs = useCallback(
     async (
-      patch: { muted?: boolean; themeKey?: string | null },
+      patch: {
+        muted?: boolean;
+        themeKey?: string | null;
+        wallpaperDim?: number | null;
+        wallpaperKey?: string | null;
+      },
       optimistic: Partial<ConversationPrefs>
     ) => {
       const previous = prefs;
-      // Written through to the conversation-detail cache as well as to local
-      // state, because the thread owns that query: without this, closing and
-      // reopening the pane would show the value from before the write (the
-      // query's stale window is five minutes).
-      const writeCache = (next: ConversationPrefs) => {
-        queryClient.setQueryData<ConversationDetailResponse>(
-          ["message-conversation", conversationId],
-          (old) => (old ? { ...old, prefs: next } : old)
-        );
-      };
-      setPrefs({ ...previous, ...optimistic });
-      writeCache({ ...previous, ...optimistic });
+      applyServerPrefs({ ...previous, ...optimistic });
       try {
         const saved = await updateConversationPrefs(conversationId, patch);
-        setPrefs(saved);
-        writeCache(saved);
+        applyServerPrefs(saved);
         if (patch.muted !== undefined) {
           // The rail's bell icon and the badge it hides both come from the
           // conversation list, so a mute has to refresh it to be visible.
@@ -190,8 +245,7 @@ export function ConversationDetailsBody({
           });
         }
       } catch (error) {
-        setPrefs(previous);
-        writeCache(previous);
+        applyServerPrefs(previous);
         toast({
           description:
             error instanceof Error
@@ -202,7 +256,7 @@ export function ConversationDetailsBody({
         });
       }
     },
-    [conversationId, prefs, queryClient]
+    [applyServerPrefs, conversationId, prefs, queryClient]
   );
 
   const handleMuteChange = useCallback(
@@ -222,6 +276,153 @@ export function ConversationDetailsBody({
       void writePrefs({ themeKey: key }, { themeKey: key });
     },
     [writePrefs]
+  );
+
+  // Null clears the override, which the resolver turns back into the app
+  // default. Accepting it here is what makes the row's Solid tile a real escape
+  // hatch rather than a no-op.
+  const handleWallpaperChange = useCallback(
+    (key: string | null) => {
+      void writePrefs({ wallpaperKey: key }, { wallpaperKey: key });
+    },
+    [writePrefs]
+  );
+
+  // Removes the custom upload, returning to the preset the member had or to no
+  // wallpaper at all. The server schedules the freed image for cleanup.
+  const handleWallpaperRemove = useCallback(async () => {
+    try {
+      applyServerPrefs(await clearConversationWallpaperUpload(conversationId));
+    } catch (error) {
+      resyncAfterFailure();
+      toast({
+        description:
+          error instanceof Error
+            ? error.message
+            : "Couldn't remove that wallpaper",
+        title: "Couldn't Remove Wallpaper",
+        variant: "destructive",
+      });
+    }
+  }, [applyServerPrefs, conversationId, resyncAfterFailure]);
+
+  // Uploading a custom wallpaper. Two phases, and the split matters: the bytes
+  // go to the pipeline first (quarantine, scan, decode, derivatives), and only
+  // once the server holds a finished image do we claim it. Nothing about the chat
+  // changes until that claim succeeds, so a failed upload leaves no trace.
+  const [uploadStage, setUploadStage] = useState<UploadStage | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const handleWallpaperUpload = useCallback(
+    async (file: File) => {
+      // Client-side pre-flight, so an obvious mistake costs a millisecond instead
+      // of an upload. This is a UX filter only: the browser can be told anything,
+      // and the server re-checks every rule against what the decoder measured.
+      const dimensions = await readImageDimensions(file);
+      const check = checkWallpaperUpload({
+        height: dimensions?.height ?? null,
+        // The browser sometimes reports no type for a perfectly good file, so
+        // fall back to the extension instead of refusing it.
+        mimeType: wallpaperMimeFor(file.type, file.name),
+        sizeBytes: file.size,
+        width: dimensions?.width ?? null,
+      });
+      if (!check.ok) {
+        toast({
+          description: check.rejection.message,
+          title: wallpaperRejectionTitle(check.rejection.kind),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setUploadStage("uploading");
+      setUploadProgress(0);
+      try {
+        const upload = await uploadMediaFile(file, {
+          height: dimensions?.height,
+          onProgress: (percent) => setUploadProgress(percent),
+          onStage: setUploadStage,
+          purpose: "wallpaper",
+          width: dimensions?.width,
+        });
+        if (upload.status === "REJECTED") {
+          // The pipeline refused it: a virus, a format the scanner will not
+          // accept, or a mismatch between the bytes and what was claimed.
+          toast({
+            description: rejectionCopy(upload.rejectedReason),
+            title: "Upload Rejected",
+            variant: "destructive",
+          });
+        } else {
+          applyServerPrefs(
+            await setConversationWallpaperUpload(conversationId, upload.mediaId)
+          );
+        }
+      } catch (error) {
+        resyncAfterFailure();
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't upload that image",
+          title: "Upload Failed",
+          variant: "destructive",
+        });
+      }
+      // Unconditional, and reached by every path above including the rejection:
+      // the React Compiler cannot lower a `try`/`finally`, so the reset lives
+      // here, and no branch may return early and leave the tile spinning.
+      setUploadStage(null);
+      setUploadProgress(0);
+    },
+    [applyServerPrefs, conversationId, resyncAfterFailure]
+  );
+
+  // Every step of a drag. The transcript paints from the conversation-detail
+  // cache, so writing the dragged value there is what makes the chat darken
+  // under the thumb instead of snapping once at the end. No request is made yet:
+  // a drag crosses a hundred values and must not send a hundred PATCHes.
+  const handleDimChange = useCallback(
+    (level: number) => {
+      setPendingDim(level);
+      queryClient.setQueryData<ConversationDetailResponse>(
+        ["message-conversation", conversationId],
+        (old) =>
+          old ? { ...old, prefs: { ...old.prefs, wallpaperDim: level } } : old
+      );
+    },
+    [conversationId, queryClient]
+  );
+
+  // Called when the thumb is released, and once per keyboard step. Radix commits
+  // at exactly the moment a gesture is finished, so this is the write point: one
+  // PATCH for the whole drag, not one per intermediate value.
+  const handleDimCommit = useCallback(
+    (level: number) => {
+      setPendingDim(null);
+      void writePrefs({ wallpaperDim: level }, { wallpaperDim: level });
+    },
+    [writePrefs]
+  );
+
+  // A drag that is interrupted rather than released, by the sheet closing or the
+  // rail collapsing under the pointer, never reaches the commit above. Without
+  // this the cache would keep showing a dim the server never took, and nothing
+  // would correct it for the query's whole stale window. The commit path clears
+  // the ref, so this only ever flushes a value that was genuinely left in flight.
+  const undrainedDim = useRef<number | null>(null);
+  useEffect(() => {
+    undrainedDim.current = pendingDim;
+  }, [pendingDim]);
+  useEffect(
+    () => () => {
+      const level = undrainedDim.current;
+      if (level !== null) {
+        void updateConversationPrefs(conversationId, { wallpaperDim: level });
+      }
+    },
+    [conversationId]
   );
 
   // Hands the tile to the thread's own conversation-wide viewer, then steps out
@@ -277,7 +478,13 @@ export function ConversationDetailsBody({
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="px-4 pb-3">
+        {/* `shrink-0` alone is not enough: as a flex item this block has a
+            `min-height: auto` floor, so when the sheet runs short it refuses to
+            shrink and pushes the shared-content tabs clean off the bottom. A
+            short phone plus the expanded wallpaper picker is enough to get
+            there. Capping the height and scrolling keeps every row reachable
+            and leaves the tabs a floor to sit on. */}
+        <div className="max-h-[45dvh] shrink-0 overflow-y-auto px-4 pb-3">
           <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
             <Link
               className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
@@ -324,6 +531,24 @@ export function ConversationDetailsBody({
               selectedKey={prefs.themeKey}
             />
 
+            <WallpaperRow
+              onDimChange={handleDimChange}
+              onDimCommit={handleDimCommit}
+              // Handed over directly rather than wrapped in `() => void fn()`: the
+              // async handlers already satisfy these `(x) => void` prop types, and
+              // the wrapper form is rewritten to `() => undefined` by
+              // unicorn/no-useless-undefined, which then leaves the handler looking
+              // unused and gets it deleted on the next autofix pass.
+              onRemove={handleWallpaperRemove}
+              onSelect={handleWallpaperChange}
+              onUpload={handleWallpaperUpload}
+              selectedDim={wallpaperDim}
+              selectedKey={prefs.wallpaperKey}
+              selectedMediaId={prefs.wallpaperMediaId}
+              uploadProgress={uploadProgress}
+              uploadStage={uploadStage}
+            />
+
             <ActionRow
               icon={<Ban className="size-4" />}
               label="Block"
@@ -341,7 +566,13 @@ export function ConversationDetailsBody({
           </div>
         </div>
 
-        <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
+        {/* The `min-h-40` is a floor, not a preference: the settings block above
+            is capped and scrollable, and without a floor here the tab strip would
+            be the only thing left to give way. */}
+        <Tabs
+          className="flex min-h-40 min-w-0 flex-1 flex-col"
+          defaultValue="media"
+        >
           <div className="px-4 pb-2">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger className="gap-1.5 text-xs" value="media">
@@ -714,6 +945,328 @@ function ThemeSwatch({
           <Check className="size-4 text-white drop-shadow" strokeWidth={3} />
         ) : null}
       </span>
+      <span className="text-muted-foreground text-[10px] font-medium">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+// Radix reports the whole array even for a single-thumb slider, so the value is
+// its first entry. A mis-shaped event must not reach the stored preference,
+// hence the type check.
+function sliderLevel(next: number[]): number | null {
+  const [level] = next;
+  return typeof level === "number" ? level : null;
+}
+
+// The wallpaper row: the same collapsible shape as the theme row, plus the dim
+// control. Inline rather than a popover for the reason the theme row is: a
+// popover here would fight the sheet for a portal, and picking a wallpaper is
+// worth previewing in place. The dim slider is labelled by the same table the
+// thread paints from, so a level can never read as one thing and look like
+// another.
+function WallpaperRow({
+  onDimChange,
+  onDimCommit,
+  onRemove,
+  onSelect,
+  onUpload,
+  selectedDim,
+  selectedKey,
+  selectedMediaId,
+  uploadProgress,
+  uploadStage,
+}: {
+  onDimChange: (level: number) => void;
+  onDimCommit: (level: number) => void;
+  onRemove: () => void;
+  onSelect: (key: string | null) => void;
+  onUpload: (file: File) => void;
+  selectedDim: number | null;
+  selectedKey: string | null;
+  selectedMediaId: string | null;
+  uploadProgress: number;
+  uploadStage: UploadStage | null;
+}) {
+  const [open, setOpen] = useState(false);
+  // Null is the real default: no wallpaper, plain app background.
+  const selected = resolveConversationWallpaper(selectedKey, selectedMediaId);
+  const hasWallpaper = selected !== null;
+  const isCustom = selected?.isCustom === true;
+  // The one number the picker shows, the row stores and the transcript paints.
+  const dim = resolveWallpaperDim(selectedDim);
+  // The dim is a gradient OVER the art, never a background colour under it: an
+  // opaque image paints on top of `background-color` and would hide the wash
+  // completely, so the swatch would promise a dimmed result it never showed.
+  const tileBackground = (src: string) => {
+    const overlay = wallpaperDimOverlay(dim);
+    return overlay
+      ? `linear-gradient(${overlay}, ${overlay}), url(${src})`
+      : `url(${src})`;
+  };
+  const uploading = uploadStage !== null;
+
+  return (
+    <div>
+      <button
+        aria-expanded={open}
+        className="pill-3d-hover flex w-full items-center gap-3 px-3.5 py-3 text-left"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <RowIcon icon={<ImageIcon className="size-4" />} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">Chat wallpaper</span>
+          <span className="text-muted-foreground block truncate text-xs">
+            {uploading
+              ? uploadStageLabel(uploadStage, uploadProgress)
+              : "Sits behind both sides' messages"}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span
+            aria-hidden
+            className={cn(
+              "size-5 rounded-full bg-cover bg-center",
+              !hasWallpaper && "bg-[hsl(var(--background))]"
+            )}
+            style={{
+              // `backgroundImage` is typed as absent-or-string, so the Solid
+              // tile's "no image" arrives here as undefined rather than null.
+              backgroundImage: selected
+                ? tileBackground(selected.src)
+                : undefined,
+              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.25)",
+            }}
+          />
+          <span className="text-muted-foreground text-xs">
+            {selected?.label ?? "Solid"}
+          </span>
+          <ChevronRight
+            className={cn(
+              "text-muted-foreground size-4 transition-transform duration-200",
+              open && "rotate-90"
+            )}
+          />
+        </span>
+      </button>
+
+      {open ? (
+        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 px-3.5 pt-1 pb-3.5 motion-safe:duration-200">
+          <div className="grid grid-cols-3 gap-2">
+            <WallpaperSwatch
+              background={null}
+              isSelected={!hasWallpaper}
+              label="Solid"
+              onSelect={onSelect}
+              wallpaperKey={null}
+            />
+            {CONVERSATION_WALLPAPERS.map((wallpaper) => (
+              <WallpaperSwatch
+                background={tileBackground(wallpaper.src)}
+                // An upload takes precedence over the preset key, so the key's
+                // tile must not also read as selected while an upload is set.
+                isSelected={!isCustom && wallpaper.key === selectedKey}
+                key={wallpaper.key}
+                label={wallpaper.label}
+                onSelect={onSelect}
+                wallpaperKey={wallpaper.key}
+              />
+            ))}
+            {isCustom && selected ? (
+              <WallpaperSwatch
+                background={tileBackground(selected.src)}
+                isSelected
+                label="Custom"
+                onSelect={onSelect}
+                // Already chosen; re-selecting is a no-op rather than a write.
+                wallpaperKey={selectedKey}
+              />
+            ) : (
+              <WallpaperUploadTile
+                busy={uploading}
+                onPick={onUpload}
+                uploadProgress={uploadProgress}
+              />
+            )}
+          </div>
+
+          {/* Only with a wallpaper on screen. A dim over the plain background
+              would darken the whole app's surface for no visible gain, and a
+              control that changes nothing is worse than no control. The stored
+              value is left alone, so picking a wallpaper back up restores it. */}
+          {hasWallpaper ? (
+            <>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">Dim</span>
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  {dim}%
+                </span>
+              </div>
+              <Slider
+                className="mt-2"
+                max={MAX_WALLPAPER_DIM}
+                min={MIN_WALLPAPER_DIM}
+                onValueChange={(next) => {
+                  const level = sliderLevel(next);
+                  if (level !== null) {
+                    onDimChange(level);
+                  }
+                }}
+                onValueCommit={(next) => {
+                  const level = sliderLevel(next);
+                  if (level !== null) {
+                    onDimCommit(level);
+                  }
+                }}
+                step={1}
+                thumbLabel="Wallpaper dim"
+                // The thumb announces the percentage rather than the raw index, so
+                // the value a screen reader reads is the one shown on screen.
+                thumbValueText={`${dim}%`}
+                value={[dim]}
+              />
+
+              {/* Only an upload can be removed. A built-in preset is undone by
+                  picking another one, and the Solid tile already means "none",
+                  so a Remove button next to those would offer a second way to do
+                  the same thing. */}
+              {isCustom ? (
+                <button
+                  className="text-muted-foreground hover:text-foreground mt-3 inline-flex items-center gap-1.5 text-xs font-medium"
+                  onClick={onRemove}
+                  type="button"
+                >
+                  <Trash2 className="size-3.5" />
+                  Remove this wallpaper
+                </button>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// The toast title for a client-side pre-flight rejection, chosen by which rule
+// failed so the member is told the category before the detail.
+function wallpaperRejectionTitle(kind: "type" | "size" | "dimensions"): string {
+  if (kind === "type") {
+    return "Unsupported File";
+  }
+  if (kind === "size") {
+    return "File Too Big";
+  }
+  return "Image Too Small";
+}
+
+// Progress copy for the upload, matching the vocabulary the profile avatar and
+// banner uploads already use so the pipeline's stages read the same everywhere.
+function uploadStageLabel(stage: UploadStage, progress: number): string {
+  switch (stage) {
+    case "uploading": {
+      return `Uploading ${progress}%`;
+    }
+    case "queued": {
+      return "Queued for processing";
+    }
+    case "scanning": {
+      return "Scanning for threats…";
+    }
+    case "processing": {
+      return "Preparing your wallpaper…";
+    }
+    default: {
+      return "Processing…";
+    }
+  }
+}
+
+// The upload affordance, drawn as a tile so it sits in the same grid as the
+// wallpapers it produces. The file input is visually hidden and driven by a
+// label, so the whole tile is one large hit target and the control is reachable
+// by keyboard for free.
+function WallpaperUploadTile({
+  busy,
+  onPick,
+  uploadProgress,
+}: {
+  busy: boolean;
+  onPick: (file: File) => void;
+  uploadProgress: number;
+}) {
+  return (
+    <label className="pill-3d-hover flex cursor-pointer flex-col items-center gap-1.5 rounded-xl px-2 py-2.5">
+      <span className="border-border/70 text-muted-foreground flex size-10 items-center justify-center rounded-lg border border-dashed">
+        {busy ? (
+          <Spinner3D className="size-4" />
+        ) : (
+          <Upload className="size-4" />
+        )}
+      </span>
+      <span className="text-muted-foreground text-[10px] font-medium">
+        {busy ? `${uploadProgress}%` : "Upload"}
+      </span>
+      <input
+        accept={WALLPAPER_ACCEPT}
+        className="sr-only"
+        disabled={busy}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          // Cleared unconditionally, so choosing the same file again still
+          // fires a change event instead of silently doing nothing.
+          event.target.value = "";
+          if (file) {
+            onPick(file);
+          }
+        }}
+        type="file"
+      />
+    </label>
+  );
+}
+
+function WallpaperSwatch({
+  background,
+  isSelected,
+  label,
+  onSelect,
+  wallpaperKey,
+}: {
+  // Null means "no image here", which is what the Solid tile shows: the app
+  // background, exactly as the transcript renders it with no wallpaper picked.
+  background: string | null;
+  isSelected: boolean;
+  label: string;
+  onSelect: (key: string | null) => void;
+  // Null is the "no wallpaper" choice, which is the default and the only way
+  // back to the plain background.
+  wallpaperKey: string | null;
+}) {
+  return (
+    <button
+      aria-pressed={isSelected}
+      className="pill-3d-hover flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5"
+      onClick={() => onSelect(wallpaperKey)}
+      type="button"
+    >
+      <span
+        className={cn(
+          "size-10 rounded-lg bg-cover bg-center",
+          !background && "bg-[hsl(var(--background))]"
+        )}
+        style={{
+          // Null means the Solid tile, which paints no image at all.
+          backgroundImage: background ?? undefined,
+          // The 3D inner lip on a dark thumbnail, matched to the theme swatch's
+          // selected ring so the two rows read as the same control.
+          boxShadow: isSelected
+            ? "inset 0 0 0 1px rgba(255,255,255,0.35), 0 0 0 2px hsl(var(--primary)), 0 0 0 4px hsl(var(--background))"
+            : "inset 0 0 0 1px rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.1)",
+        }}
+      />
       <span className="text-muted-foreground text-[10px] font-medium">
         {label}
       </span>
