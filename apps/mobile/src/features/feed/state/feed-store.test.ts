@@ -109,6 +109,33 @@ describe("FeedCache.updatePostEverywhere", () => {
     cache.updatePostEverywhere("x", { viewCount: 43 });
     expect(notifications).toBe(1);
   });
+
+  test("reports only the tabs that actually contain the post", () => {
+    const cache = new FeedCache();
+    cache.applyPage("a", [post("x")], null, {}, false);
+    cache.applyPage("b", [post("y")], null, {}, false);
+    const seen: (ReadonlySet<string> | null | undefined)[] = [];
+    const stop = cache.subscribe((changedKeys) => {
+      seen.push(changedKeys);
+    });
+    cache.updatePostEverywhere("x", { viewCount: 42 });
+    expect(seen.length).toBe(1);
+    expect(seen[0]?.has("a")).toBe(true);
+    expect(seen[0]?.has("b")).toBe(false);
+    stop();
+  });
+
+  test("notifies everyone on unkeyed writes", () => {
+    const cache = new FeedCache();
+    cache.applyPage("a", [post("x")], null, {}, false);
+    const seen: (ReadonlySet<string> | null | undefined)[] = [];
+    const stop = cache.subscribe((changedKeys) => {
+      seen.push(changedKeys);
+    });
+    cache.invalidate("a");
+    expect(seen).toEqual([null]);
+    stop();
+  });
 });
 
 describe("FeedCache.showPublishedPost", () => {

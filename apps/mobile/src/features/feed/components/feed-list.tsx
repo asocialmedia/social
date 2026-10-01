@@ -3,7 +3,7 @@
 // when switching tabs, like web's useFeedScrollMemory), the new-content
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import {
   Animated,
@@ -37,6 +37,12 @@ import {
   resetHeaderScroll,
 } from "../lib/header-visibility";
 import { hasVideoAttachment } from "../lib/media-kind";
+import {
+  isVideoMedia,
+  mediaGridImageUrl,
+  mediaImageUrl,
+  mediaPosterUrl,
+} from "../lib/media-url";
 import { viewBatcher } from "../lib/view-batcher";
 import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
 import { consumeFeedTop, feedCache } from "../state/feed-store";
@@ -93,6 +99,11 @@ function FeedState({ children }: { children: ReactNode }) {
 }
 
 interface FeedListProps {
+  // Whether this tab is the visible one. Data fetching uses `enabled`
+  // (neighbours preload in the background); video autoplay, viewability
+  // publishing and header signals use `active` (visible only). Defaults to
+  // `enabled` so single-list surfaces keep working unchanged.
+  active?: boolean;
   // Extra tail padding when an overlay (guest banner + floating dock) sits
   // over the feed's end, so the last post scrolls clear of it. End padding
   // never moves visible items, so it can jump with overlay visibility.
@@ -109,20 +120,22 @@ interface FeedListProps {
 }
 
 export function FeedList({
+  active,
   bottomInset = 0,
   enabled,
   header,
   userId,
   variant,
 }: FeedListProps) {
+  const isActive = active ?? enabled;
   const { theme } = useAppTheme();
   const { user } = useSessionContext();
   const listRef = useRef<FlatList<FeedThreadGroup>>(null);
 
   // Latest viewable ids are retained so the tab can publish them when it
-  // becomes enabled; the FlatList retains the first closure, so enabled is
+  // becomes active; the FlatList retains the first closure, so activity is
   // read through a ref.
-  const enabledRef = useRef(enabled);
+  const enabledRef = useRef(isActive);
   // Session cookie + api base cached once per session, not per scroll. The old
   // code awaited SecureStore on every viewability pass, which stalled the JS
   // thread while scrolling.
@@ -263,13 +276,13 @@ export function FeedList({
   // skipped for that visit instead of the two fighting over the offset.
   const jumpedToTop = useRef(false);
   useEffect(() => {
-    if (!enabled || !consumeFeedTop(variant)) {
+    if (!isActive || !consumeFeedTop(variant)) {
       return;
     }
     jumpedToTop.current = true;
     scrollMemory.delete(memoryKey);
     listRef.current?.scrollToOffset({ animated: false, offset: 0 });
-  }, [enabled, memoryKey, variant]);
+  }, [isActive, memoryKey, variant]);
 
   useEffect(() => {
     if (status !== "success" || posts.length === 0) {
@@ -298,18 +311,18 @@ export function FeedList({
   }, [lastDismissed]);
 
   // A freshly shown tab starts with the header visible; its own scroll
-  // takes over hiding from there. Becoming enabled always publishes the
+  // takes over hiding from there. Becoming active always publishes the
   // retained viewable ids (even when empty) so stale ids from the previous
   // tab cannot keep an off-screen video playing.
   useEffect(() => {
-    enabledRef.current = enabled;
-    if (enabled) {
+    enabledRef.current = isActive;
+    if (isActive) {
       resetHeaderScroll();
       const stored = latestVisibleRef.current;
       setVisiblePostIds(stored);
       setAutoplayPostId(latestAutoplayRef.current);
     }
-  }, [enabled]);
+  }, [isActive]);
 
   const publishVisibleIds = useCallback(
     (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
@@ -368,7 +381,7 @@ export function FeedList({
       <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
         {group.posts.map((post, index) => (
           <PostCard
-            active={enabled}
+            active={isActive}
             hasThreadChild={index < group.posts.length - 1}
             hasThreadParent={index > 0}
             key={post.id}
@@ -384,7 +397,7 @@ export function FeedList({
     ),
     [
       altVisibleIds,
-      enabled,
+      isActive,
       handleOpenMore,
       handleShare,
       showCommunityReason,
@@ -393,7 +406,9 @@ export function FeedList({
     ]
   );
   // Prefetch upcoming images while idle so scrolling never waits on the
-  // network for avatars and posters already in the cache window.
+  // network for avatars and posters already in the cache window. Prefetches
+  // the exact URLs the tiles render (lg for singles, md for grids, poster
+  // for video) so the disk cache hits instead of re-downloading.
   useEffect(() => {
     if (!enabled || posts.length === 0) {
       return;
@@ -410,31 +425,40 @@ export function FeedList({
                 avatar.startsWith("http") ? avatar : `${apiBase}${avatar}`
               );
             }
-            for (const att of post.attachments ?? []) {
+            const attachments = post.attachments ?? [];
+            const single = attachments.length === 1;
+            for (const att of attachments) {
               if (urls.length >= 30) {
                 break;
               }
-              const { id } = att as { id?: string };
-              if (id) {
-                urls.push(`${apiBase}/api/media/${id}/image`);
+              if (!att?.id) {
+                continue;
+              }
+              if (isVideoMedia(att)) {
+                urls.push(mediaPosterUrl(apiBase, att.id));
+              } else if (single) {
+                urls.push(mediaImageUrl(apiBase, att));
+              } else {
+                urls.push(mediaGridImageUrl(apiBase, att));
               }
             }
           }
-          for (const url of urls.slice(0, 12)) {
-            try {
-              // eslint-disable-next-line no-await-in-loop -- prefetches resolve one at a time to bound concurrent network use
-              await Image.prefetch(url);
-            } catch {
-              // Prefetch is best-effort.
-            }
-          }
+          // Parallel, not serial: the old one-at-a-time loop took 12
+          // round-trips back-to-back while the user scrolled past.
+          await Promise.allSettled(
+            urls.slice(0, 16).map((url) => Image.prefetch(url))
+          );
         } catch {
           // Prefetch is best-effort.
         }
       })();
-    }, 1200);
+    }, 600);
     return () => clearTimeout(timer);
   }, [enabled, posts]);
+
+  // Memoized above every early return: without this every parent render
+  // handed FlatList a new data array identity, re-rendering every row.
+  const groups = useMemo(() => groupPostsIntoThreads(posts), [posts]);
 
   // Account-only tabs. For you is ranked from the viewer's own signals and
   // Following is their people, so neither means anything without an account;
@@ -517,7 +541,6 @@ export function FeedList({
     );
   }
 
-  const groups = groupPostsIntoThreads(posts);
   const authors: PillAuthor[] = [
     ...new Map(
       newItems.map((post) => [

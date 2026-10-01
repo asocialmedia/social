@@ -1,11 +1,13 @@
-// Route wrapper for one conversation. The identity provider lives on the list
-// route and is re-established here, so a deep link straight into a thread (a push
-// tap, a shared link) resolves the key before the transcript tries to decrypt.
+// Route wrapper for one conversation.
+//
+// The identity provider lives in `messages/_layout.tsx`, above this screen, so a
+// deep link straight into a thread (a push tap, a shared link) still resolves
+// the key before the transcript tries to decrypt, while the list and the thread
+// share one bootstrap rather than each paying for their own.
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback } from "react";
 
 import { MessageThreadScreen } from "@/features/messages/components/message-thread-screen";
-import { MessagesIdentityProvider } from "@/features/messages/state/message-identity";
 
 export default function ConversationRoute() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -17,18 +19,12 @@ export default function ConversationRoute() {
       router.back();
       return;
     }
-    // The index of a folder route is addressed as /messages/_index by the typed
-    // router, not /messages.
-    router.replace("/messages/_index");
+    router.replace("/messages");
   }, [router]);
 
   if (typeof conversationId !== "string" || conversationId.length === 0) {
     return null;
   }
 
-  return (
-    <MessagesIdentityProvider>
-      <MessageThreadScreen conversationId={conversationId} onBack={back} />
-    </MessagesIdentityProvider>
-  );
+  return <MessageThreadScreen conversationId={conversationId} onBack={back} />;
 }

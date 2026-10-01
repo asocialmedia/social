@@ -110,8 +110,13 @@ export function prependPosts(
   return { added: true, pages: [[...unseen, ...(first ?? [])], ...rest] };
 }
 
+// Listener sets let lists skip writes that do not touch their tab: a
+// view-count reconcile otherwise re-renders every mounted list mid-scroll.
+// A null set means "everything changed" (patch/invalidate paths).
+export type FeedCacheChangeKeys = ReadonlySet<string> | null;
+
 export class FeedCache {
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(changedKeys?: FeedCacheChangeKeys) => void>();
   private now: () => number;
   private tabs = new Map<string, TabFeed>();
 
@@ -120,16 +125,16 @@ export class FeedCache {
   }
 
   /** Subscribe to cache writes (view-count reconciles included). */
-  subscribe(listener: () => void): () => void {
+  subscribe(listener: (changedKeys?: FeedCacheChangeKeys) => void): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
   }
 
-  private notify(): void {
+  private notify(changedKeys: FeedCacheChangeKeys = null): void {
     for (const listener of this.listeners) {
-      listener();
+      listener(changedKeys);
     }
   }
 
@@ -220,7 +225,7 @@ export class FeedCache {
 
   /** Patches one post everywhere it is cached (view-count reconcile). */
   updatePostEverywhere(postId: string, partial: Partial<FeedPost>): void {
-    let changed = false;
+    const changedKeys = new Set<string>();
     for (const [key, feed] of this.tabs) {
       let tabChanged = false;
       const pages = feed.pages.map((page) =>
@@ -233,12 +238,12 @@ export class FeedCache {
         })
       );
       if (tabChanged) {
-        changed = true;
+        changedKeys.add(key);
         this.tabs.set(key, { ...feed, pages });
       }
     }
-    if (changed) {
-      this.notify();
+    if (changedKeys.size > 0) {
+      this.notify(changedKeys);
     }
   }
 

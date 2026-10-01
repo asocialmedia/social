@@ -304,15 +304,12 @@ export function SpotlightModal() {
             await loadHistory();
           })();
         }
-        const shortId =
-          item.rawPost.id.length > 8
-            ? item.rawPost.id.slice(0, 8)
-            : item.rawPost.id;
+        // Full id: truncated prefixes 404 when they match more than one post.
         if (item.rawPost.isGust) {
           router.push({ params: { id: item.rawPost.id }, pathname: "/gusts" });
         } else {
           router.push({
-            params: { postId: shortId },
+            params: { postId: item.rawPost.id },
             pathname: "/posts/[postId]",
           });
         }

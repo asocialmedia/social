@@ -50,7 +50,6 @@ import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { applyCountDelta } from "@/features/post/lib/comment-count-deltas";
-import { getShortPostId } from "@/features/post/lib/post-path";
 import { usePostStream } from "@/features/post/lib/use-post-stream";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { createExpoPoller } from "@/lib/expo-poller";
@@ -764,7 +763,8 @@ export function EddieThread({
         <Pressable
           accessibilityLabel="Show more eddies"
           accessibilityRole="button"
-          onPress={() => router.push(`/posts/${getShortPostId(postId)}` as "/")}
+          // Full id: truncated prefixes 404 when they match more than one post.
+          onPress={() => router.push(`/posts/${postId}` as "/")}
         >
           {({ pressed }) => (
             <Gradient3D

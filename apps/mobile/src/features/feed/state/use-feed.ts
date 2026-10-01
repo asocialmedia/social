@@ -87,8 +87,18 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   const { error, hasMore, pages, status } = entry;
 
   // External cache writes (view-count reconciles, invalidations from other
-  // tabs) must also rerender the list.
-  useEffect(() => feedCache.subscribe(() => setTick((value) => value + 1)), []);
+  // tabs) must also rerender the list. Keyed writes that miss this tab are
+  // skipped: a reconcile for another tab must not re-render this list
+  // mid-scroll.
+  useEffect(
+    () =>
+      feedCache.subscribe((changedKeys) => {
+        if (!changedKeys || changedKeys.has(cacheKey)) {
+          setTick((value) => value + 1);
+        }
+      }),
+    [cacheKey]
+  );
 
   // Head-only probe: new posts collect in newItems without moving the list,
   // exactly like web. Starts from the mount fill and from fetch settles,

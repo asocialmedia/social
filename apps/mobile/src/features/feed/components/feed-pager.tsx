@@ -11,7 +11,7 @@
 // Worklet rule: gesture callbacks never capture JS refs. Everything the UI
 // thread touches is a shared value; the two scheduleOnRN hops (drag flag,
 // index publish) run on the RN thread through stable callbacks.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -47,7 +47,13 @@ export function FeedPager({
 }: FeedPagerProps) {
   const pageCount = children.length;
   const clampedIndex = clampIndex(activeIndex, pageCount);
-  const translateX = useSharedValue(0);
+  // Start on the active page, not page 0: otherwise the first paint shows
+  // the wrong tab and slides over, which reads as a glitch.
+  const translateX = useSharedValue(
+    -clampedIndex * Dimensions.get("window").width
+  );
+  // The first index set is the mount, not a tap: place without animating.
+  const firstSettled = useRef(true);
   const widthSv = useSharedValue(Dimensions.get("window").width);
   const countSv = useSharedValue(pageCount);
   const originSv = useSharedValue(clampedIndex);
@@ -87,12 +93,17 @@ export function FeedPager({
     if (draggingSv.get()) {
       return;
     }
-    translateX.set(
-      withTiming(-clampedIndex * pageWidth, {
-        duration: TAP_DURATION,
-        easing: EASE_OUT,
-      })
-    );
+    if (firstSettled.current) {
+      firstSettled.current = false;
+      translateX.set(-clampedIndex * pageWidth);
+    } else {
+      translateX.set(
+        withTiming(-clampedIndex * pageWidth, {
+          duration: TAP_DURATION,
+          easing: EASE_OUT,
+        })
+      );
+    }
     originSv.set(clampedIndex);
     baseSv.set(-clampedIndex * pageWidth);
     handedSv.set(clampedIndex);

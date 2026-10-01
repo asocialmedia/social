@@ -93,9 +93,11 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
     if (!parentPostId) {
       return;
     }
-    const shortId =
-      parentPostId.length > 8 ? parentPostId.slice(0, 8) : parentPostId;
-    router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+    // Full id: truncated prefixes 404 when they match more than one post.
+    router.push({
+      params: { postId: parentPostId },
+      pathname: "/posts/[postId]",
+    });
   };
 
   const openAuthor = (event: GestureResponderEvent) => {
@@ -442,11 +444,10 @@ export function CommunityShareCard({ post }: { post: FeedPost }) {
   const openShare = (event: GestureResponderEvent) => {
     event.stopPropagation();
     if (share.sourcePostId) {
-      const shortId =
-        share.sourcePostId.length > 8
-          ? share.sourcePostId.slice(0, 8)
-          : share.sourcePostId;
-      router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+      router.push({
+        params: { postId: share.sourcePostId },
+        pathname: "/posts/[postId]",
+      });
     } else if (communitySlug) {
       router.push({ params: { slug: communitySlug }, pathname: "/a/[slug]" });
     }

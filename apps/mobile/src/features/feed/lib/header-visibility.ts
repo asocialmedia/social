@@ -11,8 +11,12 @@ let hidden = false;
 let lastOffset = 0;
 const listeners = new Set<(isHidden: boolean) => void>();
 
-const HIDE_SLIP = 4;
-const HIDE_AFTER = 64;
+// Hysteresis: hiding takes a deliberate push down, showing takes a
+// deliberate pull up. The old 4px slip flipped on touch jitter and momentum
+// bounce, so a tad up/down around the threshold flickered both bars.
+const HIDE_SLIP = 12;
+const SHOW_SLIP = 12;
+const HIDE_AFTER = 100;
 
 function notify(next: boolean): void {
   hidden = next;
@@ -34,7 +38,7 @@ export function reportFeedScroll(offsetY: number): void {
     notify(true);
     return;
   }
-  if (hidden && previous - offsetY > HIDE_SLIP) {
+  if (hidden && previous - offsetY > SHOW_SLIP) {
     notify(false);
   }
 }

@@ -108,38 +108,40 @@ export function VoteCluster({
   const downActive = userVote === -1;
   return (
     <View style={styles.voteCluster}>
-      <VoteButton
-        active={upActive}
-        colors={["#ff9500", "#e65500"]}
-        label="Amplify"
-        onPress={() => cast(1)}
-        shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
-      >
-        <ArrowBigUp
-          color={upActive ? "#ffffff" : theme.dividerText}
-          fill={upActive ? "#ffffff" : "none"}
-          size={16}
-        />
-      </VoteButton>
+      <View style={styles.votePair}>
+        <VoteButton
+          active={upActive}
+          colors={["#ff9500", "#e65500"]}
+          label="Amplify"
+          onPress={() => cast(1)}
+          shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
+        >
+          <ArrowBigUp
+            color={upActive ? "#ffffff" : theme.dividerText}
+            fill={upActive ? "#ffffff" : "none"}
+            size={16}
+          />
+        </VoteButton>
+        <VoteButton
+          active={downActive}
+          colors={["#7c5cff", "#5a3ae0"]}
+          label="Mute"
+          onPress={() => cast(-1)}
+          shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
+        >
+          <ArrowBigDown
+            color={downActive ? "#ffffff" : theme.dividerText}
+            fill={downActive ? "#ffffff" : "none"}
+            size={16}
+          />
+        </VoteButton>
+      </View>
       <Flame
         color={flame.color}
         fill={flame.filled ? flame.color : "none"}
         size={16}
       />
       <ActionLabel>{formatNumber(aura)}</ActionLabel>
-      <VoteButton
-        active={downActive}
-        colors={["#7c5cff", "#5a3ae0"]}
-        label="Mute"
-        onPress={() => cast(-1)}
-        shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
-      >
-        <ArrowBigDown
-          color={downActive ? "#ffffff" : theme.dividerText}
-          fill={downActive ? "#ffffff" : "none"}
-          size={16}
-        />
-      </VoteButton>
     </View>
   );
 }
@@ -475,6 +477,11 @@ const styles = StyleSheet.create({
     width: 28,
   },
   voteCluster: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  votePair: {
     alignItems: "center",
     flexDirection: "row",
     gap: 2,

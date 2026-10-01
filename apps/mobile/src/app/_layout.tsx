@@ -167,12 +167,11 @@ export default function RootLayout() {
                 <Stack.Screen name="posts" />
                 <Stack.Screen name="notifications" />
                 <Stack.Screen name="bookmarks" />
-                {/* Messages is a two-screen stack: the list, then one thread per
-                    conversation. A push tap lands directly on a thread, which is why
-                    the thread route is registered explicitly rather than relying on a
-                    dynamic segment being discovered at runtime. */}
+                {/* Messages is a nested stack of its own (see messages/_layout.tsx):
+                    the conversation list, then one thread per conversation. Only
+                    the group is registered here -- the thread lives inside that
+                    layout, so naming it at this level would match no child. */}
                 <Stack.Screen name="messages" />
-                <Stack.Screen name="messages/[conversationId]" />
                 <Stack.Screen
                   name="gusts"
                   options={{

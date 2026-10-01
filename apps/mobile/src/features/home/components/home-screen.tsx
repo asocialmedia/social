@@ -132,6 +132,15 @@ export default function HomeScreen() {
     [isLoggedIn]
   );
 
+  // Wait for tab memory before mounting the pager: mounting on the default
+  // tab and then jumping to the remembered one slides the whole pager over,
+  // which reads as a glitch. The splash covers this beat.
+  if (!memoryReady) {
+    return (
+      <View style={[styles.root, { backgroundColor: theme.containerBg }]} />
+    );
+  }
+
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
@@ -162,16 +171,17 @@ export default function HomeScreen() {
         <FeedTabs active={tab} onChange={handleTabChange} />
         <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
           {HOME_TAB_DEFS.map((def, index) => (
-            // Only the visible tab fetches and probes: four parallel loops
-            // would burn mobile data and backend capacity for hidden tabs.
-            // Caches make switching back instant without refetching.
+            // Neighbour tabs preload their data in the background so
+            // switching lands on cached rows instead of a skeleton; only
+            // the visible tab autoplays video and publishes viewability.
             // Public tabs fetch immediately as guest instead of waiting for
             // the session: first paint wins, and the session upgrade
             // re-keys (guest to user) and refetches with identity.
             <FeedList
+              active={index === activeIndex}
               bottomInset={feedBottomPad}
               enabled={
-                index === activeIndex &&
+                Math.abs(index - activeIndex) <= 1 &&
                 // For you and Following are account-only; a guest sees the
                 // sign-in prompt in FeedList instead, and nothing is fetched.
                 (def.value === "following" || def.value === "personalized"

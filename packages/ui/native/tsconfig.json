@@ -1,0 +1,13 @@
+{
+  "//": "The web tsconfig at ../../tsconfig.json extends @asm/config/react.tsconfig.json, which carries the `next` plugin and DOM libs. Those fight React Native typings (no `window`, no DOM intrinsics), so this folder gets its own project rooted on the Expo base config. It is deliberately NOT added to the parent `include`, which keeps `bun run check-types` on the web package from pulling RN files in.",
+  "extends": "../../../apps/mobile/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../../../apps/mobile/src/*"]
+    },
+    "rootDir": "."
+  },
+  "include": ["gooey-toast/**/*.ts", "gooey-toast/**/*.tsx"],
+  "exclude": ["node_modules"]
+}
