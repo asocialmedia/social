@@ -6,6 +6,10 @@ import {
   ACCESS_ENDED_MESSAGE,
   accessEndedOnArrival,
   accessEndedToast,
+  consumeSelfLeave,
+  forgetSelfLeave,
+  noteSelfLeave,
+  SELF_LEAVE_DESCRIPTION,
   shouldShowAccessEndedNotice,
 } from "./access-ended";
 
@@ -135,5 +139,32 @@ describe("accessEndedOnArrival", () => {
   // like it worked while doing nothing at all.
   test("every arrival is a fresh value, or the reset would be skipped", () => {
     expect(accessEndedOnArrival()).not.toBe(accessEndedOnArrival());
+  });
+});
+
+describe("self-leave suppression", () => {
+  test("leaving then consuming reports true exactly once", () => {
+    noteSelfLeave("den-a");
+    expect(consumeSelfLeave("den-a")).toBe(true);
+    // Single-use: a second read is a removal, not the leave again.
+    expect(consumeSelfLeave("den-a")).toBe(false);
+  });
+
+  test("a failed leave clears the marker", () => {
+    // Otherwise the next genuine removal in this tab would be silent.
+    noteSelfLeave("den-b");
+    forgetSelfLeave("den-b");
+    expect(consumeSelfLeave("den-b")).toBe(false);
+  });
+
+  test("one conversation's marker does not leak into another", () => {
+    noteSelfLeave("den-c");
+    expect(consumeSelfLeave("den-d")).toBe(false);
+    expect(consumeSelfLeave("den-c")).toBe(true);
+  });
+
+  test("the leave dialog body explains what survives", () => {
+    expect(SELF_LEAVE_DESCRIPTION).toContain("still in your messages");
+    expect(SELF_LEAVE_DESCRIPTION).toContain("can't post");
   });
 });

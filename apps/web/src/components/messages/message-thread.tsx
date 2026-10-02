@@ -2,6 +2,14 @@
 
 import type { ConversationType } from "@asm/db/messages/dens";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@asm/ui/shadui/dialog";
+import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -67,8 +75,12 @@ import {
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
+  ACCESS_ENDED_DISMISS_LABEL,
+  ACCESS_ENDED_MESSAGE,
   accessEndedOnArrival,
   accessEndedToast,
+  consumeSelfLeave,
+  SELF_LEAVE_DESCRIPTION,
 } from "@/lib/messages/access-ended";
 import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
 import {
@@ -515,8 +527,13 @@ export function MessageThread({
   const [accessEndedNotice, setAccessEndedNotice] = useState(
     accessEndedOnArrival()
   );
+  // The centered dialog after the reader leaves a den themselves, as opposed to
+  // the toast a removal gets. One or the other, never both: the stream handler
+  // below consumes the self-leave marker and routes to exactly one.
+  const [selfLeftNotice, setSelfLeftNotice] = useState(false);
   useEffect(() => {
     setAccessEndedNotice(accessEndedOnArrival());
+    setSelfLeftNotice(false);
   }, [conversationId]);
   // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
   // is anchored on, or null when closed. Stored as a key, not an index, so
@@ -4387,6 +4404,14 @@ export function MessageThread({
           return;
         }
         setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
+        // Leaving is something the reader did, and it gets a centered dialog
+        // rather than a toast; a removal is something that happened to them, and
+        // keeps the destructive toast. `consumeSelfLeave` is single-use, so a
+        // genuine removal can never be mistaken for the reader's own exit.
+        if (consumeSelfLeave(conversationId)) {
+          setSelfLeftNotice(true);
+          return;
+        }
         toast({ ...accessEndedToast(), variant: "destructive" });
       },
       [conversationId]
@@ -4843,6 +4868,33 @@ export function MessageThread({
               body. Layering over the transcript (rather than replacing it)
               keeps the virtualizer's measured rows and scroll anchor, so
               jumping from a result and returning lands where it should. */}
+            {/* The centered acknowledgement after the reader leaves a den. A
+              dialog rather than the removal toast: leaving is a choice, and the
+              one useful thing to say is that the den is not gone. The removal
+              toast still fires for a kick, because that is news. */}
+            <Dialog
+              onOpenChange={(open) => !open && setSelfLeftNotice(false)}
+              open={selfLeftNotice}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{ACCESS_ENDED_MESSAGE}</DialogTitle>
+                  <DialogDescription>
+                    {SELF_LEAVE_DESCRIPTION}
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <button
+                    className="btn-3d inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium"
+                    onClick={() => setSelfLeftNotice(false)}
+                    type="button"
+                  >
+                    {ACCESS_ENDED_DISMISS_LABEL}
+                  </button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             {searchView === "list" ? (
               <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
                 <MessageSearchResults

@@ -44,6 +44,7 @@ import {
 } from "@/components/messages/member-picker";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { toast } from "@/lib/gooey-toast";
+import { forgetSelfLeave, noteSelfLeave } from "@/lib/messages/access-ended";
 import {
   addDenMembers,
   dissolveDen,
@@ -333,6 +334,10 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
 
   const leave = useCallback(async () => {
     setBusy(true);
+    // Marked before the request, because the stream frame that ends this tab's
+    // access can arrive while the response is still in flight. The thread reads
+    // this to show the centered leave dialog instead of the removal toast.
+    noteSelfLeave(conversationId);
     try {
       await leaveDen(conversationId);
       setConfirm(null);
@@ -341,13 +346,15 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
       // The den stays in the rail as read-only, so this is not a "navigate away"
       // moment the way it used to be. The details sheet still closes, because
       // every control in it is now refused.
+      //
+      // No success toast: the thread opens the centered leave dialog when the
+      // stream delivers the membership-ended frame, and a second bottom toast
+      // saying the same thing is exactly the duplication this replaced.
       onLeft?.({ dissolved: false });
-      toast({
-        description:
-          "It stays in your messages, and you can read it. You can rejoin with an invite link.",
-        title: "Left the den",
-      });
     } catch (error) {
+      // The leave failed, so nothing was ended. Clearing the marker keeps it from
+      // silencing a genuine removal notice later in this tab.
+      forgetSelfLeave(conversationId);
       toast({
         description:
           error instanceof Error ? error.message : "Couldn't leave that den",

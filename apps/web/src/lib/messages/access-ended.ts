@@ -58,6 +58,39 @@ export function shouldShowAccessEndedNotice(
   return state.accessEnded && !state.noticeDismissed;
 }
 
+// Conversations the reader left by their own action, in this tab's memory.
+//
+// Leaving your own den and being removed from one both end your access the same
+// way on the wire: the server closes the stream with a `membership-ended` frame.
+// The two need different feedback - leaving is something you did and deserve a
+// dialog for, being removed is something that happened to you and deserves the
+// notice the removal toast carries - so the leave action drops a marker here, and
+// the stream handler consumes it to tell the cases apart.
+//
+// In memory and not persistent, and single-use. A marker that survived a reload
+// would silence a real removal notice, and a marker that was not consumed would
+// suppress the next genuine one; `forgetSelfLeave` also clears it when the leave
+// request fails, because a failed leave must not suppress anything later.
+const selfLeftConversations = new Set<string>();
+
+export function noteSelfLeave(conversationId: string): void {
+  selfLeftConversations.add(conversationId);
+}
+
+export function forgetSelfLeave(conversationId: string): void {
+  selfLeftConversations.delete(conversationId);
+}
+
+export function consumeSelfLeave(conversationId: string): boolean {
+  return selfLeftConversations.delete(conversationId);
+}
+
+// What the centered dialog says after a self-leave. The same first sentence as
+// the notice, because it is the same fact; the body is different because the
+// departure was chosen, and the useful thing to say is that the den is not gone.
+export const SELF_LEAVE_DESCRIPTION =
+  "It's still in your messages, and everything said before you left is still there to read. You can't post in it, and you can rejoin with an invite link.";
+
 // The toast. The same headline as the notice plus the one fact the notice leaves
 // out, and deliberately no button: a toast is gone in seconds, so an action on
 // it would offer something the reader could no longer reach by the time they
