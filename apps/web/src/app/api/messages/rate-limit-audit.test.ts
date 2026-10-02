@@ -66,6 +66,8 @@ const UNLIMITED_HANDLERS: Record<string, string> = {
     "The documented self-scoped recovery path. It deletes the caller's own identity and only the caller's own key wraps, is idempotent, and already leaves the caller's own history unreadable to them. A loop buys nothing after the first call.",
   "GET blocks/route.ts":
     "A read hard-capped at BLOCK_LIST_LIMIT (100) rows in the route, so the response cannot grow with the caller's list.",
+  "GET conversations/[id]/events/route.ts":
+    "The den's membership log, read on every thread open alongside the conversation detail. Bounded by the number of roster moves a den has ever recorded, which is bounded by membership churn rather than by traffic, and it fans out to nothing.",
   "GET conversations/[id]/route.ts":
     "Conversation detail: the conversation, every key wrap, and the caller's sent count. Fetched on open, on every membership change, and after any key rotation. Bounded by one conversation's roster, which a den caps at DEN_LIMITS.membersMax.",
   "GET conversations/route.ts":

@@ -17,6 +17,7 @@ import {
   getDenMembership,
   joinDenByInviteCode,
   leaveDen,
+  listDenMembershipEvents,
   messageActivityChannel,
   messageChannel,
   parseMessageActivityEvent,
@@ -27,6 +28,7 @@ import {
   rotateInviteCode,
   setDenMemberRole,
   subscribeToChannel,
+  transferDenOwnership,
   updateDenDetails,
 } from "@asm/db";
 import { and, or } from "@prisma/orm-postgres/orm-client";
@@ -1031,6 +1033,113 @@ describe("a den somebody left", () => {
     // because nothing happened at all.
     expect(await denUpdatedAt(denId)).toBeGreaterThan(before);
     expect(seen).toEqual([]);
+  });
+});
+
+describe("the durable membership log", () => {
+  // The transcript reads this, so the assertions are about the lines a person
+  // would see: who, what, and in what order. Role changes overwrite the row and
+  // departures stamp it, so this table is the only place the history exists.
+
+  test("records the creator and every join, oldest first", async () => {
+    const denId = await makeDen([ADMIN_ID, OLDEST_ID], {
+      name: `Logged ${RUN_ID}`,
+    });
+    const events = await listDenMembershipEvents(denId, null);
+
+    // Creation is one line. The initial members are not a "joined" line each:
+    // the den is born with them.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      action: "CREATED",
+      actorId: OWNER_ID,
+      actorName: OWNER_ID,
+    });
+
+    await addDenMembers(denId, OWNER_ID, [NEWEST_ID]);
+    const afterAdd = await listDenMembershipEvents(denId, null);
+    expect(afterAdd.map((event) => event.action)).toEqual([
+      "CREATED",
+      "JOINED",
+    ]);
+    expect(afterAdd[1]).toMatchObject({
+      action: "JOINED",
+      actorId: OWNER_ID,
+      targetName: NEWEST_ID,
+      targetUserId: NEWEST_ID,
+    });
+  });
+
+  test("records a join through a link as the joiner's own line", async () => {
+    const denId = await makeDen([ADMIN_ID]);
+    await joinDenByInviteCode(await inviteCodeOf(denId), OUTSIDER_ID);
+
+    const events = await listDenMembershipEvents(denId, null);
+    expect(events.at(-1)).toMatchObject({
+      action: "JOINED",
+      actorId: OUTSIDER_ID,
+      targetUserId: OUTSIDER_ID,
+    });
+  });
+
+  test("records leave, removal, promotion, demotion and transfer", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID, NEWEST_ID]);
+    // ADMIN_ID is an Elder from the fixture's promotion, which writes a line too.
+    await setDenMemberRole(denId, OWNER_ID, OLDEST_ID, "ADMIN");
+    await setDenMemberRole(denId, OWNER_ID, OLDEST_ID, "MEMBER");
+    await leaveDen(denId, NEWEST_ID);
+    await removeDenMember(denId, OWNER_ID, OLDEST_ID);
+    await transferDenOwnership(denId, OWNER_ID, ADMIN_ID);
+
+    const log = await listDenMembershipEvents(denId, null);
+    const actions = log.map((event) => event.action);
+    expect(actions).toEqual([
+      "CREATED",
+      "PROMOTED", // makeDenWithAdmin promotes ADMIN_ID
+      "PROMOTED", // OLDEST_ID to Elder
+      "DEMOTED", // and back
+      "LEFT",
+      "REMOVED",
+      "OWNER_TRANSFERRED",
+    ]);
+  });
+
+  test("a departed member's log stops at the moment they left", async () => {
+    // The room as they last saw it. Everything after their departure is about a
+    // den they are no longer in, so it is not their history to read.
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await leaveDen(denId, OLDEST_ID);
+    const afterLeaving = await listDenMembershipEvents(denId, null).then(
+      (events) => events.at(-1)?.createdAt ?? null
+    );
+    if (!afterLeaving) {
+      throw new Error("expected the leave to be logged");
+    }
+    // A roster move after they left, which they must not see.
+    await addDenMembers(denId, OWNER_ID, [NEWEST_ID]);
+
+    const forLeaver = await listDenMembershipEvents(denId, afterLeaving);
+    expect(forLeaver.map((event) => event.action)).not.toContain("JOINED");
+    const forMember = await listDenMembershipEvents(denId, null);
+    expect(forMember.map((event) => event.action)).toContain("JOINED");
+  });
+
+  test("names survive the account they belong to", async () => {
+    // The snapshot is the whole reason this table exists. A join through the live
+    // roster would read "Unknown" the moment the account is gone.
+    const denId = await makeDen([ADMIN_ID]);
+    await addDenMembers(denId, OWNER_ID, [OUTSIDER_ID]);
+    await removeDenMember(denId, OWNER_ID, OUTSIDER_ID);
+    await prisma.orm.public.Users.where({ id: OUTSIDER_ID }).deleteAndCount();
+    // Recreate the fixture account so later tests in this file still have it.
+    await createUser(OUTSIDER_ID);
+
+    const events = await listDenMembershipEvents(denId, null);
+    const removed = events.find((event) => event.action === "REMOVED");
+    expect(removed).toMatchObject({
+      targetName: OUTSIDER_ID,
+      targetUserId: OUTSIDER_ID,
+    });
   });
 });
 

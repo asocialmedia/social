@@ -3,6 +3,7 @@ import type { DenRole } from "@asm/db";
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import type {
+  DenMembershipEvent,
   MessageConversationData,
   MessageConversationKey,
   MessageData,
@@ -836,6 +837,31 @@ export async function fetchConversationDetail(
   noteConversationUpdatedAt(body.conversation);
   noteConversationMembershipSeq(body.conversation);
   return body;
+}
+
+// The den's durable membership log, oldest first. A DM answers with an empty
+// list rather than a 404: the thread asks for the log of every conversation it
+// opens, and a DM is a conversation with nothing to log rather than an error.
+//
+// The dates come back as ISO strings and are revived here, so the transcript can
+// sort the lines against messages without re-parsing at the comparison.
+export async function fetchDenMembershipEvents(
+  conversationId: string
+): Promise<DenMembershipEvent[]> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/events`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as {
+    events: (Omit<DenMembershipEvent, "createdAt"> & { createdAt: string })[];
+  };
+  return body.events.map((event) => ({
+    ...event,
+    createdAt: new Date(event.createdAt),
+  }));
 }
 
 // Writes the caller's own DM preferences. Only the keys present in `prefs` are

@@ -180,6 +180,7 @@ namespace public {
     // The codes this den has rotated away, so a link that was already shared can
     // still name the den. See `MessageConversationInviteCodes`.
     messageConversationInviteCodes MessageConversationInviteCodes[]
+    messageConversationMembershipEvents MessageConversationMembershipEvents[]
     messageConversationKeys        MessageConversationKeys[]
     messageConversationMembers     MessageConversationMembers[]
     messages                       Messages[]
@@ -703,6 +704,48 @@ namespace public {
     @@map("message_conversation_invite_codes")
   }
 
+  model MessageConversationMembershipEvents {
+    // A durable log line for the transcript: somebody joined, left, was removed,
+    // or their role moved.
+    //
+    // Role changes used to overwrite the membership row and departures deleted it,
+    // so neither left a trace, and a chat that showed no history of who came and
+    // went was missing the context that makes a room make sense. This table is that
+    // trace.
+    //
+    // Name columns are SNAPSHOTS, deliberately, and there is no foreign key to
+    // Users. A membership log has to outlive the membership and the account: the
+    // person who left is not on the roster any more, so a join through the live
+    // roster would find nobody and the line would read "Unknown left". Snapshotting
+    // the name at write time is what keeps "Ada removed Bob" readable after Bob's
+    // account is gone, and no FK means an account deletion cannot cascade the
+    // history away with it.
+    //
+    // `actorId`/`targetUserId` are kept alongside the snapshots so a client can mark
+    // the reader's own actions ("You removed Bob") and so a future feature can key
+    // on a stable id, but nothing joins on them.
+    id             String                    @id(map: "message_conversation_membership_events_pkey") @default(uuid())
+    conversationId String
+    // Who did it. Null only for a row with no single actor, which does not exist
+    // yet: creation names the creator, and every subsequent line names the manager
+    // or the person acting on themselves.
+    actorId        String?
+    actorName      String?
+    // Who it happened to, when that is somebody other than the actor. Null for a
+    // join or a leave, where the actor is the subject.
+    targetUserId   String?
+    targetName     String?
+    action         pg.enum(DenMembershipEventAction)
+    createdAt      Timestamp(3)              @default(now())
+    // Cascade is the whole answer for a dissolved den: its history goes with it, as
+    // its messages do, so a deleted den leaves nothing behind.
+    conversation   MessageConversations      @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_membership_events_conversationId_fkey", index: false)
+
+    // The only query is "this den's log, oldest first", which this answers.
+    @@index([conversationId, createdAt], map: "mcme_conversationId_createdAt_idx")
+    @@map("message_conversation_membership_events")
+  }
+
   model MessageConversationKeys {
     id             String               @id(map: "message_conversation_keys_pkey") @default(uuid())
     conversationId String
@@ -1141,6 +1184,19 @@ namespace public {
     OWNER = "OWNER"
     ADMIN = "ADMIN"
     MEMBER = "MEMBER"
+  }
+
+  // What a durable membership log line can record. One value per mutation the
+  // transcript draws, so a new mutation that wants a line is a compile error here
+  // rather than a string that silently renders as nothing.
+  native_enum DenMembershipEventAction {
+    CREATED = "CREATED"
+    JOINED = "JOINED"
+    LEFT = "LEFT"
+    REMOVED = "REMOVED"
+    PROMOTED = "PROMOTED"
+    DEMOTED = "DEMOTED"
+    OWNER_TRANSFERRED = "OWNER_TRANSFERRED"
   }
 
   native_enum MediaStatus {

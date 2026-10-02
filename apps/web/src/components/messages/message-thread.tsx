@@ -77,6 +77,7 @@ import {
   deleteMessage,
   editMessage,
   fetchConversationDetail,
+  fetchDenMembershipEvents,
   fetchMessages,
   hideMessages,
   linkMessageMedia,
@@ -110,6 +111,10 @@ import {
   MESSAGE_DECRYPTOR_CACHE_CAP,
   messageDecryptor,
 } from "@/lib/messages/decryptor";
+import {
+  denEventIsAboutMe,
+  denEventLine,
+} from "@/lib/messages/den-event-label";
 import {
   conversationDisplayName,
   denDisplayName,
@@ -161,7 +166,11 @@ import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
 import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
 import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
 import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
-import type { MessageData, MessagePage } from "@/lib/messages/types";
+import type {
+  DenMembershipEvent,
+  MessageData,
+  MessagePage,
+} from "@/lib/messages/types";
 import {
   firstUnreadMessageId,
   UNREAD_DIVIDER_LABEL,
@@ -446,6 +455,16 @@ export function transcriptLoadingCopy(input: {
   }
   return "Loading older messages";
 }
+
+// One row of the transcript. Messages and membership log lines share the
+// virtualizer so a "Bob left" line sits at the exact point in time it happened,
+// between the messages either side of it. They are kept as a discriminated union
+// rather than flattened into pseudo-messages because a log line has no sender, no
+// ciphertext, and nothing for the receipts, search index or ratchet to read - all
+// of which key off `allMessages`, which stays messages-only.
+type TranscriptItem =
+  | { id: string; kind: "event"; event: DenMembershipEvent }
+  | { id: string; kind: "message"; message: MessageData };
 
 export function MessageThread({
   conversationId,
@@ -882,6 +901,17 @@ export function MessageThread({
     staleTime: 30 * 1000,
   });
 
+  // The den's durable membership log, rendered as lines between messages. A DM
+  // answers with an empty list, so this fetch is harmless there; it is enabled
+  // with the thread rather than gated on the type because the type arrives with
+  // the detail, and the first render would otherwise be a second round trip.
+  const denEventsQuery = useQuery({
+    queryFn: () => fetchDenMembershipEvents(conversationId),
+    queryKey: ["den-events", conversationId] as const,
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000,
+  });
+
   const allMessages = useMemo(
     () => (messagesQuery.data?.pages ?? []).flatMap((page) => page.messages),
     [messagesQuery.data]
@@ -914,6 +944,51 @@ export function MessageThread({
     }
     return map;
   }, [allMessages]);
+
+  // Messages and membership lines, merged in time order. Both inputs are already
+  // ascending, so this is a linear merge rather than a sort. A line and a message
+  // in the same millisecond put the line first: the roster moves that cause a
+  // "joined"/"left" line precede the send that follows them, and a line after the
+  // message it introduced would read as a correction.
+  const transcriptItems = useMemo<TranscriptItem[]>(() => {
+    const events = denEventsQuery.data ?? [];
+    const merged: TranscriptItem[] = [];
+    let messageIndex = 0;
+    let eventIndex = 0;
+    while (messageIndex < allMessages.length || eventIndex < events.length) {
+      const message = allMessages[messageIndex];
+      const event = events[eventIndex];
+      if (
+        event &&
+        (!message || event.createdAt.getTime() <= message.createdAt.getTime())
+      ) {
+        merged.push({ event, id: `event-${event.id}`, kind: "event" });
+        eventIndex += 1;
+        continue;
+      }
+      if (message) {
+        merged.push({ id: message.id, kind: "message", message });
+        messageIndex += 1;
+      }
+    }
+    return merged;
+  }, [allMessages, denEventsQuery.data]);
+
+  // Scroll targets need the index in the TRANSCRIPT, not in `allMessages`: the
+  // virtualizer's index space is the merged one. Kept separate from
+  // `messageIndexById` (which is the allMessages index the decrypt window and the
+  // grouping read) because the two are different numbers the moment a log line is
+  // interleaved, and silently swapping one for the other is a scroll to the wrong
+  // row.
+  const transcriptIndexOfMessageId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [index, item] of transcriptItems.entries()) {
+      if (item.kind === "message") {
+        map.set(item.message.id, index);
+      }
+    }
+    return map;
+  }, [transcriptItems]);
 
   // A den has no single peer. Handing one to the details pane and the header
   // would address an arbitrary member as though they were the conversation, so a
@@ -1676,16 +1751,19 @@ export function MessageThread({
   // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream chat recipe); rows stay memoized on their own props
   const rowVirtualizer = useVirtualizer({
     anchorTo: "end",
-    count: allMessages.length,
+    count: transcriptItems.length,
     estimateSize: () => ESTIMATED_ROW_SIZE,
     followOnAppend: true,
-    // Must track `allMessages`, not a ref. The virtualizer calls setOptions
+    // Must track `transcriptItems`, not a ref. The virtualizer calls setOptions
     // during render (before layout effects sync a ref), so a stale getItemKey
     // would resolve the wrong key for every index on a prepend and break the
-    // end-anchor math — the viewport teleports instead of holding position.
+    // end-anchor math — the viewport teleports instead of holding position. It
+    // is the transcript rather than `allMessages` because a log line is a real
+    // row: keying messages alone would let a line's arrival renumber every row
+    // below it out from under the measured offsets.
     getItemKey: useCallback(
-      (index: number) => allMessages[index]?.id ?? `index-${index}`,
-      [allMessages]
+      (index: number) => transcriptItems[index]?.id ?? `index-${index}`,
+      [transcriptItems]
     ),
     getScrollElement: () => scrollRef.current,
     overscan: ROW_OVERSCAN,
@@ -2073,7 +2151,7 @@ export function MessageThread({
     }
     const unreadIndex =
       showUnreadDivider && unreadAnchorId
-        ? allMessages.findIndex((message) => message.id === unreadAnchorId)
+        ? (transcriptIndexOfMessageId.get(unreadAnchorId) ?? -1)
         : -1;
     if (unreadIndex !== -1) {
       if (unreadLandedRef.current) {
@@ -2104,7 +2182,14 @@ export function MessageThread({
       rowVirtualizer.scrollToEnd();
     });
     return () => cancelAnimationFrame(frame);
-  }, [allMessages, detail, rowVirtualizer, showUnreadDivider, unreadAnchorId]);
+  }, [
+    allMessages,
+    detail,
+    rowVirtualizer,
+    showUnreadDivider,
+    transcriptIndexOfMessageId,
+    unreadAnchorId,
+  ]);
 
   // Track the pinned state from actual scroll position. Passive listener with
   // change-gated state writes, so scrolling never triggers a render storm.
@@ -2834,10 +2919,13 @@ export function MessageThread({
       jumpTimerRef.current = setTimeout(() => {
         setJumpTargetId(null);
       }, 850);
-      rowVirtualizer.scrollToIndex(index, {
-        align: "center",
-        behavior: "auto",
-      });
+      rowVirtualizer.scrollToIndex(
+        transcriptIndexOfMessageId.get(messageId) ?? index,
+        {
+          align: "center",
+          behavior: "auto",
+        }
+      );
       // Re-anchor on the next frame: the target row may still be at its
       // estimated height (pending decrypt), and the first landing uses that
       // estimate. Same pattern as the viewer's close-and-land. Gated on the
@@ -2847,10 +2935,13 @@ export function MessageThread({
         if (epoch !== jumpEpochRef.current) {
           return;
         }
-        rowVirtualizer.scrollToIndex(index, {
-          align: "center",
-          behavior: "auto",
-        });
+        rowVirtualizer.scrollToIndex(
+          transcriptIndexOfMessageId.get(messageId) ?? index,
+          {
+            align: "center",
+            behavior: "auto",
+          }
+        );
       });
       settle();
     },
@@ -2864,6 +2955,7 @@ export function MessageThread({
       claimJumpActivity,
       historyReads,
       releaseJumpActivity,
+      transcriptIndexOfMessageId,
     ]
   );
 
@@ -3857,14 +3949,14 @@ export function MessageThread({
     if (!anchorId) {
       return;
     }
-    const index = messageIndexById.get(anchorId);
+    const index = transcriptIndexOfMessageId.get(anchorId);
     if (index === undefined) {
       return;
     }
     requestAnimationFrame(() => {
       rowVirtualizer.scrollToIndex(index, { align: "center" });
     });
-  }, [mediaViewerKey, messageIndexById, rowVirtualizer]);
+  }, [mediaViewerKey, transcriptIndexOfMessageId, rowVirtualizer]);
 
   // Scroll to the end of whatever is currently loaded, and claim the viewport is
   // pinned so followOnAppend resumes tracking.
@@ -4573,13 +4665,47 @@ export function MessageThread({
                     }}
                   >
                     {virtualItems.map((virtualItem) => {
-                      const message = allMessages[virtualItem.index];
-                      if (!message) {
+                      const item = transcriptItems[virtualItem.index];
+                      if (!item) {
+                        return null;
+                      }
+                      if (item.kind === "event") {
+                        return (
+                          <div
+                            data-event-id={item.event.id}
+                            data-index={virtualItem.index}
+                            key={virtualItem.key}
+                            ref={rowVirtualizer.measureElement}
+                            style={{
+                              left: 0,
+                              position: "absolute",
+                              top: 0,
+                              transform: `translateY(${virtualItem.start}px)`,
+                              width: "100%",
+                            }}
+                          >
+                            <DenEventRow
+                              event={item.event}
+                              myUserId={userId ?? ""}
+                            />
+                          </div>
+                        );
+                      }
+                      const { message } = item;
+                      // Grouping is a property of the message list, not of the
+                      // transcript: a log line between two messages does not stop
+                      // them continuing each other's group. So this reads the
+                      // message's own index in `allMessages`. The lookup cannot
+                      // miss - a message item only exists because it came from
+                      // `allMessages` - so a miss is skipped rather than given a
+                      // fabricated group.
+                      const messageIndex = messageIndexById.get(message.id);
+                      if (messageIndex === undefined) {
                         return null;
                       }
                       const groupMeta = getMessageGroupMeta(
                         allMessages,
-                        virtualItem.index
+                        messageIndex
                       );
                       return (
                         <div
@@ -5617,6 +5743,38 @@ function TimeDivider({ at }: { at: Date | string }) {
     <div className="flex justify-center pt-0.5 pb-2">
       <span className="bg-muted/70 text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
         {label}
+      </span>
+    </div>
+  );
+}
+
+// A membership log line: "Ada joined the den", "Bob was removed", "Ada made
+// Cara an Elder". Centered and muted like the time divider, because it is the
+// same kind of thing - a fact about the room's timeline rather than something
+// somebody said in it. Drawing it as a bubble would put words in a member's
+// mouth, and drawing it left-aligned would make it read as a message.
+//
+// `myUserId` is handed in so the line can say "You" and the row can tint when the
+// reader is on either end of it. Both decisions are `denEventLine` and
+// `denEventIsAboutMe`, which are pure and tested on their own.
+function DenEventRow({
+  event,
+  myUserId,
+}: {
+  event: DenMembershipEvent;
+  myUserId: string;
+}) {
+  const mine = denEventIsAboutMe(event, myUserId);
+  return (
+    <div className="flex justify-center px-4 pt-1 pb-2">
+      <span
+        className={
+          mine
+            ? "bg-primary/10 text-foreground/80 rounded-full px-2.5 py-0.5 text-center text-[11px] font-medium"
+            : "text-muted-foreground px-2.5 py-0.5 text-center text-[11px]"
+        }
+      >
+        {denEventLine(event, myUserId)}
       </span>
     </div>
   );

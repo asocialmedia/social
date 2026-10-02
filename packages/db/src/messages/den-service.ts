@@ -18,7 +18,7 @@ import {
   validateDenDescription,
   validateDenName,
 } from "./dens";
-import type { DenRole } from "./dens";
+import type { DenMembershipEventAction, DenRole } from "./dens";
 
 // Den (group conversation) mutation layer.
 //
@@ -113,6 +113,58 @@ export interface DenMembership {
   role: DenRole;
 }
 
+// A durable membership log line, as the transcript reads it.
+export interface DenMembershipEvent {
+  action: DenMembershipEventAction;
+  actorId: string | null;
+  actorName: string | null;
+  createdAt: Date;
+  id: string;
+  targetName: string | null;
+  targetUserId: string | null;
+}
+
+// The den's membership log, oldest first.
+//
+// `visibleUntil` is the reader's own `leftAt`, or null while they are still in the
+// den. Somebody who left sees the room as it was the moment they did: the log
+// stops at their departure, because everything after it is about a room they are
+// no longer in. Filtering in JS rather than in the query is deliberate - a den's
+// log is bounded by membership churn (tens of rows, not thousands), and a
+// conditional predicate on the typed builder is harder to read than the one line
+// it would save.
+export async function listDenMembershipEvents(
+  conversationId: string,
+  visibleUntil: Date | null
+): Promise<DenMembershipEvent[]> {
+  const rows =
+    await prisma.orm.public.MessageConversationMembershipEvents.select(
+      "action",
+      "actorId",
+      "actorName",
+      "createdAt",
+      "id",
+      "targetName",
+      "targetUserId"
+    )
+      .where((event) => event.conversationId.eq(conversationId))
+      .orderBy((event) => event.createdAt.asc())
+      .all();
+  return rows
+    .map((row) => ({
+      action: row.action,
+      actorId: row.actorId,
+      actorName: row.actorName,
+      createdAt: fromPrismaDateTime(row.createdAt),
+      id: row.id,
+      targetName: row.targetName,
+      targetUserId: row.targetUserId,
+    }))
+    .filter(
+      (event) => visibleUntil === null || event.createdAt <= visibleUntil
+    );
+}
+
 export interface CreateDenInput {
   avatarMediaId?: string | null;
   description?: string | null;
@@ -203,6 +255,16 @@ async function createDenAttempt(params: {
           userId,
         });
       }
+      // One line for the birth of the den, naming the creator. Not a JOINED line
+      // per initial member: the den is born with them, and a dozen "joined" lines
+      // stacked at the top of a new den's transcript is noise, not history.
+      const names = await denEventNames(tx, [params.creatorId]);
+      await recordDenMembershipEvent(tx, {
+        action: "CREATED",
+        actorId: params.creatorId,
+        actorName: names.get(params.creatorId) ?? null,
+        conversationId: den.id,
+      });
       return { id: den.id, inviteCode: params.inviteCode };
     });
   } catch (error) {
@@ -566,6 +628,55 @@ function announceAudienceIds(
   return [...audience];
 }
 
+// The durable log line for a roster mutation.
+//
+// Written INSIDE the caller's transaction, so the line and the change it describes
+// commit together: a retry that loses its race writes neither, and a committed
+// change always has its line. A line written after the commit would be the one
+// thing in this file that can lie.
+//
+// Names are passed in rather than looked up here, because the caller already knows
+// who it is acting on and a second read is a second thing to keep in step. The
+// snapshots exist because the live roster will not hold them later: the person who
+// left is not a member any more, and deleting their account must not erase the line.
+async function recordDenMembershipEvent(
+  tx: PrismaTransaction,
+  event: {
+    action: DenMembershipEventAction;
+    actorId: string | null;
+    actorName: string | null;
+    conversationId: string;
+    targetId?: string | null;
+    targetName?: string | null;
+  }
+): Promise<void> {
+  await tx.orm.public.MessageConversationMembershipEvents.create({
+    action: event.action,
+    actorId: event.actorId,
+    actorName: event.actorName,
+    conversationId: event.conversationId,
+    targetName: event.targetName ?? null,
+    targetUserId: event.targetId ?? null,
+  });
+}
+
+// Display names for the ids a mutation is about, read in the caller's transaction.
+// One query for the whole set, so adding or removing a hundred people costs one
+// read rather than a hundred.
+async function denEventNames(
+  tx: PrismaTransaction,
+  userIds: readonly string[]
+): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) {
+    return new Map();
+  }
+  const rows = await tx.orm.public.Users.select("displayName", "id")
+    .where((user) => user.id.in(unique))
+    .all();
+  return new Map(rows.map((row) => [row.id, row.displayName]));
+}
+
 // There is deliberately no block probe anywhere in this file.
 //
 // A den used to carry one at the create, add and join doors. It does not any more,
@@ -770,6 +881,23 @@ export async function addDenMembers(
         // the next real change as a gap.
         return { announce: null, ended: null, value: wanted };
       }
+      // One line per person added, written after the rows are in place and before
+      // the counter moves, so the log and the roster agree. A revival is a join
+      // like any other: the room is seeing them arrive again, and which of the two
+      // paths the write took is not a distinction the transcript should draw.
+      const names = await denEventNames(tx, [actorId, ...wanted]);
+      const actorName = names.get(actorId) ?? null;
+      for (const userId of wanted) {
+        // oxlint-disable-next-line no-await-in-loop -- one line per person under the same claim
+        await recordDenMembershipEvent(tx, {
+          action: "JOINED",
+          actorId,
+          actorName,
+          conversationId,
+          targetId: userId,
+          targetName: names.get(userId) ?? null,
+        });
+      }
       const membershipSeq = await touchDen(tx, claimed, conversationId);
       return {
         // The inside roster plus the newcomers, which is the whole post-mutation
@@ -845,6 +973,17 @@ export async function removeDenMember(
       ).updateAndCount({
         leftAt: toPrismaDateTime(new Date()),
         role: "MEMBER",
+      });
+      // "Ada removed Bob". The actor is named from a snapshot too: the manager may
+      // leave later, and the line should still say who did this.
+      const names = await denEventNames(tx, [actorId, targetUserId]);
+      await recordDenMembershipEvent(tx, {
+        action: "REMOVED",
+        actorId,
+        actorName: names.get(actorId) ?? null,
+        conversationId,
+        targetId: targetUserId,
+        targetName: names.get(targetUserId) ?? null,
       });
       const membershipSeq = await touchDen(tx, claimed, conversationId);
       // The removal is not self-evident offline. The announcement reaches the
@@ -941,6 +1080,18 @@ export async function leaveDen(
         leftAt: toPrismaDateTime(new Date()),
         role: "MEMBER",
       });
+      // "Ada left the den". Recorded before the ownership branch so the leaver's
+      // own line exists whether or not they were the owner; the handover, when
+      // there is one, gets its own line below.
+      const names = await denEventNames(tx, [userId]);
+      await recordDenMembershipEvent(tx, {
+        action: "LEFT",
+        actorId: userId,
+        actorName: names.get(userId) ?? null,
+        conversationId,
+        targetId: userId,
+        targetName: names.get(userId) ?? null,
+      });
 
       // Everyone who was inside, plus the leaver. The leaver's list keeps this den,
       // but their open stream has to learn they are out of it, which is what
@@ -1011,6 +1162,16 @@ export async function leaveDen(
           candidate.userId.eq(heir.userId)
         )
       ).updateAndCount({ role: "OWNER" });
+      const heirNameMap = await denEventNames(tx, [heir.userId]);
+      const heirName = heirNameMap.get(heir.userId) ?? null;
+      await recordDenMembershipEvent(tx, {
+        action: "OWNER_TRANSFERRED",
+        actorId: userId,
+        actorName: names.get(userId) ?? null,
+        conversationId,
+        targetId: heir.userId,
+        targetName: heirName,
+      });
       // The one roster mutation that does not go through `touchDen`: it has to
       // write `ownerId` in the same statement, and a second UPDATE to move the
       // counter would be a second chance for the claim's own guarantee to be
@@ -1089,6 +1250,19 @@ export async function setDenMemberRole(
           member.userId.eq(targetUserId)
         )
       ).updateAndCount({ role });
+      // One line, naming both ends: "Ada made Bob an Elder" for a promotion,
+      // "Ada removed Bob as Elder" for a demotion. The action is derived from the
+      // role the row now holds rather than from a second argument, so the line
+      // cannot disagree with the row.
+      const names = await denEventNames(tx, [actorId, targetUserId]);
+      await recordDenMembershipEvent(tx, {
+        action: role === "ADMIN" ? "PROMOTED" : "DEMOTED",
+        actorId,
+        actorName: names.get(actorId) ?? null,
+        conversationId,
+        targetId: targetUserId,
+        targetName: names.get(targetUserId) ?? null,
+      });
       const membershipSeq = await touchDen(tx, claimed, conversationId);
       return {
         // Nobody joined or left, but a promotion changes who may add and remove
@@ -1188,6 +1362,17 @@ export async function transferDenOwnership(
           member.userId.eq(targetUserId)
         )
       ).updateAndCount({ role: "OWNER" });
+      // "Ada handed the den to Bob". Both names snapshotted, because a later
+      // transfer or a departure must not rewrite who this line was about.
+      const names = await denEventNames(tx, [actorId, targetUserId]);
+      await recordDenMembershipEvent(tx, {
+        action: "OWNER_TRANSFERRED",
+        actorId,
+        actorName: names.get(actorId) ?? null,
+        conversationId,
+        targetId: targetUserId,
+        targetName: names.get(targetUserId) ?? null,
+      });
       // The one roster mutation that does not go through `touchDen`, for the same
       // reason `leaveDen`'s transfer does not: `ownerId` has to be written in the
       // same statement as the counter, or a rollback of one and a commit of the
@@ -1664,6 +1849,17 @@ export async function joinDenByInviteCode(
         conflictOn: { conversationId: den.id, userId },
         create: { conversationId: den.id, role: "MEMBER", userId },
         update: { leftAt: null, role: "MEMBER" },
+      });
+      // A join through a link has no single author, so actor and subject are the
+      // same person. The line reads "Ada joined the den", which is what happened.
+      const names = await denEventNames(tx, [userId]);
+      await recordDenMembershipEvent(tx, {
+        action: "JOINED",
+        actorId: userId,
+        actorName: names.get(userId) ?? null,
+        conversationId: den.id,
+        targetId: userId,
+        targetName: names.get(userId) ?? null,
       });
       const membershipSeq = await touchDen(tx, claimed, den.id);
       return {

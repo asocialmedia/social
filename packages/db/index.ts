@@ -29,6 +29,7 @@ export {
 export type {
   ConversationType,
   DenManagementRole,
+  DenMembershipEventAction,
   DenRole,
 } from "./src/messages/dens";
 export {
@@ -40,6 +41,7 @@ export {
   getDenMembership,
   joinDenByInviteCode,
   leaveDen,
+  listDenMembershipEvents,
   previewInvite,
   removeDenMember,
   requireDenManager,
@@ -54,6 +56,7 @@ export type {
   CreateDenInput,
   DenInvitePreview,
   DenMembership,
+  DenMembershipEvent,
   JoinDenResult,
   LeaveDenResult,
 } from "./src/messages/den-service";

@@ -63,6 +63,24 @@ export const DEN_MANAGEMENT_ROLES = ["OWNER", "ADMIN"] as const;
 
 export type DenManagementRole = (typeof DEN_MANAGEMENT_ROLES)[number];
 
+// What a durable membership log line can record, mirroring the
+// `DenMembershipEventAction` enum in the contract. Kept here so the service and
+// the web client share the union, and the create call's own type comes from the
+// generated contract, so a divergence is a compile error rather than a row that
+// stores a value no reader understands.
+export const DEN_MEMBERSHIP_EVENT_ACTIONS = [
+  "CREATED",
+  "JOINED",
+  "LEFT",
+  "REMOVED",
+  "PROMOTED",
+  "DEMOTED",
+  "OWNER_TRANSFERRED",
+] as const;
+
+export type DenMembershipEventAction =
+  (typeof DEN_MEMBERSHIP_EVENT_ACTIONS)[number];
+
 export function isDenRole(value: string): value is DenRole {
   return (DEN_ROLES as readonly string[]).includes(value);
 }

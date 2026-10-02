@@ -1,4 +1,26 @@
-import type { CommunityRoleRow, ConversationType, DenRole } from "@asm/db";
+import type {
+  CommunityRoleRow,
+  ConversationType,
+  DenMembershipEventAction,
+  DenRole,
+} from "@asm/db";
+
+// One durable line in a den's membership log, as the events route returns it.
+//
+// Names are snapshots taken when the line was written, not joins against the
+// current roster: the person who left is not a member any more, and an account
+// deletion must not turn "Ada removed Bob" into "Ada removed Unknown". Every
+// field is already server-rendered by the time the transcript sees it; the client
+// only decides which facts to put in a sentence.
+export interface DenMembershipEvent {
+  action: DenMembershipEventAction;
+  actorId: string | null;
+  actorName: string | null;
+  createdAt: Date;
+  id: string;
+  targetName: string | null;
+  targetUserId: string | null;
+}
 
 export interface MessageIdentitySummary {
   publicKey: string;

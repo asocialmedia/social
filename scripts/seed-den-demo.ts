@@ -452,6 +452,90 @@ async function main(): Promise<void> {
     console.log(`  chat      ${existingMessages.count} messages already here`);
   }
 
+  // Membership log lines, so the transcript's activity feed has something real
+  // to show. `createDen` already writes a CREATED line, so this tops up only what
+  // is missing rather than guarding on an empty table: re-running must not
+  // duplicate. The timestamps sit before the chat so the lines read at the top.
+  const existingEvents =
+    await prisma.orm.public.MessageConversationMembershipEvents.select(
+      "action",
+      "targetUserId"
+    )
+      .where({ conversationId: denId })
+      .all();
+  const seen = new Set(
+    existingEvents.map((event) => `${event.action}:${event.targetUserId ?? ""}`)
+  );
+  const createdBase = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  const owner = ids.alice_demo ?? "";
+  const nameOf = (userId: string): string =>
+    MEMBERS.find((m) => ids[m.username] === userId)?.username ?? "Someone";
+  const invited = [
+    ids.bob_demo,
+    ids.cara_demo,
+    ids.dan_demo,
+    ids.erin_demo,
+  ].filter((id): id is string => Boolean(id));
+  const rows: {
+    action: "CREATED" | "JOINED" | "PROMOTED";
+    actorId: string;
+    actorName: string;
+    conversationId: string;
+    createdAt: ReturnType<typeof toPrismaDateTime>;
+    targetName: string | null;
+    targetUserId: string | null;
+  }[] = [];
+  if (!seen.has("CREATED:")) {
+    rows.push({
+      action: "CREATED",
+      actorId: owner,
+      actorName: "alice_demo",
+      conversationId: denId,
+      createdAt: toPrismaDateTime(new Date(createdBase)),
+      targetName: null,
+      targetUserId: null,
+    });
+  }
+  invited.forEach((userId, index) => {
+    if (seen.has(`JOINED:${userId}`)) {
+      return;
+    }
+    rows.push({
+      action: "JOINED",
+      actorId: owner,
+      actorName: "alice_demo",
+      conversationId: denId,
+      createdAt: toPrismaDateTime(new Date(createdBase + (index + 1) * 60_000)),
+      targetName: nameOf(userId),
+      targetUserId: userId,
+    });
+  });
+  // A promotion too, and the role row is moved to match, so the log and the
+  // roster agree. Bob is the Elder in this demo.
+  if (ids.bob_demo && !seen.has(`PROMOTED:${ids.bob_demo}`)) {
+    rows.push({
+      action: "PROMOTED",
+      actorId: owner,
+      actorName: "alice_demo",
+      conversationId: denId,
+      createdAt: toPrismaDateTime(new Date(createdBase + 10 * 60_000)),
+      targetName: "bob_demo",
+      targetUserId: ids.bob_demo,
+    });
+  }
+  if (rows.length > 0) {
+    await prisma.orm.public.MessageConversationMembershipEvents.createAll(rows);
+    console.log(`  log       added ${rows.length} membership events`);
+  } else {
+    console.log(`  log       membership events already complete`);
+  }
+  if (ids.bob_demo) {
+    await prisma.orm.public.MessageConversationMembers.where({
+      conversationId: denId,
+      userId: ids.bob_demo,
+    }).updateAll({ role: "ADMIN" });
+  }
+
   // Prove the chain before reporting success: decrypt one message per sender.
   for (const m of MEMBERS) {
     const sample = await prisma.orm.public.Messages.select(
