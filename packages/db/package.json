@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.1.83",
+  "version": "1.1.84",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -18,6 +18,10 @@
     "./dates": {
       "types": "./src/dates.ts",
       "default": "./src/dates.ts"
+    },
+    "./messages/dens": {
+      "types": "./src/messages/dens.ts",
+      "default": "./src/messages/dens.ts"
     },
     "./recommendation/trending-snapshot": {
       "types": "./src/recommendation/trending-snapshot.ts",

@@ -5,26 +5,25 @@ import {
   mapUserData,
   prisma,
 } from "@asm/db";
+import type { ConversationType } from "@asm/db";
+
+import { blockedSendPeer } from "./blocks";
 
 // The server never sees plaintext, but it does validate membership, follow
 // relationships, and blocks so the API cannot be abused to spam or read
-// outside a conversation.
+// outside a conversation. What a block means inside a conversation is decided
+// once, in `./blocks`; this file only answers the database half of it.
 
-// Returns the conversation only when `userId` is one of its members.
-//
-// When `enforceBlocks` is true (the default), a bidirectional block between
-// the two members makes the conversation invisible: every read, key-fetch,
-// stream, typing and read-receipt route resolves through this gate, so a
-// blocked pair loses read/stream/delete access, not just the ability to send.
-// The send path passes false so it can answer with its own clearer 403.
-export async function getConversationForUser(
-  conversationId: string,
-  userId: string,
-  options: { enforceBlocks?: boolean } = {}
-) {
-  const conversationRow = await prisma.orm.public.MessageConversations.select(
+function loadConversationRow(conversationId: string) {
+  return prisma.orm.public.MessageConversations.select(
     "id",
     "pairKey",
+    "_type",
+    "name",
+    "description",
+    "avatarMediaId",
+    "ownerId",
+    "inviteCode",
     "createdAt",
     "updatedAt"
   )
@@ -32,6 +31,8 @@ export async function getConversationForUser(
       member
         .select(
           "userId",
+          "createdAt",
+          "role",
           "lastReadAt",
           "mutedAt",
           "themeKey",
@@ -49,32 +50,121 @@ export async function getConversationForUser(
     .include("messageConversationKeys")
     .where({ id: conversationId })
     .first();
-  const conversation = conversationRow
-    ? {
-        ...conversationRow,
-        createdAt: fromPrismaDateTime(conversationRow.createdAt),
-        keys: conversationRow.messageConversationKeys.map((key) => ({
-          ...key,
-          createdAt: fromPrismaDateTime(key.createdAt),
-        })),
-        members: conversationRow.messageConversationMembers.map((member) => {
-          if (!member.user) {
-            throw new Error("Conversation member has no user");
-          }
-          return {
-            ...member,
-            lastReadAt: member.lastReadAt
-              ? fromPrismaDateTime(member.lastReadAt)
-              : null,
-            mutedAt: member.mutedAt ? fromPrismaDateTime(member.mutedAt) : null,
-            user: {
-              ...mapUserData(member.user),
-              messageIdentity: member.user.messageIdentities,
-            },
-          };
-        }),
-        updatedAt: fromPrismaDateTime(conversationRow.updatedAt),
+}
+
+type ConversationRow = NonNullable<
+  Awaited<ReturnType<typeof loadConversationRow>>
+>;
+
+// `_type` is renamed to `type` on the way out. The underscore exists only
+// because `type` collides with a PSL keyword in the authored contract; no client
+// should have to know that, so the raw name is destructured away rather than
+// shipped alongside the friendly one.
+function mapConversationRow(row: ConversationRow) {
+  const { _type, ...rest } = row;
+  return {
+    ...rest,
+    createdAt: fromPrismaDateTime(row.createdAt),
+    keys: row.messageConversationKeys.map((key) => ({
+      ...key,
+      createdAt: fromPrismaDateTime(key.createdAt),
+    })),
+    members: row.messageConversationMembers.map((member) => {
+      if (!member.user) {
+        throw new Error("Conversation member has no user");
       }
+      return {
+        ...member,
+        lastReadAt: member.lastReadAt
+          ? fromPrismaDateTime(member.lastReadAt)
+          : null,
+        mutedAt: member.mutedAt ? fromPrismaDateTime(member.mutedAt) : null,
+        user: {
+          ...mapUserData(member.user),
+          messageIdentity: member.user.messageIdentities,
+        },
+      };
+    }),
+    type: _type,
+    updatedAt: fromPrismaDateTime(row.updatedAt),
+  };
+}
+
+// Whether `userId` is blocked from `conversation`, for a DM. Returns false
+// without touching the database for a den, because a block is a DM-only rule: a
+// den admits and stays visible regardless of who blocks whom, so the block probe
+// stays off the hot path for every group read rather than running and being
+// discarded.
+//
+// The peer comes from `./blocks`, so this is the database half of the one rule
+// rather than a second copy of it.
+export async function isBlockedFromConversation(
+  conversation: {
+    members: { userId: string }[];
+    type: ConversationType;
+  },
+  userId: string
+): Promise<boolean> {
+  const peer = blockedSendPeer(conversation, userId);
+  if (!peer) {
+    return false;
+  }
+  return await areBlocked(userId, peer);
+}
+
+// Whether this user is still a member of the conversation. Nothing else.
+//
+// This is the re-check an ALREADY-OPEN stream runs when the conversation's
+// roster moves, and again on every keep-alive tick. Membership is checked once
+// when a stream connects, which leaves a window: a member removed an hour into
+// an open thread keeps receiving its ciphertext, and in a den they can still
+// unwrap it. Re-reading the whole conversation payload to answer a yes/no
+// question every twenty seconds per open stream would be absurd, so this asks
+// the one indexed question instead.
+//
+// No block check, unlike getConversationForUser: a DM's block does not end an
+// open stream (the peer is already known to this tab, and their block is not
+// this member's business), and a den is unaffected by blocks either way.
+// Membership is the only thing that revokes access mid-stream.
+export async function isConversationMember(
+  conversationId: string,
+  userId: string
+): Promise<boolean> {
+  const member = await prisma.orm.public.MessageConversationMembers.select(
+    "conversationId"
+  )
+    .where((candidate) =>
+      and(
+        candidate.conversationId.eq(conversationId),
+        candidate.userId.eq(userId)
+      )
+    )
+    .first();
+  return member !== null;
+}
+
+// Returns the conversation only when `userId` is one of its members.
+//
+// When `enforceBlocks` is true (the default), a bidirectional block between
+// the two members of a DM makes the conversation invisible: every read,
+// key-fetch, stream, typing and read-receipt route resolves through this gate,
+// so a blocked pair loses read/stream/delete access, not just the ability to
+// send. The send path passes false so it can answer with its own clearer 403.
+//
+// The gate applies to DMs only, because a block is a DM-only rule. A den admits
+// regardless of blocks, so membership alone decides access to one - which is not
+// the same as saying a den "has no peer to be blocked from". That was the older
+// framing and it reads like an invitation to put a door check back: a den does
+// have members, and two of them may well have a block. The reason there is
+// nothing here is the rule, not the absence of a peer.
+export async function getConversationForUser(
+  conversationId: string,
+  userId: string,
+  options: { enforceBlocks?: boolean } = {}
+) {
+  const conversationRow = await loadConversationRow(conversationId);
+  const conversation = conversationRow
+    ? mapConversationRow(conversationRow)
     : null;
   if (!conversation) {
     return null;
@@ -82,13 +172,11 @@ export async function getConversationForUser(
   if (!conversation.members.some((member) => member.userId === userId)) {
     return null;
   }
-  if (options.enforceBlocks !== false) {
-    const otherMember = conversation.members.find(
-      (member) => member.userId !== userId
-    );
-    if (otherMember && (await areBlocked(userId, otherMember.userId))) {
-      return null;
-    }
+  if (
+    options.enforceBlocks !== false &&
+    (await isBlockedFromConversation(conversation, userId))
+  ) {
+    return null;
   }
   return conversation;
 }

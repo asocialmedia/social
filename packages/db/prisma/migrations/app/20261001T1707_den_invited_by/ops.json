@@ -1,0 +1,117 @@
+[
+  {
+    "id": "column.public.message_conversation_members.invitedById",
+    "label": "Add column \"invitedById\" to \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "invitedById",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"invitedById\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "invitedById"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"invitedById\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_members\" ADD COLUMN \"invitedById\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"invitedById\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "invitedById"]
+      }
+    ]
+  },
+  {
+    "id": "index.message_conversation_members.message_conversation_members_invitedById_idx",
+    "label": "Create index \"message_conversation_members_invitedById_idx\" on \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_conversation_members_invitedById_idx",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_conversation_members_invitedById_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_members_invitedById_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_conversation_members_invitedById_idx\"",
+        "sql": "CREATE INDEX \"message_conversation_members_invitedById_idx\" ON \"public\".\"message_conversation_members\" (\"invitedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_conversation_members_invitedById_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_members_invitedById_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_conversation_members.message_conversation_members_invitedById_fkey",
+    "label": "Add foreign key \"message_conversation_members_invitedById_fkey\" on \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_conversation_members_invitedById_fkey",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_conversation_members_invitedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_members_invitedById_fkey",
+          "public",
+          "\"public\".\"message_conversation_members\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_conversation_members_invitedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_members\"\nADD CONSTRAINT \"message_conversation_members_invitedById_fkey\"\nFOREIGN KEY (\"invitedById\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE SET NULL\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_conversation_members_invitedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_members_invitedById_fkey",
+          "public",
+          "\"public\".\"message_conversation_members\""
+        ]
+      }
+    ]
+  }
+]

@@ -1,12 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellOff, MessageCircle, Search, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { BellOff, MessageCircle, Plus, Search, Users, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { ConversationRow } from "@/components/messages/conversation-list-item";
+import { CreateDenDialog } from "@/components/messages/create-den-dialog";
+import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -16,6 +18,14 @@ import {
 } from "@/lib/messages/client";
 import type { SearchUserResult } from "@/lib/messages/client";
 import type { ConversationListLayout } from "@/lib/messages/conversation-list-layout";
+import {
+  DEN_LIST_FILTERS,
+  conversationDisplayName,
+  countConversationsByType,
+  denMemberCountLabel,
+  filterConversationsByType,
+} from "@/lib/messages/den-label";
+import type { DenListFilter } from "@/lib/messages/den-label";
 import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
@@ -25,6 +35,14 @@ import { useConversationPreviewRequests } from "./use-conversation-preview-reque
 // A stable empty array, so the rail's call into the preview hook does not look
 // like a new list on every render.
 const NO_ITEMS: never[] = [];
+
+// The All / DMs / Dens tabs, as data rather than as JSX, so the pressed state, the
+// label and the count can never disagree about which one they are.
+const FILTER_LABEL: Record<DenListFilter, string> = {
+  ALL: "All",
+  DEN: "Dens",
+  DM: "DMs",
+};
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -49,6 +67,8 @@ export function ConversationList({
   const [results, setResults] = useState<SearchUserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
+  const [filter, setFilter] = useState<DenListFilter>("ALL");
+  const [denDialogOpen, setDenDialogOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryFn: () => fetchConversationList(),
@@ -61,6 +81,20 @@ export function ConversationList({
   // asks the decryptor for nothing rather than decrypting twenty conversations to
   // throw the text away.
   useConversationPreviewRequests(layout === "full" ? items : NO_ITEMS);
+
+  // The rail has no room for tabs and no room for a den either, so the filter and
+  // the visible set are computed for the full list only. On the rail the list is
+  // a way around to whatever is already open, and the search is how you start
+  // something new.
+  const visibleItems = useMemo(
+    () =>
+      layout === "full" ? filterConversationsByType(items, filter) : items,
+    [filter, items, layout]
+  );
+  // Per-filter counts for the tab strip, from the same array the rows are rendered
+  // from rather than from a second query, so a badge on a tab and the rows under it
+  // are one read.
+  const counts = useMemo(() => countConversationsByType(items), [items]);
 
   const refetchList = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -255,18 +289,32 @@ export function ConversationList({
     if (isLoading) {
       return <ConversationListSkeleton full />;
     }
-    if (items.length === 0) {
+    // Two different empty states, because they have two different causes and two
+    // different next actions: no conversations at all is "search for somebody",
+    // while an empty filtered tab is "you are on the wrong tab".
+    if (visibleItems.length === 0) {
+      if (items.length === 0) {
+        return (
+          <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
+            <MessageCircle className="text-muted-foreground/40 h-6 w-6" />
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              No conversations yet. Search for someone you follow to start one,
+              or make a den for a group.
+            </p>
+          </div>
+        );
+      }
       return (
         <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-          <MessageCircle className="text-muted-foreground/40 h-6 w-6" />
+          <Users className="text-muted-foreground/40 h-6 w-6" />
           <p className="text-muted-foreground text-xs leading-relaxed">
-            No conversations yet. Search for someone you follow to start one.
+            No {FILTER_LABEL[filter].toLowerCase()} yet.
           </p>
         </div>
       );
     }
     const myId = user?.id ?? "";
-    return items.map((item) => {
+    return visibleItems.map((item) => {
       const peer = item.conversation.members.find(
         (member) => member.userId !== myId
       )?.user;
@@ -311,13 +359,34 @@ export function ConversationList({
         ? onlineUsers.find((u) => u.id === peer.id)
         : undefined;
       const active = item.conversation.id === activeConversationId;
+      // The rail's icon has no text of its own, so the row's name has to be
+      // computed here. A den gets the same heading the full list gives it, plus
+      // its size, because "Study group" alone does not say how many people are in
+      // the room -- and that is the one fact somebody scanning the rail wants.
+      const heading = conversationDisplayName(
+        {
+          members: item.conversation.members.map((member) => ({
+            avatarUrl: member.user.avatarUrl,
+            displayName: member.user.displayName,
+            id: member.userId,
+            username: member.user.username,
+          })),
+          name: item.conversation.name,
+          type: item.conversation.type,
+        },
+        myId
+      );
+      const rowName =
+        item.conversation.type === "DEN"
+          ? `${heading}, ${denMemberCountLabel(item.conversation.members.length)}`
+          : heading;
       // Spelled out rather than nested in the JSX: a mute and an unread count are
       // two independent facts about the same row, and a muted chat carries no
       // count at all, so the unread branch wins when both are somehow present.
       const label =
         item.unreadCount > 0
-          ? `${peer?.displayName ?? "Conversation"}, ${item.unreadCount} unread message${item.unreadCount === 1 ? "" : "s"}`
-          : `${peer?.displayName ?? "Conversation"}${muted ? ", muted" : ""}`;
+          ? `${rowName}, ${item.unreadCount} unread message${item.unreadCount === 1 ? "" : "s"}`
+          : `${rowName}${muted ? ", muted" : ""}`;
       return (
         <button
           aria-label={label}
@@ -329,11 +398,26 @@ export function ConversationList({
           )}
           key={item.conversation.id}
           onClick={() => onSelect(item.conversation.id)}
-          title={peer?.displayName ?? "Conversation"}
+          title={heading}
           type="button"
         >
           <div className="relative">
-            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={38} />
+            {item.conversation.type === "DEN" ? (
+              <DenAvatarStack
+                avatarMediaId={item.conversation.avatarMediaId ?? null}
+                members={item.conversation.members.map((member) => ({
+                  avatarUrl: member.user.avatarUrl,
+                  displayName: member.user.displayName,
+                  id: member.userId,
+                  role: member.role ?? null,
+                  username: member.user.username,
+                }))}
+                myUserId={myId}
+                size={38}
+              />
+            ) : (
+              <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={38} />
+            )}
             {presence?.status ? (
               <span
                 className={cn(
@@ -383,6 +467,21 @@ export function ConversationList({
         {full ? (
           <h2 className="text-sm font-semibold tracking-tight">Messages</h2>
         ) : null}
+        {/* Dens are not reachable from the search popover, which starts a DM with
+            one person. This is the entry point, and it sits beside the search
+            rather than inside it so the two jobs stay separate. */}
+        <button
+          aria-label="New den"
+          className={cn(
+            "icon-btn-3d flex h-9 w-9 cursor-pointer items-center justify-center rounded-full",
+            full && "ml-auto"
+          )}
+          onClick={() => setDenDialogOpen(true)}
+          title="New den"
+          type="button"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
         <button
           aria-label="Search people"
           className={cn(
@@ -400,6 +499,41 @@ export function ConversationList({
         </button>
       </div>
 
+      {/* All / DMs / Dens. A tablist rather than three buttons, so arrow-key
+          navigation and the pressed state come from the role rather than from
+          anything hand-rolled. Full list only: the rail has 64px. */}
+      {full ? (
+        <div
+          aria-label="Filter conversations"
+          className="flex shrink-0 gap-1 px-2 pt-2"
+          role="tablist"
+        >
+          {DEN_LIST_FILTERS.map((option) => {
+            const isSelected = filter === option;
+            return (
+              <button
+                aria-selected={isSelected}
+                className={cn(
+                  "pill-3d-hover flex-1 cursor-pointer rounded-full px-2 py-1 text-xs font-medium transition-colors",
+                  isSelected
+                    ? "border-border/60 bg-primary/15 border"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                key={option}
+                onClick={() => setFilter(option)}
+                role="tab"
+                type="button"
+              >
+                {FILTER_LABEL[option]}
+                <span className="ml-1 text-[10px] tabular-nums opacity-70">
+                  {counts[option]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       <div
         className={cn(
           "hide-native-scrollbar flex flex-1 flex-col overflow-y-auto",
@@ -410,6 +544,15 @@ export function ConversationList({
       </div>
 
       {renderSearchPopover()}
+
+      {/* Mounted unconditionally rather than on first open: the dialog owns its
+          draft state, and a conditional mount would throw that away every time
+          the reader closes it mid-form. */}
+      <CreateDenDialog
+        onCreated={refetchList}
+        onOpenChange={setDenDialogOpen}
+        open={denDialogOpen}
+      />
     </div>
   );
 }

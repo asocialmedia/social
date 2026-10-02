@@ -24,7 +24,9 @@ export async function GET(
       "encryptedKey",
       "iv",
       "ownerUserId",
-      "version"
+      "version",
+      "wrapperPublicKey",
+      "wrapperUserId"
     )
       .where({ conversationId: id })
       .all(),
@@ -43,6 +45,9 @@ export async function GET(
 
   return Response.json({
     conversation,
+    // The wrapper columns ride along because a den reader needs them: a wrap row
+    // says which member produced it, and only that member's public key can unwrap
+    // it. A DM row has neither, and the client falls back to the peer.
     keys: keys.map((key) => ({
       encryptedKey: {
         ciphertext: key.encryptedKey,
@@ -50,6 +55,8 @@ export async function GET(
       },
       ownerUserId: key.ownerUserId,
       version: key.version,
+      wrapperPublicKey: key.wrapperPublicKey,
+      wrapperUserId: key.wrapperUserId,
     })),
     mySentCount: mySentCount.count,
     prefs: {

@@ -21,6 +21,7 @@ import {
 
 import errorImage from "@/assets/images/error.png";
 import noNotificationsImage from "@/assets/images/noNotifications.png";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
@@ -33,6 +34,7 @@ import {
   MobileHeader,
   headerSlide,
 } from "@/features/home/components/mobile-header";
+import { nativeNotificationAction } from "@/features/notifications/lib/notification-target";
 import { unreadCountStore } from "@/features/notifications/state/unread-store";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -207,11 +209,17 @@ export function NotificationsScreen() {
 
   const handleOpen = useCallback(
     (target: NotificationTarget) => {
-      // Community and user targets have no native screen yet, so they resolve
-      // to the feed rather than a dead route. Post targets are pushed by the
-      // row itself, which owns the short-id conversion.
-      if (target.kind === "community" || target.kind === "user") {
-        router.push("/");
+      // Every target the app cannot open names the gap instead of doing nothing.
+      // A den notification arriving in a list with no den screen is the ordinary
+      // case here, not an edge case, and a tap that silently did nothing would
+      // read as a broken app rather than as a feature that lives on the web.
+      const action = nativeNotificationAction(target);
+      if (action.notice) {
+        toast(action.notice);
+        return;
+      }
+      if (action.path) {
+        router.push(action.path);
       }
     },
     [router]

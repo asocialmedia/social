@@ -276,6 +276,109 @@ export function generateRootKey(): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+// ---- multi-member wrap fan-out ------------------------------------------------
+
+// A member a root key can be wrapped for: their identity public key, and the id
+// the resulting wrap row is filed under.
+export interface WrapRecipient {
+  publicKeyBase64: string;
+  userId: string;
+}
+
+// One member's independent wrap of a shared root key.
+export interface MemberWrap {
+  encryptedKey: EncryptedBlob;
+  userId: string;
+}
+
+export interface RootKeyFanOut {
+  // Members whose wrap was made, in the order the recipients were given.
+  wrapped: MemberWrap[];
+  // Members left out because they have no usable identity public key.
+  skipped: string[];
+}
+
+// Wraps ONE root key separately for every recipient, each with its own
+// ECDH(myPrivate, theirPublic) pairing. That is what makes a den work: every
+// member gets a wrap only they can unwrap, while all of them resolve to the
+// same root key, so the members never hold per-member message keys.
+//
+// A recipient whose public key is absent or malformed is SKIPPED and named in
+// `skipped` rather than thrown on, because one member who has not enabled
+// messages must not cost the other ninety-nine their epoch. Deciding what a skip
+// means for the mutation belongs to the caller (see ensureConversationKeys);
+// what the caller must never do is mistake a partial fan-out for a complete one.
+//
+// The pairings are independent, so they run together: a 100-member den is one
+// round of WebCrypto rather than a hundred serialized ones.
+export async function wrapRootKeyForMembers(
+  myPrivateKey: CryptoKey,
+  recipients: readonly WrapRecipient[],
+  conversationId: string,
+  rootKey: Uint8Array
+): Promise<RootKeyFanOut> {
+  const results = await Promise.all(
+    recipients.map(async (recipient) => ({
+      encryptedKey: await wrapForRecipient(
+        myPrivateKey,
+        recipient,
+        conversationId,
+        rootKey
+      ),
+      recipient,
+    }))
+  );
+  const wrapped: MemberWrap[] = [];
+  const skipped: string[] = [];
+  for (const { encryptedKey, recipient } of results) {
+    if (encryptedKey) {
+      wrapped.push({ encryptedKey, userId: recipient.userId });
+    } else {
+      skipped.push(recipient.userId);
+    }
+  }
+  return { skipped, wrapped };
+}
+
+async function wrapForRecipient(
+  myPrivateKey: CryptoKey,
+  recipient: WrapRecipient,
+  conversationId: string,
+  rootKey: Uint8Array
+): Promise<EncryptedBlob | null> {
+  const theirKey = await importPublicKeyOrNull(recipient.publicKeyBase64);
+  if (!theirKey) {
+    return null;
+  }
+  return wrapRootKey(myPrivateKey, theirKey, conversationId, rootKey);
+}
+
+// Import that treats an unusable public key as absent rather than throwing, so
+// one bad roster entry cannot fail a whole fan-out. The pairing itself still has
+// to be valid: a wrong key produces a blob that fails its AES-GCM tag at unwrap
+// time, which the unwrap side already treats as "not my wrap".
+async function importPublicKeyOrNull(
+  publicKeyBase64: string | null | undefined
+): Promise<CryptoKey | null> {
+  if (typeof publicKeyBase64 !== "string" || publicKeyBase64.length === 0) {
+    return null;
+  }
+  try {
+    return await importPublicKeyJwk(publicKeyBase64ToJwk(publicKeyBase64));
+  } catch {
+    return null;
+  }
+}
+
+// The caller's own public half, derived from the private key they are holding.
+// A rotation includes the rotator, and their identity row is not always in the
+// snapshot being rotated from; their public key never is, because they have it.
+export async function selfPublicKeyBase64(
+  myPrivateKey: CryptoKey
+): Promise<string> {
+  return publicKeyJwkToBase64(await exportPublicKeyJwk(myPrivateKey));
+}
+
 // ---- message ratchet ---------------------------------------------------------
 
 // Deterministic per-message key: both the sender and the receiver derive the

@@ -4,7 +4,7 @@ import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
 import { History, Lock, MessageSquareQuote, Search, Send } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -16,10 +16,9 @@ import {
   ensureConversationKeys,
   fetchConversationDetail,
   fetchConversationList,
-  searchMessageUsers,
   sendEncryptedMessage,
 } from "@/lib/messages/client";
-import type { SearchUserResult } from "@/lib/messages/client";
+import { useMessageUserSearch } from "@/lib/messages/use-message-user-search";
 
 interface MessageSharePickerProps {
   postId?: string;
@@ -96,9 +95,14 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   const { privateKey, status } = useMessagesIdentity();
   const [query, setQuery] = useState("");
   const [caption, setCaption] = useState("");
-  const [results, setResults] = useState<SearchUserResult[]>([]);
-  const [searching, setSearching] = useState(false);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
+
+  // The shared debounced people search, so this sheet and the den pickers agree
+  // on when a search fires and on what a failed one leaves behind.
+  const { results, searching } = useMessageUserSearch(
+    query,
+    status === "ready"
+  );
 
   // People you already chat with, so sharing again doesn't need a search.
   const { data: conversations } = useQuery({
@@ -129,34 +133,6 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       .filter((recipient): recipient is ShareRecipient => recipient !== null)
       .slice(0, 5);
   }, [conversations, user]);
-
-  useEffect(() => {
-    if (query.trim().length === 0) {
-      // Deferred so the effect body never calls setState synchronously.
-      const timer = setTimeout(() => setResults([]), 0);
-      return () => clearTimeout(timer);
-    }
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      // A failed search should not leave stale results behind; `found`
-      // starts empty so the catch path clears the list below.
-      let found: SearchUserResult[] = [];
-      try {
-        found = await searchMessageUsers(query.trim());
-      } catch (error) {
-        console.error("Message user search failed:", error);
-      }
-      if (!cancelled) {
-        setResults(found);
-        setSearching(false);
-      }
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query]);
 
   const handleShare = useCallback(
     async (recipient: ShareRecipient) => {
@@ -276,8 +252,13 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       <div className="flex flex-col items-center gap-2.5 py-4 text-center">
         <Lock className="text-muted-foreground h-6 w-6" />
         <p className="text-muted-foreground max-w-56 text-sm">
-          Messages are encrypted and set up automatically. Open Messages once to
-          get started.
+          {/* Not a privacy claim. "Encrypted" on its own reads as end-to-end,
+              and this scheme is server-recoverable; the full sentence lives in
+              `messages-trust` and is shown the moment there is a transcript to
+              attach it to. This one is about setup, so it only has to stop
+              implying a guarantee it does not make. */}
+          Messages are encrypted, and the setup happens on your device. Open
+          Messages once to get started.
         </p>
         <Button
           asChild

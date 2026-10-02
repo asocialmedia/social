@@ -51,6 +51,11 @@ describe("activityRetryDelay", () => {
 // here rather than as a silently dead stream.
 const CONNECTED_FRAME = "event: connected\ndata: {}";
 const ACTIVITY_FRAME = 'event: message-activity\ndata: {"conversationId":"c1"}';
+// What the events route writes for a roster move. The list's response is the
+// same as for a message -- re-read itself -- so it must land on the same frame
+// type, which is also how a den somebody just joined appears in the rail.
+const MEMBERSHIP_ACTIVITY_FRAME =
+  'event: message-activity\ndata: {"conversationId":"den-9","kind":"den.membership.changed"}';
 const KEEP_ALIVE_FRAME = ": keep-alive";
 
 describe("activityFrameAction", () => {
@@ -60,6 +65,12 @@ describe("activityFrameAction", () => {
 
   test("recognises the activity frame", () => {
     expect(activityFrameAction(ACTIVITY_FRAME)).toBe("activity");
+  });
+
+  test("treats a roster move exactly like a message", () => {
+    // Both mean "re-read the list": the member count, the preview, and whether a
+    // den this tab just joined is in the rail at all.
+    expect(activityFrameAction(MEMBERSHIP_ACTIVITY_FRAME)).toBe("activity");
   });
 
   test("ignores the keep-alive comment", () => {
@@ -90,10 +101,11 @@ describe("drainActivityFrames", () => {
   });
 
   test("splits several frames arriving in one chunk", () => {
-    const buffer = `${CONNECTED_FRAME}\n\n${ACTIVITY_FRAME}\n\n${KEEP_ALIVE_FRAME}\n\n`;
+    const buffer = `${CONNECTED_FRAME}\n\n${ACTIVITY_FRAME}\n\n${MEMBERSHIP_ACTIVITY_FRAME}\n\n${KEEP_ALIVE_FRAME}\n\n`;
     expect(drainActivityFrames(buffer).frames).toEqual([
       CONNECTED_FRAME,
       ACTIVITY_FRAME,
+      MEMBERSHIP_ACTIVITY_FRAME,
       KEEP_ALIVE_FRAME,
     ]);
   });

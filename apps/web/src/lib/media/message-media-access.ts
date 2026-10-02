@@ -1,5 +1,6 @@
 import { and, prisma, redis } from "@asm/db";
 
+import { isBlockPairRule } from "@/lib/messages/blocks";
 import { areBlocked } from "@/lib/messages/server";
 
 // Admission check for message attachments on the media serving routes.
@@ -91,8 +92,24 @@ async function checkMembership(
   if (!member) {
     return false;
   }
-  // Mirror the message read gate: a blocked pair loses access, not just the
-  // ability to send.
+  // The message read gate, by way of the shared predicates rather than a copy of
+  // them. A block is pairwise and a den has no pair, so a den's members are
+  // admitted on membership alone; asking for a peer there would find an arbitrary
+  // member and then deny this viewer their own media because of somebody else's
+  // block.
+  //
+  // The type is read first so the den case costs one query and NO block probe at
+  // all. That is not only a saving: a probe there would produce a wrong answer as
+  // well as a slower one, and this is the byte-serving path, where the answer is
+  // every image in a thread.
+  const conversation = await prisma.orm.public.MessageConversations.select(
+    "_type"
+  )
+    .where({ id: conversationId })
+    .first();
+  if (!conversation || !isBlockPairRule(conversation._type)) {
+    return true;
+  }
   const peer = await prisma.orm.public.MessageConversationMembers.select(
     "userId"
   )
@@ -103,8 +120,8 @@ async function checkMembership(
       )
     )
     .first();
-  if (peer && (await areBlocked(viewerId, peer.userId))) {
-    return false;
+  if (peer === null) {
+    return true;
   }
-  return true;
+  return !(await areBlocked(viewerId, peer.userId));
 }

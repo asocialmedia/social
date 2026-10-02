@@ -304,9 +304,14 @@ export function ProfileScreen() {
             router.push("/(auth)/login");
             return;
           }
+          // Honest about the shape of the gap rather than promising a release.
+          // Dens are the same story: they are a web feature today, so "coming
+          // soon" on the Message button has to mean "not in this app" and not
+          // "the server is thinking about it".
           toast({
-            description: "There is no native messages destination yet.",
-            title: "Messaging is coming soon",
+            description:
+              "Messages and dens aren't in this app yet. Open asocialmedia.cc to chat.",
+            title: "Not in this app yet",
           });
         }}
         onShare={() => {

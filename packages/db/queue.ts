@@ -163,9 +163,16 @@ export const unreadNotificationCache = {
   },
 };
 
-// Unread DMs counter, mirrored off the notification badge: incremented when a
-// message is created, decremented when the user reads a conversation, and
-// polled every 60s by the nav badge (plus an instant bump over the SSE stream).
+// Unread messages counter, mirrored off the notification badge: incremented
+// when a message is created, decremented when the user reads a conversation,
+// and polled every 60s by the nav badge (plus an instant bump over the SSE
+// stream). One counter per user across every conversation they are in.
+//
+// DMs only, historically, because a DM has exactly one peer. A den does not, so
+// one send has to move up to DEN_LIMITS.membersMax - 1 counters at once. That is
+// `incrementMany`, and the reason it is a pipeline rather than a loop is that a
+// den's send path is a hot path: ninety-nine awaited round trips per message is
+// the difference between a send and a stall.
 const UNREAD_MESSAGE_PREFIX = "unread:messages:";
 
 export const unreadMessageCache = {
@@ -209,6 +216,33 @@ export const unreadMessageCache = {
     } catch (error) {
       console.error("Error incrementing unread message count:", error);
       return 0;
+    }
+  },
+
+  // One hit for each of `userIds`, in a single round trip. Deduplicated, because
+  // two callers naming the same recipient twice must still only move their
+  // badge once, and a den's roster is exactly the kind of list that can arrive
+  // with a duplicate in it.
+  //
+  // The whole pipeline is one failure: a partial fan-out would leave some
+  // members' badges short of the truth and others exact, and the read route
+  // decrements by the real unread count, so a recipient that missed its
+  // increment would drift permanently high rather than being reconciled by the
+  // next seed. All-or-nothing is the honest failure here, and the caller treats
+  // it as best-effort either way.
+  async incrementMany(userIds: readonly string[]): Promise<void> {
+    const recipients = [...new Set(userIds)];
+    if (recipients.length === 0) {
+      return;
+    }
+    try {
+      const pipeline = redis.pipeline();
+      for (const userId of recipients) {
+        pipeline.incrby(`${UNREAD_MESSAGE_PREFIX}${userId}`, 1);
+      }
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error incrementing unread message counts:", error);
     }
   },
 

@@ -1,0 +1,41 @@
+[
+  {
+    "id": "addNativeEnumValue.NotificationType.DEN_MEMBERSHIP_ENDED",
+    "label": "Add value \"DEN_MEMBERSHIP_ENDED\" to enum type \"NotificationType\"",
+    "summary": "Adds value \"DEN_MEMBERSHIP_ENDED\" to enum type \"NotificationType\". A newly added enum value cannot be used until the transaction that adds it commits, so a migration that both appends a value and uses it in the same step will fail at apply.",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "NotificationType"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure enum type \"NotificationType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_type\" AS \"t\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"t\".\"typtype\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "e"]
+      },
+      {
+        "description": "ensure value \"DEN_MEMBERSHIP_ENDED\" is absent from enum type \"NotificationType\"",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "DEN_MEMBERSHIP_ENDED"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add value \"DEN_MEMBERSHIP_ENDED\" to enum type \"NotificationType\"",
+        "sql": "ALTER TYPE \"public\".\"NotificationType\" ADD VALUE 'DEN_MEMBERSHIP_ENDED'"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify value \"DEN_MEMBERSHIP_ENDED\" exists on enum type \"NotificationType\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "DEN_MEMBERSHIP_ENDED"]
+      }
+    ]
+  }
+]

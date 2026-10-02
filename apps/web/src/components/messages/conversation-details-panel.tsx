@@ -29,6 +29,7 @@ import Link from "next/link";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
@@ -65,6 +66,7 @@ import {
   WALLPAPER_ACCEPT,
   wallpaperMimeFor,
 } from "@/lib/messages/conversation-wallpaper-upload";
+import { denMemberCountLabel } from "@/lib/messages/den-label";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import type {
   MessageConversationData,
@@ -77,6 +79,8 @@ import type { SharedContentMessage } from "./conversation-shared-content";
 import { ConversationSharedLinksTab } from "./conversation-shared-links-tab";
 import { ConversationSharedMediaTab } from "./conversation-shared-media-tab";
 import { ConversationSharedPostsTab } from "./conversation-shared-posts-tab";
+import { DenAvatarStack } from "./den-avatar-stack";
+import { DenPanel } from "./den-panel";
 import type { ConversationMediaItem } from "./message-conversation-media";
 import { useOpenConversationMedia } from "./message-media-viewer-context";
 import { useSharedRefsReader } from "./use-shared-refs-reader";
@@ -463,7 +467,16 @@ export function ConversationDetailsBody({
     [onClose, openConversationMedia, onJumpToMessage]
   );
 
-  if (!peer) {
+  // A den has no single peer, so `peer` is null for one by construction (see the
+  // caller) and the whole contact card below is DM-only. What a den gets instead
+  // is its own header plus DenPanel; the per-member preferences underneath are
+  // identical either way, because mute, theme and wallpaper belong to the member
+  // rather than to the pair.
+  const isDen = detail.conversation.type === "DEN";
+  const { user } = useSession();
+  const myUserId = user?.id ?? "";
+
+  if (!peer && !isDen) {
     return null;
   }
 
@@ -471,6 +484,26 @@ export function ConversationDetailsBody({
     <div className="flex min-h-0 flex-1 flex-col">
       <DetailsHeader
         asDialog={asDialog}
+        den={
+          isDen
+            ? {
+                avatarMediaId: detail.conversation.avatarMediaId ?? null,
+                members: detail.conversation.members.map((member) => ({
+                  avatarUrl: member.user.avatarUrl,
+                  displayName: member.user.displayName,
+                  id: member.userId,
+                  role: member.role ?? "MEMBER",
+                  username: member.user.username,
+                })),
+                myRole:
+                  detail.conversation.members.find(
+                    (member) => member.userId === myUserId
+                  )?.role ?? null,
+                myUserId,
+                name: detail.conversation.name ?? null,
+              }
+            : null
+        }
         muted={muted}
         mutedSince={prefs.mutedAt}
         peer={peer}
@@ -485,21 +518,35 @@ export function ConversationDetailsBody({
             there. Capping the height and scrolling keeps every row reachable
             and leaves the tabs a floor to sit on. */}
         <div className="max-h-[45dvh] shrink-0 overflow-y-auto px-4 pb-3">
+          {/* The den's whole management surface, above the preferences. Its own
+              card rather than rows inside this one, because it is a different
+              shape of thing: a roster with its own read, its own gating and its
+              own confirmations, not a list of toggles. */}
+          {isDen ? (
+            <div className="mb-3">
+              <DenPanel conversationId={conversationId} onLeft={onClose} />
+            </div>
+          ) : null}
+
           <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
-            <Link
-              className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
-              href={`/users/${peer.username}`}
-              onClick={onClose}
-            >
-              <RowIcon icon={<UserRound className="size-4" />} />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">View profile</span>
-                <span className="text-muted-foreground block truncate text-xs">
-                  @{peer.username}
+            {peer ? (
+              <Link
+                className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
+                href={`/users/${peer.username}`}
+                onClick={onClose}
+              >
+                <RowIcon icon={<UserRound className="size-4" />} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">
+                    View profile
+                  </span>
+                  <span className="text-muted-foreground block truncate text-xs">
+                    @{peer.username}
+                  </span>
                 </span>
-              </span>
-              <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-            </Link>
+                <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+              </Link>
+            ) : null}
 
             <div className="flex items-center gap-3 px-3.5 py-3">
               <RowIcon
@@ -549,20 +596,28 @@ export function ConversationDetailsBody({
               uploadStage={uploadStage}
             />
 
-            <ActionRow
-              icon={<Ban className="size-4" />}
-              label="Block"
-              onClick={() => notifyNotWired("Blocking")}
-              sublabel="Stop messages both ways"
-              tone="destructive"
-            />
-            <ActionRow
-              icon={<Flag className="size-4" />}
-              label="Report"
-              onClick={() => notifyNotWired("Reporting")}
-              sublabel="Send this chat to moderation"
-              tone="destructive"
-            />
+            {/* Block and Report are pair-level. A den has no single other party
+                to block, and the moderation endpoint behind them takes a user,
+                not a conversation, so offering them here would be offering an
+                action with no meaning. A den is removed from by leaving. */}
+            {peer ? (
+              <>
+                <ActionRow
+                  icon={<Ban className="size-4" />}
+                  label="Block"
+                  onClick={() => notifyNotWired("Blocking")}
+                  sublabel="Stop messages both ways"
+                  tone="destructive"
+                />
+                <ActionRow
+                  icon={<Flag className="size-4" />}
+                  label="Report"
+                  onClick={() => notifyNotWired("Reporting")}
+                  sublabel="Send this chat to moderation"
+                  tone="destructive"
+                />
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -698,15 +753,32 @@ export function ConversationDetailsPanel({
 // avatar, then a gradient -- so a member with no banner still gets a header.
 function DetailsHeader({
   asDialog,
+  den,
   muted,
   mutedSince,
   peer,
   presence,
 }: {
   asDialog: boolean;
+  // Non-null for a den, null for a DM. One header for both, because the two must
+  // agree about who this pane is about: a DM's header names the one other person,
+  // a den's names the room and says how many are in it.
+  den: {
+    avatarMediaId: string | null;
+    members: {
+      avatarUrl: string | null;
+      displayName: string;
+      id: string;
+      role: string | null;
+      username: string;
+    }[];
+    myRole: string | null;
+    myUserId: string;
+    name: string | null;
+  } | null;
   muted: boolean;
   mutedSince: string | null;
-  peer: Peer;
+  peer: Peer | undefined;
   presence: "idle" | "online" | null;
 }) {
   // A banner URL can 404 or be a revoked key, and an empty rectangle is worse than
@@ -716,36 +788,62 @@ function DetailsHeader({
   // One markup, two elements. Both render an `h2` with the same classes, so the
   // heading looks and reads identically either way; only Radix's registration
   // differs.
-  const name = (
+  const name = den ? (
+    <span className="truncate">{den.name ?? "Unnamed den"}</span>
+  ) : (
     <>
-      <span className="truncate">{peer.displayName ?? peer.username}</span>
+      <span className="truncate">{peer?.displayName ?? peer?.username}</span>
       <UserBadge
-        badge={peer.badge}
-        badges={peer.badges}
-        communityRoles={peer.communityMemberships}
+        badge={peer?.badge}
+        badges={peer?.badges}
+        communityRoles={peer?.communityMemberships}
       />
     </>
   );
-  const description = (
+  // The muted chip is shared: it describes the reader's own preference, so it
+  // reads the same in a DM and in a den.
+  const mutedChip = muted ? (
+    <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+      <BellOff className="size-2.5" />
+      {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
+    </span>
+  ) : null;
+  const description = den ? (
     <>
-      <span>@{peer.username}</span>
+      <span>
+        {denMemberCountLabel(
+          den.members.filter((member) => member.id !== den.myUserId).length
+        )}
+      </span>
+      {den.myRole ? <span aria-hidden>·</span> : null}
+      {den.myRole ? <span>You are {den.myRole.toLowerCase()}</span> : null}
+      {mutedChip}
+    </>
+  ) : (
+    <>
+      <span>@{peer?.username}</span>
       {presence ? (
         <>
           <span aria-hidden>·</span>
           <span>{presence === "online" ? "Online now" : "Idle"}</span>
         </>
       ) : null}
-      {muted ? (
-        <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-          <BellOff className="size-2.5" />
-          {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
-        </span>
-      ) : null}
+      {mutedChip}
     </>
   );
 
+  // A den has no banner of its own, so it takes the same path a DM with no
+  // banner does: the room's ambient colour field. Same fallback rather than a
+  // new one, precisely so the two headers cannot grow apart.
+  const headerBannerUrl = peer?.bannerUrl ?? null;
+  const fallbackAvatarUrl = peer?.avatarUrl ?? null;
+
   let banner: React.ReactNode;
-  if (peer.bannerUrl && !bannerFailed) {
+  if (den) {
+    banner = (
+      <div className="absolute inset-0 bg-linear-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+    );
+  } else if (headerBannerUrl && !bannerFailed) {
     banner = (
       <Image
         alt=""
@@ -753,11 +851,11 @@ function DetailsHeader({
         fill
         onError={() => setBannerFailed(true)}
         sizes="(max-width: 1024px) 100vw, 320px"
-        src={getSecureImageUrl(peer.bannerUrl)}
+        src={getSecureImageUrl(headerBannerUrl)}
         unoptimized
       />
     );
-  } else if (peer.avatarUrl) {
+  } else if (fallbackAvatarUrl) {
     // Their own avatar, blurred past recognition into an ambient color field.
     // A light blur keeps the mascot readable and renders it twice, misaligned --
     // once sharp in the frame and once sliced across the banner -- which is the
@@ -769,7 +867,7 @@ function DetailsHeader({
         className="object-cover"
         fill
         sizes="(max-width: 1024px) 100vw, 320px"
-        src={getSecureImageUrl(peer.avatarUrl)}
+        src={getSecureImageUrl(fallbackAvatarUrl)}
         style={{
           filter: "blur(28px) brightness(0.6) saturate(1.15)",
           transform: "scale(1.75)",
@@ -813,7 +911,16 @@ function DetailsHeader({
               hole in it. The `avatar-ring` recipe the component carries already
               gives it its own depth, and a pane-colored frame around it is what
               read as a cut edge against the banner. */}
-          <UserAvatar avatarUrl={peer.avatarUrl} size={96} />
+          {den ? (
+            <DenAvatarStack
+              avatarMediaId={den.avatarMediaId}
+              members={den.members}
+              myUserId={den.myUserId}
+              size={96}
+            />
+          ) : (
+            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
+          )}
           {presence ? (
             <span
               className={cn(

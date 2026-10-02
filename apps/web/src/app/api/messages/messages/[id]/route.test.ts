@@ -1,4 +1,11 @@
+// Two tests below re-run the SAME handler against a shared module-level mock, so
+// their reads are sequential by construction: each pass rewrites the mock and the
+// next pass reads what that rewrite produced. Running them in parallel would
+// interleave the writes with the reads, and the assertions would be about nothing.
+// oxlint-disable no-await-in-loop
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { blockedSendPeer } from "@/lib/messages/blocks";
 
 import { DELETE, PATCH } from "./route";
 
@@ -17,10 +24,16 @@ let lastEditSet: Record<string, unknown> = {};
 const mockPublishEdited = mock(() => Promise.resolve());
 const mockPublishDeleted = mock(() => Promise.resolve());
 
+// A DM, which is the shape every pre-existing case in this file used. `_type` is
+// the field the route never selected before: without it a den and a DM are
+// indistinguishable to the block rule, which is the whole of FIX A.
+const dmConversation = {
+  _type: "DM" as const,
+  messageConversationMembers: [{ userId: "user1" }, { userId: "user2" }],
+};
+
 const baseMessage = {
-  conversation: {
-    messageConversationMembers: [{ userId: "user1" }, { userId: "user2" }],
-  },
+  conversation: dmConversation,
   conversationId: "convo-1",
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   deletedAt: null,
@@ -34,6 +47,19 @@ mock.module("@/lib/auth/session", () => ({
 
 mock.module("@/lib/messages/server", () => ({
   areBlocked: mockAreBlocked,
+  // The real predicate, not a stand-in: this file's whole point is that the route
+  // asks the shared question rather than its own. It is expressed here over the
+  // shared `blockedSendPeer` for the same reason.
+  isBlockedFromConversation: async (
+    conversation: { members: { userId: string }[]; type: "DM" | "DEN" },
+    userId: string
+  ) => {
+    const peer = blockedSendPeer(conversation, userId);
+    if (!peer) {
+      return false;
+    }
+    return await mockAreBlocked(userId, peer);
+  },
   messageSenderSelect: () => ({ sender: true }),
   parseJsonBody: async (request: Request) => {
     try {
@@ -208,6 +234,83 @@ describe("PATCH /api/messages/messages/:id", () => {
     expect(mockUpdateAndCount).not.toHaveBeenCalled();
   });
 
+  test("refuses a blocked pair in a DM, which is the only place a block bites", async () => {
+    // The DM half of the fix, stated as its own case so a change that dropped
+    // the gate entirely could not pass by looking at the den cases below.
+    mockMessageFirst.mockReset();
+    mockAreBlocked.mockReturnValue(true);
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
+    expect(res.status).toBe(403);
+    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+  });
+
+  test("lets a member edit their own message in a den, whoever is first in the roster", async () => {
+    // The defect. `user2` is blocked with the sender and is the first other
+    // member the roster returns, which is the arrangement that used to refuse the
+    // edit. A den is a room, not a pair: nobody in it loses their ability to
+    // correct their own words because of a disagreement between two of the others,
+    // and which member the query happens to return first is not a fact about the
+    // block at all.
+    mockMessageFirst.mockReset();
+    mockAreBlocked.mockImplementation(() => true);
+    mockMessageFirst.mockReturnValueOnce({
+      ...baseMessage,
+      conversation: {
+        _type: "DEN",
+        messageConversationMembers: [
+          { userId: "user1" },
+          { userId: "user2" },
+          { userId: "user3" },
+          { userId: "user4" },
+        ],
+      },
+    });
+    mockMessageFirst.mockReturnValueOnce({
+      ...baseMessage,
+      ciphertext: "new-cipher",
+      editedAt: new Date("2026-01-01T01:00:00.000Z"),
+      iv: "new-iv",
+    });
+    const res = await PATCH(
+      patchRequest({ ciphertext: "new-cipher", iv: "new-iv" }),
+      params
+    );
+    expect(res.status).toBe(200);
+    expect(mockUpdateAndCount).toHaveBeenCalledTimes(1);
+    expect(mockPublishEdited).toHaveBeenCalledTimes(1);
+  });
+
+  test("admits a den edit the same way whichever member the roster returns first", async () => {
+    // The row-order independence, as its own assertion rather than a property of
+    // the case above: reversing the roster must not change the answer. Before the
+    // fix this was the difference between 200 and 403.
+    for (const roster of [
+      [{ userId: "user2" }, { userId: "user1" }, { userId: "user3" }],
+      [{ userId: "user3" }, { userId: "user1" }, { userId: "user2" }],
+      [{ userId: "user1" }, { userId: "user3" }, { userId: "user2" }],
+    ]) {
+      mockMessageFirst.mockReset();
+      mockUpdateAndCount.mockReset();
+      mockPublishEdited.mockReset();
+      mockUpdateAndCount.mockImplementation(() => 1);
+      mockAreBlocked.mockImplementation(() => true);
+      mockMessageFirst.mockReturnValueOnce({
+        ...baseMessage,
+        conversation: {
+          _type: "DEN",
+          messageConversationMembers: roster,
+        },
+      });
+      mockMessageFirst.mockReturnValueOnce(baseMessage);
+      const res = await PATCH(
+        patchRequest({ ciphertext: "c", iv: "i" }),
+        params
+      );
+      expect(res.status).toBe(200);
+    }
+  });
+
   test("rewrites the ciphertext in place and publishes the edit", async () => {
     const res = await PATCH(
       patchRequest({ ciphertext: "new-cipher", iv: "new-iv" }),
@@ -288,5 +391,63 @@ describe("DELETE /api/messages/messages/:id", () => {
     mockGetSession.mockReturnValueOnce(null);
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(401);
+  });
+
+  test("refuses a blocked pair in a DM", async () => {
+    mockAreBlocked.mockReturnValueOnce(true);
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
+    expect(res.status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockPublishDeleted).not.toHaveBeenCalled();
+  });
+
+  test("lets a member delete their own message in a den, whoever is first in the roster", async () => {
+    // Same defect as the edit, on the other write path. `user2` is blocked with
+    // the sender and sorts first, so this is the exact arrangement that made
+    // "delete my own message" depend on row order.
+    mockAreBlocked.mockImplementation(() => true);
+    mockMessageFirst.mockReturnValueOnce({
+      ...baseMessage,
+      conversation: {
+        _type: "DEN",
+        messageConversationMembers: [
+          { userId: "user1" },
+          { userId: "user2" },
+          { userId: "user3" },
+        ],
+      },
+    });
+    mockUpdate.mockReturnValueOnce({ id: "msg-1" });
+    const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockPublishDeleted).toHaveBeenCalledTimes(1);
+  });
+
+  test("admits a den delete the same way whichever member the roster returns first", async () => {
+    for (const roster of [
+      [{ userId: "user2" }, { userId: "user1" }],
+      [{ userId: "user1" }, { userId: "user2" }],
+      [{ userId: "user3" }, { userId: "user2" }, { userId: "user1" }],
+    ]) {
+      mockMessageFirst.mockReset();
+      mockUpdate.mockReset();
+      mockPublishDeleted.mockReset();
+      mockAreBlocked.mockImplementation(() => true);
+      mockMessageFirst.mockReturnValueOnce({
+        ...baseMessage,
+        conversation: {
+          _type: "DEN",
+          messageConversationMembers: roster,
+        },
+      });
+      mockUpdate.mockReturnValueOnce({ id: "msg-1" });
+      const res = await DELETE(
+        new Request(url(), { method: "DELETE" }),
+        params
+      );
+      expect(res.status).toBe(200);
+    }
   });
 });

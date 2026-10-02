@@ -51,6 +51,23 @@ export function notificationPath(notification: NotificationRecord): string {
         ? `/a/${notification.community.slug}`
         : (postPath(notification) ?? "/notifications");
     }
+    // The den thread. `c` is the conversation the web client selects, and it is
+    // the same id the SSE channel is keyed on, so the tap lands on the live
+    // thread rather than on the list.
+    case "DEN_MESSAGE": {
+      const conversationId =
+        notification.conversation?.id ?? notification.conversationId;
+      return conversationId
+        ? `/messages?c=${encodeURIComponent(conversationId)}`
+        : "/notifications";
+    }
+    // Nowhere to go. The recipient is not a member of the den this row is about,
+    // so the thread is closed to them and there is nothing to open. The
+    // notifications list is where the receipt belongs; a den's own address would
+    // answer 404 for a tap that came from here.
+    case "DEN_MEMBERSHIP_ENDED": {
+      return "/notifications";
+    }
     default: {
       return postPath(notification) ?? "/notifications";
     }
@@ -68,6 +85,24 @@ export function pushTag(notification: NotificationRecord): string {
     case "AMPLIFY": {
       const entity = notification.commentId ?? notification.postId;
       return entity ? `amplify:${entity}` : `amplify:${notification.id}`;
+    }
+    // Per den, not per message: a busy room replaces its own tray entry
+    // instead of stacking ninety-nine of them. The worker reads the row again
+    // before it builds this, so a folded row's own count is what the body
+    // reports.
+    case "DEN_MESSAGE": {
+      const conversationId =
+        notification.conversation?.id ?? notification.conversationId;
+      return conversationId
+        ? `den:${conversationId}`
+        : `den_message:${notification.id}`;
+    }
+    // One tray entry per row, not per den: these are the receipt for an event
+    // that has already happened, and a second one is a second thing the reader
+    // has to have seen. A removal and a dissolve by the same person inside one
+    // hour are genuinely two pieces of news.
+    case "DEN_MEMBERSHIP_ENDED": {
+      return `den_membership_ended:${notification.id}`;
     }
     default: {
       return `${notification.type.toLowerCase()}:${notification.postId ?? notification.id}`;

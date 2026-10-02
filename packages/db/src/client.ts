@@ -409,22 +409,33 @@ export interface CommentsPage {
 }
 
 export function getNotificationDataQuery(orm: PrismaOrm) {
-  return orm.public.Notifications.include("comment", (comment) =>
-    comment
-      .select("id", "parentId")
-      .include("parent", (parent) => parent.select("userId"))
-  )
-    .include("community", (community) =>
-      community.select("accentColor", "id", "name", "slug")
+  return (
+    orm.public.Notifications.include("comment", (comment) =>
+      comment
+        .select("id", "parentId")
+        .include("parent", (parent) => parent.select("userId"))
     )
-    .include("issuer", (issuer) =>
-      issuer.select("avatarUrl", "displayName", "id", "username")
-    )
-    .include("post", (post) =>
-      post
-        .select("content", "id", "isGust", "parentPostId")
-        .include("community", (community) => community.select("slug"))
-    );
+      .include("community", (community) =>
+        community.select("accentColor", "id", "name", "slug")
+      )
+      // The den a den row names, and nothing else about it. `name` is the second
+      // half of the copy for a message ("Alice in Study group: sent a message")
+      // and the whole of it for a removal ("Alice removed you from Study group").
+      // The member list is never selected, so it cannot reach a client that
+      // renders this row. A dissolve carries no conversation at all - the den row
+      // is gone - and the copy has to survive that.
+      .include("conversation", (conversation) =>
+        conversation.select("_type", "id", "name")
+      )
+      .include("issuer", (issuer) =>
+        issuer.select("avatarUrl", "displayName", "id", "username")
+      )
+      .include("post", (post) =>
+        post
+          .select("content", "id", "isGust", "parentPostId")
+          .include("community", (community) => community.select("slug"))
+      )
+  );
 }
 
 export type NotificationQueryData = ResultType<
@@ -495,39 +506,85 @@ export interface NotificationCountInfo {
 
 // Message shapes. The server only ever sees ciphertext; the include below
 // is intentionally lean (no plaintext fields to leak).
+//
+// Den columns ride along on the conversation row and on each member's row
+// (role), and the wrapper identity on each key row, because the client needs all
+// three to fan a root key out to N members and to gate management routes. They
+// are selected explicitly rather than through a wildcard so adding a den column
+// later is a deliberate line here instead of a silent widening of every payload.
 export function getMessageConversationDataQuery(orm: PrismaOrm) {
-  return orm.public.MessageConversations.include(
-    "messageConversationKeys"
-  ).include("messageConversationMembers", (members) =>
-    members.include("user", (user) =>
-      user
-        .select(
-          "avatarUrl",
-          "badge",
-          "badges",
-          "bannerUrl",
-          "displayName",
-          "id",
-          "username"
-        )
-        .include("communityMembers", (memberships) =>
-          memberships
-            .where((member) =>
-              and(
-                member.status.eq("ACTIVE"),
-                member.role.in(["OWNER", "MODERATOR", "MEMBER"])
-              )
-            )
-            .select("role")
-            .include("community", (community) =>
-              community.select("accentColor", "avatarUrl", "name", "slug")
-            )
-        )
-        .include("messageIdentities", (identity) =>
-          identity.select("publicKey")
-        )
+  return orm.public.MessageConversations.select(
+    "avatarMediaId",
+    "createdById",
+    "description",
+    "id",
+    "inviteCode",
+    "name",
+    "ownerId",
+    "pairKey",
+    "_type",
+    "createdAt",
+    "updatedAt"
+  )
+    .include("messageConversationKeys", (keys) =>
+      keys.select(
+        "conversationId",
+        "createdAt",
+        "encryptedKey",
+        "id",
+        "iv",
+        "ownerUserId",
+        "ratchetCounter",
+        "version",
+        "wrapperPublicKey",
+        "wrapperUserId"
+      )
     )
-  );
+    .include("messageConversationMembers", (members) =>
+      members
+        .select(
+          "conversationId",
+          "createdAt",
+          "invitedById",
+          "lastDeliveredAt",
+          "lastReadAt",
+          "mutedAt",
+          "role",
+          "themeKey",
+          "userId",
+          "wallpaperDim",
+          "wallpaperKey",
+          "wallpaperMediaId"
+        )
+        .include("user", (user) =>
+          user
+            .select(
+              "avatarUrl",
+              "badge",
+              "badges",
+              "bannerUrl",
+              "displayName",
+              "id",
+              "username"
+            )
+            .include("communityMembers", (memberships) =>
+              memberships
+                .where((member) =>
+                  and(
+                    member.status.eq("ACTIVE"),
+                    member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+                  )
+                )
+                .select("role")
+                .include("community", (community) =>
+                  community.select("accentColor", "avatarUrl", "name", "slug")
+                )
+            )
+            .include("messageIdentities", (identity) =>
+              identity.select("publicKey")
+            )
+        )
+    );
 }
 
 export type MessageConversationData = ResultType<

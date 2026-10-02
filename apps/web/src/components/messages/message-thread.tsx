@@ -1,5 +1,6 @@
 "use client";
 
+import type { ConversationType } from "@asm/db/messages/dens";
 import {
   useInfiniteQuery,
   useQuery,
@@ -38,6 +39,7 @@ import {
   ConversationDetailsRail,
   DetailsRailToggleIcon,
 } from "@/components/messages/conversation-details-rail";
+import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
 import {
   detailsPlacement,
   showsDetailsRailToggle,
@@ -58,6 +60,10 @@ import { MessageOptionsMenu } from "@/components/messages/message-options-menu";
 import { MessageSearchBar } from "@/components/messages/message-search-bar";
 import type { SearchView } from "@/components/messages/message-search-bar";
 import { MessageSearchResults } from "@/components/messages/message-search-results";
+import {
+  DEN_UNKNOWN_SENDER_NAME,
+  shouldShowSenderName,
+} from "@/components/messages/message-sender-name";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
@@ -100,6 +106,11 @@ import {
   MESSAGE_DECRYPTOR_CACHE_CAP,
   messageDecryptor,
 } from "@/lib/messages/decryptor";
+import {
+  conversationDisplayName,
+  denDisplayName,
+  denMemberCountLabel,
+} from "@/lib/messages/den-label";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
 import { createHistoryReadCoordinator } from "@/lib/messages/history-read-coordinator";
 import type { HistoryReadToken } from "@/lib/messages/history-read-coordinator";
@@ -133,6 +144,7 @@ import {
   paginateSearchResults,
   SEARCH_PAGE_SIZE,
 } from "@/lib/messages/message-search";
+import { messagesTrustNote } from "@/lib/messages/messages-trust";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -158,8 +170,8 @@ import {
   useRootKeyStore,
 } from "@/lib/messages/use-decryption";
 import {
+  catchUpKeys,
   useMessagesRealtime,
-  shouldCatchUp,
 } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
@@ -458,6 +470,17 @@ export function MessageThread({
     payloadType: MessagePayload["type"];
   } | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
+  // Set when the server closed this thread's stream because this member is no
+  // longer inside. Not fatal and not a reason to tear anything down: the
+  // transcript is still theirs to read (a key row hangs off the conversation,
+  // not the membership, which is the whole point of the removal path degrading
+  // rather than bricking), so the thread stays exactly where it is and only the
+  // composer goes quiet. Resets on a conversation switch so a rejoin through a
+  // fresh invite code can post again.
+  const [accessEnded, setAccessEnded] = useState(false);
+  useEffect(() => {
+    setAccessEnded(false);
+  }, [conversationId]);
   // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
   // is anchored on, or null when closed. Stored as a key, not an index, so
   // older pages prepending never shifts the current image.
@@ -874,9 +897,36 @@ export function MessageThread({
     return map;
   }, [allMessages]);
 
-  const peer = detail?.conversation.members.find(
+  // A den has no single peer. Handing one to the details pane and the header
+  // would address an arbitrary member as though they were the conversation, so a
+  // den resolves to undefined and both surfaces take their den branch instead.
+  // `firstOtherMember` survives for the one place a stand-in name IS right: the
+  // quote byline for a parent whose own sender did not resolve.
+  const firstOtherMember = detail?.conversation.members.find(
     (member) => member.userId !== user?.id
-  )?.user;
+  );
+  const peer =
+    detail?.conversation.type === "DEN" ? undefined : firstOtherMember?.user;
+  const conversationType = detail?.conversation.type ?? "DM";
+  // The den's own name for the empty-transcript copy, resolved through the same
+  // helper as the row and the header so a nameless den reads identically in all
+  // three. Null for a DM, which never uses it.
+  const denHeadingName =
+    conversationType === "DEN" && detail
+      ? denDisplayName(
+          {
+            members: detail.conversation.members.map((member) => ({
+              avatarUrl: member.user.avatarUrl,
+              displayName: member.user.displayName,
+              id: member.userId,
+              username: member.user.username,
+            })),
+            name: detail.conversation.name,
+            type: "DEN",
+          },
+          user?.id ?? ""
+        )
+      : null;
   const peerPresence = peer
     ? (onlineUsers.find((u) => u.id === peer.id)?.status ?? null)
     : null;
@@ -1455,9 +1505,14 @@ export function MessageThread({
         return false;
       }
       try {
-        const wrappedKeys = findMyWrappedKeys(detail.keys, user.id);
-        const peerPublicKey = findPeerPublicKey(detail.conversation, user.id);
-        if (!rootKeyStore || wrappedKeys.length === 0 || !peerPublicKey) {
+        const wrappedKeys = findMyWrappedKeys(
+          detail.keys,
+          detail.conversation,
+          user.id
+        );
+        const peerPublicKey =
+          findPeerPublicKey(detail.conversation, user.id) ?? "";
+        if (!rootKeyStore || wrappedKeys.length === 0) {
           toast({
             description: "Message keys aren't ready yet",
             title: "Can't edit",
@@ -1572,11 +1627,20 @@ export function MessageThread({
       ) {
         return [];
       }
-      const wrappedKeys = findMyWrappedKeys(detail.keys, userId);
-      const peerPublicKey = findPeerPublicKey(detail.conversation, userId);
-      if (wrappedKeys.length === 0 || !peerPublicKey) {
+      const wrappedKeys = findMyWrappedKeys(
+        detail.keys,
+        detail.conversation,
+        userId
+      );
+      if (wrappedKeys.length === 0) {
         return [];
       }
+      // The peer argument is only load-bearing for a DM: a den wrap pairs with
+      // the key of whichever member wrapped it, so a den with one unidentified
+      // member still decrypts. A DM with an unidentified peer has nothing this
+      // device could read anyway.
+      const peerPublicKey =
+        findPeerPublicKey(detail.conversation, userId) ?? "";
       try {
         const rootKeys = await rootKeyStore.getRootKeys(
           conversationId,
@@ -1856,18 +1920,22 @@ export function MessageThread({
   );
 
   // A signature of everything decryption depends on: my wraps for this
-  // conversation (ciphertext per epoch) and the peer's public key. When it
-  // changes, the cached roots are invalid and every failed payload is worth
-  // retrying. Used both to clear the decryptor's caches and to gate the
-  // stale-snapshot refetch below so a failure cannot loop forever.
+  // conversation (epoch, ciphertext and pairing key per wrap) and the members'
+  // public keys. When it changes, the cached roots are invalid and every failed
+  // payload is worth retrying. Used both to clear the decryptor's caches and to
+  // gate the stale-snapshot refetch below so a failure cannot loop forever.
+  //
+  // The pairing key is per wrap, not one peer: in a den each wrap was made by
+  // whichever member rotated that epoch, so a change to any of them (or to the
+  // wrapper a row names) invalidates what decryption depends on.
   const keySignature = useMemo(() => {
     if (!detail || !userId) {
       return "";
     }
-    const wraps = findMyWrappedKeys(detail.keys, userId)
+    const wraps = findMyWrappedKeys(detail.keys, detail.conversation, userId)
       .map(
         (key) =>
-          `${key.version}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}`
+          `${key.version}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}:${key.wrapperPublicKeyBase64 ?? ""}`
       )
       .join("|");
     return `${wraps}#${findPeerPublicKey(detail.conversation, userId) ?? ""}`;
@@ -3944,8 +4012,10 @@ export function MessageThread({
         | "conversation.read"
         | "conversation.delivered"
         | "typing.started"
-        | "keys.rotated";
+        | "keys.rotated"
+        | "den.membership.changed";
       deliveredAt?: string;
+      membershipAction?: string;
       message?: MessageData;
       readAt?: string;
       userId?: string;
@@ -3995,6 +4065,32 @@ export function MessageThread({
       }
 
       const { message } = event;
+      if (event.kind === "den.membership.changed") {
+        // A den's roster moved under us. The detail is the only place a roster
+        // and a wrap row live, so re-read it and let everything downstream fall
+        // out of the new snapshot: the key signature changes when my wraps or a
+        // member's identity key change (clearing the decryptor's cached roots
+        // and re-queueing payloads), and the composer's send path re-runs
+        // `ensureConversationKeys`, which is what refuses an epoch a departed
+        // member still holds.
+        //
+        // Deliberately ONLY the detail. Not the transcript and not the mount:
+        // the messages in this conversation did not change, the roster around
+        // them did. Invalidation here would drop scroll position and destroy an
+        // in-flight draft, which is the exact cost the event was supposed to
+        // avoid paying.
+        //
+        // The actor's own tab reaches here too, and pays one refetch. Gating on
+        // `event.userId !== myUserId` would save it, but the actor's client has
+        // already refetched by a different path (the mutation's own
+        // invalidation), so the second read is redundant rather than wrong, and
+        // the alternative is a rule that silently stops working when somebody
+        // mutates the roster from a second device.
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversationId],
+        });
+        return;
+      }
       if (event.kind === "keys.rotated") {
         // A member rotated the conversation keys (first send, heal, or an
         // identity reset). Our cached detail holds the old wraps and possibly a
@@ -4099,24 +4195,44 @@ export function MessageThread({
     // reconciles regardless of cache age: the stream has no replay cursor, so
     // a gap may exist even if data was written moments ago; only the initial
     // connect leans on the mount fetch and skips on recently written data.
+    //
+    // A reconnect re-reads the conversation DETAIL too, which the transcript
+    // rules above say nothing about. This is the path that has to cover a
+    // membership change missed while the socket was down: without it a client
+    // that reconnected mid-removal keeps a roster naming somebody who is out,
+    // and the send path has only the watermark to notice.
     useCallback(
       (isReconnect: boolean) => {
         const state = queryClient.getQueryState(["messages", conversationId]);
-        if (
-          !shouldCatchUp({
-            dataUpdatedAt: state?.dataUpdatedAt ?? 0,
-            isFetching: state?.fetchStatus === "fetching",
-            isReconnect,
-            now: Date.now(),
-          })
-        ) {
-          return;
+        for (const queryKey of catchUpKeys({
+          conversationId,
+          dataUpdatedAt: state?.dataUpdatedAt ?? 0,
+          isFetching: state?.fetchStatus === "fetching",
+          isReconnect,
+          now: Date.now(),
+        })) {
+          void queryClient.invalidateQueries({ queryKey });
         }
-        void queryClient.invalidateQueries({
-          queryKey: ["messages", conversationId],
-        });
       },
       [conversationId, queryClient]
+    ),
+    // The server found this member is no longer inside and closed the stream.
+    // Reported once per conversation: a remount re-arms it, which is correct,
+    // because access can come back (a rejoin through a fresh invite code).
+    useCallback(
+      (endedConversationId: string) => {
+        if (endedConversationId !== conversationId) {
+          return;
+        }
+        setAccessEnded(true);
+        toast({
+          description:
+            "You can still read this conversation, but you can't post in it.",
+          title: "You're no longer in this den",
+          variant: "destructive",
+        });
+      },
+      [conversationId]
     )
   );
 
@@ -4356,10 +4472,25 @@ export function MessageThread({
                   <div className="flex flex-1 flex-col items-center justify-center text-center">
                     <div className="px-6 py-5">
                       <p className="text-muted-foreground text-sm">
-                        Say hi to {peer?.displayName ?? "them"}
+                        {/* A den has no single person to say hi to, and "Say hi to
+                            them" in a room of twenty reads as a bug. Naming the
+                            room is the same promise the row and the header make. */}
+                        {conversationType === "DEN"
+                          ? `Say hi in ${denHeadingName ?? "this den"}`
+                          : `Say hi to ${peer?.displayName ?? "them"}`}
                       </p>
                       <p className="text-muted-foreground/70 mt-1 text-xs">
-                        Messages here are encrypted.
+                        {/* The trust sentence, from one module. The old copy here
+                            was "Messages here are encrypted", which is true and
+                            reads as end-to-end to almost everyone - and this
+                            scheme is server-recoverable, not end-to-end. The empty
+                            transcript is exactly where somebody decides whether
+                            to trust what they are about to type, so it is the
+                            wrong place to leave the ambiguity in. */}
+                        {messagesTrustNote({
+                          memberCount: detail?.conversation.members.length,
+                          type: conversationType,
+                        })}
                       </p>
                     </div>
                   </div>
@@ -4401,6 +4532,7 @@ export function MessageThread({
                         >
                           <VirtualRow
                             conversationId={conversationId}
+                            conversationType={conversationType}
                             groupMeta={groupMeta}
                             highlighted={jumpTargetId === message.id}
                             historyVersion={historyVersion}
@@ -4572,6 +4704,7 @@ export function MessageThread({
           ) : null}
 
           <MessageComposer
+            accessEnded={accessEnded}
             conversation={detail}
             editTarget={editTarget}
             replyTarget={replyTarget}
@@ -4689,6 +4822,10 @@ interface VirtualRowProps {
   onRequest: (message: MessageData | undefined) => void;
   onRetry: (message: MessageData) => void;
   peerName: string;
+  // DM or DEN. A bubble's byline is a function of this and of the row's position
+  // in its sender-run (see shouldShowSenderName), so the row decides and hands
+  // the bubble a plain boolean rather than re-deriving the rule.
+  conversationType: ConversationType;
   scrolling: boolean;
   selected: boolean;
   selectionActive: boolean;
@@ -4765,6 +4902,7 @@ function MessageRowFrame({
 // the rows whose payloads landed, never the whole visible window.
 function VirtualRowInner({
   conversationId,
+  conversationType,
   groupMeta,
   highlighted,
   message,
@@ -4883,6 +5021,15 @@ function VirtualRowInner({
     groupMeta.isLastInGroup
   );
   const rounding = bubbleRoundingClasses(position, mine);
+  // The byline. Decided once, here, from the conversation type and the row's
+  // place in its run, and passed down as a plain boolean so the bubble never has
+  // to know the rule (and so the deleted/decrypting/error variants can be held to
+  // exactly the same decision).
+  const showSenderName = shouldShowSenderName({
+    conversationType,
+    isFirstInGroup: groupMeta.isFirstInGroup,
+    mine,
+  });
   // The peer avatar marks the end of a run (solo or bottom); earlier rows show a
   // same-width spacer so the column stays aligned. A single ternary here is
   // fine; nesting one in JSX is what the repo bans.
@@ -5027,6 +5174,8 @@ function VirtualRowInner({
         quote={quote}
         quotePending={quotePending}
         selectionActive={selectionActive}
+        showSenderName={showSenderName}
+        unknownSenderName={DEN_UNKNOWN_SENDER_NAME}
       />
     </MessageRowFrame>
   );
@@ -5052,6 +5201,7 @@ const VirtualRow = memo(
     prev.groupMeta.isFirstInGroup === next.groupMeta.isFirstInGroup &&
     prev.groupMeta.isLastInGroup === next.groupMeta.isLastInGroup &&
     prev.groupMeta.showTimeDivider === next.groupMeta.showTimeDivider &&
+    prev.conversationType === next.conversationType &&
     prev.historyVersion === next.historyVersion &&
     prev.myUserId === next.myUserId &&
     prev.peerName === next.peerName &&
@@ -5109,6 +5259,39 @@ function ThreadHeader({
   const [verified, setVerified] = useState(false);
   const [keyChanged, setKeyChanged] = useState(false);
   const myWrapped = findMyWrappedKey(conversation.keys, user?.id ?? "");
+
+  // The den half of the heading. Null for a DM, which is the overwhelmingly
+  // common case, so the extra object is only built when the conversation is one.
+  const denIdentity =
+    conversation.conversation.type === "DEN"
+      ? {
+          avatarMediaId: conversation.conversation.avatarMediaId ?? null,
+          members: conversation.conversation.members.map((member) => ({
+            avatarUrl: member.user.avatarUrl,
+            displayName: member.user.displayName,
+            id: member.userId,
+            role: member.role ?? null,
+            username: member.user.username,
+          })),
+          myUserId: user?.id ?? "",
+          others: conversation.conversation.members.filter(
+            (member) => member.userId !== user?.id
+          ).length,
+        }
+      : null;
+  const headerName = conversationDisplayName(
+    {
+      members: conversation.conversation.members.map((member) => ({
+        avatarUrl: member.user.avatarUrl,
+        displayName: member.user.displayName,
+        id: member.userId,
+        username: member.user.username,
+      })),
+      name: conversation.conversation.name,
+      type: conversation.conversation.type,
+    },
+    user?.id ?? ""
+  );
   const peerPublicKey = findPeerPublicKey(
     conversation.conversation,
     user?.id ?? ""
@@ -5197,15 +5380,31 @@ function ThreadHeader({
           name and an explicit `cursor-pointer` -- buttons do not get one from
           Tailwind v4's preflight, so a control that only looks clickable would not
           say so. */}
+      {/* A den's heading names the room and says how many are in it; a DM's names
+          the person and says whether they are around. Both come out of the same
+          helpers the list row uses, so the header and the row cannot disagree
+          about what a den with no name is called. `peer` is undefined for a den by
+          construction (see the resolver above), so this branch is the den's, not a
+          fallback for a DM whose peer failed to resolve. */}
       <button
         aria-expanded={showDetailsRail ? !detailsRailCollapsed : undefined}
         className="group -ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl py-1 pr-2 pl-1 text-left"
         onClick={onToggleDetails}
-        title={`${peer?.displayName ?? "Conversation"} — conversation details`}
+        title={`${headerName} — conversation details`}
         type="button"
       >
         <span className="relative shrink-0">
-          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={32} />
+          {denIdentity ? (
+            <DenAvatarStack
+              avatarMediaId={denIdentity.avatarMediaId}
+              members={denIdentity.members}
+              myUserId={denIdentity.myUserId}
+              size={32}
+            />
+          ) : (
+            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={32} />
+          )}
+          {/* Presence is a property of a person. A room is not online. */}
           {peerPresence ? (
             <span
               className={cn(
@@ -5218,13 +5417,15 @@ function ThreadHeader({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             <span className="min-w-0 truncate group-hover:underline">
-              {peer?.displayName ?? "Conversation"}
+              {headerName}
             </span>
-            <UserBadge
-              badge={peer?.badge}
-              badges={peer?.badges}
-              communityRoles={peer?.communityMemberships}
-            />
+            {peer ? (
+              <UserBadge
+                badge={peer.badge}
+                badges={peer.badges}
+                communityRoles={peer.communityMemberships}
+              />
+            ) : null}
           </span>
           {peerTyping ? (
             <span className="text-primary block truncate text-xs font-medium">
@@ -5232,7 +5433,9 @@ function ThreadHeader({
             </span>
           ) : (
             <span className="text-muted-foreground block truncate text-xs">
-              {presenceLabel(peerPresence, peer?.username)}
+              {denIdentity
+                ? denMemberCountLabel(denIdentity.others)
+                : presenceLabel(peerPresence, peer?.username)}
             </span>
           )}
         </span>

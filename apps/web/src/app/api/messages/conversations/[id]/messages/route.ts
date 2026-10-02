@@ -1,6 +1,7 @@
 import {
   and,
   consumeRateLimit,
+  createDenMessageNotifications,
   fromPrismaDateTime,
   getMessageDataQuery,
   prisma,
@@ -13,6 +14,7 @@ import {
 import type { PrismaTransaction } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { blockedSendPeer } from "@/lib/messages/blocks";
 import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
 import {
   areBlocked,
@@ -22,6 +24,11 @@ import {
   parseJsonBody,
 } from "@/lib/messages/server";
 import type { MessageData, MessagePage } from "@/lib/messages/types";
+import {
+  flushNotificationEvents,
+  newNotificationEvents,
+  resetNotificationEvents,
+} from "@/lib/notifications/deferred-events";
 
 const PAGE_SIZE = 30;
 // Upper bound for one page. History indexing (in-conversation search walks the
@@ -383,15 +390,45 @@ export async function POST(
   const { iv } = body;
   const { ratchetIndex } = body;
 
-  const otherMember = conversation.members.find(
-    (member) => member.userId !== user.id
-  );
-  if (otherMember && (await areBlocked(user.id, otherMember.userId))) {
+  // Blocks are a DM-only rule, so a den has no peer for one to bite on. The
+  // peer is resolved for a DM only, which is also what keeps the rule from
+  // being enforced against an arbitrary third party in a den: picking "somebody
+  // who is not the sender" out of a roster of ninety-nine meant one member's
+  // block could silence a whole room depending on row order. The den does not get
+  // that block enforced by anyone, including its own members - the answer here is
+  // no because the rule does not apply, not because nobody was found.
+  const blockedPeer = blockedSendPeer(conversation, user.id);
+  if (blockedPeer && (await areBlocked(user.id, blockedPeer))) {
     return Response.json(
       { error: "You cannot message this user" },
       { status: 403 }
     );
   }
+
+  // Everyone who accrues an unread badge for this message, decided from the
+  // roster already in hand. Two exclusions, and they are the same two the
+  // counters are reconciled against:
+  //
+  //   - the sender, who reads their own message; and
+  //   - a member who muted the conversation. The mute exists so the badge stays
+  //     off, and the unread seed excludes muted memberships, so incrementing one
+  //     would grow a counter the seed would never justify.
+  //
+  // This has to name EVERY reader, not one of them. A DM has exactly one other
+  // member, so the old single-recipient answer was right there and wrong
+  // everywhere else: in a den it picked one member out of up to ninety-nine, so
+  // ninety-eight people got no badge and which one did was whatever order the
+  // roster came back in.
+  //
+  // From the snapshot the gate loaded, which is a moment before the write rather
+  // than the same transaction as it. A member added in that window misses one
+  // badge, and one removed in it gets one they should not have. Both are
+  // reconciled by the next seed, and re-reading the roster here to close the
+  // window would mean a second query on the hottest path in the app to fix an
+  // error that self-heals.
+  const unreadRecipientIds = conversation.members
+    .filter((member) => member.userId !== user.id && !member.mutedAt)
+    .map((member) => member.userId);
 
   // The ratchet index is authoritative on the server: it must equal the
   // sender's atomic per-conversation counter. If the client's count is stale
@@ -407,8 +444,16 @@ export async function POST(
 
   let message: MessageData | null = null;
   let createdMessageId: string | null = null;
+  // Collected inside the transaction, flushed after it resolves. The rows are
+  // written under the message's own transaction so a rollback takes them with
+  // it; the enqueue has to wait for the commit, because a worker that ran
+  // earlier would look the row up, find nothing, and treat it as deleted.
+  const notificationEvents = newNotificationEvents();
   try {
     await prisma.transaction(async (tx) => {
+      // Reset at the top so a retried attempt starts clean rather than
+      // enqueueing the same recipient twice.
+      resetNotificationEvents(notificationEvents);
       const created = await tx.orm.public.Messages.create({
         ciphertext,
         conversationId: id,
@@ -420,9 +465,28 @@ export async function POST(
 
       await updateMessageRatchetWithCas(tx, id, user.id);
 
+      // The conversation bump comes before the fan-out on purpose: it takes the
+      // den's row lock, so two sends into one den serialize here and the second
+      // one's fold lookup sees the first one's row.
       await tx.orm.public.MessageConversations.where({ id }).update({
         updatedAt: toPrismaDateTime(new Date()),
       });
+
+      // A DM has no notification for a new message, so nothing fans out there.
+      // A den does: one row per member, minus the sender, minus anyone who has
+      // muted the den, folded per den so a busy room is one row per reader.
+      if (conversation.type === "DEN") {
+        const createdNotifications = await createDenMessageNotifications(tx, {
+          conversationId: id,
+          senderId: user.id,
+        });
+        for (const {
+          id: notificationId,
+          recipientId,
+        } of createdNotifications) {
+          notificationEvents.created.push({ notificationId, recipientId });
+        }
+      }
     });
   } catch (error) {
     // A concurrent send beat us to the same ratchet index. Hand back the
@@ -437,6 +501,11 @@ export async function POST(
     throw error;
   }
 
+  // Past this point the message is committed, so the notification events are
+  // real. Fire-and-forget: a queue hiccup costs a badge and a push, never the
+  // send the caller already succeeded at.
+  flushNotificationEvents(notificationEvents, "den message");
+
   if (!createdMessageId) {
     throw new Error("Message was not created");
   }
@@ -447,18 +516,21 @@ export async function POST(
     message = mapMessage(messageRow);
   }
 
-  // The sender always reads their own messages; only the peer accrues unread.
-  // A peer who muted this chat does not: the mute exists precisely so the
-  // badge stays off, and the unread seed excludes muted memberships, so
-  // incrementing here would grow a counter the seed would never justify.
-  // Both Redis side effects are best-effort: once the message is committed,
-  // a notification failure must not turn a successful send into an error.
-  if (otherMember && !otherMember.mutedAt) {
-    try {
-      await unreadMessageCache.increment(otherMember.userId);
-    } catch (error) {
-      console.error("Failed to increment unread message count:", error);
-    }
+  // The sender always reads their own messages; only its readers accrue unread.
+  // Aligned with the read path, which decrements by the number of rows
+  // `unreadMessageWhere` counts for this conversation: peer-authored, not
+  // deleted, not hidden, newer than the reader's own watermark. One increment
+  // per qualifying member per message is the only shape that nets to zero, so a
+  // member's badge cannot drift permanently in either direction.
+  //
+  // One pipelined round trip for the whole roster rather than a call per member.
+  // Best-effort, like every other Redis side effect here: once the message is
+  // committed, a counter failure must not turn a successful send into an error,
+  // and the next seed reconciles whatever the counter is missing.
+  try {
+    await unreadMessageCache.incrementMany(unreadRecipientIds);
+  } catch (error) {
+    console.error("Failed to increment unread message count:", error);
   }
   try {
     // The message is guaranteed present after a committed transaction.
@@ -469,10 +541,10 @@ export async function POST(
     console.error("Failed to publish message created:", error);
   }
   // And tell every member's conversation list that this thread moved, so it
-  // reorders and re-reads its preview without waiting for the next poll. Both
-  // members: the thread moves to the top of the RECIPIENT's list, and the sender's
-  // list has to follow in any other tab they have open. Best-effort, like the
-  // publish above.
+  // reorders and re-reads its preview without waiting for the next poll. Every
+  // member, not the pair: the thread moves to the top of each RECIPIENT's list,
+  // and the sender's own list has to follow in any other tab they have open.
+  // Best-effort, like the publish above.
   try {
     await Promise.all(
       conversation.members.map((member) =>

@@ -1,4 +1,4 @@
-import type { MessageData } from "@asm/db";
+import type { MessageData, ConversationType } from "@asm/db";
 import {
   and,
   fromPrismaDateTime,
@@ -14,7 +14,43 @@ import {
   MAX_MESSAGE_CIPHERTEXT_LENGTH,
   MESSAGE_EDIT_WINDOW_MS,
 } from "@/lib/messages/edit-window";
-import { areBlocked, parseJsonBody } from "@/lib/messages/server";
+import {
+  isBlockedFromConversation,
+  parseJsonBody,
+} from "@/lib/messages/server";
+
+// The block decision for a message's own conversation, delegated to the shared
+// predicates rather than re-derived - and in particular reading the type, which
+// the two write paths below used not to select at all.
+//
+// Both of them used to reach for "somebody who is not the sender" and test a
+// block against them. In a DM that is the peer and it is right. In a den it is
+// one arbitrary member out of up to ninety-nine, so whether a member could delete
+// or edit their own message depended on which member the roster happened to
+// return first: a den that put the blocked person first went silent for that one
+// sender and nobody else, and the other five surfaces answered the opposite way
+// about the same den. This is the sixth copy of the rule, and it is now none of
+// them.
+//
+// A den still passes through here on every delete and edit, and answers no every
+// time, because a block is a DM-only rule. That is a wasted call per den write,
+// which is the price of one shared predicate over two conversation types, and it
+// is cheaper than the second copy this used to be.
+function blockedFromConversation(
+  conversation: {
+    _type: ConversationType;
+    messageConversationMembers: { userId: string }[];
+  },
+  userId: string
+): Promise<boolean> {
+  return isBlockedFromConversation(
+    {
+      members: conversation.messageConversationMembers,
+      type: conversation._type,
+    },
+    userId
+  );
+}
 
 export async function DELETE(
   _request: Request,
@@ -56,10 +92,7 @@ export async function DELETE(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const otherMember = message.conversation.messageConversationMembers.find(
-    (member) => member.userId !== user.id
-  );
-  if (otherMember && (await areBlocked(user.id, otherMember.userId))) {
+  if (await blockedFromConversation(message.conversation, user.id)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -133,10 +166,7 @@ export async function PATCH(
     );
   }
 
-  const otherMember = message.conversation.messageConversationMembers.find(
-    (member) => member.userId !== user.id
-  );
-  if (otherMember && (await areBlocked(user.id, otherMember.userId))) {
+  if (await blockedFromConversation(message.conversation, user.id)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 

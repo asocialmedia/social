@@ -43,6 +43,11 @@ const MessageImageEditDialog = dynamic(
 );
 
 interface MessageComposerProps {
+  // Set when the server told us this member is no longer inside the
+  // conversation. The composer stays mounted and keeps its draft; only the
+  // controls go quiet, so being removed from a den mid-sentence does not throw
+  // away what was being written.
+  accessEnded?: boolean;
   conversation: ConversationDetailResponse;
   editTarget: {
     content: string;
@@ -100,6 +105,7 @@ async function sendWithRatchetRetry(
 }
 
 export function MessageComposer({
+  accessEnded = false,
   conversation,
   editTarget,
   onDraftInput,
@@ -495,12 +501,18 @@ export function MessageComposer({
     [addFiles]
   );
 
-  const handleDragOver = useCallback((event: React.DragEvent) => {
-    if (event.dataTransfer.types.includes("Files")) {
-      event.preventDefault();
-      setDragActive(true);
-    }
-  }, []);
+  const handleDragOver = useCallback(
+    (event: React.DragEvent) => {
+      if (accessEnded) {
+        return;
+      }
+      if (event.dataTransfer.types.includes("Files")) {
+        event.preventDefault();
+        setDragActive(true);
+      }
+    },
+    [accessEnded]
+  );
 
   const handleDragLeave = useCallback((event: React.DragEvent) => {
     // Ignore leaves that stay inside the composer (fired when moving between
@@ -515,9 +527,12 @@ export function MessageComposer({
     (event: React.DragEvent) => {
       event.preventDefault();
       setDragActive(false);
+      if (accessEnded) {
+        return;
+      }
       handleFilesSelected(event.dataTransfer.files);
     },
-    [handleFilesSelected]
+    [accessEnded, handleFilesSelected]
   );
 
   const handlePaste = useCallback(
@@ -525,10 +540,13 @@ export function MessageComposer({
       const { files } = event.clipboardData ?? {};
       if (files && files.length > 0) {
         event.preventDefault();
+        if (accessEnded) {
+          return;
+        }
         handleFilesSelected(files);
       }
     },
-    [handleFilesSelected]
+    [accessEnded, handleFilesSelected]
   );
 
   const handleEditAttachment = useCallback((id: string) => {
@@ -569,11 +587,17 @@ export function MessageComposer({
   // to remove it, so an empty body is allowed for those types.
   const emptyBodyBlocksSave =
     editTarget?.payloadType === "text" && text.trim().length === 0;
-  const sendDisabled = editing
-    ? busy || emptyBodyBlocksSave
-    : busy ||
-      isUploading ||
-      (attachments.length > 0 ? !canSend : text.trim().length === 0);
+  const sendDisabled =
+    accessEnded ||
+    (editing
+      ? busy || emptyBodyBlocksSave
+      : busy ||
+        isUploading ||
+        (attachments.length > 0 ? !canSend : text.trim().length === 0));
+  // One flag for every control that would start a write, so a removed member
+  // cannot slip a send through the Enter key or a pasted attachment while the
+  // button is merely greyed out.
+  const writeBlocked = accessEnded || busy;
 
   // The send button doubles as a save button in edit mode; a spinner wins while
   // either request is in flight.
@@ -597,6 +621,14 @@ export function MessageComposer({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {/* Announced rather than a replacement: unmounting the input row would
+          throw away whatever was being typed, and the reader can still scroll
+          back and read what they were part of. */}
+      {accessEnded ? (
+        <output className="text-muted-foreground mb-2 block text-xs">
+          You&apos;re no longer in this den, so you can read it but not post.
+        </output>
+      ) : null}
       {editing ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <Pencil className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
@@ -683,8 +715,8 @@ export function MessageComposer({
         />
         <textarea
           aria-label="Message"
-          className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none"
-          disabled={busy}
+          className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none disabled:opacity-60"
+          disabled={writeBlocked}
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
@@ -723,7 +755,7 @@ export function MessageComposer({
             "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
             (busy || editing) && "opacity-50"
           )}
-          disabled={busy || editing}
+          disabled={writeBlocked || editing}
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
@@ -738,7 +770,7 @@ export function MessageComposer({
               : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
             (busy || editing) && "opacity-50"
           )}
-          disabled={busy || editing}
+          disabled={writeBlocked || editing}
           onClick={() => setGifPickerOpen((prev) => !prev)}
           type="button"
         >

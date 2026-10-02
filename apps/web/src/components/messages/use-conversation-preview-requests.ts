@@ -4,9 +4,11 @@ import { useCallback, useEffect } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import type { ConversationListItem } from "@/lib/messages/client";
+import { toWrappedKeyPayloads } from "@/lib/messages/client";
 import { importRatchetBaseKey } from "@/lib/messages/crypto";
 import { messageDecryptor } from "@/lib/messages/decryptor";
 import {
+  findMyWrappedKeys,
   findPeerPublicKey,
   useRootKeyStore,
 } from "@/lib/messages/use-decryption";
@@ -54,20 +56,15 @@ export function useConversationPreviewRequests(
         return [];
       }
       const peerPublicKey = findPeerPublicKey(item.conversation, userId);
-      if (!peerPublicKey) {
-        return [];
-      }
       // The list carries the raw key ROWS (`encryptedKey` and `iv` as sibling
       // strings), not the client's wrapped-key payload with the blob nested, so
-      // they are adapted here rather than translated on the server for the sake of
-      // a preview.
-      const wrappedKeys = item.conversation.keys
-        .filter((key) => key.ownerUserId === userId)
-        .toSorted((left, right) => right.version - left.version)
-        .map((key) => ({
-          encryptedKey: { ciphertext: key.encryptedKey, iv: key.iv },
-          version: key.version,
-        }));
+      // they are adapted rather than translated on the server for the sake of a
+      // preview.
+      const wrappedKeys = findMyWrappedKeys(
+        toWrappedKeyPayloads(item.conversation.keys),
+        item.conversation,
+        userId
+      );
       if (wrappedKeys.length === 0) {
         return [];
       }
@@ -75,7 +72,8 @@ export function useConversationPreviewRequests(
         const roots = await rootKeyStore.getRootKeys(
           targetConversationId,
           wrappedKeys,
-          peerPublicKey
+          // Only a DM needs the peer: a den wrap pairs with its own wrapper.
+          peerPublicKey ?? ""
         );
         return await Promise.all(roots.map(importRatchetBaseKey));
       } catch {

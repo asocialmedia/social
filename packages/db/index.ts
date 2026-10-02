@@ -14,8 +14,61 @@ export * from "./src/communities/media";
 export * from "./src/communities/service";
 export * from "./src/communities/slug";
 export { communityVisibilityWhere } from "./src/communities/visibility";
-export { visibleToUser, unreadMessageWhere } from "./src/messages/visibility";
+export {
+  DEN_INVITE_CODE_ALPHABET,
+  DEN_LIMITS,
+  DEN_MANAGEMENT_ROLES,
+  DEN_ROLES,
+  canManageDen,
+  canManageRole,
+  isDenRole,
+  normalizeDenName,
+  validateDenDescription,
+  validateDenName,
+} from "./src/messages/dens";
+export type {
+  ConversationType,
+  DenManagementRole,
+  DenRole,
+} from "./src/messages/dens";
+export {
+  DenError,
+  addDenMembers,
+  createDen,
+  dissolveDen,
+  generateInviteCode,
+  getDenMembership,
+  joinDenByInviteCode,
+  leaveDen,
+  previewInvite,
+  removeDenMember,
+  requireDenManager,
+  requireDenMembership,
+  requireDenOwner,
+  rotateInviteCode,
+  setDenMemberRole,
+  updateDenDetails,
+} from "./src/messages/den-service";
+export type {
+  CreateDenInput,
+  DenInvitePreview,
+  DenMembership,
+  JoinDenResult,
+  LeaveDenResult,
+} from "./src/messages/den-service";
+export {
+  visibleToUser,
+  unreadMessagesWhere,
+  unreadMessageWhere,
+} from "./src/messages/visibility";
 export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
+export { createDenMessageNotifications } from "./src/messages/den-notifications";
+export type { DenMessageNotification } from "./src/messages/den-notifications";
+export { createDenMembershipEndedNotifications } from "./src/messages/den-membership-notifications";
+export type {
+  DenMembershipEndedNotification,
+  DenMembershipEndedReason,
+} from "./src/messages/den-membership-notifications";
 export * from "./src/users/badges";
 export * from "./queue";
 export * from "./src/client";

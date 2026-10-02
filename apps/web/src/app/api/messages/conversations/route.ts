@@ -1,5 +1,7 @@
 import {
   and,
+  canManageDen,
+  createDen,
   fromPrismaDateTime,
   getMessageConversationDataQuery,
   or,
@@ -9,6 +11,21 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { dmPeerId, isHiddenByBlock } from "@/lib/messages/blocks";
+import {
+  denErrorResponse,
+  objectOf,
+  optionalStringField,
+} from "@/lib/messages/den-api";
+import {
+  DEN_CREATE_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
+import {
+  denCandidateFailureResponse,
+  parseMemberIds,
+  validateDenRoster,
+} from "@/lib/messages/den-roster";
 import {
   areBlocked,
   hasMessageIdentity,
@@ -74,12 +91,39 @@ type ConversationQueryDataWithMessages = ConversationQueryData & {
   messages?: RawMessage[];
 };
 
+// Every conversation payload this module builds, for one viewer.
+//
+// The viewer id is a PARAMETER rather than something read from module state
+// because the invite code is decided here and nowhere else on this surface: it is
+// the ability to add strangers to a room, `GET /api/messages/dens/:id` withholds
+// it from anybody who cannot manage, and this mapper used to hand it to every
+// plain member through the list route. A detail gate is only a gate if the other
+// route that returns the same object respects it too - and this one is the route
+// every client fetches on load, so it is not a channel nobody gated, it is the
+// one everybody walks through.
+//
+// `canManageDen`, not a written-out role comparison, so the list, the detail gate
+// and the service's own authorization are one answer to "who may manage a den"
+// rather than three.
+//
+// A DM carries no code, so redaction cannot change a DM's payload and the type
+// does not have to be branched on.
 function mapConversation(
-  conversation: ConversationQueryDataWithMessages
+  conversation: ConversationQueryDataWithMessages,
+  viewerId: string
 ): ConversationWithLastMessage {
+  const canManage = conversation.messageConversationMembers.some(
+    (member) => member.userId === viewerId && canManageDen(member.role)
+  );
   return {
+    // Den columns, null on a DM. `type` is never null, so a caller can branch on
+    // it without a fallback.
+    avatarMediaId: conversation.avatarMediaId,
     createdAt: fromPrismaDateTime(conversation.createdAt),
+    createdById: conversation.createdById,
+    description: conversation.description,
     id: conversation.id,
+    inviteCode: canManage ? conversation.inviteCode : null,
     keys: conversation.messageConversationKeys.map((key) => ({
       ...key,
       createdAt: fromPrismaDateTime(key.createdAt),
@@ -92,9 +136,18 @@ function mapConversation(
       return [
         {
           conversationId: member.conversationId,
+          createdAt: fromPrismaDateTime(member.createdAt),
           lastReadAt: member.lastReadAt
             ? fromPrismaDateTime(member.lastReadAt)
             : null,
+          // Carried through rather than dropped. The list route zeroes a muted
+          // conversation's badge from this field and the rail draws its muted
+          // marker from it, so a mapper that omitted it left both reading
+          // `undefined` and quietly reporting an unmuted thread as unmuted.
+          // Kept next to `lastReadAt` because it is the same kind of fact: this
+          // member's own relationship with this conversation.
+          mutedAt: member.mutedAt ? fromPrismaDateTime(member.mutedAt) : null,
+          role: member.role,
           user: {
             avatarUrl: memberUser.avatarUrl,
             badge: memberUser.badge,
@@ -128,6 +181,7 @@ function mapConversation(
       editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
     })),
     pairKey: conversation.pairKey,
+    type: conversation._type,
     updatedAt: fromPrismaDateTime(conversation.updatedAt),
   };
 }
@@ -214,7 +268,10 @@ export async function GET(request: Request) {
     }
   }
   const conversationRows = await conversationQuery.all();
-  const page = conversationRows.map(mapConversation);
+  // Bound, so the mapper's viewer is the session's and not a closure over
+  // something that a later caller could get wrong. `map` passes (row, index), and
+  // an index would silently become the viewer id if this were passed bare.
+  const page = conversationRows.map((row) => mapConversation(row, user.id));
   const hasMore = page.length > PAGE_SIZE;
   const visiblePage = hasMore ? page.slice(0, PAGE_SIZE) : page;
 
@@ -230,11 +287,18 @@ export async function GET(request: Request) {
     ...iBlocked.map((row) => row.blockedId),
     ...blockedMe.map((row) => row.blockerId),
   ]);
+  // Hiding a blocked peer is a DM-only rule, and this filter is the conversation
+  // LIST half of it. The decision is delegated to the same predicate the detail
+  // gate, the badge seed and the send path use rather than re-derived here; a den
+  // passes it whatever the predicate says, because a den admits regardless of
+  // blocks.
   const visibleConversations = visiblePage.filter((conversation) => {
-    const other = conversation.members.find(
-      (member) => member.userId !== user.id
+    const other = dmPeerId(conversation.members, user.id);
+    return !isHiddenByBlock(
+      conversation.type,
+      other,
+      other !== undefined && hiddenPartnerIds.has(other)
     );
-    return !other || !hiddenPartnerIds.has(other.userId);
   });
 
   // One grouped query for the whole page instead of a count round-trip per
@@ -330,8 +394,17 @@ export async function POST(request: Request) {
   }
 
   const parsed = await parseJsonBody(request);
-  const body = parsed as { recipientId?: string } | null;
-  const { recipientId } = body ?? {};
+  const body = objectOf(parsed);
+
+  // Two shapes share one route because they share one table and one client cache
+  // entry. The discriminator is explicit (`type: "DEN"`) rather than inferred
+  // from the presence of memberIds, so a malformed DM body can never be mistaken
+  // for a request to create a group.
+  if (body?.type === "DEN") {
+    return await createDenFromRequest(request, user.id);
+  }
+
+  const recipientId = body?.recipientId;
   if (typeof recipientId !== "string" || recipientId.length === 0) {
     return Response.json({ error: "recipientId is required" }, { status: 400 });
   }
@@ -407,7 +480,7 @@ export async function POST(request: Request) {
     .first();
   if (existingRow) {
     return Response.json({
-      conversation: mapConversation(existingRow),
+      conversation: mapConversation(existingRow, user.id),
       isNew: false,
     });
   }
@@ -436,7 +509,7 @@ export async function POST(request: Request) {
       if (!row) {
         throw new Error("Conversation not found after creation");
       }
-      return mapConversation(row);
+      return mapConversation(row, user.id);
     })
     .catch(async (error: unknown) => {
       if (!isUniqueConstraintViolation(error)) {
@@ -446,10 +519,101 @@ export async function POST(request: Request) {
         .where({ pairKey })
         .first();
       if (winner) {
-        return mapConversation(winner);
+        return mapConversation(winner, user.id);
       }
       throw error;
     });
 
   return Response.json({ conversation, isNew: true }, { status: 201 });
+}
+
+// Den creation. Shares this route so the client lands on the same conversation
+// cache entry it would for a DM, and so the response shape is identical.
+async function createDenFromRequest(
+  request: Request,
+  creatorId: string
+): Promise<Response> {
+  const body = objectOf(await parseJsonBody(request));
+
+  const name = body?.name;
+  if (typeof name !== "string") {
+    return Response.json({ error: "name is required" }, { status: 400 });
+  }
+  const parsedIds = parseMemberIds(body?.memberIds);
+  if (parsedIds.failure) {
+    return denCandidateFailureResponse(parsedIds.failure);
+  }
+
+  // The creator needs their own identity before anyone can be wrapped for them.
+  if (!(await hasMessageIdentity(creatorId))) {
+    return Response.json(
+      { error: "Enable Messages first to start a conversation" },
+      { status: 409 }
+    );
+  }
+
+  const limited = await consumeDenRateLimit(DEN_CREATE_RATE_LIMIT, creatorId);
+  if (limited) {
+    return limited;
+  }
+
+  // requireFollow: a direct add is the same deliberate act as starting a DM, so
+  // the follow rule applies here exactly as it does for a DM. That is the only
+  // relationship rule at this door: a den admits regardless of blocks, so there
+  // is no incumbent roster to test anybody against and nothing to pass in for one.
+  const failure = await validateDenRoster(
+    creatorId,
+    [creatorId, ...parsedIds.memberIds],
+    { currentMemberCount: 0, requireFollow: true }
+  );
+  if (failure) {
+    return denCandidateFailureResponse(failure);
+  }
+
+  const avatarMediaId = optionalStringField(body ?? null, "avatarMediaId");
+  if (!avatarMediaId.ok) {
+    return Response.json(
+      { error: "avatarMediaId must be a string" },
+      { status: 400 }
+    );
+  }
+  const description = optionalStringField(body ?? null, "description");
+  if (!description.ok) {
+    return Response.json(
+      { error: "description must be a string" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const created = await createDen({
+      avatarMediaId: avatarMediaId.value ?? null,
+      creatorId,
+      description: description.value ?? null,
+      memberIds: parsedIds.memberIds,
+      name,
+    });
+    // Re-read through the same mapper the DM path uses, so the client receives
+    // an identical conversation shape and does not need a second fetch before it
+    // can fan the root key out to the new members.
+    const row = await getMessageConversationDataQuery(prisma.orm)
+      .where({ id: created.id })
+      .first();
+    if (!row) {
+      return Response.json({ error: "Den not found" }, { status: 404 });
+    }
+    return Response.json(
+      {
+        conversation: mapConversation(row, creatorId),
+        inviteCode: created.inviteCode,
+        isNew: true,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    return denErrorResponse(error, {
+      operation: "den.create",
+      userId: creatorId,
+    });
+  }
 }

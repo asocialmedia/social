@@ -1,4 +1,4 @@
-import type { CommunityRoleRow } from "@asm/db";
+import type { CommunityRoleRow, ConversationType, DenRole } from "@asm/db";
 
 export interface MessageIdentitySummary {
   publicKey: string;
@@ -19,6 +19,15 @@ export interface MessageSender {
 
 export interface MessageConversationMember {
   conversationId: string;
+  // When this person joined. Den send paths read it to tell a member who was in
+  // the room when the current root-key epoch was minted from one who arrived
+  // after it: the first can be handed a missing wrap for that epoch, the second
+  // must not be, because that epoch's root already encrypts everything written
+  // before they arrived.
+  createdAt: Date;
+  // Den-only provenance: who added this member, absent for the creator and for
+  // somebody who arrived through an invite link.
+  invitedById?: string | null;
   lastReadAt: Date | null;
   // Watermark of the newest message this member confirmed receipt of, and this
   // member's own DM preferences. Both are per-member, so the peer never sees
@@ -26,6 +35,9 @@ export interface MessageConversationMember {
   lastDeliveredAt?: Date | null;
   mutedAt?: Date | null;
   themeKey?: string | null;
+  // Den-only. A DM row carries MEMBER, which no gate reads: DM authorization is
+  // membership, not role.
+  role?: DenRole;
   user: MessageSender & {
     messageIdentity: MessageIdentitySummary | null;
   };
@@ -43,6 +55,12 @@ export interface MessageConversationKey {
   // Root-key epoch. A member holds one wrap per epoch; older ones stay readable
   // so a reset never costs the peer its history.
   version: number;
+  // Which member performed this wrap, and the public key they used. Null on
+  // every DM row written before these columns existed, where the wrapper is
+  // unambiguously the single peer. A den reader needs both to know whose ECDH
+  // pairing this blob was made for.
+  wrapperPublicKey?: string | null;
+  wrapperUserId?: string | null;
 }
 
 export interface MessageConversationData {
@@ -52,6 +70,19 @@ export interface MessageConversationData {
   members: MessageConversationMember[];
   pairKey: string | null;
   updatedAt: Date;
+  // Den-only columns, null on a DM. `type` is required rather than optional: it is
+  // the field every gate reads to decide whether it is looking at a pair or at a
+  // group, it is NOT NULL in the database with a DM default, and every server
+  // mapper sets it. Making it optional here would push a `?? "DM"` fallback onto
+  // every future call site, which is exactly the kind of default that hides a
+  // route that forgot to branch.
+  type: ConversationType;
+  avatarMediaId?: string | null;
+  createdById?: string | null;
+  description?: string | null;
+  inviteCode?: string | null;
+  name?: string | null;
+  ownerId?: string | null;
 }
 
 export interface MessageData {

@@ -103,6 +103,12 @@ function parseNotification(raw: unknown): NotificationItem | null {
     commentId: typeof row.commentId === "string" ? row.commentId : null,
     community: parseCommunity(row.community),
     communityId: typeof row.communityId === "string" ? row.communityId : null,
+    // The den a message notification names, and nothing else about it: the
+    // name is the copy, the id is the tap target. The roster is never on the
+    // row, so there is nothing here to parse or to leak.
+    conversation: parseConversation(row.conversation),
+    conversationId:
+      typeof row.conversationId === "string" ? row.conversationId : null,
     count: typeof row.count === "number" ? row.count : 1,
     createdAt: normalizeCreatedAt(row.createdAt),
     id: row.id,
@@ -123,6 +129,17 @@ function parseNotification(raw: unknown): NotificationItem | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function parseConversation(raw: unknown): NotificationItem["conversation"] {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  if (typeof row.id !== "string") {
+    return null;
+  }
+  return { id: row.id, name: stringOrNull(row.name) };
 }
 
 function parseComment(raw: unknown): NotificationItem["comment"] {

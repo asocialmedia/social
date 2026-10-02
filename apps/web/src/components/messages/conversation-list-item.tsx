@@ -5,7 +5,12 @@ import { memo } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
 import type { ConversationListItem } from "@/lib/messages/client";
+import {
+  conversationDisplayName,
+  denPreviewLine,
+} from "@/lib/messages/den-label";
 import { conversationPreviewText } from "@/lib/messages/message-preview";
 import { formatArrivalCount } from "@/lib/messages/scroll-state";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
@@ -27,6 +32,19 @@ interface ConversationRowProps {
 // the preview says whether it is worth opening. The rail keeps the icon form for
 // when a conversation IS open and the list is the way around rather than the way in.
 //
+// A den and a DM differ in exactly three places, and all three are derived from the
+// conversation's own `type` rather than from a flag passed down:
+//
+//   - the face: one avatar for a DM, a stacked group of them for a den;
+//   - the heading: the peer's name for a DM, the den's name (or its members, if it
+//     has none) for a den, and no per-person badges, because a room has no badge;
+//   - the preview: what was said, versus who said it. A den's second line is
+//     prefixed with the sender, because the heading says WHERE and the preview is
+//     the only place the byline can live.
+//
+// The unread badge and the muted-shows-zero rule are untouched. Both are computed
+// per row by the server, and this component only decides which pixels they land on.
+//
 // The preview is decrypted per row by this component, not passed in. That is the
 // transcript's own pattern: `useDecryptEntry` subscribes to one message, so a batch
 // of completions re-renders only the rows whose previews landed instead of the whole
@@ -44,6 +62,7 @@ function ConversationRowInner({
   const peer = item.conversation.members.find(
     (member) => member.userId !== myUserId
   )?.user;
+  const isDen = item.conversation.type === "DEN";
   const { lastMessage } = item;
   // Mute is this member's own preference, read off their membership row.
   const muted = Boolean(myMember?.mutedAt);
@@ -53,12 +72,42 @@ function ConversationRowInner({
     payload && payload !== "error" && payload !== "pending"
       ? payload
       : undefined;
-  const preview = conversationPreviewText({
-    deleted: Boolean(lastMessage?.deletedAt),
-    mine: lastMessage?.senderId === myUserId,
-    payload: settled,
+  // The sender-prefixed den line and the bare DM line come out of one pure
+  // helper, so a row cannot render "Ada: " in a DM by accident or drop the
+  // prefix in a den.
+  const preview = denPreviewLine({
+    conversation: {
+      members: item.conversation.members.map((member) => ({
+        avatarUrl: member.user.avatarUrl,
+        displayName: member.user.displayName,
+        id: member.userId,
+        username: member.user.username,
+      })),
+      name: item.conversation.name,
+      type: item.conversation.type,
+    },
+    lastSenderId: lastMessage?.senderId ?? null,
+    myUserId,
+    preview: conversationPreviewText({
+      deleted: Boolean(lastMessage?.deletedAt),
+      mine: lastMessage?.senderId === myUserId,
+      payload: settled,
+    }),
   });
   const time = lastMessage ? formatRelativeDate(lastMessage.createdAt) : "";
+  const heading = conversationDisplayName(
+    {
+      members: item.conversation.members.map((member) => ({
+        avatarUrl: member.user.avatarUrl,
+        displayName: member.user.displayName,
+        id: member.userId,
+        username: member.user.username,
+      })),
+      name: item.conversation.name,
+      type: item.conversation.type,
+    },
+    myUserId
+  );
 
   return (
     <button
@@ -76,8 +125,26 @@ function ConversationRowInner({
       type="button"
     >
       <span className="relative shrink-0">
-        <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={44} />
-        {presence ? (
+        {isDen ? (
+          <DenAvatarStack
+            avatarMediaId={item.conversation.avatarMediaId ?? null}
+            members={item.conversation.members.map((member) => ({
+              avatarUrl: member.user.avatarUrl,
+              displayName: member.user.displayName,
+              id: member.userId,
+              role: member.role ?? null,
+              username: member.user.username,
+            }))}
+            myUserId={myUserId}
+            size={44}
+          />
+        ) : (
+          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={44} />
+        )}
+        {/* Presence is a property of a person, so a den has none to show. The
+            bell is not: it is this member's own preference and reads the same
+            either way. */}
+        {presence && !isDen ? (
           <span
             className={cn(
               "border-background absolute right-0 bottom-0 size-3 rounded-full border-2",
@@ -100,13 +167,17 @@ function ConversationRowInner({
               unread ? "font-semibold" : "font-medium"
             )}
           >
-            {peer?.displayName ?? peer?.username ?? "Conversation"}
+            {heading}
           </span>
-          <UserBadge
-            badge={peer?.badge}
-            badges={peer?.badges}
-            communityRoles={peer?.communityMemberships}
-          />
+          {/* A room has no badge of its own, and a den member's badge says nothing
+              about the room, so the per-person badge row is DM-only. */}
+          {isDen ? null : (
+            <UserBadge
+              badge={peer?.badge}
+              badges={peer?.badges}
+              communityRoles={peer?.communityMemberships}
+            />
+          )}
         </span>
         <span
           className={cn(
