@@ -49,7 +49,7 @@ afterAll(sweep);
 const TINY_WINDOW_SECONDS = 1;
 
 // Bun's own sleep, so no hand-rolled timer keeps the timer alive past the test.
-const {sleep} = Bun;
+const { sleep } = Bun;
 
 describe("consumeRateLimitSliding against real Redis", () => {
   test("runs the script, admits under the limit and spends the budget", async () => {

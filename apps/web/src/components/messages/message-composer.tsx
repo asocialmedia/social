@@ -19,10 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
+import { MessageAccessEndedNotice } from "@/components/messages/message-access-ended-notice";
 import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
+import { shouldShowAccessEndedNotice } from "@/lib/messages/access-ended";
 import {
   MessagesApiError,
   appendMessageToLastPage,
@@ -43,6 +45,12 @@ const MessageImageEditDialog = dynamic(
 );
 
 interface MessageComposerProps {
+  // Set once the reader has put the "you have lost your spot" notice away. The
+  // thread holds it beside its own `accessEnded` so the two share one lifetime:
+  // both describe this visit to this conversation, so a conversation switch
+  // clears them together and a dismissal cannot outlive the removal it was
+  // given for.
+  accessNoticeDismissed?: boolean;
   // Set when the server told us this member is no longer inside the
   // conversation. The composer stays mounted and keeps its draft; only the
   // controls go quiet, so being removed from a den mid-sentence does not throw
@@ -54,6 +62,7 @@ interface MessageComposerProps {
     id: string;
     payloadType: MessagePayload["type"];
   } | null;
+  onAccessNoticeDismiss: () => void;
   onDraftInput: () => void;
   onEditCancel: () => void;
   onEditSave: (content: string) => Promise<boolean>;
@@ -106,8 +115,10 @@ async function sendWithRatchetRetry(
 
 export function MessageComposer({
   accessEnded = false,
+  accessNoticeDismissed = false,
   conversation,
   editTarget,
+  onAccessNoticeDismiss,
   onDraftInput,
   onEditCancel,
   onEditSave,
@@ -581,6 +592,22 @@ export function MessageComposer({
     [editing, handleCancelEdit, handleSend]
   );
 
+  // Dismissing the removal notice is a state flip and nothing else: no request,
+  // no navigation, nothing deleted, the draft untouched, and not one write gate
+  // moves. The reader is already out of the den, so there is no den to leave.
+  //
+  // Guarded so a failure here cannot escape into React's event dispatch, where an
+  // uncaught error is reported at the root and takes the composer down with it —
+  // over a bar whose only job is to disappear. Nothing here can fail on purpose;
+  // the guard is there so it cannot fail by accident either.
+  const handleDismissAccessNotice = useCallback(() => {
+    try {
+      onAccessNoticeDismiss();
+    } catch (error: unknown) {
+      console.error("Couldn't dismiss the den notice:", error);
+    }
+  }, [onAccessNoticeDismiss]);
+
   const busy = sending || savingEdit;
   // In edit mode only the text matters: attachments are hidden, so the button
   // is enabled purely by a non-empty body. A media/post caption may be cleared
@@ -623,11 +650,14 @@ export function MessageComposer({
     >
       {/* Announced rather than a replacement: unmounting the input row would
           throw away whatever was being typed, and the reader can still scroll
-          back and read what they were part of. */}
-      {accessEnded ? (
-        <output className="text-muted-foreground mb-2 block text-xs">
-          You&apos;re no longer in this den, so you can read it but not post.
-        </output>
+          back and read what they were part of. The notice is drawn IN ADDITION to
+          the row, never instead of it, and its button only puts the notice away,
+          so neither half can cost the draft below. */}
+      {shouldShowAccessEndedNotice({
+        accessEnded,
+        noticeDismissed: accessNoticeDismissed,
+      }) ? (
+        <MessageAccessEndedNotice onDismiss={handleDismissAccessNotice} />
       ) : null}
       {editing ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">

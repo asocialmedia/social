@@ -66,6 +66,10 @@ import {
 } from "@/components/messages/message-sender-name";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
+import {
+  accessEndedOnArrival,
+  accessEndedToast,
+} from "@/lib/messages/access-ended";
 import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
@@ -471,16 +475,29 @@ export function MessageThread({
     payloadType: MessagePayload["type"];
   } | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
-  // Set when the server closed this thread's stream because this member is no
-  // longer inside. Not fatal and not a reason to tear anything down: the
-  // transcript is still theirs to read (a key row hangs off the conversation,
-  // not the membership, which is the whole point of the removal path degrading
-  // rather than bricking), so the thread stays exactly where it is and only the
-  // composer goes quiet. Resets on a conversation switch so a rejoin through a
-  // fresh invite code can post again.
-  const [accessEnded, setAccessEnded] = useState(false);
+  // `accessEnded` is set when the server closed this thread's stream because
+  // this member is no longer inside. Not fatal and not a reason to tear anything
+  // down: the transcript is still theirs to read (a key row hangs off the
+  // conversation, not the membership, which is the whole point of the removal
+  // path degrading rather than bricking), so the thread stays exactly where it is
+  // and only the composer goes quiet.
+  //
+  // `noticeDismissed` is the reader having put the composer's notice away. It
+  // lives here rather than in the composer because the two have ONE lifetime:
+  // both describe this visit to this conversation, so they are set and cleared
+  // together and a dismissal cannot outlive the removal it was given for. Reset
+  // on a conversation switch — same as the removal, and for the same reason, so a
+  // rejoin through a fresh invite code can post again. Deliberately NOT kept
+  // across the switch: the removal is re-established from scratch on every visit
+  // (the server re-checks membership on every stream connect), so a dismissal
+  // that survived the switch would leave a removed member with every composer
+  // control disabled and nothing on screen saying why. The notice is the
+  // standing explanation, so it has to keep standing.
+  const [accessEndedNotice, setAccessEndedNotice] = useState(
+    accessEndedOnArrival()
+  );
   useEffect(() => {
-    setAccessEnded(false);
+    setAccessEndedNotice(accessEndedOnArrival());
   }, [conversationId]);
   // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
   // is anchored on, or null when closed. Stored as a key, not an index, so
@@ -4251,13 +4268,8 @@ export function MessageThread({
         if (endedConversationId !== conversationId) {
           return;
         }
-        setAccessEnded(true);
-        toast({
-          description:
-            "You can still read this conversation, but you can't post in it.",
-          title: "You're no longer in this den",
-          variant: "destructive",
-        });
+        setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
+        toast({ ...accessEndedToast(), variant: "destructive" });
       },
       [conversationId]
     )
@@ -4731,10 +4743,17 @@ export function MessageThread({
           ) : null}
 
           <MessageComposer
-            accessEnded={accessEnded}
+            accessEnded={accessEndedNotice.accessEnded}
+            accessNoticeDismissed={accessEndedNotice.noticeDismissed}
             conversation={detail}
             editTarget={editTarget}
             replyTarget={replyTarget}
+            onAccessNoticeDismiss={() =>
+              setAccessEndedNotice((state) => ({
+                ...state,
+                noticeDismissed: true,
+              }))
+            }
             onEditCancel={() => setEditTarget(null)}
             onEditSave={handleEditSave}
             onReplyCancel={() => setReplyTarget(null)}
