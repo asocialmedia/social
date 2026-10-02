@@ -44,6 +44,10 @@ import { Client } from "pg";
 // Every test builds its own cast and its own den, because a shared fixture would
 // let one test's mutation satisfy the next test's assertion: the counter is
 // per-conversation state, and the interesting assertions are about its DELTA.
+//
+// The counter test at the bottom fires twenty concurrent joiners onto one den, so
+// it carries its own budget rather than the 5s default. See
+// `CONTENTION_TIMEOUT_MS` below for the number and the reasoning.
 
 const RUN_ID =
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -79,6 +83,27 @@ async function createUsers(ids: readonly string[]): Promise<void> {
     }))
   );
 }
+
+// The budget for the one race below, and the only timeout in this file that is
+// not the default.
+//
+// Twenty joins, each taking the den's claim lock in turn, so the wall clock is
+// twenty transactions queued behind each other's row locks: between roughly 120ms
+// and 200ms against an idle database, and several times that when the rest of the
+// suite is running alongside on the same Postgres. `bun test --parallel` runs one
+// process per file with no cap against a dev Postgres deliberately held at
+// max_connections=50 (docker/docker-compose.dev.yml), so "several times that" is
+// not a hypothetical here.
+//
+// The 5s default is not a bound this test can be held to without gutting what it
+// proves. The way to fit inside it is to fire fewer joiners, and then every
+// writer wins and a counter that incremented twice per change would still come
+// out right. Thirty seconds is well over an order of magnitude beyond the idle
+// cost and far over anything the loaded case has actually reached.
+//
+// Options go last: this is the (label, fn, options) overload in the pinned
+// bun-types.
+const CONTENTION_TIMEOUT_MS = 30_000;
 
 beforeAll(async () => {
   await Promise.all(BASE_USER_IDS.map((id) => createUser(id)));
@@ -589,7 +614,7 @@ describe("the counter under concurrent writers", () => {
       expect(await membershipSeqOf(denId)).toBe(before + joinerIds.length);
       expect(joinerIds.length).toBeLessThan(DEN_LIMITS.membersMax);
     },
-    { timeout: 30_000 }
+    { timeout: CONTENTION_TIMEOUT_MS }
   );
 });
 
