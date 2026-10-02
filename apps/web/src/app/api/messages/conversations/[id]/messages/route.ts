@@ -235,6 +235,24 @@ export async function GET(
   }
 
   const visible = visibleToUser(user.id);
+  // A departed reader sees the room as it was the moment they left.
+  // `getConversationForUser` admits them on purpose so the history stays readable;
+  // this is the other half of that split. The message query is capped at their
+  // `leftAt`, so a reload cannot page in ciphertext from after the departure. They
+  // hold no key for it either way, but "cannot decrypt" is not the same as "was
+  // not sent to them", and a transcript should not show rows that were never theirs
+  // to read. `myMember` is the row the read gate already loaded, so there is no
+  // second read here.
+  const myMember = conversation.members.find(
+    (member) => member.userId === user.id
+  );
+  const readCutoff = myMember?.leftAt
+    ? toPrismaDateTime(myMember.leftAt)
+    : null;
+  const readerVisible = (message: Parameters<typeof visible>[0]) =>
+    readCutoff === null
+      ? visible(message)
+      : and(visible(message), message.createdAt.lte(readCutoff));
 
   // Anchored window: a page centered on one message, so a search hit or a
   // permalink can open the transcript at that point without walking every page
@@ -250,7 +268,7 @@ export async function GET(
           and(
             message.conversationId.eq(id),
             message.id.lte(aroundParam),
-            visible(message)
+            readerVisible(message)
           )
         )
         .orderBy((message) => message.id.desc())
@@ -261,7 +279,7 @@ export async function GET(
           and(
             message.conversationId.eq(id),
             message.id.gt(aroundParam),
-            visible(message)
+            readerVisible(message)
           )
         )
         .orderBy((message) => message.id.asc())
@@ -298,7 +316,7 @@ export async function GET(
         and(
           message.conversationId.eq(id),
           message.id.gt(afterParam),
-          visible(message)
+          readerVisible(message)
         )
       )
       .orderBy((message) => message.id.asc())
@@ -333,7 +351,7 @@ export async function GET(
       and(
         message.conversationId.eq(id),
         ...(cursor ? [message.id.lt(cursor)] : []),
-        visible(message)
+        readerVisible(message)
       )
     )
     .orderBy((message) => message.id.desc())
