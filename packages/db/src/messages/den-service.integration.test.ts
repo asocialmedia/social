@@ -848,13 +848,22 @@ describe("invite codes", () => {
     const preview = await previewInvite(den?.inviteCode ?? "");
     expect(preview?.id).toBe(denId);
     expect(preview?.memberCount).toBe(3);
-    // A name and a count, and nothing that identifies a member.
+    // Every field this den preview has ever carried, and nothing that identifies a
+    // member. `expired` and `ownerId` joined the shape when the archive landed; the
+    // rest is unchanged, which is what the join route's byte-identical promise to a
+    // live code rests on.
     expect(Object.keys(preview ?? {}).toSorted()).toEqual([
+      "expired",
       "id",
       "inviteCode",
       "memberCount",
       "name",
+      "ownerId",
     ]);
+    // A live code is not expired, and the owner is the den's real one rather than a
+    // value this preview made up.
+    expect(preview?.expired).toBe(false);
+    expect(preview?.ownerId).toBe(OWNER_ID);
   });
 
   test("preview tolerates whitespace and case from a pasted code", async () => {
@@ -870,7 +879,9 @@ describe("invite codes", () => {
   });
 
   test("an unknown code previews as null rather than throwing", async () => {
-    // A rotated-away code and a never-existed code must be indistinguishable.
+    // A never-existed code and one whose den is gone must be indistinguishable, and
+    // both must look like a plain miss. See the archive suite for the retired case,
+    // which is the one that is now answerable.
     expect(await previewInvite(`nope-${RUN_ID}`)).toBeNull();
   });
 
@@ -884,8 +895,20 @@ describe("invite codes", () => {
 
     const rotated = await rotateInviteCode(denId, ADMIN_ID);
     expect(rotated).not.toBe(before?.inviteCode);
-    expect(await previewInvite(before?.inviteCode ?? "")).toBeNull();
-    expect(await previewInvite(rotated)).not.toBeNull();
+    // The old code stops joining at once. What it now does is IDENTIFY the den, which
+    // is the point of the archive and the reason this assertion moved: a reader
+    // holding it gets the owner rather than a dead end.
+    expect(await previewInvite(rotated)).toMatchObject({ expired: false });
+    const stale = await previewInvite(before?.inviteCode ?? "");
+    expect(stale).toMatchObject({
+      expired: true,
+      id: denId,
+      ownerId: OWNER_ID,
+    });
+    // And it grants nothing: the door is shut whatever the preview says.
+    await expect(
+      joinDenByInviteCode(before?.inviteCode ?? "", OUTSIDER_ID)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   test("a member may not rotate the code", async () => {

@@ -28,6 +28,12 @@ interface Params {
 // longer sentence - is a signal that a caller can sweep codes for, and the only
 // caller that has any business receiving it is the one already holding a code
 // and already told everything by the preview.
+//
+// It also covers a ROTATED code, which is the fourth caller and used to be the
+// reason a stale link was a dead end. A rotation cannot be answered differently
+// from here without turning this endpoint into the oracle the whole design is
+// against; what it gets instead is the `expired` preview above, which a caller
+// can only reach by holding a code the den really did issue.
 function unusableCodeResponse(): Response {
   return Response.json(
     { code: "NOT_FOUND", error: "That join code is not valid" },
@@ -40,9 +46,26 @@ function unusableCodeResponse(): Response {
 //
 // No roster, no message history, no member identities. Possession of a code is
 // not a reason to enumerate who is in a den, so the preview carries only what a
-// person needs to decide whether they want to join. A code that does not resolve
-// answers 404 whether it never existed or was rotated out, so this endpoint
+// person needs to decide whether they want to join. A code that resolves to nothing
+// answers 404, and the bytes are the same whatever the reason, so this endpoint
 // cannot be used to test whether a guessed code was ever valid.
+//
+// A code that WAS rotated out is the one case that resolves, and it is a deliberate
+// exception: it answers 200 with `expired` and the den's owner, so somebody holding
+// a link whose code was rotated away under them can be told which den retired it and
+// sent to the person who can mint a replacement. That is a real disclosure - the
+// den's id, name, size and owner, where the live path returns the first three - and
+// the reasoning for accepting it is that the reader was given this code by somebody
+// in that den, so it names a room and a person they were already told about, and it
+// hands back no way to get in. It stays narrow in two ways: it is gated on the code
+// being one this den actually issued, and the owner is the minimum addition that
+// makes the screen actionable. Nothing else about the den rides along; see the
+// header of `previewRetiredInvite` for what must never be added to it.
+//
+// A code whose den has since been dissolved is answered as unknown rather than as an
+// expired den with a missing owner: the archive cascades away with the
+// conversation, so there is nothing to name, and a screen saying "hiding from us"
+// about a room that no longer exists would be a worse lie than the unknown one.
 export async function GET(request: Request, { params }: Params) {
   const session = await getSessionFromApi();
   const userId = session?.user?.id;
@@ -66,10 +89,25 @@ export async function GET(request: Request, { params }: Params) {
       return unusableCodeResponse();
     }
     // Membership is not disclosed to a signed-out viewer, so a code that leaked
-    // tells an outsider nothing about whether its owner is still inside.
+    // tells an outsider nothing about whether its owner is still inside. Read once
+    // for both shapes: an expired code carries the same field, and a member who
+    // re-opens a link whose code has since rotated is exactly the person the
+    // screen must not describe as an outsider.
     const membership = userId
       ? await getDenMembership(preview.id, userId)
       : null;
+    if (preview.expired) {
+      return Response.json({
+        den: {
+          id: preview.id,
+          memberCount: preview.memberCount,
+          name: preview.name,
+          ownerId: preview.ownerId,
+        },
+        expired: true,
+        isMember: membership !== null,
+      });
+    }
     return Response.json({
       den: {
         id: preview.id,

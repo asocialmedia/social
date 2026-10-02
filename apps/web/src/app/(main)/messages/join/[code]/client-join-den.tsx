@@ -1,25 +1,38 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { AlertCircle, Link2Off, Loader2, Lock, Users } from "lucide-react";
+import {
+  AlertCircle,
+  Ghost,
+  Link2Off,
+  Loader2,
+  Lock,
+  Users,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
   MessagesApiError,
+  createConversation,
   fetchDenInvitePreview,
   joinDen,
 } from "@/lib/messages/client";
 import type { DenInvitePreviewResponse } from "@/lib/messages/client";
 import {
+  denAskOwner,
   denJoinActionLabel,
   denJoinDescription,
+  denJoinDismiss,
   denJoinFailure,
   denJoinOutcome,
   denJoinTitle,
 } from "@/lib/messages/den-invite";
-import type { DenJoinFailure } from "@/lib/messages/den-invite";
+import type {
+  DenExpiredInvite,
+  DenJoinFailure,
+} from "@/lib/messages/den-invite";
 import { denMemberCountLabel } from "@/lib/messages/den-label";
 
 // The screen at the end of a den invite link.
@@ -34,8 +47,14 @@ import { denMemberCountLabel } from "@/lib/messages/den-label";
 // join route answer it without telling a code-guesser anything it could not
 // already read; see `den-invite.ts`.
 //
-// The three states are decided in `den-invite.ts` (pure, unit-tested) and this
-// component only draws them.
+// The expired state is the one that needed a screen of its own. It used to be
+// folded into "invalid", which is a dead end with no way out of it: the reader had
+// been invited, the code had been rotated away underneath them, and the screen could
+// neither say so nor name anybody to ask. The preview now carries the den and its
+// owner for exactly that case, so this screen can offer the one action that helps.
+//
+// The states are decided in `den-invite.ts` (pure, unit-tested) and this component
+// only draws them.
 
 type ScreenState =
   | { kind: "loading" }
@@ -46,10 +65,11 @@ export default function ClientJoinDen({ code }: { code: string }) {
   const router = useRouter();
   const [state, setState] = useState<ScreenState>({ kind: "loading" });
   const [joining, setJoining] = useState(false);
+  const [asking, setAsking] = useState(false);
 
   // The preview read. A 404 is not an error state to render raw: the route answers
-  // it for a code that never existed and for one that was rotated, and those are
-  // the same thing to the person holding the link.
+  // it for a code that never existed and for one whose den has been dissolved, and
+  // those are the same thing to the person holding the link.
   //
   // An async function inside the effect rather than a `.then` chain: the try/catch
   // is real, and cancellation is one guard at each exit rather than a flag read
@@ -99,6 +119,61 @@ export default function ClientJoinDen({ code }: { code: string }) {
     }
   }, [code, router]);
 
+  // Somebody already inside this den opens it directly rather than pressing a join
+  // button, and that is not a shortcut. The code may have been rotated since the
+  // preview, and the join service deliberately refuses a retired code - so the POST
+  // would be a 404 for a code this reader legitimately used, and the screen would
+  // tell somebody standing in the room that they could not find it. The preview has
+  // already established membership, so the conversation id is all the button needs.
+  const handleOpen = useCallback(
+    (conversationId: string) => {
+      router.replace(`/messages?c=${encodeURIComponent(conversationId)}`);
+    },
+    [router]
+  );
+
+  // "Ask for a new invite": open a DM with the den's owner and hand over to the
+  // messages page. `denAskOwner` owns the order (open, then navigate) and the
+  // refusal, so the reasoning about why the message is opened from HERE lives beside
+  // the decision rather than in a component.
+  const handleAskOwner = useCallback(
+    async (ownerId: string) => {
+      setAsking(true);
+      const opened = await denAskOwner({
+        navigate: (path) => {
+          router.push(path);
+        },
+        openDirectMessage: createConversation,
+        ownerId,
+      });
+      if (opened) {
+        return;
+      }
+      // A refusal is answered here, where an honest answer exists: the unknown
+      // screen says this link does not resolve and offers a way out, rather than a
+      // button that walks somebody to an error about a person they have never spoken
+      // to. And it is not announced as a failure - the reader pressed a button that
+      // does not work, which is a dead end, not a fault of theirs.
+      setAsking(false);
+      setState({ kind: "ready", preview: null });
+    },
+    [router]
+  );
+
+  const handleNevermind = useCallback(() => {
+    // A dismissal, so it never acquires error semantics: the reader pressed a button
+    // to leave, not a control that failed.
+    denJoinDismiss({
+      back: () => {
+        router.back();
+      },
+      historyLength: window.history.length,
+      replace: (href) => {
+        router.replace(href);
+      },
+    });
+  }, [router]);
+
   if (state.kind === "loading") {
     return (
       <Screen>
@@ -115,13 +190,29 @@ export default function ClientJoinDen({ code }: { code: string }) {
   }
 
   if (state.kind === "failed") {
-    return <DenJoinFailureScreen reason={state.reason} />;
+    return (
+      <DenJoinFailureScreen
+        onNevermind={handleNevermind}
+        reason={state.reason}
+      />
+    );
   }
 
   // The pure decision, from the preview. A null preview is the invalid state, so
   // the screen never has to invent a second way to be told the code is dead.
   const outcome = denJoinOutcome({ preview: state.preview });
   const action = denJoinActionLabel(outcome, joining);
+
+  if (outcome.kind === "expired") {
+    return (
+      <DenExpiredScreen
+        asking={asking}
+        den={outcome.den}
+        onAskOwner={handleAskOwner}
+        onNevermind={handleNevermind}
+      />
+    );
+  }
 
   return (
     <Screen>
@@ -152,6 +243,10 @@ export default function ClientJoinDen({ code }: { code: string }) {
             className="rounded-lg text-sm"
             disabled={joining}
             onClick={() => {
+              if (outcome.kind === "already-member") {
+                handleOpen(outcome.den.id);
+                return;
+              }
               void handleJoin();
             }}
             type="button"
@@ -162,16 +257,112 @@ export default function ClientJoinDen({ code }: { code: string }) {
           </Button>
         ) : null}
         {/* A full den has nothing to press and nowhere to go, so the only way on
-            is back to the reader's own messages. A 404 is the same shape: the
-            route answers a retired code and a den that filled up identically,
-            and the screen says the union of both. */}
+            is back to the reader's own messages. The state is decided from the
+            preview's member count rather than from the press, because the join route
+            answers a full den with the same 404 as a dead code - see `den-invite.ts`
+            for why that identity is the point. */}
         {outcome.kind === "full" ? (
           <span className="text-muted-foreground text-xs">
             Ask whoever invited you to make room.
           </span>
         ) : null}
-        <Button asChild className="rounded-lg text-sm" variant="ghost">
-          <Link href="/messages">Go to messages</Link>
+        {/* The unknown state is the same dead end as the expired one from the
+            reader's side - this link is not taking them anywhere - so it gets the
+            same single dismissal. An invalid code has no den to name, so there is
+            nowhere better to send them and nothing more useful to say. */}
+        {outcome.kind === "invalid" ? (
+          <Button
+            className="rounded-lg text-sm"
+            onClick={handleNevermind}
+            type="button"
+            variant="ghost"
+          >
+            Nevermind
+          </Button>
+        ) : (
+          <Button asChild className="rounded-lg text-sm" variant="ghost">
+            <Link href="/messages">Go to messages</Link>
+          </Button>
+        )}
+      </div>
+    </Screen>
+  );
+}
+
+// A code somebody was given, then had rotated out from under them.
+//
+// The title and both button labels are verbatim from the product owner. What is NOT
+// here is any wording of our own about whose fault the dead code is, and no roster,
+// description or avatar: the preview returns four facts and this screen prints the
+// two a person can act on.
+//
+// Exported for the render test, for the same reason `DenJoinFailureScreen` is: which
+// state a preview maps to is decided and tested in `den-invite.ts`, while what a
+// state SAYS to somebody is decided here, and a screen whose copy is wrong is wrong
+// however correctly it was reached.
+export function DenExpiredScreen({
+  asking,
+  den,
+  onAskOwner,
+  onNevermind,
+}: {
+  asking: boolean;
+  den: DenExpiredInvite;
+  onAskOwner: (ownerId: string) => void;
+  onNevermind: () => void;
+}) {
+  // Destructured so the narrowing survives into the onClick closure below, which a
+  // property read on the parameter would not.
+  const { memberCount, ownerId } = den;
+  // Degrade rather than offer a button that goes nowhere. `ownerId` is null when the
+  // den's owner account has been deleted, which is the one case where "ask the owner"
+  // has nobody to ask. The unknown screen is the honest answer there: it says this
+  // link does not resolve and offers a way out, where a dead-looking button would
+  // claim the den was hiding AND that help was on its way.
+  if (!ownerId) {
+    return <DenJoinFailureScreen onNevermind={onNevermind} reason="invalid" />;
+  }
+  return (
+    <Screen>
+      <span className="chip-3d flex size-14 items-center justify-center rounded-2xl">
+        <Ghost aria-hidden className="text-muted-foreground size-6" />
+      </span>
+      <h1 className="text-lg font-semibold tracking-tight">
+        {denJoinTitle({ den, kind: "expired" })}
+      </h1>
+      <p className="text-muted-foreground text-sm">
+        {denJoinDescription({ den, kind: "expired" })}
+      </p>
+      <p className="text-muted-foreground text-xs">
+        {denMemberCountLabel(memberCount)}
+      </p>
+      {/* Two real buttons rather than a link and a button: the primary has work to do
+          before it navigates, and a link cannot. The secondary is `ghost`, the same
+          register `den-confirm-dialog.tsx` gives its cancel control. Both carry
+          `type="button"`, so neither can submit anything, and neither sits inside a
+          form. `denJoinTitle`/`denJoinDescription` are asked for an `expired`
+          outcome rather than having their own strings here, so the words on this
+          screen cannot drift from the ones the pure module is tested against. */}
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        <Button
+          className="rounded-lg text-sm"
+          disabled={asking}
+          onClick={() => {
+            onAskOwner(ownerId);
+          }}
+          type="button"
+          variant="premium"
+        >
+          {asking ? <Loader2 className="size-4 animate-spin" /> : null}
+          {asking ? "Opening…" : "Ask for a new invite"}
+        </Button>
+        <Button
+          className="rounded-lg text-sm"
+          onClick={onNevermind}
+          type="button"
+          variant="ghost"
+        >
+          Nevermind
         </Button>
       </div>
     </Screen>
@@ -187,11 +378,15 @@ export default function ClientJoinDen({ code }: { code: string }) {
 // answer 403; the `unavailable` branch below is where an unexpected status lands.
 //
 // Exported for the render test: which state a status maps to is decided by
-// `denJoinFailure` and tested there, but the WORDS are decided here, and a
-// refusal whose copy is wrong is still a wrong refusal - a "this link is not
-// valid" screen for a real link sends the reader to ask for a new code that
-// cannot help.
-export function DenJoinFailureScreen({ reason }: { reason: DenJoinFailure }) {
+// `denJoinFailure` and tested there, but the WORDS are decided here, and a refusal
+// whose copy is wrong is still a wrong refusal.
+export function DenJoinFailureScreen({
+  onNevermind,
+  reason,
+}: {
+  onNevermind: () => void;
+  reason: DenJoinFailure;
+}) {
   if (reason === "needs-messages") {
     return (
       <Screen>
@@ -229,9 +424,9 @@ export function DenJoinFailureScreen({ reason }: { reason: DenJoinFailure }) {
       </Screen>
     );
   }
-  // `invalid` and `unavailable` share a shape but not a cause: a retired code and a
-  // broken network are different things, and saying "this link is not valid" for a
-  // failed request would be a lie.
+  // `invalid` and `unavailable` share a shape but not a cause: a code that never
+  // resolved and a broken network are different things, and telling somebody "we
+  // couldn't find that den" for a failed request would be a lie they would act on.
   const invalid = reason === "invalid";
   return (
     <Screen>
@@ -239,17 +434,35 @@ export function DenJoinFailureScreen({ reason }: { reason: DenJoinFailure }) {
         <Link2Off aria-hidden className="text-muted-foreground size-6" />
       </span>
       <h1 className="text-lg font-semibold tracking-tight">
-        {invalid ? "This link is not valid" : "Couldn't check this link"}
+        {invalid
+          ? denJoinTitle({ kind: "invalid", reason: "unknown-code" })
+          : "Couldn't check this link"}
       </h1>
       <p className="text-muted-foreground text-sm">
         {invalid
-          ? "The join code has been retired, or the link was cut short. Ask whoever shared it for a new one."
+          ? denJoinDescription({ kind: "invalid", reason: "unknown-code" })
           : "That didn't come back from the server. Try again in a moment."}
       </p>
+      {/* One button. A dismissal carries no error semantics - no alert role, no live
+          region, nothing assertive - so a screen reader announces it as a button
+          rather than as something having gone wrong. It is the same dismissal the
+          expired screen offers, because from the reader's side the two states are
+          the same thing: this link is not going to take them anywhere. */}
       <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-        <Button asChild className="rounded-lg text-sm" variant="ghost">
-          <Link href="/messages">Go to messages</Link>
-        </Button>
+        {invalid ? (
+          <Button
+            className="rounded-lg text-sm"
+            onClick={onNevermind}
+            type="button"
+            variant="ghost"
+          >
+            Nevermind
+          </Button>
+        ) : (
+          <Button asChild className="rounded-lg text-sm" variant="ghost">
+            <Link href="/messages">Go to messages</Link>
+          </Button>
+        )}
       </div>
     </Screen>
   );

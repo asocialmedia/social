@@ -19,6 +19,19 @@ export const DEN_LIMITS = {
   membersMin: 2,
   nameMax: 64,
   nameMin: 1,
+  // How many retired join codes a den keeps in `message_conversation_invite_codes`,
+  // which is what lets a link somebody was already given still name the den after
+  // its code is rotated away.
+  //
+  // Five, for the shape of the problem rather than for a round number: rotation is
+  // the "this code leaked" button, so a den's history of codes is a handful of
+  // incidents and not a schedule. Five covers every realistic window in which a
+  // shared link is still being clicked - days, not months - at a cost of five
+  // twelve-character strings per den that ever had to rotate. Bounded is the whole
+  // point: an unbounded archive is a slow-motion leak of secrets that grant nothing
+  // the moment they are retired, and it would grow with how often somebody pressed
+  // a button rather than with how many people use the product.
+  retiredInviteCodeMax: 5,
 } as const;
 
 // Unambiguous alphabet for a code people retype from a screenshot. No 0/O,

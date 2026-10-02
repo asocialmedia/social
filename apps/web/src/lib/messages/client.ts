@@ -603,10 +603,33 @@ export async function rotateDenInvite(conversationId: string): Promise<string> {
 // What a join link shows before anybody commits to it: the den's name, how many
 // people are in it, and whether the viewer is already one of them. Nothing
 // else, because possession of a code is not a reason to enumerate a roster.
-export interface DenInvitePreviewResponse {
-  den: { id: string; memberCount: number; name: string | null };
-  isMember: boolean;
-}
+//
+// The retired case is a second shape rather than two more fields on this one, so
+// the live payload stays byte-identical to what it always was and a reader holding
+// a working code is told nothing new. A code a rotation has retired still resolves
+// - to the den it used to open, and to that den's owner, because the only way to
+// hold such a code is to have been given it. `expired` is absent (not `false`) on
+// the live shape, which is what makes `preview.expired` a usable discriminant; a
+// server that sends `expired: false` also narrows correctly.
+export type DenInvitePreviewResponse =
+  | {
+      den: { id: string; memberCount: number; name: string | null };
+      expired?: undefined;
+      isMember: boolean;
+    }
+  | {
+      den: {
+        id: string;
+        memberCount: number;
+        name: string | null;
+        // Who to ask for a new invite. Null when the den's owner account is gone,
+        // which the join screen answers by degrading rather than by offering a
+        // button that opens nothing.
+        ownerId: string | null;
+      };
+      expired: true;
+      isMember: boolean;
+    };
 
 export async function fetchDenInvitePreview(
   code: string

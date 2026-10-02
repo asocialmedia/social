@@ -17,6 +17,12 @@ import { GET, POST } from "./route";
 // scrutiny here - it must not become a way to enumerate who is in a den, and it
 // must not disclose membership to somebody signed out - and the join must refuse
 // a member with no message identity before writing anything at all.
+//
+// The one disclosure the preview does make is a RETIRED code's den and owner, which
+// is what lets somebody whose link stopped working be told who to ask. It is tested
+// here from both sides: that it names the right four facts and no more, and that
+// the unknown outcome is still byte-identical to a code that never existed - the
+// second being what stops the disclosure from being an oracle for guessing.
 
 class DenError extends Error {
   code: DenErrorClass["code"];
@@ -28,20 +34,24 @@ class DenError extends Error {
 }
 
 interface Preview {
+  expired: boolean;
   id: string;
   inviteCode: string;
   memberCount: number;
   name: string | null;
+  ownerId: string | null;
 }
 
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "newcomer" } }));
 
 let preview: Preview | null = {
+  expired: false,
   id: "den-1",
   inviteCode: "code-abcdefghijk",
   memberCount: 4,
   name: "game night",
+  ownerId: "owner-1",
 };
 const mockPreviewInvite = mock((_code: string) => Promise.resolve(preview));
 
@@ -115,10 +125,12 @@ function join(code = "code-abcdefghijk", session: Session = null) {
 describe("GET /api/messages/dens/join/:code", () => {
   beforeEach(() => {
     preview = {
+      expired: false,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
       memberCount: 4,
       name: "game night",
+      ownerId: "owner-1",
     };
     membership = null;
     limiterDenies = false;
@@ -143,14 +155,134 @@ describe("GET /api/messages/dens/join/:code", () => {
     });
   });
 
-  test("answers a rotated-away code the same way as one that never existed", async () => {
-    // Otherwise this endpoint can be used to test whether a guessed code was
-    // ever valid, which turns a 12-character secret into a probe.
+  test("answers a code it cannot explain the same way as one that never existed", async () => {
+    // A pruned code, a code whose den has been dissolved, and a code the archive
+    // could not be read to explain all arrive here as null from `previewInvite`, and
+    // all three have to reach the client as exactly the bytes a never-issued code
+    // gets. Otherwise this endpoint is a probe for whether a guessed code was ever
+    // real, which turns a 12-character secret into an oracle.
     preview = null;
     const neverExisted = await previewRequest("nope-nope-nope");
-    const rotatedAway = await previewRequest("old-code-old-c");
-    expect(rotatedAway.status).toBe(neverExisted.status);
-    expect(await rotatedAway.json()).toEqual(await neverExisted.json());
+    const unexplainable = await previewRequest("old-code-old-c");
+    expect(unexplainable.status).toBe(neverExisted.status);
+    expect(await unexplainable.json()).toEqual(await neverExisted.json());
+  });
+
+  test("a live code's payload is byte-identical to what it always was", async () => {
+    // The promise the whole retired-code branch rests on: adding the archive must
+    // not change what somebody holding a WORKING code is told. `expired` is absent
+    // rather than false, and `ownerId` is absent rather than named, so a reader with
+    // a live code learns exactly what they learned before.
+    const res = await previewRequest();
+    expect(await res.json()).toEqual({
+      den: { id: "den-1", memberCount: 4, name: "game night" },
+      isMember: false,
+    });
+  });
+
+  test("a retired code names the den and its owner", async () => {
+    // The disclosure this route now makes, and the whole point of the archive. The
+    // holder of a retired code was given it by somebody in that den, so it names a
+    // room and a person they were already told about - and it hands back no way in.
+    preview = {
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      den: {
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+        ownerId: "owner-1",
+      },
+      expired: true,
+      isMember: false,
+    });
+  });
+
+  test("a retired code with no owner says so rather than naming a stranger", async () => {
+    // The den's owner account can be deleted. The route has to report that honestly
+    // rather than reaching for another id, because the join screen's whole choice -
+    // offer "ask for a new invite", or degrade - hangs on this being null.
+    preview = {
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: null,
+    };
+    const res = await previewRequest();
+    const body = (await res.json()) as { den: { ownerId: string | null } };
+    expect(body.den.ownerId).toBeNull();
+  });
+
+  test("a retired code carries nothing a live one does not, and no roster", async () => {
+    // The bound on what may ever ride along. A roster, a join log or a message count
+    // here would turn a "go ask the owner" screen into a history of a room people
+    // have since left.
+    preview = {
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest();
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(Object.keys(body).toSorted()).toEqual([
+      "den",
+      "expired",
+      "isMember",
+    ]);
+    expect(Object.keys(body.den as Record<string, unknown>).toSorted()).toEqual(
+      ["id", "memberCount", "name", "ownerId"]
+    );
+    // The code itself never comes back, retired or live: it is the one value the
+    // reader already has.
+    expect(JSON.stringify(body)).not.toContain("inviteCode");
+  });
+
+  test("a signed-in member of a den whose code was retired is told so", async () => {
+    // Same disclosure rule as the live path, and it is what stops the screen offering
+    // somebody already inside a den a conversation with its owner.
+    preview = {
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    membership = { role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(body.isMember).toBe(true);
+    expect(mockGetDenMembership).toHaveBeenCalledWith("den-1", "member-1");
+  });
+
+  test("a signed-out reader of a retired code is told nothing about membership", async () => {
+    // A leaked code must not tell an outsider whether somebody is still inside the
+    // den, and that rule is the same one the live path has always had.
+    preview = {
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    await previewRequest();
+    expect(mockGetDenMembership).not.toHaveBeenCalled();
   });
 
   test("reads without a session", async () => {
@@ -337,6 +469,26 @@ describe("POST /api/messages/dens/join/:code", () => {
     );
     const res = await join("nope-nope-nope", { user: { id: "newcomer" } });
     expect(res.status).toBe(404);
+  });
+
+  test("a retired code is refused exactly as one that never existed", async () => {
+    // The door is shut whatever the preview said, and it is shut indistinguishably.
+    // `joinDenByInviteCode` resolves against the live column alone, so it raises the
+    // same refusal it raises for a fabricated code - and this asserts the refusal the
+    // client sees, because a distinguishable one would turn the preview's retired
+    // branch into a sweepable oracle over the whole code space.
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const retired = await join("old-code-old-c", { user: { id: "newcomer" } });
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const neverIssued = await join("nope-nope-nope", {
+      user: { id: "newcomer" },
+    });
+    expect(retired.status).toBe(neverIssued.status);
+    expect(await retired.text()).toBe(await neverIssued.text());
   });
 
   test("a full den is refused exactly as a dead code is", async () => {

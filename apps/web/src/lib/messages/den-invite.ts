@@ -1,14 +1,22 @@
 // The den invite link, and what the screen at the end of it has to say.
 //
 // The link is the widest door in the product: anyone holding the URL can
-// present it, so the surface on the other end has to be honest about the three
-// things that can happen there without leaking anything about the den.
+// present it, so the surface on the other end has to be honest about the things
+// that can happen there without leaking anything about the den.
 //
-//   - the code does not resolve (it never existed, or it was rotated out), which
-//     is a dead end and must read as a dead end rather than as an error;
-//   - the viewer is already inside, which is a success and navigates silently;
+//   - the code resolves and the reader can join (or is already inside);
+//   - the code has been RETIRED by a rotation, which names the den and its owner
+//     so the reader can go and ask for a new invite;
+//   - the code does not resolve at all, which is a dead end and must read as a
+//     dead end rather than as an error;
 //   - the viewer has no message identity, which is the one actionable refusal,
 //     and it carries a link to the screen that fixes it.
+//
+// The retired case is why this file is not just a copy deck. It used to be folded
+// into "invalid", and the cost of that was a reader who had been invited, then had
+// the code rotated out from under them, being told the link was broken with no way
+// to find out who to ask. Naming the owner is the whole fix, and the preview route
+// is where the disclosure behind it is justified.
 //
 // Pure so each of those is unit-tested as a decision rather than as a rendered
 // branch, and so the link can be built and asserted without a DOM.
@@ -51,24 +59,120 @@ export function denInviteUrl(origin: string, code: string): string {
   return `${trimmedOrigin}${denInvitePath(normalized)}`;
 }
 
+// Where the expired screen's primary action goes: the deep link the messages page
+// already reads to create-or-find a DM with somebody (`?dm=`). Reusing it rather
+// than opening a DM from here means the join screen owns no conversation-creation
+// code at all, and the thread that opens is the ordinary one the reader would have
+// got from a profile's Message button.
+//
+// The id is encoded even though a user id cannot contain a slash: this string ends
+// up in a URL that a reader can also copy, and the other paths in this file treat
+// a code as untrusted for the same reason.
+export function denAskOwnerPath(ownerId: string): string {
+  return `/messages?dm=${encodeURIComponent(ownerId)}`;
+}
+
+// Whether "Nevermind" has somewhere to go back to.
+//
+// A dismissal, so it must not walk out of the app on a tab that opened this link
+// directly: with no history, `router.back()` leaves the tab the reader opened the
+// link in and takes whatever they had in it with them. The messages index is the
+// floor - it is where this screen lives, so going there is never a wrong answer, and
+// it is the destination the old "Go to messages" button used.
+//
+// `historyLength <= 1` rather than `=== 1`: a length of 0 is not reachable in a live
+// document, but a bound degrades on any platform that reports something else instead
+// of walking out.
+export function denJoinDismissesToMessages(historyLength: number): boolean {
+  return historyLength <= 1;
+}
+
+// What pressing "Nevermind" does, given the three things it needs. Split from the
+// component so the decision is testable without a DOM: this repo has no browser
+// environment, and a helper that took the router object would have nothing to drive
+// it with.
+export function denJoinDismiss(input: {
+  back: () => void;
+  historyLength: number;
+  replace: (href: string) => void;
+}): void {
+  if (denJoinDismissesToMessages(input.historyLength)) {
+    input.replace("/messages");
+    return;
+  }
+  input.back();
+}
+
+// Pressing "Ask for a new invite": open a DM with the den's owner, then hand over to
+// the messages page's own `?dm=` deep link.
+//
+// The message is opened HERE rather than by the deep link, and that ordering is the
+// whole reason this button cannot go nowhere. A DM is follow-gated, blocks are
+// DM-only, and both ends need a Messages identity, so the conversations route answers
+// 403 for the first two and 409 for the third - which the deep link would turn into
+// a destructive toast on the messages screen, after the reader has already left the
+// join screen with no way back. Opening it first means a refusal is answered while
+// this screen is still on the stack, where an honest answer exists.
+//
+// Returns whether the reader got their message, and the caller degrades to the
+// unknown state when they did not. ANY failure degrades, not only the two statuses
+// above: this screen's job is to stay readable, and the unknown state is readable.
+// The create-or-find is idempotent, so the deep link that follows finds the same
+// conversation rather than making a second one.
+//
+// `openDirectMessage` and `navigate` are injected rather than imported so this stays
+// testable with no browser environment, and so nothing here can navigate without
+// having proved the destination opens first.
+export async function denAskOwner(input: {
+  navigate: (path: string) => void;
+  openDirectMessage: (ownerId: string) => Promise<unknown>;
+  ownerId: string;
+}): Promise<boolean> {
+  try {
+    await input.openDirectMessage(input.ownerId);
+  } catch {
+    return false;
+  }
+  input.navigate(denAskOwnerPath(input.ownerId));
+  return true;
+}
+
+// The den a retired code named, as the preview reported it: the same facts a live
+// code gets, plus the owner because it is the only one anybody can act on. Derived
+// from the response type rather than written out, so a column added to the retired
+// preview cannot silently stop reaching this screen.
+export type DenExpiredInvite = Extract<
+  DenInvitePreviewResponse,
+  { expired: true }
+>["den"];
+
 // What the join screen shows before anybody commits.
 //
 // `invalid` carries no den at all: an unresolvable code must not render a name
 // and a count it could not read, so the state is the whole answer.
+//
+// `expired` DOES carry a den, and that is the change this file exists for. The
+// reader was invited, the code was then rotated away, and the only useful thing
+// the screen can say is which room it was and who to ask - so it says both, and
+// `ownerId` is nullable because the den's owner account can be gone.
 //
 // `full` is decided HERE rather than after the press, from the member count the
 // preview already returned. That is not only better copy, it is what lets the
 // join route answer a full den with the same 404 as a dead code without
 // telling the reader anything they were not already told: the count is in the
 // preview, so a caller who learns "full" here has lost nothing, and a caller
-// guessing codes cannot tell a full den from a dead one.
+// guessing codes cannot tell a full den from a dead one. It is still the ONLY
+// path to that state: the join route collapses LIMIT_REACHED into the shared 404,
+// so deleting this branch would not simplify anything, it would lose the only
+// telling that a den is full at all.
 //
 // A member of a full den is still shown as a member. Being inside is the fact
 // the screen acts on, and the ceiling is a rule about who can join, not about
 // who can open what they are already in.
 export type DenJoinOutcome =
   | { kind: "invalid"; reason: "unknown-code" }
-  | { kind: "full"; den: DenInvitePreviewResponse["den"] }
+  | { den: DenExpiredInvite; kind: "expired" }
+  | { den: DenInvitePreviewResponse["den"]; kind: "full" }
   | { kind: "already-member"; den: DenInvitePreviewResponse["den"] }
   | { kind: "joinable"; den: DenInvitePreviewResponse["den"] };
 
@@ -78,6 +182,18 @@ export function denJoinOutcome(input: {
   const { preview } = input;
   if (!preview) {
     return { kind: "invalid", reason: "unknown-code" };
+  }
+  // Before `isMember`, and deliberately. A reader who is already inside this den
+  // and re-opens a link whose code has since rotated is not an outsider being
+  // pointed at a stranger: `ownerId` is the den's own owner, so the expired screen
+  // would offer to open a DM with the person who owns the room the reader is
+  // already in. That is harmless but it is noise, and the one thing this state must
+  // never do is talk somebody into messaging a den's owner for no reason. So the
+  // owner is only ever named to somebody the den has not admitted yet.
+  if (preview.expired) {
+    return preview.isMember
+      ? { den: preview.den, kind: "already-member" }
+      : { den: preview.den, kind: "expired" };
   }
   if (preview.isMember) {
     return { den: preview.den, kind: "already-member" };
@@ -92,9 +208,12 @@ export function denJoinOutcome(input: {
 // What a refused JOIN has to say, keyed off the status the route answered with.
 //
 //   - 404: the code stopped resolving between the preview and the press, or the
-//     den filled up in the gap. The route answers both the same way on purpose
-//     (see the join route), so the screen has to say a dead end and not
-//     distinguish which dead end it is.
+//     den filled up in the gap. The route answers all of those the same way on
+//     purpose (see the join route), so the screen has to say a dead end and not
+//     distinguish which dead end it is. A code that was rotated away reaches this
+//     too, when the preview that named it was fetched before the rotation landed
+//     and the press landed after it - which is why the retired case cannot be
+//     answered from a refusal at all.
 //   - 409: the viewer has no message identity. Actionable, and the one that needs
 //     somewhere to send them.
 //   - 429: rate limited. Real, expected, and different from "invalid".
@@ -133,7 +252,13 @@ export function denJoinFailure(status: number | null): DenJoinFailure {
 export function denJoinTitle(outcome: DenJoinOutcome): string {
   switch (outcome.kind) {
     case "invalid": {
-      return "This link is not valid";
+      return "We couldn't find that den";
+    }
+    case "expired": {
+      // Verbatim from the product owner, and not reworded: the tone is the point
+      // ("seems to be", "us"). A screen that tells somebody they were wrong about
+      // their own link is the failure this state exists to stop.
+      return "This den seems to be hiding from us";
     }
     case "full": {
       return "This den is full";
@@ -150,11 +275,27 @@ export function denJoinTitle(outcome: DenJoinOutcome): string {
 // The body for each state. `memberCount` is pluralised by the shared label
 // rather than inline, so the join screen and the details header cannot disagree
 // about how a den's size reads.
+//
+// The unknown sentence used to be a union of four things that are no longer
+// reachable from here - a retired code (which has its own screen now), a den that
+// filled up in the gap between the preview and the press (which the route answers
+// as an unknown code, and which the reader was already told by the preview's count),
+// and a truncated link. What is left is the honest pair: the link may not have come
+// across whole, or the den is gone. Both are things the reader can check, so the
+// sentence ends by handing them the check rather than by assigning blame.
 export function denJoinDescription(outcome: DenJoinOutcome): string {
   if (outcome.kind === "invalid") {
-    return "The join code has been retired, the link was cut short, or the den filled up while you were looking at it. Ask whoever shared it for a new one.";
+    return "This link is cut short, mistyped, or points to a den that's gone. Check it and try again.";
   }
   const { name } = outcome.den;
+  if (outcome.kind === "expired") {
+    // The den's name is the reassurance and the code is the news: the reader needs
+    // to know the room is real before "ask somebody" means anything, and a den with
+    // no name of its own has to say so rather than render a gap in the sentence.
+    return name
+      ? `${name} is still here, but the code in this link has been replaced.`
+      : "This den is still here, but the code in this link has been replaced.";
+  }
   if (!name) {
     return "This den has no name yet.";
   }
@@ -168,13 +309,21 @@ export function denJoinDescription(outcome: DenJoinOutcome): string {
 
 // The label on the button that commits (or, for somebody already inside, the
 // one that just opens the den). Kept with the outcome because the two cannot
-// disagree: a joinable den gets "Join", a full one and an invalid one get
-// nothing to press.
+// disagree: a joinable den gets "Join", a full one, an invalid one and an expired
+// one get nothing to press here.
+//
+// Expired gets nothing because its actions are not a join - they are a message to
+// the owner and a way out, which the expired screen draws itself. There is nothing
+// here a press could commit, because a retired code commits nothing.
 export function denJoinActionLabel(
   outcome: DenJoinOutcome,
   busy: boolean
 ): string | null {
-  if (outcome.kind === "invalid" || outcome.kind === "full") {
+  if (
+    outcome.kind === "invalid" ||
+    outcome.kind === "expired" ||
+    outcome.kind === "full"
+  ) {
     return null;
   }
   if (busy) {

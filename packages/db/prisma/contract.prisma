@@ -177,14 +177,17 @@ namespace public {
     // needed recording against them: a client that reads 0 learns nothing it did
     // not already have from `updatedAt`.
     membershipSeq              Int                          @default(0)
-    messageConversationKeys    MessageConversationKeys[]
-    messageConversationMembers MessageConversationMembers[]
-    messages                   Messages[]
-    notifications              Notifications[]
-    postMedias                 PostMedia[]
-    avatarMedia                PostMedia?                   @relation(name: "message_conversations_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_avatarMediaId_fkey")
-    createdBy                  Users?                      @relation(name: "message_conversations_createdById_fkey", fields:[createdById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_createdById_fkey")
-    owner                      Users?                      @relation(name: "message_conversations_ownerId_fkey", fields:[ownerId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_ownerId_fkey")
+    // The codes this den has rotated away, so a link that was already shared can
+    // still name the den. See `MessageConversationInviteCodes`.
+    messageConversationInviteCodes MessageConversationInviteCodes[]
+    messageConversationKeys        MessageConversationKeys[]
+    messageConversationMembers     MessageConversationMembers[]
+    messages                       Messages[]
+    notifications                  Notifications[]
+    postMedias                     PostMedia[]
+    avatarMedia                    PostMedia?                   @relation(name: "message_conversations_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_avatarMediaId_fkey")
+    createdBy                      Users?                      @relation(name: "message_conversations_createdById_fkey", fields:[createdById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_createdById_fkey")
+    owner                          Users?                      @relation(name: "message_conversations_ownerId_fkey", fields:[ownerId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_ownerId_fkey")
 
     @@index([avatarMediaId], map: "message_conversations_avatarMediaId_idx")
     @@unique([inviteCode], map: "message_conversations_inviteCode_key")
@@ -630,6 +633,74 @@ namespace public {
     @@unique([postId, userId], map: "mentions_postId_userId_key")
     @@index([userId], map: "mentions_userId_idx")
     @@map("mentions")
+  }
+
+  model MessageConversationInviteCodes {
+    // A join code a den has retired, kept so that a link which no longer joins can
+    // still identify the den it used to open.
+    //
+    // Rotating a den's code overwrote `message_conversations.inviteCode`, which
+    // meant a link that had already been copied into a chat stopped resolving with
+    // no trace at all. The person holding it got one dead end - "this link is not
+    // valid" - and no way to learn which den had retired the code or who to ask
+    // for a new one. This table is the fix, and it exists for exactly that: a code
+    // is written here in the SAME transaction that replaces it on the conversation
+    // row, so a rotation cannot commit without archiving the code it invalidated.
+    //
+    // What it must NOT be used for:
+    //
+    //   - As a way back in. A retired code grants nothing. `joinDenByInviteCode`
+    //     resolves against the live column alone and never reads this table, so an
+    //     archived code can never be replayed into a membership row. The archive
+    //     identifies a den; it never admits to one.
+    //
+    //   - As a validity oracle for guessing. Reading this table IS a disclosure:
+    //     a code found here answers with the den's id, name, member count and
+    //     owner. That trade is deliberate and bounded - see the decision above
+    //     `previewRetiredInvite` - but it is the reason nothing here may ever grow
+    //     past those four facts. A roster, a join log, or a message count would
+    //     turn this into a history of a room that people have since left.
+    //
+    //   - As an audit log. There is no "who retired it" column, on purpose.
+    //     Rotation is already gated on den management, the archived string grants
+    //     nothing the moment it is retired, and the den's live `ownerId` stays the
+    //     authority on who to ask - an actor snapshot here would go stale on every
+    //     ownership transfer and on every account deletion, and no query would ever
+    //     read it. A column nothing reads is a column that leaks.
+    //
+    // Retention is bounded per den by `DEN_LIMITS.retiredInviteCodeMax`, pruned by
+    // the same rotation that wrote the row. Unbounded this is a slow-motion leak of
+    // secrets that no longer open anything, growing with how often somebody presses
+    // a button rather than with how many people use the product.
+    code           String
+    // The den this code used to open. Cascade, and that is the whole answer for a
+    // dissolved den: its codes go with it, so a link to a room that no longer
+    // exists reads as a link that never resolved, rather than as a link to a den
+    // whose owner has vanished and whose messages are unreadable.
+    conversationId String
+    // When the code stopped working. Read only to order the prune, newest first,
+    // so a den keeps its most recent codes and drops older ones. Never returned to
+    // a reader and never used to authorise anything: an archived code is dead
+    // whether it was retired a second ago or a year ago.
+    retiredAt      Timestamp(3)
+    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_invite_codes_conversationId_fkey", index: false)
+
+    // The primary key rather than a surrogate id with a unique beside it, because
+    // the code IS this row's identity and there is nothing else to look one up by.
+    //
+    // It is NOT unique against `message_conversations.inviteCode`, which is a
+    // different table, so a code can in principle be current on one den and
+    // archived from another. Nothing constructs that state on its own - the code
+    // space is 31^12, and a rotation only ever archives the code it has just
+    // replaced - and the lookup answers it anyway by reading the live column first,
+    // so a live code always beats an archive row naming some other den.
+    @@id([code], map: "message_conversation_invite_codes_pkey")
+    // Serves the prune, which is the only query that reads this table by
+    // conversation: it asks for one den's newest archived codes. The join screen's
+    // own lookup is by `code`, which the primary key above already answers with a
+    // single index probe.
+    @@index([conversationId, retiredAt], map: "message_conversation_invite_codes_conversationId_retiredAt_idx")
+    @@map("message_conversation_invite_codes")
   }
 
   model MessageConversationKeys {

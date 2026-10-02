@@ -1067,6 +1067,89 @@ export async function transferDenOwnership(
   );
 }
 
+// Writes the outgoing code to the archive, in the caller's transaction.
+//
+// DO NOTHING on conflict, which is the whole reason this is an upsert rather than a
+// create. The two unique indexes involved live in two different tables, so a code
+// can in principle be archived AND be some other den's live code; a plain insert
+// would raise 23505, the rotation's retry loop would try a fresh code, archive the
+// same offending value again, and after its five attempts report "Couldn't generate
+// a join code" - a rotation refused over a bookkeeping detail, with the den left on
+// the code the manager was trying to retire.
+//
+// Keeping the FIRST archive rather than overwriting it is the other half. The row
+// records which den a stale link should send somebody to, and a stale link is
+// already sitting in somebody's chat history pointing at the den that retired the
+// code. Rewriting the row would re-point every one of those links at a den that has
+// never had that code in front of it, which is worse than leaving them where they
+// were.
+async function archiveRetiredInviteCode(
+  transaction: PrismaTransaction,
+  conversationId: string,
+  code: string
+): Promise<void> {
+  await transaction.orm.public.MessageConversationInviteCodes.upsert({
+    conflictOn: { code },
+    create: { code, conversationId, retiredAt: toPrismaDateTime(new Date()) },
+    update: {},
+  });
+}
+
+// Keeps the den's most recent `DEN_LIMITS.retiredInviteCodeMax` archived codes and
+// drops the rest, inside the caller's transaction and immediately after the rotation
+// that pushed it over.
+//
+// Retention is bounded rather than unbounded on purpose: every row here is a
+// twelve-character secret that granted nothing the moment it was rotated, so an
+// archive with no prune is a slow-motion leak whose size tracks how often somebody
+// pressed a button. See `DEN_LIMITS.retiredInviteCodeMax` for the number.
+//
+// Ordered with the code as the tiebreak rather than the timestamp alone: two
+// rotations inside one millisecond produce two rows with equal `retiredAt`, and
+// without a total order the prune would pick between them arbitrarily - so the same
+// input could keep a different row on every run, and "keeps the newest N" would be
+// a statement about intent rather than about the table.
+//
+// `liveCode` is passed in and skipped explicitly, even though the den's current code
+// is by construction absent from this table. This is the one writer that deletes
+// rows by value while a new live code has just been installed next to it, and
+// "keep the newest N" is not by itself an argument that the newest N excludes the
+// live code - the guard is what makes that an assertion rather than an assumption.
+async function pruneRetiredInviteCodes(
+  transaction: PrismaTransaction,
+  conversationId: string,
+  liveCode: string
+): Promise<void> {
+  const archived =
+    await transaction.orm.public.MessageConversationInviteCodes.select(
+      "code",
+      "retiredAt"
+    )
+      .where((row) => row.conversationId.eq(conversationId))
+      .all();
+  if (archived.length <= DEN_LIMITS.retiredInviteCodeMax) {
+    return;
+  }
+  const newestFirst = archived.toSorted((left, right) => {
+    const byTime =
+      fromPrismaDateTime(right.retiredAt).getTime() -
+      fromPrismaDateTime(left.retiredAt).getTime();
+    if (byTime !== 0) {
+      return byTime;
+    }
+    return left.code.localeCompare(right.code);
+  });
+  for (const row of newestFirst.slice(DEN_LIMITS.retiredInviteCodeMax)) {
+    if (row.code === liveCode) {
+      continue;
+    }
+    // oxlint-disable-next-line no-await-in-loop -- at most one row past the window, under the claim lock
+    await transaction.orm.public.MessageConversationInviteCodes.where(
+      (candidate) => candidate.code.eq(row.code)
+    ).deleteAndCount();
+  }
+}
+
 export async function rotateInviteCode(
   conversationId: string,
   actorId: string
@@ -1080,9 +1163,41 @@ export async function rotateInviteCode(
         // Deliberately NOT touchDen: a new code changes the door, never the room.
         // Nobody's read or write access moves, so the counter stays where it is and
         // no member's client refetches a roster that did not change.
+        //
+        // The outgoing code is read INSIDE the claim rather than before it, because
+        // the claim holds the den's row lock to commit. That lock is what makes it
+        // safe to archive the value read here: no other rotation can replace the
+        // code between this read and the archive write below, so the row written
+        // always describes the code this transaction is actually retiring.
+        const current = await tx.orm.public.MessageConversations.select(
+          "inviteCode"
+        )
+          .where({ id: conversationId })
+          .first();
+        if (!current) {
+          // Deleted between `requireDenManager` above and the claim. The writes below
+          // would target a missing row anyway, and the foreign key would refuse the
+          // archive, so failing here names the real cause.
+          throw new DenError("NOT_FOUND", "Den not found");
+        }
+        const outgoing = current.inviteCode;
+        // ONE transaction for the archive and the replacement, and that is the
+        // load-bearing property rather than a tidiness choice. Without it a rotation
+        // could commit with the archive write lost, and the den would be left exactly
+        // where it started: a code that no longer opens anything, with no record that
+        // it ever did, so a stale link reads as a link that never existed and the
+        // reader is told nothing at all. Rolling the rotation back when the archive
+        // write fails is the other half of the same argument and is deliberate: a
+        // rotation that could not explain itself is worse than a rotation that did
+        // not happen, because a manager who sees a refusal retries, and one who sees
+        // a success has been told the old link is dead for a reason.
+        if (outgoing) {
+          await archiveRetiredInviteCode(tx, conversationId, outgoing);
+        }
         await tx.orm.public.MessageConversations.where((candidate) =>
           candidate.id.eq(conversationId)
         ).updateAndCount({ inviteCode });
+        await pruneRetiredInviteCodes(tx, conversationId, inviteCode);
       });
       return inviteCode;
     } catch (error) {
@@ -1140,10 +1255,21 @@ export async function dissolveDen(
 // roster, a message, or the member identities: possession of a code must not be
 // enough to enumerate who is in a den.
 export interface DenInvitePreview {
+  // True when the code has been rotated away and the den named here is only what
+  // it used to open. The join route refuses an expired code exactly as it refuses
+  // an unknown one, so this flag is a presentation decision and never a door: it
+  // changes what the screen says, not what anybody may do.
+  expired: boolean;
   id: string;
   inviteCode: string;
   memberCount: number;
   name: string | null;
+  // Who owns the den, which is the only person who can mint a replacement code.
+  // Read from the LIVE conversation row rather than snapshotted at rotation, so a
+  // transfer or a deleted account is reflected immediately rather than whenever
+  // somebody next rotated. Null when the den's owner account is gone, which the
+  // join screen answers by degrading to the unknown state.
+  ownerId: string | null;
 }
 
 // Normalizes before comparing so a code pasted with surrounding whitespace or in
@@ -1153,6 +1279,9 @@ function normalizeInviteCode(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+// The live column ONLY, and deliberately: this is the join door's own lookup, and
+// a code that has been rotated must not resolve through it. The archive is read by
+// `findRetiredDen` and by nothing that admits anybody.
 async function findDenByInviteCode(
   inviteCode: string
 ): Promise<{ id: string } | null> {
@@ -1167,34 +1296,142 @@ async function findDenByInviteCode(
   return den ? { id: den.id } : null;
 }
 
+// The den a rotated-away code used to open, or null when this archive holds no
+// such code - which is every code that never existed, every code older than the
+// den's retention window, and every code whose den has since been dissolved (the
+// foreign key cascades those away with the conversation).
+//
+// Best-effort by design, and the catch is the point rather than a shrug: this read
+// is an enhancement on top of a lookup that already failed, so a broken or missing
+// archive must not turn somebody's join screen into a 500. The safe answer to "we
+// cannot tell whether this code was retired" is the same answer as "we can tell and
+// it was not" - the unknown state, which tells the reader nothing they could have
+// learned by guessing. The alternative, propagating, would make an infrastructure
+// fault on a read-only helper indistinguishable from an outage of the join screen
+// itself, for a screen whose whole job is to stay readable.
+//
+// It is also the reason the UNKNOWN case below must stay indistinguishable from a
+// code that never existed: this function returning null for any of three different
+// reasons is exactly what makes the join screen honest, and widening it later is
+// what would turn it into a validity oracle.
+async function findRetiredDen(
+  inviteCode: string
+): Promise<{ conversationId: string } | null> {
+  try {
+    const row = await prisma.orm.public.MessageConversationInviteCodes.select(
+      "conversationId"
+    )
+      .where({ code: normalizeInviteCode(inviteCode) })
+      .first();
+    return row ? { conversationId: row.conversationId } : null;
+  } catch (error) {
+    console.error("Failed to read retired den invite codes:", error);
+    return null;
+  }
+}
+
+async function countDenMembers(conversationId: string): Promise<number> {
+  const members = await prisma.orm.public.MessageConversationMembers.where(
+    (member) => member.conversationId.eq(conversationId)
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  return members.count;
+}
+
+// The preview for a code that has already been rotated away.
+//
+// PRIVACY, and the whole reason this function exists in this shape: returning the
+// den's owner to somebody holding a retired code is acceptable because the only way
+// to hold one is to have been given it, and the person who gave it either was that
+// den's owner or was already in it. So the reader is somebody the den was already
+// named to. A live code hands them the den's id, name and size; a retired one adds
+// exactly one fact, the owner, and it is the minimum that makes the screen
+// actionable - there is no point telling somebody a den exists if there is nobody
+// they could ask about it.
+//
+// What it deliberately does NOT add, and what any future change here has to argue
+// for from scratch: the roster (possession of a code is not a reason to enumerate
+// who is in a den, live code or dead), who joined when, a message count, the
+// den's description or avatar, and the identity of whoever rotated the code. Any of
+// those turns a "go ask the owner" screen into a history of a room people have
+// since left, and a holder of an old link is not somebody who should get one.
+//
+// The UNKNOWN outcome is untouched and stays indistinguishable from a code that
+// never existed, which is what keeps this table from being a validity oracle: a
+// caller cannot tell a code that was rotated on a den that still exists from one
+// that was never issued, and the one difference - an expired preview - is only ever
+// available to somebody who already holds a code this den minted.
+async function previewRetiredInvite(
+  inviteCode: string
+): Promise<DenInvitePreview | null> {
+  const retired = await findRetiredDen(inviteCode);
+  if (!retired) {
+    return null;
+  }
+  const row = await prisma.orm.public.MessageConversations.select(
+    "_type",
+    "id",
+    "name",
+    "ownerId"
+  )
+    .where({ id: retired.conversationId })
+    .first();
+  // A row here whose conversation is gone, or is not a den, is a den that was
+  // dissolved between the archive read and this one. It answers as unknown, not as
+  // a screen naming a room and an owner that are not there: the foreign key cascades
+  // the archive row away with the conversation, so this is only reachable inside the
+  // gap between two reads, and "we cannot find that den" is the true answer to it.
+  if (!row || row._type !== "DEN") {
+    return null;
+  }
+  return {
+    expired: true,
+    id: row.id,
+    inviteCode: normalizeInviteCode(inviteCode),
+    memberCount: await countDenMembers(row.id),
+    name: row.name,
+    ownerId: row.ownerId,
+  };
+}
+
 export async function previewInvite(
   inviteCode: string
 ): Promise<DenInvitePreview | null> {
   const den = await findDenByInviteCode(inviteCode);
   if (!den) {
-    return null;
+    // Current first, then history, then unknown - and that order is the answer to
+    // "what if a code is live on one den and archived from another". It cannot arise
+    // from any code path here (a rotation archives only the code it is replacing,
+    // and the code space is 31^12), but the two unique indexes live in two different
+    // tables so nothing in the schema forbids it. Live wins because it is the state
+    // that grants access: a reader holding such a code is somebody the live den
+    // admitted an instant ago, and answering them with another den's owner would
+    // point them at the wrong person for a code that demonstrably works.
+    return await previewRetiredInvite(inviteCode);
   }
   // One read carries everything, so the preview cannot observe a code that was
   // rotated between the lookup and the read below.
   const row = await prisma.orm.public.MessageConversations.select(
     "id",
     "inviteCode",
-    "name"
+    "name",
+    "ownerId"
   )
     .where({ id: den.id })
     .first();
   if (!row?.inviteCode) {
-    // Dissolved, or the code was rotated out from under this lookup.
+    // Dissolved, or the code was rotated out from under this lookup. The archive is
+    // NOT consulted here: a rotation that commits between the two reads is the one
+    // case where the caller genuinely does not know, and answering unknown is the
+    // same thing the reader would have got a moment earlier.
     return null;
   }
-  const members = await prisma.orm.public.MessageConversationMembers.where(
-    (member) => member.conversationId.eq(den.id)
-  ).aggregate((aggregate) => ({ count: aggregate.count() }));
   return {
+    expired: false,
     id: row.id,
     inviteCode: row.inviteCode,
-    memberCount: members.count,
+    memberCount: await countDenMembers(row.id),
     name: row.name,
+    ownerId: row.ownerId,
   };
 }
 
@@ -1218,6 +1455,17 @@ export async function joinDenByInviteCode(
   inviteCode: string,
   userId: string
 ): Promise<JoinDenResult> {
+  // `findDenByInviteCode` and NOT the three-way lookup the preview uses. This is
+  // the door, and a retired code has to stay shut: the archive exists so a stale
+  // link can be attributed to a den, never so it can be replayed into it. A code
+  // that resolves here gets a membership row, and nothing in this table is allowed
+  // to be the thing that produced one.
+  //
+  // The refusal is therefore byte-identical to the one a code that never existed
+  // gets - same error code, same message, same 404 - so a caller cannot tell from a
+  // refused join whether the code was rotated, pruned, or never issued. The expired
+  // screen is told by the preview instead, which the client has already fetched and
+  // which only answers somebody already holding a code this den minted.
   const den = await findDenByInviteCode(inviteCode);
   if (!den) {
     throw new DenError("NOT_FOUND", "That join code is not valid");
