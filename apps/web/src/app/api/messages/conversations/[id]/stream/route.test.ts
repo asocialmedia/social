@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  DEN_ACTIVITY_STREAM_RATE_LIMIT,
+  DEN_STREAM_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { GET } from "./route";
@@ -24,9 +29,16 @@ const OWNER_ID = "owner-1";
 type Listener = (channel: string, raw: string) => void;
 
 const listeners = new Map<string, Set<Listener>>();
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 let unsubscribed = 0;
 
 function subscribeToChannel(channel: string, listener: Listener) {
+  limiter.service("subscribe");
   const existing = listeners.get(channel) ?? new Set<Listener>();
   existing.add(listener);
   listeners.set(channel, existing);
@@ -142,6 +154,7 @@ beforeEach(() => {
   memberIds = [MEMBER_ID, OWNER_ID];
   probeFails = false;
   probeCount = 0;
+  limiter.reset();
 });
 
 describe("GET /api/messages/conversations/[id]/stream", () => {
@@ -354,5 +367,69 @@ describe("GET /api/messages/conversations/[id]/stream", () => {
     memberIds = [OWNER_ID];
     await publish(membershipEvent("left", MEMBER_ID));
     expect(delivered()).toContain("event: membership-ended");
+  });
+});
+
+describe("GET /api/messages/conversations/[id]/stream rate limit", () => {
+  beforeEach(() => {
+    listeners.clear();
+    unsubscribed = 0;
+    sessionUserId = MEMBER_ID;
+    memberIds = [MEMBER_ID, OWNER_ID];
+    probeFails = false;
+    probeCount = 0;
+    limiter.reset();
+  });
+
+  async function open(): Promise<Response> {
+    return await GET(new Request("http://localhost/stream"), {
+      params: Promise.resolve({ id: CONVERSATION_ID }),
+    });
+  }
+
+  test("spends the stream budget, per account", async () => {
+    const response = await open();
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(limiter.chargedBuckets).toEqual([DEN_STREAM_RATE_LIMIT.bucket]);
+    expect(limiter.chargedIdentifiers).toEqual([MEMBER_ID]);
+    await response.body?.cancel();
+  });
+
+  test("429s with a retry-after and subscribes to nothing when over budget", async () => {
+    // This is the whole reason a stream route needs a budget: constructing one
+    // is a request that never completes, a twenty-second interval for as long as
+    // it lives, and a slot in the process's shared subscriber. A refusal has to
+    // land before any of that exists.
+    limiter.setDenied(true);
+    const response = await open();
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("42");
+    expect(response.headers.get("Content-Type")).not.toBe("text/event-stream");
+    expect(listeners.size).toBe(0);
+  });
+
+  test("charges the limiter before it subscribes", async () => {
+    const response = await open();
+    expect(limiter.order[0]).toBe(`consume:${DEN_STREAM_RATE_LIMIT.bucket}`);
+    expect(limiter.order).toContain("service:subscribe");
+    await response.body?.cancel();
+  });
+
+  test("two accounts do not share one budget", async () => {
+    const first = await open();
+    await first.body?.cancel();
+    sessionUserId = OWNER_ID;
+    const second = await open();
+    await second.body?.cancel();
+    expect(limiter.chargedIdentifiers).toEqual([MEMBER_ID, OWNER_ID]);
+  });
+
+  test("is metered on its own bucket from the per-user activity stream", () => {
+    // Two different subscribers on two different channels. Sharing would let a
+    // loop against one exhaust the other's budget, and the two are opened by
+    // different components at different rates.
+    expect(DEN_STREAM_RATE_LIMIT.bucket).not.toBe(
+      DEN_ACTIVITY_STREAM_RATE_LIMIT.bucket
+    );
   });
 });

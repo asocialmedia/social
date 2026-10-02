@@ -8,6 +8,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_READ_RECEIPT_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { getConversationForUser } from "@/lib/messages/server";
 
 export async function POST(
@@ -18,6 +22,17 @@ export async function POST(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // This route is a COUNT over the unread range plus a locked member-row
+  // update, so it is not the cheap write it looks like from the client. Metered
+  // before either.
+  const limited = await consumeDenRateLimit(
+    DEN_READ_RECEIPT_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

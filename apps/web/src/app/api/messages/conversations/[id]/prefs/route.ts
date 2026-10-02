@@ -12,6 +12,10 @@ import {
   isConversationWallpaperKey,
   isWallpaperDim,
 } from "@/lib/messages/conversation-wallpaper";
+import {
+  DEN_PREFS_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
 
 // Per-member DM preferences: mute, chat theme, and chat wallpaper.
@@ -39,6 +43,14 @@ export async function PATCH(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Four single-column writes to the caller's own member row, behind controls
+  // that can fire per step and per keystroke. Metered before the membership
+  // read.
+  const limited = await consumeDenRateLimit(DEN_PREFS_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

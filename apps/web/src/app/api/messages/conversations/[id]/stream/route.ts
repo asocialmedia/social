@@ -7,6 +7,10 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
+  DEN_STREAM_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
+import {
   getConversationForUser,
   isConversationMember,
 } from "@/lib/messages/server";
@@ -36,6 +40,17 @@ export async function GET(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Metered before the stream is constructed, because constructing it is the
+  // expensive part: a request that never completes, a twenty-second interval for
+  // as long as it lives, and a slot in the process's shared subscriber. The
+  // budget is on OPENS rather than on a concurrent count, which is also how the
+  // platforms meter this - Slack caps rtm.start at one a minute, Discord caps
+  // concurrent Identify requests per five seconds.
+  const limited = await consumeDenRateLimit(DEN_STREAM_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

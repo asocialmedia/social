@@ -2,7 +2,7 @@ import { rotateInviteCode } from "@asm/db";
 
 import { denErrorResponse, requireApiUser } from "@/lib/messages/den-api";
 import {
-  DEN_MANAGE_RATE_LIMIT,
+  DEN_INVITE_ROTATE_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 
@@ -22,7 +22,15 @@ export async function POST(_request: Request, { params }: Params) {
   }
   const { id } = await params;
 
-  const limited = await consumeDenRateLimit(DEN_MANAGE_RATE_LIMIT, user.userId);
+  // Its own budget, and a tighter one than the single-row operations it used to
+  // share a bucket with. Rotating retires a link that other people may be
+  // holding right now, so a loop here breaks a door for innocents rather than
+  // only spending the caller's own database time - which is a stronger reason to
+  // bound it than cost alone.
+  const limited = await consumeDenRateLimit(
+    DEN_INVITE_ROTATE_RATE_LIMIT,
+    user.userId
+  );
   if (limited) {
     return limited;
   }

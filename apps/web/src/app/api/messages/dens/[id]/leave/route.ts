@@ -3,7 +3,7 @@ import { dissolveDen, leaveDen } from "@asm/db";
 import { denErrorResponse, requireApiUser } from "@/lib/messages/den-api";
 import {
   DEN_DISSOLVE_RATE_LIMIT,
-  DEN_MANAGE_RATE_LIMIT,
+  DEN_LEAVE_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 
@@ -25,9 +25,12 @@ export async function POST(_request: Request, { params }: Params) {
   }
   const { id } = await params;
 
-  // A member walking out is not abuse, but it is a mutation, so it shares the
-  // manage budget rather than being unmetered.
-  const limited = await consumeDenRateLimit(DEN_MANAGE_RATE_LIMIT, user.userId);
+  // A member walking out is not abuse, but it is a mutation, so it is metered
+  // rather than left open. It no longer shares a budget with invite rotation:
+  // rotation invalidates a door other people are walking through, which is a
+  // different cost with a different victim than one person cleaning up their own
+  // den list, and the split means a rotation loop cannot lock out a leave.
+  const limited = await consumeDenRateLimit(DEN_LEAVE_RATE_LIMIT, user.userId);
   if (limited) {
     return limited;
   }

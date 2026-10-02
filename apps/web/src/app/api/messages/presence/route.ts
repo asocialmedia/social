@@ -7,6 +7,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_PRESENCE_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 
 export interface PresenceUser {
   avatarUrl: string | null;
@@ -21,6 +25,15 @@ export async function POST() {
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // The cheapest write on the surface - four idempotent Redis commands and no
+  // database work at all - which is exactly why it needs a bound: a loop against
+  // it accumulates nothing except load. The client heartbeats every thirty
+  // seconds shared across every mounted consumer.
+  const limited = await consumeDenRateLimit(DEN_PRESENCE_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   await markUserOnline(user.id);

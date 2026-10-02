@@ -1,6 +1,10 @@
 import { publishTypingStarted } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_TYPING_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { getConversationForUser } from "@/lib/messages/server";
 
 // Best-effort typing indicator: the client heartbeats while the user is
@@ -15,6 +19,14 @@ export async function POST(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Ahead of the membership read, because this is the cheapest route on the
+  // surface to drive in a loop and a limiter that runs after the read has
+  // already paid for the read.
+  const limited = await consumeDenRateLimit(DEN_TYPING_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

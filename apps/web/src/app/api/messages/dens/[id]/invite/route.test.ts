@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { DenError as DenErrorClass } from "@asm/db";
 
 import {
-  DEN_MANAGE_RATE_LIMIT,
+  DEN_INVITE_ROTATE_RATE_LIMIT,
   denRateLimitDouble,
 } from "@/lib/messages/test-support/den-rate-limit-double";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
@@ -95,10 +95,16 @@ describe("POST /api/messages/dens/:id/invite", () => {
     expect(mockRotateInviteCode).toHaveBeenCalledWith("den-1", "owner");
   });
 
-  test("spends the manage budget, shared only with leaving", async () => {
+  test("spends the rotation budget, not the shared manage budget", async () => {
+    // Rotation used to share `den-manage` with leaving and was bounded at 120 an
+    // hour with it. Split because the two have different victims: a leave costs
+    // the caller one row, a rotation breaks a shared link that other people are
+    // walking through. Twenty an hour is the number that goes with that.
     const res = await rotate();
     expect(res.status).toBe(200);
-    expect(chargedBuckets).toEqual([DEN_MANAGE_RATE_LIMIT.bucket]);
+    expect(chargedBuckets).toEqual([DEN_INVITE_ROTATE_RATE_LIMIT.bucket]);
+    expect(DEN_INVITE_ROTATE_RATE_LIMIT.limit).toBe(20);
+    expect(DEN_INVITE_ROTATE_RATE_LIMIT.windowSeconds).toBe(3600);
   });
 
   test("answers 429 without retiring the old code when the limiter denies", async () => {

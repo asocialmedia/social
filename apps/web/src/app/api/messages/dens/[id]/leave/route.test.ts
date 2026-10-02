@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { DenError as DenErrorClass } from "@asm/db";
 
+import {
+  DEN_INVITE_ROTATE_RATE_LIMIT,
+  DEN_LEAVE_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
 import { denRateLimitDouble } from "@/lib/messages/test-support/den-rate-limit-double";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
@@ -137,9 +141,18 @@ describe("POST /api/messages/dens/:id/leave", () => {
     });
   });
 
-  test("shares the manage bucket, because leaving is still a mutation", async () => {
+  test("spends the leave budget on its own", async () => {
+    // Rotation and leaving used to share `den-manage` and were bounded at 120 an
+    // hour together. Split because their victims differ: a leave costs the
+    // caller one row, a rotation breaks a shared link other people are walking
+    // through, so a rotation loop could spend a leave's budget.
     await leave();
-    expect(limitedRules).toEqual(["den-manage"]);
+    expect(limitedRules).toEqual([DEN_LEAVE_RATE_LIMIT.bucket]);
+    expect(DEN_LEAVE_RATE_LIMIT.limit).toBe(120);
+    expect(DEN_LEAVE_RATE_LIMIT.windowSeconds).toBe(3600);
+    expect(DEN_LEAVE_RATE_LIMIT.bucket).not.toBe(
+      DEN_INVITE_ROTATE_RATE_LIMIT.bucket
+    );
   });
 
   test("answers 429 without leaving when the limiter denies", async () => {

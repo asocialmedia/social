@@ -18,6 +18,13 @@ interface ConsumeOptions {
   windowSeconds: number;
 }
 
+interface DenRateLimitRule {
+  bucket: string;
+  limit: number;
+  window: "fixed" | "sliding";
+  windowSeconds: number;
+}
+
 const consumed: ConsumeOptions[] = [];
 // One flag rather than a second `mock.module`: re-registering the module
 // replaces the namespace the already-imported helpers read from, so a later test
@@ -25,9 +32,36 @@ const consumed: ConsumeOptions[] = [];
 let allow = true;
 let retryAfterSeconds = 60;
 
+// Which window shape a rule asked for, recorded per consume so a test can assert
+// the sliding/fixed decision rather than infer it from a bucket name. Two
+// parallel lists because a rule picks exactly one of the two helpers, and
+// "neither was called" is itself an assertion worth being able to make.
+const slidingConsumed: ConsumeOptions[] = [];
+
+// Makes both helpers throw, which is how the fail-open guard in
+// `consumeDenRateLimit` is exercised without needing Redis to be down. The
+// helpers' own fail-open path against an unreachable Redis is covered in
+// packages/db, where the client is real.
+const brokenHelpers = { throwOnConsume: false };
+
 mock.module("@asm/db", () => ({
   consumeRateLimit: (options: ConsumeOptions) => {
     consumed.push(options);
+    if (brokenHelpers.throwOnConsume) {
+      return Promise.reject(new Error("limiter exploded"));
+    }
+    return Promise.resolve({
+      allowed: allow,
+      remaining: allow ? options.limit - 1 : 0,
+      resetAt: Date.now() + options.windowSeconds * 1000,
+      retryAfterSeconds,
+    });
+  },
+  consumeRateLimitSliding: (options: ConsumeOptions) => {
+    slidingConsumed.push(options);
+    if (brokenHelpers.throwOnConsume) {
+      return Promise.reject(new Error("limiter exploded"));
+    }
     return Promise.resolve({
       allowed: allow,
       remaining: allow ? options.limit - 1 : 0,
@@ -41,31 +75,80 @@ mock.module("@asm/db", () => ({
 }));
 
 const {
+  DEN_ACTIVITY_STREAM_RATE_LIMIT,
   DEN_ADD_MEMBERS_RATE_LIMIT,
   DEN_CREATE_RATE_LIMIT,
+  DEN_DELIVERY_RECEIPT_RATE_LIMIT,
   DEN_DETAILS_RATE_LIMIT,
   DEN_DISSOLVE_RATE_LIMIT,
+  DEN_DM_CREATE_RATE_LIMIT,
+  DEN_INVITE_ROTATE_RATE_LIMIT,
   DEN_JOIN_PREVIEW_RATE_LIMIT,
   DEN_JOIN_RATE_LIMIT,
-  DEN_MANAGE_RATE_LIMIT,
+  DEN_KEY_EPOCH_RATE_LIMIT,
+  DEN_LEAVE_RATE_LIMIT,
+  DEN_MESSAGE_DELETE_RATE_LIMIT,
+  DEN_MESSAGE_EDIT_RATE_LIMIT,
+  DEN_MESSAGE_HIDE_RATE_LIMIT,
+  DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
+  DEN_MESSAGE_SEND_RATE_LIMIT,
+  DEN_PREFS_RATE_LIMIT,
+  DEN_PRESENCE_RATE_LIMIT,
+  DEN_READ_RECEIPT_RATE_LIMIT,
   DEN_REMOVE_MEMBER_RATE_LIMIT,
   DEN_ROLES_RATE_LIMIT,
+  DEN_STREAM_RATE_LIMIT,
+  DEN_TYPING_RATE_LIMIT,
+  DEN_USER_SEARCH_RATE_LIMIT,
+  DEN_WALLPAPER_RATE_LIMIT,
   consumeDenRateLimit,
   denJoinPreviewIdentifier,
 } = await import("./den-rate-limit");
 
 // Every rule, so a new one cannot be added without this file noticing.
 const ALL_RULES = {
+  DEN_ACTIVITY_STREAM_RATE_LIMIT,
+  DEN_ADD_MEMBERS_RATE_LIMIT,
+  DEN_CREATE_RATE_LIMIT,
+  DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+  DEN_DETAILS_RATE_LIMIT,
+  DEN_DISSOLVE_RATE_LIMIT,
+  DEN_DM_CREATE_RATE_LIMIT,
+  DEN_INVITE_ROTATE_RATE_LIMIT,
+  DEN_JOIN_PREVIEW_RATE_LIMIT,
+  DEN_JOIN_RATE_LIMIT,
+  DEN_KEY_EPOCH_RATE_LIMIT,
+  DEN_LEAVE_RATE_LIMIT,
+  DEN_MESSAGE_DELETE_RATE_LIMIT,
+  DEN_MESSAGE_EDIT_RATE_LIMIT,
+  DEN_MESSAGE_HIDE_RATE_LIMIT,
+  DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
+  DEN_MESSAGE_SEND_RATE_LIMIT,
+  DEN_PREFS_RATE_LIMIT,
+  DEN_PRESENCE_RATE_LIMIT,
+  DEN_READ_RECEIPT_RATE_LIMIT,
+  DEN_REMOVE_MEMBER_RATE_LIMIT,
+  DEN_ROLES_RATE_LIMIT,
+  DEN_STREAM_RATE_LIMIT,
+  DEN_TYPING_RATE_LIMIT,
+  DEN_USER_SEARCH_RATE_LIMIT,
+  DEN_WALLPAPER_RATE_LIMIT,
+} as const;
+
+// The buckets that existed before the conversation-route pass, all of them on
+// hour-long fixed windows. Named rather than derived from the window length so
+// the "the old ones are fixed, the new ones slide" split is stated rather than
+// inferred from a threshold somebody could move.
+const PRE_EXISTING_RULES: Record<string, DenRateLimitRule> = {
   DEN_ADD_MEMBERS_RATE_LIMIT,
   DEN_CREATE_RATE_LIMIT,
   DEN_DETAILS_RATE_LIMIT,
   DEN_DISSOLVE_RATE_LIMIT,
   DEN_JOIN_PREVIEW_RATE_LIMIT,
   DEN_JOIN_RATE_LIMIT,
-  DEN_MANAGE_RATE_LIMIT,
   DEN_REMOVE_MEMBER_RATE_LIMIT,
   DEN_ROLES_RATE_LIMIT,
-} as const;
+};
 
 function headersWith(values: Record<string, string>): Headers {
   return new Headers(values);
@@ -147,6 +230,149 @@ describe("den rate-limit buckets", () => {
     }
   });
 
+  test("no rule is missing from the table this file audits", () => {
+    // The table is the whole policy surface. A rule exported from the module but
+    // left out of ALL_RULES would skip the uniqueness assertion above and the
+    // sliding-window assertion below, which is the failure this whole file
+    // exists to prevent.
+    const audited = new Set(Object.keys(ALL_RULES));
+    const known = new Set([
+      ...Object.keys(PRE_EXISTING_RULES),
+      ...Object.keys(ALL_RULES),
+    ]);
+    for (const name of audited) {
+      expect(known.has(name)).toBe(true);
+    }
+    expect(audited.size).toBe(known.size);
+  });
+
+  test("every bucket a client can hammer in a tight loop slides", () => {
+    // A fixed window on a short bucket is not a weaker limiter, it is barely
+    // one: the stated budget is really 2x, because a caller can spend it all at
+    // the end of one window and all of it again at the start of the next. On a
+    // ten-second typing budget that is 60 events inside 200ms, which is the
+    // entire attack. So the rule here is not a threshold but a list, and the
+    // first entry that somebody adds to a short bucket without sliding fails.
+    const shortWindowRules: Record<string, DenRateLimitRule> = {
+      DEN_MESSAGE_SEND_RATE_LIMIT,
+      DEN_TYPING_RATE_LIMIT,
+    };
+    for (const rule of Object.values(shortWindowRules)) {
+      expect(rule.window).toBe("sliding");
+      expect(rule.windowSeconds).toBeLessThanOrEqual(60);
+    }
+  });
+
+  test("the pre-existing membership mutations keep their fixed windows", () => {
+    // Stated rather than left implicit, because the split is deliberate and
+    // needs defending in both directions. At 3600s the worst a fixed window
+    // allows is two budget-fills across one boundary; for a ten-per-hour create
+    // budget that is twenty creates, which is not what anyone is defending
+    // against. Turning them sliding would cost Redis memory and buy nothing.
+    for (const rule of Object.values(PRE_EXISTING_RULES)) {
+      expect(rule.window).toBe("fixed");
+      expect(rule.windowSeconds).toBe(3600);
+    }
+  });
+
+  test("every bucket added by the conversation-route pass slides", () => {
+    const names = new Set(Object.keys(PRE_EXISTING_RULES));
+    for (const [name, rule] of Object.entries(ALL_RULES)) {
+      if (names.has(name)) {
+        continue;
+      }
+      expect({ [name]: rule.window }).toEqual({ [name]: "sliding" });
+    }
+  });
+
+  test("the send budgets are ordered so the burst ceiling is the tighter one", () => {
+    // Twenty per ten seconds is two a second; six hundred an hour is ten a
+    // minute. A caller who respects the short budget can still put 6,840
+    // messages through in an hour, so the long one cannot be looser than the
+    // short one expressed as a rate or it would never bind anyone the short one
+    // is not already stopping.
+    const burstPerSecond =
+      DEN_MESSAGE_SEND_RATE_LIMIT.limit /
+      DEN_MESSAGE_SEND_RATE_LIMIT.windowSeconds;
+    const sustainedPerSecond =
+      DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.limit /
+      DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.windowSeconds;
+    expect(sustainedPerSecond).toBeLessThan(burstPerSecond);
+  });
+
+  test("every high-frequency budget clears twice the rate the shipped client produces", () => {
+    // The numbers on the left are measured from the client rather than guessed,
+    // because this is the assertion that stops a rate-limiting pass from
+    // producing visible errors on normal use:
+    //
+    //   typing    the composer heartbeats once per 3s while it is non-empty
+    //   presence  one shared heartbeat every 30s across every mounted consumer
+    //   read      an 800ms debounce, once per open thread
+    //   delivered a 1.5s debounce, once per inbound message
+    //   streams   the reconnect ladder, generously five seconds apart
+    //   send      one per keypress, which a person cannot beat
+    //
+    // Twice is the floor and several of these clear it by far more. A bucket
+    // added to this table with a number derived from anything other than what
+    // the client does has to say so here.
+    const CLIENT_RATE_PER_SECOND: Record<string, number> = {
+      [DEN_ACTIVITY_STREAM_RATE_LIMIT.bucket]: 1 / 5,
+      [DEN_DELIVERY_RECEIPT_RATE_LIMIT.bucket]: 1 / 1.5,
+      [DEN_MESSAGE_SEND_RATE_LIMIT.bucket]: 1,
+      [DEN_PRESENCE_RATE_LIMIT.bucket]: 1 / 30,
+      [DEN_READ_RECEIPT_RATE_LIMIT.bucket]: 1,
+      [DEN_STREAM_RATE_LIMIT.bucket]: 1 / 5,
+      [DEN_TYPING_RATE_LIMIT.bucket]: 1 / 3,
+    };
+    for (const rule of Object.values(ALL_RULES)) {
+      const clientRate = CLIENT_RATE_PER_SECOND[rule.bucket];
+      if (clientRate === undefined) {
+        continue;
+      }
+      expect(rule.limit / rule.windowSeconds).toBeGreaterThanOrEqual(
+        clientRate * 2
+      );
+    }
+  });
+
+  test("a receipt is never a cheaper flood target than sending into the thread", () => {
+    // Receipts fire per inbound message, so they legitimately sit alongside the
+    // send rate rather than under it. What they must not do is fall below it: a
+    // thread somebody else is flooding would otherwise be the cheaper way in.
+    const send =
+      DEN_MESSAGE_SEND_RATE_LIMIT.limit /
+      DEN_MESSAGE_SEND_RATE_LIMIT.windowSeconds;
+    for (const rule of [
+      DEN_READ_RECEIPT_RATE_LIMIT,
+      DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+    ]) {
+      expect(rule.limit / rule.windowSeconds).toBeGreaterThanOrEqual(send);
+    }
+  });
+
+  test("rotation is tighter than the other single-row membership mutations", () => {
+    // Rotation used to share `den-manage` with leaving at 120 an hour, which is
+    // defensible for a leave - it costs the caller one row - and not defensible
+    // for a rotation, which retires a door other people are walking through. The
+    // split is the whole reason, so the ordering it argues for is asserted
+    // against the buckets that share that reasoning.
+    //
+    // Create is left out on purpose: it is tighter still, at 10 an hour, for the
+    // unrelated and stronger reason that it is the most expensive write in the
+    // feature.
+    for (const rule of [
+      DEN_LEAVE_RATE_LIMIT,
+      DEN_DETAILS_RATE_LIMIT,
+      DEN_ROLES_RATE_LIMIT,
+    ]) {
+      expect(rule.windowSeconds).toBe(3600);
+      expect(rule.limit).toBeGreaterThan(DEN_INVITE_ROTATE_RATE_LIMIT.limit);
+    }
+    expect(DEN_CREATE_RATE_LIMIT.limit).toBeLessThan(
+      DEN_INVITE_ROTATE_RATE_LIMIT.limit
+    );
+  });
+
   test("handing the den over spends the roles budget, and gets no bucket of its own", () => {
     // The one sharing the "no two operations share a bucket" rule does not
     // object to, because the two operations cannot compete: a transfer is
@@ -168,6 +394,7 @@ describe("den rate-limit buckets", () => {
 describe("consumeDenRateLimit", () => {
   test("spends the rule it is handed, per user", async () => {
     consumed.length = 0;
+    slidingConsumed.length = 0;
     allow = true;
     expect(await consumeDenRateLimit(DEN_JOIN_RATE_LIMIT, "user-1")).toBeNull();
     expect(consumed).toEqual([
@@ -178,6 +405,86 @@ describe("consumeDenRateLimit", () => {
         windowSeconds: DEN_JOIN_RATE_LIMIT.windowSeconds,
       },
     ]);
+    // A fixed-window rule must not reach for the sliding helper, or the two
+    // would be indistinguishable at the call site.
+    expect(slidingConsumed).toEqual([]);
+  });
+
+  test("a sliding rule spends the sliding helper, not the fixed one", async () => {
+    consumed.length = 0;
+    slidingConsumed.length = 0;
+    allow = true;
+    expect(
+      await consumeDenRateLimit(DEN_MESSAGE_SEND_RATE_LIMIT, "user-1")
+    ).toBeNull();
+    expect(slidingConsumed).toEqual([
+      {
+        bucket: DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+        identifier: "user-1",
+        limit: DEN_MESSAGE_SEND_RATE_LIMIT.limit,
+        windowSeconds: DEN_MESSAGE_SEND_RATE_LIMIT.windowSeconds,
+      },
+    ]);
+    expect(consumed).toEqual([]);
+  });
+
+  test("every rule in the table routes to exactly one of the two helpers", async () => {
+    // This is the assertion that makes the `window` field load-bearing rather
+    // than documentation.
+    allow = true;
+    consumed.length = 0;
+    slidingConsumed.length = 0;
+    // Every rule has to reach the helper its own `window` field names. A rule
+    // whose field and helper disagreed would be a limiter silently running on the
+    // wrong algorithm, and nothing else in this file would notice.
+    const sliding = Object.values(ALL_RULES).filter(
+      (rule) => rule.window === "sliding"
+    );
+    const fixed = Object.values(ALL_RULES).filter(
+      (rule) => rule.window === "fixed"
+    );
+    expect(sliding.length + fixed.length).toBe(Object.keys(ALL_RULES).length);
+    expect(fixed.length).toBeGreaterThan(0);
+
+    const verdicts = await Promise.all(
+      Object.values(ALL_RULES).map((rule) =>
+        consumeDenRateLimit(rule, "user-1")
+      )
+    );
+    expect(verdicts).toEqual(
+      Array.from({ length: verdicts.length }, () => null)
+    );
+    expect(slidingConsumed.length).toBe(sliding.length);
+    expect(consumed.length).toBe(fixed.length);
+  });
+
+  test("a limiter that throws fails open rather than rejecting the request", async () => {
+    // The helpers already fail open on a Redis outage, which is covered in
+    // packages/db against a real failing client. This is the layer above them:
+    // AGENTS.md requires that a limiter which throws never 500s a route, so a
+    // bug in the limiter degrades to no limit instead of taking a send or a
+    // heartbeat down for a real user.
+    const original = console.error;
+    const logged: unknown[] = [];
+    console.error = (...args: unknown[]) => {
+      logged.push(args[1]);
+    };
+    try {
+      brokenHelpers.throwOnConsume = true;
+      expect(
+        await consumeDenRateLimit(DEN_TYPING_RATE_LIMIT, "user-1")
+      ).toBeNull();
+      expect(
+        await consumeDenRateLimit(DEN_JOIN_RATE_LIMIT, "user-1")
+      ).toBeNull();
+    } finally {
+      brokenHelpers.throwOnConsume = false;
+      console.error = original;
+    }
+    // Logged, not swallowed: a limiter that fails silently is a limiter nobody
+    // will notice is broken.
+    expect(logged).toHaveLength(2);
+    expect(logged[0]).toBeInstanceOf(Error);
   });
 
   test("returns the 429 with a retry-after rather than a bare refusal", async () => {

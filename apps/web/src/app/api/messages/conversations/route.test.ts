@@ -5,6 +5,11 @@
 // oxlint-disable no-await-in-loop
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  DEN_CREATE_RATE_LIMIT,
+  DEN_DM_CREATE_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { GET, POST } from "./route";
@@ -20,6 +25,7 @@ const createdConversations: Record<string, unknown>[] = [];
 const CREATED_MEMBERSHIP_SEQ = 5;
 
 const mockCreate = mock((args: { data: Record<string, unknown> }) => {
+  limiter.service("create-conversation");
   const conversation = {
     id: "convo-1",
     keys: [],
@@ -213,6 +219,13 @@ const mockHasMessageIdentity = mock(
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite. The den
+// create branch was hitting live Redis through this route too.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   areBlocked: mockAreBlocked,
@@ -421,6 +434,7 @@ describe("POST /api/messages/conversations", () => {
     mockHasMessageIdentity.mockImplementation(
       (userId: string) => userId !== "no-identity"
     );
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -735,5 +749,90 @@ describe("GET /api/messages/conversations", () => {
     ];
     const body = await readList();
     expect(body.items[0]?.conversation.inviteCode).toBeNull();
+  });
+});
+
+describe("POST /api/messages/conversations rate limit", () => {
+  beforeEach(() => {
+    createdConversations.length = 0;
+    createdConversation = null;
+    conversationWhereCalls.length = 0;
+    mockCreate.mockClear();
+    mockFindFirst.mockClear();
+    mockFindUniqueUser.mockClear();
+    mockFollowFindUnique.mockClear();
+    mockAreBlocked.mockClear();
+    mockHasMessageIdentity.mockClear();
+    mockGetSession.mockClear();
+    mockHasMessageIdentity.mockImplementation(
+      (userId: string) => userId !== "no-identity"
+    );
+    limiter.reset();
+  });
+
+  test("a DM spends the DM budget, per account", async () => {
+    const res = await postWith("user2");
+    expect(res.status).toBe(201);
+    expect(limiter.chargedBuckets).toEqual([DEN_DM_CREATE_RATE_LIMIT.bucket]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and writes no conversation when over budget", async () => {
+    // The gap this closes: the den half of this route has been metered since it
+    // was written and the DM half was not. Every accepted DM lands in somebody
+    // else's conversation list, which is the unsolicited-DM spam the platforms
+    // answer with a limit rather than with a block.
+    limiter.setDenied(true);
+    const res = await postWith("user2");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockFindUniqueUser).not.toHaveBeenCalled();
+  });
+
+  test("charges the limiter before it looks the recipient up", async () => {
+    const res = await postWith("user2");
+    expect(res.status).toBe(201);
+    expect(limiter.order[0]).toBe(`consume:${DEN_DM_CREATE_RATE_LIMIT.bucket}`);
+    expect(limiter.order).toContain("service:create-conversation");
+  });
+
+  test("a den create does not spend the DM budget, or the DM one the den budget", async () => {
+    // Two shapes on one route, and the only reason a shared bucket would be
+    // wrong is that a person legitimately opening DMs all afternoon would spend
+    // the budget a den create needs, and a script creating one den an hour would
+    // spend a DM's.
+    const req = new Request(
+      "http://localhost/3000/api/messages/conversations",
+      {
+        body: JSON.stringify({
+          memberIds: ["user2"],
+          name: "Room",
+          type: "DEN",
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }
+    );
+    // This file's Prisma double does not carry the follow-graph reads
+    // `validateDenRoster` needs, so the den branch throws past them. What is
+    // under test is only which budget it charged on the way, so the rejection is
+    // caught rather than papered over.
+    await POST(req).catch(() => {});
+    expect(limiter.chargedBuckets).toEqual([DEN_CREATE_RATE_LIMIT.bucket]);
+    expect(DEN_CREATE_RATE_LIMIT.bucket).not.toBe(
+      DEN_DM_CREATE_RATE_LIMIT.bucket
+    );
+  });
+
+  test("the list read is not metered by either create budget", async () => {
+    // The inbox re-reads on every message-created activity event, so any budget
+    // tight enough to stop a loop throttles normal use. The audit test's
+    // allowlist records that decision; this is the behavioural half of it.
+    const res = await GET(
+      new Request("http://localhost/api/messages/conversations")
+    );
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([]);
   });
 });

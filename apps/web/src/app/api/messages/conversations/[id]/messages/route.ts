@@ -15,6 +15,11 @@ import type { PrismaTransaction } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { blockedSendPeer } from "@/lib/messages/blocks";
+import {
+  DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
+  DEN_MESSAGE_SEND_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
 import {
   areBlocked,
@@ -358,6 +363,29 @@ export async function POST(
   }
 
   const { id } = await ctx.params;
+  // Metered BEFORE the membership read, the payload parse, and every query the
+  // send itself runs. A limiter after the transaction would be a limiter that
+  // has already let the database do the work it was meant to prevent.
+  //
+  // Two buckets on the same operation, deliberately, and they defend against
+  // different things: the ten-second one stops a burst, and the hourly one stops
+  // the caller who simply stays just under it. Slack's posting limit is the same
+  // shape, a per-channel rate plus a workspace-wide ceiling.
+  const burstLimited = await consumeDenRateLimit(
+    DEN_MESSAGE_SEND_RATE_LIMIT,
+    user.id
+  );
+  if (burstLimited) {
+    return burstLimited;
+  }
+  const sustainedLimited = await consumeDenRateLimit(
+    DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
+    user.id
+  );
+  if (sustainedLimited) {
+    return sustainedLimited;
+  }
+
   // The send path keeps its own clearer 403 for blocks, so the shared gate
   // runs membership-only here.
   const conversation = await getConversationForUser(id, user.id, {

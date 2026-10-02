@@ -6,6 +6,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { blockedSendPeer } from "@/lib/messages/blocks";
+import {
+  DEN_MESSAGE_DELETE_RATE_LIMIT,
+  DEN_MESSAGE_EDIT_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 
 import { DELETE, PATCH } from "./route";
 
@@ -21,8 +26,14 @@ const mockUpdateAndCount = mock(() => 1);
 // The where the edit composed, captured so its guards can be asserted.
 let lastEditWhere: Record<string, unknown> = {};
 let lastEditSet: Record<string, unknown> = {};
-const mockPublishEdited = mock(() => Promise.resolve());
-const mockPublishDeleted = mock(() => Promise.resolve());
+const mockPublishEdited = mock(() => {
+  limiter.service("publish-edited");
+  return Promise.resolve();
+});
+const mockPublishDeleted = mock(() => {
+  limiter.service("publish-deleted");
+  return Promise.resolve();
+});
 
 // A DM, which is the shape every pre-existing case in this file used. `_type` is
 // the field the route never selected before: without it a den and a DM are
@@ -44,6 +55,12 @@ const baseMessage = {
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   areBlocked: mockAreBlocked,
@@ -164,7 +181,11 @@ describe("PATCH /api/messages/messages/:id", () => {
     mockIsWithinEditWindow.mockReset();
     mockIsWithinEditWindow.mockImplementation(() => true);
     mockUpdateAndCount.mockImplementation(() => 1);
-    mockPublishEdited.mockImplementation(() => Promise.resolve());
+    mockPublishEdited.mockImplementation(() => {
+      limiter.service("publish-edited");
+      return Promise.resolve();
+    });
+    limiter.reset();
     // First findUnique resolves the target, second returns the updated row.
     mockMessageFirst.mockReturnValueOnce(baseMessage);
     mockMessageFirst.mockReturnValueOnce({
@@ -366,6 +387,7 @@ describe("DELETE /api/messages/messages/:id", () => {
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockAreBlocked.mockReset();
     mockAreBlocked.mockImplementation(() => false);
+    limiter.reset();
   });
 
   test("soft-deletes and publishes", async () => {
@@ -449,5 +471,107 @@ describe("DELETE /api/messages/messages/:id", () => {
       );
       expect(res.status).toBe(200);
     }
+  });
+});
+
+describe("/api/messages/messages/:id rate limit", () => {
+  beforeEach(() => {
+    mockMessageFirst.mockReset();
+    mockUpdate.mockReset();
+    mockUpdateAndCount.mockReset();
+    mockPublishEdited.mockReset();
+    mockPublishDeleted.mockReset();
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockAreBlocked.mockReset();
+    mockAreBlocked.mockImplementation(() => false);
+    mockIsWithinEditWindow.mockReset();
+    mockIsWithinEditWindow.mockImplementation(() => true);
+    mockUpdateAndCount.mockImplementation(() => 1);
+    mockPublishEdited.mockImplementation(() => {
+      limiter.service("publish-edited");
+      return Promise.resolve();
+    });
+    mockPublishDeleted.mockImplementation(() => {
+      limiter.service("publish-deleted");
+      return Promise.resolve();
+    });
+    limiter.reset();
+  });
+
+  test("an edit spends the edit budget, per account", async () => {
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    const res = await PATCH(
+      patchRequest({ ciphertext: "new-cipher", iv: "new-iv" }),
+      params
+    );
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_EDIT_RATE_LIMIT.bucket,
+    ]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and rewrites nothing when the edit is over budget", async () => {
+    // The edit window is twelve hours wide and a ciphertext can be 100KB, so an
+    // unbounded budget is 100KB of writes times however many times a script
+    // feels like over half a day.
+    limiter.setDenied(true);
+    const res = await PATCH(
+      patchRequest({ ciphertext: "new-cipher", iv: "new-iv" }),
+      params
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockMessageFirst).not.toHaveBeenCalled();
+    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockPublishEdited).not.toHaveBeenCalled();
+  });
+
+  test("charges the edit limiter before it reads the row", async () => {
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    await PATCH(
+      patchRequest({ ciphertext: "new-cipher", iv: "new-iv" }),
+      params
+    );
+    expect(limiter.order[0]).toBe(
+      `consume:${DEN_MESSAGE_EDIT_RATE_LIMIT.bucket}`
+    );
+    expect(limiter.order).toContain("service:publish-edited");
+  });
+
+  test("a delete spends the delete budget, not the edit budget", async () => {
+    mockMessageFirst.mockReturnValueOnce(baseMessage);
+    mockUpdate.mockReturnValueOnce({ id: "msg-1" });
+    const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_DELETE_RATE_LIMIT.bucket,
+    ]);
+  });
+
+  test("429s with a retry-after and soft-deletes nothing when over budget", async () => {
+    limiter.setDenied(true);
+    const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockPublishDeleted).not.toHaveBeenCalled();
+  });
+
+  test("the two methods cannot starve each other", () => {
+    // The reasoning `den-details` versus `den-roles` already established: an
+    // edit rewrites up to 100KB and a delete rewrites one timestamp, so a shared
+    // budget would let an edit storm lock somebody out of removing their own
+    // message. Asserted as the budgets rather than the bucket names so renaming
+    // a bucket does not quietly re-merge them.
+    expect(DEN_MESSAGE_DELETE_RATE_LIMIT.bucket).not.toBe(
+      DEN_MESSAGE_EDIT_RATE_LIMIT.bucket
+    );
+    expect(DEN_MESSAGE_DELETE_RATE_LIMIT.limit).toBeGreaterThan(
+      DEN_MESSAGE_EDIT_RATE_LIMIT.limit
+    );
   });
 });

@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEN_LIMITS } from "@asm/db/messages/dens";
 
+import {
+  DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
+  DEN_MESSAGE_SEND_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
+
 import { GET, POST } from "./route";
 
 const mockGetSession = mock(() => ({ user: { id: "user1" } }));
@@ -10,6 +16,7 @@ const mockNextRatchetIndex = mock(() => 0);
 
 const mockMessages: Record<string, unknown>[] = [];
 const mockCreate = mock((args: Record<string, unknown>) => {
+  limiter.service("insert-message");
   const data =
     "data" in args && typeof args.data === "object" && args.data !== null
       ? (args.data as Record<string, unknown>)
@@ -236,6 +243,12 @@ mock.module("@/lib/messages/server", () => ({
   nextRatchetIndex: mockNextRatchetIndex,
 }));
 
+// The send limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
+
 mock.module("@asm/db", () => ({
   // The real `and` composes predicates into one expression; merging the
   // recorded column predicates into a flat object is what makes the composed
@@ -342,6 +355,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
       fn(txClient)
     );
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -1170,5 +1184,173 @@ describe("history request budgets", () => {
     });
     expect(res.status).toBe(401);
     expect(mockConsumeRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("the send budget", () => {
+  beforeEach(() => {
+    mockMessages.length = 0;
+    // Explicit, because the block and ratchet doubles are shared with the
+    // describes above and a sibling's return value would otherwise leak in and
+    // answer 403 to a test that only cares about the budget.
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockAreBlocked.mockImplementation(() => false);
+    mockCreate.mockClear();
+    mockFindMany.mockClear();
+    recordedQueries = [];
+    recorded = { where: {} };
+    mockIncrement.mockClear();
+    mockIncrementMany.mockClear();
+    mockIncrementMany.mockImplementation(() => Promise.resolve());
+    mockPublishCreated.mockClear();
+    mockPublishActivity.mockClear();
+    mockEnqueueNotificationCreated.mockClear();
+    mockCreateDenMessageNotifications.mockClear();
+    mockNextRatchetIndex.mockReset();
+    mockKeyUpdateAndCount.mockClear();
+    peerMutedAt = null;
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: null, userId: "user3" },
+    ];
+    mockConversationUpdate.mockClear();
+    mockTransaction.mockReset();
+    mockGetSession.mockClear();
+    mockConsumeRateLimit.mockClear();
+    mockConsumeRateLimit.mockImplementation(() =>
+      Promise.resolve({
+        allowed: true,
+        remaining: 100,
+        resetAt: Date.now() + 60_000,
+        retryAfterSeconds: 60,
+      })
+    );
+    mockNextRatchetIndex.mockReturnValue(0);
+    mockEnqueueNotificationCreated.mockImplementation(() => Promise.resolve());
+    mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn(txClient)
+    );
+    limiter.reset();
+  });
+
+  function send() {
+    return POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+  }
+
+  test("a send spends the burst budget and the sustained budget", async () => {
+    // Two buckets on one operation, on purpose. The ten-second one stops a
+    // burst; the hourly one stops the caller who stays just under it, which is
+    // 6,840 messages an hour and invisible to a ten-second window. Same shape as
+    // Slack's posting limit - per-channel rate plus a workspace-wide ceiling.
+    const res = await send();
+    expect(res.status).toBe(201);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+      DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket,
+    ]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1", "user1"]);
+  });
+
+  test("429s with a retry-after and inserts nothing when the burst budget is gone", async () => {
+    // The whole point. One accepted send is a roster read, a ratchet CAS, an
+    // insert, a locked conversation bump, a notification fold for every unmuted
+    // member, a counter increment, and one activity publish PER MEMBER. If the
+    // limiter ran after the transaction, every one of those had already happened.
+    limiter.setDenied(true);
+    const res = await send();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockIncrementMany).not.toHaveBeenCalled();
+    expect(mockPublishCreated).not.toHaveBeenCalled();
+    expect(mockPublishActivity).not.toHaveBeenCalled();
+  });
+
+  test("429s on the sustained budget without touching the transaction either", async () => {
+    // Only the hourly budget is exhausted. This is the attacker the ten-second
+    // one cannot see: under the burst limit on every single window, and 6,840
+    // messages an hour.
+    limiter.setDeniedBucket(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket);
+    const res = await send();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+      DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket,
+    ]);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  test("an exhausted burst budget short-circuits the sustained one", async () => {
+    // Worth pinning: it means a flooder cannot make the hourly counter record
+    // hits it was already refused, so the hourly budget measures sends that were
+    // actually admitted rather than requests that arrived.
+    limiter.setDenied(true);
+    await send();
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+    ]);
+  });
+
+  test("charges both budgets before it reads the roster", async () => {
+    const res = await send();
+    expect(res.status).toBe(201);
+    expect(limiter.order).toEqual([
+      `consume:${DEN_MESSAGE_SEND_RATE_LIMIT.bucket}`,
+      `consume:${DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket}`,
+      "service:insert-message",
+    ]);
+  });
+
+  test("the burst budget sits above every published human-facing figure", () => {
+    // Slack publishes 1 message per second per channel and tolerates short
+    // bursts; Telegram publishes ~1 per second in a chat; Discord's gateway
+    // allowlist is 120 events per 60s for everything, so three a second for one
+    // event type would already exceed it. Two a second is above all three, which
+    // is the point: a limiter tighter than what the platforms permit throttles
+    // honest users to protect the database from a script.
+    const perSecond =
+      DEN_MESSAGE_SEND_RATE_LIMIT.limit /
+      DEN_MESSAGE_SEND_RATE_LIMIT.windowSeconds;
+    expect(perSecond).toBeGreaterThan(1);
+    expect(perSecond).toBeLessThanOrEqual(3);
+  });
+
+  test("both send budgets slide, so there is no window boundary to aim at", () => {
+    // A fixed window would let a caller spend twenty sends at 9.9s and twenty
+    // more at 10.1s: 40 in 200ms against a stated budget of 20.
+    expect(DEN_MESSAGE_SEND_RATE_LIMIT.window).toBe("sliding");
+    expect(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.window).toBe("sliding");
+  });
+
+  test("two accounts do not share one send budget", async () => {
+    await send();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user2" } }));
+    await send();
+    expect(limiter.chargedIdentifiers).toEqual([
+      "user1",
+      "user1",
+      "user2",
+      "user2",
+    ]);
+  });
+
+  test("the sustained budget is ten a minute, not ten an hour", () => {
+    // Pinned because the number is the difference between bounding a script and
+    // bounding a person: 600 an hour is a script, 60 an hour would start
+    // refusing somebody pasting a long conversation into a DM.
+    expect(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.windowSeconds).toBe(3600);
+    expect(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.limit).toBe(600);
+  });
+
+  test("an unauthenticated caller is refused before any budget is spent", async () => {
+    mockGetSession.mockReturnValueOnce(null);
+    const res = await send();
+    expect(res.status).toBe(401);
+    expect(limiter.chargedBuckets).toEqual([]);
   });
 });

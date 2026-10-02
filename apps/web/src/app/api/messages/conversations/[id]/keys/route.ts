@@ -2,6 +2,10 @@ import { prisma, publishMessageKeysRotated } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
+  DEN_KEY_EPOCH_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
+import {
   getConversationForUser,
   isUniqueConstraintViolation,
   parseJsonBody,
@@ -42,9 +46,13 @@ export async function POST(
   }
 
   const { id } = await ctx.params;
-  const conversation = await getConversationForUser(id, user.id);
-  if (!conversation) {
-    return Response.json({ error: "Conversation not found" }, { status: 404 });
+  // Metered before the membership read, the ceiling read, the pairs read and the
+  // transaction. Every accepted call ends in a broadcast to every open thread on
+  // this conversation's channel, so an unbounded loop here is a loop that also
+  // makes every connected client refetch.
+  const limited = await consumeDenRateLimit(DEN_KEY_EPOCH_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   const parsed = await parseJsonBody(request);
@@ -52,6 +60,27 @@ export async function POST(
   const { keys } = body ?? {};
   if (!Array.isArray(keys) || keys.length === 0) {
     return Response.json({ error: "keys are required" }, { status: 400 });
+  }
+
+  // A batch cannot be larger than the roster. Every owner is validated as a
+  // member below, and one epoch is one row per owner, so a batch with more
+  // entries than there are members is either duplicated owners - which the
+  // create-only filter would drop on the floor anyway - or a client asking for
+  // more rows than a conversation can ever hold. Either way it is malformed, and
+  // refusing it is what stops one request from turning into an unbounded run of
+  // sequential creates inside a single transaction holding a connection. The
+  // version ceiling below bounds WHICH epoch a request may mint; this bounds HOW
+  // MANY rows it may write, and without it the ceiling answers a question nobody
+  // was asking.
+  const conversation = await getConversationForUser(id, user.id);
+  if (!conversation) {
+    return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  if (keys.length > Math.max(conversation.members.length, 1)) {
+    return Response.json(
+      { error: "Too many keys for this conversation" },
+      { status: 400 }
+    );
   }
 
   // The caller must wrap the root key for every member. Validate each owner is a

@@ -8,6 +8,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
 
 // Delivery acknowledgement. A browser that has received a peer message reports
@@ -27,6 +31,17 @@ export async function POST(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // One ack per inbound message, debounced and deduped by the client, so this
+  // is a per-message-cost route in a busy thread. Metered before the membership
+  // read and the message lookup.
+  const limited = await consumeDenRateLimit(
+    DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

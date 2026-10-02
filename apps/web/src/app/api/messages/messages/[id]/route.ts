@@ -10,6 +10,11 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
+  DEN_MESSAGE_DELETE_RATE_LIMIT,
+  DEN_MESSAGE_EDIT_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
+import {
   isWithinEditWindow,
   MAX_MESSAGE_CIPHERTEXT_LENGTH,
   MESSAGE_EDIT_WINDOW_MS,
@@ -60,6 +65,19 @@ export async function DELETE(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Metered before the row read, which pulls the message AND its conversation
+  // AND the whole membership list. Separate buckets per method: an edit rewrites
+  // up to 100KB of ciphertext and a delete rewrites one timestamp, and a shared
+  // budget would let an edit storm lock somebody out of removing their own
+  // message.
+  const limited = await consumeDenRateLimit(
+    DEN_MESSAGE_DELETE_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;
@@ -124,6 +142,16 @@ export async function PATCH(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // See DELETE for why the gate sits ahead of the row read and why this budget
+  // is the tighter of the two.
+  const limited = await consumeDenRateLimit(
+    DEN_MESSAGE_EDIT_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

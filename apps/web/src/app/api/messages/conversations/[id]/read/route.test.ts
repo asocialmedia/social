@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DEN_READ_RECEIPT_RATE_LIMIT } from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { POST } from "./route";
@@ -10,8 +12,10 @@ const mockCount = mock(() => 4);
 const mockDecrement = mock(() => 0);
 const mockUpdate = mock((_value: unknown) => ({}));
 const mockPublishRead = mock(
-  (_conversationId: string, _userId: string, _readAt: string) =>
-    Promise.resolve()
+  (_conversationId: string, _userId: string, _readAt: string) => {
+    limiter.service("publish");
+    return Promise.resolve();
+  }
 );
 let lastCountWhere: {
   conversationId: string;
@@ -23,6 +27,12 @@ let lastMemberWhere: { conversationId: string; userId: string } | null = null;
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
@@ -139,6 +149,12 @@ mock.module("@asm/db", () => ({
     }),
 }));
 
+function read() {
+  return POST(new Request("http://localhost:3000/read", { method: "POST" }), {
+    params: Promise.resolve({ id: "convo-1" }),
+  });
+}
+
 describe("POST /api/messages/conversations/:id/read", () => {
   beforeEach(() => {
     mockCount.mockClear();
@@ -148,6 +164,7 @@ describe("POST /api/messages/conversations/:id/read", () => {
     mockGetSession.mockClear();
     lastCountWhere = null;
     lastMemberWhere = null;
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -199,5 +216,57 @@ describe("POST /api/messages/conversations/:id/read", () => {
       params: Promise.resolve({ id: "convo-1" }),
     });
     expect(mockDecrement).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/messages/conversations/:id/read rate limit", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockCount.mockClear();
+    mockDecrement.mockClear();
+    mockUpdate.mockClear();
+    mockPublishRead.mockClear();
+    lastCountWhere = null;
+    lastMemberWhere = null;
+    limiter.reset();
+  });
+
+  test("spends the read-receipt budget, per account", async () => {
+    const res = await read();
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_READ_RECEIPT_RATE_LIMIT.bucket,
+    ]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and moves no watermark when over budget", async () => {
+    // A read receipt is a COUNT over the unread range plus a locked member-row
+    // update. If the limiter ran after either, the refusal would be a message to
+    // the client that the work had already been done.
+    limiter.setDenied(true);
+    const res = await read();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockCount).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockPublishRead).not.toHaveBeenCalled();
+  });
+
+  test("charges the limiter before it reads the roster", async () => {
+    const res = await read();
+    expect(res.status).toBe(200);
+    expect(limiter.order).toEqual([
+      `consume:${DEN_READ_RECEIPT_RATE_LIMIT.bucket}`,
+      "service:publish",
+    ]);
+  });
+
+  test("two accounts do not share one budget", async () => {
+    await read();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user2" } }));
+    await read();
+    expect(limiter.chargedIdentifiers).toEqual(["user1", "user2"]);
   });
 });

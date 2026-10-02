@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DEN_KEY_EPOCH_RATE_LIMIT } from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { POST } from "./route";
@@ -37,6 +39,12 @@ const mockGetSession = mock((): Session => ({ user: { id: MEMBER_IDS[0] } }));
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 const mockGetConversationForUser = mock((id: string, userId: string) =>
   Promise.resolve(
@@ -205,6 +213,7 @@ mock.module("@asm/db", () => ({
     ),
   },
   publishMessageKeysRotated: mock((conversationId: string, userId: string) => {
+    limiter.service("publish");
     published.push({ conversationId, userId });
     return Promise.resolve();
   }),
@@ -256,6 +265,7 @@ beforeEach(() => {
   transactionRollbacks = 0;
   published.length = 0;
   mockGetSession.mockClear();
+  limiter.reset();
 });
 
 describe("POST conversation keys", () => {
@@ -559,5 +569,75 @@ describe("POST conversation keys", () => {
     const response = await post({ keys: [wrapFor("owner", 1)] });
     expect(response.status).toBe(404);
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("POST conversation keys rate limit", () => {
+  beforeEach(() => {
+    rows = [];
+    conflictOnInsert = null;
+    commitAfterInserts = null;
+    betweenTheTwoReads = null;
+    uncommittedRows = [];
+    transactionCommits = 0;
+    transactionRollbacks = 0;
+    published.length = 0;
+    mockGetSession.mockClear();
+    mockGetConversationForUser.mockClear();
+    limiter.reset();
+  });
+
+  test("spends the epoch budget, per account", async () => {
+    const res = await post({ keys: [wrapFor("owner", 1)] });
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([DEN_KEY_EPOCH_RATE_LIMIT.bucket]);
+    expect(limiter.chargedIdentifiers).toEqual([MEMBER_IDS[0]]);
+  });
+
+  test("429s with a retry-after and writes no epoch when over budget", async () => {
+    // Every accepted call ends in a broadcast to every open thread on this
+    // conversation, so a refused one must not have stored a wrap or told anybody
+    // to refetch.
+    limiter.setDenied(true);
+    const res = await post({ keys: [wrapFor("owner", 1)] });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(rows).toEqual([]);
+    expect(transactionCommits).toBe(0);
+    expect(published).toEqual([]);
+  });
+
+  test("charges the limiter before it reads the roster", async () => {
+    await post({ keys: [wrapFor("owner", 1)] });
+    expect(limiter.order[0]).toBe(`consume:${DEN_KEY_EPOCH_RATE_LIMIT.bucket}`);
+    expect(mockGetConversationForUser).toHaveBeenCalled();
+  });
+
+  test("refuses a batch larger than the roster", async () => {
+    // The version ceiling answers WHICH epoch a request may mint. This answers
+    // HOW MANY rows it may write, which nothing else did: every owner is
+    // validated as a member and the insert loop is sequential inside one
+    // transaction holding one connection, so an unbounded batch was an
+    // unbounded run of writes in a single request.
+    const oversized = Array.from({ length: MEMBER_IDS.length + 1 }, () =>
+      wrapFor("owner", 1)
+    );
+    const res = await post({ keys: oversized });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Too many keys for this conversation",
+    });
+    expect(rows).toEqual([]);
+    expect(transactionCommits).toBe(0);
+  });
+
+  test("still accepts a batch exactly the size of the roster", async () => {
+    // The cap has to sit above the honest maximum, not at it: one epoch is one
+    // row per member, so a full fan-out to a three-member den is exactly three.
+    const res = await post({
+      keys: MEMBER_IDS.map((memberId) => wrapFor(memberId, 1)),
+    });
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(MEMBER_IDS.length);
   });
 });

@@ -1,6 +1,10 @@
 import { and, fromPrismaDateTime, prisma, unreadMessageCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_MESSAGE_HIDE_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { MAX_HIDE_BATCH } from "@/lib/messages/message-delete";
 import {
   getConversationForUser,
@@ -29,6 +33,16 @@ export async function POST(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Batched up to MAX_HIDE_BATCH, so one request can be a hundred inserts.
+  // Metered before the membership read, since the read is the cheaper half.
+  const limited = await consumeDenRateLimit(
+    DEN_MESSAGE_HIDE_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;

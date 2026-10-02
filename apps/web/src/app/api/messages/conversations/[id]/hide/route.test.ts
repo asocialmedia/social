@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DEN_MESSAGE_HIDE_RATE_LIMIT } from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
+
 import { POST } from "./route";
 
 type Session = { user: { id: string } } | null;
@@ -24,6 +27,12 @@ const READ_AT = new Date("2026-01-01T00:00:00.000Z");
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
@@ -156,6 +165,7 @@ describe("POST /api/messages/conversations/:id/hide", () => {
     _lastHiddenQueryIds = [];
     mockDecrement.mockReset();
     mockDecrement.mockImplementation(() => 0);
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -399,5 +409,57 @@ describe("POST /api/messages/conversations/:id/hide partial failure", () => {
       "connection terminated unexpectedly"
     );
     expect(mockDecrement).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/messages/conversations/:id/hide rate limit", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockMessageRows.mockReset();
+    mockMessageRows.mockImplementation(() => []);
+    mockHiddenRows.mockReset();
+    mockHiddenRows.mockImplementation(() => []);
+    mockCreateAndCount.mockReset();
+    failNextInsert = false;
+    mockCreateAndCount.mockImplementation((rows: unknown) => rows.length);
+    lastMessageQueryIds = [];
+    _lastHiddenQueryIds = [];
+    mockDecrement.mockReset();
+    mockDecrement.mockImplementation(() => 0);
+    limiter.reset();
+  });
+
+  test("spends the hide budget, per account", async () => {
+    const res = await POST(hideRequest({ messageIds: ["m1"] }), params);
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_HIDE_RATE_LIMIT.bucket,
+    ]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and inserts nothing when over budget", async () => {
+    // One request here can be MAX_HIDE_BATCH inserts, so the refusal has to land
+    // before the select that decides what would have been written.
+    limiter.setDenied(true);
+    const res = await POST(hideRequest({ messageIds: ["m1"] }), params);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockCreateAndCount).not.toHaveBeenCalled();
+    expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  test("an oversized batch is still refused before it costs a query", async () => {
+    // The route's own cap and the limiter answer different questions: the cap
+    // bounds one request, the budget bounds how many requests. Both hold.
+    const res = await POST(
+      hideRequest({
+        messageIds: Array.from({ length: 200 }, (_, i) => `m${i}`),
+      }),
+      params
+    );
+    expect(res.status).toBe(400);
+    expect(mockCreateAndCount).not.toHaveBeenCalled();
   });
 });

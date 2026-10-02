@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  DEN_DETAILS_RATE_LIMIT,
+  DEN_PREFS_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { PATCH } from "./route";
@@ -15,6 +20,12 @@ const MUTED_AT = new Date("2026-01-01T00:00:00.000Z");
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
@@ -86,6 +97,7 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
     mockReset.mockImplementation(() => Promise.resolve());
     updateValue = {};
     selectColumns = [];
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -173,5 +185,44 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
   test("rejects a non-boolean mute", async () => {
     const res = await PATCH(prefsRequest({ muted: "yes" }), params);
     expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH /api/messages/conversations/:id/prefs rate limit", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockReset.mockReset();
+    mockReset.mockImplementation(() => Promise.resolve());
+    updateValue = {};
+    selectColumns = [];
+    limiter.reset();
+  });
+
+  test("spends the prefs budget, per account", async () => {
+    const res = await PATCH(prefsRequest({ muted: true }), params);
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([DEN_PREFS_RATE_LIMIT.bucket]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and writes nothing when over budget", async () => {
+    limiter.setDenied(true);
+    const res = await PATCH(prefsRequest({ muted: true }), params);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(updateValue).toEqual({});
+    expect(mockReset).not.toHaveBeenCalled();
+  });
+
+  test("is looser than the den-details budget it reasons alongside", () => {
+    // Prefs are four columns on the caller's own row and nothing is broadcast,
+    // so it cannot cost more than a den rename. Pinned because the two budgets
+    // are the same class of thing - single-row writes a UI can loop - and a
+    // future edit that tightens prefs below den details would be tightening the
+    // cheaper write, which is backwards.
+    expect(DEN_PREFS_RATE_LIMIT.limit).toBeGreaterThanOrEqual(
+      DEN_DETAILS_RATE_LIMIT.limit
+    );
   });
 });

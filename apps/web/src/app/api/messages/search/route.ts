@@ -1,6 +1,10 @@
 import { and, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_USER_SEARCH_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
@@ -9,11 +13,24 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Metered before the queries, and before the empty-query early return is worth
+  // nothing: an empty query costs nothing and must stay free, because the
+  // typeahead issues it on every render of the field.
   const url = new URL(request.url);
   const query = (url.searchParams.get("q") ?? "").trim();
 
   if (query.length < 1) {
     return Response.json({ users: [] });
+  }
+
+  // Two unanchored ILIKE scans over users, one per name field, on every
+  // keystroke. The most expensive read on the messaging surface.
+  const limited = await consumeDenRateLimit(
+    DEN_USER_SEARCH_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const pattern = `%${query}%`;

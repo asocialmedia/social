@@ -8,6 +8,10 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { checkWallpaperUpload } from "@/lib/messages/conversation-wallpaper-upload";
+import {
+  DEN_WALLPAPER_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
 
 // Links a member's own uploaded image as this conversation's custom chat
@@ -69,6 +73,14 @@ export async function POST(
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Replaced wallpapers are handed to the cleanup worker below, so an unbounded
+  // loop here is a queue-fill primitive as much as an update loop. Metered before
+  // the membership read, and once per call whichever method arrived.
+  const limited = await consumeDenRateLimit(DEN_WALLPAPER_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   const { id } = await ctx.params;
@@ -205,6 +217,13 @@ export async function DELETE(
   }
 
   const { id } = await ctx.params;
+  // Same bucket as the link above, because the cleanup job this schedules is the
+  // expensive half and both methods schedule one.
+  const limited = await consumeDenRateLimit(DEN_WALLPAPER_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
+  }
+
   if (!(await getConversationForUser(id, user.id))) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }

@@ -19,6 +19,7 @@ import {
 } from "@/lib/messages/den-api";
 import {
   DEN_CREATE_RATE_LIMIT,
+  DEN_DM_CREATE_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import {
@@ -408,7 +409,26 @@ export async function POST(request: Request) {
   // from the presence of memberIds, so a malformed DM body can never be mistaken
   // for a request to create a group.
   if (body?.type === "DEN") {
-    return await createDenFromRequest(request, user.id);
+    // The already-parsed body, not the Request. A Request body is a stream that
+    // can be read once, and this route has read it; re-parsing here returned
+    // null, so every den create answered "name is required" and - the reason
+    // this is a correctness fix rather than a tidy-up - never reached the
+    // limiter below it. A budget that cannot be reached is not a budget.
+    return await createDenFromRequest(body, user.id);
+  }
+
+  // The DM half of this route. The den half has been metered since it was
+  // written and this half was not, which is the oldest asymmetry on the surface.
+  //
+  // Charged on its own bucket rather than sharing the den's, because the two
+  // cannot compete and a shared budget would only ever be the looser of the two:
+  // somebody legitimately opening DMs all afternoon would spend the budget a den
+  // create needs, and a script creating one den an hour would spend a DM's. It
+  // sits before the recipient lookup and the four follow/identity/block queries,
+  // since a limiter that runs after them has already paid for them.
+  const limited = await consumeDenRateLimit(DEN_DM_CREATE_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   const recipientId = body?.recipientId;
@@ -537,11 +557,9 @@ export async function POST(request: Request) {
 // Den creation. Shares this route so the client lands on the same conversation
 // cache entry it would for a DM, and so the response shape is identical.
 async function createDenFromRequest(
-  request: Request,
+  body: Record<string, unknown> | null,
   creatorId: string
 ): Promise<Response> {
-  const body = objectOf(await parseJsonBody(request));
-
   const name = body?.name;
   if (typeof name !== "string") {
     return Response.json({ error: "name is required" }, { status: 400 });
