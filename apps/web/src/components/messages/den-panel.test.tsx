@@ -51,12 +51,12 @@ function visible(html: string): string {
 }
 
 function renderMenu(
-  action: { kind: "demote" | "promote" | "remove" | "transfer" },
+  actions: ("demote" | "promote" | "remove" | "transfer")[],
   busy = false
 ): string {
   return renderToString(
     <MemberActionMenu
-      action={action}
+      actions={actions}
       busy={busy}
       member={member()}
       onRemove={() => {}}
@@ -113,28 +113,42 @@ describe("RoleChip", () => {
 });
 
 describe("MemberActionMenu", () => {
-  test("the trigger is named after the action, not after the menu", () => {
+  test("a row with one action is triggered by a button named after it", () => {
     // A button whose accessible name says nothing about what pressing it does is
-    // announced as a mystery, so `Manage {name}` becomes the action itself.
+    // announced as a mystery, so with nothing to disambiguate the trigger carries
+    // the action's own words rather than "Manage Ada".
     // Asserted on the rendered attribute because this is the only part of a Radix
     // menu that exists before it is opened.
-    expect(renderMenu({ kind: "promote" })).toContain(
-      'aria-label="Make Ada an Elder"'
-    );
-    expect(renderMenu({ kind: "transfer" })).toContain(
+    expect(renderMenu(["promote"])).toContain('aria-label="Make Ada an Elder"');
+    expect(renderMenu(["transfer"])).toContain(
       'aria-label="Hand this den to Ada"'
     );
-    expect(renderMenu({ kind: "remove" })).toContain(
+    expect(renderMenu(["remove"])).toContain(
       'aria-label="Remove Ada from den"'
     );
-    expect(renderMenu({ kind: "demote" })).toContain(
+    expect(renderMenu(["demote"])).toContain(
       'aria-label="Remove Ada as Elder"'
     );
   });
 
+  test("a row with several actions is triggered by its subject", () => {
+    // The owner's Elder row. Naming the trigger after whichever action happened to
+    // be first would describe an operation the reader did not choose, and naming it
+    // after the row is the only honest label when the menu carries three moves.
+    expect(renderMenu(["transfer", "demote", "remove"])).toContain(
+      'aria-label="Manage Ada"'
+    );
+  });
+
   test("no trigger is named after the stored role", () => {
-    for (const kind of ["demote", "promote", "remove", "transfer"] as const) {
-      expect(renderMenu({ kind })).not.toMatch(/admin/iu);
+    for (const actions of [
+      ["demote"],
+      ["promote"],
+      ["remove"],
+      ["transfer"],
+      ["transfer", "demote", "remove"],
+    ] as const) {
+      expect(renderMenu([...actions])).not.toMatch(/admin/iu);
     }
   });
 
@@ -142,7 +156,7 @@ describe("MemberActionMenu", () => {
     // Radix's trigger renders a button with a type set. The menu then opens on
     // Enter and Space because that is a button's behaviour, not a key handler
     // somebody had to remember to add to a div.
-    const html = renderMenu({ kind: "transfer" });
+    const html = renderMenu(["transfer"]);
     expect(html).toContain("<button");
     expect(html).toContain('type="button"');
     expect(html).not.toContain("disabled");
@@ -152,6 +166,6 @@ describe("MemberActionMenu", () => {
     // A confirmation in flight owns the row. Removing the button would reflow the
     // roster under the reader's cursor mid-request; disabling it says the same
     // thing without moving anything.
-    expect(renderMenu({ kind: "transfer" }, true)).toContain("disabled");
+    expect(renderMenu(["transfer"], true)).toContain("disabled");
   });
 });

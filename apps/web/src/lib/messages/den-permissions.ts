@@ -162,53 +162,80 @@ export const DEN_ASSIGNABLE_ROLES = ["ADMIN", "MEMBER"] as const;
 
 export type DenAssignableRole = (typeof DEN_ASSIGNABLE_ROLES)[number];
 
-// How a roster row's role control reads, given what the affordances allow. The
-// point is that a row offers exactly one action, so there is never a menu with a
-// single disabled entry in it.
+// What a roster row's role control can offer, given what the affordances allow.
 export type DenRoleActionKind = "demote" | "promote" | "remove" | "transfer";
 
-export type DenRoleAction = { kind: DenRoleActionKind } | null;
-
-// One live action per row, highest first.
+// Every legal action for one row, in the order the menu draws them.
 //
-// Promote beats transfer because it is the cheap reversible step, and the cost
-// of getting that order wrong is a capability that vanishes rather than one that
-// moves: an owner whose every row offered "hand over the den" could never promote
-// anybody again. So a plain Member's row is always the promotion.
+// This used to return at most one action, on the reasoning that a row offering
+// "hand over the den" did not also need "demote" beside it. That was wrong in a
+// way the affordances already knew: for an owner looking at an Elder, `canDemote`
+// and `canRemove` are both true while `canTransferOwnership` is true too, so
+// collapsing to the first match left the owner with no way to demote somebody or
+// kick them at all. Not offering an operation the server performs perfectly well
+// is not restraint, it is a missing capability with a comment defending it.
 //
-// Transfer beats demote because the two address the same row - somebody who is
-// already an Elder - and the handover is the move an owner actually wants for it.
-// A demotion's outcome is still reachable: an Elder who has lost the owner's
-// trust is replaced by promoting somebody else, and an Elder who is a problem
-// rather than a rival is removed. A row that can be handed over does not also
-// need a demote entry beside it.
+// So every legal action is returned, and the only question left is the order.
 //
-// Remove is last, and stays the fallback: it is the only action here that takes a
-// person out of the den, and it must never shadow a move that leaves them in it.
-export function denRoleAction(input: {
+// Promote leads because it is the cheap reversible step. Transfer follows it
+// because handing a Member the den is a two-step move, and doing it from the
+// Member's row skips the promotion they would otherwise be offered first.
+//
+// Demote sits next to remove on purpose: "Remove Ada as Elder" and "Remove Ada
+// from den" are opposite operations, and putting the two that share the word
+// "Remove" next to each other is what keeps them from being read as the same one.
+//
+// Remove is always last. It is the only action here that takes a person out of
+// the den, and a destructive entry never leads a menu.
+export function denRowActions(input: {
   affordances: DenAffordances;
   target: DenAffordanceTarget;
-}): DenRoleAction {
+}): DenRoleActionKind[] {
   const { affordances, target } = input;
+  const actions: DenRoleActionKind[] = [];
   if (affordances.canPromote && target.role === "MEMBER") {
-    return { kind: "promote" };
+    actions.push("promote");
   }
   if (affordances.canTransferOwnership && target.role === "ADMIN") {
-    return { kind: "transfer" };
+    actions.push("transfer");
   }
   if (affordances.canDemote && target.role === "ADMIN") {
-    return { kind: "demote" };
+    actions.push("demote");
   }
   if (affordances.canRemove) {
-    return { kind: "remove" };
+    actions.push("remove");
   }
-  return null;
+  return actions;
 }
 
-// The menu entry's text, and the trigger's accessible name, both here for the
-// same reason `denConfirmCopy` is: the wording is assertable without rendering a
-// Radix menu, and it cannot drift between the visible label and the name a
-// screen reader announces for the button that opens it.
+// The menu trigger's accessible name.
+//
+// One action names itself, because a button whose label says nothing about what
+// pressing it does is a button a screen reader announces as a mystery: a row with
+// only a removal reads "Remove Ada from den", not "Manage Ada".
+//
+// More than one action cannot name itself, because a name can only describe one of
+// them and picking the first would describe an operation the owner did not choose.
+// So the menu names its subject instead.
+export function denRowMenuLabel(input: {
+  actions: DenRoleActionKind[];
+  memberName: string;
+}): string {
+  const name = input.memberName.trim() || "This person";
+  if (input.actions.length === 1) {
+    return denRoleActionLabel({
+      action: input.actions[0],
+      memberName: name,
+    });
+  }
+  return `Manage ${name}`;
+}
+
+// The menu entry's text, and the trigger's name when a row has exactly one
+// action, both here for the same reason `denConfirmCopy` is: the wording is
+// assertable without rendering a Radix menu, and it cannot drift between the
+// visible label and the name a screen reader announces for the button that opens
+// it.
 //
 // "Remove Ada as Elder" against "Remove Ada from den" on neighbouring rows is the
 // one ambiguity worth writing down. They mean opposite things - revoke the role,

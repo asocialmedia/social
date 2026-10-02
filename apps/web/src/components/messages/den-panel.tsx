@@ -64,9 +64,10 @@ import { denInviteUrl } from "@/lib/messages/den-invite";
 import { denMemberCountLabel } from "@/lib/messages/den-label";
 import {
   denAffordances,
-  denRoleAction,
   denRoleActionLabel,
   denRoleLabel,
+  denRowActions,
+  denRowMenuLabel,
   denViewerRoleLine,
 } from "@/lib/messages/den-permissions";
 import type { DenRoleActionKind } from "@/lib/messages/den-permissions";
@@ -589,9 +590,9 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
       ) : null}
 
       {/* The roster. Each row is a list item so the roles read as a list of
-          people rather than a wall of buttons; the action is a menu rather than
-          three buttons because `denRoleAction` guarantees at most one of them is
-          ever legal. */}
+          people rather than a wall of buttons; the actions are a menu because an
+          owner's row offers several legal moves at once and three buttons per row
+          turns a roster of a hundred into a wall of chrome. */}
       <div className="surface-3d rounded-2xl px-3.5 py-3">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium">Members</p>
@@ -623,7 +624,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
               target: { isSelf, role: member.role },
               viewer,
             });
-            const action = denRoleAction({
+            const actions = denRowActions({
               affordances,
               target: { isSelf, role: member.role },
             });
@@ -641,9 +642,9 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
                   </span>
                 </span>
                 <RoleChip role={member.role} />
-                {action ? (
+                {actions.length > 0 ? (
                   <MemberActionMenu
-                    action={action}
+                    actions={actions}
                     busy={busy}
                     member={member}
                     onRemove={() =>
@@ -836,36 +837,36 @@ export function RoleChip({ role }: { role: DenMember["role"] }) {
   );
 }
 
-// One roster row's single legal action. A menu rather than a button because the
-// affordances decide between promote, transfer, demote and remove, and a menu can
-// only ever render the one that survived — a disabled "Promote" beside a live
-// "Remove" would be offering something the route refuses.
+// One roster row's legal actions, as a menu. A menu rather than a button because an
+// owner's row can carry up to three moves at once, and rendering them as three
+// buttons on every row of a hundred-member roster would drown the list of people
+// in chrome.
 //
-// The trigger is named after the action rather than after the menu ("Make Ada an
-// Elder" rather than "Manage Ada"), because a button whose label says nothing
-// about what pressing it does is a button a screen reader announces as a mystery.
-// Exported with `RoleChip` for the same reason it is: the accessible name is the
-// only part of this component that renders without an open menu.
+// Every entry here is one the affordances already allowed, so there is never a
+// disabled item to render: a greyed-out "Promote" beside a live "Remove" would be
+// offering something the route refuses. The trigger names the single action when
+// there is one, and the subject when there are several, for the reason
+// `denRowMenuLabel` gives. Exported with `RoleChip` because the accessible name is
+// the only part of this component that renders without an open menu.
 export function MemberActionMenu({
-  action,
+  actions,
   busy,
   member,
   onRemove,
   onRole,
   onTransfer,
 }: {
-  action: { kind: DenRoleActionKind };
+  actions: DenRoleActionKind[];
   busy: boolean;
   member: DenMember;
   onRemove: () => void;
   onRole: (role: "ADMIN" | "MEMBER") => void;
   onTransfer: () => void;
 }) {
-  // One label for the one action that survived gating, so the menu can never
-  // render a row whose text does not match what it does, and so the trigger and
-  // the entry it opens cannot disagree either.
-  const label = denRoleActionLabel({
-    action: action.kind,
+  // One label per action, so the menu can never render a row whose text does not
+  // match what it does.
+  const label = denRowMenuLabel({
+    actions,
     memberName: member.displayName,
   });
   return (
@@ -878,31 +879,43 @@ export function MemberActionMenu({
         <MoreHorizontal className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {action.kind === "promote" ? (
+        {actions.includes("promote") ? (
           <DropdownMenuItem onSelect={() => onRole("ADMIN")}>
             <Shield className="size-4" />
-            {label}
+            {denRoleActionLabel({
+              action: "promote",
+              memberName: member.displayName,
+            })}
           </DropdownMenuItem>
         ) : null}
-        {action.kind === "demote" ? (
-          <DropdownMenuItem onSelect={() => onRole("MEMBER")}>
-            <Shield className="size-4" />
-            {label}
-          </DropdownMenuItem>
-        ) : null}
-        {action.kind === "transfer" ? (
+        {actions.includes("transfer") ? (
           <DropdownMenuItem onSelect={onTransfer}>
             <Crown className="size-4" />
-            {label}
+            {denRoleActionLabel({
+              action: "transfer",
+              memberName: member.displayName,
+            })}
           </DropdownMenuItem>
         ) : null}
-        {action.kind === "remove" ? (
+        {actions.includes("demote") ? (
+          <DropdownMenuItem onSelect={() => onRole("MEMBER")}>
+            <Shield className="size-4" />
+            {denRoleActionLabel({
+              action: "demote",
+              memberName: member.displayName,
+            })}
+          </DropdownMenuItem>
+        ) : null}
+        {actions.includes("remove") ? (
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onSelect={onRemove}
           >
             <UserMinus className="size-4" />
-            {label}
+            {denRoleActionLabel({
+              action: "remove",
+              memberName: member.displayName,
+            })}
           </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>

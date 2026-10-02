@@ -6,9 +6,10 @@ import {
   DEN_ASSIGNABLE_ROLES,
   denAffordances,
   denConfirmCopy,
-  denRoleAction,
   denRoleActionLabel,
   denRoleLabel,
+  denRowActions,
+  denRowMenuLabel,
   denViewerRoleLine,
 } from "./den-permissions";
 import type { DenAffordanceTarget, DenRoleActionKind } from "./den-permissions";
@@ -21,6 +22,16 @@ function viewer(role: DenRole | null) {
 
 function target(role: DenRole, isSelf = false): DenAffordanceTarget {
   return { isSelf, role };
+}
+
+// Whether a row offers an action the viewer is allowed to perform. One case where
+// the two come apart: `canTransferOwnership` is true for a plain Member too,
+// because the question it answers is "may this person be handed the den", and a
+// hand-over straight from the Member row is a legitimate two clicks away. The row
+// withholds it because that same row is already offering the promotion that comes
+// first.
+function rowOffers(kind: DenRoleActionKind, targetRole: DenRole): boolean {
+  return kind !== "transfer" || targetRole === "ADMIN";
 }
 
 describe("denAffordances, den-wide controls", () => {
@@ -38,19 +49,19 @@ describe("denAffordances, den-wide controls", () => {
     // The asymmetry is the point of the role: an admin adds and removes, and the
     // owner alone destroys. Both facts are in the server's requireDenManager /
     // requireDenOwner split. `canRemove` here is the den-wide answer with no
-    // target, so this row only asserts the remove path through `denRoleAction`.
+    // target, so this row only asserts the remove path through `denRowActions`.
     const affordances = denAffordances({ viewer: viewer("ADMIN") });
     expect(affordances.canAddMembers).toBe(true);
     expect(affordances.canDeleteDen).toBe(false);
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("MEMBER"),
           viewer: viewer("ADMIN"),
         }),
         target: target("MEMBER"),
       })
-    ).toEqual({ kind: "remove" });
+    ).toEqual(["remove"]);
   });
 
   test("a plain member can only leave", () => {
@@ -252,91 +263,99 @@ describe("denAffordances, per roster row", () => {
   });
 });
 
-describe("denRoleAction", () => {
-  test("a plain Member's row is the promotion, even when a hand-over is legal", () => {
-    // The deliberate end of the ladder. Promotion is the cheap reversible step and
-    // the only one whose absence removes a capability outright: if transfer
-    // outranked it, every row would offer "hand over the den" and the owner could
-    // never promote anybody again. The hand-over to a plain Member is still one
-    // step away - promote, then hand over on the next row.
+describe("denRowActions", () => {
+  test("an owner can promote a Member, kick them, or hand the den over", () => {
+    // All three are legal for this row at once and all three used to be
+    // unreachable behind whichever one the ladder returned first. The kick and the
+    // hand-over are the two the owner is most likely to want on a row they do not
+    // intend to promote, so dropping either one is dropping the feature.
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("MEMBER"),
           viewer: viewer("OWNER"),
         }),
         target: target("MEMBER"),
       })
-    ).toEqual({ kind: "promote" });
+    ).toEqual(["promote", "remove"]);
   });
 
-  test("an Elder's row is the hand-over rather than the kick or a demotion", () => {
-    // Transfer outranks demote: the handover is what an owner wants for a row
-    // that is already an Elder, and a demotion's outcome is reachable by
-    // promoting somebody else. Both used to be "demote", so this assertion is the
-    // record of the choice.
+  test("an owner can hand over, demote, and kick an Elder", () => {
+    // The bug, exactly. `canDemote` and `canRemove` were both already true for
+    // this row, and the single-action return made them unreachable: the owner
+    // could neither demote somebody back to Member nor remove them from the den.
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("ADMIN"),
           viewer: viewer("OWNER"),
         }),
         target: target("ADMIN"),
       })
-    ).toEqual({ kind: "transfer" });
+    ).toEqual(["transfer", "demote", "remove"]);
   });
 
-  test("an Elder who cannot reassign roles falls back to removal", () => {
-    // Nothing above it is legal for an Elder acting on a plain Member, so the kick
-    // is the last rung - and it must never shadow a move that keeps them inside.
+  test("an Elder who cannot reassign roles is offered only the kick", () => {
+    // `canSetRole` is owner-only, so none of the three role moves reach here, and
+    // the kick is all an Elder ever had on a row.
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("MEMBER"),
           viewer: viewer("ADMIN"),
         }),
         target: target("MEMBER"),
       })
-    ).toEqual({ kind: "remove" });
+    ).toEqual(["remove"]);
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("ADMIN"),
           viewer: viewer("ADMIN"),
         }),
         target: target("ADMIN"),
       })
-    ).toEqual({ kind: "remove" });
+    ).toEqual(["remove"]);
   });
 
   test("a row with no legal action has no menu at all", () => {
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("MEMBER"),
           viewer: viewer("MEMBER"),
         }),
         target: target("MEMBER"),
       })
-    ).toBeNull();
+    ).toEqual([]);
+    // The owner's own row, and every row to somebody who is not on the roster.
     expect(
-      denRoleAction({
+      denRowActions({
         affordances: denAffordances({
           target: target("OWNER"),
           viewer: viewer("OWNER"),
         }),
         target: target("OWNER"),
       })
-    ).toBeNull();
+    ).toEqual([]);
+    expect(
+      denRowActions({
+        affordances: denAffordances({
+          target: null,
+          viewer: viewer("OWNER"),
+        }),
+        target: target("MEMBER"),
+      })
+    ).toEqual([]);
   });
 
-  test("every viewer against every row yields at most one live action", () => {
-    // The invariant the whole ladder exists for, asserted across the matrix rather
-    // than on the two cases that used to exist: whatever the row and whoever is
-    // looking at it, the answer is one action, and that action is one the row's
-    // affordances actually allow. A new rung added above an existing one, or a
-    // branch that matched after a live one had already returned, would show up
-    // here as a menu offering something the route refuses.
+  test("every viewer against every row yields exactly the affordances it allows", () => {
+    // The invariant, asserted across the whole matrix rather than on the rows that
+    // happen to be interesting: the menu never offers an action the row's
+    // affordances refused, and never omits one they allowed. The second half is the
+    // half the collapse broke - an affordance computing true and the row then not
+    // offering it is a capability missing with no code to point at. `rowOffers` is
+    // the one place an allowance and an offer come apart, so it is named there.
     const roles = ["OWNER", "ADMIN", "MEMBER"] as const;
     const seen = new Set<string>();
     for (const viewerRole of roles) {
@@ -346,56 +365,103 @@ describe("denRoleAction", () => {
             target: target(targetRole, isSelf),
             viewer: viewer(viewerRole),
           });
-          const live: Record<DenRoleActionKind, boolean> = {
+          const legal: Record<DenRoleActionKind, boolean> = {
             demote: affordances.canDemote,
             promote: affordances.canPromote,
             remove: affordances.canRemove,
             transfer: affordances.canTransferOwnership,
           };
-          const action = denRoleAction({
+          const actions = denRowActions({
             affordances,
             target: target(targetRole, isSelf),
           });
-          if (action) {
-            expect(live[action.kind]).toBe(true);
-          } else {
-            expect(live.remove).toBe(false);
+          for (const action of actions) {
+            expect(legal[action]).toBe(true);
+            seen.add(action);
           }
-          seen.add(action?.kind ?? "none");
+          // Nothing legal went missing, and nothing arrived twice.
+          expect(actions.length).toBe(new Set(actions).size);
+          expect([...actions].toSorted()).toEqual(
+            (Object.keys(legal) as DenRoleActionKind[])
+              .filter((kind) => legal[kind] && rowOffers(kind, targetRole))
+              .toSorted()
+          );
         }
       }
     }
-    // And which rungs the ladder actually reaches. `demote` is missing on purpose:
-    // the transfer sits above it, so a row that could be demoted is a row that can
-    // be handed over instead. Naming the set keeps that from being undone by a
-    // well-meaning reorder.
+    // And which actions the matrix actually reaches. `demote` used to be absent
+    // from this set - it was computed and then shadowed by the transfer - so naming
+    // the set is what records that it is now reachable on its own.
     expect([...seen].toSorted()).toEqual([
-      "none",
+      "demote",
       "promote",
       "remove",
       "transfer",
     ]);
   });
 
-  test("the demote rung is only reachable for an owner looking at an Elder", () => {
-    // Named because it is the one rung the ladder no longer reaches on its own:
-    // transfer takes the Elder's row first. It stays in the union because
-    // `canDemote` is the panel's authority question about that row, and a role
-    // table that grew a second owner-capable role would make it live again.
-    const demotes = denRoleAction({
-      affordances: denAffordances({
-        target: target("ADMIN"),
-        viewer: viewer("OWNER"),
-      }),
-      target: target("ADMIN"),
-    });
-    expect(demotes).toEqual({ kind: "transfer" });
+  test("the owner's own row, and a self row, offer the owner nothing", () => {
+    // Self-action is refused by every route that takes a target, so a row about
+    // the reader cannot offer them a button the server will 403.
+    for (const role of ["MEMBER", "ADMIN"] as const) {
+      expect(
+        denRowActions({
+          affordances: denAffordances({
+            target: target(role, true),
+            viewer: viewer("OWNER"),
+          }),
+          target: target(role, true),
+        })
+      ).toEqual([]);
+    }
+  });
+});
+
+describe("denRowMenuLabel", () => {
+  test("a row with one action is named after that action", () => {
+    // A button whose accessible name says nothing about what pressing it does is
+    // announced as a mystery, so with nothing to disambiguate the single legal
+    // move names itself.
+    expect(denRowMenuLabel({ actions: ["promote"], memberName: "Ada" })).toBe(
+      "Make Ada an Elder"
+    );
+    expect(denRowMenuLabel({ actions: ["remove"], memberName: "Ada" })).toBe(
+      "Remove Ada from den"
+    );
+    expect(denRowMenuLabel({ actions: ["demote"], memberName: "Ada" })).toBe(
+      "Remove Ada as Elder"
+    );
+  });
+
+  test("a row with several actions is named after its subject", () => {
+    // A name can describe one action, so with three on the menu the only honest
+    // label is the row itself rather than whichever one happened to be first.
     expect(
-      denAffordances({
-        target: target("ADMIN"),
-        viewer: viewer("OWNER"),
-      }).canDemote
-    ).toBe(true);
+      denRowMenuLabel({
+        actions: ["transfer", "demote", "remove"],
+        memberName: "Ada",
+      })
+    ).toBe("Manage Ada");
+  });
+
+  test("no name is ever the stored role", () => {
+    for (const actions of [
+      ["promote"] as DenRoleActionKind[],
+      ["transfer", "demote", "remove"],
+    ]) {
+      expect(denRowMenuLabel({ actions, memberName: "Ada" })).not.toMatch(
+        /admin/iu
+      );
+    }
+  });
+
+  test("a nameless member still gets a readable name", () => {
+    expect(denRowMenuLabel({ actions: ["remove"], memberName: "  " })).toBe(
+      "Remove This person from den"
+    );
+    expect(
+      denRowMenuLabel({ actions: ["promote", "remove"], memberName: "  " })
+    ).toBe("Manage This person");
   });
 });
 
