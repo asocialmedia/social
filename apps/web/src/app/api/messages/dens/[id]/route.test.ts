@@ -372,13 +372,13 @@ describe("PATCH /api/messages/dens/:id", () => {
 
   test("maps a domain refusal from the service", async () => {
     mockUpdateDenDetails.mockRejectedValueOnce(
-      new DenError("FORBIDDEN", "Only the owner or an admin can do that")
+      new DenError("FORBIDDEN", "Only the owner or an elder can do that")
     );
     const res = await patch({ name: "renamed" });
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
       code: "FORBIDDEN",
-      error: "Only the owner or an admin can do that",
+      error: "Only the owner or an elder can do that",
     });
   });
 

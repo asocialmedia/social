@@ -146,6 +146,23 @@ describe("den rate-limit buckets", () => {
       expect(name).toMatch(/^DEN_[A-Z_]+_RATE_LIMIT$/u);
     }
   });
+
+  test("handing the den over spends the roles budget, and gets no bucket of its own", () => {
+    // The one sharing the "no two operations share a bucket" rule does not
+    // object to, because the two operations cannot compete: a transfer is
+    // owner-only, needs a confirmation, and is rarer than a promotion, so a
+    // separate budget could only be a looser one. What must not happen is a
+    // bucket of its own appearing next to this one, so this test names the
+    // absence as well as the presence - a new DEN_TRANSFER_* rule would fail it.
+    expect(
+      Object.values(ALL_RULES).filter(
+        (rule) => rule.bucket === DEN_ROLES_RATE_LIMIT.bucket
+      )
+    ).toHaveLength(1);
+    expect(
+      Object.keys(ALL_RULES).some((name) => name.includes("TRANSFER"))
+    ).toBe(false);
+  });
 });
 
 describe("consumeDenRateLimit", () => {

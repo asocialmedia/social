@@ -16,8 +16,8 @@ interface Params {
 }
 
 // Promotes or demotes a member. Owner only, and only ADMIN and MEMBER are
-// assignable: ownership moves by leaving or by dissolving, never by promotion,
-// so there is exactly one way it can change and no second owner to reconcile.
+// assignable: assigning a role moves one row, while ownership also has to move
+// the den's `ownerId`, so that is the transfer route's job and not this one's.
 //
 // The role is validated here as well as in the service so a crafted body is a
 // 400 rather than a round trip that ends in a domain error.

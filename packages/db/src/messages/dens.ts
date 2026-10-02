@@ -26,13 +26,20 @@ export const DEN_LIMITS = {
 export const DEN_INVITE_CODE_ALPHABET =
   "abcdefghjkmnpqrstuvwxyz23456789" as const;
 
-// Role model. Exactly one member holds OWNER, an uncapped number may hold
-// ADMIN, and everyone else is a MEMBER. A DM row carries MEMBER, which is never
-// read: DM authorization is membership, not role.
+// Role model. Exactly one member is the Owner, any number may be an Elder, and
+// everyone else is a Member. Those are the words a person reads; the stored
+// values are OWNER, ADMIN and MEMBER, and only the display layer translates
+// between them (`denRoleLabel` in the web app). The stored names stay as they
+// are because renaming the enum would rewrite every row and every comparison in
+// the product to change a label.
 //
-// OWNER is deliberately absent from DEN_PROMOTABLE_ROLES: ownership moves only
-// by leaving (which transfers it) or by dissolving the den, never by promotion.
-// That keeps "the owner" a single, nameable account rather than a shared role.
+// A DM row carries MEMBER, which is never read: DM authorization is membership,
+// not role.
+//
+// OWNER is deliberately absent from the assignable roles: ownership moves only by
+// an explicit transfer, by leaving (which transfers it) or by dissolving the den,
+// never by promotion. That keeps "the owner" a single, nameable account rather
+// than a shared role.
 export const DEN_ROLES = ["OWNER", "ADMIN", "MEMBER"] as const;
 
 export type DenRole = (typeof DEN_ROLES)[number];
@@ -54,7 +61,7 @@ export function canManageDen(role: string): boolean {
   return (DEN_MANAGEMENT_ROLES as readonly string[]).includes(role);
 }
 
-// Whether `actorRole` may act on `targetRole`. An admin cannot kick or demote
+// Whether `actorRole` may act on `targetRole`. An Elder cannot kick or demote
 // the owner; only the owner can. Self-action is a separate question the caller
 // answers with the target's user id, because a role cannot distinguish the owner
 // from any other member who happens to share the role string.

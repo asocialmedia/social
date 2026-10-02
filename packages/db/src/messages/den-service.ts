@@ -314,7 +314,10 @@ export async function requireDenManager(
   // its controls while this keeps refusing them, so the button is on screen and
   // every press is a 403 and nothing anywhere is red.
   if (!canManageDen(membership.role)) {
-    throw new DenError("FORBIDDEN", "Only the owner or an admin can do that");
+    // Product copy, not a diagnostic: this string is forwarded verbatim to the
+    // client and read by the person whose button did nothing, so it names the
+    // roles the way the product names them.
+    throw new DenError("FORBIDDEN", "Only the owner or an elder can do that");
   }
   return membership;
 }
@@ -844,7 +847,7 @@ export async function leaveDen(
 
       // Ownership transfers rather than dying with the row: a den whose owner walks
       // away would otherwise be unmanageable by everyone left in it. Longest
-      // tenure first, admin outranking a plain member at equal tenure, so the
+      // tenure first, an elder outranking a plain member at equal tenure, so the
       // choice is deterministic and defensible.
       const heirs = members
         .filter((member) => member.userId !== userId)
@@ -896,9 +899,12 @@ export async function leaveDen(
   );
 }
 
-// Only ADMIN and MEMBER are assignable. OWNER is refused on purpose:
-// ownership moves by leaving or by dissolving, so there is exactly one way it can
-// change and no promote route can mint a second owner.
+// Only ADMIN and MEMBER are assignable. OWNER is refused on purpose: assigning
+// a role changes one row, while ownership also has to move the den's `ownerId`,
+// so there is no way to hand it over that does not go through
+// `transferDenOwnership` and its single transaction. No promote route can mint a
+// second owner, and no promote route can leave the two sources of truth
+// disagreeing.
 //
 // The parameter is the full `DenRole` rather than an `Exclude`, so the refusal
 // below is reachable rather than shadowed by the type. Narrowing it would make
@@ -949,6 +955,111 @@ export async function setDenMemberRole(
           memberIds: rosterIds(members),
           membershipSeq,
         },
+        ended: null,
+        value: undefined,
+      };
+    }
+  );
+}
+
+// Hands the den to somebody who is already in it. The owner gives up ownership
+// and becomes an Elder, which is the same end state `leaveDen` produces for an
+// owner who walks out - only this one is chosen on purpose rather than by tenure.
+//
+// Two rules the rest of this file leans on:
+//
+//   The target must be a member. A transfer to somebody outside the den would
+//   have to mint a membership row and a root wrap in the same breath, and a
+//   person who cannot read the den is not somebody to hand it to. NOT_FOUND is
+//   the right code because from the owner's point of view the target does not
+//   exist as a candidate.
+//
+//   Exactly one owner at every instant. The three writes below are one
+//   transaction under the claim lock, and Postgres commits all three or none, so
+//   the only states that exist are the state before and the state after - one
+//   owner in both. There is deliberately no intermediate ownerless or
+//   two-owner state for anything to catch: a writer that could observe the rows
+//   between the writes would have to be inside this transaction, and the only
+//   thing inside it is this function.
+//
+// The actor's ownership is RE-READ under the claim rather than trusted from the
+// `requireDenOwner` above it, which is why the re-check below is not defensive
+// noise. Two transfers from the same owner can both pass that gate - the second
+// waits on the claim rather than being refused - and without this check the
+// loser would happily promote a second owner and demote an actor who is already
+// an Elder, which is exactly the two-owner state the transaction exists to
+// prevent.
+export async function transferDenOwnership(
+  conversationId: string,
+  actorId: string,
+  targetUserId: string
+): Promise<void> {
+  await requireDenOwner(conversationId, actorId);
+  // SELF_ACTION rather than a code of its own: the refusal is "this is already
+  // true", which is what that code means, and `removeDenMember` and
+  // `setDenMemberRole` already answer it the same way.
+  if (actorId === targetUserId) {
+    throw new DenError("SELF_ACTION", "You already own this den");
+  }
+  await withDenMembershipChange(
+    conversationId,
+    actorId,
+    async (tx, claimed) => {
+      const members = await tx.orm.public.MessageConversationMembers.select(
+        "role",
+        "userId"
+      )
+        .where((member) => member.conversationId.eq(conversationId))
+        .all();
+      if (
+        !members.some(
+          (member) => member.userId === actorId && member.role === "OWNER"
+        )
+      ) {
+        throw new DenError("FORBIDDEN", "Only the owner can do that");
+      }
+      const target = members.find((member) => member.userId === targetUserId);
+      if (!target) {
+        throw new DenError("NOT_FOUND", "That person is not a member");
+      }
+      // Demotion first, then promotion, then the den row. The order is not what
+      // makes the single-owner guarantee true - the transaction is - but it keeps
+      // the two role writes adjacent to each other and to the `ownerId` write
+      // they have to agree with, so a reader of this function sees one movement
+      // rather than three.
+      await tx.orm.public.MessageConversationMembers.where((member) =>
+        and(member.conversationId.eq(conversationId), member.userId.eq(actorId))
+      ).updateAndCount({ role: "ADMIN" });
+      await tx.orm.public.MessageConversationMembers.where((member) =>
+        and(
+          member.conversationId.eq(conversationId),
+          member.userId.eq(targetUserId)
+        )
+      ).updateAndCount({ role: "OWNER" });
+      // The one roster mutation that does not go through `touchDen`, for the same
+      // reason `leaveDen`'s transfer does not: `ownerId` has to be written in the
+      // same statement as the counter, or a rollback of one and a commit of the
+      // other would leave two sources of truth disagreeing about who is in charge.
+      const membershipSeq = claimed.membershipSeq + 1;
+      await tx.orm.public.MessageConversations.where((candidate) =>
+        candidate.id.eq(conversationId)
+      ).updateAndCount({
+        membershipSeq,
+        ownerId: targetUserId,
+        updatedAt: toPrismaDateTime(new Date()),
+      });
+      return {
+        // One announcement, for the same reason `leaveDen` sends one: a receiver's
+        // response to "the owner transferred it" is identical whether the owner
+        // left or handed it over, and two announcements would mean two refetches
+        // and two increments for one change.
+        announce: {
+          action: "owner_transferred",
+          memberIds: rosterIds(members),
+          membershipSeq,
+        },
+        // Nobody left: both people are still in the den, one of them as its owner
+        // and one as an Elder, so nobody is owed a "you are out of this den" notice.
         ended: null,
         value: undefined,
       };

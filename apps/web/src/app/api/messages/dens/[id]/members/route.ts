@@ -30,7 +30,7 @@ interface Params {
 const MAX_LIMIT = DEN_LIMITS.membersMax;
 const DEFAULT_LIMIT = 50;
 
-// The den roster, ordered owner first, then admins, then members by join order.
+// The den roster, ordered owner first, then elders, then members by join order.
 //
 // Managers see the same list as everybody else: the identities are already in
 // the conversation payload the thread loads, so restricting this would only mean

@@ -55,6 +55,7 @@ import {
   removeDenMember,
   rotateDenInvite,
   setDenMemberRole,
+  transferDenOwnership,
   updateDenDetails,
 } from "@/lib/messages/client";
 import type { DenMember } from "@/lib/messages/client";
@@ -64,8 +65,11 @@ import { denMemberCountLabel } from "@/lib/messages/den-label";
 import {
   denAffordances,
   denRoleAction,
+  denRoleActionLabel,
   denRoleLabel,
+  denViewerRoleLine,
 } from "@/lib/messages/den-permissions";
+import type { DenRoleActionKind } from "@/lib/messages/den-permissions";
 import type { MessagePickerRecipient } from "@/lib/messages/use-message-user-search";
 import { cn } from "@/lib/utils";
 
@@ -80,9 +84,10 @@ import { cn } from "@/lib/utils";
 // keeps.
 //
 // Add members, remove, promote and demote all go through the shared picker. The
-// three destructive-ish paths (remove a member, leave, delete the den) each get
-// their own confirmation, because they are not the same loss: removing somebody
-// costs them access and nothing else, leaving costs the reader access, and
+// four paths that need agreement (remove a member, leave, transfer the den,
+// delete the den) each get their own confirmation, because they are not the same
+// loss: removing somebody costs them access and nothing else, leaving costs the
+// reader access, handing the den over costs the reader their authority, and
 // deleting the den costs everybody the messages.
 //
 // One thing worth stating because it is easy to get wrong: adding a member writes
@@ -116,7 +121,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<
     | { kind: "delete-den" | "leave-den" }
-    | { kind: "remove-member"; member: DenMember }
+    | { kind: "remove-member" | "transfer-ownership"; member: DenMember }
     | null
   >(null);
   const [editing, setEditing] = useState(false);
@@ -286,6 +291,34 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
     [conversationId, healAfterRosterChange, refresh]
   );
 
+  // Hands the den to somebody else. Deliberately NOT followed by
+  // `healAfterRosterChange`: no membership row is created or destroyed, so every
+  // member still holds the root for the current epoch and rotating would be pure
+  // cost. What did change is who can dissolve the den, which `refresh` reflects.
+  const handOver = useCallback(
+    async (member: DenMember) => {
+      setBusy(true);
+      try {
+        await transferDenOwnership(conversationId, member.id);
+        setConfirm(null);
+        refresh();
+        toast({
+          description: `${member.displayName} owns this den now. You're an Elder.`,
+          title: "Den handed over",
+        });
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't hand it over",
+          title: "Den not handed over",
+          variant: "destructive",
+        });
+      }
+      setBusy(false);
+    },
+    [conversationId, refresh]
+  );
+
   // The conversation list is a separate cache entry from this panel's own reads,
   // and it is the only surface that still lists a den the reader just left. Its
   // own poll would get there within thirty seconds; this gets there now, while
@@ -413,6 +446,9 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   // capped, so a den at exactly the ceiling and a den with unread members beyond
   // the first page are different states and only one of them is full.
   const rosterFull = denIsFull(den.memberCount);
+  // Null for a plain member, so the subtitle stops after the count rather than
+  // telling somebody what they already are.
+  const viewerRoleLine = denViewerRoleLine(viewer.role);
 
   return (
     <div className="flex flex-col gap-3">
@@ -502,9 +538,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
             )}
             <p className="text-muted-foreground text-xs">
               {denMemberCountLabel(den.memberCount)}
-              {viewer.role
-                ? ` · you are ${denRoleLabel(viewer.role).toLowerCase()}`
-                : ""}
+              {viewerRoleLine ? ` · ${viewerRoleLine}` : ""}
             </p>
           </div>
         </div>
@@ -617,6 +651,9 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
                     }
                     onRole={(nextRole) =>
                       setRole.mutate({ role: nextRole, userId: member.id })
+                    }
+                    onTransfer={() =>
+                      setConfirm({ kind: "transfer-ownership", member })
                     }
                   />
                 ) : null}
@@ -739,11 +776,18 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         busy={busy}
         kind={confirm?.kind ?? "leave-den"}
         memberName={
-          confirm?.kind === "remove-member" ? confirm.member.displayName : null
+          confirm?.kind === "remove-member" ||
+          confirm?.kind === "transfer-ownership"
+            ? confirm.member.displayName
+            : null
         }
         onConfirm={() => {
           if (confirm?.kind === "remove-member") {
             void removeMember(confirm.member);
+            return;
+          }
+          if (confirm?.kind === "transfer-ownership") {
+            void handOver(confirm.member);
             return;
           }
           if (confirm?.kind === "delete-den") {
@@ -763,7 +807,19 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   );
 }
 
-function RoleChip({ role }: { role: DenMember["role"] }) {
+// A chip only for the roles that are something. A plain Member draws nothing at
+// all: the default state is not an achievement, and a chip on every row of a
+// hundred-member roster turns "you are an Elder" into one chip among a hundred.
+// So the default is silence and the two roles that grant something carry a mark -
+// the crown for the one who is in charge, the app's accent for one who can add
+// and remove.
+//
+// Exported for the test rather than kept private, because "renders nothing" is
+// only an interesting claim if something can actually ask.
+export function RoleChip({ role }: { role: DenMember["role"] }) {
+  if (role === "MEMBER") {
+    return null;
+  }
   return (
     <span
       className={cn(
@@ -781,34 +837,41 @@ function RoleChip({ role }: { role: DenMember["role"] }) {
 }
 
 // One roster row's single legal action. A menu rather than a button because the
-// affordances decide between promote, demote and remove, and a menu can only
-// ever render the one that survived — a disabled "Promote" beside a live "Remove"
-// would be offering something the route refuses.
-function MemberActionMenu({
+// affordances decide between promote, transfer, demote and remove, and a menu can
+// only ever render the one that survived — a disabled "Promote" beside a live
+// "Remove" would be offering something the route refuses.
+//
+// The trigger is named after the action rather than after the menu ("Make Ada an
+// Elder" rather than "Manage Ada"), because a button whose label says nothing
+// about what pressing it does is a button a screen reader announces as a mystery.
+// Exported with `RoleChip` for the same reason it is: the accessible name is the
+// only part of this component that renders without an open menu.
+export function MemberActionMenu({
   action,
   busy,
   member,
   onRemove,
   onRole,
+  onTransfer,
 }: {
-  action: { kind: "promote" | "demote" | "remove" };
+  action: { kind: DenRoleActionKind };
   busy: boolean;
   member: DenMember;
   onRemove: () => void;
   onRole: (role: "ADMIN" | "MEMBER") => void;
+  onTransfer: () => void;
 }) {
   // One label for the one action that survived gating, so the menu can never
-  // render a row whose text does not match what it does.
-  let label = "Remove from den";
-  if (action.kind === "promote") {
-    label = "Make admin";
-  } else if (action.kind === "demote") {
-    label = "Remove admin";
-  }
+  // render a row whose text does not match what it does, and so the trigger and
+  // the entry it opens cannot disagree either.
+  const label = denRoleActionLabel({
+    action: action.kind,
+    memberName: member.displayName,
+  });
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={`Manage ${member.displayName}`}
+        aria-label={label}
         className="text-muted-foreground hover:text-foreground shrink-0"
         disabled={busy}
       >
@@ -824,6 +887,12 @@ function MemberActionMenu({
         {action.kind === "demote" ? (
           <DropdownMenuItem onSelect={() => onRole("MEMBER")}>
             <Shield className="size-4" />
+            {label}
+          </DropdownMenuItem>
+        ) : null}
+        {action.kind === "transfer" ? (
+          <DropdownMenuItem onSelect={onTransfer}>
+            <Crown className="size-4" />
             {label}
           </DropdownMenuItem>
         ) : null}

@@ -504,9 +504,9 @@ export async function removeDenMember(
   }
 }
 
-// Only ADMIN and MEMBER are assignable. Ownership moves by leaving or by
-// dissolving and never by promotion, so the UI offers no promote-to-owner and
-// the route refuses one.
+// Only ADMIN and MEMBER are assignable here. Ownership is not a role this route
+// can hand out: it also has to move the den's ownerId, so it goes through the
+// transfer call below, and the UI offers no promote-to-owner.
 export async function setDenMemberRole(
   conversationId: string,
   userId: string,
@@ -518,6 +518,29 @@ export async function setDenMemberRole(
     headers: { "Content-Type": "application/json" },
     method: "POST",
   });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Hands the den to somebody already in it. The caller stays in as an Elder, so
+// nothing here is about leaving: the den and its history do not move, only who is
+// in charge of them. That is why it is a separate call rather than an option on
+// `setDenMemberRole` - the route moves two rows and cannot be refused with the
+// same "That role cannot be assigned" a bad body gets.
+export async function transferDenOwnership(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/transfer`,
+    {
+      body: JSON.stringify({ userId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }

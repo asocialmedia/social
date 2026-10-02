@@ -47,6 +47,7 @@ export {
   requireDenOwner,
   rotateInviteCode,
   setDenMemberRole,
+  transferDenOwnership,
   updateDenDetails,
 } from "./src/messages/den-service";
 export type {

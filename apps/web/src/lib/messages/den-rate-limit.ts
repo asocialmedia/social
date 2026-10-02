@@ -110,10 +110,16 @@ export const DEN_DETAILS_RATE_LIMIT: DenRateLimitRule = {
   windowSeconds: 3600,
 };
 
-// A promotion or a demotion. Owner only, and the rarest management operation
-// there is: nobody runs a loop that changes roles, and every call that succeeds
-// is a real change of authority. Tighter than the details budget for that
-// reason, and separate so a rename storm cannot lock an owner out of it.
+// A promotion, a demotion, or a hand-over of the den itself. Owner only, and the
+// rarest management operations there are: nobody runs a loop that changes roles or
+// that hands a den away, and every call that succeeds is a real change of
+// authority. Tighter than the details budget for that reason, and separate so a
+// rename storm cannot lock an owner out of it.
+//
+// The hand-over shares this bucket rather than having one, and it is the sharpest
+// case for sharing: it is rarer than a promotion, needs a confirmation, and only
+// the owner can do it - so a separate budget could only ever be a looser budget
+// that exists to be spent by something nobody would build.
 export const DEN_ROLES_RATE_LIMIT: DenRateLimitRule = {
   bucket: "den-roles",
   limit: 60,

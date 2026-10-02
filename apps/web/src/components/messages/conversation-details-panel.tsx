@@ -1,5 +1,6 @@
 "use client";
 
+import type { DenRole } from "@asm/db/messages/dens";
 import {
   Sheet,
   SheetContent,
@@ -67,6 +68,7 @@ import {
   wallpaperMimeFor,
 } from "@/lib/messages/conversation-wallpaper-upload";
 import { denMemberCountLabel } from "@/lib/messages/den-label";
+import { denViewerRoleLine } from "@/lib/messages/den-permissions";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import type {
   MessageConversationData,
@@ -492,6 +494,10 @@ export function ConversationDetailsBody({
                   avatarUrl: member.user.avatarUrl,
                   displayName: member.user.displayName,
                   id: member.userId,
+                  // The fallback is a sort key, not a name: this list is only
+                  // read by `denAvatarFaces` to decide whose face leads the
+                  // stack, and a row with no stored role (a DM row) belongs at
+                  // the back. Nothing here renders a role.
                   role: member.role ?? "MEMBER",
                   username: member.user.username,
                 })),
@@ -769,10 +775,10 @@ function DetailsHeader({
       avatarUrl: string | null;
       displayName: string;
       id: string;
-      role: string | null;
+      role: DenRole;
       username: string;
     }[];
-    myRole: string | null;
+    myRole: DenRole | null;
     myUserId: string;
     name: string | null;
   } | null;
@@ -808,6 +814,10 @@ function DetailsHeader({
       {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
     </span>
   ) : null;
+  // Null for a plain member, so the subtitle stops after the count rather than
+  // telling somebody what they already are. The same judgement the roster's role
+  // chip makes, which is why both read one helper.
+  const viewerRoleLine = denViewerRoleLine(den?.myRole ?? null);
   const description = den ? (
     <>
       <span>
@@ -815,8 +825,12 @@ function DetailsHeader({
           den.members.filter((member) => member.id !== den.myUserId).length
         )}
       </span>
-      {den.myRole ? <span aria-hidden>·</span> : null}
-      {den.myRole ? <span>You are {den.myRole.toLowerCase()}</span> : null}
+      {viewerRoleLine ? (
+        <>
+          <span aria-hidden>·</span>
+          <span>{viewerRoleLine}</span>
+        </>
+      ) : null}
       {mutedChip}
     </>
   ) : (

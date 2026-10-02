@@ -16,6 +16,7 @@ import {
   removeDenMember,
   rotateDenInvite,
   setDenMemberRole,
+  transferDenOwnership,
   updateDenDetails,
 } from "./client";
 import { HistoryThrottledError } from "./history-throttle";
@@ -388,6 +389,35 @@ describe("setDenMemberRole", () => {
       );
     await expect(setDenMemberRole("den-1", "u-ada", "ADMIN")).rejects.toThrow(
       "Only the owner can do that"
+    );
+  });
+});
+
+describe("transferDenOwnership", () => {
+  test("posts the target to its own route, not to the role route", async () => {
+    // A separate route rather than a role value on the existing one: this write
+    // moves two membership rows and the den's ownerId, and it must not be
+    // reachable by anything that can already write a role.
+    route = (url) =>
+      url === "/api/messages/dens/den-1/transfer"
+        ? Response.json({ ok: true })
+        : null;
+    await transferDenOwnership("den-1", "u-ada");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("/api/messages/dens/den-1/transfer");
+    expect(calls[0]?.body).toEqual({ userId: "u-ada" });
+  });
+
+  test("the self-action refusal is surfaced rather than swallowed", async () => {
+    // Stale row: the owner opened the panel before somebody else took the den, and
+    // pressed the button on their own name. The message is what says why.
+    route = () =>
+      Response.json(
+        { code: "SELF_ACTION", error: "You already own this den" },
+        { status: 409 }
+      );
+    await expect(transferDenOwnership("den-1", "u-me")).rejects.toThrow(
+      "You already own this den"
     );
   });
 });

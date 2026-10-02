@@ -20,6 +20,7 @@ import {
   rotateInviteCode,
   setDenMemberRole,
   toPrismaDateTime,
+  transferDenOwnership,
   updateDenDetails,
 } from "@asm/db";
 import { Client } from "pg";
@@ -295,6 +296,23 @@ describe("every mutation that moves the roster moves the counter", () => {
     await setDenMemberRole(denId, OWNER_ID, MEMBER_ID, "ADMIN");
 
     expect(await membershipSeqOf(denId)).toBe(before + 1);
+  });
+
+  test("handing the den to somebody else, which also moves nobody in or out", async () => {
+    // The same single-statement shape as the leave-transfer above: `ownerId` has to
+    // be written with the counter, or a rollback of one and a commit of the other
+    // would leave the den with a new owner and a stale counter - which reads to
+    // every client as a roster it has already seen.
+    const denId = await makeDen([ADMIN_ID, MEMBER_ID], "Hand over");
+    const before = await membershipSeqOf(denId);
+
+    await transferDenOwnership(denId, OWNER_ID, ADMIN_ID);
+
+    expect(await membershipSeqOf(denId)).toBe(before + 1);
+    const den = await prisma.orm.public.MessageConversations.select("ownerId")
+      .where({ id: denId })
+      .first();
+    expect(den?.ownerId).toBe(ADMIN_ID);
   });
 
   test("joining through an invite link", async () => {

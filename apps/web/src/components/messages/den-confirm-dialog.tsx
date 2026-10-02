@@ -13,18 +13,18 @@ import {
 
 import { denConfirmCopy } from "@/lib/messages/den-permissions";
 
-// Confirmation for every destructive den action: removing a member, leaving, and
-// deleting the den outright.
+// Confirmation for every den action a person has to agree to: removing a member,
+// leaving, handing the den to somebody else, and deleting it outright.
 //
 // The same shape as MessageDeleteDialog, deliberately: one AlertDialog, one
-// destructive button, one busy state. What differs is the copy, and that lives in
-// `denConfirmCopy` so the two destructive paths cannot drift apart in tone and
-// so the wording is assertable without rendering a dialog.
+// confirm button, one busy state. What differs is the copy, and that lives in
+// `denConfirmCopy` so the four paths cannot drift apart in tone and so the wording
+// is assertable without rendering a dialog.
 //
 // The action is held for the async confirm (preventDefault) so a failure can
 // surface as a toast and the dialog stays open until the request settles — the
-// alternative, letting the dialog close optimistically, tells the reader a
-// member was removed from a roster that never changed.
+// alternative, letting the dialog close optimistically, tells the reader a member
+// was removed from a roster that never changed.
 export function DenConfirmDialog({
   busy,
   kind,
@@ -34,7 +34,7 @@ export function DenConfirmDialog({
   open,
 }: {
   busy: boolean;
-  kind: "delete-den" | "leave-den" | "remove-member";
+  kind: "delete-den" | "leave-den" | "remove-member" | "transfer-ownership";
   memberName?: string | null;
   onConfirm: () => void;
   onOpenChange: (open: boolean) => void;
