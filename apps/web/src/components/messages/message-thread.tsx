@@ -118,6 +118,7 @@ import {
   isHistoryThrottled,
   isHistoryUnauthorized,
 } from "@/lib/messages/history-throttle";
+import { applyMembershipSeq } from "@/lib/messages/membership-seq";
 import {
   chunkMessageIds,
   messageDeleteCopy,
@@ -4016,6 +4017,7 @@ export function MessageThread({
         | "den.membership.changed";
       deliveredAt?: string;
       membershipAction?: string;
+      membershipSeq?: number;
       message?: MessageData;
       readAt?: string;
       userId?: string;
@@ -4086,6 +4088,31 @@ export function MessageThread({
         // invalidation), so the second read is redundant rather than wrong, and
         // the alternative is a rule that silently stops working when somebody
         // mutates the roster from a second device.
+        //
+        // The counter decides whether the refetch is owed at all. A duplicate
+        // delivery (or an announcement that overtook a newer one on the wire) is
+        // dropped here for free, and a value that could not be read is applied
+        // exactly as this always applied an announcement - which is the point:
+        // the refetch is the fallback, not the mechanism. The counter also tells
+        // the two apart that used to be indistinguishable, a fresh change and a
+        // lost one: a gap means this tab missed at least one change and the
+        // single refetch it triggers is the whole remedy, because a client cannot
+        // ask "which change did I miss", only "give me the roster again".
+        const plan = applyMembershipSeq(
+          event.conversationId,
+          event.membershipSeq
+        );
+        if (!plan.refetchDetail) {
+          return;
+        }
+        if (plan.kind === "gap") {
+          // Logged rather than surfaced: from the user's side this is a background
+          // refetch of data that is already on its way, and a toast for a
+          // self-healed gap would train people to ignore the one that is not.
+          console.warn(
+            `Den roster gap on ${event.conversationId}: at ${plan.appliedSeq}, so at least one announcement was lost`
+          );
+        }
         void queryClient.invalidateQueries({
           queryKey: ["message-conversation", conversationId],
         });

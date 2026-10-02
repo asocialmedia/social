@@ -25,6 +25,11 @@ import type {
   WrapRecipient,
 } from "./crypto";
 import { HistoryThrottledError } from "./history-throttle";
+import {
+  applyMembershipSeq,
+  lastAppliedMembershipSeq,
+  readMembershipSeq,
+} from "./membership-seq";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -320,6 +325,7 @@ export async function createConversation(
     isNew: boolean;
   };
   noteConversationUpdatedAt(body.conversation);
+  noteConversationMembershipSeq(body.conversation);
   return body;
 }
 
@@ -370,6 +376,7 @@ export async function createDen(input: {
   // stale-snapshot guard in ensureConversationKeys has to know the server has
   // already moved this conversation row forward.
   noteConversationUpdatedAt(body.conversation);
+  noteConversationMembershipSeq(body.conversation);
   return body;
 }
 
@@ -660,6 +667,12 @@ export async function postConversationKeys(
 // costs one refetch on the send path — which already carries one — and never a
 // wrong epoch. The alternative is a narrower signal nobody has today: separating
 // roster movement from transcript movement needs its own column.
+//
+// It has one now. `membershipSeq` moves only for the roster, so the check below is
+// now two axes rather than one, and this comment is what keeps the older axis from
+// being deleted as redundant: it is the second, independent line of defence, and
+// it still fires for a server that never reports a counter. What it must never
+// become is the only one again, which is why `touchDen` no longer relies on it.
 const serverReportedConversationUpdatedAt = new Map<string, number>();
 
 // Records the newest report for a conversation. Later reads only ever move it
@@ -678,10 +691,50 @@ function noteConversationUpdatedAt(conversation: {
   }
 }
 
+// The sibling of the above, for the roster-only counter. Kept in its own module
+// (`./membership-seq`) rather than folded into the `updatedAt` map, because the two
+// answer different questions: one says "this row moved at some point", the other
+// says "the roster moved N times". Merging them would make a message send look
+// like a membership change, which is the cost this column exists to remove.
+//
+// Records whatever the response carried and asks nothing of the caller here: a
+// detail, list or create response IS the fresh data, so the caller has nothing to
+// refetch. The send path is the one response that is not, and it uses the returned
+// plan - see `sendEncryptedMessage`.
+function noteConversationMembershipSeq(conversation: {
+  id: string;
+  membershipSeq?: number | null;
+}): void {
+  applyMembershipSeq(conversation.id, conversation.membershipSeq);
+}
+
 // Whether this snapshot has already been overtaken by something the server told
 // this tab about it. Unknown conversations (nothing reported yet) are never stale,
 // so the check costs nothing on a conversation read for the first time.
+//
+// Two axes, OR-ed, each independent:
+//
+//   - `updatedAt`: the second line of defence, kept rather than removed. Coarse
+//     (millisecond resolution, and it moves on every send) and it can fire without
+//     any membership change behind it, but it needs nothing from a newer server.
+//   - `membershipSeq`: the sound one. It moves only for the roster, so a value
+//     ahead of this snapshot's is proof that the roster moved and this tab never
+//     heard it - which is exactly the case the timestamp cannot distinguish from
+//     ordinary activity.
+//
+// Either way the answer is the same for the caller, which is why they are one
+// predicate: `ensureConversationKeys` refetches before sending, or refuses the
+// send when it cannot.
 export function isConversationSnapshotStale(
+  conversation: MessageConversationData
+): boolean {
+  return (
+    isUpdatedAtSnapshotBehind(conversation) ||
+    isMembershipSeqSnapshotBehind(conversation)
+  );
+}
+
+function isUpdatedAtSnapshotBehind(
   conversation: MessageConversationData
 ): boolean {
   const reported = serverReportedConversationUpdatedAt.get(conversation.id);
@@ -690,6 +743,21 @@ export function isConversationSnapshotStale(
   }
   const snapshot = toMillis(conversation.updatedAt);
   return snapshot !== null && snapshot < reported;
+}
+
+// A snapshot that carries no counter cannot be behind on that axis, and neither
+// can one from a tab that has never been told a value for it. Both are the common
+// case - a DM, a payload cached before the column existed - and both must resolve
+// to "not stale", or every send on the hottest path in the app would pay a refetch.
+function isMembershipSeqSnapshotBehind(
+  conversation: MessageConversationData
+): boolean {
+  const snapshot = readMembershipSeq(conversation.membershipSeq);
+  const reported = lastAppliedMembershipSeq(conversation.id);
+  if (snapshot === null || reported === null) {
+    return false;
+  }
+  return snapshot < reported;
 }
 
 export async function fetchConversationList(
@@ -705,6 +773,7 @@ export async function fetchConversationList(
   const body = (await response.json()) as ConversationListResponse;
   for (const item of body.conversations) {
     noteConversationUpdatedAt(item);
+    noteConversationMembershipSeq(item);
   }
   return body;
 }
@@ -723,6 +792,7 @@ export async function fetchConversationDetail(
   }
   const body = (await response.json()) as ConversationDetailResponse;
   noteConversationUpdatedAt(body.conversation);
+  noteConversationMembershipSeq(body.conversation);
   return body;
 }
 
@@ -1053,6 +1123,24 @@ export async function reencryptMessageForEdit(params: {
   return null;
 }
 
+// A send is the one response a member whose `den.membership.changed` was lost will
+// ever see: the realtime channel is best-effort, so nothing else is guaranteed to
+// reach them. The route echoes the conversation's current roster counter alongside
+// the message, and this records it.
+//
+// If it comes back AHEAD of the last counter this tab applied, then a roster
+// changed and the announcement never arrived, and this tab's cached conversation
+// is holding a roster that no longer exists. The send itself has already committed
+// - the message is written either way, and refusing it here would only lose the
+// user's text - so what this does is mark the cached snapshot as known-behind.
+// `ensureConversationKeys` reads that on the NEXT send and refetches the detail
+// before it may write into an epoch, or refuses the send when it cannot refetch.
+// Same mechanism as the `updatedAt` watermark, on a signal that cannot fire for
+// ordinary traffic.
+//
+// A response with no counter (an older server, a transaction that returned no
+// row) records nothing and changes no behaviour: `applyMembershipSeq` reports it
+// as unsequenced and this tab carries on exactly as it did before.
 export async function sendEncryptedMessage(
   conversationId: string,
   rootKey: Uint8Array,
@@ -1083,7 +1171,11 @@ export async function sendEncryptedMessage(
   if (!response.ok) {
     throw await parseError(response);
   }
-  const json = (await response.json()) as { message: MessageData };
+  const json = (await response.json()) as {
+    membershipSeq?: number | null;
+    message: MessageData;
+  };
+  applyMembershipSeq(conversationId, json.membershipSeq);
   return json.message;
 }
 

@@ -31,6 +31,7 @@ function conversationRow(
   overrides: {
     inviteCode?: string | null;
     members?: ReturnType<typeof memberRow>[];
+    membershipSeq?: number;
     name?: string | null;
     pairKey?: string | null;
   } = {}
@@ -40,6 +41,7 @@ function conversationRow(
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     id: "convo-1",
     inviteCode: overrides.inviteCode ?? null,
+    membershipSeq: overrides.membershipSeq ?? 3,
     messageConversationKeys: [],
     messageConversationMembers: overrides.members ?? [
       memberRow("user-1", "MEMBER"),
@@ -188,6 +190,20 @@ describe("getConversationForUser", () => {
     const conversation = await getConversationForUser("convo-1", "user-1");
     expect(conversation?.type).toBe("DM");
     expect("_type" in (conversation ?? {})).toBe(false);
+  });
+
+  test("carries the roster counter through to the detail payload", async () => {
+    // The detail read is the client's main answer to "has my roster moved?", so
+    // the counter has to be in this payload and not only in the list one: the
+    // list is refetched on a timer, the detail is refetched because something said
+    // to. It names nobody, so it rides the same gate as everything else here.
+    const conversation = await getConversationForUser("convo-1", "user-1");
+    expect(conversation?.membershipSeq).toBe(3);
+    mockConversationRow.mockImplementation(() =>
+      conversationRow({ membershipSeq: 11 })
+    );
+    const afterSecondRead = await getConversationForUser("convo-1", "user-1");
+    expect(afterSecondRead?.membershipSeq).toBe(11);
   });
 
   test("hides a blocked pair in a DM", async () => {

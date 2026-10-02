@@ -70,6 +70,12 @@ export interface MessageConversationData {
   members: MessageConversationMember[];
   pairKey: string | null;
   updatedAt: Date;
+  // How many roster changes this conversation has been through. Optional because
+  // it is: a payload cached before the column existed, a server that has not been
+  // deployed yet, and every DM (whose roster never moves) can all arrive without
+  // it. Absent means "cannot tell", which the client reads as the behaviour it
+  // had before the field existed - never as "fresh".
+  membershipSeq?: number;
   // Den-only columns, null on a DM. `type` is required rather than optional: it is
   // the field every gate reads to decide whether it is looking at a pair or at a
   // group, it is NOT NULL in the database with a DM default, and every server

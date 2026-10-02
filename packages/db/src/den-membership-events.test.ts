@@ -68,26 +68,68 @@ describe("publishDenMembershipChanged", () => {
     expect(published).toHaveBeenCalledTimes(4);
   });
 
-  test("carries the conversation, the actor and the action, and nothing else", async () => {
+  test("carries the conversation, the actor, the action and the roster counter", async () => {
     await publishDenMembershipChanged({
       action: "role_changed",
       actorId: "owner-1",
       conversationId: "den-1",
       memberIds: ["owner-1", "member-2"],
+      membershipSeq: 4,
     });
 
     expect(payloadOf(0)).toEqual({
       conversationId: "den-1",
       kind: "den.membership.changed",
       membershipAction: "role_changed",
+      membershipSeq: 4,
       userId: "owner-1",
     });
     // The activity frame stays as small as the message one is: a conversation id
-    // and the reason to refetch, because the list is a signal consumer.
+    // and the reason to refetch, because the list is a signal consumer. No counter
+    // here either - see the note on the publisher. Nothing reads a sequence on
+    // this channel, and every idle tab pays for every byte of it.
     expect(payloadOf(1)).toEqual({
       conversationId: "den-1",
       kind: "den.membership.changed",
     });
+  });
+
+  test("omits the counter entirely when the mutation had none to report", async () => {
+    // A dissolve: the row the counter lived on is gone by the time this publishes,
+    // and a receiver treats a dissolve as terminal, so there is nothing to count
+    // and nothing a sequence could add. `undefined` rather than a sentinel, so an
+    // old receiver that has never heard of the field reads the frame it always did.
+    await publishDenMembershipChanged({
+      action: "dissolved",
+      actorId: "owner-1",
+      conversationId: "den-1",
+      memberIds: [],
+      membershipSeq: undefined,
+    });
+
+    expect(payloadOf(0)).not.toHaveProperty("membershipSeq");
+    // And with the member list empty too, the only frame is the conversation one.
+    expect(channelsOf()).toEqual(["messages:den-1"]);
+  });
+
+  test("carries the counter and nothing that could name anybody", async () => {
+    // The value is the load-bearing part of the frame, so it is worth asserting its
+    // shape directly: a small whole number. A payload that could carry a roster, a
+    // body or a key would turn "how many changes might I have missed" into "who
+    // is in this room", and the whole reason the counter rides on the wire is that
+    // a client needs to notice a gap it cannot otherwise see.
+    await publishDenMembershipChanged({
+      action: "member_added",
+      actorId: "owner-1",
+      conversationId: "den-1",
+      memberIds: ["owner-1", "member-2"],
+      membershipSeq: 12,
+    });
+
+    const seq = payloadOf(0).membershipSeq;
+    expect(Number.isInteger(seq)).toBe(true);
+    expect(seq as number).toBe(12);
+    expect(JSON.stringify(payloadOf(0))).not.toContain("member-2");
   });
 
   test("never puts key, ciphertext or invite-code material on the wire", async () => {
@@ -107,6 +149,13 @@ describe("publishDenMembershipChanged", () => {
     expect(wire).not.toContain("encryptedKey");
     expect(wire).not.toContain("inviteCode");
     expect(wire).not.toContain("message");
+    // The counter is the one field this test has to make room for, and the reason
+    // it is allowed is that it is a count of mutations: it names nobody, holds no
+    // key, and the worst a holder can learn from it is how many roster changes
+    // they may have missed.
+    expect(wire).not.toContain("memberIds");
+    expect(wire).not.toContain("updatedAt");
+    expect(wire).not.toContain("ownerId");
   });
 
   test("names no target, so the roster cannot be read off the event", async () => {
@@ -176,6 +225,44 @@ describe("den.membership.changed parsing", () => {
       expect(parsed?.kind).toBe("den.membership.changed");
       expect(parsed?.membershipAction).toBe(action);
       expect(parsed?.userId).toBe("owner-1");
+    }
+  });
+
+  test("carries a roster counter through, and drops one it cannot read", () => {
+    // The lenient half of the gate. An unreadable counter must not refuse the
+    // event: a receiver's fallback for an absent counter is the behaviour it had
+    // before this field existed, which is a refetch - the safe direction. Refusing
+    // the whole announcement instead would hand a member with the thread open a
+    // stale roster because a publisher sent a bad number.
+    const good = parseMessageEvent(
+      serializeMessageEvent({
+        conversationId: "den-1",
+        kind: "den.membership.changed",
+        membershipAction: "member_removed",
+        membershipSeq: 9,
+        userId: "owner-1",
+      })
+    );
+    expect(good?.membershipSeq).toBe(9);
+
+    // Written as raw frames rather than through `serializeMessageEvent`, because
+    // these are values the publisher's own type forbids: what is under test is the
+    // gate on what actually arrives, not what this module is willing to send.
+    for (const membershipSeq of [
+      '"9"',
+      "9.5",
+      "-1",
+      "null",
+      '{"value":9}',
+      "null",
+      "1e400",
+    ]) {
+      const parsed = parseMessageEvent(
+        `{"conversationId":"den-1","kind":"den.membership.changed","membershipAction":"member_removed","userId":"owner-1","membershipSeq":${membershipSeq}}`
+      );
+      // Still delivered, and reported as having no counter at all.
+      expect(parsed?.kind).toBe("den.membership.changed");
+      expect(parsed?.membershipSeq).toBeUndefined();
     }
   });
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { readMembershipSeq } from "@/lib/messages/membership-seq";
 import type { MessageData } from "@/lib/messages/types";
 
 const INITIAL_RETRY_MS = 1000;
@@ -21,6 +22,12 @@ interface MessageStreamEvent {
   conversationId: string;
   deliveredAt?: string;
   membershipAction?: string;
+  // The den's post-increment roster counter. Optional because the server may not
+  // have one to give (a dissolve, a deployment that predates the column), and an
+  // unreadable value is dropped rather than guessed at, so `undefined` here means
+  // "cannot tell" - the client keeps its previous behaviour rather than assuming
+  // its roster is current.
+  membershipSeq?: number;
   message?: unknown;
   readAt?: string;
   userId?: string;
@@ -96,6 +103,11 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
       membershipAction: parsed.membershipAction,
+      // Dropped rather than forwarded when it is not a non-negative whole number,
+      // which is the same lenient reading the server's parser applies: an
+      // unreadable counter degrades to "no counter", and never to a crash and
+      // never to a receiver treating an old roster as current.
+      membershipSeq: readMembershipSeq(parsed.membershipSeq) ?? undefined,
       message: parsed.message,
       readAt: parsed.readAt,
       userId: parsed.userId,
@@ -304,6 +316,7 @@ export function useMessagesRealtime(
     kind: MessageStreamEvent["kind"];
     deliveredAt?: string;
     membershipAction?: string;
+    membershipSeq?: number;
     message?: MessageData;
     readAt?: string;
     userId?: string;
@@ -377,6 +390,7 @@ export function useMessagesRealtime(
         deliveredAt: event.deliveredAt,
         kind: event.kind,
         membershipAction: event.membershipAction,
+        membershipSeq: event.membershipSeq,
         message,
         readAt: event.readAt,
         userId: event.userId,

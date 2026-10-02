@@ -13,6 +13,12 @@ type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 
 const createdConversations: Record<string, unknown>[] = [];
+// The counter a freshly written conversation reports. Non-zero so a test can tell
+// a reported value from an absent one: a DM that never gains a member starts at 0
+// in the database, but the create route's own row is read back through the mapper,
+// and the point here is that the value survives that read.
+const CREATED_MEMBERSHIP_SEQ = 5;
+
 const mockCreate = mock((args: { data: Record<string, unknown> }) => {
   const conversation = {
     id: "convo-1",
@@ -21,7 +27,7 @@ const mockCreate = mock((args: { data: Record<string, unknown> }) => {
     ...args.data,
   };
   createdConversations.push(conversation);
-  createdConversation = queryConversation("convo-1");
+  createdConversation = queryConversation("convo-1", CREATED_MEMBERSHIP_SEQ);
   return Promise.resolve(conversation);
 });
 interface ConversationRow {
@@ -79,10 +85,15 @@ async function readList(query = "") {
     conversations: {
       id: string;
       inviteCode: string | null;
+      membershipSeq: number;
       type: string;
     }[];
     items: {
-      conversation: { id: string; inviteCode: string | null };
+      conversation: {
+        id: string;
+        inviteCode: string | null;
+        membershipSeq: number;
+      };
       lastMessage: unknown;
       unreadCount: number;
     }[];
@@ -149,7 +160,10 @@ function memberRow(
   };
 }
 
-function queryConversation(id: string): Record<string, unknown> {
+function queryConversation(
+  id: string,
+  membershipSeq = 0
+): Record<string, unknown> {
   return {
     _type: "DM",
     avatarMediaId: null,
@@ -158,6 +172,7 @@ function queryConversation(id: string): Record<string, unknown> {
     description: null,
     id,
     inviteCode: null,
+    membershipSeq,
     messageConversationKeys: [],
     messageConversationMembers: [memberRow(id, "user1")],
     messages: [],
@@ -459,6 +474,19 @@ describe("POST /api/messages/conversations", () => {
     expect(createArgs.data.pairKey).toBe("user1:user2");
   });
 
+  test("reports the roster counter on the conversation it just created", async () => {
+    // A create is a membership mutation too, so the client's guard has to learn
+    // from this response that the server has already moved the row forward -
+    // otherwise the very first send in a brand new conversation decides against a
+    // snapshot the server had overtaken.
+    const res = await postWith("user2");
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      conversation: { membershipSeq: number };
+    };
+    expect(body.conversation.membershipSeq).toBe(CREATED_MEMBERSHIP_SEQ);
+  });
+
   test("looks up membership by both user ids before creating", async () => {
     await postWith("user2");
     expect(mockFindFirst).toHaveBeenCalled();
@@ -666,6 +694,34 @@ describe("GET /api/messages/conversations", () => {
     expect(body.items[0]?.conversation.inviteCode).toBeNull();
     expect(body.items[0]?.conversation.type).toBe("DM");
     expect(body.items).toHaveLength(1);
+  });
+
+  test("reports the roster counter, which names nobody", async () => {
+    // The client compares this against the newest counter the server has reported
+    // to it, and refetches when it is ahead: that is how a lost membership
+    // announcement is caught. A mapper that dropped it would leave the guard with
+    // nothing to compare, so it is asserted here rather than trusted - and it is
+    // carried through even for a plain member, because a count of roster changes
+    // they may have missed discloses nothing about who is in the room.
+    conversationPage = [
+      pageConversation("den-1", "DEN", ["user1", "user2"], {
+        membershipSeq: 12,
+        messageConversationMembers: [
+          memberRow("den-1", "user1"),
+          memberRow("den-1", "user2"),
+        ],
+      }),
+    ];
+    const body = await readList();
+    expect(body.items[0]?.conversation.membershipSeq).toBe(12);
+    expect(body.conversations[0]?.membershipSeq).toBe(12);
+    // A DM carries 0 rather than nothing: its roster never moves, and an absent
+    // value would be indistinguishable from a payload that predates the column.
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], { membershipSeq: 0 }),
+    ];
+    const dm = await readList();
+    expect(dm.items[0]?.conversation.membershipSeq).toBe(0);
   });
 
   test("withholds the code from a member who is not even on the roster", async () => {

@@ -172,6 +172,13 @@ function mapConversation(
         },
       ];
     }),
+    // Carried through unchanged, like `inviteCode` above: the client's guard
+    // compares the counter in this payload against the newest one the server has
+    // reported to it, and a mapper that dropped it would leave the guard with
+    // nothing to compare. It names nobody and describes no roster, so a plain
+    // member reading it learns only how many changes they may have missed - the
+    // same thing the stream tells them.
+    membershipSeq: conversation.membershipSeq,
     messages: (conversation.messages ?? []).map((message) => ({
       ...message,
       createdAt: fromPrismaDateTime(message.createdAt),

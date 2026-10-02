@@ -1,0 +1,36 @@
+[
+  {
+    "id": "column.public.message_conversations.membershipSeq",
+    "label": "Add column \"membershipSeq\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "membershipSeq",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"membershipSeq\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "membershipSeq"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"membershipSeq\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"membershipSeq\" int4 DEFAULT 0 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"membershipSeq\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "membershipSeq"]
+      }
+    ]
+  }
+]

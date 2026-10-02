@@ -157,6 +157,11 @@ async function createDenAttempt(params: {
 }): Promise<{ id: string; inviteCode: string } | null> {
   try {
     return await prisma.transaction(async (tx) => {
+      // `membershipSeq` is left at its default of 0 rather than set to 1: a
+      // creation is not a change to a roster that already existed, it is the
+      // first state of one, and there is no client anywhere holding a stale view
+      // of it to invalidate. A value of 0 also keeps a fresh den's counter
+      // identical to a den created before the column existed.
       const den = await tx.orm.public.MessageConversations.create({
         _type: "DEN",
         avatarMediaId: params.avatarMediaId,
@@ -325,6 +330,18 @@ export async function requireDenOwner(
   return membership;
 }
 
+// The den row as the claim found it, handed to every write that runs under it.
+//
+// `membershipSeq` rides along because the roster mutations below have to write
+// `+1` of the value they claimed, and a second read inside the same transaction
+// would be a value nothing has proved exclusive: the claim is what makes this
+// writer the only one touching the row, so the row it already read IS the
+// current counter. Reading it again later would return the same number and cost
+// a round trip to say so.
+interface ClaimedDen {
+  membershipSeq: number;
+}
+
 // Optimistic claim on the den row. Re-reads, then issues a conditional no-op
 // UPDATE matching the value just read. updateAndCount returns 1 when this caller
 // won; anything else means another writer moved the row in between, so try
@@ -333,8 +350,9 @@ export async function requireDenOwner(
 async function claimDen(
   transaction: PrismaTransaction,
   conversationId: string
-): Promise<void> {
+): Promise<ClaimedDen> {
   const den = await transaction.orm.public.MessageConversations.select(
+    "membershipSeq",
     "updatedAt"
   )
     .where({ id: conversationId })
@@ -353,7 +371,7 @@ async function claimDen(
       )
   ).updateAndCount({ updatedAt: den.updatedAt });
   if (claimed === 1) {
-    return;
+    return { membershipSeq: den.membershipSeq };
   }
   return await claimDen(transaction, conversationId);
 }
@@ -363,11 +381,11 @@ async function claimDen(
 // filter would be a comparison against a value the claim has just changed.
 async function withDenClaim<T>(
   conversationId: string,
-  write: (tx: PrismaTransaction) => Promise<T>
+  write: (tx: PrismaTransaction, claimed: ClaimedDen) => Promise<T>
 ): Promise<T> {
   return await runWithRetry(async (tx) => {
-    await claimDen(tx, conversationId);
-    return await write(tx);
+    const claimed = await claimDen(tx, conversationId);
+    return await write(tx, claimed);
   });
 }
 
@@ -390,6 +408,13 @@ async function withDenClaim<T>(
 export interface DenAnnouncement {
   action: DenMembershipAction;
   memberIds: string[];
+  // The post-increment `message_conversations.membershipSeq`, so a receiver can
+  // tell a fresh announcement from a duplicate and notice one it never got.
+  //
+  // Optional because a dissolve has no value to report: the row is gone by the
+  // time this publishes, and a dissolve is terminal for every receiver anyway.
+  // An absent value degrades to the pre-sequence behaviour, never to a guess.
+  membershipSeq?: number;
 }
 
 // What a mutation owes the members who are no longer coming back, for the same
@@ -415,6 +440,7 @@ async function flushDenAnnouncement(
       actorId,
       conversationId,
       memberIds: announcement.memberIds,
+      membershipSeq: announcement.membershipSeq,
     });
   } catch (error) {
     // The publisher is already best-effort; this is the belt to its braces, for
@@ -431,7 +457,10 @@ async function flushDenAnnouncement(
 async function withDenMembershipChange<T>(
   conversationId: string,
   actorId: string,
-  write: (tx: PrismaTransaction) => Promise<{
+  write: (
+    tx: PrismaTransaction,
+    claimed: ClaimedDen
+  ) => Promise<{
     announce: DenAnnouncement | null;
     ended: DenMembershipEnded;
     value: T;
@@ -494,26 +523,48 @@ function rosterIds(members: readonly { userId: string }[]): string[] {
 // "blocks do not stop a den" suite - because a missing rule is invisible to every
 // other test in this file.
 
-// Stamps the den row so every reader can see that the membership moved.
+// Stamps the den row so every reader can see that the membership moved, and
+// moves the roster-only counter that says how far it has moved.
 //
 // This is the change signal for a client's cached conversation detail. A den's
 // roster is the only input to "may this epoch still be written into", so a client
 // holding a roster that has since lost a member sees a complete epoch, no
 // departed holder and no newcomer, and sends into the exact epoch the removed
-// member still holds. Nothing inside the snapshot can detect that; the row's
-// timestamp can, and `updatedAt` is already the column the claim lock reads, so
-// bumping it costs the mutation nothing.
+// member still holds. Nothing inside the snapshot can detect that; the row can,
+// and `updatedAt` is already the column the claim lock reads, so bumping it costs
+// the mutation nothing.
 //
-// Bumped, never set to a fixed value: the claim above has already proved this
-// writer is alone on the row, so nothing is lost by moving it, and the realtime
-// layer has nothing finer-grained to publish from yet.
+// `membershipSeq` is what makes the detection sound rather than best-effort. The
+// timestamp alone cannot say whether a client's cached detail is behind because
+// the roster moved or because somebody sent a message, and it cannot count
+// changes at all, so a receiver that missed one announcement has nothing to
+// notice. This moves by exactly one per committed roster change and on nothing
+// else, so it is both a gap detector and a duplicate filter. The value it writes
+// is the one the claim already read, plus one: the claim has proved this writer
+// is alone on the row, so re-reading it would return the same number.
+//
+// Both columns move together, in the caller's transaction, so a rollback moves
+// neither and there is no state in which the timestamp moved and the counter did
+// not. Returns the new counter so the announcement can carry it without reading
+// the row again.
+//
+// NOT called by a rename, a description or avatar edit, an invite-code rotation,
+// a preferences write, or a send. None of those change who may read this
+// conversation, and a counter that moved for them would cost every member a
+// detail refetch each time somebody typed.
 async function touchDen(
   transaction: PrismaTransaction,
+  claimed: ClaimedDen,
   conversationId: string
-): Promise<void> {
+): Promise<number> {
+  const membershipSeq = claimed.membershipSeq + 1;
   await transaction.orm.public.MessageConversations.where((candidate) =>
     candidate.id.eq(conversationId)
-  ).updateAndCount({ updatedAt: toPrismaDateTime(new Date()) });
+  ).updateAndCount({
+    membershipSeq,
+    updatedAt: toPrismaDateTime(new Date()),
+  });
+  return membershipSeq;
 }
 
 export async function updateDenDetails(
@@ -552,6 +603,10 @@ export async function updateDenDetails(
     return;
   }
   await withDenClaim(conversationId, async (tx) => {
+    // Deliberately not touchDen. A rename, a description, an avatar: none of
+    // them change who may read or write this den, so the counter stays put and no
+    // member's client refetches a roster that did not move. The members route is
+    // the only other writer on this table, and it is the one that counts.
     await tx.orm.public.MessageConversations.where((candidate) =>
       candidate.id.eq(conversationId)
     ).updateAndCount(patch);
@@ -568,59 +623,69 @@ export async function addDenMembers(
   // Authorization first, before the claim: a plain member must not be able to
   // take the den's row lock at all, let alone write to it.
   await requireDenManager(conversationId, actorId);
-  return await withDenMembershipChange(conversationId, actorId, async (tx) => {
-    const existing = await tx.orm.public.MessageConversationMembers.select(
-      "userId"
-    )
-      .where((member) => member.conversationId.eq(conversationId))
-      .all();
-    const taken = new Set(existing.map((member) => member.userId));
-    const room = DEN_LIMITS.membersMax - taken.size;
-    if (room <= 0) {
-      throw new DenError(
-        "LIMIT_REACHED",
-        `A den can have at most ${DEN_LIMITS.membersMax} members`
-      );
+  return await withDenMembershipChange(
+    conversationId,
+    actorId,
+    async (tx, claimed) => {
+      const existing = await tx.orm.public.MessageConversationMembers.select(
+        "userId"
+      )
+        .where((member) => member.conversationId.eq(conversationId))
+        .all();
+      const taken = new Set(existing.map((member) => member.userId));
+      const room = DEN_LIMITS.membersMax - taken.size;
+      if (room <= 0) {
+        throw new DenError(
+          "LIMIT_REACHED",
+          `A den can have at most ${DEN_LIMITS.membersMax} members`
+        );
+      }
+      // Sorted so two callers adding overlapping sets agree on who wins a
+      // contested slot, which keeps a partial write reproducible in a log.
+      const wanted = [...new Set(userIds)]
+        .toSorted()
+        .filter((userId) => !taken.has(userId));
+      if (wanted.length > room) {
+        throw new DenError(
+          "LIMIT_REACHED",
+          `A den can have at most ${DEN_LIMITS.membersMax} members`
+        );
+      }
+      // No block check, at either end of the write: a den admits regardless of who
+      // blocks whom. The rule and its reasoning are stated once above `rosterIds`,
+      // and the cap above is the only thing standing between a candidate and the
+      // membership row.
+      for (const userId of wanted) {
+        // oxlint-disable-next-line no-await-in-loop -- ordered writes under the claim lock, see above
+        await tx.orm.public.MessageConversationMembers.create({
+          conversationId,
+          invitedById: actorId,
+          role: "MEMBER",
+          userId,
+        });
+      }
+      if (wanted.length === 0) {
+        // Only a roster that actually moved. Re-adding somebody already inside is
+        // a no-op, and a no-op must not look like a membership change to a client
+        // watching the row - neither to its timestamp nor to its counter, because
+        // a counter that moved on a no-op would make every member's client treat
+        // the next real change as a gap.
+        return { announce: null, ended: null, value: wanted };
+      }
+      const membershipSeq = await touchDen(tx, claimed, conversationId);
+      return {
+        // The newcomers are in `wanted`, so the post-mutation roster is everyone
+        // who was already inside plus them. No second read needed.
+        announce: {
+          action: "member_added",
+          memberIds: [...taken, ...wanted],
+          membershipSeq,
+        },
+        ended: null,
+        value: wanted,
+      };
     }
-    // Sorted so two callers adding overlapping sets agree on who wins a
-    // contested slot, which keeps a partial write reproducible in a log.
-    const wanted = [...new Set(userIds)]
-      .toSorted()
-      .filter((userId) => !taken.has(userId));
-    if (wanted.length > room) {
-      throw new DenError(
-        "LIMIT_REACHED",
-        `A den can have at most ${DEN_LIMITS.membersMax} members`
-      );
-    }
-    // No block check, at either end of the write: a den admits regardless of who
-    // blocks whom. The rule and its reasoning are stated once above `rosterIds`,
-    // and the cap above is the only thing standing between a candidate and the
-    // membership row.
-    for (const userId of wanted) {
-      // oxlint-disable-next-line no-await-in-loop -- ordered writes under the claim lock, see above
-      await tx.orm.public.MessageConversationMembers.create({
-        conversationId,
-        invitedById: actorId,
-        role: "MEMBER",
-        userId,
-      });
-    }
-    if (wanted.length === 0) {
-      // Only a roster that actually moved. Re-adding somebody already inside is
-      // a no-op, and a no-op must not look like a membership change to a client
-      // watching the row.
-      return { announce: null, ended: null, value: wanted };
-    }
-    await touchDen(tx, conversationId);
-    return {
-      // The newcomers are in `wanted`, so the post-mutation roster is everyone
-      // who was already inside plus them. No second read needed.
-      announce: { action: "member_added", memberIds: [...taken, ...wanted] },
-      ended: null,
-      value: wanted,
-    };
-  });
+  );
 }
 
 export async function removeDenMember(
@@ -635,58 +700,63 @@ export async function removeDenMember(
   // `requireDenManager` has already resolved it, and the question below is
   // `canManageRole(actorRole, targetRole)`.
   const manager = await requireDenManager(conversationId, actorId);
-  await withDenMembershipChange(conversationId, actorId, async (tx) => {
-    const members = await tx.orm.public.MessageConversationMembers.select(
-      "role",
-      "userId"
-    )
-      .where((member) => member.conversationId.eq(conversationId))
-      .all();
-    const target = members.find((member) => member.userId === targetUserId);
-    if (!target) {
-      throw new DenError("NOT_FOUND", "That person is not a member");
-    }
-    // The shared helper, not a written-out role comparison. This is the same
-    // function `den-permissions.ts` draws the panel's remove control from, so the
-    // button on screen and the write behind it read one rule: add a role to the
-    // table and both move.
-    //
-    // It also carries the owner rule. A den has exactly one owner and ownership
-    // moves by leaving rather than by promotion, so the only actor who could pass
-    // `canManageRole(_, "OWNER")` is another owner, and there is never one - which
-    // is why the refusal below is reachable and says why.
-    if (!canManageRole(manager.role, target.role)) {
-      throw new DenError("FORBIDDEN", "The owner cannot be removed");
-    }
-    await tx.orm.public.MessageConversationMembers.where((member) =>
-      and(
-        member.conversationId.eq(conversationId),
-        member.userId.eq(targetUserId)
+  await withDenMembershipChange(
+    conversationId,
+    actorId,
+    async (tx, claimed) => {
+      const members = await tx.orm.public.MessageConversationMembers.select(
+        "role",
+        "userId"
       )
-    ).deleteAndCount();
-    await touchDen(tx, conversationId);
-    // The removal is not self-evident offline. The announcement reaches the
-    // members with this den open on a stream; a removed member who is not
-    // looking learns it only when the den stops opening, which is a worse way to
-    // find out than being told. See `den-membership-notifications.ts`.
-    const ended = await createDenMembershipEndedNotifications(tx, {
-      actorId,
-      conversationId,
-      reason: "removed",
-      recipientIds: [targetUserId],
-    });
-    return {
-      // The removed member is on the list even though their row is gone: their
-      // conversation list still shows this den until they refetch, and their open
-      // stream has to learn it is no longer allowed to deliver.
-      announce: {
-        action: "member_removed",
-        memberIds: rosterIds(members),
-      },
-      ended,
-      value: undefined,
-    };
-  });
+        .where((member) => member.conversationId.eq(conversationId))
+        .all();
+      const target = members.find((member) => member.userId === targetUserId);
+      if (!target) {
+        throw new DenError("NOT_FOUND", "That person is not a member");
+      }
+      // The shared helper, not a written-out role comparison. This is the same
+      // function `den-permissions.ts` draws the panel's remove control from, so the
+      // button on screen and the write behind it read one rule: add a role to the
+      // table and both move.
+      //
+      // It also carries the owner rule. A den has exactly one owner and ownership
+      // moves by leaving rather than by promotion, so the only actor who could pass
+      // `canManageRole(_, "OWNER")` is another owner, and there is never one - which
+      // is why the refusal below is reachable and says why.
+      if (!canManageRole(manager.role, target.role)) {
+        throw new DenError("FORBIDDEN", "The owner cannot be removed");
+      }
+      await tx.orm.public.MessageConversationMembers.where((member) =>
+        and(
+          member.conversationId.eq(conversationId),
+          member.userId.eq(targetUserId)
+        )
+      ).deleteAndCount();
+      const membershipSeq = await touchDen(tx, claimed, conversationId);
+      // The removal is not self-evident offline. The announcement reaches the
+      // members with this den open on a stream; a removed member who is not
+      // looking learns it only when the den stops opening, which is a worse way to
+      // find out than being told. See `den-membership-notifications.ts`.
+      const ended = await createDenMembershipEndedNotifications(tx, {
+        actorId,
+        conversationId,
+        reason: "removed",
+        recipientIds: [targetUserId],
+      });
+      return {
+        // The removed member is on the list even though their row is gone: their
+        // conversation list still shows this den until they refetch, and their open
+        // stream has to learn it is no longer allowed to deliver.
+        announce: {
+          action: "member_removed",
+          memberIds: rosterIds(members),
+          membershipSeq,
+        },
+        ended,
+        value: undefined,
+      };
+    }
+  );
 }
 
 function roleRank(role: DenRole): number {
@@ -714,7 +784,7 @@ export async function leaveDen(
   return await withDenMembershipChange<LeaveDenResult>(
     conversationId,
     userId,
-    async (tx) => {
+    async (tx, claimed) => {
       const members = await tx.orm.public.MessageConversationMembers.select(
         "createdAt",
         "role",
@@ -735,6 +805,8 @@ export async function leaveDen(
           candidate.id.eq(conversationId)
         ).deleteAndCount();
         return {
+          // No `membershipSeq`: there is no row left to count, and every receiver
+          // treats a dissolve as terminal, so there is nothing a sequence could add.
           announce: { action: "dissolved", memberIds: rosterIds(members) },
           // The only member left is the one walking out, and the actor is filtered
           // out of the recipient list, so this writes nothing. Stated rather than
@@ -751,15 +823,19 @@ export async function leaveDen(
 
       // Everyone who was inside, plus the leaver. The leaver's list has to drop
       // the den, and their open stream has to learn they are out of it.
-      const announce = (action: DenMembershipAction) => ({
+      const announce = (
+        action: DenMembershipAction,
+        membershipSeq: number
+      ) => ({
         action,
         memberIds: rosterIds(members),
+        membershipSeq,
       });
 
       if (me.role !== "OWNER") {
-        await touchDen(tx, conversationId);
+        const membershipSeq = await touchDen(tx, claimed, conversationId);
         return {
-          announce: announce("left"),
+          announce: announce("left", membershipSeq),
           // Nobody left but the person who left, and they know.
           ended: null,
           value: { dissolved: false, newOwnerId: null },
@@ -780,9 +856,9 @@ export async function leaveDen(
         });
       const [heir] = heirs;
       if (!heir) {
-        await touchDen(tx, conversationId);
+        const membershipSeq = await touchDen(tx, claimed, conversationId);
         return {
-          announce: announce("left"),
+          announce: announce("left", membershipSeq),
           ended: null,
           value: { dissolved: false, newOwnerId: null },
         };
@@ -793,17 +869,26 @@ export async function leaveDen(
           candidate.userId.eq(heir.userId)
         )
       ).updateAndCount({ role: "OWNER" });
+      // The one roster mutation that does not go through `touchDen`: it has to
+      // write `ownerId` in the same statement, and a second UPDATE to move the
+      // counter would be a second chance for the claim's own guarantee to be
+      // wrong. So the counter rides along here, from the same claimed value, and
+      // the increment is exactly as transactional as the ownership move.
+      const membershipSeq = claimed.membershipSeq + 1;
       await tx.orm.public.MessageConversations.where((candidate) =>
         candidate.id.eq(conversationId)
       ).updateAndCount({
+        membershipSeq,
         ownerId: heir.userId,
         updatedAt: toPrismaDateTime(new Date()),
       });
       // One announcement, not two. The owner left AND ownership moved, but a
       // receiver's response is identical either way (re-read the detail), and two
-      // announcements would mean two refetches for one membership mutation.
+      // announcements would mean two refetches for one membership mutation -
+      // and two increments for one change, which would make every later event
+      // look like a gap.
       return {
-        announce: announce("owner_transferred"),
+        announce: announce("owner_transferred", membershipSeq),
         ended: null,
         value: { dissolved: false, newOwnerId: heir.userId },
       };
@@ -832,35 +917,43 @@ export async function setDenMemberRole(
   if (actorId === targetUserId) {
     throw new DenError("SELF_ACTION", "You cannot change your own role");
   }
-  await withDenMembershipChange(conversationId, actorId, async (tx) => {
-    const members = await tx.orm.public.MessageConversationMembers.select(
-      "role",
-      "userId"
-    )
-      .where((member) => member.conversationId.eq(conversationId))
-      .all();
-    const target = members.find((member) => member.userId === targetUserId);
-    if (!target) {
-      throw new DenError("NOT_FOUND", "That person is not a member");
-    }
-    if (target.role === "OWNER") {
-      throw new DenError("FORBIDDEN", "The owner's role cannot be changed");
-    }
-    await tx.orm.public.MessageConversationMembers.where((member) =>
-      and(
-        member.conversationId.eq(conversationId),
-        member.userId.eq(targetUserId)
+  await withDenMembershipChange(
+    conversationId,
+    actorId,
+    async (tx, claimed) => {
+      const members = await tx.orm.public.MessageConversationMembers.select(
+        "role",
+        "userId"
       )
-    ).updateAndCount({ role });
-    await touchDen(tx, conversationId);
-    return {
-      // Nobody joined or left, but a promotion changes who may add and remove
-      // members, and every open details panel renders the roster's roles.
-      announce: { action: "role_changed", memberIds: rosterIds(members) },
-      ended: null,
-      value: undefined,
-    };
-  });
+        .where((member) => member.conversationId.eq(conversationId))
+        .all();
+      const target = members.find((member) => member.userId === targetUserId);
+      if (!target) {
+        throw new DenError("NOT_FOUND", "That person is not a member");
+      }
+      if (target.role === "OWNER") {
+        throw new DenError("FORBIDDEN", "The owner's role cannot be changed");
+      }
+      await tx.orm.public.MessageConversationMembers.where((member) =>
+        and(
+          member.conversationId.eq(conversationId),
+          member.userId.eq(targetUserId)
+        )
+      ).updateAndCount({ role });
+      const membershipSeq = await touchDen(tx, claimed, conversationId);
+      return {
+        // Nobody joined or left, but a promotion changes who may add and remove
+        // members, and every open details panel renders the roster's roles.
+        announce: {
+          action: "role_changed",
+          memberIds: rosterIds(members),
+          membershipSeq,
+        },
+        ended: null,
+        value: undefined,
+      };
+    }
+  );
 }
 
 export async function rotateInviteCode(
@@ -873,6 +966,9 @@ export async function rotateInviteCode(
     try {
       // oxlint-disable-next-line no-await-in-loop -- bounded retry, same reason as the create loop
       await withDenClaim(conversationId, async (tx) => {
+        // Deliberately NOT touchDen: a new code changes the door, never the room.
+        // Nobody's read or write access moves, so the counter stays where it is and
+        // no member's client refetches a roster that did not change.
         await tx.orm.public.MessageConversations.where((candidate) =>
           candidate.id.eq(conversationId)
         ).updateAndCount({ inviteCode });
@@ -918,6 +1014,10 @@ export async function dissolveDen(
       // is gone by the time this publishes. Their conversation lists still show
       // a den that no longer exists, and their open streams would otherwise keep
       // delivering into a row they can no longer read.
+      //
+      // No counter either, and deliberately: the row is deleted, so there is no
+      // value to publish and no client that could act on one. A receiver reads a
+      // dissolve as terminal, which is the whole answer.
       announce: { action: "dissolved", memberIds: rosterIds(members) },
       ended,
       value: undefined,
@@ -1011,39 +1111,46 @@ export async function joinDenByInviteCode(
   if (!den) {
     throw new DenError("NOT_FOUND", "That join code is not valid");
   }
-  const outcome = await withDenMembershipChange(den.id, userId, async (tx) => {
-    const members = await tx.orm.public.MessageConversationMembers.select(
-      "userId"
-    )
-      .where((member) => member.conversationId.eq(den.id))
-      .all();
-    if (members.some((member) => member.userId === userId)) {
-      // Re-opening a link you already joined changes nothing, so nothing is
-      // announced: a client would refetch its roster to learn the roster it
-      // already has.
-      return { announce: null, ended: null, value: false };
+  const outcome = await withDenMembershipChange(
+    den.id,
+    userId,
+    async (tx, claimed) => {
+      const members = await tx.orm.public.MessageConversationMembers.select(
+        "userId"
+      )
+        .where((member) => member.conversationId.eq(den.id))
+        .all();
+      if (members.some((member) => member.userId === userId)) {
+        // Re-opening a link you already joined changes nothing, so nothing is
+        // announced: a client would refetch its roster to learn the roster it
+        // already has. The counter does not move either, which is the load-bearing
+        // half of that: an increment here would leave the next real change looking
+        // like a gap and cost every member a refetch for it.
+        return { announce: null, ended: null, value: false };
+      }
+      if (members.length >= DEN_LIMITS.membersMax) {
+        throw new DenError(
+          "LIMIT_REACHED",
+          `This den is full (${DEN_LIMITS.membersMax} members)`
+        );
+      }
+      await tx.orm.public.MessageConversationMembers.create({
+        conversationId: den.id,
+        role: "MEMBER",
+        userId,
+      });
+      const membershipSeq = await touchDen(tx, claimed, den.id);
+      return {
+        announce: {
+          action: "joined",
+          memberIds: [...rosterIds(members), userId],
+          membershipSeq,
+        },
+        ended: null,
+        value: true,
+      };
     }
-    if (members.length >= DEN_LIMITS.membersMax) {
-      throw new DenError(
-        "LIMIT_REACHED",
-        `This den is full (${DEN_LIMITS.membersMax} members)`
-      );
-    }
-    await tx.orm.public.MessageConversationMembers.create({
-      conversationId: den.id,
-      role: "MEMBER",
-      userId,
-    });
-    await touchDen(tx, den.id);
-    return {
-      announce: {
-        action: "joined",
-        memberIds: [...rosterIds(members), userId],
-      },
-      ended: null,
-      value: true,
-    };
-  });
+  );
   return { alreadyMember: !outcome, id: den.id };
 }
 

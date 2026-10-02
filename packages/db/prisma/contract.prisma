@@ -148,6 +148,35 @@ namespace public {
     inviteCode                 String?
     createdAt                  Timestamp(3)                 @default(now())
     updatedAt                  Timestamp(3)                 @default(now())
+    // Roster-only change counter. Incremented by exactly one on every committed
+    // mutation that moves WHO may read and write this conversation: an add, a
+    // removal, a leave, an ownership transfer, a role change, an invite join. It
+    // is the signal a client compares against to detect a lost realtime event,
+    // because it is monotonic and it carries a value rather than a wall clock.
+    //
+    // What must NOT move it: a message send (which moves `updatedAt` on the
+    // hottest path in the app), a rename or description edit, an invite-code
+    // rotation, a preferences write, and dissolving the row (there is nothing
+    // left to count). None of those change the roster, and a client that treated
+    // any of them as a roster change would refetch its detail for nothing.
+    //
+    // Why this is not `updatedAt`, which already exists and is already bumped by
+    // `touchDen`: `updatedAt` also moves on every send, so it cannot distinguish
+    // "the roster moved" from "somebody said something", and it is millisecond
+    // resolution, so two changes inside one millisecond compare equal. Using it
+    // as the roster signal costs a spurious conversation-detail refetch on every
+    // message in every busy den, and the gap-detection it is needed for is
+    // unsound exactly when it matters. Reusing it was rejected for both reasons,
+    // not for lack of a column.
+    //
+    // Monotonic and never reused: a client records the highest value it has seen
+    // and ignores anything at or below it, which is what makes a duplicate
+    // delivery free and a missing one visible. Additive and unbackfilled - 0 is
+    // a valid roster-change count for a fresh row, and for every row that
+    // existed before this column did, because no membership change has ever
+    // needed recording against them: a client that reads 0 learns nothing it did
+    // not already have from `updatedAt`.
+    membershipSeq              Int                          @default(0)
     messageConversationKeys    MessageConversationKeys[]
     messageConversationMembers MessageConversationMembers[]
     messages                   Messages[]

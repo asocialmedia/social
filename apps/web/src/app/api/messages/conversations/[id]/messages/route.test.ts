@@ -443,12 +443,54 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     expect(mockKeyUpdateAndCount).toHaveBeenCalledWith({
       ratchetCounter: 1,
     });
+    // The conversation bump writes the timestamp and NOTHING ELSE. A send is not
+    // a roster change, so the roster counter must not move here: if it did, every
+    // message in every den would read to a client as a membership event and cost
+    // every member a conversation-detail refetch.
     expect(mockConversationUpdate).toHaveBeenCalledWith({
       updatedAt: expect.any(Date),
     });
     // The peer accrues unread; the sender does not.
     expect(unreadRecipients()).toEqual(["user2"]);
     expect(mockPublishCreated).toHaveBeenCalledTimes(1);
+  });
+
+  test("echoes the conversation's roster counter alongside the message", async () => {
+    // The one response a member whose `den.membership.changed` was lost will ever
+    // see: pub/sub is best-effort, so the send is how they discover their cached
+    // roster is behind. The value comes out of the UPDATE's own RETURNING, inside
+    // the transaction that bumped the row, so it cannot be stale by the time the
+    // response is written.
+    mockConversationUpdate.mockImplementationOnce(() => ({
+      membershipSeq: 7,
+    }));
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      membershipSeq: number | null;
+      message: { id: string };
+    };
+    expect(body.membershipSeq).toBe(7);
+    // A sibling of `message`, not a field on it: the counter describes the
+    // conversation, so `mapMessage` stays a mapper of a message row.
+    expect(body.message.id).toBe(mockMessages.at(-1)?.id);
+    expect(body.message).not.toHaveProperty("membershipSeq");
+  });
+
+  test("reports no counter when the bump returned no row", async () => {
+    // The graceful half. A server that has not shipped the column, or a
+    // transaction that somehow updated nothing, answers null, and the client reads
+    // that as "cannot tell" and behaves exactly as it did before this field
+    // existed. Never a crash, and never an invented number.
+    mockConversationUpdate.mockImplementationOnce(() => {});
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { membershipSeq: number | null };
+    expect(body.membershipSeq).toBeNull();
   });
 
   test("keeps a committed send successful when redis side effects fail", async () => {

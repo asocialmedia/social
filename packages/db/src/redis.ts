@@ -598,6 +598,17 @@ export interface MessageStreamEvent {
   // payload and has to ask the database (or refetch the detail) to learn whether
   // it still belongs.
   membershipAction?: DenMembershipAction;
+  // The den's post-increment `membershipSeq`, on `den.membership.changed` only.
+  // Present so a receiver can ignore a duplicate delivery and notice one it never
+  // got; a client that sees a value two ahead of the last one it applied knows at
+  // least one announcement was dropped, which the closed set of channels and a
+  // timestamp cannot tell it.
+  //
+  // Optional by design. Absent on every event a pre-sequence server publishes and
+  // on a dissolve, where the row the counter lived on is gone. A receiver treats
+  // an absent value as the behaviour it had before this field existed, never as
+  // "assume fresh" and never as a reason to drop the event.
+  membershipSeq?: number;
 }
 
 // What moved in a den. One value per code path that can change a roster, so the
@@ -626,6 +637,31 @@ export interface DenMembershipEvent {
   actorId: string;
   conversationId: string;
   memberIds: string[];
+  // The post-increment roster counter, when there is one to report. A dissolve
+  // has none: the row is gone by the time this publishes.
+  membershipSeq?: number;
+}
+
+// A roster counter as it arrives on the wire. Narrowed rather than asserted,
+// because the value came from JSON and a hostile or broken publisher can put
+// anything there. Anything that is not a non-negative whole number is reported as
+// absent, which is the same as an event from a server that predates the field -
+// and is the safe direction, since the receiver's fallback is today's behaviour
+// and never "assume fresh".
+//
+// Written out rather than shared with the browser's copy of this rule for the same
+// reason `parseMessageEvent` is written out twice: the browser bundle must not
+// import the server-only DB package, so the two are kept in step by these tests
+// rather than by a shared module.
+function readMembershipSeq(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    // A counter is a count of one mutation at a time; a value that could not be
+    // reached in a lifetime is a corrupt payload, not a real one.
+    value <= Number.MAX_SAFE_INTEGER
+    ? value
+    : undefined;
 }
 
 function isDenMembershipAction(value: unknown): value is DenMembershipAction {
@@ -709,6 +745,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       membershipAction: isDenMembershipAction(parsed.membershipAction)
         ? parsed.membershipAction
         : undefined,
+      membershipSeq: readMembershipSeq(parsed.membershipSeq),
       message: parsed.message,
       readAt: parsed.readAt,
       userId: parsed.userId,
@@ -840,17 +877,30 @@ export async function publishMessageKeysRotated(
 // with nobody left at all, so an empty list is a normal input and publishes only
 // the conversation channel.
 //
+// `membershipSeq` rides only on the conversation channel, and that is a decision
+// rather than an oversight. The per-member activity channel's only consumer is
+// the conversation LIST, which refetches on ANY activity frame without reading
+// the payload (`useMessageActivity` takes a `() => void`), so a counter there
+// would widen every idle tab's frame for a reader that does not exist. The
+// per-conversation stream is the place where a client compares sequences, and
+// that is where it goes.
+//
+// The counter is not sensitive: it is a small integer, and the only thing a
+// holder can learn from it is how many roster changes they may have missed. It
+// names nobody and carries no key, body, ciphertext or code.
+//
 // Best-effort throughout, so a pub/sub outage cannot fail the membership write
 // that already committed: every failure here is logged and swallowed, and the
 // clients' own polling and the stream's heartbeat re-check are the fallback.
 export async function publishDenMembershipChanged(
   event: DenMembershipEvent
 ): Promise<void> {
-  const { action, actorId, conversationId, memberIds } = event;
+  const { action, actorId, conversationId, memberIds, membershipSeq } = event;
   await publishMessageEvent({
     conversationId,
     kind: "den.membership.changed",
     membershipAction: action,
+    membershipSeq,
     userId: actorId,
   });
   try {

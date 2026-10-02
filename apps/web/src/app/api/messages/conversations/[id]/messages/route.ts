@@ -121,6 +121,11 @@ type MessageQueryData = NonNullable<
   Awaited<ReturnType<ReturnType<typeof getMessageDataQuery>["first"]>>
 >;
 
+// Deliberately does not carry the conversation's roster counter, even though the
+// route has one to hand: a transcript says nothing about who may read it, and the
+// two responses that do are the conversation detail and a send. Putting it here
+// would put it on the paging path, where a scroll through history would record a
+// roster change this client had not otherwise learned about.
 function mapMessage(message: MessageQueryData): MessageData {
   return {
     ciphertext: message.ciphertext ?? "",
@@ -444,6 +449,14 @@ export async function POST(
 
   let message: MessageData | null = null;
   let createdMessageId: string | null = null;
+  // The roster counter as of the bump below, read out of the UPDATE's own
+  // RETURNING rather than from another query: the write that stamps the row is
+  // the freshest statement in the transaction, and it holds the row lock, so
+  // nothing can move the counter between it and the response. A send does NOT
+  // change the counter - that is the whole reason this column exists - so this is
+  // the conversation's current roster-change count, not a value about this
+  // message. Null only if the update somehow returned no row.
+  let membershipSeq: number | null = null;
   // Collected inside the transaction, flushed after it resolves. The rows are
   // written under the message's own transaction so a rollback takes them with
   // it; the enqueue has to wait for the commit, because a worker that ran
@@ -468,9 +481,15 @@ export async function POST(
       // The conversation bump comes before the fan-out on purpose: it takes the
       // den's row lock, so two sends into one den serialize here and the second
       // one's fold lookup sees the first one's row.
-      await tx.orm.public.MessageConversations.where({ id }).update({
-        updatedAt: toPrismaDateTime(new Date()),
-      });
+      //
+      // `updatedAt` only. A message is not a roster change, so `membershipSeq` is
+      // deliberately left alone - it is the one signal that means "who may read
+      // this moved", and moving it here would make every message look like a
+      // membership event to every client holding the thread.
+      const bumped = await tx.orm.public.MessageConversations.where({
+        id,
+      }).update({ updatedAt: toPrismaDateTime(new Date()) });
+      membershipSeq = bumped?.membershipSeq ?? null;
 
       // A DM has no notification for a new message, so nothing fans out there.
       // A den does: one row per member, minus the sender, minus anyone who has
@@ -558,5 +577,14 @@ export async function POST(
     console.error("Failed to publish message activity:", error);
   }
 
-  return Response.json({ message }, { status: 201 });
+  // `membershipSeq` is a sibling of `message`, not a field on it: it describes the
+  // conversation, not this row, and putting it on the message would make
+  // `mapMessage` carry a fact about a roster it knows nothing about. A send is the
+  // one response a member whose membership event was lost will ever see, so this
+  // is how they find out their cached roster is behind - the client compares it
+  // against the last counter it applied and refetches when it is ahead. A server
+  // that does not report it (or a transaction that returned no row) sends null,
+  // which the client reads as "cannot tell" and handles exactly as it handled
+  // every send before this field existed.
+  return Response.json({ membershipSeq, message }, { status: 201 });
 }

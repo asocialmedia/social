@@ -10,6 +10,7 @@ import {
   reencryptMessageForEdit,
   removeMessagesFromPages,
   resolveMyConversationWraps,
+  sendEncryptedMessage,
   toWrappedKeyPayloads,
   updateMessageInPages,
 } from "./client";
@@ -24,6 +25,7 @@ import {
   wrapRootKey,
 } from "./crypto";
 import type { EncryptedBlob } from "./crypto";
+import { applyMembershipSeq } from "./membership-seq";
 import type { MessageConversationData, MessageConversationKey } from "./types";
 
 async function makeIdentity() {
@@ -1955,6 +1957,238 @@ describe("a snapshot the server has already moved past", () => {
       content: "before carol was removed",
       type: "text",
     });
+  });
+});
+
+// The roster counter as the client uses it, end to end through the real helpers.
+//
+// The gap the timestamp cannot close: pub/sub is best-effort, so a
+// `den.membership.changed` can simply never arrive. The only responses a member
+// with that thread open will ever see are the ones they ask for, so the send
+// carries the counter and this tab compares it against what it last applied. When
+// it comes back ahead, the cached conversation is holding a roster that no longer
+// exists - and the send path has to know that BEFORE it chooses an epoch.
+//
+// Every case gets its own den id, because the counter this tab has applied is
+// module state on purpose: the send path reads it from outside any component, so
+// the ids are what keep these cases independent.
+
+// One send, with the arguments spelled out at every call site so each test says
+// which snapshot and which key it used.
+async function sendOnce(
+  conversation: MessageConversationData,
+  rootKey: Uint8Array,
+  senderId: string
+) {
+  await sendEncryptedMessage(conversation.id, rootKey, senderId, 0, {
+    content: "hello",
+    type: "text",
+  });
+}
+
+describe("a roster counter learned from a response", () => {
+  const originalFetch = globalThis.fetch;
+  let detailPayload: MessageConversationData | null = null;
+  let sendEcho: number | null | undefined = 0;
+  let sent: { ciphertext: string; iv: string; ratchetIndex: number }[] = [];
+
+  const fetchMock = mock((input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/keys")) {
+      const body = JSON.parse(String(init?.body)) as {
+        keys: { encryptedKey: EncryptedBlob; ownerUserId: string }[];
+      };
+      return Response.json({ applied: body.keys.length, ok: true });
+    }
+    if (url.endsWith("/messages")) {
+      const body = JSON.parse(String(init?.body)) as {
+        ciphertext: string;
+        iv: string;
+        ratchetIndex: number;
+      };
+      sent.push(body);
+      return Response.json(
+        {
+          membershipSeq: sendEcho,
+          message: {
+            ciphertext: body.ciphertext,
+            conversationId: "convo-1",
+            createdAt: FIXTURE_INSTANT.toISOString(),
+            deletedAt: null,
+            editedAt: null,
+            id: "m-1",
+            iv: body.iv,
+            ratchetIndex: body.ratchetIndex,
+            senderId: "alice",
+          },
+        },
+        { status: 201 }
+      );
+    }
+    if (url.includes("/api/messages/conversations/")) {
+      return detailPayload
+        ? Response.json({ conversation: detailPayload }, { status: 200 })
+        : Response.json({}, { status: 404 });
+    }
+    return Response.json({}, { status: 404 });
+  });
+
+  beforeEach(() => {
+    detailPayload = null;
+    sendEcho = 0;
+    sent = [];
+    fetchMock.mockClear();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // A two-member den holding one healthy epoch, which is what every case below
+  // starts from: the subject is the client's bookkeeping, not the crypto.
+  async function makeEchoFixture(id: string) {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const den = makeDenConversation(id, [alice, bob]);
+    den.membershipSeq = 0;
+    const rootKey = generateRootKey();
+    await fanOutEpoch(den, rootKey, alice, 1);
+    return { alice, bob, den, rootKey };
+  }
+
+  // The tab's starting position: it holds a detail read taken while the roster was
+  // still at 0, which is the only thing a real client has before anything moves.
+  async function learnAtZero(den: MessageConversationData) {
+    detailPayload = { ...den, membershipSeq: 0 };
+    await fetchConversationDetail(den.id);
+  }
+
+  test("a send whose echo is ahead means an announcement was lost, and the next send refetches", async () => {
+    // The whole point of the echo. The roster moved on the server, the event never
+    // arrived, and this tab's detail still says the old roster - which offers as
+    // sendable an epoch the removed member still holds. The send is already
+    // committed, so what the echo buys is the refusal on the NEXT one.
+    const { alice, den, rootKey } = await makeEchoFixture("den-echo-ahead");
+    await learnAtZero(den);
+
+    // The server moved to 1 and said nothing. The send reports it.
+    sendEcho = 1;
+    await sendOnce(den, rootKey, alice.id);
+
+    expect(isConversationSnapshotStale(den)).toBe(true);
+    // With no way to fetch a current answer, the send is refused rather than made
+    // on a snapshot the server has already overtaken.
+    expect(
+      await ensureConversationKeys(den, alice.pair.privateKey, alice.id)
+    ).toBeNull();
+
+    // And with one, the detail is re-read BEFORE the epoch is chosen. That refetch
+    // is the remedy: the client cannot ask which change it missed, only for the
+    // roster again.
+    let refreshes = 0;
+    detailPayload = { ...den, membershipSeq: 1 };
+    const key = await ensureConversationKeys(
+      den,
+      alice.pair.privateKey,
+      alice.id,
+      {
+        refreshConversation: async () => {
+          refreshes += 1;
+          const fresh = await fetchConversationDetail(den.id);
+          return fresh.conversation;
+        },
+      }
+    );
+    expect(refreshes).toBe(1);
+    expect(key).not.toBeNull();
+    // And it settles: the refetched payload carries the counter this tab had
+    // already applied, so nothing is behind any more and the next send proceeds.
+    expect(isConversationSnapshotStale(detailPayload ?? den)).toBe(false);
+  });
+
+  test("a send whose echo matches what this tab already applied changes nothing", async () => {
+    // The ordinary send in a room nobody has touched. If this marked the snapshot
+    // behind, every message in every den would cost a refetch on the next one.
+    const { alice, den, rootKey } = await makeEchoFixture("den-echo-same");
+    await learnAtZero(den);
+
+    sendEcho = 0;
+    await sendOnce(den, rootKey, alice.id);
+
+    expect(isConversationSnapshotStale(den)).toBe(false);
+    let refreshes = 0;
+    expect(
+      await ensureConversationKeys(den, alice.pair.privateKey, alice.id, {
+        refreshConversation: () => {
+          refreshes += 1;
+          return null;
+        },
+      })
+    ).not.toBeNull();
+    expect(refreshes).toBe(0);
+  });
+
+  test("a send that reports no counter at all changes nothing either", async () => {
+    // The graceful half: an older server, or a transaction that updated no row.
+    // Null is "cannot tell", never a crash and never "assume fresh" - the tab
+    // behaves exactly as it did before this field existed, which is to keep
+    // sending against the snapshot it holds and rely on the timestamp guard.
+    const { alice, den, rootKey } = await makeEchoFixture("den-echo-null");
+    await learnAtZero(den);
+
+    sendEcho = null;
+    await sendOnce(den, rootKey, alice.id);
+
+    expect(isConversationSnapshotStale(den)).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("a gap costs one refetch and then settles", async () => {
+    // Two announcements were dropped and the third arrived. The client cannot know
+    // which changes it missed, so it re-reads the roster once; the answer carries
+    // the counter it just applied, so the next announcement about the same change
+    // is a duplicate and buys nothing.
+    const { den } = await makeEchoFixture("den-echo-gap");
+
+    expect(applyMembershipSeq(den.id, 1).kind).toBe("first");
+    expect(applyMembershipSeq(den.id, 5).kind).toBe("gap");
+
+    // The refetch that answers the gap.
+    detailPayload = { ...den, membershipSeq: 5 };
+    await fetchConversationDetail(den.id);
+    expect(isConversationSnapshotStale(den)).toBe(true);
+    expect(isConversationSnapshotStale(detailPayload ?? den)).toBe(false);
+
+    // The same announcement arriving twice - a retried publish, or a redelivered
+    // frame - is a duplicate from here on, and so is anything older.
+    expect(applyMembershipSeq(den.id, 5).kind).toBe("duplicate");
+    expect(applyMembershipSeq(den.id, 4).kind).toBe("duplicate");
+  });
+
+  test("an announcement arriving out of order cannot undo the newer one", async () => {
+    // Two events overtaken on the wire. The late one must not walk the counter
+    // back, or the next real change would read as a gap this tab had already
+    // answered.
+    const { den } = await makeEchoFixture("den-echo-order");
+
+    applyMembershipSeq(den.id, 2);
+    const late = applyMembershipSeq(den.id, 1);
+
+    // Ignored, so it cannot cost a second refetch of a roster the newer event has
+    // already answered...
+    expect(late).toMatchObject({ kind: "duplicate", refetchDetail: false });
+    // ...and it did not walk the counter back either: had it, the next real change
+    // (3) would read as a gap rather than the next one it is.
+    expect(applyMembershipSeq(den.id, 3).kind).toBe("next");
+
+    // The tab's own snapshot is still behind, which is the other half of the same
+    // property: an event is not knowledge, only a reason to re-read. The refetch
+    // answers with the newest value the server has, 3.
+    detailPayload = { ...den, membershipSeq: 3 };
+    await fetchConversationDetail(den.id);
+    expect(isConversationSnapshotStale(den)).toBe(true);
+    expect(isConversationSnapshotStale(detailPayload ?? den)).toBe(false);
   });
 });
 

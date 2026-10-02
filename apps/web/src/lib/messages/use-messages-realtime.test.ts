@@ -15,12 +15,19 @@ const CONVERSATION_ID = "den-1";
 // either side shows up here rather than as a silently dead stream.
 function membershipFrame(
   action: string,
-  overrides: { conversationId?: string; userId?: string } = {}
+  overrides: {
+    conversationId?: string;
+    membershipSeq?: number;
+    userId?: string;
+  } = {}
 ): string {
   return `event: message\ndata: ${JSON.stringify({
     conversationId: overrides.conversationId ?? CONVERSATION_ID,
     kind: "den.membership.changed",
     membershipAction: action,
+    ...(overrides.membershipSeq === undefined
+      ? {}
+      : { membershipSeq: overrides.membershipSeq }),
     userId: overrides.userId ?? "owner-1",
   })}`;
 }
@@ -77,6 +84,49 @@ describe("parseMessageEvent", () => {
       )
     ).toBeNull();
     expect(parseMessageEvent("not json")).toBeNull();
+  });
+});
+
+describe("parseMessageEvent and the roster counter", () => {
+  test("carries a roster counter to the caller", () => {
+    const parsed = parseMessageEvent(
+      `{"conversationId":"den-1","kind":"den.membership.changed","membershipAction":"member_removed","membershipSeq":7,"userId":"owner-1"}`
+    );
+    expect(parsed?.membershipSeq).toBe(7);
+  });
+
+  test("drops a counter it cannot read, and keeps the event", () => {
+    // The lenient half, and it is the half that matters: a receiver's fallback for
+    // no counter is the behaviour it had before this field existed, which is a
+    // refetch. Refusing the whole announcement over an unreadable number would hand
+    // a member with the thread open a stale roster because a publisher sent a bad
+    // value, which is the opposite of what the counter is for.
+    for (const membershipSeq of [
+      '"7"',
+      "7.5",
+      "-1",
+      "null",
+      '{"value":7}',
+      "null",
+      "1e400",
+    ]) {
+      const parsed = parseMessageEvent(
+        `{"conversationId":"den-1","kind":"den.membership.changed","membershipAction":"member_removed","membershipSeq":${membershipSeq},"userId":"owner-1"}`
+      );
+      expect(parsed?.kind).toBe("den.membership.changed");
+      expect(parsed?.membershipSeq).toBeUndefined();
+    }
+  });
+
+  test("an announcement with no counter at all is still delivered", () => {
+    // What a server that has not shipped the column sends, and what every event
+    // for a dissolved den carries. Delivered, with the counter simply absent: the
+    // caller keeps today's behaviour rather than assuming its roster is current.
+    const parsed = parseMessageEvent(
+      '{"conversationId":"den-1","kind":"den.membership.changed","membershipAction":"dissolved","userId":"owner-1"}'
+    );
+    expect(parsed?.kind).toBe("den.membership.changed");
+    expect(parsed?.membershipSeq).toBeUndefined();
   });
 });
 
@@ -217,6 +267,18 @@ describe("realtimeFrameAction", () => {
         discriminator
       );
     }
+  });
+
+  test("a roster change reaches the caller with its counter attached", () => {
+    // The client-side mirror of the server gate, on the frame path the thread
+    // actually reads. A counter dropped here would be a counter the gap rule never
+    // sees, and the whole mechanism would silently degrade to "refetch on every
+    // announcement".
+    const action = realtimeFrameAction(
+      membershipFrame("member_added", { membershipSeq: 3 }),
+      CONVERSATION_ID
+    );
+    expect(action.kind === "event" && action.event.membershipSeq).toBe(3);
   });
 
   test("a roster change for another conversation is ignored cheaply", () => {

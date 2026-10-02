@@ -524,6 +524,10 @@ export function getMessageConversationDataQuery(orm: PrismaOrm) {
     "pairKey",
     "_type",
     "createdAt",
+    // The roster-only change counter, carried on every conversation payload so a
+    // client can tell whether the detail it is holding has been overtaken. See
+    // the column's note in contract.prisma for what does and does not move it.
+    "membershipSeq",
     "updatedAt"
   )
     .include("messageConversationKeys", (keys) =>

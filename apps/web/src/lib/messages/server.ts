@@ -25,6 +25,10 @@ function loadConversationRow(conversationId: string) {
     "ownerId",
     "inviteCode",
     "createdAt",
+    // The roster-only counter, on the detail payload for the same reason it is on
+    // the list payload: the client compares it against the last value the server
+    // reported and refetches when it is ahead.
+    "membershipSeq",
     "updatedAt"
   )
     .include("messageConversationMembers", (member) =>
