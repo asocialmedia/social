@@ -904,53 +904,60 @@ describe("a den somebody left", () => {
     expect(owner?.ownerId).toBe(ADMIN_ID);
   });
 
-  test("departed members do not count against the cap", async () => {
-    // A den that filled itself up with people who left would refuse new arrivals,
-    // which is backwards: the rows are cheap and the cap is about live noise.
-    // Owner and one member already, so the filler fills the den exactly.
-    const denId = await makeDen([ADMIN_ID]);
-    const others = await Promise.all(
-      Array.from(
-        { length: DEN_LIMITS.membersMax - 2 },
-        (_, index) => `dsvc-cap-${index}-${RUN_ID}`
-      ).map(async (id) => {
-        await createUser(id);
-        return id;
-      })
-    );
-    try {
-      await addDenMembers(denId, OWNER_ID, others);
-      expect(await memberCount(denId)).toBe(DEN_LIMITS.membersMax);
+  test(
+    "departed members do not count against the cap",
+    async () => {
+      // A den that filled itself up with people who left would refuse new arrivals,
+      // which is backwards: the rows are cheap and the cap is about live noise.
+      // Owner and one member already, so the filler fills the den exactly.
+      const denId = await makeDen([ADMIN_ID]);
+      const others = await Promise.all(
+        Array.from(
+          { length: DEN_LIMITS.membersMax - 2 },
+          (_, index) => `dsvc-cap-${index}-${RUN_ID}`
+        ).map(async (id) => {
+          await createUser(id);
+          return id;
+        })
+      );
+      try {
+        await addDenMembers(denId, OWNER_ID, others);
+        expect(await memberCount(denId)).toBe(DEN_LIMITS.membersMax);
 
-      // Full, so a fresh face is refused.
-      await expect(
-        addDenMembers(denId, OWNER_ID, [OUTSIDER_ID])
-      ).rejects.toMatchObject({ code: "LIMIT_REACHED" });
+        // Full, so a fresh face is refused.
+        await expect(
+          addDenMembers(denId, OWNER_ID, [OUTSIDER_ID])
+        ).rejects.toMatchObject({ code: "LIMIT_REACHED" });
 
-      // Everyone but the owner walks out. Sequential on purpose: they are leaving
-      // the same den under the same claim lock, so a parallel fan-out would be
-      // testing the retry loop rather than the cap.
-      for (const id of others) {
+        // Everyone but the owner walks out. Sequential on purpose: they are leaving
+        // the same den under the same claim lock, so a parallel fan-out would be
+        // testing the retry loop rather than the cap.
+        for (const id of others) {
+          // oxlint-disable-next-line no-await-in-loop -- see above
+          await leaveDen(denId, id);
+        }
         // oxlint-disable-next-line no-await-in-loop -- see above
-        await leaveDen(denId, id);
-      }
-      // oxlint-disable-next-line no-await-in-loop -- see above
-      await leaveDen(denId, ADMIN_ID);
-      expect(await memberCount(denId)).toBe(1);
-      // Every one of them is still a row, which is the point: the table remembers
-      // the whole history of the roster while the count says there is one person
-      // left to talk to.
-      expect(await membershipRowCount(denId)).toBe(DEN_LIMITS.membersMax);
+        await leaveDen(denId, ADMIN_ID);
+        expect(await memberCount(denId)).toBe(1);
+        // Every one of them is still a row, which is the point: the table remembers
+        // the whole history of the roster while the count says there is one person
+        // left to talk to.
+        expect(await membershipRowCount(denId)).toBe(DEN_LIMITS.membersMax);
 
-      await expect(
-        addDenMembers(denId, OWNER_ID, [OUTSIDER_ID])
-      ).resolves.toEqual([OUTSIDER_ID]);
-    } finally {
-      await prisma.orm.public.Users.where((user) =>
-        user.id.in(others)
-      ).deleteAndCount();
-    }
-  });
+        await expect(
+          addDenMembers(denId, OWNER_ID, [OUTSIDER_ID])
+        ).resolves.toEqual([OUTSIDER_ID]);
+      } finally {
+        await prisma.orm.public.Users.where((user) =>
+          user.id.in(others)
+        ).deleteAndCount();
+      }
+      // A hundred sequential leaves under the claim lock, plus the full-suite
+      // concurrency: the work is deliberately heavy because the cap is a real
+      // hundred, so it gets the contention budget rather than the 5s default.
+    },
+    { timeout: CONTENTION_TIMEOUT_MS }
+  );
 
   test("the invite preview counts the people still in the den", async () => {
     const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
