@@ -546,13 +546,13 @@ export async function transferDenOwnership(
   }
 }
 
-// Leaves. The response says what happened to the den, because the caller's next
-// move depends on it: a dissolved den has nowhere to navigate back to, while a
-// transferred one stays open under somebody else's ownership.
-export async function leaveDen(conversationId: string): Promise<{
-  dissolved: boolean;
-  newOwnerId: string | null;
-}> {
+// Leaves. The den survives the last member walking out, so the only thing the
+// response carries is who the caller handed it to, if they were the owner. There
+// is no `dissolved` to branch on any more: deleting a den is the owner's own
+// control and goes through `dissolveDen`.
+export async function leaveDen(
+  conversationId: string
+): Promise<{ newOwnerId: string | null }> {
   const response = await fetch(`/api/messages/dens/${conversationId}/leave`, {
     credentials: "same-origin",
     method: "POST",
@@ -561,13 +561,9 @@ export async function leaveDen(conversationId: string): Promise<{
     throw await parseDenError(response);
   }
   const body = (await response.json()) as {
-    dissolved?: boolean;
     newOwnerId?: string | null;
   };
-  return {
-    dissolved: body.dissolved === true,
-    newOwnerId: body.newOwnerId ?? null,
-  };
+  return { newOwnerId: body.newOwnerId ?? null };
 }
 
 // Dissolves the den outright. Owner only, and the one operation here that is
@@ -1771,7 +1767,20 @@ async function unwrapNewestReadableEpoch(
   return null;
 }
 
-// Members of the conversation holding no wrap for `version`.
+// The members who are still in the room.
+//
+// A departed member keeps a roster row so their name stays resolvable in the
+// history and so the den stays in their own list, which means the roster array is
+// no longer the same thing as the membership that can act. This is the difference,
+// named once: a departed member is never a wrap recipient, never a heal
+// candidate, and their old wrap is what makes an epoch contaminated.
+function currentMembers(conversation: MessageConversationData) {
+  return conversation.members.filter((member) => !member.leftAt);
+}
+
+// Members of the conversation holding no wrap for `version`. Departed members are
+// not members here: healing one would hand the newest root key to somebody the
+// current roster deliberately stopped encrypting for.
 function membersMissingEpoch(
   conversation: MessageConversationData,
   version: number
@@ -1781,7 +1790,7 @@ function membersMissingEpoch(
       .filter((key) => key.version === version)
       .map((key) => key.ownerUserId)
   );
-  return conversation.members
+  return currentMembers(conversation)
     .map((member) => member.userId)
     .filter((userId) => !holders.has(userId));
 }
@@ -1796,7 +1805,9 @@ function departedEpochHolders(
   conversation: MessageConversationData,
   version: number
 ): string[] {
-  const members = new Set(conversation.members.map((member) => member.userId));
+  const members = new Set(
+    currentMembers(conversation).map((member) => member.userId)
+  );
   return [
     ...new Set(
       conversation.keys
@@ -2058,7 +2069,10 @@ async function rotateConversationEpoch(
     myUserId,
     privateKey,
     rootKey,
-    userIds: conversation.members.map((member) => member.userId),
+    // Only the people still in the room. A departed member holding this epoch is
+    // exactly what the rotation exists to escape, and wrapping the new epoch for
+    // them would re-admit them to everything written under it.
+    userIds: currentMembers(conversation).map((member) => member.userId),
     version: newestEpoch(conversation) + 1,
   });
   options?.onUnwrappableMembers?.(result.skipped);

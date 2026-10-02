@@ -334,16 +334,18 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   const leave = useCallback(async () => {
     setBusy(true);
     try {
-      const result = await leaveDen(conversationId);
+      await leaveDen(conversationId);
       setConfirm(null);
       refresh();
       forgetConversation();
-      onLeft?.({ dissolved: result.dissolved });
+      // The den stays in the rail as read-only, so this is not a "navigate away"
+      // moment the way it used to be. The details sheet still closes, because
+      // every control in it is now refused.
+      onLeft?.({ dissolved: false });
       toast({
-        description: result.dissolved
-          ? "You were the last one in, so the den is gone."
-          : "You can rejoin with an invite link.",
-        title: result.dissolved ? "Den dissolved" : "Left the den",
+        description:
+          "It stays in your messages, and you can read it. You can rejoin with an invite link.",
+        title: "Left the den",
       });
     } catch (error) {
       toast({

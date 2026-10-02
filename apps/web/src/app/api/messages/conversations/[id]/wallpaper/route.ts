@@ -12,7 +12,12 @@ import {
   DEN_WALLPAPER_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
-import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
+import {
+  getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
+  parseJsonBody,
+} from "@/lib/messages/server";
 
 // Links a member's own uploaded image as this conversation's custom chat
 // wallpaper, and unlinks it again.
@@ -86,8 +91,12 @@ export async function POST(
   const { id } = await ctx.params;
   // The same membership gate the prefs route uses: a wallpaper lives on YOUR row
   // of THIS conversation, so you must be in the conversation.
-  if (!(await getConversationForUser(id, user.id))) {
+  const conversation = await getConversationForUser(id, user.id);
+  if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const body = (await parseJsonBody(request)) as { mediaId?: unknown } | null;
@@ -224,8 +233,12 @@ export async function DELETE(
     return limited;
   }
 
-  if (!(await getConversationForUser(id, user.id))) {
+  const conversation = await getConversationForUser(id, user.id);
+  if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const currentMember =

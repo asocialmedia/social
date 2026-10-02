@@ -24,6 +24,8 @@ import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
 import {
   areBlocked,
   getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
   isUniqueConstraintViolation,
   nextRatchetIndex,
   parseJsonBody,
@@ -394,6 +396,13 @@ export async function POST(
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }
+  // The read gate above admits somebody who left a den, so this refuses them: they
+  // can still read everything said before they went, and nothing they send now
+  // would ever reach the people still in the room, because the key epoch that
+  // would carry it excludes them and they have no unwrap for it.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
+  }
 
   const parsed = await parseJsonBody(request);
   const body = parsed as {
@@ -459,8 +468,14 @@ export async function POST(
   // reconciled by the next seed, and re-reading the roster here to close the
   // window would mean a second query on the hottest path in the app to fix an
   // error that self-heals.
+  // `leftAt` is excluded for the same reason mute is, and one more: a departed
+  // member is not a recipient at all. The message is written under the current
+  // roster's epoch, which they hold no wrap for, so a badge here would count
+  // something they can never open.
   const unreadRecipientIds = conversation.members
-    .filter((member) => member.userId !== user.id && !member.mutedAt)
+    .filter(
+      (member) => member.userId !== user.id && !member.mutedAt && !member.leftAt
+    )
     .map((member) => member.userId);
 
   // The ratchet index is authoritative on the server: it must equal the
@@ -594,12 +609,14 @@ export async function POST(
   // Best-effort, like the publish above.
   try {
     await Promise.all(
-      conversation.members.map((member) =>
-        publishMessageActivity(member.userId, {
-          conversationId: id,
-          kind: "message.created",
-        })
-      )
+      conversation.members
+        .filter((member) => !member.leftAt)
+        .map((member) =>
+          publishMessageActivity(member.userId, {
+            conversationId: id,
+            kind: "message.created",
+          })
+        )
     );
   } catch (error) {
     console.error("Failed to publish message activity:", error);

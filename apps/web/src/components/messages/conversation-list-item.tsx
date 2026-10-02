@@ -66,6 +66,13 @@ function ConversationRowInner({
   const { lastMessage } = item;
   // Mute is this member's own preference, read off their membership row.
   const muted = Boolean(myMember?.mutedAt);
+  // A den this reader has left or been removed from. It stays in the rail and
+  // still opens, so the row has to say what it now is: the preview is replaced by
+  // the state, and a chip marks it, because a row that looked ordinary and then
+  // refused to send would read as a broken thread rather than as a den that ended
+  // for this person.
+  const left =
+    isDen && myMember?.leftAt !== null && myMember?.leftAt !== undefined;
   const unread = item.unreadCount > 0;
   const payload = useDecryptEntry(lastMessage?.id);
   const settled =
@@ -164,13 +171,20 @@ function ConversationRowInner({
           <span
             className={cn(
               "min-w-0 truncate text-sm",
-              unread ? "font-semibold" : "font-medium"
+              unread ? "font-semibold" : "font-medium",
+              left && "text-muted-foreground"
             )}
           >
             {heading}
           </span>
           {/* A room has no badge of its own, and a den member's badge says nothing
-              about the room, so the per-person badge row is DM-only. */}
+              about the room, so the per-person badge row is DM-only. The one chip a
+              den row does carry is "Left": it is not about a person. */}
+          {left ? (
+            <span className="chip-3d text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+              Left
+            </span>
+          ) : null}
           {isDen ? null : (
             <UserBadge
               badge={peer?.badge}
@@ -185,7 +199,10 @@ function ConversationRowInner({
             unread ? "text-foreground/90 font-medium" : "text-muted-foreground"
           )}
         >
-          {preview || (muted ? "Muted" : "")}
+          {/* A departed den ignores the preview: "what was said last" is not what
+              this row's reader needs to know, and the newest message may even be
+              one they cannot decrypt. The state they are in is the useful line. */}
+          {left ? "You left this den" : preview || (muted ? "Muted" : "")}
         </span>
       </span>
 

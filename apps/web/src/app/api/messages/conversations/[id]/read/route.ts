@@ -12,7 +12,11 @@ import {
   DEN_READ_RECEIPT_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
-import { getConversationForUser } from "@/lib/messages/server";
+import {
+  getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
+} from "@/lib/messages/server";
 
 export async function POST(
   _request: Request,
@@ -39,6 +43,11 @@ export async function POST(
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  // The read gate admits somebody who left a den so they keep their history; this
+  // is the write half of that split.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const myMember = conversation.members.find(

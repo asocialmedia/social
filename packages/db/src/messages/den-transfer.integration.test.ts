@@ -93,6 +93,9 @@ async function membershipSeqOf(conversationId: string): Promise<number> {
 
 // Every membership row's role, so an assertion can be about the whole roster
 // rather than about two rows it happened to check.
+// The live roster's roles. A departed member keeps a row for their history, so a
+// plain "every row" read would report them as still holding a role they no longer
+// have - and would make this helper's name a lie.
 async function rolesOf(
   conversationId: string
 ): Promise<Record<string, string>> {
@@ -100,7 +103,9 @@ async function rolesOf(
     "role",
     "userId"
   )
-    .where((member) => member.conversationId.eq(conversationId))
+    .where((member) =>
+      and(member.conversationId.eq(conversationId), member.leftAt.isNull())
+    )
     .all();
   return Object.fromEntries(rows.map((row) => [row.userId, row.role]));
 }
@@ -110,7 +115,11 @@ async function ownerRows(conversationId: string): Promise<string[]> {
     "userId"
   )
     .where((member) =>
-      and(member.conversationId.eq(conversationId), member.role.eq("OWNER"))
+      and(
+        member.conversationId.eq(conversationId),
+        member.role.eq("OWNER"),
+        member.leftAt.isNull()
+      )
     )
     .all();
   return rows.map((row) => row.userId).toSorted();
@@ -209,7 +218,10 @@ describe("handing a den to somebody else", () => {
     // about ceremony rather than about capability.
     const denId = await makeDen("Plain target");
     await transferDenOwnership(denId, OWNER_ID, PLAIN_ID);
-    expect(await getDenMembership(denId, PLAIN_ID)).toEqual({ role: "OWNER" });
+    expect(await getDenMembership(denId, PLAIN_ID)).toEqual({
+      leftAt: null,
+      role: "OWNER",
+    });
     expect(await ownerIdOf(denId)).toBe(PLAIN_ID);
   });
 
@@ -446,7 +458,10 @@ describe("what the new owner can do about it", () => {
       code: "FORBIDDEN",
     });
     // Still an Elder, so still able to do what an Elder can: add and remove.
-    expect(await getDenMembership(denId, OWNER_ID)).toEqual({ role: "ADMIN" });
+    expect(await getDenMembership(denId, OWNER_ID)).toEqual({
+      leftAt: null,
+      role: "ADMIN",
+    });
     expect(await rolesOf(denId)).toEqual({
       [OWNER_ID]: "ADMIN",
       [ELDER_ID]: "OWNER",
@@ -475,7 +490,7 @@ describe("what the new owner can do about it", () => {
     // until a founder walked out of a den nobody else could manage.
     const denId = await makeDen("Leave transfer");
     const result = await leaveDen(denId, OWNER_ID);
-    expect(result).toMatchObject({ dissolved: false, newOwnerId: ELDER_ID });
+    expect(result).toMatchObject({ newOwnerId: ELDER_ID });
     expect(await rolesOf(denId)).toEqual({
       [ELDER_ID]: "OWNER",
       [PLAIN_ID]: "MEMBER",
@@ -488,7 +503,7 @@ describe("what the new owner can do about it", () => {
     await transferDenOwnership(denId, OWNER_ID, ELDER_ID);
     await transferDenOwnership(denId, ELDER_ID, PLAIN_ID);
     const result = await leaveDen(denId, PLAIN_ID);
-    expect(result).toMatchObject({ dissolved: false, newOwnerId: OWNER_ID });
+    expect(result).toMatchObject({ newOwnerId: OWNER_ID });
     expect(await ownerRows(denId)).toEqual([OWNER_ID]);
     expect(await ownerIdOf(denId)).toBe(OWNER_ID);
   });

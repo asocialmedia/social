@@ -6,12 +6,14 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { ACCESS_ENDED_MESSAGE } from "@/lib/messages/access-ended";
 import {
   DEN_STREAM_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import {
   getConversationForUser,
+  hasLeftConversation,
   isConversationMember,
 } from "@/lib/messages/server";
 
@@ -58,6 +60,16 @@ export async function GET(
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  // Somebody who left a den may open the conversation and read its history, and
+  // must not receive a single frame of what happens next. Every message in this
+  // channel is encrypted under an epoch the current roster holds and they do not,
+  // so the ciphertext is not the leak - the signal is. It says somebody is here.
+  if (hasLeftConversation(conversation, user.id)) {
+    return Response.json(
+      { code: "MEMBERSHIP_ENDED", error: ACCESS_ENDED_MESSAGE },
+      { status: 403 }
+    );
   }
 
   const channel = messageChannel(id);

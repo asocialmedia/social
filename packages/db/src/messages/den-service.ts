@@ -101,6 +101,15 @@ async function runWithRetry<T>(
 }
 
 export interface DenMembership {
+  // When this membership stopped being able to act, if it did. Carried so a
+  // caller that only wants to know "is this person still in the den" can ask
+  // without a second read, and so the refusal in `requireDenMembership` has a
+  // name for the state it is refusing.
+  //
+  // `unknown` rather than `Date`: the ORM hands back a `Temporal.PlainDateTime`,
+  // and the only question anybody asks of it here is null or not, which
+  // `isCurrentDenMember` answers without a conversion.
+  leftAt: unknown;
   role: DenRole;
 }
 
@@ -265,6 +274,7 @@ export async function getDenMembership(
   userId: string
 ): Promise<DenMembership | null> {
   const member = await prisma.orm.public.MessageConversationMembers.select(
+    "leftAt",
     "role"
   )
     .where((candidate) =>
@@ -274,12 +284,34 @@ export async function getDenMembership(
       )
     )
     .first();
-  return member ? { role: member.role } : null;
+  return member ? { leftAt: member.leftAt, role: member.role } : null;
 }
 
-// Membership only, and DM-aware. A DM row carries MEMBER too, so the type check
-// is what stops a management route from being pointed at somebody's private
-// thread and finding a plausible-looking member row there.
+// The members who can still act in the den: everybody whose `leftAt` is NULL.
+//
+// A `leftAt` row is kept so the person keeps their history and the den stays in
+// their list, and it is excluded from every write: no posting, no promotion, no
+// election, no cap count, and never in the audience for a key wrap. Only the read
+// path wants them.
+//
+// Two spellings, because there are two shapes of question. A `where` takes
+// `member.leftAt.isNull()` inline, the way every other filter in this file reads.
+// A read that has already happened asks the boolean below, so a roster loaded for
+// a reason other than filtering still has to decide rather than silently include
+// whoever walked out.
+export function isCurrentDenMember(member: { leftAt: unknown }): boolean {
+  return member.leftAt === null;
+}
+
+// Membership, and DM-aware. A DM row carries MEMBER too, so the type check is what
+// stops a management route from being pointed at somebody's private thread and
+// finding a plausible-looking member row there.
+//
+// "Membership" means a row that can still act. Somebody who left keeps their row
+// so they keep their history, and every write funnels through here, so this is the
+// single place that turns "has a row" into "may act". The refusal is the same one
+// a non-member gets: somebody who left is not on the roster, and a message that
+// said otherwise would tell them the den still has them in it.
 export async function requireDenMembership(
   conversationId: string,
   userId: string
@@ -294,7 +326,7 @@ export async function requireDenMembership(
     throw new DenError("NOT_A_DEN", "That is not a den");
   }
   const membership = await getDenMembership(conversationId, userId);
-  if (!membership) {
+  if (!membership || !isCurrentDenMember(membership)) {
     throw new DenError("FORBIDDEN", "You are not a member of this den");
   }
   return membership;
@@ -501,9 +533,37 @@ async function flushMembershipEndedNotifications(
 }
 
 // The roster as a set of user ids, so a mutation can add its departing member
-// back to the list without a second query.
+// back to the list without a second query. Every row, including the departed:
+// this is the full table, for the callers that need all of it.
 function rosterIds(members: readonly { userId: string }[]): string[] {
   return members.map((member) => member.userId);
+}
+
+// Who a roster announcement may reach.
+//
+// The people still in the den, plus whoever the mutation is about. The departed are
+// excluded from the general audience because an announcement arrives as a
+// "re-read your list" frame on a conversation they are no longer in, and a roster
+// move they are not party to is not something to ping them about.
+//
+// The mutation's own subject is named explicitly rather than left to the read
+// order. `leaveDen` and `removeDenMember` both stamp `leftAt` before building the
+// audience, so the array in hand still says `leftAt: null` for the person walking
+// out - which is the correct answer by accident, and an accident is not a contract.
+// They are the one person who must hear it: their open tab is what has to learn it
+// can no longer deliver, and their list is what has to learn the den is now
+// read-only.
+function announceAudienceIds(
+  members: readonly { leftAt: unknown; userId: string }[],
+  subject: readonly string[] = []
+): string[] {
+  const audience = new Set([
+    ...members
+      .filter((member) => isCurrentDenMember(member))
+      .map((m) => m.userId),
+    ...subject,
+  ]);
+  return [...audience];
 }
 
 // There is deliberately no block probe anywhere in this file.
@@ -631,23 +691,40 @@ export async function addDenMembers(
     actorId,
     async (tx, claimed) => {
       const existing = await tx.orm.public.MessageConversationMembers.select(
+        "leftAt",
         "userId"
       )
         .where((member) => member.conversationId.eq(conversationId))
         .all();
-      const taken = new Set(existing.map((member) => member.userId));
-      const room = DEN_LIMITS.membersMax - taken.size;
+      // The cap counts the people who can act, not the rows. A roster that
+      // accumulated departed members would fill itself up with history and refuse
+      // new arrivals, which is backwards: the rows are cheap and the cap is about
+      // how much noise a live den can have.
+      const inside = existing.filter((member) => isCurrentDenMember(member));
+      const room = DEN_LIMITS.membersMax - inside.length;
       if (room <= 0) {
         throw new DenError(
           "LIMIT_REACHED",
           `A den can have at most ${DEN_LIMITS.membersMax} members`
         );
       }
+      // Every id already on the row, inside or out. Somebody who left still holds a
+      // row, so putting them back is a revival rather than an insert, and the two
+      // have to be told apart: a plain create would collide with their primary key.
+      // Which is also why the filter is on the members who are still inside rather
+      // than on everybody holding a row - a departed member has to be able to come
+      // back onto a roster that still remembers them.
+      const insideIds = new Set(inside.map((member) => member.userId));
+      const stale = new Set(
+        existing
+          .filter((member) => !isCurrentDenMember(member))
+          .map((member) => member.userId)
+      );
       // Sorted so two callers adding overlapping sets agree on who wins a
       // contested slot, which keeps a partial write reproducible in a log.
       const wanted = [...new Set(userIds)]
         .toSorted()
-        .filter((userId) => !taken.has(userId));
+        .filter((userId) => !insideIds.has(userId));
       if (wanted.length > room) {
         throw new DenError(
           "LIMIT_REACHED",
@@ -659,6 +736,24 @@ export async function addDenMembers(
       // and the cap above is the only thing standing between a candidate and the
       // membership row.
       for (const userId of wanted) {
+        if (stale.has(userId)) {
+          // Back in, as a plain member: a revived row keeps its place in the
+          // den's history - their old messages, and their old keys - so it must
+          // not come back carrying a rank they held before they left, and the
+          // person who put them back is recorded as whoever added them this time.
+          // oxlint-disable-next-line no-await-in-loop -- ordered writes under the claim lock, see above
+          await tx.orm.public.MessageConversationMembers.where((member) =>
+            and(
+              member.conversationId.eq(conversationId),
+              member.userId.eq(userId)
+            )
+          ).updateAndCount({
+            invitedById: actorId,
+            leftAt: null,
+            role: "MEMBER",
+          });
+          continue;
+        }
         // oxlint-disable-next-line no-await-in-loop -- ordered writes under the claim lock, see above
         await tx.orm.public.MessageConversationMembers.create({
           conversationId,
@@ -677,11 +772,14 @@ export async function addDenMembers(
       }
       const membershipSeq = await touchDen(tx, claimed, conversationId);
       return {
-        // The newcomers are in `wanted`, so the post-mutation roster is everyone
-        // who was already inside plus them. No second read needed.
+        // The inside roster plus the newcomers, which is the whole post-mutation
+        // roster. Deliberately built from `inside` rather than `taken`: somebody who
+        // left this den and is not being put back has no interest in a roster move
+        // they are no longer party to, and an announcement reaches them as a
+        // "re-read your list" frame on a den they cannot act in.
         announce: {
           action: "member_added",
-          memberIds: [...taken, ...wanted],
+          memberIds: [...inside.map((member) => member.userId), ...wanted],
           membershipSeq,
         },
         ended: null,
@@ -708,13 +806,18 @@ export async function removeDenMember(
     actorId,
     async (tx, claimed) => {
       const members = await tx.orm.public.MessageConversationMembers.select(
+        "leftAt",
         "role",
         "userId"
       )
         .where((member) => member.conversationId.eq(conversationId))
         .all();
       const target = members.find((member) => member.userId === targetUserId);
-      if (!target) {
+      // Somebody already out is not a member to remove. `requireDenManager` above
+      // has proved the actor is in, but the target has not been looked up by that
+      // gate, and removing twice would write a second `leftAt` and announce a
+      // second roster change the roster has already had.
+      if (!target || !isCurrentDenMember(target)) {
         throw new DenError("NOT_FOUND", "That person is not a member");
       }
       // The shared helper, not a written-out role comparison. This is the same
@@ -729,12 +832,20 @@ export async function removeDenMember(
       if (!canManageRole(manager.role, target.role)) {
         throw new DenError("FORBIDDEN", "The owner cannot be removed");
       }
+      // Stamped, not deleted. The row is what keeps the den in their message list
+      // and their keys readable, so removal ends their access to everything from
+      // now on and leaves everything up to this moment exactly as it was. The
+      // stamped row is `leftAt` non-null from here on, which is what every write
+      // gate and every key fan-out filters on.
       await tx.orm.public.MessageConversationMembers.where((member) =>
         and(
           member.conversationId.eq(conversationId),
           member.userId.eq(targetUserId)
         )
-      ).deleteAndCount();
+      ).updateAndCount({
+        leftAt: toPrismaDateTime(new Date()),
+        role: "MEMBER",
+      });
       const membershipSeq = await touchDen(tx, claimed, conversationId);
       // The removal is not self-evident offline. The announcement reaches the
       // members with this den open on a stream; a removed member who is not
@@ -747,12 +858,12 @@ export async function removeDenMember(
         recipientIds: [targetUserId],
       });
       return {
-        // The removed member is on the list even though their row is gone: their
+        // The removed member is on the list even though their row is stamped: their
         // conversation list still shows this den until they refetch, and their open
         // stream has to learn it is no longer allowed to deliver.
         announce: {
           action: "member_removed",
-          memberIds: rosterIds(members),
+          memberIds: announceAudienceIds(members, [targetUserId]),
           membershipSeq,
         },
         ended,
@@ -770,7 +881,14 @@ function roleRank(role: DenRole): number {
 }
 
 export interface LeaveDenResult {
-  dissolved: boolean;
+  // Null unless this person was the owner and the den passed to somebody. It is
+  // the caller's own successor, so returning it tells them nothing about the rest
+  // of the roster.
+  //
+  // There is deliberately no `dissolved` any more. The last member out used to
+  // dissolve the den, and now does not - see the branch in `leaveDen` - so the
+  // flag would only ever be `false` and a client branching on it would be a
+  // branch that can never be taken.
   newOwnerId: string | null;
 }
 
@@ -779,7 +897,7 @@ export async function leaveDen(
   userId: string
 ): Promise<LeaveDenResult> {
   await requireDenMembership(conversationId, userId);
-  // The explicit type argument is what lets the four return literals below be
+  // The explicit type argument is what lets the three return literals below be
   // plain literals. Left to infer, the generic settles on the first branch's
   // narrower shape and every later branch is a type error, which is a pressure
   // that ends as `as LeaveDenResult` on each one - four casts hiding that the
@@ -790,6 +908,7 @@ export async function leaveDen(
     async (tx, claimed) => {
       const members = await tx.orm.public.MessageConversationMembers.select(
         "createdAt",
+        "leftAt",
         "role",
         "userId"
       )
@@ -800,40 +919,52 @@ export async function leaveDen(
         throw new DenError("NOT_FOUND", "You are not a member of this den");
       }
 
-      if (members.length === 1) {
-        // The last member out dissolves the den. Messages, wraps and read
-        // watermarks all hang off this row and are unreachable the moment it goes,
-        // so an empty den is not a state worth keeping.
-        await tx.orm.public.MessageConversations.where((candidate) =>
-          candidate.id.eq(conversationId)
-        ).deleteAndCount();
-        return {
-          // No `membershipSeq`: there is no row left to count, and every receiver
-          // treats a dissolve as terminal, so there is nothing a sequence could add.
-          announce: { action: "dissolved", memberIds: rosterIds(members) },
-          // The only member left is the one walking out, and the actor is filtered
-          // out of the recipient list, so this writes nothing. Stated rather than
-          // left implicit because it is the one place the two lines above and
-          // below read identically.
-          ended: null,
-          value: { dissolved: true, newOwnerId: null },
-        };
-      }
+      // The last member out used to dissolve the den, and no longer does. A den
+      // whose only member walks away has nowhere left to send a message, but the
+      // person who walked away keeps this den in their list and keeps every
+      // message in it, and dissolving would take both. That history is the product:
+      // somebody who loses interest in a room still has the right to read what
+      // happened there. So the den stays, holding its messages and its wraps, with
+      // everybody who is left on it stamped `leftAt` and nobody who can write.
+      //
+      // Dissolving is still available, and it is the owner's own control: the last
+      // member holding the den is, by the heir rule below, the one who took it
+      // over, so a den can always be deleted by somebody who can still act on it.
+      const inside = members.filter((member) => isCurrentDenMember(member));
 
+      // Stamped, not deleted, for the same reason `removeDenMember` stamps. The row
+      // is the den's continued existence in this person's list and the thing that
+      // still holds the keys their history needs.
       await tx.orm.public.MessageConversationMembers.where((member) =>
         and(member.conversationId.eq(conversationId), member.userId.eq(userId))
-      ).deleteAndCount();
+      ).updateAndCount({
+        leftAt: toPrismaDateTime(new Date()),
+        role: "MEMBER",
+      });
 
-      // Everyone who was inside, plus the leaver. The leaver's list has to drop
-      // the den, and their open stream has to learn they are out of it.
+      // Everyone who was inside, plus the leaver. The leaver's list keeps this den,
+      // but their open stream has to learn they are out of it, which is what
+      // `membership-ended` on their stream is for.
       const announce = (
         action: DenMembershipAction,
         membershipSeq: number
       ) => ({
         action,
-        memberIds: rosterIds(members),
+        memberIds: announceAudienceIds(members, [userId]),
         membershipSeq,
       });
+
+      if (inside.length === 1) {
+        // The only one still inside is the person walking out. Nobody is left to
+        // announce anything to, and there is no heir to promote, so this is the
+        // whole change: the den is now read-only to everybody who was ever in it.
+        const membershipSeq = await touchDen(tx, claimed, conversationId);
+        return {
+          announce: announce("left", membershipSeq),
+          ended: null,
+          value: { newOwnerId: null },
+        };
+      }
 
       if (me.role !== "OWNER") {
         const membershipSeq = await touchDen(tx, claimed, conversationId);
@@ -841,7 +972,7 @@ export async function leaveDen(
           announce: announce("left", membershipSeq),
           // Nobody left but the person who left, and they know.
           ended: null,
-          value: { dissolved: false, newOwnerId: null },
+          value: { newOwnerId: null },
         };
       }
 
@@ -849,7 +980,11 @@ export async function leaveDen(
       // away would otherwise be unmanageable by everyone left in it. Longest
       // tenure first, an elder outranking a plain member at equal tenure, so the
       // choice is deterministic and defensible.
-      const heirs = members
+      //
+      // `leftAt` decides who is eligible, and it is not decoration here: a member
+      // who left has a longer tenure than anybody who is still in, so electing
+      // across the whole roster would hand every den to whoever walked out first.
+      const heirs = inside
         .filter((member) => member.userId !== userId)
         .toSorted((left, right) => {
           const tenure = compareTenure(left.createdAt, right.createdAt);
@@ -859,11 +994,15 @@ export async function leaveDen(
         });
       const [heir] = heirs;
       if (!heir) {
+        // Unreachable while the `inside.length === 1` branch above exists: getting
+        // here means the owner is inside and somebody else is too. Kept because the
+        // cost of being wrong is a den with no owner, and the cost of keeping it is
+        // one branch that no test can exercise - which is the better trade.
         const membershipSeq = await touchDen(tx, claimed, conversationId);
         return {
           announce: announce("left", membershipSeq),
           ended: null,
-          value: { dissolved: false, newOwnerId: null },
+          value: { newOwnerId: null },
         };
       }
       await tx.orm.public.MessageConversationMembers.where((candidate) =>
@@ -893,7 +1032,7 @@ export async function leaveDen(
       return {
         announce: announce("owner_transferred", membershipSeq),
         ended: null,
-        value: { dissolved: false, newOwnerId: heir.userId },
+        value: { newOwnerId: heir.userId },
       };
     }
   );
@@ -928,13 +1067,17 @@ export async function setDenMemberRole(
     actorId,
     async (tx, claimed) => {
       const members = await tx.orm.public.MessageConversationMembers.select(
+        "leftAt",
         "role",
         "userId"
       )
         .where((member) => member.conversationId.eq(conversationId))
         .all();
       const target = members.find((member) => member.userId === targetUserId);
-      if (!target) {
+      // Same refusal as removal: somebody who already left is not on the roster, so
+      // there is nobody here to promote. Stamping their role instead of refusing
+      // would be writing to a row the rest of the den has already stopped reading.
+      if (!target || !isCurrentDenMember(target)) {
         throw new DenError("NOT_FOUND", "That person is not a member");
       }
       if (target.role === "OWNER") {
@@ -952,7 +1095,7 @@ export async function setDenMemberRole(
         // members, and every open details panel renders the roster's roles.
         announce: {
           action: "role_changed",
-          memberIds: rosterIds(members),
+          memberIds: announceAudienceIds(members),
           membershipSeq,
         },
         ended: null,
@@ -1006,6 +1149,7 @@ export async function transferDenOwnership(
     actorId,
     async (tx, claimed) => {
       const members = await tx.orm.public.MessageConversationMembers.select(
+        "leftAt",
         "role",
         "userId"
       )
@@ -1013,13 +1157,21 @@ export async function transferDenOwnership(
         .all();
       if (
         !members.some(
-          (member) => member.userId === actorId && member.role === "OWNER"
+          (member) =>
+            member.userId === actorId &&
+            member.role === "OWNER" &&
+            isCurrentDenMember(member)
         )
       ) {
         throw new DenError("FORBIDDEN", "Only the owner can do that");
       }
       const target = members.find((member) => member.userId === targetUserId);
-      if (!target) {
+      // NOT_FOUND rather than a refusal about leaving: the transfer route's own
+      // error for "that person is not in this den", and it is the same thing. A
+      // member who left cannot be handed the den, and the reason that matters is
+      // not politeness - it is that a den owned by somebody who cannot act on it
+      // has no one who can add anybody, rename it, or delete it.
+      if (!target || !isCurrentDenMember(target)) {
         throw new DenError("NOT_FOUND", "That person is not a member");
       }
       // Demotion first, then promotion, then the den row. The order is not what
@@ -1055,7 +1207,7 @@ export async function transferDenOwnership(
         // and two increments for one change.
         announce: {
           action: "owner_transferred",
-          memberIds: rosterIds(members),
+          memberIds: announceAudienceIds(members),
           membershipSeq,
         },
         // Nobody left: both people are still in the den, one of them as its owner
@@ -1330,9 +1482,14 @@ async function findRetiredDen(
   }
 }
 
+// How many people can act in the den, which is what every member count in the
+// product means. The departed are excluded: a count that included them would grow
+// every time somebody lost interest, and the invite preview would announce a den as
+// fuller than it is.
 async function countDenMembers(conversationId: string): Promise<number> {
   const members = await prisma.orm.public.MessageConversationMembers.where(
-    (member) => member.conversationId.eq(conversationId)
+    (member) =>
+      and(member.conversationId.eq(conversationId), member.leftAt.isNull())
   ).aggregate((aggregate) => ({ count: aggregate.count() }));
   return members.count;
 }
@@ -1475,11 +1632,14 @@ export async function joinDenByInviteCode(
     userId,
     async (tx, claimed) => {
       const members = await tx.orm.public.MessageConversationMembers.select(
+        "leftAt",
         "userId"
       )
         .where((member) => member.conversationId.eq(den.id))
         .all();
-      if (members.some((member) => member.userId === userId)) {
+      const inside = members.filter((member) => isCurrentDenMember(member));
+      const mine = members.find((member) => member.userId === userId);
+      if (mine && isCurrentDenMember(mine)) {
         // Re-opening a link you already joined changes nothing, so nothing is
         // announced: a client would refetch its roster to learn the roster it
         // already has. The counter does not move either, which is the load-bearing
@@ -1487,22 +1647,31 @@ export async function joinDenByInviteCode(
         // like a gap and cost every member a refetch for it.
         return { announce: null, ended: null, value: false };
       }
-      if (members.length >= DEN_LIMITS.membersMax) {
+      if (inside.length >= DEN_LIMITS.membersMax) {
         throw new DenError(
           "LIMIT_REACHED",
           `This den is full (${DEN_LIMITS.membersMax} members)`
         );
       }
-      await tx.orm.public.MessageConversationMembers.create({
-        conversationId: den.id,
-        role: "MEMBER",
-        userId,
+      // A row of their own is not the same as being in the den: somebody who left
+      // and then opens the same link again is coming back, not colliding with their
+      // own primary key. Their history is already here, so the row is cleared rather
+      // than replaced - which also keeps the key wraps they were given still
+      // meaning something.
+      await tx.orm.public.MessageConversationMembers.where((member) =>
+        and(member.conversationId.eq(den.id), member.userId.eq(userId))
+      ).upsert({
+        conflictOn: { conversationId: den.id, userId },
+        create: { conversationId: den.id, role: "MEMBER", userId },
+        update: { leftAt: null, role: "MEMBER" },
       });
       const membershipSeq = await touchDen(tx, claimed, den.id);
       return {
         announce: {
+          // The inside roster plus the person coming back. Not the whole table: the
+          // departed members are not party to this one.
           action: "joined",
-          memberIds: [...rosterIds(members), userId],
+          memberIds: [...inside.map((member) => member.userId), userId],
           membershipSeq,
         },
         ended: null,

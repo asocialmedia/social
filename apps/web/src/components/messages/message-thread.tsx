@@ -4228,10 +4228,36 @@ export function MessageThread({
     [conversationId, queryClient, scheduleRead, user?.id]
   );
 
+  // Whether the loaded roster says this reader has left this den.
+  //
+  // This is the reload half of the removal story. The live `membership-ended`
+  // frame only reaches a tab that was already open when the removal happened, and
+  // a fresh page load gets a 403 on stream connect instead - no frame, no toast,
+  // and without this a composer that offers to send messages the server will
+  // refuse. Read off the detail the transcript already fetched, so there is no
+  // second request to keep in step with it.
+  //
+  // `conversationId` is a dependency as well as `leftDen`: the reset effect above
+  // clears the notice when the reader switches conversations, and without the id
+  // here a switch into a den they had already left would leave the notice cleared
+  // and the composer live, because `leftDen` never toggled.
+  const leftDen =
+    detail?.conversation.members.find((member) => member.userId === userId)
+      ?.leftAt !== null;
+  useEffect(() => {
+    if (leftDen) {
+      setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
+    }
+  }, [conversationId, leftDen]);
+
   useMessagesRealtime(
     conversationId,
     handleEvent,
-    Boolean(user),
+    // A den somebody left is read-only, and there is nothing for a stream to
+    // deliver: the server refuses the connect with a 403, and every message in the
+    // channel is encrypted under an epoch they hold no wrap for. Opening one anyway
+    // would be a reconnect ladder aimed at a door that does not open.
+    Boolean(user) && !leftDen,
     // Catch up on messages published while the stream was down (mobile
     // network drops). The in-flight guard stops a reconnect from stacking a
     // refetch on top of one already running (overlapping responses can land

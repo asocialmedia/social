@@ -16,7 +16,12 @@ import {
   DEN_PREFS_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
-import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
+import {
+  getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
+  parseJsonBody,
+} from "@/lib/messages/server";
 
 // Per-member DM preferences: mute, chat theme, and chat wallpaper.
 //
@@ -57,6 +62,13 @@ export async function PATCH(
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  // Per-person settings on a den somebody has left. A muted thread, a theme and a
+  // wallpaper are all about the reading experience, and a person who is no longer
+  // receiving anything has nothing to mute - but the refusal is uniform anyway,
+  // because a wall of one-off carve-outs is where the next write gets added.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const body = (await parseJsonBody(request)) as {

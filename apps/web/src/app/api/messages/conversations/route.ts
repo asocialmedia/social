@@ -141,6 +141,11 @@ function mapConversation(
           lastReadAt: member.lastReadAt
             ? fromPrismaDateTime(member.lastReadAt)
             : null,
+          // Den-only, and carried through for the same reason `mutedAt` is below:
+          // the rail draws a "left" marker from it and the composer decides
+          // read-only from it, so a mapper that omitted it left both reading
+          // `undefined` and drawing a den somebody left as one they are in.
+          leftAt: member.leftAt ? fromPrismaDateTime(member.leftAt) : null,
           // Carried through rather than dropped. The list route zeroes a muted
           // conversation's badge from this field and the rail draws its muted
           // marker from it, so a mapper that omitted it left both reading
@@ -372,11 +377,16 @@ export async function GET(request: Request) {
       // A muted chat keeps its messages but loses its badge: mute is this
       // member's own preference, so it is applied here rather than by filtering
       // the query (which would also drop the thread from the rail).
-      return toListItem(
-        conversation,
-        lastMessage,
-        myMember?.mutedAt ? 0 : unreadCount
-      );
+      //
+      // A den somebody left loses its badge for the same reason and a stronger
+      // one: they cannot mark it read, because the read route refuses them, so a
+      // badge here is a number that can only go up and never come down. It would
+      // sit on the rail forever counting messages they will never be able to open.
+      let badge = unreadCount;
+      if (myMember?.leftAt || myMember?.mutedAt) {
+        badge = 0;
+      }
+      return toListItem(conversation, lastMessage, badge);
     }
   );
 

@@ -7,6 +7,8 @@ import {
 } from "@/lib/messages/den-rate-limit";
 import {
   getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
   isUniqueConstraintViolation,
   parseJsonBody,
 } from "@/lib/messages/server";
@@ -76,7 +78,23 @@ export async function POST(
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }
-  if (keys.length > Math.max(conversation.members.length, 1)) {
+  // The read gate admits somebody who left a den so they keep their history. They
+  // must not mint an epoch here: a new wrap is a key, and a departed member who
+  // could mint one would be handing the current roster material they are not
+  // entitled to hand out.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
+  }
+  // Who can still be wrapped for. A departed member keeps a roster row for their
+  // history, and must never receive a wrap for a new epoch - that would hand them
+  // the key to everything written after they left, which is the one thing leaving
+  // is supposed to stop.
+  const memberIds = new Set(
+    conversation.members
+      .filter((member) => !member.leftAt)
+      .map((member) => member.userId)
+  );
+  if (keys.length > Math.max(memberIds.size, 1)) {
     return Response.json(
       { error: "Too many keys for this conversation" },
       { status: 400 }
@@ -84,7 +102,7 @@ export async function POST(
   }
 
   // The caller must wrap the root key for every member. Validate each owner is a
-  // member and every payload is well-formed and non-empty (an empty
+  // current member and every payload is well-formed and non-empty (an empty
   // ciphertext/iv would corrupt the peer's unwrap).
   //
   // A named wrapper must be the caller: only the holder of the private key a blob
@@ -93,9 +111,6 @@ export async function POST(
   // public material, deliberately not checked against the identity row — it
   // exists precisely to outlive that row, and refusing the write in that case
   // would leave the caller unable to send at all.
-  const memberIds = new Set(
-    conversation.members.map((member) => member.userId)
-  );
   for (const key of keys) {
     const wrapperUserId = optionalNonEmptyString(key.wrapperUserId);
     const wrapperPublicKey = optionalNonEmptyString(key.wrapperPublicKey);

@@ -130,6 +130,10 @@ function makeDenConversation(
   members: readonly {
     createdAt?: Date;
     id: string;
+    // A member who left or was removed. They keep the roster row so the reader's
+    // name resolves and their history stays, which is exactly why the key
+    // machinery has to be told to stop treating them as a member.
+    leftAt?: Date | null;
     publicKeyBase64?: string;
   }[]
 ): MessageConversationData {
@@ -141,6 +145,7 @@ function makeDenConversation(
       conversationId: id,
       createdAt: member.createdAt ?? DEN_EPOCH_ONE_AT,
       lastReadAt: null,
+      leftAt: member.leftAt ?? null,
       user: makeSender({
         id: member.id,
         publicKeyBase64: member.publicKeyBase64 ?? null,
@@ -1182,6 +1187,67 @@ describe("ensureConversationKeys", () => {
         )
       ).toBe(true);
     }
+    expect(postedKeys).toHaveLength(0);
+  });
+
+  test("a departed member's old wrap forces a rotation, and is not re-wrapped", async () => {
+    // Leaving stamps the membership row instead of deleting it, so the roster
+    // still names Bob and Bob still holds epoch 1. That is the history and it is
+    // deliberate, and it also means epoch 1 is contaminated: anything written into
+    // it, Bob can read. So the next send must rotate, and the new epoch must be
+    // wrapped for the people still in the room and nobody else.
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const den = makeDenConversation("den-departed", [alice, bob]);
+    await fanOutEpoch(den, generateRootKey(), alice, 1);
+    const bobRow = den.members.find((member) => member.userId === bob.id);
+    if (!bobRow) {
+      throw new Error("expected Bob's row");
+    }
+    bobRow.leftAt = new Date("2026-01-03T00:00:00.000Z");
+
+    const rootKey = await ensureConversationKeys(
+      den,
+      alice.pair.privateKey,
+      alice.id
+    );
+
+    expect(rootKey).not.toBeNull();
+    // Exactly one wrap, the new epoch, for Alice. Bob is not in a den he left.
+    expect(postedKeys).toHaveLength(1);
+    expect(postedKeys[0]?.ownerUserId).toBe(alice.id);
+    expect(postedKeys[0]?.version).toBe(2);
+    expect(postedKeys.some((key) => key.ownerUserId === bob.id)).toBe(false);
+  });
+
+  test("a departed member missing the current epoch is not healed into it", async () => {
+    // The heal path exists to hand the current root to a member who was in the
+    // room when it was minted but whose wrap was lost. A departed member can look
+    // identical to that - no wrap for the newest epoch, a tenure older than it -
+    // and healing them would hand them everything said after they left.
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const den = makeDenConversation("den-no-heal-departed", [alice, bob]);
+    await fanOutEpoch(den, generateRootKey(), alice, 1);
+    // Bob leaves before epoch 2, so epoch 2 is fanned out to Alice alone.
+    const bobRow = den.members.pop();
+    if (!bobRow) {
+      throw new Error("expected Bob's row");
+    }
+    const epochTwo = generateRootKey();
+    await fanOutEpoch(den, epochTwo, alice, 2, DEN_EPOCH_TWO_AT);
+    bobRow.leftAt = new Date("2026-01-15T00:00:00.000Z");
+    den.members.push(bobRow);
+
+    const rootKey = await ensureConversationKeys(
+      den,
+      alice.pair.privateKey,
+      alice.id
+    );
+
+    expect(
+      Buffer.from(rootKey ?? new Uint8Array()).equals(Buffer.from(epochTwo))
+    ).toBe(true);
     expect(postedKeys).toHaveLength(0);
   });
 });

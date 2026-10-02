@@ -7,6 +7,7 @@ import {
 } from "@asm/db";
 import type { ConversationType } from "@asm/db";
 
+import { ACCESS_ENDED_MESSAGE } from "./access-ended";
 import { blockedSendPeer } from "./blocks";
 
 // The server never sees plaintext, but it does validate membership, follow
@@ -36,6 +37,9 @@ function loadConversationRow(conversationId: string) {
         .select(
           "userId",
           "createdAt",
+          // Den-only, and the column the read/write split turns on. NULL for every
+          // DM row, so nothing in the DM path has to know it exists.
+          "leftAt",
           "role",
           "lastReadAt",
           "mutedAt",
@@ -82,6 +86,7 @@ function mapConversationRow(row: ConversationRow) {
         lastReadAt: member.lastReadAt
           ? fromPrismaDateTime(member.lastReadAt)
           : null,
+        leftAt: member.leftAt ? fromPrismaDateTime(member.leftAt) : null,
         mutedAt: member.mutedAt ? fromPrismaDateTime(member.mutedAt) : null,
         user: {
           ...mapUserData(member.user),
@@ -126,6 +131,11 @@ export async function isBlockedFromConversation(
 // question every twenty seconds per open stream would be absurd, so this asks
 // the one indexed question instead.
 //
+// `leftAt isNull` is what makes "still a member" mean "may still receive". A
+// departed member has a row, so without it this would keep saying yes to somebody
+// who has just walked out and the stream would carry on delivering ciphertext
+// that only the people still in the den can unwrap.
+//
 // No block check, unlike getConversationForUser: a DM's block does not end an
 // open stream (the peer is already known to this tab, and their block is not
 // this member's business), and a den is unaffected by blocks either way.
@@ -140,7 +150,8 @@ export async function isConversationMember(
     .where((candidate) =>
       and(
         candidate.conversationId.eq(conversationId),
-        candidate.userId.eq(userId)
+        candidate.userId.eq(userId),
+        candidate.leftAt.isNull()
       )
     )
     .first();
@@ -148,6 +159,12 @@ export async function isConversationMember(
 }
 
 // Returns the conversation only when `userId` is one of its members.
+//
+// This is a READ gate, and deliberately so: somebody who left a den keeps their
+// membership row, is admitted here, and can therefore still read everything that
+// was said before they went. Every write asks `hasLeftConversation` after this
+// returns, so the split is read-admits / write-refuses rather than two separate
+// membership tests that could disagree.
 //
 // When `enforceBlocks` is true (the default), a bidirectional block between
 // the two members of a DM makes the conversation invisible: every read,
@@ -183,6 +200,49 @@ export async function getConversationForUser(
     return null;
   }
   return conversation;
+}
+
+// Whether this user's membership in `conversation` has stopped being able to act.
+//
+// Only ever true for a den: a departed member keeps their row so the den stays in
+// their list and their history stays readable, and this is the flag that carries
+// that distinction into the routes. `getConversationForUser` admits them on
+// purpose - refusing them there would take the history with them - and every
+// write then asks this, once, before it touches a row.
+//
+// It reads the payload rather than the database because every caller has already
+// loaded it, and the payload is the conversation the write is about: a row that
+// changed underneath the read cannot be re-read away.
+export function hasLeftConversation(
+  conversation: { members?: { leftAt?: Date | null; userId: string }[] },
+  userId: string
+): boolean {
+  // `members` optional and `leftAt` coalesced, because both are absent in the two
+  // shapes this is handed besides a full row: a DM (no `leftAt`) and the trimmed
+  // conversation some route tests build. Absent reads as "still here", which is
+  // the safe direction: it can only ever offer the write, and the write's own row
+  // check still refuses if the person really is out.
+  const member = conversation.members?.find((row) => row.userId === userId);
+  return (member?.leftAt ?? null) !== null;
+}
+
+// The refusal a departed member gets for every write, in one place.
+//
+// One function so the status, the code and the sentence cannot drift between the
+// eight routes that use it. The status is 403 rather than the 404 the membership
+// gate answers with, and the difference is the whole point of the split: a 404
+// would tell somebody who can still read the whole conversation that it does not
+// exist.
+//
+// The body carries `MEMBERSHIP_ENDED` as well as the sentence, because the client
+// has to do something different for this than for any other 403: it turns the
+// composer into its read-only state rather than showing an error that goes away
+// on the next attempt. There is no next attempt that can succeed.
+export function leftConversationResponse(): Response {
+  return Response.json(
+    { code: "MEMBERSHIP_ENDED", error: ACCESS_ENDED_MESSAGE },
+    { status: 403 }
+  );
 }
 
 // A block is bidirectional in practice: either party blocking is enough to

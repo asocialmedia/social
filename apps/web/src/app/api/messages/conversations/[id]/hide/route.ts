@@ -8,6 +8,8 @@ import {
 import { MAX_HIDE_BATCH } from "@/lib/messages/message-delete";
 import {
   getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
   isUniqueConstraintViolation,
   parseJsonBody,
 } from "@/lib/messages/server";
@@ -49,6 +51,11 @@ export async function POST(
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  // The read gate admits somebody who left a den so they keep their history; this
+  // is the write half of that split.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const body = (await parseJsonBody(request)) as {

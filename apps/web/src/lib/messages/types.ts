@@ -28,6 +28,15 @@ export interface MessageConversationMember {
   // Den-only provenance: who added this member, absent for the creator and for
   // somebody who arrived through an invite link.
   invitedById?: string | null;
+  // Den-only, and the column the read/write split turns on. NULL is every DM row
+  // and every member who is still in the den. Set means the person left or was
+  // removed: they keep this row, so the conversation stays in their list and the
+  // history stays readable, but nothing they write now lands.
+  //
+  // Both the client and the server read it, and they read it for the same reason:
+  // "is this person still in the room" is the question that separates reading a
+  // den from posting in one.
+  leftAt?: Date | null;
   lastReadAt: Date | null;
   // Watermark of the newest message this member confirmed receipt of, and this
   // member's own DM preferences. Both are per-member, so the peer never sees

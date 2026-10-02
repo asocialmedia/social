@@ -12,7 +12,12 @@ import {
   DEN_DELIVERY_RECEIPT_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
-import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
+import {
+  getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
+  parseJsonBody,
+} from "@/lib/messages/server";
 
 // Delivery acknowledgement. A browser that has received a peer message reports
 // it so the sender can label its own bubble Delivered. The server stores a
@@ -48,6 +53,11 @@ export async function POST(
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  // The read gate admits somebody who left a den so they keep their history; this
+  // is the write half of that split.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const body = (await parseJsonBody(request)) as { messageId?: unknown } | null;

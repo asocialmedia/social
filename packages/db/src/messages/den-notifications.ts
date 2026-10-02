@@ -69,6 +69,11 @@ export async function createDenMessageNotifications(
           member.conversationId.eq(input.conversationId),
           // The sender reads their own message; they never notify themselves.
           member.userId.neq(input.senderId),
+          // Somebody who left the den cannot read what this would announce - the
+          // message is encrypted under the roster's current epoch and they hold no
+          // wrap for it - so notifying them would be a push that opens onto
+          // nothing, forever, with no way to make it stop.
+          member.leftAt.isNull(),
           // A mute suppresses the badge and the push. The message is delivered
           // regardless: the mute is a preference about being interrupted, not
           // about being allowed to read.

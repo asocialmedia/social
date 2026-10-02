@@ -83,7 +83,9 @@ export async function DELETE(
   const { id } = await ctx.params;
   const message = await prisma.orm.public.Messages.where({ id })
     .include("conversation", (conversation) =>
-      conversation.include("messageConversationMembers")
+      conversation.include("messageConversationMembers", (member) =>
+        member.select("leftAt", "userId")
+      )
     )
     .first();
   if (!message) {
@@ -103,8 +105,14 @@ export async function DELETE(
     );
   }
 
+  // A row with `leftAt` set is somebody who left a den: they still have the row so
+  // they keep their history, and they are not in the room any more, so they cannot
+  // rewrite or remove what is in it. Both verbs refuse the same way.
   const callerIsMember = message.conversation.messageConversationMembers.some(
-    (member) => member.userId === user.id
+    // `!member.leftAt` rather than `=== null`: a DM row and every fixture built
+    // before this column existed carry no `leftAt` at all, and reading that as
+    // "departed" would refuse edits on ordinary DMs.
+    (member) => member.userId === user.id && !member.leftAt
   );
   if (!callerIsMember) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
@@ -157,7 +165,9 @@ export async function PATCH(
   const { id } = await ctx.params;
   const message = await prisma.orm.public.Messages.where({ id })
     .include("conversation", (conversation) =>
-      conversation.include("messageConversationMembers")
+      conversation.include("messageConversationMembers", (member) =>
+        member.select("leftAt", "userId")
+      )
     )
     .first();
   if (!message?.conversation) {
@@ -173,8 +183,14 @@ export async function PATCH(
     );
   }
 
+  // A row with `leftAt` set is somebody who left a den: they still have the row so
+  // they keep their history, and they are not in the room any more, so they cannot
+  // rewrite or remove what is in it. Both verbs refuse the same way.
   const callerIsMember = message.conversation.messageConversationMembers.some(
-    (member) => member.userId === user.id
+    // `!member.leftAt` rather than `=== null`: a DM row and every fixture built
+    // before this column existed carry no `leftAt` at all, and reading that as
+    // "departed" would refuse edits on ordinary DMs.
+    (member) => member.userId === user.id && !member.leftAt
   );
   if (!callerIsMember) {
     return Response.json({ error: "Forbidden" }, { status: 403 });

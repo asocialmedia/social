@@ -552,6 +552,10 @@ export function getMessageConversationDataQuery(orm: PrismaOrm) {
           "invitedById",
           "lastDeliveredAt",
           "lastReadAt",
+          // Den-only. The client needs it to render a den somebody left as
+          // read-only rather than as one they are still in, and the write routes
+          // need it to refuse them with a reason the composer can show.
+          "leftAt",
           "mutedAt",
           "role",
           "themeKey",

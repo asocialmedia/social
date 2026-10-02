@@ -423,26 +423,33 @@ describe("transferDenOwnership", () => {
 });
 
 describe("leaveDen", () => {
-  test("reports a dissolved den so the client stops rendering a room that is gone", async () => {
+  test("returns the successor when the owner handed the den over on the way out", async () => {
+    // The den survives a leave, so the only thing worth returning is who it
+    // passed to. A `dissolved` flag would always be false: deleting a den is the
+    // owner's own control and goes through `dissolveDen`.
+    route = (url) =>
+      url === "/api/messages/dens/den-1/leave"
+        ? Response.json({ newOwnerId: "u-ada", ok: true })
+        : null;
+    expect(await leaveDen("den-1")).toEqual({ newOwnerId: "u-ada" });
+  });
+
+  test("returns no successor when a plain member walks out", async () => {
+    route = (url) =>
+      url === "/api/messages/dens/den-1/leave"
+        ? Response.json({ newOwnerId: null, ok: true })
+        : null;
+    expect(await leaveDen("den-1")).toEqual({ newOwnerId: null });
+  });
+
+  test("ignores a legacy dissolved flag rather than trusting it", async () => {
+    // An older server may still send it. It must not resurrect a branch the client
+    // no longer has, and it must not be allowed to imply anything about the den.
     route = (url) =>
       url === "/api/messages/dens/den-1/leave"
         ? Response.json({ dissolved: true, newOwnerId: null, ok: true })
         : null;
-    expect(await leaveDen("den-1")).toEqual({
-      dissolved: true,
-      newOwnerId: null,
-    });
-  });
-
-  test("reports an ownership transfer, which is a different next move", async () => {
-    route = (url) =>
-      url === "/api/messages/dens/den-1/leave"
-        ? Response.json({ dissolved: false, newOwnerId: "u-ada", ok: true })
-        : null;
-    expect(await leaveDen("den-1")).toEqual({
-      dissolved: false,
-      newOwnerId: "u-ada",
-    });
+    expect(await leaveDen("den-1")).toEqual({ newOwnerId: null });
   });
 });
 

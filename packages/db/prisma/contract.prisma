@@ -746,6 +746,18 @@ namespace public {
     // Den-only provenance: who added this member. NULL when the member was the
     // creator, or joined through an invite link with no single referrer.
     invitedById     String?
+    // Den-only, and the one column that decides read from write. NULL is the only
+    // state that can act in the den: set on leave or removal, and cleared again if
+    // the person rejoins through an invite.
+    //
+    // The row is kept rather than deleted so the den stays in the person's message
+    // list and its history stays readable, up to the moment they left. Nothing after
+    // `leftAt` is theirs to read: it never reaches their device, because the key
+    // fan-out and the stream both enumerate members with this column still NULL.
+    //
+    // Den rows only. A DM row carries NULL forever, so every filter here is a no-op
+    // for DMs and none of the DM gates need to know this column exists.
+    leftAt          Timestamp(3)?
     lastReadAt      Timestamp(3)?
     lastDeliveredAt Timestamp(3)?
     mutedAt         Timestamp(3)?

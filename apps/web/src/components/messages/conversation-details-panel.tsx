@@ -28,7 +28,14 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
@@ -40,6 +47,10 @@ import {
   uploadMediaFile,
 } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
+import {
+  ACCESS_ENDED_DESCRIPTION,
+  ACCESS_ENDED_MESSAGE,
+} from "@/lib/messages/access-ended";
 import {
   clearConversationWallpaperUpload,
   readImageDimensions,
@@ -477,6 +488,71 @@ export function ConversationDetailsBody({
   const isDen = detail.conversation.type === "DEN";
   const { user } = useSession();
   const myUserId = user?.id ?? "";
+  // The viewer's own row, and the `leftAt` on it. Read here rather than fetched:
+  // the sheet is already holding the whole conversation, and this fact changes the
+  // same way membershipSeq does - the stream announces a removal, the thread
+  // refetches the detail, and this follows.
+  const hasLeftDen =
+    isDen &&
+    (detail.conversation.members.find((member) => member.userId === myUserId)
+      ?.leftAt ?? null) !== null;
+
+  // Somebody who left this den. Kept in the rail, kept readable, and offered none
+  // of this sheet: the roster, the invite code, the mute, the theme and the
+  // wallpaper are all writes, and every one of them is refused for them. Drawing
+  // the controls anyway would be a sheet of switches that all fail, which reads
+  // as a bug rather than as the consequence of leaving.
+  const denHeader = useMemo(
+    () =>
+      isDen
+        ? {
+            avatarMediaId: detail.conversation.avatarMediaId ?? null,
+            members: detail.conversation.members.map((member) => ({
+              avatarUrl: member.user.avatarUrl,
+              displayName: member.user.displayName,
+              id: member.userId,
+              // The fallback is a sort key, not a name: this list is only
+              // read by `denAvatarFaces` to decide whose face leads the
+              // stack, and a row with no stored role (a DM row) belongs at
+              // the back. Nothing here renders a role.
+              role: member.role ?? "MEMBER",
+              username: member.user.username,
+            })),
+            myRole:
+              detail.conversation.members.find(
+                (member) => member.userId === myUserId
+              )?.role ?? null,
+            myUserId,
+            name: detail.conversation.name ?? null,
+          }
+        : null,
+    [detail.conversation, isDen, myUserId]
+  );
+
+  if (hasLeftDen) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DetailsHeader
+          asDialog={asDialog}
+          den={denHeader}
+          muted={false}
+          mutedSince={null}
+          peer={peer}
+          presence={presence}
+        />
+        <div className="max-h-[45dvh] shrink-0 overflow-y-auto px-4 pb-3">
+          <div className="surface-3d rounded-2xl px-3.5 py-3">
+            <p className="text-sm font-medium">{ACCESS_ENDED_MESSAGE}</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {ACCESS_ENDED_DESCRIPTION} Everything said before you left is
+              still here to read, and nothing you can do in this den changes
+              that.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!peer && !isDen) {
     return null;
@@ -486,30 +562,7 @@ export function ConversationDetailsBody({
     <div className="flex min-h-0 flex-1 flex-col">
       <DetailsHeader
         asDialog={asDialog}
-        den={
-          isDen
-            ? {
-                avatarMediaId: detail.conversation.avatarMediaId ?? null,
-                members: detail.conversation.members.map((member) => ({
-                  avatarUrl: member.user.avatarUrl,
-                  displayName: member.user.displayName,
-                  id: member.userId,
-                  // The fallback is a sort key, not a name: this list is only
-                  // read by `denAvatarFaces` to decide whose face leads the
-                  // stack, and a row with no stored role (a DM row) belongs at
-                  // the back. Nothing here renders a role.
-                  role: member.role ?? "MEMBER",
-                  username: member.user.username,
-                })),
-                myRole:
-                  detail.conversation.members.find(
-                    (member) => member.userId === myUserId
-                  )?.role ?? null,
-                myUserId,
-                name: detail.conversation.name ?? null,
-              }
-            : null
-        }
+        den={denHeader}
         muted={muted}
         mutedSince={prefs.mutedAt}
         peer={peer}

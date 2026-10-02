@@ -29,7 +29,7 @@ import {
   subscribeToChannel,
   updateDenDetails,
 } from "@asm/db";
-import { or } from "@prisma/orm-postgres/orm-client";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 // Coverage for the den mutation layer against a live database: the role model,
 // the member cap under concurrent writers, ownership transfer, dissolving, and
@@ -168,7 +168,19 @@ async function inviteCodeOf(conversationId: string): Promise<string> {
   return row?.inviteCode ?? "";
 }
 
+// Who can act in the den. The departed keep their rows, so counting every row
+// would say a den still has somebody in it after they walked out.
 async function memberCount(conversationId: string): Promise<number> {
+  const counted = await prisma.orm.public.MessageConversationMembers.where(
+    (member) =>
+      and(member.conversationId.eq(conversationId), member.leftAt.isNull())
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  return counted.count;
+}
+
+// Every row, departed included. Only the assertions about history outliving a
+// departure need this, and only they can tell the two apart from each other.
+async function membershipRowCount(conversationId: string): Promise<number> {
   const counted = await prisma.orm.public.MessageConversationMembers.where(
     (member) => member.conversationId.eq(conversationId)
   ).aggregate((aggregate) => ({ count: aggregate.count() }));
@@ -231,7 +243,10 @@ describe("den creation", () => {
   test("listing the creator among the members does not duplicate them", async () => {
     const denId = await makeDen([OWNER_ID, ADMIN_ID]);
     expect(await memberCount(denId)).toBe(2);
-    expect(await getDenMembership(denId, OWNER_ID)).toEqual({ role: "OWNER" });
+    expect(await getDenMembership(denId, OWNER_ID)).toEqual({
+      leftAt: null,
+      role: "OWNER",
+    });
   });
 
   test("refuses a den of one, which is a DM with extra steps", async () => {
@@ -288,6 +303,7 @@ describe("den role model", () => {
 
     await addDenMembers(denId, ADMIN_ID, [NEWEST_ID]);
     expect(await getDenMembership(denId, NEWEST_ID)).toEqual({
+      leftAt: null,
       role: "MEMBER",
     });
 
@@ -304,7 +320,10 @@ describe("den role model", () => {
     // The owner does the promoting. ADMIN_ID is an admin here and not the owner,
     // so using it as the actor would be testing a refusal, not a promotion.
     await setDenMemberRole(denId, OWNER_ID, OLDEST_ID, "ADMIN");
-    expect(await getDenMembership(denId, OLDEST_ID)).toEqual({ role: "ADMIN" });
+    expect(await getDenMembership(denId, OLDEST_ID)).toEqual({
+      leftAt: null,
+      role: "ADMIN",
+    });
 
     // An admin cannot promote a peer, even to the role they hold themselves.
     await expect(
@@ -354,6 +373,7 @@ describe("den role model", () => {
       addDenMembers(dm.id, OWNER_ID, [NEWEST_ID])
     ).rejects.toMatchObject({ code: "NOT_A_DEN" });
     await expect(getDenMembership(dm.id, OWNER_ID)).resolves.toEqual({
+      leftAt: null,
       role: "MEMBER",
     });
   });
@@ -670,7 +690,7 @@ describe("leaving a den", () => {
   test("a plain member leaving leaves the den intact", async () => {
     const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID, NEWEST_ID]);
     const result = await leaveDen(denId, NEWEST_ID);
-    expect(result).toEqual({ dissolved: false, newOwnerId: null });
+    expect(result).toEqual({ newOwnerId: null });
     expect(await memberCount(denId)).toBe(3);
   });
 
@@ -680,10 +700,12 @@ describe("leaving a den", () => {
     const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID, NEWEST_ID]);
 
     const result = await leaveDen(denId, OWNER_ID);
-    expect(result.dissolved).toBe(false);
     expect(result.newOwnerId).toBe(ADMIN_ID);
 
-    expect(await getDenMembership(denId, ADMIN_ID)).toEqual({ role: "OWNER" });
+    expect(await getDenMembership(denId, ADMIN_ID)).toEqual({
+      leftAt: null,
+      role: "OWNER",
+    });
     const den = await prisma.orm.public.MessageConversations.select("ownerId")
       .where({ id: denId })
       .first();
@@ -692,20 +714,42 @@ describe("leaving a den", () => {
     expect(den?.ownerId).toBe(ADMIN_ID);
   });
 
-  test("the last member out dissolves the den entirely", async () => {
-    // A two-member den: the owner leaves first, then the last member alone, so
-    // the dissolve path is reached with exactly one row left.
+  test("the last member out leaves the den behind, undissolved", async () => {
+    // This used to delete the den, and that is the whole behaviour this test now
+    // holds in place: somebody who loses interest in a room keeps that room in
+    // their list and keeps every message in it. Deleting the row would take both,
+    // so the den survives with nobody in it who can write.
     const denId = await makeDen([ADMIN_ID]);
     await leaveDen(denId, OWNER_ID);
     expect(await memberCount(denId)).toBe(1);
-    await leaveDen(denId, ADMIN_ID);
+
+    const result = await leaveDen(denId, ADMIN_ID);
+    expect(result).toEqual({ newOwnerId: null });
 
     const survivors = await prisma.orm.public.MessageConversations.select("id")
       .where({ id: denId })
       .first();
-    // An empty den owns messages and wraps nobody can read, so it is not a state
-    // worth keeping.
-    expect(survivors).toBeNull();
+    expect(survivors).not.toBeNull();
+    // Nobody can act, and both departures are still rows rather than gaps.
+    expect(await memberCount(denId)).toBe(0);
+    expect(await membershipRowCount(denId)).toBe(2);
+    // The owner row was cleared when they left rather than promoted into a
+    // nobody-can-reach den.
+    expect(await getDenMembership(denId, OWNER_ID)).toMatchObject({
+      leftAt: expect.anything(),
+      role: "MEMBER",
+    });
+  });
+
+  test("a departed member cannot leave again", async () => {
+    // They are not on the roster any more, and the refusal is the same one a
+    // non-member gets: stamping the row a second time would move `updatedAt` and
+    // announce a roster change the roster has already had.
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await leaveDen(denId, OLDEST_ID);
+    await expect(leaveDen(denId, OLDEST_ID)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
   });
 
   test("a non-member cannot leave", async () => {
@@ -719,6 +763,274 @@ describe("leaving a den", () => {
     await expect(leaveDen(`missing-${RUN_ID}`, OWNER_ID)).rejects.toMatchObject(
       { code: "NOT_FOUND" }
     );
+  });
+});
+
+async function keyCount(conversationId: string): Promise<number> {
+  const counted = await prisma.orm.public.MessageConversationKeys.where((key) =>
+    key.conversationId.eq(conversationId)
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  return counted.count;
+}
+
+async function messageCount(conversationId: string): Promise<number> {
+  const counted = await prisma.orm.public.Messages.where((message) =>
+    message.conversationId.eq(conversationId)
+  ).aggregate((aggregate) => ({ count: aggregate.count() }));
+  return counted.count;
+}
+
+// A key wrap and a message, so "the history outlives the departure" is a claim
+// about rows that actually exist rather than about an empty table.
+async function seedHistory(
+  conversationId: string,
+  senderId: string
+): Promise<void> {
+  await prisma.orm.public.MessageConversationKeys.create({
+    conversationId,
+    encryptedKey: "wrap",
+    iv: "wrap-iv",
+    ownerUserId: senderId,
+    version: 1,
+    wrapperUserId: OWNER_ID,
+  });
+  await prisma.orm.public.Messages.create({
+    ciphertext: "message",
+    conversationId,
+    iv: "message-iv",
+    senderId,
+  });
+}
+
+describe("a den somebody left", () => {
+  // The rule under all of this: a departure stamps the membership row instead of
+  // deleting it, and `leftAt` is what every write, every fan-out and every cap
+  // count filters on. The row survives so the den stays in their list and their
+  // history stays readable; the stamp is what stops them being party to it.
+
+  test("leaving keeps the row, and keeps the history readable with it", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await seedHistory(denId, OLDEST_ID);
+
+    await leaveDen(denId, OLDEST_ID);
+
+    // The row is stamped rather than gone: this is what keeps the den in their
+    // message list and their wrap in the table the rest of the den reads through.
+    const membership = await getDenMembership(denId, OLDEST_ID);
+    expect(membership?.leftAt).not.toBeNull();
+    expect(await membershipRowCount(denId)).toBe(3);
+    expect(await keyCount(denId)).toBe(1);
+    expect(await messageCount(denId)).toBe(1);
+    // They are no longer in the room.
+    expect(await memberCount(denId)).toBe(2);
+  });
+
+  test("removal stamps the row the same way, and clears the rank it held", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await seedHistory(denId, OLDEST_ID);
+
+    await removeDenMember(denId, OWNER_ID, OLDEST_ID);
+
+    const stamped = await getDenMembership(denId, OLDEST_ID);
+    expect(stamped).toMatchObject({ role: "MEMBER" });
+    expect(stamped?.leftAt).not.toBeNull();
+    expect(await keyCount(denId)).toBe(1);
+    expect(await messageCount(denId)).toBe(1);
+  });
+
+  test("a departed member cannot manage the den any more", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await leaveDen(denId, ADMIN_ID);
+
+    // Every management route funnels through the membership gate, so this one
+    // assertion covers add, remove, rename, rotate and dissolve at once. The
+    // refusal is the non-member's, because that is what they now are.
+    await expect(
+      updateDenDetails(denId, ADMIN_ID, { name: "Hijacked" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      addDenMembers(denId, ADMIN_ID, [OUTSIDER_ID])
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(rotateInviteCode(denId, ADMIN_ID)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(dissolveDen(denId, ADMIN_ID)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    // And the role change, which is NOT_FOUND rather than FORBIDDEN: it is the
+    // same answer removing somebody who is not there gives, because they are not.
+    await expect(
+      setDenMemberRole(denId, OWNER_ID, ADMIN_ID, "ADMIN")
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("a departed member cannot be promoted, transferred to, or removed twice", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await removeDenMember(denId, OWNER_ID, OLDEST_ID);
+
+    await expect(
+      setDenMemberRole(denId, OWNER_ID, OLDEST_ID, "ADMIN")
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      removeDenMember(denId, OWNER_ID, OLDEST_ID)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    // A den owned by somebody who cannot act on it has nobody who can rename it,
+    // add anybody, or delete it, so this is the same refusal the role change gets.
+    await leaveDen(denId, OWNER_ID);
+    const owner = await prisma.orm.public.MessageConversations.select("ownerId")
+      .where({ id: denId })
+      .first();
+    expect(owner?.ownerId).toBe(ADMIN_ID);
+  });
+
+  test("ownership is never handed to somebody who already left", async () => {
+    // The bug this closes: the heir is chosen on tenure, and a departed member has
+    // more of it than anybody still in the room. Electing across the whole table
+    // would hand the den to whoever walked out first, and it would be a den
+    // nobody can manage.
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    // OLDEST_ID leaves first, so they have the longest tenure of anyone here -
+    // longer than the owner, and longer than the Elder who should inherit.
+    await leaveDen(denId, OLDEST_ID);
+
+    await leaveDen(denId, OWNER_ID);
+
+    const owner = await prisma.orm.public.MessageConversations.select("ownerId")
+      .where({ id: denId })
+      .first();
+    expect(owner?.ownerId).toBe(ADMIN_ID);
+  });
+
+  test("departed members do not count against the cap", async () => {
+    // A den that filled itself up with people who left would refuse new arrivals,
+    // which is backwards: the rows are cheap and the cap is about live noise.
+    // Owner and one member already, so the filler fills the den exactly.
+    const denId = await makeDen([ADMIN_ID]);
+    const others = await Promise.all(
+      Array.from(
+        { length: DEN_LIMITS.membersMax - 2 },
+        (_, index) => `dsvc-cap-${index}-${RUN_ID}`
+      ).map(async (id) => {
+        await createUser(id);
+        return id;
+      })
+    );
+    try {
+      await addDenMembers(denId, OWNER_ID, others);
+      expect(await memberCount(denId)).toBe(DEN_LIMITS.membersMax);
+
+      // Full, so a fresh face is refused.
+      await expect(
+        addDenMembers(denId, OWNER_ID, [OUTSIDER_ID])
+      ).rejects.toMatchObject({ code: "LIMIT_REACHED" });
+
+      // Everyone but the owner walks out. Sequential on purpose: they are leaving
+      // the same den under the same claim lock, so a parallel fan-out would be
+      // testing the retry loop rather than the cap.
+      for (const id of others) {
+        // oxlint-disable-next-line no-await-in-loop -- see above
+        await leaveDen(denId, id);
+      }
+      // oxlint-disable-next-line no-await-in-loop -- see above
+      await leaveDen(denId, ADMIN_ID);
+      expect(await memberCount(denId)).toBe(1);
+      // Every one of them is still a row, which is the point: the table remembers
+      // the whole history of the roster while the count says there is one person
+      // left to talk to.
+      expect(await membershipRowCount(denId)).toBe(DEN_LIMITS.membersMax);
+
+      await expect(
+        addDenMembers(denId, OWNER_ID, [OUTSIDER_ID])
+      ).resolves.toEqual([OUTSIDER_ID]);
+    } finally {
+      await prisma.orm.public.Users.where((user) =>
+        user.id.in(others)
+      ).deleteAndCount();
+    }
+  });
+
+  test("the invite preview counts the people still in the den", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    const full = await previewInvite(await inviteCodeOf(denId));
+    expect(full?.memberCount).toBe(3);
+    await leaveDen(denId, OLDEST_ID);
+    const shrunk = await previewInvite(await inviteCodeOf(denId));
+    expect(shrunk?.memberCount).toBe(2);
+  });
+
+  test("rejoining through an invite brings the same row back as a plain member", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await setDenMemberRole(denId, OWNER_ID, OLDEST_ID, "ADMIN");
+    await leaveDen(denId, OLDEST_ID);
+
+    const result = await joinDenByInviteCode(
+      await inviteCodeOf(denId),
+      OLDEST_ID
+    );
+
+    // A revival, not a re-add: their history and their wraps are already here, so
+    // the row is cleared rather than replaced.
+    expect(result).toEqual({ alreadyMember: false, id: denId });
+    expect(await getDenMembership(denId, OLDEST_ID)).toEqual({
+      leftAt: null,
+      // Not the Elder they were: a rank handed out before somebody left should not
+      // be waiting for them on the way back in.
+      role: "MEMBER",
+    });
+    expect(await membershipRowCount(denId)).toBe(3);
+  });
+
+  test("an owner putting a departed member back revives them too", async () => {
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await removeDenMember(denId, OWNER_ID, OLDEST_ID);
+
+    await expect(addDenMembers(denId, OWNER_ID, [OLDEST_ID])).resolves.toEqual([
+      OLDEST_ID,
+    ]);
+
+    expect(await getDenMembership(denId, OLDEST_ID)).toEqual({
+      leftAt: null,
+      role: "MEMBER",
+    });
+    expect(await membershipRowCount(denId)).toBe(3);
+  });
+
+  test("re-adding somebody already inside still changes nothing", async () => {
+    // The no-op is load-bearing for the counter: an increment on it would make the
+    // next real roster change look like a gap to every member's client.
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    const before = await denUpdatedAt(denId);
+    expect(await addDenMembers(denId, OWNER_ID, [OLDEST_ID])).toEqual([]);
+    expect(await denUpdatedAt(denId)).toBe(before);
+  });
+
+  test("a departed member is not told about roster moves they are not party to", async () => {
+    // The announcement arrives as a "re-read your list" frame. Pinging somebody
+    // about a den they left would put their name back in front of a conversation
+    // they deliberately walked out of.
+    const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
+    await leaveDen(denId, OLDEST_ID);
+
+    const before = await denUpdatedAt(denId);
+    const seen: string[] = [];
+    const subscription = await subscribeToChannel(
+      messageActivityChannel(OLDEST_ID),
+      (channel, raw) => {
+        seen.push(parseMessageActivityEvent(raw)?.conversationId ?? channel);
+      }
+    );
+    try {
+      await addDenMembers(denId, OWNER_ID, [NEWEST_ID]);
+      await Bun.sleep(200);
+    } finally {
+      await subscription.unsubscribe();
+    }
+
+    // The roster really did move, or the assertion would be about a quiet channel
+    // because nothing happened at all.
+    expect(await denUpdatedAt(denId)).toBeGreaterThan(before);
+    expect(seen).toEqual([]);
   });
 });
 
@@ -937,6 +1249,7 @@ describe("joining by invite code", () => {
     );
     expect(result).toEqual({ alreadyMember: false, id: denId });
     expect(await getDenMembership(denId, OUTSIDER_ID)).toEqual({
+      leftAt: null,
       role: "MEMBER",
     });
   });
@@ -1445,11 +1758,13 @@ describe("membership changes are announced in real time", () => {
     ).toBe(3);
   });
 
-  test("the last member out announces dissolved rather than left", async () => {
-    // Two members, drained one at a time. The second departure takes the row with
-    // it, which is a different outcome from a leave and has to be announced as
-    // one: the survivors' lists have to drop the den, and a client still holding
-    // the id has to be told it is gone.
+  test("the last member out announces a leave, not a dissolve", async () => {
+    // Two members, drained one at a time. This used to take the row with it and
+    // announce a dissolve, and it now announces a leave like any other: the den
+    // survives the last departure because the people who left keep it in their
+    // lists and keep every message in it, so there is no list left to drop it from.
+    // The `dissolved` frame now belongs to one operation only, the owner's own
+    // delete, which is the test above.
     const denId = await announceDen([ANNOUNCE_IDS.admin], "Last out");
     const first = await collectAnnouncements(denId, everyone(), () =>
       leaveDen(denId, ANNOUNCE_IDS.admin)
@@ -1461,7 +1776,13 @@ describe("membership changes are announced in real time", () => {
     );
     const frames = conversationFrames(second, denId);
     expect(frames).toHaveLength(1);
-    expect(actionOf(frames[0])).toBe("dissolved");
+    expect(actionOf(frames[0])).toBe("left");
+
+    // And the row is still there, holding the history the two of them keep.
+    const survivors = await prisma.orm.public.MessageConversations.select("id")
+      .where({ id: denId })
+      .first();
+    expect(survivors).not.toBeNull();
   });
 
   test("a rename and a code rotation announce nothing", async () => {

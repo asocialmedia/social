@@ -54,7 +54,15 @@ export async function GET() {
       "lastReadAt"
     )
       .where((member) =>
-        and(member.userId.eq(user.id), member.mutedAt.isNull())
+        and(
+          member.userId.eq(user.id),
+          // A den this person left is kept in their list and stays readable, and
+          // it is not part of their unread count: they cannot clear it, because
+          // the read route refuses them, so counting it would be a badge they can
+          // never spend. Same reasoning as the mute on the next line.
+          member.leftAt.isNull(),
+          member.mutedAt.isNull()
+        )
       )
       .all(),
     prisma.orm.public.Blocks.select("blockedId")

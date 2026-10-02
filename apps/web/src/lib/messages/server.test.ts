@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
+import { ACCESS_ENDED_MESSAGE } from "./access-ended";
 import { isHiddenByBlock } from "./blocks";
 import {
   getConversationForUser,
+  hasLeftConversation,
   isBlockedFromConversation,
+  leftConversationResponse,
   nextRatchetIndex,
 } from "./server";
 
@@ -17,9 +20,14 @@ const mockMessageCount = mock(() => 0);
 // The member rows the conversation query returns. `user` is present because the
 // mapper dereferences it: a member row without one is a broken query result, and
 // the mapper's throw is the correct response to that, not a thing to mock away.
-function memberRow(userId: string, role: "ADMIN" | "MEMBER" | "OWNER") {
+function memberRow(
+  userId: string,
+  role: "ADMIN" | "MEMBER" | "OWNER",
+  leftAt: Date | null = null
+) {
   return {
     lastReadAt: null,
+    leftAt,
     mutedAt: null,
     role,
     user: { messageIdentities: null },
@@ -318,5 +326,62 @@ describe("getConversationForUser", () => {
       )
     ).toBe(false);
     expect(mockBlockFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+function leftMember(userId: string, leftAt: Date | null) {
+  return { leftAt, userId };
+}
+
+describe("hasLeftConversation", () => {
+  test("a current member has not left", () => {
+    expect(
+      hasLeftConversation({ members: [leftMember("u-1", null)] }, "u-1")
+    ).toBe(false);
+  });
+
+  test("a stamped member has left", () => {
+    expect(
+      hasLeftConversation(
+        { members: [leftMember("u-1", new Date("2026-01-01T00:00:00.000Z"))] },
+        "u-1"
+      )
+    ).toBe(true);
+  });
+
+  test("an absent leftAt means not left, so a DM row is never read as departed", () => {
+    // Every DM member row and every fixture built before the column existed
+    // carries no `leftAt` at all. Reading that as "left" would turn every DM
+    // write into a refusal, which is the failure mode this guards.
+    expect(
+      hasLeftConversation(
+        { members: [{ leftAt: undefined, userId: "u-1" }] },
+        "u-1"
+      )
+    ).toBe(false);
+  });
+
+  test("a missing roster, or a reader not on it, is not left", () => {
+    // Both are shapes the predicate is handed besides a full row. Absent reads as
+    // "still here", which can only ever offer the write, and the write's own row
+    // check still refuses if the person really is out.
+    expect(hasLeftConversation({}, "u-1")).toBe(false);
+    expect(
+      hasLeftConversation({ members: [leftMember("u-2", null)] }, "u-1")
+    ).toBe(false);
+  });
+});
+
+describe("leftConversationResponse", () => {
+  test("is a 403 that names the state, not a 404 that hides the conversation", async () => {
+    // A departed member can still read the whole conversation, so answering "not
+    // found" would be a lie. The code is what the client branches on to put the
+    // composer into its read-only state rather than showing a retryable error.
+    const response = leftConversationResponse();
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      code: "MEMBERSHIP_ENDED",
+      error: ACCESS_ENDED_MESSAGE,
+    });
   });
 });

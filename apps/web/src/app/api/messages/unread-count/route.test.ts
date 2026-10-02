@@ -86,16 +86,18 @@ mock.module("@asm/db", () => ({
           }),
         },
         MessageConversationMembers: {
-          // The badge seed skips muted memberships, so the where is a predicate
-          // that must tolerate the mutedAt column.
+          // The badge seed skips muted memberships and dens the reader has left,
+          // so the where is a predicate that must tolerate both columns.
           select: () => ({
             where: (
               predicate?: (member: {
+                leftAt: { isNull: () => unknown };
                 mutedAt: { isNull: () => unknown };
                 userId: { eq: (id: string) => unknown };
               }) => unknown
             ) => {
               predicate?.({
+                leftAt: { isNull: () => ({}) },
                 mutedAt: { isNull: () => ({}) },
                 userId: { eq: () => ({}) },
               } as never);
