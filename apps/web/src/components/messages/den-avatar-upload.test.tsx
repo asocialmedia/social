@@ -1,10 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // The upload is the whole of the bug, so it is asserted directly rather than
-// through the dialog. The dialog is a 500-line component wired to the session,
-// the identity key and the member picker; this function is the part that decides
-// which door the bytes go through, and it is a module-scope export for exactly
-// this reason.
+// through the dialog. The dialog is a 500-line component wired to the session, the
+// identity key and the member picker; asserting this through it would open a test
+// process holding a database pool to check one argument. The upload is its own
+// module for the same reason, and it is imported here from OUTSIDE itself so the
+// mock of the pipeline below can stand. It is a `.tsx` file only because the
+// module has no JSX and the loader must treat both as ESM.
 const uploadMediaFile = mock(() =>
   Promise.resolve({
     mediaId: "media-1",
@@ -17,8 +19,7 @@ mock.module("@/lib/media/media-upload-client", () => ({
   uploadMediaFile,
 }));
 
-const { uploadDenAvatar } =
-  await import("@/components/messages/create-den-dialog");
+const { uploadDenAvatar } = await import("@/lib/messages/den-avatar-upload");
 
 function file(): File {
   return new File([new Uint8Array([1, 2, 3])], "pic.png", {

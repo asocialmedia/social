@@ -28,9 +28,9 @@ import {
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { AvatarInput } from "@/components/profile/profile-media-inputs";
 import { croppedImageFile } from "@/lib/media/cropped-image-file";
-import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { createDen, ensureConversationKeys } from "@/lib/messages/client";
+import { uploadDenAvatar } from "@/lib/messages/den-avatar-upload";
 import {
   denCreateNeedsOthers,
   denCreateRoom,
@@ -58,46 +58,6 @@ import { cn } from "@/lib/utils";
 // Everything else is the server's call, and when it refuses, its own words are
 // what the dialog shows: `denErrorResponse` writes every refusal for a human, so
 // a second phrasing here would only be a second thing to get wrong.
-
-// The upload pipeline runs before the create, so creating is one round trip.
-// Module scope because React Compiler cannot lower a throw or a finally clause
-// inside component code; this reports through a union instead of an exception.
-//
-// Exported for the same reason as the module scope: the purpose below is the
-// whole reason this upload can happen at all, and a regression to "message" is
-// invisible without reading it.
-export async function uploadDenAvatar(
-  file: File,
-  onStage: (stage: UploadStage) => void
-): Promise<{ mediaId: string } | { error: string }> {
-  try {
-    const uploaded = await uploadMediaFile(file, {
-      onStage,
-      // "avatar", NOT "message". A message attachment has to be bound to a
-      // conversation at upload time so the peer can be admitted, and this upload
-      // happens BEFORE the den exists - there is no conversation to bind to, so
-      // "message" was refused outright and picking a picture was impossible. An
-      // avatar upload is owner-readable from the start, which is what the preview
-      // needs, and the create route binds it to the new conversation afterwards so
-      // the rest of the roster can load it too.
-      purpose: "avatar",
-    });
-    if (uploaded.status === "REJECTED") {
-      return {
-        error:
-          uploaded.rejectedReason === "MALWARE"
-            ? "That file failed the security scan"
-            : "That file was rejected",
-      };
-    }
-    return { mediaId: uploaded.mediaId };
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error ? error.message : "Couldn't upload that image",
-    };
-  }
-}
 
 export interface CreateDenDialogProps {
   // Fired with the new conversation id once the root key has been fanned out, so
