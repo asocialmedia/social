@@ -16,6 +16,7 @@ import { MobileHeader } from "../../home/components/mobile-header";
 import { resolveSettingsTab } from "../lib/settings-tabs";
 import { accountFactsFrom } from "../lib/settings-view-model";
 import { AccountTab } from "./account-tab";
+import { PrivacyTab } from "./privacy-tab";
 import { SecurityTab } from "./security-tab";
 import { SettingsTabBar } from "./settings-ui";
 
@@ -130,6 +131,7 @@ export function SettingsScreen() {
       {tab === "account" ? (
         <AccountTab facts={facts} onChanged={onChanged} />
       ) : null}
+      {tab === "privacy" ? <PrivacyTab onChanged={onChanged} /> : null}
       {tab === "security" ? <SecurityTab /> : null}
       <View style={styles.fossSlot}>
         <FossBanner />

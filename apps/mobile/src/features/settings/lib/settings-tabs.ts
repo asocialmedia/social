@@ -3,7 +3,12 @@
 // deep link lands on the right section; native keeps it as a route param for
 // the same reason.
 
-export const SETTINGS_TABS = ["account", "profile", "security"] as const;
+export const SETTINGS_TABS = [
+  "account",
+  "profile",
+  "privacy",
+  "security",
+] as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
@@ -19,6 +24,11 @@ export const SETTINGS_TAB_META: Record<SettingsTab, SettingsTabMeta> = {
     description: "Your username, email and sign-in methods",
     label: "Account",
     title: "Account",
+  },
+  privacy: {
+    description: "Who can reach you, and who can put you in a group",
+    label: "Privacy",
+    title: "Privacy",
   },
   profile: {
     description: "How people see you across asocialmedia",

@@ -143,7 +143,7 @@ export function SettingsTabBar({
   const { theme } = useAppTheme();
   return (
     <View style={styles.tabBar}>
-      {(["profile", "account", "security"] as const).map((tab) => {
+      {(["profile", "account", "privacy", "security"] as const).map((tab) => {
         const selected = tab === active;
         return (
           <View key={tab} style={styles.tabSlot}>
