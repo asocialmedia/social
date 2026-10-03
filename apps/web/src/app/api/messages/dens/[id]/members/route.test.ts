@@ -43,6 +43,9 @@ let followedUserIds: string[] = [];
 
 let rosterRows: Record<string, unknown>[] = [];
 let requestedLimit = 0;
+// The constraints the last roster read expressed. See the mock's `where` for why
+// this exists rather than a fixture with a departed row in it.
+let lastRosterWhere: Record<string, unknown> = {};
 
 // The two directions of the block table, as the CANDIDATE's and the INCUMBENT's
 // side of it. `blockRows` is a block row whose blocker is on one side and whose
@@ -77,8 +80,14 @@ function probeWhere(
         seen[column] = value;
         return {};
       },
-      isNotNull: () => ({}),
-      isNull: () => ({}),
+      isNotNull: () => {
+        seen[`${column}:isNotNull`] = true;
+        return {};
+      },
+      isNull: () => {
+        seen[`${column}:isNull`] = true;
+        return {};
+      },
     };
   }
   (predicate as (value: unknown) => unknown)(accessors);
@@ -207,7 +216,16 @@ mock.module("@asm/db", () => ({
               },
               orderBy: () => builder,
               where: (predicate: unknown) => {
-                probeWhere(predicate, ["conversationId", "createdAt", "role"]);
+                // Kept, not discarded. A departed member staying on the roster is
+                // invisible to a row-level assertion - the mock hands back whatever
+                // rows it was given either way - so the only thing that can catch it
+                // is the constraint the query actually expressed.
+                lastRosterWhere = probeWhere(predicate, [
+                  "conversationId",
+                  "createdAt",
+                  "leftAt",
+                  "role",
+                ]);
                 return builder;
               },
             };
@@ -294,6 +312,25 @@ function getRoster(query = "", id = "den-1") {
   );
 }
 
+describe("a departed member is not on the roster", () => {
+  beforeEach(() => {
+    requestedLimit = 0;
+    lastRosterWhere = {};
+    mockGetSession.mockClear();
+  });
+
+  test("the roster read filters on leftAt", async () => {
+    // The reported bug: removing Bob from a den left his name sitting in the
+    // roster while the header said the den held one person. His membership row is
+    // still there - that is what preserves his history - so the only thing that
+    // can take him off the list is the query asking for current members.
+    rosterRows = [roster("owner", { role: "OWNER" }), roster("bob")];
+    await getRoster("", "den-1");
+    expect(lastRosterWhere["conversationId"]).toBe("den-1");
+    expect(lastRosterWhere["leftAt:isNull"]).toBe(true);
+  });
+});
+
 function add(body: unknown, id = "den-1") {
   return POST(
     new Request(`http://localhost:3000/api/messages/dens/${id}/members`, {
@@ -308,6 +345,7 @@ function add(body: unknown, id = "den-1") {
 describe("GET /api/messages/dens/:id/members", () => {
   beforeEach(() => {
     requestedLimit = 0;
+    lastRosterWhere = {};
     rosterRows = [roster("owner", { role: "OWNER" }), roster("user-2")];
     mockGetSession.mockClear();
     mockGetSession.mockReturnValue({ user: { id: "admin" } });

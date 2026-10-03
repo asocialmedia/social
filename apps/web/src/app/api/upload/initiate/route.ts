@@ -84,12 +84,20 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    // `leftAt IS NULL`, not merely "has a membership row". A member who left or
+    // was removed keeps their row - that is what lets them read the history they
+    // were already part of - so a row check alone waves them through here, and a
+    // removed member could keep pushing new bytes at a den that no longer admits
+    // them. Nothing downstream can catch it: the upload is owner-readable from the
+    // start, and a finalize would bind it to a conversation this account has
+    // already lost the right to write to.
     const membership =
       await prisma.orm.public.MessageConversationMembers.select("userId")
         .where((member) =>
           and(
             member.conversationId.eq(conversationId),
-            member.userId.eq(user.id)
+            member.userId.eq(user.id),
+            member.leftAt.isNull()
           )
         )
         .first();

@@ -1,4 +1,5 @@
 import {
+  and,
   canManageDen,
   prisma,
   requireDenMembership,
@@ -44,8 +45,12 @@ export async function GET(_request: Request, { params }: Params) {
       )
         .where({ id })
         .first(),
+      // Current members only, so the header cannot claim a den holds five people
+      // when one of them left an hour ago. Counting every row would also drift
+      // permanently upward: nothing ever deletes a membership row, so a den that
+      // churned would report a number nobody can reconcile with the roster.
       prisma.orm.public.MessageConversationMembers.where((member) =>
-        member.conversationId.eq(id)
+        and(member.conversationId.eq(id), member.leftAt.isNull())
       ).aggregate((aggregate) => ({ count: aggregate.count() })),
     ]);
     if (!den) {

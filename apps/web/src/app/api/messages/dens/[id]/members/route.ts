@@ -1,6 +1,7 @@
 import {
   DEN_LIMITS,
   addDenMembers,
+  and,
   prisma,
   requireDenMembership,
 } from "@asm/db";
@@ -60,6 +61,11 @@ export async function GET(request: Request, { params }: Params) {
       ? Math.min(Math.max(Math.trunc(requestedLimit), 1), MAX_LIMIT)
       : DEFAULT_LIMIT;
 
+    // `leftAt IS NULL`, so somebody who left or was removed drops off the roster
+    // rather than lingering in it as a member who cannot act. Their row stays -
+    // that is what preserves their history - but a roster is a list of who is in
+    // the room now, and a name on it that cannot be messaged, promoted or removed
+    // reads as a bug in the room rather than as history.
     const rows = await prisma.orm.public.MessageConversationMembers.select(
       "invitedById",
       "role",
@@ -75,7 +81,9 @@ export async function GET(request: Request, { params }: Params) {
           "username"
         )
       )
-      .where((member) => member.conversationId.eq(id))
+      .where((member) =>
+        and(member.conversationId.eq(id), member.leftAt.isNull())
+      )
       .orderBy([
         (member) => member.role.asc(),
         (member) => member.createdAt.asc(),
@@ -174,11 +182,20 @@ export async function POST(request: Request, { params }: Params) {
 // needs. It used to read them for a block check as well, which is why it reads
 // ids rather than counting - there is nothing left that needs to know WHO is
 // inside, only how many, so an aggregate would do.
+// Current members only, for the same reason the roster is: departed rows are
+// history, and counting them would refuse a perfectly legal add. A den that had
+// churned through two hundred people would report two hundred and turn away
+// everybody, which is precisely the backwards cap `addDenMembers` warns about -
+// the ceiling is about how much noise a live den has, not how many rows the
+// table kept. The service re-checks under the claim lock regardless; this is
+// only the cheap pre-check.
 async function listMemberIds(conversationId: string): Promise<string[]> {
   const rows = await prisma.orm.public.MessageConversationMembers.select(
     "userId"
   )
-    .where((member) => member.conversationId.eq(conversationId))
+    .where((member) =>
+      and(member.conversationId.eq(conversationId), member.leftAt.isNull())
+    )
     .all();
   return rows.map((row) => row.userId);
 }
