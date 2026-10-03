@@ -1061,6 +1061,19 @@ export function MessageThread({
 
   const userId = user?.id;
 
+  // Whether this viewer has lost the ability to act here. Declared as early as its
+  // inputs allow, because three separate places need it: the delivery ack, the
+  // read scheduler, and the notice below.
+  //
+  // The predicate is shared rather than written inline. `leftAt` is null for a
+  // current member and ABSENT on a DM row and on a payload that has not resolved,
+  // and comparing it to null inline makes that absent case read as "left" - which
+  // rendered every freshly opened den as read-only, permanently, because the
+  // notice effect only ever sets its flag. See `hasDeparted`.
+  const leftDen = hasDeparted(
+    ownMembership(detail?.conversation.members ?? [], userId ?? "")
+  );
+
   // Freeze the read watermark on the first render the conversation detail exists
   // for. Set during render rather than in an effect so the boundary is known in the
   // same commit the transcript first has messages -- in an effect, the landing below
@@ -1129,6 +1142,14 @@ export function MessageThread({
   // its own bubble to Delivered. Debounced so a burst folds into one request,
   // and deduped per id so a re-render or catch-up refetch does not re-POST.
   useEffect(() => {
+    // Not for somebody who has left, for the same reason the read receipt is
+    // not: the server refuses the ack, so the only thing the attempt produced was
+    // a 403 in the console of every former member who reopened an old den. What
+    // it would have reported - that a message arrived - cannot be true of a
+    // viewer who is not in the room to receive it.
+    if (leftDen) {
+      return;
+    }
     if (!lastPeerMessageId || lastPeerMessageId === lastAckedIdRef.current) {
       return;
     }
@@ -1146,7 +1167,7 @@ export function MessageThread({
       void ack();
     }, 1500);
     return () => clearTimeout(timer);
-  }, [conversationId, lastPeerMessageId]);
+  }, [conversationId, leftDen, lastPeerMessageId]);
 
   const handleReply = useCallback(
     (message: MessageData) => {
@@ -4114,8 +4135,17 @@ export function MessageThread({
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
+  //
+  // Not for somebody who has left. Opening a den you were removed from used to
+  // fire a read receipt and a delivered receipt into a conversation the server
+  // refuses both of, so every former member who reopened an old den filled the
+  // console with two 403s for an acknowledgement nobody can receive. The viewer
+  // already cannot post here, which is the whole of what those receipts report.
   const myUserId = user?.id;
   const scheduleRead = useCallback(() => {
+    if (leftDen) {
+      return;
+    }
     if (readDebounceRef.current) {
       clearTimeout(readDebounceRef.current);
     }
@@ -4134,7 +4164,7 @@ export function MessageThread({
         // rejection.
       }
     }, 800);
-  }, [conversationId, myUserId, queryClient]);
+  }, [conversationId, myUserId, queryClient, leftDen]);
 
   useEffect(() => {
     scheduleRead();
@@ -4387,17 +4417,6 @@ export function MessageThread({
   //
   // `conversationId` is a dependency as well as `leftDen`: the reset effect above
   // clears the notice when the reader switches conversations, and without the id
-  // here a switch into a den they had already left would leave the notice cleared
-  // and the composer live, because `leftDen` never toggled.
-  //
-  // The predicate is shared rather than written here. `leftAt` is null for a
-  // current member and ABSENT on a DM row and on a payload that has not resolved,
-  // and comparing it to null inline makes that absent case read as "left" - which
-  // rendered every freshly opened den as read-only, permanently, because this
-  // effect only ever sets the flag. See `hasDeparted`.
-  const leftDen = hasDeparted(
-    ownMembership(detail?.conversation.members ?? [], userId ?? "")
-  );
   useEffect(() => {
     if (leftDen) {
       setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
