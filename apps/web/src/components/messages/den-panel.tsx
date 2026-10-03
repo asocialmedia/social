@@ -151,10 +151,12 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   // den-wide controls do not have to be re-derived per row.
   const denWide = denAffordances({ viewer });
 
-  const refresh = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: [...DEN_QUERY_PREFIX, conversationId],
-    });
+  // What a mutation still has to refresh once the den's own scope is closed to
+  // this viewer. Split out from `refresh` because the two are not the same set
+  // after a leave: the transcript still has to learn the line that records it,
+  // and the conversation payload is a read gate that admits a departed member on
+  // purpose.
+  const refreshReadable = useCallback(() => {
     // The thread owns the conversation detail, and a rename or a membership
     // change is exactly what its staleness guard is watching for, so the cached
     // conversation has to move too or the header keeps the old name.
@@ -170,6 +172,13 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
       queryKey: ["den-events", conversationId],
     });
   }, [conversationId, queryClient]);
+
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: [...DEN_QUERY_PREFIX, conversationId],
+    });
+    refreshReadable();
+  }, [conversationId, queryClient, refreshReadable]);
 
   const copyInvite = useCallback(async () => {
     const code = detail.data?.den.inviteCode;
@@ -349,7 +358,13 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
     try {
       await leaveDen(conversationId);
       setConfirm(null);
-      refresh();
+      // Deliberately not the full `refresh`. The leave already closed this
+      // account's access to the den, so re-reading the den detail and the roster
+      // asks the server for two things it now answers 403 - the details sheet is
+      // closing and every control in it is already refused, so there is nothing
+      // to learn. What does still move is the transcript, which needs the line
+      // recording the departure.
+      refreshReadable();
       forgetConversation();
       // The den stays in the rail as read-only, so this is not a "navigate away"
       // moment the way it used to be. The details sheet still closes, because
@@ -371,7 +386,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
       });
     }
     setBusy(false);
-  }, [conversationId, forgetConversation, onLeft, refresh]);
+  }, [conversationId, forgetConversation, onLeft, refreshReadable]);
 
   const destroy = useCallback(async () => {
     setBusy(true);
