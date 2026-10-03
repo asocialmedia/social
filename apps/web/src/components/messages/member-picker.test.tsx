@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { GROUP_ADD_REFUSAL_COPY } from "@asm/db/messages/dens";
 import { renderToString } from "react-dom/server";
 
 import { PickerRow } from "./member-picker";
@@ -10,6 +11,7 @@ import { PickerRow } from "./member-picker";
 // has to say why rather than just going grey.
 
 const person = {
+  addRefusal: null,
   avatarUrl: "/api/users/avatar/u-ada/image",
   displayName: "Ada",
   hasIdentity: true,
@@ -49,6 +51,38 @@ describe("PickerRow", () => {
     );
     expect(html).toContain("disabled");
     expect(html).toContain("hasn&#x27;t enabled Messages");
+  });
+
+  test("a candidate who will not accept a direct add is greyed out with their reason", () => {
+    // The picker's whole job for this rule. The row is disabled for the same
+    // reason a missing identity disables it, and the wording comes from the same
+    // shared map the route's refusal uses - so the reader is told the same fact
+    // here as they would be after a refused submit, and cannot be shown a live
+    // row the server will turn away.
+    for (const refusal of ["NO_DIRECT_ADDS", "NOT_FOLLOWING_YOU"] as const) {
+      const html = renderToString(
+        <PickerRow
+          disabled
+          onSelect={() => {}}
+          person={{ ...person, addRefusal: refusal }}
+          unavailableReason={GROUP_ADD_REFUSAL_COPY[refusal]}
+        />
+      );
+      expect(html).toContain("disabled");
+      // Apostrophes arrive escaped, which is why the existing reason assertion in
+      // this file spells one out rather than interpolating it.
+      expect(html).toContain(
+        GROUP_ADD_REFUSAL_COPY[refusal].replaceAll("'", "&#x27;")
+      );
+    }
+  });
+
+  test("the group-add reasons are about the candidate, never about the reader", () => {
+    // Rendered on a row the reader is looking at and in the error a refused add
+    // returns, so a sentence that said "you" would be wrong for one of the two.
+    for (const copy of Object.values(GROUP_ADD_REFUSAL_COPY)) {
+      expect(copy).not.toMatch(/\byou\b/i);
+    }
   });
 
   test("an available row carries no reason", () => {

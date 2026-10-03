@@ -1,10 +1,6 @@
-import { DEN_LIMITS } from "@asm/db";
+import { DEN_LIMITS, groupAddRefusalFor } from "@asm/db";
 
-import {
-  areUsersMissingMessageIdentity,
-  doUsersExist,
-  groupAddRefusalsFor,
-} from "./den-candidates";
+import { areUsersMissingMessageIdentity, doUsersExist } from "./den-candidates";
 
 // Validates a proposed den roster. Split out from the route so the rules are
 // testable without a database and so the create and add routes cannot drift
@@ -159,5 +155,5 @@ export async function validateDenRoster(
     };
   }
 
-  return await groupAddRefusalsFor(actorId, others);
+  return await groupAddRefusalFor(actorId, others);
 }

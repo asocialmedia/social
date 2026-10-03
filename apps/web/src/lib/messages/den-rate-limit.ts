@@ -376,6 +376,24 @@ export const DEN_USER_SEARCH_RATE_LIMIT: DenRateLimitRule = {
   windowSeconds: 60,
 };
 
+// Reading who may be put in a group, for a set of ids the client already holds.
+//
+// Metered for the same reason the people search is, and with the same shape of
+// argument: this is a client-supplied list turned into user rows. It is much
+// cheaper than the search - two indexed reads rather than unanchored `ILIKE`
+// scans - but it is loopable, and the picker re-asks whenever its recents move,
+// so an unmetered version is a per-account amplifier rather than a read.
+//
+// A generous budget for that reason: the picker asks once per open, so a hundred
+// a minute is far past how often a person opens a den roster and still bounds a
+// flood to something cheaper than the search it resembles.
+export const DEN_ADD_ELIGIBILITY_RATE_LIMIT: DenRateLimitRule = {
+  bucket: "den-add-eligibility",
+  limit: 100,
+  window: "sliding",
+  windowSeconds: 60,
+};
+
 // Opening a DM.
 //
 // The den branch of the same route has been metered since it was written; this

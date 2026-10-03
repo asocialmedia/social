@@ -1,5 +1,6 @@
-import { and, groupAddRefusal, prisma } from "@asm/db";
-import type { GroupAddPolicy, GroupAddRefusal } from "@asm/db";
+import { and, prisma } from "@asm/db";
+
+export { groupAddEligibility, groupAddRefusalError } from "@asm/db";
 
 // Candidate screening for adding people to a den.
 //
@@ -50,83 +51,7 @@ export async function areUsersNotFollowedBy(
   return userIds.filter((id) => !followed.has(id));
 }
 
-// Which of these candidates the actor may put in a group, and why not for the
-// rest.
-//
-// Two bulk queries, never one per candidate: the roster arrives as an array the
-// client controls and a per-id round trip would make a full den cost a hundred
-// sequential reads on the create path.
-//
-// The follow question is asked in the only direction that is the candidate's
-// business - "does this candidate follow the actor" - because that is the edge
-// `FOLLOWING_ONLY` is written against. The actor's own following list is
-// deliberately not consulted: nobody is stopped for who they do not follow.
-export async function groupAddEligibility(
-  actorId: string,
-  candidateIds: readonly string[]
-): Promise<Map<string, GroupAddRefusal | null>> {
-  const unique = [...new Set(candidateIds)].filter((id) => id !== actorId);
-  const eligibility = new Map<string, GroupAddRefusal | null>();
-  if (unique.length === 0) {
-    return eligibility;
-  }
-
-  const [policies, following] = await Promise.all([
-    prisma.orm.public.Users.select("groupAddPolicy", "id")
-      .where((user) => user.id.in(unique))
-      .all(),
-    prisma.orm.public.Follows.select("followerId")
-      .where((follow) =>
-        and(follow.followingId.eq(actorId), follow.followerId.in(unique))
-      )
-      .all(),
-  ]);
-  const policyById = new Map<string, GroupAddPolicy>(
-    policies.map((row) => [row.id, row.groupAddPolicy])
-  );
-  const followsActor = new Set(following.map((row) => row.followerId));
-
-  for (const candidateId of unique) {
-    // A candidate with no row here cannot be added for a reason the caller has
-    // already reported - `doUsersExist` names the missing account - so it is left
-    // out of the map rather than answered as addable.
-    const policy = policyById.get(candidateId);
-    if (policy === undefined) {
-      continue;
-    }
-    eligibility.set(
-      candidateId,
-      groupAddRefusal(policy, followsActor.has(candidateId))
-    );
-  }
-  return eligibility;
-}
-
-// The candidates in `candidateIds` the actor may not add, with the wording the
-// picker greys them out with and the route refuses them by.
-//
-// The one failure for the whole set rather than one per candidate, because a
-// roster is proposed as a single act: naming which of ninety-nine people is the
-// problem is a worse answer than saying the roster has one.
-export async function groupAddRefusalsFor(
-  actorId: string,
-  candidateIds: readonly string[]
-): Promise<{ code: GroupAddRefusal; error: string } | null> {
-  const eligibility = await groupAddEligibility(actorId, candidateIds);
-  for (const refusal of eligibility.values()) {
-    if (refusal !== null) {
-      return { code: refusal, error: groupAddRefusalError(refusal) };
-    }
-  }
-  return null;
-}
-
-// The route's whole sentence for a refusal.
-//
-// Third person, unlike the picker's row: this is an error about a proposal, and
-// it has to survive being shown where the candidate is not named.
-export function groupAddRefusalError(refusal: GroupAddRefusal): string {
-  return refusal === "NO_DIRECT_ADDS"
-    ? "Some of those people don't allow being added to groups"
-    : "Some of those people only let people they follow add them";
-}
+// The candidate screening that reads a column lives in @asm/db, beside the rest
+// of the den bulk reads, so it can be proved against a real database rather than
+// only through a mocked route. What is left here is the error wording, which is a
+// property of this API and not of the query.

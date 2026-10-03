@@ -1370,6 +1370,34 @@ describe("joining by invite code", () => {
     });
   });
 
+  test("a candidate who allows no direct adds can still join through a link", async () => {
+    // The other half of the setting, and the half that makes it safe to offer.
+    // NO_DIRECT_ADDS is about being PUT in a group; joining one is the account's
+    // own decision, and an invite link is how they are asked. If a closed setting
+    // also refused links, then turning it off would quietly make the account
+    // uninvitable - which is not what "no direct adds" says and not something a
+    // person who set it would expect.
+    await prisma.orm.public.Users.where({ id: OUTSIDER_ID }).update({
+      groupAddPolicy: "NO_DIRECT_ADDS",
+    });
+    const denId = await makeDen([ADMIN_ID]);
+    const den = await prisma.orm.public.MessageConversations.select(
+      "inviteCode"
+    )
+      .where({ id: denId })
+      .first();
+
+    const result = await joinDenByInviteCode(
+      den?.inviteCode ?? "",
+      OUTSIDER_ID
+    );
+    expect(result).toEqual({ alreadyMember: false, id: denId });
+    expect(await getDenMembership(denId, OUTSIDER_ID)).toEqual({
+      leftAt: null,
+      role: "MEMBER",
+    });
+  });
+
   test("an invite join carries no referrer, since a link has no single author", async () => {
     const denId = await makeDen([ADMIN_ID]);
     const den = await prisma.orm.public.MessageConversations.select(

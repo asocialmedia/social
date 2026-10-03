@@ -39,7 +39,11 @@ const mockAddDenMembers = mock((_conversationId: string, _actorId: string) =>
 // validateDenRoster runs and the refusal ordering it documents is what is tested.
 let presentUserIds: string[] = [];
 let identityUserIds: string[] = [];
-let followedUserIds: string[] = [];
+// The follow fixture is now the CANDIDATE -> ACTOR edge. `followingActorIds` are
+// the candidates who follow "admin", the caller in this suite.
+let followingActorIds: string[] = [];
+// Each candidate's own group-add setting. Absent means the account default.
+let policyById: Record<string, string> = {};
 
 let rosterRows: Record<string, unknown>[] = [];
 let requestedLimit = 0;
@@ -175,14 +179,23 @@ mock.module("@asm/db", () => ({
         Follows: {
           select: (...fields: string[]) => {
             const builder = {
+              // The edge is "which candidates follow the actor", because that is
+              // what FOLLOWING_ONLY is written against - so the queried id array
+              // arrives as `followerId` and the actor as `followingId`. Reading
+              // `followerId` first is what makes a fixture written for the old
+              // direction fail loudly instead of quietly answering the inverse
+              // question and admitting everybody.
               all: () => {
                 const seen = probeWhere(pendingFollows, [
                   "followerId",
                   "followingId",
                 ]);
-                return restrict(followedUserIds, seen).map((id) => ({
-                  [fields[0] as string]: id,
-                }));
+                const candidates = Array.isArray(seen.followerId)
+                  ? (seen.followerId as string[])
+                  : [];
+                return candidates
+                  .filter((id) => followingActorIds.includes(id))
+                  .map((id) => ({ [fields[0] as string]: id }));
               },
               where: (predicate: unknown) => {
                 pendingFollows = predicate;
@@ -252,10 +265,22 @@ mock.module("@asm/db", () => ({
         Users: {
           select: (...fields: string[]) => {
             const builder = {
-              all: () =>
-                restrict(presentUserIds, probeWhere(pendingUsers, ["id"])).map(
-                  (id) => ({ [fields[0] as string]: id })
-                ),
+              // Answers both reads this route makes of `users`: the existence
+              // check, which wants `{ id }`, and the group-add policy read, which
+              // wants `{ groupAddPolicy, id }`. Keyed off the requested fields
+              // rather than the call order, so adding a read cannot silently
+              // repoint an existing one.
+              all: () => {
+                const seen = probeWhere(pendingUsers, ["id"]);
+                const ids = restrict(presentUserIds, seen);
+                if (fields.includes("groupAddPolicy")) {
+                  return ids.map((id) => ({
+                    groupAddPolicy: policyById[id] ?? "FOLLOWING_ONLY",
+                    id,
+                  }));
+                }
+                return ids.map((id) => ({ [fields[0] as string]: id }));
+              },
               where: (predicate: unknown) => {
                 pendingUsers = predicate;
                 return builder;
@@ -445,7 +470,8 @@ describe("POST /api/messages/dens/:id/members", () => {
     rosterRows = [roster("admin", { role: "ADMIN" }), roster("user-2")];
     presentUserIds = ["admin", "user-2", "user-3", "user-4"];
     identityUserIds = ["admin", "user-2", "user-3", "user-4"];
-    followedUserIds = ["admin", "user-2", "user-3", "user-4"];
+    followingActorIds = ["admin", "user-2", "user-3", "user-4"];
+    policyById = {};
     blockRows = [];
     blocksQueried = false;
     pendingBlocks = null;
@@ -509,12 +535,14 @@ describe("POST /api/messages/dens/:id/members", () => {
     expect(mockAddDenMembers).not.toHaveBeenCalled();
   });
 
-  test("reports a member without Messages before the follow rule", async () => {
+  test("reports a member without Messages before the group-add policy", async () => {
     // Ordered that way on purpose: somebody who has not enabled Messages should
-    // be told to enable Messages, not that they need to follow a person who
-    // would not be able to read the den anyway.
+    // be told to enable Messages, not that they do not accept direct adds for an
+    // account that could not read the den either way. The actionable message wins
+    // over the merely true one.
     identityUserIds = ["admin", "user-2"];
-    followedUserIds = ["admin", "user-2"];
+    followingActorIds = ["admin", "user-2"];
+    policyById = { "user-3": "NO_DIRECT_ADDS" };
     const res = await add({ memberIds: ["user-2", "user-3"] });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
@@ -524,15 +552,50 @@ describe("POST /api/messages/dens/:id/members", () => {
     expect(mockAddDenMembers).not.toHaveBeenCalled();
   });
 
-  test("refuses somebody the caller does not follow", async () => {
-    followedUserIds = ["admin", "user-2"];
+  test("refuses somebody who only lets people they follow add them", async () => {
+    // The candidate's setting, asked of the CANDIDATE's own following list.
+    // "user-3" is the account default and does not follow the caller, so it is
+    // refused; "user-2" does follow the caller, so it is not. The pair in one
+    // request is what proves the check is per candidate rather than about the
+    // roster as a whole.
+    followingActorIds = ["admin", "user-2"];
+    policyById = { "user-3": "FOLLOWING_ONLY" };
     const res = await add({ memberIds: ["user-2", "user-3"] });
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
-      code: "FOLLOW_REQUIRED",
-      error: "You can only add people you follow",
+      code: "NOT_FOLLOWING_YOU",
+      error: "Some of those people only let people they follow add them",
     });
     expect(mockAddDenMembers).not.toHaveBeenCalled();
+  });
+
+  test("refuses a candidate who allows no direct adds, even when they follow the caller", async () => {
+    // Following them is not a way around it. If it were, the setting would only
+    // stop people who did not already follow, which is the opposite of what
+    // somebody turning it off is asking for.
+    followingActorIds = ["admin", "user-3"];
+    policyById = { "user-3": "NO_DIRECT_ADDS" };
+    const res = await add({ memberIds: ["user-3"] });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      code: "NO_DIRECT_ADDS",
+      error: "Some of those people don't allow being added to groups",
+    });
+    expect(mockAddDenMembers).not.toHaveBeenCalled();
+  });
+
+  test("admits a candidate who allows anybody, followed or not", async () => {
+    // The setting the user asked for first. "user-3" does not follow the caller
+    // and is still admitted, which is the whole point of EVERYONE and the reason
+    // the old "you can only add people you follow" rule had to go.
+    followingActorIds = ["admin", "user-2"];
+    policyById = { "user-3": "EVERYONE" };
+    const res = await add({ memberIds: ["user-3"] });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ added: ["user-3"], ok: true });
+    expect(mockAddDenMembers).toHaveBeenCalledWith("den-1", "admin", [
+      "user-3",
+    ]);
   });
 
   test("admits a candidate blocked with somebody already inside", async () => {

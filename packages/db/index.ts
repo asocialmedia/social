@@ -39,6 +39,11 @@ export type {
   GroupAddRefusal,
 } from "./src/messages/dens";
 export {
+  groupAddEligibility,
+  groupAddRefusalError,
+  groupAddRefusalFor,
+} from "./src/messages/den-group-add";
+export {
   DenError,
   addDenMembers,
   createDen,

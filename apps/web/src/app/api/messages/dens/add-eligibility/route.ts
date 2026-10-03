@@ -2,6 +2,10 @@ import { DEN_LIMITS } from "@asm/db";
 
 import { requireApiUser } from "@/lib/messages/den-api";
 import { groupAddEligibility } from "@/lib/messages/den-candidates";
+import {
+  DEN_ADD_ELIGIBILITY_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 
 // Whether the viewer may put each of these accounts in a group, and why not.
 //
@@ -19,6 +23,16 @@ export async function GET(request: Request) {
   const user = await requireApiUser();
   if (!user.ok) {
     return user.response;
+  }
+
+  // Metered before the queries, and before the id list is even parsed: a caller
+  // looping this spends the budget whether or not the ids are well formed.
+  const limited = await consumeDenRateLimit(
+    DEN_ADD_ELIGIBILITY_RATE_LIMIT,
+    user.userId
+  );
+  if (limited) {
+    return limited;
   }
 
   const raw = new URL(request.url).searchParams.get("ids") ?? "";

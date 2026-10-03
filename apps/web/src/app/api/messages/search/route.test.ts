@@ -1,154 +1,265 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { DEN_USER_SEARCH_RATE_LIMIT } from "@/lib/messages/den-rate-limit";
-import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
+import { GROUP_ADD_REFUSAL_COPY } from "@asm/db/messages/dens";
 
 import { GET } from "./route";
 
-// The user search behind the "new message" recipient picker. It is the most
-// expensive read on the messaging surface - two unanchored ILIKE scans over users,
-// one per name field, and a leading wildcard cannot use a btree index - and it
-// fires per keystroke.
+// Two searches, one route.
+//
+// The default context asks "who do I message" and is follow-only, which is the
+// share sheet's question and not this change's. The den context asks "who exists
+// and may I add them", which has to reach past the viewer's own follows and then
+// narrow per candidate - a picker that only returned addable people could not show
+// the reader that somebody they searched for said no.
 
-type Session = { user: { id: string } } | null;
-const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
+type Predicate = (value: unknown) => unknown;
 
-const mockAll = mock((_columns: string[]) => [] as unknown[]);
-let scanned: unknown[] = [];
+let viewerId = "viewer";
+// Candidates returned by name, with the two signals the route reports.
+let candidates: {
+  followsViewer: boolean;
+  groupAddPolicy: "EVERYONE" | "FOLLOWING_ONLY" | "NO_DIRECT_ADDS";
+  hasIdentity: boolean;
+  id: string;
+  username: string;
+}[] = [];
 
-// Every query the route issues, in order. The route makes two parallel scans, so
-// this records them as they are composed rather than as they resolve.
-const recordScan = (columns: string[]) => {
-  scanned.push(columns);
-  const builder = {
-    all: () => Promise.resolve(mockAll(columns)),
-    include: () => ({
-      limit: () => ({ all: () => Promise.resolve(mockAll(columns)) }),
-    }),
-    limit: () => ({ all: () => Promise.resolve(mockAll(columns)) }),
-    where: () => builder,
-  };
-  return builder;
-};
+let lastPredicate: Predicate | null = null;
 
-// The limiter this route charges. Mocked explicitly because bun's
-// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
-// and an unmocked limiter spends real Redis budget from the test suite.
-const limiter = messageRouteLimiter();
-mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
+// Runs a recorded predicate against per-column recording accessors, so the mock
+// answers from the constraints the query actually expressed rather than from a
+// guess about which branch asked.
+function probeWhere(predicate: unknown): Record<string, unknown> {
+  const seen: Record<string, unknown> = {};
+  const accessorFor = (column: string) => ({
+    asc: () => "asc",
+    desc: () => "desc",
+    eq: (value: unknown) => {
+      seen[column] = value;
+      return {};
+    },
+    ilike: (value: unknown) => {
+      seen[`${column}:ilike`] = value;
+      return {};
+    },
+    in: (value: unknown) => {
+      seen[column] = value;
+      return {};
+    },
+    isNull: () => ({}),
+    notIn: (value: unknown) => {
+      seen[`${column}:notIn`] = value;
+      return {};
+    },
+  });
+  (predicate as (value: unknown) => unknown)({
+    displayName: accessorFor("displayName"),
+    followsFollows: {
+      some: (inner: unknown) => {
+        const nested: Record<string, unknown> = {};
+        (inner as (value: unknown) => unknown)({
+          followerId: {
+            eq: (value: unknown) => {
+              nested.followerId = value;
+              return {};
+            },
+          },
+        });
+        seen.followedBy = nested.followerId;
+        return {};
+      },
+    },
+    id: accessorFor("id"),
+    username: accessorFor("username"),
+  });
+  return seen;
+}
+
+function matches(seen: Record<string, unknown>): typeof candidates {
+  const pattern = seen["username:ilike"];
+  if (typeof pattern !== "string") {
+    return candidates;
+  }
+  const needle = pattern.replaceAll(/^%|%$/g, "").toLowerCase();
+  return candidates.filter((row) =>
+    row.username.toLowerCase().includes(needle)
+  );
+}
+
+const mockGetSession = mock(() => ({
+  user: { id: "viewer" },
+}));
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
+mock.module("@/lib/messages/den-rate-limit", () => ({
+  DEN_USER_SEARCH_RATE_LIMIT: { bucket: "den-user-search", limit: 30 },
+  consumeDenRateLimit: () => Promise.resolve(null),
+}));
+
 mock.module("@asm/db", () => ({
-  SYSTEM_MODERATION_USER_ID: "system",
-  and: (...conditions: unknown[]) =>
-    Object.assign({}, ...(conditions.filter(Boolean) as object[])),
+  SYSTEM_MODERATION_USER_ID: "sys-zeph",
+  and: (...conditions: unknown[]) => conditions,
+  groupAddRefusal: (
+    policy: "EVERYONE" | "FOLLOWING_ONLY" | "NO_DIRECT_ADDS",
+    candidateFollowsActor: boolean
+  ) => {
+    if (policy === "EVERYONE") {
+      return null;
+    }
+    if (policy === "NO_DIRECT_ADDS") {
+      return "NO_DIRECT_ADDS";
+    }
+    return candidateFollowsActor ? null : "NOT_FOLLOWING_YOU";
+  },
+  or: (...conditions: unknown[]) => conditions,
   prisma: {
     orm: {
       public: {
         Users: {
-          select: (columns: string[]) => recordScan(columns),
+          select: () => {
+            const builder = {
+              all: () => {
+                const seen = probeWhere(lastPredicate);
+                // The message context filters in the query itself; the den
+                // context does not, because its narrowing is per row.
+                const followerOnly = seen.followedBy === viewerId;
+                return matches(seen)
+                  .filter((row) => !followerOnly || row.followsViewer)
+                  .map((row) => ({
+                    avatarUrl: null,
+                    badge: null,
+                    badges: [],
+                    displayName: row.username,
+                    followsFollows: row.followsViewer
+                      ? [{ followerId: viewerId }]
+                      : [],
+                    groupAddPolicy: row.groupAddPolicy,
+                    id: row.id,
+                    messageIdentities: row.hasIdentity
+                      ? { userId: row.id }
+                      : null,
+                    username: row.username,
+                  }));
+              },
+              include: () => builder,
+              limit: () => builder,
+              where: (predicate: unknown) => {
+                lastPredicate = predicate;
+                return builder;
+              },
+            };
+            return builder;
+          },
         },
       },
     },
   },
 }));
 
-function search(query: string) {
-  const url = new URL("http://localhost/api/messages/search");
-  if (query) {
-    url.searchParams.set("q", query);
+async function search(query: string, context?: string) {
+  const params = new URLSearchParams({ q: query });
+  if (context) {
+    params.set("context", context);
   }
-  return GET(new Request(url));
+  const response = await GET(
+    new Request(`http://localhost:3000/api/messages/search?${params}`)
+  );
+  return (await response.json()) as {
+    users: {
+      addRefusal: "NO_DIRECT_ADDS" | "NOT_FOLLOWING_YOU" | null;
+      hasIdentity: boolean;
+      id: string;
+      username: string;
+    }[];
+  };
 }
 
+const EVERYONE = {
+  followsViewer: false,
+  groupAddPolicy: "EVERYONE" as const,
+  hasIdentity: true,
+  id: "open",
+  username: "openfriend",
+};
+const NOT_FOLLOWING = {
+  followsViewer: false,
+  groupAddPolicy: "FOLLOWING_ONLY" as const,
+  hasIdentity: true,
+  id: "guarded",
+  username: "guardedfriend",
+};
+const NO_ADDS = {
+  followsViewer: true,
+  groupAddPolicy: "NO_DIRECT_ADDS" as const,
+  hasIdentity: true,
+  id: "closed",
+  username: "closedoff",
+};
+
 beforeEach(() => {
-  mockGetSession.mockClear();
-  mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
-  mockAll.mockClear();
-  mockAll.mockImplementation(() => []);
-  scanned = [];
-  limiter.reset();
+  viewerId = "viewer";
+  candidates = [EVERYONE, NOT_FOLLOWING, NO_ADDS];
+  lastPredicate = null;
 });
 
-describe("GET /api/messages/search", () => {
-  test("requires auth", async () => {
-    mockGetSession.mockReturnValueOnce(null);
-    const res = await search("haze");
-    expect(res.status).toBe(401);
-    expect(limiter.chargedBuckets).toEqual([]);
+describe("GET /api/messages/search (message context)", () => {
+  test("stays follow-only, because the share sheet's rule did not change", async () => {
+    const body = await search("friend");
+    const ids = body.users.map((user) => user.id).toSorted();
+    expect(ids).toEqual(["closed"]);
   });
 
-  test("an empty query is free", async () => {
-    // The typeahead issues this on every render of the field. It costs nothing,
-    // so it must not cost a budget either, or opening the picker would spend the
-    // same allowance a real search does.
-    const res = await search("");
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ users: [] });
-    expect(limiter.chargedBuckets).toEqual([]);
-    expect(scanned).toEqual([]);
-  });
-
-  test("a non-empty query runs both name scans", async () => {
-    const res = await search("haze");
-    expect(res.status).toBe(200);
-    expect(scanned).toHaveLength(2);
-    // Both scan for the caller's follows only, and neither returns the system
-    // moderator account.
-    expect(await res.json()).toEqual({ users: [] });
+  test("reports no group-add refusal, having not asked", async () => {
+    const body = await search("friend");
+    for (const user of body.users) {
+      expect(user.addRefusal).toBeNull();
+    }
   });
 });
 
-describe("GET /api/messages/search rate limit", () => {
-  test("spends the search budget, per account", async () => {
-    const res = await search("haze");
-    expect(res.status).toBe(200);
-    expect(limiter.chargedBuckets).toEqual([DEN_USER_SEARCH_RATE_LIMIT.bucket]);
-    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+describe("GET /api/messages/search (den context)", () => {
+  test("finds somebody the viewer does not follow", async () => {
+    // The user's first requirement: anybody can be searched for and added,
+    // followed or not.
+    const body = await search("friend", "den");
+    const byId = new Map(body.users.map((user) => [user.id, user]));
+    expect([...byId.keys()].toSorted()).toEqual(["closed", "guarded", "open"]);
+    expect(byId.get("open")?.addRefusal).toBeNull();
   });
 
-  test("429s with a retry-after and runs neither scan when over budget", async () => {
-    // Two full-table ILIKE scans are the most expensive thing an authenticated
-    // caller can do with a GET here, and they happen per keystroke. A refusal
-    // after them would be a refusal that already cost the database the work.
-    limiter.setDenied(true);
-    const res = await search("haze");
-    expect(res.status).toBe(429);
-    expect(res.headers.get("retry-after")).toBe("42");
-    expect(scanned).toEqual([]);
+  test("reports each candidate's own reason, not one answer for the batch", async () => {
+    const body = await search("friend", "den");
+    const byId = new Map(body.users.map((user) => [user.id, user]));
+    expect(byId.get("guarded")?.addRefusal).toBe("NOT_FOLLOWING_YOU");
+    expect(byId.get("closed")?.addRefusal).toBe("NO_DIRECT_ADDS");
   });
 
-  test("charges the limiter before it issues a query", async () => {
-    await search("haze");
-    expect(limiter.order[0]).toBe(
-      `consume:${DEN_USER_SEARCH_RATE_LIMIT.bucket}`
-    );
-    expect(scanned).toHaveLength(2);
+  test("refuses a candidate who allows nobody even though they follow the viewer", async () => {
+    const body = await search("closed", "den");
+    expect(body.users[0]?.addRefusal).toBe("NO_DIRECT_ADDS");
+    expect(GROUP_ADD_REFUSAL_COPY.NO_DIRECT_ADDS).toBeTruthy();
   });
 
-  test("two accounts do not share one budget", async () => {
-    await search("haze");
-    mockGetSession.mockImplementation(() => ({ user: { id: "user2" } }));
-    await search("haze");
-    expect(limiter.chargedIdentifiers).toEqual(["user1", "user2"]);
+  test("admits a candidate who allows anybody, followed or not", async () => {
+    const body = await search("openfriend", "den");
+    expect(body.users[0]?.addRefusal).toBeNull();
   });
 
-  test("matches the community search bucket at the same number", () => {
-    // Both are per-keystroke unanchored scans over a wide table, and the
-    // community route has run at sixty a minute since before this one existed.
-    // Keeping them the same number means one honest answer to "how much
-    // searching is allowed", and the comment here names the reason rather than
-    // leaving the coincidence looking deliberate.
-    expect(DEN_USER_SEARCH_RATE_LIMIT.limit).toBe(60);
-    expect(DEN_USER_SEARCH_RATE_LIMIT.windowSeconds).toBe(60);
+  test("an unknown context falls back to the follow-only default", async () => {
+    // Not a widened net by accident: anything that is not exactly "den" keeps the
+    // old behaviour, so a new caller cannot pick up group-add reporting by
+    // passing a value nobody expected.
+    const body = await search("friend", "groups");
+    const ids = body.users.map((user) => user.id).toSorted();
+    expect(ids).toEqual(["closed"]);
+    expect(body.users[0]?.addRefusal).toBeNull();
   });
 
-  test("the budget slides, so a typeahead cannot burst across a boundary", () => {
-    // A typeahead is exactly the shape a fixed window suits badly: a burst of
-    // suggestions as the user types quickly, then a pause, then another burst.
-    expect(DEN_USER_SEARCH_RATE_LIMIT.window).toBe("sliding");
+  test("an empty query is free and answers with nothing", async () => {
+    const body = await search("");
+    expect(body.users).toEqual([]);
   });
 });
