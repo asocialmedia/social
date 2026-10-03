@@ -480,6 +480,22 @@ type TranscriptItem =
   | { id: string; kind: "event"; event: DenMembershipEvent }
   | { id: string; kind: "message"; message: MessageData };
 
+// Whether the transcript has nothing to read at all.
+//
+// Takes the MERGED rows, not the message list, and that is the whole point. A
+// den's first act is a membership line - "Alice created this den" - and it lands
+// before there is a single message, so an empty state keyed off `allMessages`
+// covered the one line that says what the room is. It rendered "Say hi in X" over
+// the top of a den that already had a history.
+//
+// This is a function rather than an inline `length === 0` so the rule has one
+// home and the merge cannot drift away from it again.
+export function transcriptIsEmpty(
+  transcript: readonly TranscriptItem[]
+): boolean {
+  return transcript.length === 0;
+}
+
 export function MessageThread({
   conversationId,
   onBack,
@@ -4678,7 +4694,7 @@ export function MessageThread({
               onPointerUp={handlePointerEnd}
               ref={scrollRef}
             >
-              {allMessages.length === 0 ? (
+              {transcriptIsEmpty(transcriptItems) ? (
                 <div className="flex min-h-full flex-col">
                   <div className="flex flex-1 flex-col items-center justify-center text-center">
                     <div className="px-6 py-5">
