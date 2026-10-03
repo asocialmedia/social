@@ -323,6 +323,10 @@ namespace public {
     updatedAt                  Timestamp(3)                 @default(now())
     lastLoginMethod            String?
     twoFactorEnabled           Boolean                      @default(false)
+    // Who may add this account to a group without asking. Defaults to the
+    // account's own following list rather than to open, so an account that never
+    // opens Settings behaves the way it behaved before the setting existed.
+    groupAddPolicy             pg.enum(GroupAddPolicy)       @default("FOLLOWING_ONLY")
     hNBookmarks                HNBookmark[]
     accounts                   Accounts[]
     bookmarks                  Bookmarks[]
@@ -1197,6 +1201,22 @@ namespace public {
     PROMOTED = "PROMOTED"
     DEMOTED = "DEMOTED"
     OWNER_TRANSFERRED = "OWNER_TRANSFERRED"
+  }
+
+  // Who may put this account in a group conversation without being asked first.
+  //
+  // `FOLLOWING_ONLY` is named for the direction it means rather than the word
+  // "followers", because the two are opposites here: it qualifies an adder the
+  // candidate already follows, not somebody who follows the candidate. The
+  // setting is the candidate's own list, so the naming has to say whose list.
+  native_enum GroupAddPolicy {
+    // Anybody at all.
+    EVERYONE = "EVERYONE"
+    // Only the people this account already follows.
+    FOLLOWING_ONLY = "FOLLOWING_ONLY"
+    // Nobody. An invite link still works, because joining is the account's own
+    // decision and a link is how they are asked.
+    NO_DIRECT_ADDS = "NO_DIRECT_ADDS"
   }
 
   native_enum MediaStatus {
