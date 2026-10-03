@@ -86,6 +86,7 @@ import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
   appendMessageToLastPage,
+  toCachedMessage,
   deleteMessage,
   editMessage,
   fetchConversationDetail,
@@ -139,6 +140,7 @@ import {
   isHistoryThrottled,
   isHistoryUnauthorized,
 } from "@/lib/messages/history-throttle";
+import { hasDeparted, ownMembership } from "@/lib/messages/membership";
 import { applyMembershipSeq } from "@/lib/messages/membership-seq";
 import {
   chunkMessageIds,
@@ -4242,6 +4244,19 @@ export function MessageThread({
         void queryClient.invalidateQueries({
           queryKey: ["message-conversation", conversationId],
         });
+        // The membership log as well as the roster. Every action this frame can
+        // report - a join, a leave, a removal, a promotion, a demotion, a hand-over
+        // - writes exactly one line into the transcript, so the line and the roster
+        // move together or the transcript contradicts itself. Without this the log
+        // only caught up on a reload, which made it read as history rather than as
+        // something that had just happened.
+        //
+        // Cheap, and unlike the transcript invalidation it costs no scroll
+        // position: the log is folded into the transcript by a merge, so re-reading
+        // it re-runs that merge rather than rebuilding the page list.
+        void queryClient.invalidateQueries({
+          queryKey: ["den-events", conversationId],
+        });
         return;
       }
       if (event.kind === "keys.rotated") {
@@ -4267,7 +4282,12 @@ export function MessageThread({
             }
             // Dedupe against the sender's own optimistic fold of the same
             // message (the SSE stream echoes every write, including ours).
-            const nextPages = appendMessageToLastPage(old.pages, message);
+            // Normalised on the way in: the frame carries ISO strings and the
+            // cache is typed as Dates.
+            const nextPages = appendMessageToLastPage(
+              old.pages,
+              toCachedMessage(message)
+            );
             return nextPages ? { ...old, pages: nextPages } : old;
           }
         );
@@ -4314,7 +4334,10 @@ export function MessageThread({
             if (!old) {
               return old;
             }
-            const nextPages = updateMessageInPages(old.pages, message);
+            const nextPages = updateMessageInPages(
+              old.pages,
+              toCachedMessage(message)
+            );
             if (!nextPages) {
               return old;
             }
@@ -4350,9 +4373,15 @@ export function MessageThread({
   // clears the notice when the reader switches conversations, and without the id
   // here a switch into a den they had already left would leave the notice cleared
   // and the composer live, because `leftDen` never toggled.
-  const leftDen =
-    detail?.conversation.members.find((member) => member.userId === userId)
-      ?.leftAt !== null;
+  //
+  // The predicate is shared rather than written here. `leftAt` is null for a
+  // current member and ABSENT on a DM row and on a payload that has not resolved,
+  // and comparing it to null inline makes that absent case read as "left" - which
+  // rendered every freshly opened den as read-only, permanently, because this
+  // effect only ever sets the flag. See `hasDeparted`.
+  const leftDen = hasDeparted(
+    ownMembership(detail?.conversation.members ?? [], userId ?? "")
+  );
   useEffect(() => {
     if (leftDen) {
       setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
@@ -5516,6 +5545,13 @@ function ThreadHeader({
     conversation.conversation.type === "DEN"
       ? {
           avatarMediaId: conversation.conversation.avatarMediaId ?? null,
+          // The header states the size of the den, so it counts everybody in it -
+          // the viewer included, and nobody who has left. This used to count
+          // `others` and then label the number "member", which made a two-person
+          // den read "1 member" in the header while the details panel said "2".
+          memberCount: conversation.conversation.members.filter(
+            (member) => !hasDeparted(member)
+          ).length,
           members: conversation.conversation.members.map((member) => ({
             avatarUrl: member.user.avatarUrl,
             displayName: member.user.displayName,
@@ -5524,9 +5560,6 @@ function ThreadHeader({
             username: member.user.username,
           })),
           myUserId: user?.id ?? "",
-          others: conversation.conversation.members.filter(
-            (member) => member.userId !== user?.id
-          ).length,
         }
       : null;
   const headerName = conversationDisplayName(
@@ -5684,7 +5717,7 @@ function ThreadHeader({
           ) : (
             <span className="text-muted-foreground block truncate text-xs">
               {denIdentity
-                ? denMemberCountLabel(denIdentity.others)
+                ? denMemberCountLabel(denIdentity.memberCount)
                 : presenceLabel(peerPresence, peer?.username)}
             </span>
           )}

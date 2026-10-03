@@ -80,6 +80,7 @@ import {
 } from "@/lib/messages/conversation-wallpaper-upload";
 import { denMemberCountLabel } from "@/lib/messages/den-label";
 import { denViewerRoleLine } from "@/lib/messages/den-permissions";
+import { hasDeparted, ownMembership } from "@/lib/messages/membership";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import type {
   MessageConversationData,
@@ -491,11 +492,10 @@ export function ConversationDetailsBody({
   // The viewer's own row, and the `leftAt` on it. Read here rather than fetched:
   // the sheet is already holding the whole conversation, and this fact changes the
   // same way membershipSeq does - the stream announces a removal, the thread
-  // refetches the detail, and this follows.
+  // refetches the detail, and this follows. `hasDeparted` is the shared reading of
+  // "left", so this sheet and the transcript's composer cannot disagree about it.
   const hasLeftDen =
-    isDen &&
-    (detail.conversation.members.find((member) => member.userId === myUserId)
-      ?.leftAt ?? null) !== null;
+    isDen && hasDeparted(ownMembership(detail.conversation.members, myUserId));
 
   // Somebody who left this den. Kept in the rail, kept readable, and offered none
   // of this sheet: the roster, the invite code, the mute, the theme and the

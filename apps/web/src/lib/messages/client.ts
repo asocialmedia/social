@@ -1021,7 +1021,15 @@ export async function fetchMessages(
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as MessagePage;
+  const body = (await response.json()) as MessagePage;
+  // The wire carries ISO strings and `MessageData` declares `Date`. Every message
+  // that enters the cache goes through here or through a realtime fold, so this is
+  // the two places the mismatch has to die; without it a consumer that compares
+  // two timestamps finds a string where it was promised a Date.
+  return {
+    ...body,
+    messages: body.messages.map((message) => toCachedMessage(message)),
+  };
 }
 
 export interface MessageMediaUpload {
@@ -1461,6 +1469,32 @@ export function removeMessagesFromPages<
     return { ...page, messages };
   });
   return changed ? nextPages : null;
+}
+
+// A message row as it leaves the realtime wire and as it enters the cache.
+//
+// The SSE frames carry ISO strings; `MessageData` declares `Date`. Nothing
+// noticed for a long time because the transcript drew whatever it was handed and
+// never compared two timestamps. The transcript's membership-log merge does, and
+// that turned the mismatch into a crash on the first message a peer sent - the
+// whole thread failing to render, not one bubble.
+//
+// Coerced once, here, where the wire meets the cache, so the rest of the app can
+// trust the declared type. `new Date` accepts a Date unchanged, so an
+// already-normalised row round-trips.
+export function toCachedMessage(message: MessageData): MessageData {
+  return {
+    ...message,
+    createdAt: new Date(message.createdAt),
+    deletedAt:
+      message.deletedAt === null || message.deletedAt === undefined
+        ? null
+        : new Date(message.deletedAt),
+    editedAt:
+      message.editedAt === null || message.editedAt === undefined
+        ? null
+        : new Date(message.editedAt),
+  };
 }
 
 // Marks rows as globally deleted in place (the "delete for everyone" optimistic

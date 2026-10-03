@@ -161,6 +161,14 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
     void queryClient.invalidateQueries({
       queryKey: ["message-conversation", conversationId],
     });
+    // And the membership log the transcript draws from. The stream announcement
+    // also invalidates this, but the announcement is best-effort: if this tab's
+    // stream is down, the person who just promoted or removed somebody would see
+    // the roster move and the transcript's log line not, which is the one
+    // contradiction that reads as a bug.
+    void queryClient.invalidateQueries({
+      queryKey: ["den-events", conversationId],
+    });
   }, [conversationId, queryClient]);
 
   const copyInvite = useCallback(async () => {

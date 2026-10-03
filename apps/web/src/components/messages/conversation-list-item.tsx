@@ -11,6 +11,7 @@ import {
   conversationDisplayName,
   denPreviewLine,
 } from "@/lib/messages/den-label";
+import { hasDeparted } from "@/lib/messages/membership";
 import { conversationPreviewText } from "@/lib/messages/message-preview";
 import { formatArrivalCount } from "@/lib/messages/scroll-state";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
@@ -71,8 +72,7 @@ function ConversationRowInner({
   // the state, and a chip marks it, because a row that looked ordinary and then
   // refused to send would read as a broken thread rather than as a den that ended
   // for this person.
-  const left =
-    isDen && myMember?.leftAt !== null && myMember?.leftAt !== undefined;
+  const left = isDen && hasDeparted(myMember);
   const unread = item.unreadCount > 0;
   const payload = useDecryptEntry(lastMessage?.id);
   const settled =

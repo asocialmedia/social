@@ -11,6 +11,7 @@ import {
   removeMessagesFromPages,
   resolveMyConversationWraps,
   sendEncryptedMessage,
+  toCachedMessage,
   toWrappedKeyPayloads,
   updateMessageInPages,
 } from "./client";
@@ -2364,3 +2365,56 @@ function storedFromPosted(
     })
   );
 }
+
+// A message exactly as a realtime frame carries it: ISO timestamps, not Dates.
+function wireMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    ciphertext: "c",
+    conversationId: "den-1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    deletedAt: null,
+    editedAt: null,
+    id: "m-1",
+    iv: "v",
+    ratchetIndex: 0,
+    senderId: "u-1",
+    ...overrides,
+  } as unknown as MessageData;
+}
+
+describe("toCachedMessage", () => {
+  // The realtime frames carry ISO strings and the cache is typed as Dates. Nothing
+  // compared two timestamps until the transcript merged its membership lines in,
+  // and that turned the mismatch into a whole-thread crash on the first message a
+  // peer sent.
+
+  test("turns a wire timestamp into a Date", () => {
+    const cached = toCachedMessage(wireMessage());
+    expect(cached.createdAt).toBeInstanceOf(Date);
+    expect(cached.createdAt.getTime()).toBe(
+      new Date("2026-01-01T00:00:00.000Z").getTime()
+    );
+  });
+
+  test("leaves an absent optional timestamp null rather than an Invalid Date", () => {
+    // `new Date(null)` is the epoch and `new Date(undefined)` is Invalid Date, so
+    // a naive coercion turns "never edited" into a 1970 date that every
+    // isWithinEditWindow comparison then reads as an ancient message.
+    const cached = toCachedMessage(
+      wireMessage({ deletedAt: undefined, editedAt: undefined })
+    );
+    expect(cached.deletedAt).toBeNull();
+    expect(cached.editedAt).toBeNull();
+  });
+
+  test("coerces an edited row too, and round-trips an already-normalised one", () => {
+    const edited = toCachedMessage(
+      wireMessage({ editedAt: "2026-01-02T00:00:00.000Z" })
+    );
+    expect(edited.editedAt).toBeInstanceOf(Date);
+
+    const once = toCachedMessage(wireMessage());
+    const twice = toCachedMessage(once);
+    expect(twice.createdAt.getTime()).toBe(once.createdAt.getTime());
+  });
+});
