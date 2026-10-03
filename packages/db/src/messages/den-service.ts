@@ -677,6 +677,44 @@ async function denEventNames(
   return new Map(rows.map((row) => [row.id, row.displayName]));
 }
 
+// The bulk form, for a mutation that logs a line per person.
+//
+// One statement rather than one per line, and that is not a style preference. These
+// writes run inside the caller's claim-lock transaction, so a den-wide add is
+// holding the conversation row's lock for the whole batch: ninety-eight round
+// trips turned a routine add into a long transaction that lost serialisation
+// races against anything else touching that den. A single `createAll` holds the
+// same lock for a fraction of the time.
+async function recordDenMembershipEvents(
+  tx: PrismaTransaction,
+  events: {
+    action: DenMembershipEventAction;
+    actorId: string | null;
+    actorName: string | null;
+    conversationId: string;
+    targetId?: string | null;
+    targetName?: string | null;
+  }[]
+): Promise<void> {
+  if (events.length === 0) {
+    return;
+  }
+  if (events.length === 1) {
+    await recordDenMembershipEvent(tx, events[0]);
+    return;
+  }
+  await tx.orm.public.MessageConversationMembershipEvents.createAll(
+    events.map((event) => ({
+      action: event.action,
+      actorId: event.actorId,
+      actorName: event.actorName,
+      conversationId: event.conversationId,
+      targetName: event.targetName ?? null,
+      targetUserId: event.targetId ?? null,
+    }))
+  );
+}
+
 // There is deliberately no block probe anywhere in this file.
 //
 // A den used to carry one at the create, add and join doors. It does not any more,
@@ -887,17 +925,17 @@ export async function addDenMembers(
       // paths the write took is not a distinction the transcript should draw.
       const names = await denEventNames(tx, [actorId, ...wanted]);
       const actorName = names.get(actorId) ?? null;
-      for (const userId of wanted) {
-        // oxlint-disable-next-line no-await-in-loop -- one line per person under the same claim
-        await recordDenMembershipEvent(tx, {
-          action: "JOINED",
+      await recordDenMembershipEvents(
+        tx,
+        wanted.map((userId) => ({
+          action: "JOINED" as const,
           actorId,
           actorName,
           conversationId,
           targetId: userId,
           targetName: names.get(userId) ?? null,
-        });
-      }
+        }))
+      );
       const membershipSeq = await touchDen(tx, claimed, conversationId);
       return {
         // The inside roster plus the newcomers, which is the whole post-mutation
