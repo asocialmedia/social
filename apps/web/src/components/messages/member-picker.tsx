@@ -178,9 +178,15 @@ export function MemberPicker({
 
   return (
     <PickerFrame>
+      {/* "follow", not "message". This picker is only ever reached from a den -
+          creating one or adding to one - and both the server's rule and every
+          surface around it say follow: the field placeholder, the dialog's own
+          description, and the refusal the route returns. One line saying
+          "message" next to a field that says "follow" is a contradiction the
+          reader has to resolve on their own. */}
       <p className="text-muted-foreground flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold tracking-wide uppercase">
         <History className="h-3 w-3" />
-        People you message
+        People you follow
       </p>
       {recents.map((person) => renderRow(person))}
     </PickerFrame>
