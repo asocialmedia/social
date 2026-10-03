@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils";
 // Built from the community create wizard's shell (compact header, one scroll
 // column, pinned footer) because that is the app's one "collect a few fields and
 // commit" shape, and from the share sheet's picker because that is the app's one
-// "choose people you follow" shape. Neither was extended: the wizard is
+// "choose people" shape. Neither was extended: the wizard is
 // step-based and five steps of topics and accents is not a den, and the share
 // picker commits to a send on tap.
 //
@@ -283,7 +283,7 @@ export function CreateDenDialog({
             <X className="size-4" />
           </DialogClose>
           <DialogDescription className="sr-only">
-            A den is a group conversation for people you follow. You can share
+            A den is a group conversation for a group of people. You can share
             an invite link once it exists.
           </DialogDescription>
         </header>
@@ -387,7 +387,7 @@ export function CreateDenDialog({
 
             <MemberPickerSearch
               onChange={setQuery}
-              placeholder="Search people you follow…"
+              placeholder="Search for anyone…"
               value={query}
             />
 

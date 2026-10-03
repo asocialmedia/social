@@ -151,8 +151,7 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    // requireFollow: a direct add is the same deliberate act as starting a DM, so
-    // the follow rule applies exactly as it does there. Nothing else is checked
+    // Each candidate's own group-add policy decides. Nothing else is checked
     // about the relationship between a candidate and the room - a den admits
     // regardless of blocks, so there is no block rule for the service to
     // re-check under its claim lock either. The cap is, so the roster is read
@@ -160,7 +159,6 @@ export async function POST(request: Request, { params }: Params) {
     const roster = await listMemberIds(id);
     const failure = await validateDenRoster(user.userId, parsed.memberIds, {
       currentMemberCount: roster.length,
-      requireFollow: true,
     });
     if (failure) {
       return denCandidateFailureResponse(failure);

@@ -2,8 +2,8 @@ import { DEN_LIMITS } from "@asm/db";
 
 import {
   areUsersMissingMessageIdentity,
-  areUsersNotFollowedBy,
   doUsersExist,
+  groupAddRefusalsFor,
 } from "./den-candidates";
 
 // Validates a proposed den roster. Split out from the route so the rules are
@@ -12,7 +12,7 @@ import {
 //
 // The order is deliberate: cheapest and most specific first, so the message a
 // user sees names the actual problem rather than a downstream symptom. A missing
-// account is reported as missing, not as "you don't follow them".
+// account is reported as missing, not as "they don't allow being added".
 //
 // What is deliberately absent is any block rule. Dens admit regardless of blocks:
 // a den is a room of up to DEN_LIMITS.membersMax people, refusing one because two
@@ -24,11 +24,12 @@ import {
 // block with", and nobody asks that. See the header of `./blocks.ts`.
 
 export type DenCandidateFailureCode =
-  | "FOLLOW_REQUIRED"
   | "INVALID_INPUT"
   | "LIMIT_REACHED"
   | "MEMBERS_REQUIRED"
   | "NOT_FOUND"
+  | "NOT_FOLLOWING_YOU"
+  | "NO_DIRECT_ADDS"
   | "NO_IDENTITY";
 
 export interface DenCandidateFailure {
@@ -39,12 +40,19 @@ export interface DenCandidateFailure {
 // HTTP status per code, matching the split denErrorResponse uses: 400 for a
 // malformed request, 404 for something that does not exist, 409 for a rule the
 // caller's own state is already violating.
+//
+// The two group-add refusals are 403 rather than 409 because they are not a
+// statement about the request being malformed or the caller's own state being
+// wrong: the request is well formed and the caller may add many people, and it is
+// one of the people who said no. That is what 403 is for, and it is also why
+// these two replaced the follow rule that used to sit here alone.
 const FAILURE_STATUS: Record<DenCandidateFailureCode, number> = {
-  FOLLOW_REQUIRED: 403,
   INVALID_INPUT: 400,
   LIMIT_REACHED: 409,
   MEMBERS_REQUIRED: 400,
+  NOT_FOLLOWING_YOU: 403,
   NOT_FOUND: 404,
+  NO_DIRECT_ADDS: 403,
   NO_IDENTITY: 409,
 };
 
@@ -89,15 +97,19 @@ export function parseMemberIds(
 }
 
 // Checks everything about a proposed roster that does not need a transaction:
-// existence, message identity and the follow relationship.
+// existence, message identity, and each candidate's own group-add policy.
 //
-// `requireFollow` distinguishes the two doors. A direct add is a deliberate act
-// against people the caller already follows, matching the DM rule. An
-// invite-link join is not: the point of a shareable link is that somebody the
-// inviter does not follow can be brought in by somebody who does, so the follow
-// check does not apply at that door. Following is the one door rule that survives
-// the change that removed the block one - it is about the ACT, and the two acts
-// genuinely differ.
+// The group-add policy replaces the follow rule this used to enforce. The old
+// rule asked whether the CALLER followed the candidate, so who could be put in a
+// room was decided entirely by the person doing the putting and the candidate
+// had no say at all. The candidate's setting is the question now, and it is asked
+// of the candidate's own list - "do they follow the caller" - because that is
+// the edge `FOLLOWING_ONLY` is defined against.
+//
+// The invite-link door still does not come through here. Joining is the
+// candidate's own decision, so a link is the one case where a policy cannot
+// refuse: `joinDenByInviteCode` never calls this, and a candidate set to
+// NO_DIRECT_ADDS is joinable by exactly the people a link was sent to.
 //
 // `currentMemberCount` is the den's size before the addition, or 0 when creating.
 // The cap is checked here for a fast, friendly answer; the service re-checks it
@@ -107,11 +119,11 @@ export async function validateDenRoster(
   memberIds: string[],
   options: {
     currentMemberCount: number;
-    requireFollow: boolean;
   }
 ): Promise<DenCandidateFailure | null> {
-  // The actor is always a member, so they are never "missing" or "unfollowed",
-  // and listing them explicitly is a no-op rather than an error.
+  // The actor is always a member, so they are never "missing" and never refused
+  // by their own policy - a person cannot opt out of being in a den they are
+  // being put into. Listing them explicitly is a no-op rather than an error.
   const others = memberIds.filter((id) => id !== actorId);
   const total = options.currentMemberCount + others.length;
 
@@ -136,8 +148,9 @@ export async function validateDenRoster(
     };
   }
 
-  // Checked before the follow rule so somebody without Messages enabled gets the
-  // actionable message rather than being told to follow them first.
+  // Checked before the policy rule so somebody without Messages enabled gets the
+  // actionable message rather than being told to change a privacy setting for an
+  // account that could not read the room either way.
   const withoutIdentity = await areUsersMissingMessageIdentity(others);
   if (withoutIdentity.length > 0) {
     return {
@@ -146,15 +159,5 @@ export async function validateDenRoster(
     };
   }
 
-  if (options.requireFollow) {
-    const unfollowed = await areUsersNotFollowedBy(actorId, others);
-    if (unfollowed.length > 0) {
-      return {
-        code: "FOLLOW_REQUIRED",
-        error: "You can only add people you follow",
-      };
-    }
-  }
-
-  return null;
+  return await groupAddRefusalsFor(actorId, others);
 }

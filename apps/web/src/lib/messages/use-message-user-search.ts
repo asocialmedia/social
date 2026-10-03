@@ -1,5 +1,6 @@
 "use client";
 
+import type { GroupAddRefusal } from "@asm/db";
 import { useEffect, useState } from "react";
 
 import { searchMessageUsers } from "@/lib/messages/client";
@@ -24,7 +25,12 @@ const SEARCH_DEBOUNCE_MS = 250;
 // hidden does not hold a search subscription.
 export function useMessageUserSearch(
   query: string,
-  enabled = true
+  enabled = true,
+  // Which question the caller is asking. "den" widens the search past the
+  // viewer's follows and brings back each candidate's group-add eligibility, so
+  // the picker can grey out somebody the server would refuse instead of offering
+  // a tap that fails after the fact. Everything else stays follow-only.
+  context: "den" | "message" = "message"
 ): {
   results: SearchUserResult[];
   searching: boolean;
@@ -46,7 +52,7 @@ export function useMessageUserSearch(
       // empty so the catch path clears the list below.
       let found: SearchUserResult[] = [];
       try {
-        found = await searchMessageUsers(trimmed);
+        found = await searchMessageUsers(trimmed, context);
       } catch (error) {
         console.error("Message user search failed:", error);
       }
@@ -59,7 +65,7 @@ export function useMessageUserSearch(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [enabled, trimmed]);
+  }, [context, enabled, trimmed]);
 
   return { results, searching };
 }
@@ -68,6 +74,10 @@ export function useMessageUserSearch(
 // the fields `searchMessageUsers` returns, so a search result can be rendered by
 // the same row as a recent without an adapter at each call site.
 export interface MessagePickerRecipient {
+  // Null when they may be added outright, or the reason they may not. Carried on
+  // the recipient rather than derived at the row so the picker's dead rows and the
+  // route's refusal are the same decision, read from one place.
+  addRefusal: GroupAddRefusal | null;
   avatarUrl: string | null;
   displayName: string;
   id: string;
@@ -82,6 +92,7 @@ export function toPickerRecipient(
   result: SearchUserResult
 ): MessagePickerRecipient {
   return {
+    addRefusal: result.addRefusal,
     avatarUrl: result.avatarUrl,
     displayName: result.displayName,
     hasIdentity: result.hasIdentity,

@@ -85,6 +85,76 @@ export function isDenRole(value: string): value is DenRole {
   return (DEN_ROLES as readonly string[]).includes(value);
 }
 
+// Who may put an account in a group without being asked first, mirroring the
+// `GroupAddPolicy` enum in the contract.
+//
+// This is the CANDIDATE's setting, not a rule about who follows whom, which is
+// why the enum is named for the direction it means: `FOLLOWING_ONLY` qualifies an
+// adder the candidate already follows. A setting called "followers only" would
+// have named the opposite list, and the bug that causes is invisible in review
+// because both readings are plausible until you ask whose list it is.
+//
+// The default is `FOLLOWING_ONLY` and not `EVERYONE`, so an account that never
+// opens Settings behaves exactly as it behaved before the setting existed.
+export const GROUP_ADD_POLICIES = [
+  "EVERYONE",
+  "FOLLOWING_ONLY",
+  "NO_DIRECT_ADDS",
+] as const;
+
+export type GroupAddPolicy = (typeof GROUP_ADD_POLICIES)[number];
+
+export function isGroupAddPolicy(value: unknown): value is GroupAddPolicy {
+  return (
+    typeof value === "string" &&
+    (GROUP_ADD_POLICIES as readonly string[]).includes(value)
+  );
+}
+
+// Why a candidate cannot be added to a group outright, when they cannot.
+//
+// Two reasons, and the second is deliberately narrower than "you do not follow
+// them": it is that the CANDIDATE does not follow the adder. Nobody is stopped
+// for the state of their own following list, because the setting is about who is
+// willing to be put in a room, not about who may do the putting.
+// `NO_DIRECT_ADDS` reads as a description of them rather than a rule imposed on
+// them, because they chose it - which is why the copy below is written about
+// the candidate and never about the person holding the picker.
+export type GroupAddRefusal = "NO_DIRECT_ADDS" | "NOT_FOLLOWING_YOU";
+
+// The whole rule, as one pure function.
+//
+// Shared rather than written at each of its three call sites - the create route,
+// the add route, and the picker that greys rows out - because a picker that
+// disagrees with the route it is feeding produces a control that lies: either a
+// row the reader can tap that the server refuses, or a dead row with nothing
+// wrong with it. `candidateFollowsActor` is a fact about the edge rather than
+// about the policy, so the caller answers it with one bulk query.
+export function groupAddRefusal(
+  policy: GroupAddPolicy,
+  candidateFollowsActor: boolean
+): GroupAddRefusal | null {
+  if (policy === "EVERYONE") {
+    return null;
+  }
+  if (policy === "NO_DIRECT_ADDS") {
+    return "NO_DIRECT_ADDS";
+  }
+  return candidateFollowsActor ? null : "NOT_FOLLOWING_YOU";
+}
+
+// The reader-facing wording for a refusal, shared so the greyed-out row in the
+// picker and the error the route returns are the same sentence.
+//
+// Second person on purpose. The row is about the person who would be added, and
+// the picker is read by the person doing the adding, so "only lets people they
+// follow add them" is the fact; the reader works out who "they" is from the row
+// they are looking at.
+export const GROUP_ADD_REFUSAL_COPY: Record<GroupAddRefusal, string> = {
+  NOT_FOLLOWING_YOU: "only lets people they follow add them",
+  NO_DIRECT_ADDS: "doesn't allow being added to groups",
+};
+
 // Whether `role` may run a management route. Callers that need finer
 // distinctions (only the owner may promote, or delete the den) must check the
 // role directly rather than widen this helper.

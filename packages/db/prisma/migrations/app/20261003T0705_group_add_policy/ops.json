@@ -38,11 +38,7 @@
       {
         "description": "ensure column \"groupAddPolicy\" is missing",
         "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "users",
-          "groupAddPolicy"
-        ]
+        "params": ["public", "users", "groupAddPolicy"]
       }
     ],
     "execute": [
@@ -55,11 +51,7 @@
       {
         "description": "verify column \"groupAddPolicy\" exists",
         "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "users",
-          "groupAddPolicy"
-        ]
+        "params": ["public", "users", "groupAddPolicy"]
       }
     ]
   }

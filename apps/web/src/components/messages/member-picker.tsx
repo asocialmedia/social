@@ -1,12 +1,16 @@
 "use client";
 
+import { GROUP_ADD_REFUSAL_COPY } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
 import { Check, History, Search, UserPlus, Users } from "lucide-react";
 import { useMemo } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
-import { fetchConversationList } from "@/lib/messages/client";
+import {
+  fetchConversationList,
+  fetchGroupAddEligibility,
+} from "@/lib/messages/client";
 import {
   toPickerRecipient,
   useMessageUserSearch,
@@ -28,8 +32,17 @@ import { cn } from "@/lib/utils";
 // always drawn from people you already talk to. Anyone already excluded (a
 // current member, when adding to an existing den) is filtered out here rather
 // than disabled row by row, so a full den does not present five dead rows.
+//
+// A recent who will not accept a direct add is NOT filtered out. They are shown
+// greyed with the reason, because the reader is likely looking for a specific
+// person and an empty result tells them nothing about whether that person was
+// found.
 
 const RECENTS_MAX = 5;
+
+// A recent before its group-add eligibility is known. The picker resolves that in
+// one bulk read rather than carrying a policy in the conversation payload.
+type RecentCandidate = Omit<MessagePickerRecipient, "addRefusal">;
 
 export interface MemberPickerProps {
   // Ids that cannot be picked: the reader themselves, and (when adding) the
@@ -53,7 +66,9 @@ export function MemberPicker({
   selectedIds,
 }: MemberPickerProps) {
   const { user } = useSession();
-  const { results, searching } = useMessageUserSearch(query);
+  // Den context, always: this picker is only ever reached from a den, and the
+  // whole point of it is that it can show somebody it will not let you pick.
+  const { results, searching } = useMessageUserSearch(query, true, "den");
 
   const { data: conversations } = useQuery({
     enabled: Boolean(user),
@@ -69,12 +84,17 @@ export function MemberPicker({
 
   // Peers only, deduplicated across conversations: somebody in three chats is
   // one person to add to a den, not three rows.
-  const recents = useMemo((): MessagePickerRecipient[] => {
+  //
+  // Split in two because eligibility is not in the conversation payload. These
+  // are people you already talk to, which used to mean they were all addable -
+  // that inference is exactly what the privacy setting removed, so the answer now
+  // has to be asked for rather than assumed.
+  const recentCandidates = useMemo((): RecentCandidate[] => {
     if (!user || !conversations) {
       return [];
     }
     const seen = new Set<string>();
-    const people: MessagePickerRecipient[] = [];
+    const people: RecentCandidate[] = [];
     for (const item of conversations.items) {
       for (const member of item.conversation.members) {
         if (member.userId === user.id || excluded.has(member.userId)) {
@@ -102,20 +122,59 @@ export function MemberPicker({
     return people;
   }, [conversations, excluded, user]);
 
+  const recentIds = useMemo(
+    () => recentCandidates.map((person) => person.id).toSorted(),
+    [recentCandidates]
+  );
+
+  // One bulk read for the whole list rather than one per row. A person whose
+  // answer has not arrived is shown as addable, which is the same posture the
+  // search results take before their own fetch lands: the server has the final
+  // say, so an optimistic row is a row that might refuse on submit, never one
+  // that admits somebody it should not.
+  const { data: recentsEligibility } = useQuery({
+    enabled: recentIds.length > 0,
+    queryFn: () => fetchGroupAddEligibility(recentIds),
+    queryKey: ["den-add-eligibility", user?.id, recentIds],
+  });
+
+  const recents = useMemo(
+    (): MessagePickerRecipient[] =>
+      recentCandidates.map((person) => ({
+        ...person,
+        addRefusal: recentsEligibility?.[person.id] ?? null,
+      })),
+    [recentCandidates, recentsEligibility]
+  );
+
   const isSearchMode = query.trim().length > 0;
   const atCeiling = maxSelected !== null && selectedIds.length >= maxSelected;
 
   function renderRow(person: MessagePickerRecipient) {
     const isSelected = selected.has(person.id);
+    // Two independent reasons a row is dead, in the order the reader most likely
+    // needs them.
+    //
     // Somebody with no message identity cannot be wrapped for, so admitting them
     // would create a den they can see the name of and read none of. The route
     // refuses it; the picker refuses it first, and says why, because a row that
     // only fails after the tap teaches the reader nothing.
-    const noIdentity = person.hasIdentity === false;
+    //
+    // Then their own group-add setting, which is the one this picker exists to
+    // honour. Same reason for saying it out loud: a greyed row with no words is
+    // indistinguishable from a control that is broken, and "they said no" is a
+    // fact the reader is entitled to before they tap, not after they are refused.
+    let unavailableReason: string | null = null;
+    if (person.hasIdentity === false) {
+      unavailableReason = "hasn't enabled Messages";
+    } else if (person.addRefusal !== null) {
+      unavailableReason = GROUP_ADD_REFUSAL_COPY[person.addRefusal];
+    }
     // At the ceiling every unselected row goes dead, which is the honest state:
     // the picker says how many the den can hold and refuses the rest. A row that
-    // silently did nothing would read as a broken tap.
-    const disabled = noIdentity || (!isSelected && atCeiling);
+    // silently did nothing would read as a broken tap. A row that is already
+    // picked stays live so it can be put back.
+    const disabled = unavailableReason !== null || (!isSelected && atCeiling);
     return (
       <PickerRow
         disabled={disabled}
@@ -123,7 +182,7 @@ export function MemberPicker({
         onSelect={() => onToggle(person)}
         person={person}
         selected={isSelected}
-        unavailableReason={noIdentity ? "hasn't enabled Messages" : null}
+        unavailableReason={unavailableReason}
       />
     );
   }
@@ -143,7 +202,7 @@ export function MemberPicker({
       return (
         <PickerFrame>
           <p className="text-muted-foreground px-2 py-2 text-xs">
-            No one found. You can only add people you follow.
+            No one found. Try a different name.
           </p>
         </PickerFrame>
       );
@@ -169,7 +228,7 @@ export function MemberPicker({
         <div className="flex flex-col items-center gap-1 py-6 text-center">
           <Users className="text-muted-foreground/50 h-6 w-6" />
           <p className="text-muted-foreground max-w-56 px-2 text-xs">
-            No conversations yet. Search for someone you follow to add them.
+            No conversations yet. Search for anyone to add them.
           </p>
         </div>
       </PickerFrame>
@@ -178,15 +237,13 @@ export function MemberPicker({
 
   return (
     <PickerFrame>
-      {/* "follow", not "message". This picker is only ever reached from a den -
-          creating one or adding to one - and both the server's rule and every
-          surface around it say follow: the field placeholder, the dialog's own
-          description, and the refusal the route returns. One line saying
-          "message" next to a field that says "follow" is a contradiction the
-          reader has to resolve on their own. */}
+      {/* "message", because these are people you already talk to - which is not
+          the same as people you may add. The list is recents, and it is now
+          filtered by each person's own group-add setting rather than by your
+          following list, so a row here can be greyed out. */}
       <p className="text-muted-foreground flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold tracking-wide uppercase">
         <History className="h-3 w-3" />
-        People you follow
+        People you message
       </p>
       {recents.map((person) => renderRow(person))}
     </PickerFrame>

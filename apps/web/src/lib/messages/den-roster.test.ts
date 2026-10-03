@@ -46,11 +46,12 @@ describe("parseMemberIds", () => {
 // remember to revisit - and the same reason this file cannot drift from
 // `FAILURE_STATUS` in `den-roster.ts` without a compiler noticing one side.
 const STATUS_BY_CODE: Record<DenCandidateFailureCode, number> = {
-  FOLLOW_REQUIRED: 403,
   INVALID_INPUT: 400,
   LIMIT_REACHED: 409,
   MEMBERS_REQUIRED: 400,
+  NOT_FOLLOWING_YOU: 403,
   NOT_FOUND: 404,
+  NO_DIRECT_ADDS: 403,
   NO_IDENTITY: 409,
 };
 
@@ -67,17 +68,22 @@ describe("denCandidateFailureResponse", () => {
     }
   });
 
-  test("the only 403 a roster can produce is the follow rule", () => {
+  test("every 403 a roster can produce is a candidate's own group-add setting", () => {
     // BLOCKED used to share this status, which is exactly why a reader could not
-    // tell "you may not add people you don't follow" from "somebody in this den has
-    // blocked one of them". The second no longer exists - a den admits regardless
-    // of blocks - so a 403 has exactly one meaning left, and it is about the
-    // caller's own follows rather than about anybody else's relationships.
+    // tell one refusal from another. It no longer exists - a den admits regardless
+    // of blocks - so what a 403 now means is narrow and checkable: the request is
+    // well formed, the caller may add many people, and it is somebody named in it
+    // who said no.
+    //
+    // A 403 that were about the CALLER's own follows would be a different thing
+    // wearing the same status, and this is the assertion that keeps it from
+    // quietly coming back.
     expect(
       Object.entries(STATUS_BY_CODE)
         .filter(([, status]) => status === 403)
         .map(([code]) => code)
-    ).toEqual(["FOLLOW_REQUIRED"]);
+        .toSorted()
+    ).toEqual(["NOT_FOLLOWING_YOU", "NO_DIRECT_ADDS"]);
   });
 
   test("always carries the code so the client can distinguish the refusals", async () => {

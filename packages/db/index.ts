@@ -19,9 +19,13 @@ export {
   DEN_LIMITS,
   DEN_MANAGEMENT_ROLES,
   DEN_ROLES,
+  GROUP_ADD_POLICIES,
+  GROUP_ADD_REFUSAL_COPY,
   canManageDen,
   canManageRole,
+  groupAddRefusal,
   isDenRole,
+  isGroupAddPolicy,
   normalizeDenName,
   validateDenDescription,
   validateDenName,
@@ -31,6 +35,8 @@ export type {
   DenManagementRole,
   DenMembershipEventAction,
   DenRole,
+  GroupAddPolicy,
+  GroupAddRefusal,
 } from "./src/messages/dens";
 export {
   DenError,

@@ -745,14 +745,14 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           <DialogHeader>
             <DialogTitle>Add members</DialogTitle>
             <DialogDescription>
-              You can only add people you follow, and only if they have Messages
-              enabled.
+              Anyone here who will not accept a direct add is greyed out. You
+              can always share the invite link instead.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2">
             <MemberPickerSearch
               onChange={setQuery}
-              placeholder="Search people you follow…"
+              placeholder="Search for anyone…"
               value={query}
             />
             <MemberPicker

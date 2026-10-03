@@ -636,14 +636,14 @@ async function createDenFromRequest(
     return limited;
   }
 
-  // requireFollow: a direct add is the same deliberate act as starting a DM, so
-  // the follow rule applies here exactly as it does for a DM. That is the only
-  // relationship rule at this door: a den admits regardless of blocks, so there
-  // is no incumbent roster to test anybody against and nothing to pass in for one.
+  // Each candidate's own group-add policy decides, not the relationship between
+  // the creator and the candidate: a den admits regardless of blocks, so there is
+  // no incumbent roster to test anybody against, and the one relationship that
+  // does matter is the one the candidate controls.
   const failure = await validateDenRoster(
     creatorId,
     [creatorId, ...parsedIds.memberIds],
-    { currentMemberCount: 0, requireFollow: true }
+    { currentMemberCount: 0 }
   );
   if (failure) {
     return denCandidateFailureResponse(failure);

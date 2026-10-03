@@ -1,4 +1,4 @@
-import type { DenRole } from "@asm/db";
+import type { DenRole, GroupAddRefusal } from "@asm/db";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
@@ -126,6 +126,10 @@ export interface ConversationListResponse {
 }
 
 export interface SearchUserResult {
+  // Why this person cannot be put in a group outright, or null when they can.
+  // Only ever set by the den search context: the share sheet asks a different
+  // question and has no use for a group-add refusal.
+  addRefusal: GroupAddRefusal | null;
   avatarUrl: string | null;
   badge: string | null;
   badges: string[];
@@ -1360,11 +1364,45 @@ export async function editMessage(
   return json.message;
 }
 
+// Whether each account may be put in a group outright.
+//
+// Separate from the search because the picker's recents come from the
+// conversation list, which has no policy in it and should not grow one, and
+// because the answer is needed about people the client already holds rather than
+// about people it is searching for.
+export async function fetchGroupAddEligibility(
+  userIds: readonly string[]
+): Promise<Record<string, GroupAddRefusal | null>> {
+  if (userIds.length === 0) {
+    return {};
+  }
+  const response = await fetch(
+    `/api/messages/dens/add-eligibility?ids=${encodeURIComponent(
+      userIds.join(",")
+    )}`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as {
+    eligibility: { id: string; refusal: GroupAddRefusal | null }[];
+  };
+  return Object.fromEntries(
+    body.eligibility.map((row) => [row.id, row.refusal])
+  );
+}
+
+// `context` narrows or widens who comes back. "den" widens the net past the
+// viewer's own follows and reports each candidate's group-add eligibility, because
+// the question there is "who exists and may I add them" rather than "who do I
+// message". Anything else stays follow-only.
 export async function searchMessageUsers(
-  query: string
+  query: string,
+  context: "den" | "message" = "message"
 ): Promise<SearchUserResult[]> {
   const response = await fetch(
-    `/api/messages/search?q=${encodeURIComponent(query)}`,
+    `/api/messages/search?q=${encodeURIComponent(query)}&context=${context}`,
     { credentials: "same-origin" }
   );
   if (!response.ok) {
