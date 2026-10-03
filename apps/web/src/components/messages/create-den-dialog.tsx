@@ -62,14 +62,25 @@ import { cn } from "@/lib/utils";
 // The upload pipeline runs before the create, so creating is one round trip.
 // Module scope because React Compiler cannot lower a throw or a finally clause
 // inside component code; this reports through a union instead of an exception.
-async function uploadDenAvatar(
+//
+// Exported for the same reason as the module scope: the purpose below is the
+// whole reason this upload can happen at all, and a regression to "message" is
+// invisible without reading it.
+export async function uploadDenAvatar(
   file: File,
   onStage: (stage: UploadStage) => void
 ): Promise<{ mediaId: string } | { error: string }> {
   try {
     const uploaded = await uploadMediaFile(file, {
       onStage,
-      purpose: "message",
+      // "avatar", NOT "message". A message attachment has to be bound to a
+      // conversation at upload time so the peer can be admitted, and this upload
+      // happens BEFORE the den exists - there is no conversation to bind to, so
+      // "message" was refused outright and picking a picture was impossible. An
+      // avatar upload is owner-readable from the start, which is what the preview
+      // needs, and the create route binds it to the new conversation afterwards so
+      // the rest of the roster can load it too.
+      purpose: "avatar",
     });
     if (uploaded.status === "REJECTED") {
       return {

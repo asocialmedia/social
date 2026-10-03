@@ -283,6 +283,36 @@ export const BannerInput = ({
   );
 };
 
+// The `src` an avatar control actually renders.
+//
+// Extracted from the component because it is a decision worth asserting and the
+// component is not worth rendering in a test. Three callers exist (the profile
+// editor, the community wizard, the den create sheet) and they spell "no picture
+// chosen yet" three different ways, which is how the empty-string warning
+// reached `next/image` in the first place.
+//
+// An empty string is "no picture", not a URL. `next/image` accepts `src=""`,
+// renders an `<img>` with no usable source and React warns that the browser may
+// re-request the whole page; the placeholder is the same answer the component was
+// already giving for a missing `src`, so the empty string joins it here rather
+// than at each call site.
+//
+// A `blob:` URL is passed through untouched: an optimistic local preview is the
+// only source the uploading client can resolve, and normalising it through
+// `getSecureImageUrl` would strip the scheme.
+export function resolveAvatarSrc(
+  src: string | StaticImageData,
+  placeholder: string
+): string {
+  if (typeof src !== "string") {
+    return placeholder;
+  }
+  if (src.startsWith("blob:")) {
+    return src;
+  }
+  return src.length > 0 ? getSecureImageUrl(src) : placeholder;
+}
+
 export interface AvatarInputProps {
   canDelete: boolean;
   // Sizing override for the avatar in the bare variant (the settings hero
@@ -326,12 +356,10 @@ export const AvatarInput = (props: AvatarInputProps) => {
   const [gifToCenter, setGifToCenter] = useState<File>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const avatarSrc = useMemo(() => {
-    if (typeof src === "string" && !src.startsWith("blob:")) {
-      return getSecureImageUrl(src);
-    }
-    return typeof src === "string" ? src : avatarPlaceholder.src;
-  }, [src]);
+  const avatarSrc = useMemo(
+    () => resolveAvatarSrc(src, avatarPlaceholder.src),
+    [src]
+  );
 
   const resetInput = useCallback(() => {
     if (fileInputRef.current) {

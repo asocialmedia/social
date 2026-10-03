@@ -564,6 +564,50 @@ export async function POST(request: Request) {
   return Response.json({ conversation, isNew: true }, { status: 201 });
 }
 
+// Binds a freshly-created den's avatar to the new conversation so the rest of
+// the roster can load it. A den avatar is uploaded BEFORE the den exists (the
+// creator picks it in the create sheet), so it cannot be conversation-bound at
+// upload the way a message attachment is; it lands as an owner-readable unlinked
+// row. This binds it after the fact.
+//
+// The binding is what `decideMediaAccess` reads to admit conversation members.
+// Without it only the creator could fetch `/api/media/{id}`, and every other
+// member's den would render a placeholder for a picture the creator can see.
+// The same conservative guard as `message-link` runs here: the caller must own
+// the row AND it must not already be bound elsewhere, so this can never re-point
+// somebody else's media or move an existing attachment.
+//
+// Best-effort. The den exists either way, and an avatar the roster cannot see is
+// a lesser outcome than a failed create; the creator's own copy still renders
+// because an unlinked row is owner-readable.
+async function bindDenAvatarToConversation(
+  conversationId: string,
+  avatarMediaId: string | null,
+  creatorId: string
+): Promise<void> {
+  if (!avatarMediaId) {
+    return;
+  }
+  try {
+    await prisma.orm.public.PostMedia.where((media) =>
+      and(
+        media.id.eq(avatarMediaId),
+        media.userId.eq(creatorId),
+        media.status.in([
+          "READY",
+          "PROCESSING",
+          "SCANNING",
+          "QUARANTINED",
+          "UPLOADING",
+        ]),
+        media.messageConversationId.isNull()
+      )
+    ).updateAndCount({ messageConversationId: conversationId });
+  } catch (error) {
+    console.error("Failed to bind den avatar to conversation:", error);
+  }
+}
+
 // Den creation. Shares this route so the client lands on the same conversation
 // cache entry it would for a DM, and so the response shape is identical.
 async function createDenFromRequest(
@@ -628,6 +672,14 @@ async function createDenFromRequest(
       memberIds: parsedIds.memberIds,
       name,
     });
+    // The avatar was picked before the den existed, so it is bound to the
+    // conversation only now. Every member's client loads it through
+    // `/api/media/{id}`, and that route admits conversation members off this link.
+    await bindDenAvatarToConversation(
+      created.id,
+      avatarMediaId.value ?? null,
+      creatorId
+    );
     // Re-read through the same mapper the DM path uses, so the client receives
     // an identical conversation shape and does not need a second fetch before it
     // can fan the root key out to the new members.

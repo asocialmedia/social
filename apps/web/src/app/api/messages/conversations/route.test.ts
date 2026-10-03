@@ -51,6 +51,32 @@ const conversationWhereCalls: ConversationWhereCall[] = [];
 const mockFindFirst = mock((): ConversationRow | null => null);
 let createdConversation: Record<string, unknown> | null = null;
 
+// The den half of this POST. Stands in for the real service so the create path
+// can be driven without a database; the roster validation it depends on is
+// mocked separately below.
+const mockCreateDen = mock(
+  (input: { avatarMediaId?: string | null; creatorId: string }) => {
+    createdDen = input;
+    // The route re-reads the conversation through the same mapper the DM path
+    // uses so the client gets one shape; this is the row that read answers with.
+    createdConversation = {
+      ...queryConversation("den-1"),
+      _type: "DEN",
+      avatarMediaId: input.avatarMediaId ?? null,
+      name: "Study group",
+    };
+    return Promise.resolve({ id: "den-1", inviteCode: "joinme123456" });
+  }
+);
+let createdDen: { avatarMediaId?: string | null; creatorId: string } | null =
+  null;
+
+// Every PostMedia row the route bound to a conversation, and the count the mock
+// reports back. The count is what tells a test whether the conditional update
+// claimed a row at all, which is how the guard is observed rather than assumed.
+const postMediaUpdates: Record<string, unknown>[] = [];
+let postMediaUpdateCount = 1;
+
 // The GET path's fixtures. One list read answers both the DM and the DEN cases,
 // because the point of the filter is that a single list has to treat them
 // differently.
@@ -227,6 +253,13 @@ mock.module("@/lib/auth/session", () => ({
 const limiter = messageRouteLimiter();
 mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
+// Roster rules are den-service's business and are covered there; this file is
+// about what the route does with the answer, so the validator answers "legal".
+const mockValidateDenRoster = mock(() => null);
+mock.module("@/lib/messages/den-roster", () => ({
+  validateDenRoster: mockValidateDenRoster,
+}));
+
 mock.module("@/lib/messages/server", () => ({
   areBlocked: mockAreBlocked,
   getConversationMembersInclude: () => ({ members: true }),
@@ -251,6 +284,7 @@ mock.module("@asm/db", () => ({
   // from the mocked barrel and would resolve for real, but a route under test
   // importing the barrel should get the barrel's export either way.
   canManageDen: (role: string) => role === "OWNER" || role === "ADMIN",
+  createDen: mockCreateDen,
   getMessageConversationDataQuery: () => {
     // One chainable query for both verbs. The GET reads a page through
     // include/where/orderBy/limit/all; the POST resolves a single row through
@@ -383,6 +417,14 @@ mock.module("@asm/db", () => ({
             },
           }),
         },
+        PostMedia: {
+          where: () => ({
+            updateAndCount: (data: Record<string, unknown>) => {
+              postMediaUpdates.push(data);
+              return Promise.resolve(postMediaUpdateCount);
+            },
+          }),
+        },
         Users: {
           select: () => ({
             where: (where: { id: string }) => ({
@@ -419,11 +461,79 @@ function postWith(recipientId?: string) {
   return POST(req);
 }
 
+function postDen(body: Record<string, unknown>) {
+  return POST(
+    new Request("http://localhost:3000/api/messages/conversations", {
+      body: JSON.stringify({ type: "DEN", ...body }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+  );
+}
+
+describe("a den create binds its avatar so the roster can load it", () => {
+  // The avatar is picked BEFORE the den exists, so it cannot be bound to a
+  // conversation at upload the way a message attachment is. It lands as an
+  // owner-readable unlinked row, and only the creator could fetch it - so the
+  // route binds it to the new conversation. This is the whole reason picking a
+  // den picture was possible at all, and the reason the rest of the roster can
+  // actually see it.
+  beforeEach(() => {
+    createdDen = null;
+    postMediaUpdates.length = 0;
+    postMediaUpdateCount = 1;
+    mockCreateDen.mockClear();
+    mockValidateDenRoster.mockClear();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockHasMessageIdentity.mockImplementation(() => true);
+    limiter.reset();
+  });
+
+  test("binds the uploaded avatar to the conversation it just created", async () => {
+    const res = await postDen({
+      avatarMediaId: "media-1",
+      memberIds: ["user2"],
+      name: "Study group",
+    });
+
+    expect(res.status).toBe(201);
+    expect(createdDen?.avatarMediaId).toBe("media-1");
+    expect(postMediaUpdates).toEqual([{ messageConversationId: "den-1" }]);
+  });
+
+  test("binds nothing when the den was created without a picture", async () => {
+    // A den with no avatar must not write a link: there is no row to point at,
+    // and the call is skipped before the database is touched at all.
+    const res = await postDen({ memberIds: ["user2"], name: "Study group" });
+
+    expect(res.status).toBe(201);
+    expect(createdDen?.avatarMediaId).toBeNull();
+    expect(postMediaUpdates).toEqual([]);
+  });
+
+  test("a den is still created when the binding cannot claim the row", async () => {
+    // Best-effort by design. The row stays owner-readable, so the creator still
+    // sees their own picture; refusing the create over an avatar would be a
+    // worse outcome than a picture the rest of the roster cannot load.
+    postMediaUpdateCount = 0;
+    const res = await postDen({
+      avatarMediaId: "media-1",
+      memberIds: ["user2"],
+      name: "Study group",
+    });
+
+    expect(res.status).toBe(201);
+    expect(postMediaUpdates).toEqual([{ messageConversationId: "den-1" }]);
+  });
+});
+
 describe("POST /api/messages/conversations", () => {
   beforeEach(() => {
     createdConversations.length = 0;
     createdConversation = null;
     conversationWhereCalls.length = 0;
+    postMediaUpdates.length = 0;
+    postMediaUpdateCount = 1;
     mockCreate.mockClear();
     mockFindFirst.mockClear();
     mockFindUniqueUser.mockClear();
@@ -757,6 +867,8 @@ describe("POST /api/messages/conversations rate limit", () => {
     createdConversations.length = 0;
     createdConversation = null;
     conversationWhereCalls.length = 0;
+    postMediaUpdates.length = 0;
+    postMediaUpdateCount = 1;
     mockCreate.mockClear();
     mockFindFirst.mockClear();
     mockFindUniqueUser.mockClear();
