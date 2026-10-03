@@ -104,6 +104,11 @@ export function getPrivateUserQuery(orm: PrismaOrm, loggedInUserId: string) {
     "emailVerified",
     "githubUsername",
     "googleId",
+    // Private on purpose: this is the reader's own privacy setting and it belongs
+    // to nobody else's payload. `getPublicUserQuery` deliberately does not carry
+    // it - another account's policy is reported by the den search, as a decision
+    // this viewer may act on rather than a fact about that person.
+    "groupAddPolicy",
     "id",
     "lastLoginMethod",
     "linkedinUsername",

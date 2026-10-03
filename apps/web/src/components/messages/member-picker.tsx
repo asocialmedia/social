@@ -1,6 +1,11 @@
 "use client";
 
-import { GROUP_ADD_REFUSAL_COPY } from "@asm/db";
+// The browser-safe subpath, not the `@asm/db` barrel. This is a client component
+// and the barrel re-exports the queue and the logger, so a value import from it
+// drags bullmq and pino into the browser bundle and the route fails to resolve
+// `worker_threads`. `dens.ts` imports nothing at all, which is what makes it the
+// one entry into this vocabulary a component may use.
+import { GROUP_ADD_REFUSAL_COPY } from "@asm/db/messages/dens";
 import { useQuery } from "@tanstack/react-query";
 import { Check, History, Search, UserPlus, Users } from "lucide-react";
 import { useMemo } from "react";

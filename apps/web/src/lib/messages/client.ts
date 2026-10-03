@@ -1,4 +1,4 @@
-import type { DenRole, GroupAddRefusal } from "@asm/db";
+import type { DenRole, GroupAddRefusal } from "@asm/db/messages/dens";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";

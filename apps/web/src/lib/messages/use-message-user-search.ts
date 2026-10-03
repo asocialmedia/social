@@ -1,6 +1,6 @@
 "use client";
 
-import type { GroupAddRefusal } from "@asm/db";
+import type { GroupAddRefusal } from "@asm/db/messages/dens";
 import { useEffect, useState } from "react";
 
 import { searchMessageUsers } from "@/lib/messages/client";

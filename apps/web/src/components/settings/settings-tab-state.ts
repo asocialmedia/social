@@ -2,7 +2,12 @@ import type { SettingsTab } from "./settings-search";
 
 type SettingsSearchParams = Pick<URLSearchParams, "get" | "has">;
 
-const SETTINGS_TABS = new Set<SettingsTab>(["profile", "account", "security"]);
+const SETTINGS_TABS = new Set<SettingsTab>([
+  "profile",
+  "account",
+  "privacy",
+  "security",
+]);
 
 export function getSettingsTab(
   searchParams: SettingsSearchParams
