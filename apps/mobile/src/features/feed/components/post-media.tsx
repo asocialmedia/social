@@ -152,6 +152,10 @@ function SingleImage({
           isGifMedia(media)
         )}
         contentFit="contain"
+        placeholder={media.blurDataUrl ?? undefined}
+        placeholderContentFit="contain"
+        recyclingKey={media.id}
+        transition={200}
         onError={() => onFailed(media.id)}
         onLoad={(event) => {
           const { source } = event;
@@ -211,6 +215,10 @@ function GridImage({
           isGifMedia(media)
         )}
         contentFit="cover"
+        placeholder={media.blurDataUrl ?? undefined}
+        placeholderContentFit="cover"
+        recyclingKey={media.id}
+        transition={200}
         onError={() => onFailed(media.id)}
         source={{ uri: mediaGridImageUrl(apiBase, media) }}
         style={styles.gridTileImage}
@@ -618,6 +626,10 @@ function VideoTile({
         <Image
           accessibilityLabel=""
           contentFit="cover"
+          placeholder={media.blurDataUrl ?? undefined}
+          placeholderContentFit="cover"
+          recyclingKey={`poster-${media.id}`}
+          transition={200}
           onError={() => setPosterFailed(true)}
           source={{ uri: mediaPosterUrl(apiBase, media.id) }}
           style={styles.fill}

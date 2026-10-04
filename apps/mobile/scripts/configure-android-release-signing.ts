@@ -1,4 +1,3 @@
-// Points the generated Android release build at a production keystore instead
 // of the debug keystore `expo prebuild` writes by default. The keystore and its
 // credentials are supplied as Gradle project properties
 // (ORG_GRADLE_PROJECT_ASM_UPLOAD_*), so no secret is ever committed.

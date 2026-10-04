@@ -44,6 +44,9 @@ export const ORANGE_BUTTON_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
 export const ORANGE_GRADIENT = ["#ff9500", "#e65500"] as const;
 export const ORANGE_PRESSED_GRADIENT = ["#e65500", "#d44a00"] as const;
+// `.btn-3d:disabled`: web desaturates a gated pill instead of fading it, so the
+// action stays legible rather than dropping to a low-opacity wash.
+export const ORANGE_DISABLED_GRADIENT = ["#ffc480", "#ffab66"] as const;
 export const PURPLE_GRADIENT = ["#7c5cff", "#5a3ae0"] as const;
 export const DARK_CHIP_GRADIENT = ["#3a3f4a", "#23262e"] as const;
 export const DARK_CHIP_SHADOWS =

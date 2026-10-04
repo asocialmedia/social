@@ -25,6 +25,7 @@ import {
   View,
 } from "react-native";
 
+import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { pickPhotosAndVideos } from "@/features/composer/lib/pick-media";
@@ -473,9 +474,21 @@ async function runSend(input: {
     () => {
       input.onSuccess();
     },
-    () => {
+    (error: unknown) => {
       // The draft stays in the field. Losing what someone typed because a send
       // failed is the one outcome a composer must never produce.
+      //
+      // Web raises the same pair from its send path
+      // (`apps/web/src/components/messages/message-composer.tsx`): "Message not
+      // sent", with the thrown message as the description when there is one. The
+      // draft surviving is not a substitute for saying so -- without this the
+      // send fails silently and the only symptom is the text still sitting there.
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't send message",
+        title: "Message not sent",
+        variant: "destructive",
+      });
     }
   );
   input.onSettled();

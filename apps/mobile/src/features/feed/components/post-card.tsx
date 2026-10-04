@@ -41,6 +41,8 @@ import {
   getUserVote,
 } from "../lib/feed-types";
 import { parseStoredEmbeds } from "../lib/link-embeds";
+import { buildMoreEntries } from "../lib/more-entries";
+import { useVideoCaptionsStore } from "../state/video-captions-store";
 import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
@@ -204,14 +206,14 @@ export const PostCard = memo(
         onOpenDetail(post);
         return;
       }
-      const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
-      router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+      // Full id: the backend only resolves an 8-char prefix when it matches
+      // exactly one post, so truncating turns colliding prefixes into 404s.
+      router.push({ params: { postId: post.id }, pathname: "/posts/[postId]" });
     };
     const openMedia = useCallback(
       (mediaIndex: number) => {
-        const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
         router.push({
-          params: { index: String(mediaIndex), postId: shortId },
+          params: { index: String(mediaIndex), postId: post.id },
           pathname: "/posts/[postId]/media/[index]",
         });
       },
@@ -259,6 +261,22 @@ export const PostCard = memo(
     const commentCount = post._count?.comments ?? 0;
     const responseCount = post._count?.responses ?? 0;
     const railColor = getPostRailColor(post, isDark);
+    // Posts with no overflow entries hide the trigger instead of opening an
+    // empty menu. The placeholder keeps the header row height stable so the
+    // name stays top-aligned with the avatar.
+    const showCaptionsForMenu = useVideoCaptionsStore(
+      (state) => state.showCaptions
+    );
+    const hasOverflow = useMemo(
+      () =>
+        buildMoreEntries({
+          post,
+          showCaptions: showCaptionsForMenu,
+          showingAlt: showAlt,
+          viewerId,
+        }).length > 0,
+      [post, showAlt, showCaptionsForMenu, viewerId]
+    );
 
     return (
       <View
@@ -311,6 +329,8 @@ export const PostCard = memo(
                 <Image
                   cachePolicy={imageCachePolicy(avatarUri)}
                   contentFit="cover"
+                  recyclingKey={avatarUri ?? "avatar-placeholder"}
+                  transition={150}
                   onError={() => setAvatarFailed(true)}
                   source={
                     avatarUri && !avatarFailed
@@ -372,7 +392,15 @@ export const PostCard = memo(
                 {/* Web's header buttons carry -my-1 so the text row sets the row
                 height and the name stays top-aligned with the avatar. */}
                 <View style={styles.moreFix}>
-                  <MoreButton onPress={(anchor) => onMore(post, anchor)} />
+                  {hasOverflow ? (
+                    <MoreButton onPress={(anchor) => onMore(post, anchor)} />
+                  ) : (
+                    <View
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      style={styles.morePlaceholder}
+                    />
+                  )}
                 </View>
               </View>
 
@@ -489,6 +517,7 @@ export const PostCard = memo(
               <View style={styles.actions}>
                 <VoteCluster
                   aura={post.aura ?? 0}
+                  authorName={displayName}
                   onRequireLogin={requireLogin}
                   postId={post.id}
                   userVote={getUserVote(post)}
@@ -666,6 +695,10 @@ const styles = StyleSheet.create({
   },
   moreFix: {
     marginVertical: -4,
+  },
+  morePlaceholder: {
+    height: 28,
+    width: 28,
   },
   name: {
     flexShrink: 1,

@@ -28,6 +28,11 @@ import {
 
 import asmLogo from "@/assets/images/asm.png";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  ORANGE_GRADIENT,
+  ORANGE_PRESSED_GRADIENT,
+} from "@/components/surface/recipes";
 import {
   HEADER_BAR_HEIGHT,
   subscribeHeaderVisibility,
@@ -42,7 +47,9 @@ import {
   ICON_BUTTON_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_LIGHT,
   LOGIN_BUTTON_PRESSED_SHADOWS,
+  LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,
   LOGIN_BUTTON_SHADOWS,
+  LOGIN_BUTTON_SHADOWS_LIGHT,
   useAppTheme,
 } from "@/theme";
 
@@ -113,6 +120,17 @@ export function MobileHeader({
   const iconShadows = isDark
     ? ICON_BUTTON_SHADOWS_DARK
     : ICON_BUTTON_SHADOWS_LIGHT;
+  // The guest pill is web's `.btn-3d` resting and `:active`. It rides a
+  // Gradient3D, not a View wrapping a LinearGradient: React Native paints inset
+  // shadows on the view's own background, so a gradient child covering the pill
+  // hides the bright inner lip and the dual border collapses to one ring.
+  // Light mode needs its own recipe; the base `.btn-3d` stack is the dark one.
+  const loginShadows = isDark
+    ? LOGIN_BUTTON_SHADOWS
+    : LOGIN_BUTTON_SHADOWS_LIGHT;
+  const loginPressedShadows = isDark
+    ? LOGIN_BUTTON_PRESSED_SHADOWS
+    : LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT;
   // Web MobileTopBar reads user.avatarUrl ?? user.image: custom uploads live
   // in avatarUrl while the session's image only covers OAuth providers. The
   // popup profile (cache-first, shared with the popup itself) carries the
@@ -281,28 +299,25 @@ export function MobileHeader({
                 </Pressable>
               </>
             ) : (
-              <Pressable onPress={() => router.push("/(auth)/login")}>
+              <Pressable
+                accessibilityLabel="Log in"
+                accessibilityRole="button"
+                onPress={() => {
+                  router.push("/(auth)/login");
+                }}
+              >
                 {({ pressed }) => (
-                  <View
+                  <Gradient3D
+                    colors={pressed ? ORANGE_PRESSED_GRADIENT : ORANGE_GRADIENT}
+                    radius={9999}
+                    shadows={pressed ? loginPressedShadows : loginShadows}
                     style={[
                       styles.loginPill,
-                      {
-                        boxShadow: pressed
-                          ? LOGIN_BUTTON_PRESSED_SHADOWS
-                          : LOGIN_BUTTON_SHADOWS,
-                      },
-                      pressed && styles.pressedShift,
+                      pressed && styles.loginPillPressed,
                     ]}
                   >
-                    <LinearGradient
-                      colors={["#ff9500", "#e65500"]}
-                      end={{ x: 0.5, y: 1 }}
-                      start={{ x: 0.5, y: 0 }}
-                      style={styles.loginPillGradient}
-                    >
-                      <Text style={styles.loginPillText}>Log in</Text>
-                    </LinearGradient>
-                  </View>
+                    <Text style={styles.loginPillText}>Log in</Text>
+                  </Gradient3D>
                 )}
               </Pressable>
             )}
@@ -383,14 +398,13 @@ const styles = StyleSheet.create({
     width: 36,
   },
   loginPill: {
-    borderRadius: 9999,
-  },
-  loginPillGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     height: 32,
-    justifyContent: "center",
     paddingHorizontal: 14,
+  },
+  // Web's `.btn-3d:active` sinks the pill 1px with no opacity step; the ghost
+  // icon buttons keep the opacity fade in `pressedShift`.
+  loginPillPressed: {
+    transform: [{ translateY: 1 }],
   },
   loginPillText: {
     color: "#ffffff",

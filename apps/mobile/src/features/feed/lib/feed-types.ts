@@ -249,12 +249,32 @@ export function filterFeedPosts(
   });
 }
 
+// Parsed createdAt cache: this sort re-runs on every cache write, including
+// view-count reconciles that land mid-scroll, and Date parsing per comparison
+// turned each of those flushes into milliseconds of JS on the scroll path.
+// createdAt is immutable per post, so caching by id is sound. Bounded so a
+// long session cannot grow it without limit.
+const createdAtCache = new Map<string, number>();
+const CREATED_AT_CACHE_LIMIT = 2000;
+function createdAtOf(post: FeedPost): number {
+  const cached = createdAtCache.get(post.id);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const parsed = new Date(post.createdAt).getTime();
+  const value = Number.isFinite(parsed) ? parsed : 0;
+  if (createdAtCache.size >= CREATED_AT_CACHE_LIMIT) {
+    createdAtCache.clear();
+  }
+  createdAtCache.set(post.id, value);
+  return value;
+}
+
 // Newest-first for chronological feeds (web sortBy="newest"). Stable for
 // equal timestamps via id tiebreak.
 export function sortPostsNewest(posts: FeedPost[]): FeedPost[] {
   return insertionOrder(posts, (a, b) => {
-    const diff =
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    const diff = createdAtOf(b) - createdAtOf(a);
     return diff === 0 ? a.id.localeCompare(b.id) : diff;
   });
 }

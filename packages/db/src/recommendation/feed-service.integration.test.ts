@@ -8,6 +8,7 @@ import {
   getSocialProofPostWeights,
   getPersonalizedFeedPage,
   invalidateFypProfile,
+  or,
   prisma,
   redis,
   toPrismaDateTime,
@@ -108,11 +109,69 @@ async function createVideoAttachment(
   MEDIA_IDS.push(mediaId);
 }
 
+// Every fixture row this file creates is prefixed `rec-it-`, including the
+// generated media ids (`${postId}-video`).
+const FIXTURE_ID_PREFIX = "rec-it-";
+
+// A run that is killed before afterAll (interrupted suite, CI timeout, crashed
+// worker) never reaches cleanupFixtures and leaves its posts behind. The feed
+// ranks across the whole Posts table, so those orphans fill the page a later run
+// asks for: this run's social-proof, gust and unrelated posts get pushed past
+// pageSize and every ranking assertion degrades into comparing against -1.
+// Purging the prefix up front makes the suite idempotent and self-healing
+// instead of degrading a little more on every aborted run.
+//
+// Each `.where` deliberately takes a SINGLE expression. In this builder `&&`
+// is a plain JavaScript operator over expression objects rather than SQL
+// composition, so `a && b` evaluates to `b` and silently drops the prefix
+// guard -- which deletes other tests' rows. The exported `and()` does not
+// compose either: `and(prefix, epoch)` returns nothing. A staleness window
+// ("and also older than an hour", to avoid touching a concurrently running
+// suite's fixtures) therefore cannot be expressed safely here, so it is not
+// attempted. The residual exposure is narrow: this only matters if two suite
+// invocations share one database at the same moment, and the prefix is unique
+// to this file, so the sweep is safe for the single-suite case the runner and
+// CI both use.
+async function purgeStaleFixtures(): Promise<void> {
+  const prefix = `${FIXTURE_ID_PREFIX}%`;
+
+  // Ordered children-first so a stale row can never fail the sweep on a foreign
+  // key. AuraLogs is the one table that points at Users with onDelete: Restrict
+  // rather than Cascade, and the fixture posts do produce aura rows, so it has
+  // to be cleared before the users go. Posts then cascade to their media,
+  // votes, events and bookmarks; the media sweep afterwards only collects
+  // orphans from runs that died part-way through createFixtures.
+  //
+  // AuraLogs has no id of its own to prefix-match, so ownership is matched
+  // through the two user columns. `or` is the one combinator verified to
+  // compose here.
+  const auraLogs = await prisma.orm.public.AuraLogs.where((log) =>
+    or(log.issuerId.like(prefix), log.userId.like(prefix))
+  ).deleteAndCount();
+  const posts = await prisma.orm.public.Posts.where((post) =>
+    post.id.like(prefix)
+  ).deleteAndCount();
+  const users = await prisma.orm.public.Users.where((user) =>
+    user.id.like(prefix)
+  ).deleteAndCount();
+  const media = await prisma.orm.public.PostMedia.where((item) =>
+    item.id.like(prefix)
+  ).deleteAndCount();
+
+  if (auraLogs + posts + users + media > 0) {
+    logger.info(
+      { auraLogs, media, posts, runId: RUN_ID, users },
+      "purged stale recommendation fixtures from an earlier run"
+    );
+  }
+}
+
 async function createFixtures(): Promise<void> {
   logger.info(
     { runId: RUN_ID },
     "creating recommendation integration fixtures"
   );
+  await purgeStaleFixtures();
   await Promise.all([
     createUser(USER_IDS.explorer),
     createUser(USER_IDS.favorite, "IN"),

@@ -8,11 +8,20 @@
 // needs no measuring.
 export const HEADER_BAR_HEIGHT = 56;
 let hidden = false;
-let lastOffset = 0;
+// The offset the current run of travel is measured from. Comparing only
+// consecutive offsets meant a drag made of many sub-slip deltas never crossed
+// HIDE_SLIP at all: each individual step stayed under it, so the header stayed
+// put no matter how far the feed moved. Measuring from a baseline that only
+// advances when a flip actually happens accumulates those small steps.
+let baseline = 0;
 const listeners = new Set<(isHidden: boolean) => void>();
 
-const HIDE_SLIP = 4;
-const HIDE_AFTER = 64;
+// Hysteresis: hiding takes a deliberate push down, showing takes a
+// deliberate pull up. The old 4px slip flipped on touch jitter and momentum
+// bounce, so a tad up/down around the threshold flickered both bars.
+const HIDE_SLIP = 12;
+const SHOW_SLIP = 12;
+const HIDE_AFTER = 100;
 
 function notify(next: boolean): void {
   hidden = next;
@@ -22,25 +31,32 @@ function notify(next: boolean): void {
 }
 
 export function reportFeedScroll(offsetY: number): void {
-  const previous = lastOffset;
-  lastOffset = offsetY;
   if (offsetY <= 0) {
+    baseline = 0;
     if (hidden) {
       notify(false);
     }
     return;
   }
-  if (!hidden && offsetY - previous > HIDE_SLIP && offsetY > HIDE_AFTER) {
-    notify(true);
+  // Hiding and showing both measure from the baseline, so a slow drag in
+  // either direction still crosses its slip threshold. The baseline only moves
+  // on a flip, which is what keeps the hysteresis honest: jitter under the
+  // threshold never walks it away from the real resting offset.
+  if (!hidden) {
+    if (offsetY - baseline > HIDE_SLIP && offsetY > HIDE_AFTER) {
+      baseline = offsetY;
+      notify(true);
+    }
     return;
   }
-  if (hidden && previous - offsetY > HIDE_SLIP) {
+  if (baseline - offsetY > SHOW_SLIP) {
+    baseline = offsetY;
     notify(false);
   }
 }
 
 export function resetHeaderScroll(): void {
-  lastOffset = 0;
+  baseline = 0;
   if (hidden) {
     notify(false);
   }

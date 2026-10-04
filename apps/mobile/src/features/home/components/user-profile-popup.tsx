@@ -43,20 +43,28 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
+import {
+  ORANGE_GRADIENT,
+  ORANGE_PRESSED_GRADIENT,
+} from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
 import {
+  APPLE_PANEL_SHADOWS,
+  APPLE_PANEL_SHADOWS_DARK,
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
   ERROR_SHADOWS,
-  ICON_BUTTON_SHADOWS_DARK,
-  ICON_BUTTON_SHADOWS_LIGHT,
+  LOGIN_BUTTON_PRESSED_SHADOWS,
+  LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,
+  LOGIN_BUTTON_SHADOWS,
+  LOGIN_BUTTON_SHADOWS_LIGHT,
   PROFILE_STATS_SHADOWS,
   PROFILE_STATS_SHADOWS_DARK,
-  SURFACE_SHADOWS,
-  SURFACE_SHADOWS_DARK,
   useAppTheme,
 } from "@/theme";
 
@@ -181,10 +189,20 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
     setAvatarFailed(false);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- userId is the reset trigger by design; reading it is unnecessary
   }, [userId]);
-  // Same ghost-icon recipe as the header bell/search (web icon-btn-3d).
-  const iconShadows = isDark
-    ? ICON_BUTTON_SHADOWS_DARK
-    : ICON_BUTTON_SHADOWS_LIGHT;
+  // The popover is a floating surface on web (`.apple-panel`), so the card
+  // takes that recipe rather than the flatter in-page `.surface-3d`, which is
+  // missing the panel's wider outer drop.
+  // The two orange pills are web's `.btn-3d` resting and `:active`. These ride
+  // a Gradient3D, not a View wrapping a LinearGradient: React Native paints
+  // inset shadows on the view's own background, so a gradient child covers the
+  // inner lip and the dual border collapses to a single ring.
+  const panelShadows = isDark ? APPLE_PANEL_SHADOWS_DARK : APPLE_PANEL_SHADOWS;
+  const primaryShadows = isDark
+    ? LOGIN_BUTTON_SHADOWS
+    : LOGIN_BUTTON_SHADOWS_LIGHT;
+  const primaryPressedShadows = isDark
+    ? LOGIN_BUTTON_PRESSED_SHADOWS
+    : LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT;
 
   const closeLogout = () => setLogoutOpen(false);
   const confirmLogout = () => {
@@ -241,7 +259,7 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
             {
               backgroundColor: theme.cardBg,
               borderColor: theme.cardBorder,
-              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
+              boxShadow: panelShadows,
               top: insets.top + 64,
             },
           ]}
@@ -485,55 +503,40 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                   onPress={openProfile}
                   style={styles.actionBtn}
                 >
-                  <LinearGradient
-                    colors={["#ff9500", "#e65500"]}
-                    end={{ x: 0.5, y: 1 }}
-                    start={{ x: 0.5, y: 0 }}
-                    style={styles.actionGradient}
-                  >
-                    <Text style={styles.actionText}>View Profile</Text>
-                  </LinearGradient>
+                  {({ pressed }) => (
+                    <Gradient3D
+                      colors={
+                        pressed ? ORANGE_PRESSED_GRADIENT : ORANGE_GRADIENT
+                      }
+                      radius={9999}
+                      shadows={pressed ? primaryPressedShadows : primaryShadows}
+                      style={[
+                        styles.actionGradient,
+                        pressed && styles.pressedPill,
+                      ]}
+                    >
+                      <Text style={styles.actionText}>View Profile</Text>
+                    </Gradient3D>
+                  )}
                 </Pressable>
-                <Pressable
+                {/* Web's icon-btn-3d, and icon-btn-3d-danger for log out:
+                    the recessed chip at rest plus the tinted gradient the
+                    :hover recipe shows while pressed. */}
+                <IconButton3D
                   accessibilityLabel="Open settings"
-                  accessibilityRole="button"
-                  hitSlop={6}
+                  icon={Settings2}
                   onPress={() => {
                     router.push("/settings");
                   }}
-                  style={[
-                    styles.iconBtn,
-                    {
-                      backgroundColor: theme.passkeyBg,
-                      boxShadow: iconShadows,
-                    },
-                  ]}
-                >
-                  <Settings2 color={theme.passkeyIcon} size={16} />
-                </Pressable>
-                <Pressable
+                  size={36}
+                />
+                <IconButton3D
                   accessibilityLabel="Log out"
-                  accessibilityRole="button"
-                  hitSlop={6}
-                  onPress={() => {
-                    openLogoutDialog();
-                  }}
-                >
-                  {({ pressed }) => (
-                    <View
-                      style={[
-                        styles.iconBtn,
-                        {
-                          backgroundColor: theme.passkeyBg,
-                          boxShadow: iconShadows,
-                        },
-                        pressed && styles.pressedShift,
-                      ]}
-                    >
-                      <LogOut color={theme.passkeyIcon} size={16} />
-                    </View>
-                  )}
-                </Pressable>
+                  danger
+                  icon={LogOut}
+                  onPress={openLogoutDialog}
+                  size={36}
+                />
               </View>
 
               <View style={styles.bookmarks}>
@@ -546,22 +549,29 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                   }}
                   style={styles.bookmarksBtn}
                 >
-                  <LinearGradient
-                    colors={["#ff9500", "#e65500"]}
-                    end={{ x: 0.5, y: 1 }}
-                    start={{ x: 0.5, y: 0 }}
-                    style={styles.bookmarksGradient}
-                  >
-                    <Bookmark color="#ffffff" size={16} />
-                    <Text style={styles.bookmarksText}>Bookmarks</Text>
-                    {bookmarkTotal !== null && bookmarkTotal > 0 ? (
-                      <View style={styles.countChip}>
-                        <Text style={styles.countText}>
-                          {formatNumber(bookmarkTotal)}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </LinearGradient>
+                  {({ pressed }) => (
+                    <Gradient3D
+                      colors={
+                        pressed ? ORANGE_PRESSED_GRADIENT : ORANGE_GRADIENT
+                      }
+                      radius={9999}
+                      shadows={pressed ? primaryPressedShadows : primaryShadows}
+                      style={[
+                        styles.bookmarksGradient,
+                        pressed && styles.pressedPill,
+                      ]}
+                    >
+                      <Bookmark color="#ffffff" size={16} />
+                      <Text style={styles.bookmarksText}>Bookmarks</Text>
+                      {bookmarkTotal !== null && bookmarkTotal > 0 ? (
+                        <View style={styles.countChip}>
+                          <Text style={styles.countText}>
+                            {formatNumber(bookmarkTotal)}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </Gradient3D>
+                  )}
                 </Pressable>
               </View>
             </>
@@ -584,10 +594,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actionGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     height: 36,
-    justifyContent: "center",
     paddingHorizontal: 16,
   },
   actionText: {
@@ -692,11 +699,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   bookmarksBtn: {
-    borderRadius: 9999,
+    width: "100%",
   },
   bookmarksGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
     gap: 8,
     height: 36,
@@ -761,13 +766,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
   },
-  iconBtn: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
   identity: {
     paddingHorizontal: 16,
   },
@@ -801,8 +799,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
   },
-  pressedShift: {
-    opacity: 0.88,
+  // Web's `.btn-3d:active` sinks the pill 1px; no opacity step, unlike the
+  // ghost icon buttons IconButton3D handles on its own.
+  pressedPill: {
     transform: [{ translateY: 1 }],
   },
   retryRow: {

@@ -14,6 +14,7 @@
 // with the top bar. The pending-navigation spinner has no expo-router
 // equivalent (navigation is instant), so tabs always show their icon.
 import { LinearGradient } from "expo-linear-gradient";
+import type { Href } from "expo-router";
 import { usePathname, useRouter } from "expo-router";
 import {
   Clapperboard,
@@ -47,8 +48,12 @@ import {
   useAppTheme,
 } from "@/theme";
 
+// The typed router's href, not a bare string. The dock pushes these straight
+// into `router.push`, and a plain `string` forced an `as "/"` cast at the call
+// site, which is exactly what let a href no route matched (the old "/messages")
+// ship without a type error and dead-end on the not-found screen.
 interface MobileNavItem {
-  href: string;
+  href: Href;
   icon: ComponentType<{ color?: string; size?: number }>;
   label: string;
   requiresAuth?: boolean;
@@ -81,7 +86,9 @@ const RIGHT_ITEMS: MobileNavItem[] = [
 
 // Routes with a mobile screen behind them. Everything else renders as a disabled
 // stub until its screen lands - no dead-feeling fake navigation.
-const LIVE_ROUTES = new Set([
+// Typed as Hrefs so the membership check accepts the nav items' typed
+// hrefs; every entry is a static route the dock can land on.
+const LIVE_ROUTES = new Set<Href>([
   "/",
   "/gusts",
   "/discover",
@@ -297,7 +304,9 @@ export function MobileBottomNav({
     router.push("/(auth)/login");
   };
 
-  const isActive = (href: string) => {
+  // A thread keeps its tab lit, so the check is a prefix match rather than an
+  // equality one: /messages/<id> is still the Messages tab.
+  const isActive = (href: Href) => {
     if (href === "/") {
       return pathname === "/" || pathname.startsWith("/?");
     }
@@ -312,7 +321,9 @@ export function MobileBottomNav({
           active={false}
           badge={item.href === "/messages" ? unreadCount : undefined}
           icon={item.icon}
-          key={item.href}
+          // Labels are unique per tab and always strings; the typed href's
+          // object arm is not a valid React key.
+          key={item.label}
           label={item.label}
           onPress={goToLogin}
         />
@@ -324,7 +335,7 @@ export function MobileBottomNav({
           active={false}
           disabled
           icon={item.icon}
-          key={item.href}
+          key={item.label}
           label={item.label}
         />
       );
@@ -334,9 +345,11 @@ export function MobileBottomNav({
         active={isActive(item.href)}
         badge={item.href === "/messages" ? unreadCount : undefined}
         icon={item.icon}
-        key={item.href}
+        key={item.label}
         label={item.label}
-        onPress={() => router.push(item.href as "/")}
+        onPress={() => {
+          router.push(item.href);
+        }}
       />
     );
   };

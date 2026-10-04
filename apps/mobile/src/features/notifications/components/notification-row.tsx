@@ -267,11 +267,11 @@ export function NotificationRow({
     // land on the feed or the notifications list rather than a dead route.
     // Post targets open the detail screen, which the app already ships.
     if (presentation.target.kind === "post") {
-      const shortId =
-        presentation.target.postId.length > 8
-          ? presentation.target.postId.slice(0, 8)
-          : presentation.target.postId;
-      router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+      // Full id: truncated prefixes 404 when they match more than one post.
+      router.push({
+        params: { postId: presentation.target.postId },
+        pathname: "/posts/[postId]",
+      });
       onOpen(presentation.target);
       return;
     }

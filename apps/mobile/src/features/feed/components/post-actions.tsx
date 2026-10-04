@@ -10,6 +10,8 @@ import {
   ArrowBigDown,
   ArrowBigUp,
   Bookmark,
+  BookmarkCheck,
+  BookmarkX,
   CornerDownRight,
   Eye,
   Flame,
@@ -21,6 +23,7 @@ import { useRef } from "react";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
@@ -58,6 +61,10 @@ function ActionLabel({ children }: { children: string }) {
 
 interface VoteClusterProps {
   aura: number;
+  // Web passes this down from its post card
+  // (`apps/web/src/components/posts/actions/aura-vote-button.tsx`) and names the
+  // author in the amplify and mute messages.
+  authorName: string;
   // When set, the vote targets a comment eddie instead of a post, sharing
   // the optimistic flow against /api/comments/:id/vote like web.
   commentId?: string;
@@ -69,6 +76,7 @@ interface VoteClusterProps {
 
 export function VoteCluster({
   aura: initialAura,
+  authorName,
   commentId,
   onRequireLogin,
   postId,
@@ -94,11 +102,53 @@ export function VoteCluster({
       onRequireLogin();
       return;
     }
+    // Web's copy names the target ("post" or "eddie") in three of the six
+    // messages, so the noun is resolved here rather than baked into the strings.
+    const noun = commentId ? "eddie" : "post";
+    let previousVote = 0;
     try {
-      await vote(value);
+      previousVote = engagement.userVote;
+      const info = await vote(value);
+      // `null` means a newer vote superseded this one: nothing landed, so there
+      // is nothing to announce.
+      if (!info) {
+        return;
+      }
+      // Same four branches as web's `onMutate`, keyed off the server's resolved
+      // vote rather than the optimistic one.
+      if (info.userVote === 1) {
+        toast({
+          description: `Amplified ${authorName}'s ${noun}, nice boost!`,
+          icon: <Flame color="#ff7a00" fill="#ff7a00" />,
+          title: "+1 Aura",
+        });
+      } else if (info.userVote === -1) {
+        toast({
+          description: `You muted ${authorName}'s ${noun}, we'll show you fewer like this`,
+          icon: <ArrowBigDown color="#7c5cff" fill="#7c5cff" />,
+          title: "Muted",
+        });
+      } else if (previousVote === 1) {
+        toast({
+          description: "You can always amplify it again later",
+          icon: <Flame color="#ff7a00" fill="#ff7a00" />,
+          title: "Amplification Removed",
+        });
+      } else if (previousVote === -1) {
+        toast({
+          description: "It'll show up normally again",
+          icon: <ArrowBigUp color="#7c5cff" fill="#7c5cff" />,
+          title: "Mute Removed",
+        });
+      }
     } catch {
-      // The hook already rolled the optimistic value back and logged why;
-      // nothing left for the button to do.
+      // The hook already rolled the optimistic value back and logged why. Web
+      // still says so out loud, because a vote that silently reverts reads as the
+      // app ignoring the tap.
+      toast({
+        description: "That didn't go through, give it another try?",
+        variant: "destructive",
+      });
     }
   };
 
@@ -108,38 +158,40 @@ export function VoteCluster({
   const downActive = userVote === -1;
   return (
     <View style={styles.voteCluster}>
-      <VoteButton
-        active={upActive}
-        colors={["#ff9500", "#e65500"]}
-        label="Amplify"
-        onPress={() => cast(1)}
-        shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
-      >
-        <ArrowBigUp
-          color={upActive ? "#ffffff" : theme.dividerText}
-          fill={upActive ? "#ffffff" : "none"}
-          size={16}
-        />
-      </VoteButton>
+      <View style={styles.votePair}>
+        <VoteButton
+          active={upActive}
+          colors={["#ff9500", "#e65500"]}
+          label="Amplify"
+          onPress={() => cast(1)}
+          shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
+        >
+          <ArrowBigUp
+            color={upActive ? "#ffffff" : theme.dividerText}
+            fill={upActive ? "#ffffff" : "none"}
+            size={16}
+          />
+        </VoteButton>
+        <VoteButton
+          active={downActive}
+          colors={["#7c5cff", "#5a3ae0"]}
+          label="Mute"
+          onPress={() => cast(-1)}
+          shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
+        >
+          <ArrowBigDown
+            color={downActive ? "#ffffff" : theme.dividerText}
+            fill={downActive ? "#ffffff" : "none"}
+            size={16}
+          />
+        </VoteButton>
+      </View>
       <Flame
         color={flame.color}
         fill={flame.filled ? flame.color : "none"}
         size={16}
       />
       <ActionLabel>{formatNumber(aura)}</ActionLabel>
-      <VoteButton
-        active={downActive}
-        colors={["#7c5cff", "#5a3ae0"]}
-        label="Mute"
-        onPress={() => cast(-1)}
-        shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
-      >
-        <ArrowBigDown
-          color={downActive ? "#ffffff" : theme.dividerText}
-          fill={downActive ? "#ffffff" : "none"}
-          size={16}
-        />
-      </VoteButton>
     </View>
   );
 }
@@ -223,8 +275,26 @@ export function BookmarkToggle({
     }
     try {
       await toggleBookmark();
+      // Web's `onMutate` (`apps/web/src/components/posts/actions/bookmark-button.tsx`)
+      // announces both directions, with the icon matching the outcome.
+      toast({
+        description: bookmarked
+          ? "Removed from your bookmarks"
+          : "Post saved, find it anytime in your bookmarks",
+        icon: bookmarked ? (
+          <BookmarkX color="#ffffff" />
+        ) : (
+          <BookmarkCheck color="#ffffff" />
+        ),
+        title: bookmarked ? "Bookmark Removed" : "Bookmarked",
+      });
     } catch {
-      // Rolled back and logged by the hook.
+      // Rolled back and logged by the hook, but web still tells the reader: the
+      // bookmark icon springs back with no explanation otherwise.
+      toast({
+        description: "That didn't go through, give it another try?",
+        variant: "destructive",
+      });
     }
   };
 
@@ -475,6 +545,11 @@ const styles = StyleSheet.create({
     width: 28,
   },
   voteCluster: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  votePair: {
     alignItems: "center",
     flexDirection: "row",
     gap: 2,

@@ -23,40 +23,38 @@ import { logWarn } from "@/lib/telemetry";
 import { engagementStore, normalizeEngagement } from "../lib/engagement-store";
 import type { PostEngagement } from "../lib/engagement-store";
 import { submitBookmark, submitVote } from "../lib/feed-api";
-import type { ApiCallOptions } from "../lib/feed-api";
+import type { ApiCallOptions, VoteInfo } from "../lib/feed-api";
 
 export interface UsePostEngagementOptions {
-  /**
-   * The post's aura from the payload, used until the store has an answer. Leave
-   * undefined when the caller does not own the vote fields (the bookmark
-   * toggle), so seeding it cannot reset another component's values.
-   */
+  // The post's aura from the payload, used until the store has an answer. Leave
+  // undefined when the caller does not own the vote fields (the bookmark
+  // toggle), so seeding it cannot reset another component's values.
   aura?: number;
-  /**
-   * Set when the vote targets a comment eddie rather than the post. Eddie rows
-   * carry their vote in props and never re-read it, exactly as before.
-   */
+  // Set when the vote targets a comment eddie rather than the post. Eddie rows
+  // carry their vote in props and never re-read it, exactly as before.
   commentId?: string;
-  /** Whether the payload says this viewer already bookmarked the post. */
+  // Whether the payload says this viewer already bookmarked the post.
   initialBookmarked?: boolean;
   postId: string;
-  /** The viewer's own vote from the payload. */
+  // The viewer's own vote from the payload.
   userVote?: number;
-  /** The signed-in viewer, or null for a guest. Guests hold no server state. */
+  // The signed-in viewer, or null for a guest. Guests hold no server state.
   viewerId: string | null;
 }
 
 export interface PostEngagementActions {
-  /** The value to render right now. */
+  // The value to render right now.
   engagement: PostEngagement;
-  /** Applies a confirmed value without a request (already known server-side). */
+  // Applies a confirmed value without a request (already known server-side).
   publish: (value: Partial<PostEngagement>) => void;
-  /** Explicit re-read. Deduplicated and gated by the store's stale window. */
+  // Explicit re-read. Deduplicated and gated by the store's stale window.
   refresh: () => Promise<void>;
-  /** Optimistically toggles the bookmark, rolls back on error. */
+  // Optimistically toggles the bookmark, rolls back on error.
   toggleBookmark: () => Promise<void>;
-  /** Optimistically casts a vote, reconciles on success, rolls back on error. */
-  vote: (value: 1 | -1) => Promise<void>;
+  // Optimistically casts a vote, reconciles on success, rolls back on error.
+  // Resolves to the server's confirmed vote so the caller can announce it, or
+  // `null` when a newer vote superseded this one and the result is stale.
+  vote: (value: 1 | -1) => Promise<VoteInfo | null>;
 }
 
 async function requestContext(): Promise<ApiCallOptions> {
@@ -116,7 +114,7 @@ export function usePostEngagement({
       canPersist
         ? engagementStore.subscribe(listener)
         : () => {
-            /* empty */
+            // No store to subscribe to when persistence is off.
           },
     [canPersist]
   );
@@ -191,12 +189,16 @@ export function usePostEngagement({
           commentId
         );
         if (generationRef.current !== generation) {
-          return;
+          // A newer vote superseded this one, so this result is stale and the
+          // caller must not announce it. `null` distinguishes that from a real
+          // vote landing, which `VoteCluster` turns into a toast.
+          return null;
         }
         publish({ aura: info.aura, userVote: info.userVote });
+        return info;
       } catch (error) {
         if (generationRef.current !== generation) {
-          return;
+          return null;
         }
         publish(previous);
         logWarn("engagement.vote_failed", {

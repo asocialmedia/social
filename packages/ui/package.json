@@ -1,6 +1,6 @@
 {
   "name": "@asm/ui",
-  "version": "1.0.43",
+  "version": "1.0.48",
   "private": true,
   "description": "asocialmedia UI components and styles",
   "license": "AGPL-3.0",
@@ -56,6 +56,10 @@
     "react-day-picker": "10.0.1",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.85.0",
+    "react-native": "0.86.3",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "^15.15.5",
     "react-resizable-panels": "^4.12.2",
     "recharts": "3.10.1",
     "tailwind-merge": "^3.6.0",

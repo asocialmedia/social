@@ -110,8 +110,8 @@ function openPostRoute(
   router: ReturnType<typeof useRouter>,
   postId: string
 ): void {
-  const shortId = postId.length > 8 ? postId.slice(0, 8) : postId;
-  router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+  // Full id: truncated prefixes 404 when they match more than one post.
+  router.push({ params: { postId }, pathname: "/posts/[postId]" });
 }
 
 function ProfileTabState({
@@ -874,22 +874,16 @@ export function ProfileFeed({
         router.push({ params: { id: item.post.id }, pathname: "/gusts" });
         return;
       }
+      // Full id: truncated prefixes 404 when they match more than one post.
       if (isAudioMedia(item)) {
         router.push({
-          params: {
-            postId:
-              item.post.id.length > 8 ? item.post.id.slice(0, 8) : item.post.id,
-          },
+          params: { postId: item.post.id },
           pathname: "/posts/[postId]",
         });
         return;
       }
       router.push({
-        params: {
-          index: "0",
-          postId:
-            item.post.id.length > 8 ? item.post.id.slice(0, 8) : item.post.id,
-        },
+        params: { index: "0", postId: item.post.id },
         pathname: "/posts/[postId]/media/[index]",
       });
     },
