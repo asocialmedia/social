@@ -9,9 +9,8 @@ import type { ToastButton, ToastOptions } from "@asm/ui/native/gooey-toast";
 // app already uses (and matches the web wrapper): `variant` maps onto the
 // library's toast state, and `fill`/`roundness` are pinned to web's values.
 //
-// Web anchors bottom-right; on a phone the stack sits bottom-center, so
-// `<Toaster />` mounts the viewport with `position="bottom-center"`.
-import { useEffect } from "react";
+// Web anchors bottom-right with a 16px inset; the native viewport uses the same
+// position and offset so both platforms stack in the same corner.
 import type { ReactNode } from "react";
 
 // Web's dark fill, from `apps/web/src/lib/gooey-toast.ts`.
@@ -63,17 +62,7 @@ export function toast(message: ToastMessage): void {
 }
 
 export function Toaster(): ReactNode {
-  // TEMPORARY VISUAL HARNESS — REMOVE BEFORE COMMIT
-  useEffect(() => {
-    gooeyToast.success({
-      description: "@wisefox51",
-      duration: 60_000,
-      fill: GOOEY_FILL,
-      height: GOOEY_HEIGHT,
-      roundness: GOOEY_ROUNDNESS,
-      title: "Following",
-      width: GOOEY_WIDTH,
-    });
-  }, []);
-  return <GooeyToaster position="bottom-center" />;
+  return (
+    <GooeyToaster offset={{ bottom: 16, right: 16 }} position="bottom-right" />
+  );
 }

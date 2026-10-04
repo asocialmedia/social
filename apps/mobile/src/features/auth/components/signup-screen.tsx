@@ -50,8 +50,6 @@ import {
   INPUT_ERROR_SHADOWS,
   INPUT_FOCUS_SHADOWS,
   INPUT_SHADOWS,
-  LOGIN_BUTTON_PRESSED_SHADOWS,
-  LOGIN_BUTTON_SHADOWS,
   SOCIAL_PRESSED_SHADOWS,
   SOCIAL_SHADOWS,
   useAppTheme,
@@ -64,6 +62,7 @@ import {
   verifySignupOtp,
 } from "../lib/signup-api";
 import { resolveTurnstileBaseUrl } from "../lib/turnstile-page";
+import { AuthPrimaryButton } from "./auth-primary-button";
 import { OtpInput } from "./otp-input";
 import { PasswordStrength } from "./password-strength";
 import { TurnstileWebView } from "./turnstile-webview";
@@ -768,48 +767,17 @@ export default function SignupScreen() {
                         </Text>
                       )}
 
-                      <Pressable
-                        disabled={isLoading}
+                      {/* Web disables this until the Turnstile token lands
+                          (`disabled={!turnstileToken}`), which swaps the pill to
+                          `.btn-3d:disabled` rather than just fading it. */}
+                      <AuthPrimaryButton
+                        disabled={!humanVerified}
+                        label="Create account"
+                        loading={isLoading}
                         onPress={() => {
                           void handleSubmit();
                         }}
-                        style={styles.btnFullWidth}
-                      >
-                        {({ pressed }) => (
-                          <View
-                            style={[
-                              styles.loginBtn,
-                              {
-                                boxShadow: pressed
-                                  ? LOGIN_BUTTON_PRESSED_SHADOWS
-                                  : LOGIN_BUTTON_SHADOWS,
-                                opacity: humanVerified ? 1 : 0.6,
-                              },
-                              pressed && styles.pressedShift,
-                            ]}
-                          >
-                            <LinearGradient
-                              colors={["#ff9500", "#e65500"]}
-                              end={{ x: 0.5, y: 1 }}
-                              start={{ x: 0.5, y: 0 }}
-                              style={styles.loginBtnGradient}
-                            >
-                              {isLoading ? (
-                                <ActivityIndicator
-                                  color="#ffffff"
-                                  size="small"
-                                />
-                              ) : null}
-                              <Text
-                                className="text-base tracking-tight text-white"
-                                style={styles.loginBtnText}
-                              >
-                                Create account
-                              </Text>
-                            </LinearGradient>
-                          </View>
-                        )}
-                      </Pressable>
+                      />
                     </View>
 
                     {/* or continue with */}
@@ -1041,45 +1009,11 @@ export default function SignupScreen() {
 
                     <View className="gap-2">
                       {resendGate === 0 ? (
-                        <Pressable
-                          disabled={isResending}
+                        <AuthPrimaryButton
+                          label={isResending ? "Sending..." : "Resend Code"}
+                          loading={isResending}
                           onPress={handleResendOtp}
-                          style={styles.btnFullWidth}
-                        >
-                          {({ pressed }) => (
-                            <View
-                              style={[
-                                styles.loginBtn,
-                                {
-                                  boxShadow: pressed
-                                    ? LOGIN_BUTTON_PRESSED_SHADOWS
-                                    : LOGIN_BUTTON_SHADOWS,
-                                },
-                                pressed && styles.pressedShift,
-                              ]}
-                            >
-                              <LinearGradient
-                                colors={["#ff9500", "#e65500"]}
-                                end={{ x: 0.5, y: 1 }}
-                                start={{ x: 0.5, y: 0 }}
-                                style={styles.loginBtnGradient}
-                              >
-                                {isResending ? (
-                                  <ActivityIndicator
-                                    color="#ffffff"
-                                    size="small"
-                                  />
-                                ) : null}
-                                <Text
-                                  className="text-base tracking-tight text-white"
-                                  style={styles.loginBtnText}
-                                >
-                                  {isResending ? "Sending..." : "Resend Code"}
-                                </Text>
-                              </LinearGradient>
-                            </View>
-                          )}
-                        </Pressable>
+                        />
                       ) : null}
                       <Pressable
                         onPress={handleVerifyViaEmailLink}
@@ -1174,44 +1108,13 @@ export default function SignupScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    <Pressable
-                      disabled={isResending}
+                    <AuthPrimaryButton
+                      label={
+                        isResending ? "Sending..." : "Resend verification email"
+                      }
+                      loading={isResending}
                       onPress={handleResendVerificationLink}
-                      style={styles.btnFullWidth}
-                    >
-                      {({ pressed }) => (
-                        <View
-                          style={[
-                            styles.loginBtn,
-                            {
-                              boxShadow: pressed
-                                ? LOGIN_BUTTON_PRESSED_SHADOWS
-                                : LOGIN_BUTTON_SHADOWS,
-                            },
-                            pressed && styles.pressedShift,
-                          ]}
-                        >
-                          <LinearGradient
-                            colors={["#ff9500", "#e65500"]}
-                            end={{ x: 0.5, y: 1 }}
-                            start={{ x: 0.5, y: 0 }}
-                            style={styles.loginBtnGradient}
-                          >
-                            {isResending ? (
-                              <ActivityIndicator color="#ffffff" size="small" />
-                            ) : null}
-                            <Text
-                              className="text-base tracking-tight text-white"
-                              style={styles.loginBtnText}
-                            >
-                              {isResending
-                                ? "Sending..."
-                                : "Resend verification email"}
-                            </Text>
-                          </LinearGradient>
-                        </View>
-                      )}
-                    </Pressable>
+                    />
                     <Text
                       className="text-center text-xs"
                       style={[styles.fontRegular, { color: theme.dividerText }]}
@@ -1306,27 +1209,6 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     flex: 1,
-  },
-  loginBtn: {
-    borderRadius: 9999,
-  },
-  loginBtnGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
-    flexDirection: "row",
-    gap: 8,
-    height: 44,
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  loginBtnText: {
-    fontFamily: "SofiaProBold",
-    fontWeight: "normal",
-    letterSpacing: -0.3,
-    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
-      string,
-      string
-    >),
   },
   mailBadge: {
     alignItems: "center",

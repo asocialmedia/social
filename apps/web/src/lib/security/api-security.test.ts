@@ -59,6 +59,25 @@ describe("resolveApiTier", () => {
       expect(resolveApiTier(path)?.bucket).toBe("api");
     }
   });
+
+  // A feed or profile view pulls one avatar per visible author. These fell
+  // through to the 240/min api bucket, so a single page of images exhausted
+  // the shared budget and the guard throttled the very page that triggered it.
+  test("profile images share the media budget, not the default api budget", () => {
+    for (const path of [
+      "/api/users/avatar/user123/image",
+      "/api/users/banner/user123/image",
+      "/api/communities/avatar/cmt1/image",
+      "/api/communities/banner/cmt1/image",
+      "/api/link-preview/image",
+    ]) {
+      const tier = resolveApiTier(path);
+      expect(tier?.bucket).toBe("media");
+      expect(tier?.limitPerMinute).toBe(
+        resolveApiTier("/api/media/x")?.limitPerMinute
+      );
+    }
+  });
 });
 
 describe("guardApiRequest", () => {
@@ -104,5 +123,59 @@ describe("guardApiRequest", () => {
     const result = await guardApiRequest("/api/health", "198.51.100.7");
     expect(result.response).toBeNull();
     expect(mockConsumeRateLimit).not.toHaveBeenCalled();
+  });
+
+  // A JSON error document served on an avatar URL is read by image consumers as
+  // a decode failure ("Unsupported image type"), which looks like a storage bug
+  // rather than a throttle.
+  test("throttled image endpoints get an empty 429, never a JSON body", async () => {
+    mockConsumeRateLimit.mockImplementation(() => ({
+      allowed: false,
+      remaining: 0,
+      resetAt: Date.now() + 60_000,
+      retryAfterSeconds: 30,
+    }));
+
+    const throttled = await Promise.all(
+      [
+        "/api/users/avatar/user123/image",
+        "/api/media/cmt123",
+        "/api/link-preview/image",
+      ].map(async (path) => {
+        const result = await guardApiRequest(path, "198.51.100.7");
+        return {
+          body: await result.response?.text(),
+          contentType: result.response?.headers.get("content-type"),
+          status: result.response?.status,
+        };
+      })
+    );
+
+    for (const response of throttled) {
+      expect(response.status).toBe(429);
+      expect(response.contentType).toBeNull();
+      expect(response.body).toBe("");
+    }
+  });
+
+  test("a throttled response is never cached", async () => {
+    mockConsumeRateLimit.mockImplementation(() => ({
+      allowed: false,
+      remaining: 0,
+      resetAt: Date.now() + 60_000,
+      retryAfterSeconds: 15,
+    }));
+
+    const responses = await Promise.all(
+      ["/api/tags", "/api/users/avatar/user123/image"].map((path) =>
+        guardApiRequest(path, "198.51.100.7")
+      )
+    );
+
+    for (const result of responses) {
+      // The real bytes are served with a one-year max-age, so a stored 429
+      // would outlive the window that produced it.
+      expect(result.response?.headers.get("cache-control")).toBe("no-store");
+    }
   });
 });

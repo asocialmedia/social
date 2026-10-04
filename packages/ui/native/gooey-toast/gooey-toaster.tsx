@@ -4,7 +4,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GooeyToast } from "./gooey-toast";
 import { clamp, HOVER_RESUME_DELAY } from "./internal";
-import { dismissToast, isTimedDuration, store } from "./store";
+import {
+  dismissToast,
+  isTimedDuration,
+  setDefaultPosition,
+  store,
+} from "./store";
 import type { ToastRecord } from "./store";
 import { registerToaster } from "./toast";
 import { TOAST_POSITIONS } from "./types";
@@ -34,6 +39,11 @@ const now = (): number =>
     ? performance.now()
     : Date.now();
 
+// `[data-gooey-viewport] { padding: 0.75rem }`. The viewport style declares the
+// horizontal pair and `resolveOffset` overrides the resolved edge, so this is
+// the value on every edge before any offset is applied.
+const BASE_VIEWPORT_PADDING = 12;
+
 const timeoutKey = (record: ToastRecord): string =>
   `${record.id}:${record.instanceId}`;
 export function GooeyToaster({ offset, position }: GooeyToasterProps) {
@@ -58,6 +68,24 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
       setToasts(next);
     });
   }, []);
+
+  // `position` is the default placement for toasts raised while this toaster is
+  // the active one. Upstream gets this from `createToaster({ position })`, which
+  // writes the singleton manager's default; `buildToastRecord` falls back to that
+  // same `store.position` when a caller passes no `position`. Without this sync
+  // the prop is inert and every toast lands at the store default, `top-right`,
+  // no matter what the mounted `<GooeyToaster position="...">` asked for.
+  // Records already in the store were bucketed under the previous default, so
+  // the default is applied through `setDefaultPosition`, which also re-homes
+  // them. Upstream never needs that step because it mounts the toaster at
+  // module scope, ahead of any toast; here the toaster is a component, so a
+  // toast raised during splash or session bootstrap has already resolved
+  // against the stale default.
+  useEffect(() => {
+    if (position !== undefined) {
+      setDefaultPosition(position);
+    }
+  }, [position]);
 
   // Register as the active toaster so `configureToaster` / `unmountToaster`
   // reach this component, mirroring upstream's singleton manager.
@@ -286,23 +314,36 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
   }, [toasts]);
 
   const resolveOffset = (edge: "top" | "right" | "bottom" | "left"): number => {
+    // Upstream's `[data-gooey-viewport] { padding: 0.75rem }` is always on the
+    // viewport, and `offset` lands *on top of* it as an inset:
+    // `applyViewportOffset` writes `style.right` / `style.bottom` and leaves the
+    // stylesheet's padding in place. So the base 12 is unconditional and only
+    // the inset is configurable.
+    //
     // `offset` is optional, so an omitted prop has to be treated the same as an
-    // explicit null. Testing `=== null` alone would fall through to the
-    // indexed read below and throw on the undefined.
-    if (offset === undefined || offset === null) {
-      return edge === "bottom" ? insets.bottom + 16 : insets.top + 16;
+    // explicit null. Testing `=== null` alone would fall through to the indexed
+    // read below and throw on the undefined.
+    if (offset === null) {
+      return 0;
     }
     if (typeof offset === "number") {
       return offset;
     }
-    return offset[edge] ?? 0;
+    if (offset === undefined) {
+      // With no explicit offset, add the safe-area inset so toasts clear the
+      // status bar and the gesture bar, the way a fixed web viewport does. Each
+      // edge reads its own inset: reading `insets.top` for the horizontal edges
+      // would push them out by the status bar height.
+      return BASE_VIEWPORT_PADDING + insets[edge];
+    }
+    return BASE_VIEWPORT_PADDING + (offset[edge] ?? 0);
   };
 
   // Without an explicit offset, fall back to the safe-area inset plus padding,
   // so toasts clear the status bar and gesture bar the way a fixed web
   // viewport does.
   return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+    <View pointerEvents="box-none" style={styles.container}>
       {TOAST_POSITIONS.map((toastPosition) => {
         const records = buckets.get(toastPosition);
         if (!records?.length) {
@@ -322,6 +363,13 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
         // stay statically sortable.
         const viewportStyle = {
           alignItems: align,
+          // Upstream anchors the viewport to the edge it grows from:
+          // `[data-position^="top"] { top: 0 }` pairs with `[data-position^=
+          // "bottom"] { bottom: 0 }`. This view is absolutely positioned, and an
+          // absolute box with only `left` and `right` set resolves to `top: 0`,
+          // so without this every bottom-edge toast renders at the top of the
+          // screen instead of against the bottom edge.
+          ...(isTop ? { top: 0 } : { bottom: 0 }),
           // Upstream pairs `[data-position^="top"]` with `column-reverse` and
           // `[data-position^="bottom"]` with `column`, so a new toast always lands
           // against the edge the viewport is anchored to.
@@ -367,6 +415,18 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
 }
 
 const styles = StyleSheet.create({
+  // Upstream's `[data-gooey-viewport] { z-index: 9999 }`, kept verbatim so a
+  // toast floats above every app surface the way it does on web. Without it the
+  // viewport inherits zIndex 0 and the app's bottom dock (`zIndex: 50`) paints
+  // over the toast, which swallows the pill and its badge at the bottom edge.
+  container: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 9999,
+  },
   viewport: {
     left: 0,
     maxWidth: "100%",

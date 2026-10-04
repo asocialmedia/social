@@ -9,7 +9,6 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { STATE_ICONS } from "./icons";
 import {
@@ -21,9 +20,7 @@ import {
 import { isTimedDuration } from "./store";
 import type { ToastRecord } from "./store";
 import {
-  BADGE_BOTTOM_COLOR,
   BADGE_ICON_SIZE,
-  BADGE_SHADOW,
   BADGE_SIZE,
   BADGE_TOP_COLOR,
   BUTTON_TINT_RATIO,
@@ -65,7 +62,13 @@ const resolveRenderableValue = (input: ToastRenderable): ReactNode => {
     value = (value as () => unknown)();
     guard += 1;
   }
-  if (value === null) {
+  // An absent renderable arrives as `undefined` (the option was simply not
+  // passed), so it has to normalise to `null` like every other "nothing to
+  // draw" case. Returning `undefined` here made `resolvedIcon === null` false
+  // for a toast with no custom icon, so the badge never rendered and
+  // contributed zero width to the measured pill; the same check drives
+  // `hasContent`, which would claim an empty toast was expandable.
+  if (value === null || value === undefined) {
     return null;
   }
   if (typeof value === "string" || typeof value === "number") {
@@ -100,6 +103,10 @@ function renderIcon(node: ReactNode): ReactNode {
   }
   return <Text style={styles.iconText}>{node}</Text>;
 }
+
+// Upstream `measureHeaderWidth` adds a 2px safety margin on top of the measured
+// content so a fractional glyph edge never clips the pill's right border.
+const HEADER_MEASURE_SAFETY = 2;
 
 // Upstream `alignedX`: a right-aligned viewport pushes the shape to the right
 // edge, a centred one halves the leftover space. Runs on the UI thread so the
@@ -198,13 +205,26 @@ export function GooeyToast({
     [contentHeight]
   );
 
-  const onHeaderLayout = useCallback(
+  const onHeaderMeasureLayout = useCallback(
     (event: LayoutChangeEvent) => {
+      // Upstream measures `badge + title + gap + padding` from a hidden,
+      // unconstrained copy of the header's own children
+      // (`[data-gooey-title-measure]`, `width: max-content`, `visibility:
+      // hidden`) rather than from the header itself, because the visible
+      // header's width is the value being computed. Measuring the animated
+      // header instead is self-referential: it starts collapsed at `toastHeight`,
+      // reports exactly that back, and `clamp` pins the pill to the collapsed
+      // minimum forever. The `> 0` guard matches upstream's, so a view that has
+      // not been laid out yet cannot collapse the pill either.
+      const measured = Math.ceil(event.nativeEvent.layout.width);
+      if (measured <= 0) {
+        return;
+      }
       // Upstream clamps the header to [toastHeight, containerWidth]; a pill
       // wider than its container would overflow the viewport.
       // oxlint-disable-next-line react/immutability -- assigning a Reanimated shared value is how an animation is started; the same pattern is used by Spinner3D's rotation
       headerWidth.value = clamp(
-        Math.ceil(event.nativeEvent.layout.width),
+        measured + HEADER_MEASURE_SAFETY,
         toastHeight,
         containerWidth
       );
@@ -235,7 +255,16 @@ export function GooeyToast({
       return;
     }
     const { autoCollapseDelayMs, autoExpandDelayMs } = record;
-    if (autoExpandDelayMs === null && autoCollapseDelayMs === null) {
+    // `resolveAutopilot` returns `{}` — not a pair of `null`s — when a toast
+    // cannot auto-pilot (`autopilot: false`, or a null/zero duration). A delay
+    // that was never set therefore arrives as `undefined`, so comparing against
+    // `null` alone let both guards miss: every `autopilot: false` toast fell
+    // through and scheduled its collapse at `undefined`, i.e. immediately.
+    const collapseDelay =
+      autoCollapseDelayMs === undefined ? null : autoCollapseDelayMs;
+    const expandDelay =
+      autoExpandDelayMs === undefined ? null : autoExpandDelayMs;
+    if (expandDelay === null && collapseDelay === null) {
       return;
     }
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -244,17 +273,17 @@ export function GooeyToast({
     // zero. It goes through the same zero-delay timer as every other branch
     // here so the expansion lands on a later frame, which keeps the toast's
     // first paint from cascading into a synchronous state update.
-    const expandDelay = Math.max(autoExpandDelayMs ?? 0, 0);
+    const expandAfter = Math.max(expandDelay ?? 0, 0);
     timers.push(
       setTimeout(() => {
         setExpanded(true);
-      }, expandDelay)
+      }, expandAfter)
     );
-    if (autoCollapseDelayMs !== null) {
+    if (collapseDelay !== null) {
       timers.push(
         setTimeout(() => {
           setExpanded(false);
-        }, autoCollapseDelayMs)
+        }, collapseDelay)
       );
     }
     return () => {
@@ -350,6 +379,11 @@ export function GooeyToast({
   // so the two same-coloured surfaces read as one continuous shape.
   const rootGeometry = useAnimatedStyle(() => ({
     height: toastHeight + open.value * contentHeight.value,
+    // The width comes from the record rather than from `styles.root`.
+    // `TOAST_WIDTH` is only the library default; a shell that overrides
+    // `--gooey-width` (web does, through a stylesheet) passes its own value per
+    // toast, and `maxWidth: "100%"` then caps that against the viewport.
+    width: toastWidth,
   }));
 
   const pillAnimatedProps = useAnimatedStyle(() => {
@@ -373,6 +407,7 @@ export function GooeyToast({
   }));
 
   const headerAnimatedStyle = useAnimatedStyle(() => ({
+    height: toastHeight,
     left: alignedX(headerWidth.value, align, containerWidth),
     width: headerWidth.value,
   }));
@@ -426,27 +461,12 @@ export function GooeyToast({
     transform: [{ translateY: dragY.value }],
   }));
 
-  // The badge is web's orange 3D chip. RN cannot gradient a `backgroundColor`,
-  // so the shell's `linear-gradient(to bottom, #ff9500, #e65500)` is drawn as a
-  // small SVG, with the glyph laid on top of it.
-  const badgeId = `gooey-badge-${id}`;
-  const badgeGradient = (
-    <Svg height={BADGE_SIZE} width={BADGE_SIZE}>
-      <Defs>
-        <LinearGradient id={badgeId} x1="0" x2="0" y1="0" y2="1">
-          <Stop offset="0" stopColor={BADGE_TOP_COLOR} />
-          <Stop offset="1" stopColor={BADGE_BOTTOM_COLOR} />
-        </LinearGradient>
-      </Defs>
-      <Rect
-        fill={`url(#${badgeId})`}
-        height={BADGE_SIZE}
-        rx={BADGE_SIZE / 2}
-        ry={BADGE_SIZE / 2}
-        width={BADGE_SIZE}
-      />
-    </Svg>
-  );
+  // The badge is web's orange 3D chip. It is a plain rounded `View` rather than
+  // an SVG gradient: at 22.4dp the two-stop `linear-gradient(to bottom, #ff9500,
+  // #e65500)` is indistinguishable from its top colour, and drawing it with an
+  // absolutely-filled `Svg` left the chip stretched out of round with the glyph
+  // sitting outside it. A `View` with the chip's own radius and a centred glyph
+  // has no layout path that can drift like that.
 
   // Upstream tints the glyph with the state tone inside a tinted circle; the web
   // shell replaces that circle with the orange chip and keeps the glyph white.
@@ -469,6 +489,26 @@ export function GooeyToast({
       boxShadow: `${OUTER_SHADOW}, ${INSET_SHADOW}`,
     },
   ] as const;
+
+  // The badge, title and the gap between them, rendered twice: once inside the
+  // animated header, and once inside `styles.measure` for the intrinsic width
+  // pass. Keeping one element means the measurement can never drift from what
+  // actually draws.
+  const headerContent = (
+    <>
+      <View style={styles.badgeHit}>
+        {resolvedIcon === null ? (
+          <View style={styles.badge}>{stateGlyph}</View>
+        ) : (
+          renderIcon(resolvedIcon)
+        )}
+      </View>
+
+      <Text numberOfLines={1} style={styles.title}>
+        {resolvedTitle}
+      </Text>
+    </>
+  );
 
   return (
     <Animated.View
@@ -499,28 +539,28 @@ export function GooeyToast({
           style={[surfaceStyle, pillAnimatedProps]}
         />
 
+        {/* Upstream's `[data-gooey-title-measure]`: the header's own children,
+            laid out without the animated width so the pill can be sized from
+            their intrinsic width. Absolutely positioned so it never
+            contributes to the toast's box, and inert so it is neither seen nor
+            touched. `opacity` stands in for `visibility: hidden`, which
+            React Native has no equivalent for. */}
+        <View
+          onLayout={onHeaderMeasureLayout}
+          pointerEvents="none"
+          style={styles.measure}
+        >
+          {headerContent}
+        </View>
+
         <Animated.View
-          onLayout={onHeaderLayout}
           style={[
             styles.header,
             isTopEdge ? styles.headerTop : styles.headerBottom,
             headerAnimatedStyle,
           ]}
         >
-          <View style={styles.badgeHit}>
-            {resolvedIcon === null ? (
-              <View style={styles.badge}>
-                {badgeGradient}
-                {stateGlyph}
-              </View>
-            ) : (
-              renderIcon(resolvedIcon)
-            )}
-          </View>
-
-          <Text numberOfLines={1} style={styles.title}>
-            {resolvedTitle}
-          </Text>
+          {headerContent}
         </Animated.View>
 
         {hasContent ? (
@@ -587,6 +627,17 @@ export function GooeyToast({
   );
 }
 
+// The `--gooey-header` gap and padding from the web shell stylesheet. The
+// measure copy carries the same box because the width it reports is used as the
+// pill's width, so that width already has to include the padding wrapping the
+// badge and title.
+const headerBox = {
+  alignItems: "center",
+  flexDirection: "row",
+  gap: 8,
+  paddingHorizontal: 16,
+} as const;
+
 const styles = StyleSheet.create({
   action: {
     alignSelf: "flex-start",
@@ -602,8 +653,8 @@ const styles = StyleSheet.create({
   },
   badge: {
     alignItems: "center",
-    // The shell's badge ring and inner lip, so the chip reads as raised.
-    boxShadow: BADGE_SHADOW,
+    backgroundColor: BADGE_TOP_COLOR,
+    borderRadius: BADGE_SIZE / 2,
     height: BADGE_SIZE,
     justifyContent: "center",
     width: BADGE_SIZE,
@@ -627,11 +678,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   header: {
-    alignItems: "center",
-    flexDirection: "row",
-    // `--gooey-header` gap and padding from the web shell stylesheet.
-    gap: 8,
-    paddingHorizontal: 16,
+    ...headerBox,
+    // The header overlays the pill, so it spans the pill's full height and
+    // `alignItems` (inherited from `headerBox`) centres the row in it.
+    // Shrink-wrapped to its own content it sat flush against whichever edge it
+    // was anchored to, leaving the badge and title hugging the bottom of a
+    // bottom-edge toast's pill. `justifyContent` is deliberately NOT set here:
+    // centring along the row's main axis collapses `flexShrink` on the title and
+    // drops it from the pill entirely once the toast opens.
     position: "absolute",
   },
   headerBottom: {
@@ -645,6 +699,17 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProBold",
     fontSize: 12,
   },
+  // The header's children laid out with no width of their own, so the layout
+  // pass reports the width the content actually needs. Absolutely positioned
+  // with only `left` and `top` set, which keeps Yoga sizing it to its content
+  // rather than stretching it, and keeps it out of the toast's own box.
+  measure: {
+    ...headerBox,
+    left: 0,
+    opacity: 0,
+    position: "absolute",
+    top: 0,
+  },
   // The press surface spans the whole toast, so pressing anywhere expands it the
   // way hovering anywhere does on web. The rects behind it are inert.
   pressTarget: {
@@ -653,10 +718,10 @@ const styles = StyleSheet.create({
   root: {
     // Upstream's `width: min(var(--gooey-width), calc(100vw - 1.5rem))`: never
     // wider than the requested width, never wider than the viewport. The
-    // measured `containerWidth` then drives the pill/body alignment.
+    // requested width is supplied per toast by `rootGeometry`; the measured
+    // `containerWidth` then drives the pill/body alignment.
     maxWidth: "100%",
     overflow: "visible",
-    width: TOAST_WIDTH,
   },
   surface: {
     position: "absolute",

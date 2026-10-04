@@ -35,6 +35,11 @@ export const LOGIN_BUTTON_SHADOWS_LIGHT =
 export const LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.3), inset 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.08)";
 
+// `.btn-3d:disabled` (web has no light-mode override here, so one recipe covers
+// both schemes). A gated action desaturates rather than fading.
+export const LOGIN_BUTTON_DISABLED_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.2), inset 0 1px 2px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(170, 60, 0, 0.4), 0 1px 1px rgba(255, 255, 255, 0.5), 0 2px 4px rgba(0, 0, 0, 0.05)";
+
 // `.dark .icon-btn-3d`
 export const ICON_BUTTON_SHADOWS_DARK =
   "inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 1px rgba(255, 255, 255, 0.04)";

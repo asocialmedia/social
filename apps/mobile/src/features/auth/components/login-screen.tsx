@@ -52,8 +52,6 @@ import {
   INPUT_ERROR_SHADOWS,
   INPUT_FOCUS_SHADOWS,
   INPUT_SHADOWS,
-  LOGIN_BUTTON_PRESSED_SHADOWS,
-  LOGIN_BUTTON_SHADOWS,
   SOCIAL_PRESSED_SHADOWS,
   SOCIAL_SHADOWS,
   useAppTheme,
@@ -785,48 +783,19 @@ export default function LoginScreen() {
 
                     {/* Actions Row: 3D Log in + 3D Passkey Button */}
                     <View className="flex-row items-center gap-2">
-                      {/* 3D Log in Button (btn-3d) */}
-                      <Pressable
-                        className="flex-1"
-                        disabled={isLoading}
-                        onPress={() => {
-                          void handleLogin();
-                        }}
-                      >
-                        {({ pressed }) => (
-                          <View
-                            style={[
-                              styles.loginBtn3d,
-                              {
-                                boxShadow: pressed
-                                  ? LOGIN_BUTTON_PRESSED_SHADOWS
-                                  : LOGIN_BUTTON_SHADOWS,
-                              },
-                              pressed && styles.pressedShift,
-                            ]}
-                          >
-                            <LinearGradient
-                              colors={["#ff9500", "#e65500"]}
-                              end={{ x: 0.5, y: 1 }}
-                              start={{ x: 0.5, y: 0 }}
-                              style={styles.loginBtnGradient}
-                            >
-                              {isLoading ? (
-                                <ActivityIndicator
-                                  color="#ffffff"
-                                  size="small"
-                                />
-                              ) : null}
-                              <Text
-                                className="text-base tracking-tight text-white"
-                                style={styles.loginBtnText}
-                              >
-                                Log in
-                              </Text>
-                            </LinearGradient>
-                          </View>
-                        )}
-                      </Pressable>
+                      {/* 3D Log in Button (btn-3d). AuthPrimaryButton owns the
+                          dual border; a View wrapping a LinearGradient would
+                          hide the inset lip under the gradient. It fills this
+                          flex-1 wrapper to share the row with the passkey chip. */}
+                      <View className="flex-1">
+                        <AuthPrimaryButton
+                          label="Log in"
+                          loading={isLoading}
+                          onPress={() => {
+                            void handleLogin();
+                          }}
+                        />
+                      </View>
 
                       {/* 3D Passkey Button (icon-btn-3d) */}
                       <Pressable
@@ -948,28 +917,6 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     flex: 1,
-  },
-  loginBtn3d: {
-    borderRadius: 9999,
-  },
-  loginBtnGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
-    flexDirection: "row",
-    gap: 8,
-    height: 44,
-    justifyContent: "center",
-    paddingHorizontal: 16,
-    position: "relative",
-  },
-  loginBtnText: {
-    fontFamily: "SofiaProBold",
-    fontWeight: "normal",
-    letterSpacing: -0.3,
-    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
-      string,
-      string
-    >),
   },
   methodChip: {
     alignItems: "center",

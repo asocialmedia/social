@@ -104,6 +104,11 @@ const settle = async <T>(
 };
 
 export const toast = {
+  // Upstream: `action(opts)` shows a toast in the `action` state, the one a
+  // caller advances to from `promise({ action })` when it wants to own what
+  // happens next.
+  action: (opts: ToastOptions): string => showToast(opts, "action"),
+
   // Upstream: `clear(position?)` empties the store, optionally per position.
   clear: (position?: ToastPosition): void => {
     if (position) {

@@ -14,6 +14,14 @@ export interface ToastRecord extends ToastOptions {
   // replacement. Upstream keys its exit timers on `${id}:${instanceId}`.
   instanceId: string;
   position: ToastPosition;
+  // Whether `position` came from the caller rather than the toaster default.
+  // Upstream resolves placement at raise time too, but it calls `mountToaster`
+  // at module scope so the default is always in place first. On native the
+  // toaster is a component that mounts later, so a toast raised before it can
+  // inherit the store's built-in `top-right` default. This flag lets the
+  // mounting toaster re-home exactly those records when its `position` prop
+  // arrives, without disturbing a toast the caller placed explicitly.
+  pinnedPosition: boolean;
   state: ToastState;
 }
 
@@ -56,6 +64,27 @@ class ToastStore {
 
 export const store = new ToastStore();
 
+// Sets the default placement for toasts raised from now on, and re-homes any
+// record that never chose a placement of its own. The re-tag is what makes a
+// toast raised before the toaster mounted land correctly: upstream avoids this
+// by calling `mountToaster` at module scope, so its default is always set
+// before the first toast exists. Here the toaster is a component, so the
+// store's built-in `top-right` can still be in effect when an early toast is
+// raised. Records carrying an explicit `position` are left alone.
+export const setDefaultPosition = (position: ToastPosition): void => {
+  if (position === store.position) {
+    return;
+  }
+  store.position = position;
+  if (store.toasts.some((record) => !record.pinnedPosition)) {
+    store.update((all) =>
+      all.map((record) =>
+        record.pinnedPosition ? record : { ...record, position }
+      )
+    );
+  }
+};
+
 const isTimedDuration = (value: number | null): value is number =>
   value !== null && value > 0;
 
@@ -67,10 +96,18 @@ const mergeOptions = (options: ToastOptions): ToastOptions => ({
   styles: { ...store.options?.styles, ...options.styles },
 });
 
+// Placement carried over from a record being replaced, so an in-place update
+// or a re-show of the same id keeps both the position and whether that position
+// was the caller's to choose.
+interface InheritedPosition {
+  pinned: boolean;
+  position: ToastPosition;
+}
+
 const buildToastRecord = (
   merged: ToastOptions,
   id: string,
-  fallbackPosition: ToastPosition | undefined
+  inherited: InheritedPosition | undefined
 ): ToastRecord => {
   const duration = normalizeDuration(merged.duration);
   return {
@@ -82,10 +119,16 @@ const buildToastRecord = (
     exiting: false,
     id,
     instanceId: generateId(),
-    position: merged.position ?? fallbackPosition ?? store.position,
+    pinnedPosition: merged.position !== undefined || inherited?.pinned === true,
+    position: merged.position ?? inherited?.position ?? store.position,
     state: merged.state ?? "success",
   };
 };
+
+const inheritedFrom = (record: ToastRecord): InheritedPosition => ({
+  pinned: record.pinnedPosition,
+  position: record.position,
+});
 
 export const createToast = (
   options: ToastOptions,
@@ -94,7 +137,11 @@ export const createToast = (
   const merged = mergeOptions(state ? { ...options, state } : options);
   const id = merged.id ?? generateId();
   const existing = store.toasts.find((item) => item.id === id && !item.exiting);
-  const next = buildToastRecord(merged, id, existing?.position);
+  const next = buildToastRecord(
+    merged,
+    id,
+    existing ? inheritedFrom(existing) : undefined
+  );
   if (existing) {
     store.update((all) => all.map((item) => (item.id === id ? next : item)));
   } else {
@@ -109,7 +156,7 @@ export const updateToast = (id: string, options: ToastOptions): void => {
     return;
   }
   const merged = mergeOptions({ ...options, id });
-  const next = buildToastRecord(merged, id, existing.position);
+  const next = buildToastRecord(merged, id, inheritedFrom(existing));
   store.update((all) => all.map((item) => (item.id === id ? next : item)));
 };
 

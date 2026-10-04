@@ -3,6 +3,7 @@ import { fromPrismaDateTime, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
+import { canSatoriRenderAvatar, avatarInitial } from "@/lib/seo/og-avatar";
 import { getOgFontOptions } from "@/lib/seo/og-fonts";
 import { excerpt, toAbsoluteUrl } from "@/lib/seo/seo";
 
@@ -188,7 +189,10 @@ export default async function Image({
   );
 
   // Avatar and media are served through the app proxy (buckets are private).
-  const avatarUrl = post.user.avatarKey
+  // Satori cannot decode the WebP avatars the media pipeline publishes, and it
+  // memoises image loads by source URL, so an undecodable avatar is skipped
+  // rather than fetched: the author row falls back to initials.
+  const avatarUrl = canSatoriRenderAvatar(post.user.avatarKey)
     ? toAbsoluteUrl(`/api/users/avatar/${post.user.id}/image`)
     : null;
   const tagText = post.tags
@@ -289,7 +293,24 @@ export default async function Image({
               style={{ borderRadius: 999 }}
               width={56}
             />
-          ) : null}
+          ) : (
+            <div
+              style={{
+                alignItems: "center",
+                background: "linear-gradient(135deg, #ff9500 0%, #e65500 100%)",
+                borderRadius: 999,
+                color: "#ffffff",
+                display: "flex",
+                fontSize: 24,
+                fontWeight: 700,
+                height: 56,
+                justifyContent: "center",
+                width: 56,
+              }}
+            >
+              {avatarInitial(post.user?.displayName, post.user?.username)}
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <div style={{ display: "flex", fontSize: 24, fontWeight: 700 }}>
               {post.user?.displayName || post.user?.username || "Anonymous"}

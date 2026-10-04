@@ -32,8 +32,19 @@ interface TierRule {
   tier: ApiTier;
 }
 
+// Profile-image reads: avatar and banner objects for users and communities,
+// plus scraped link-preview images. Matched as one prefix family because they
+// all behave the same way at the edge.
+const PROFILE_IMAGE_PATTERN =
+  /^\/api\/(?:(?:users|communities)\/(?:avatar|banner)\/|link-preview\/image)/;
+
 const TIER_RULES: TierRule[] = [
   { pattern: /^\/api\/media\//, tier: MEDIA_TIER },
+  // Profile images are fetched in the same bursts as feed media: a single
+  // profile or feed view pulls an avatar per visible author. They were falling
+  // through to DEFAULT_TIER, so a page of avatars ate the same 240/min budget
+  // as every other uncategorised /api/ route and tripped the guard on itself.
+  { pattern: PROFILE_IMAGE_PATTERN, tier: MEDIA_TIER },
   { pattern: /^\/api\/upload/, tier: UPLOAD_TIER },
   { pattern: /^\/api\/search/, tier: HEAVY_READ_TIER },
   {
@@ -65,14 +76,33 @@ export interface ApiGuardResult {
   response: Response | null;
 }
 
-function limitedResponse(retryAfterSeconds: number): Response {
+function limitedResponse(
+  pathname: string,
+  retryAfterSeconds: number
+): Response {
+  const retryAfter = String(Math.max(1, retryAfterSeconds));
+  // Never let a throttle response be cached: the real avatar bytes are served
+  // with a one-year max-age, so a stored 429 would outlive the window that
+  // caused it and keep serving a broken image long after the limit reset.
+  const sharedHeaders = {
+    "cache-control": "no-store",
+    "retry-after": retryAfter,
+  };
+
+  // A JSON error document on an image URL makes every consumer report
+  // "Unsupported image type", which reads as a decode bug rather than a
+  // throttle. Binary endpoints get an empty 429 instead.
+  if (
+    PROFILE_IMAGE_PATTERN.test(pathname) ||
+    pathname.startsWith("/api/media/")
+  ) {
+    return new Response(null, { headers: sharedHeaders, status: 429 });
+  }
+
   return Response.json(
     { error: "Too many requests. Please slow down." },
     {
-      headers: {
-        "content-type": "application/json",
-        "retry-after": String(Math.max(1, retryAfterSeconds)),
-      },
+      headers: { ...sharedHeaders, "content-type": "application/json" },
       status: 429,
     }
   );
@@ -104,7 +134,7 @@ export async function guardApiRequest(
     } else {
       console.warn("[api-guard] rate limit exceeded", payload);
     }
-    return { response: limitedResponse(result.retryAfterSeconds) };
+    return { response: limitedResponse(pathname, result.retryAfterSeconds) };
   }
 
   return { response: null };
