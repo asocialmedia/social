@@ -120,6 +120,18 @@ const FIXTURE_ID_PREFIX = "rec-it-";
 // pageSize and every ranking assertion degrades into comparing against -1.
 // Purging the prefix up front makes the suite idempotent and self-healing
 // instead of degrading a little more on every aborted run.
+//
+// Each `.where` deliberately takes a SINGLE expression. In this builder `&&`
+// is a plain JavaScript operator over expression objects rather than SQL
+// composition, so `a && b` evaluates to `b` and silently drops the prefix
+// guard -- which deletes other tests' rows. The exported `and()` does not
+// compose either: `and(prefix, epoch)` returns nothing. A staleness window
+// ("and also older than an hour", to avoid touching a concurrently running
+// suite's fixtures) therefore cannot be expressed safely here, so it is not
+// attempted. The residual exposure is narrow: this only matters if two suite
+// invocations share one database at the same moment, and the prefix is unique
+// to this file, so the sweep is safe for the single-suite case the runner and
+// CI both use.
 async function purgeStaleFixtures(): Promise<void> {
   const prefix = `${FIXTURE_ID_PREFIX}%`;
 
@@ -129,6 +141,10 @@ async function purgeStaleFixtures(): Promise<void> {
   // to be cleared before the users go. Posts then cascade to their media,
   // votes, events and bookmarks; the media sweep afterwards only collects
   // orphans from runs that died part-way through createFixtures.
+  //
+  // AuraLogs has no id of its own to prefix-match, so ownership is matched
+  // through the two user columns. `or` is the one combinator verified to
+  // compose here.
   const auraLogs = await prisma.orm.public.AuraLogs.where((log) =>
     or(log.issuerId.like(prefix), log.userId.like(prefix))
   ).deleteAndCount();

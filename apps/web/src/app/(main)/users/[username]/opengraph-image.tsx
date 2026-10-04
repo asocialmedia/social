@@ -341,8 +341,6 @@ export default async function Image({
           </span>
           <span>posts</span>
         </div>
-        {/* Satori refuses to lay out a <div> that has children but no explicit
-            display, so every element-bearing div in this tree must set one. */}
         <div style={{ color: "#71717a", display: "flex", marginLeft: "auto" }}>
           Joined {joinedDate}
         </div>

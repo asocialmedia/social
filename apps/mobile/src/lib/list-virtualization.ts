@@ -31,30 +31,24 @@
 // measured 1.2 GB. Batches of 5 fill a screen per batch instead of chasing
 // it across several, and 4 initial rows fill tall phones so tab restores
 // never scrollToOffset past unmounted content.
-/** Cards kept mounted either side of the viewport. 9 screens of runway. */
+// Cards kept mounted either side of the viewport. 9 screens of runway.
 export const LIST_WINDOW_SIZE = 9;
 
-/**
- * Cards rendered on the very first paint. 4 fills a tall phone screen plus
- * a little, and keeps the first frame off the critical path.
- */
+// Cards rendered on the very first paint. 4 fills a tall phone screen plus
+// a little, and keeps the first frame off the critical path.
 export const LIST_INITIAL_RENDER = 4;
 
-/**
- * Cards mounted per batch while scrolling. Batches of 5 fill roughly a
- * screen per batch: smaller batches spread mount cost but visibly chase a
- * fast fling with blank rows.
- */
+// Cards mounted per batch while scrolling. Batches of 5 fill roughly a
+// screen per batch: smaller batches spread mount cost but visibly chase a
+// fast fling with blank rows.
 export const LIST_RENDER_BATCH = 5;
 
-/**
- * Milliseconds VirtualizedList may spend mounting a batch before it yields to
- * the UI thread. 50 is RN's default; the explicit value documents that we want
- * the yielding behaviour and keeps it stable across RN upgrades.
- */
+// Milliseconds VirtualizedList may spend mounting a batch before it yields to
+// the UI thread. 50 is RN's default; the explicit value documents that we want
+// the yielding behaviour and keeps it stable across RN upgrades.
 export const LIST_BATCH_UPDATE_MS = 50;
 
-/** The tuning props, spread onto any unbounded FlatList. */
+// The tuning props, spread onto any unbounded FlatList.
 export const LIST_VIRTUALIZATION_PROPS = {
   initialNumToRender: LIST_INITIAL_RENDER,
   maxToRenderPerBatch: LIST_RENDER_BATCH,
