@@ -33,7 +33,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -353,17 +352,12 @@ export function MessageThreadScreen({
       const [rootKey] = keys;
       if (!rootKey) {
         logWarn("send has no conversation key", { step: "send" });
-        // Web raises the same toast from the same bail
-        // (`apps/web/src/components/messages/message-composer.tsx`): "Can't send",
-        // "Message keys aren't ready yet". Without a key there is nothing to
-        // encrypt with, so the draft cannot leave -- saying so is the only signal
-        // the user gets, since the send returns quietly.
-        toast({
-          description: "Message keys aren't ready yet",
-          title: "Can't send",
-          variant: "destructive",
-        });
-        return;
+        // Rethrow rather than toast-and-return. Every other failure in this function
+        // propagates, and the composer handles a rejection by keeping the draft
+        // and the staged attachments and reporting the error with this message
+        // as the description. Returning quietly resolved as success, so the
+        // composer cleared the draft the user had typed for nothing.
+        throw new Error("Message keys aren't ready yet");
       }
       // The newest epoch is where new messages belong, and the ratchet index counts
       // what this sender has already sent in it.

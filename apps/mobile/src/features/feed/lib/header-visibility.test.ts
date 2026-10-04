@@ -28,4 +28,61 @@ describe("header visibility", () => {
     expect(seen).toEqual([true, false]);
     resetHeaderScroll();
   });
+
+  // The bug this pins: each step below is under HIDE_SLIP, so comparing only
+  // consecutive offsets never hid the header however far the feed travelled.
+  test("accumulates many small downward steps into a hide", () => {
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeHeaderVisibility((isHidden) => {
+      seen.push(isHidden);
+    });
+
+    let offset = 0;
+    // 4px steps, all below the 12px slip, walking past HIDE_AFTER.
+    for (let step = 0; step < 60; step += 1) {
+      offset += 4;
+      reportFeedScroll(offset);
+    }
+    // Same again in reverse, to bring it back.
+    for (let step = 0; step < 60; step += 1) {
+      offset -= 4;
+      reportFeedScroll(offset);
+    }
+
+    expect(seen).toEqual([true, false]);
+    unsubscribe();
+    resetHeaderScroll();
+  });
+
+  test("small jitter around the threshold does not flip the header", () => {
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeHeaderVisibility((isHidden) => {
+      seen.push(isHidden);
+    });
+
+    // Park short of HIDE_AFTER, where a few pixels of travel cannot hide, then
+    // nudge by less than the slip each time.
+    reportFeedScroll(80);
+    reportFeedScroll(88);
+    reportFeedScroll(82);
+    reportFeedScroll(90);
+
+    expect(seen).toEqual([]);
+    unsubscribe();
+    resetHeaderScroll();
+  });
+
+  test("a single jump past HIDE_AFTER still hides immediately", () => {
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeHeaderVisibility((isHidden) => {
+      seen.push(isHidden);
+    });
+
+    resetHeaderScroll();
+    reportFeedScroll(150);
+
+    expect(seen).toEqual([true]);
+    unsubscribe();
+    resetHeaderScroll();
+  });
 });

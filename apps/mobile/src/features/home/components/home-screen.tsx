@@ -5,7 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
 // keeps its own cached pages and scroll position.
-import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Platform,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
@@ -134,10 +141,17 @@ export default function HomeScreen() {
 
   // Wait for tab memory before mounting the pager: mounting on the default
   // tab and then jumping to the remembered one slides the whole pager over,
-  // which reads as a glitch. The splash covers this beat.
+  // which reads as a glitch.
+  //
+  // The splash does NOT cover this beat -- StartupGate returns null and hides
+  // the native splash as soon as fonts settle, well before the persisted tab
+  // finishes rehydrating. An empty View here is a blank screen, so show the
+  // themed spinner until the flag flips.
   if (!memoryReady) {
     return (
-      <View style={[styles.root, { backgroundColor: theme.containerBg }]} />
+      <View style={[styles.memoryWait, { backgroundColor: theme.containerBg }]}>
+        <ActivityIndicator color={theme.inputText} />
+      </View>
     );
   }
 
@@ -228,6 +242,11 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   content: {
     flex: 1,
+  },
+  memoryWait: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
   },
   root: {
     flex: 1,
