@@ -32,11 +32,16 @@ interface TierRule {
   tier: ApiTier;
 }
 
-// Profile-image reads: avatar and banner objects for users and communities,
-// plus scraped link-preview images. Matched as one prefix family because they
-// all behave the same way at the edge.
+// Profile-image reads: the avatar and banner *object* routes for users and
+// communities, plus scraped link-preview images. Matched as one family because
+// they all behave the same way at the edge.
+//
+// The identifier segment and the trailing `/image` are both required. The
+// sibling metadata routes (`/api/users/avatar/{userId}`) answer JSON and must
+// not pick up an image body on throttle, nor the looser media budget; anchoring
+// the tail on `/image` keeps those two apart.
 const PROFILE_IMAGE_PATTERN =
-  /^\/api\/(?:(?:users|communities)\/(?:avatar|banner)\/|link-preview\/image)/;
+  /^\/api\/(?:(?:users|communities)\/(?:avatar|banner)\/[^/]+\/image|link-preview\/image)\/?$/;
 
 const TIER_RULES: TierRule[] = [
   { pattern: /^\/api\/media\//, tier: MEDIA_TIER },

@@ -78,6 +78,31 @@ describe("resolveApiTier", () => {
       );
     }
   });
+
+  // /api/users/avatar/{userId} answers JSON metadata, not image bytes. Folding
+  // it into the image family gave it the looser budget and, worse, an empty
+  // throttle body that a JSON caller cannot parse.
+  test("profile metadata routes stay on the default api tier", () => {
+    for (const path of [
+      "/api/users/avatar/user123",
+      "/api/users/banner/user123",
+      "/api/communities/avatar/cmt1",
+      "/api/communities/banner/cmt1",
+      "/api/users/avatar",
+      "/api/link-preview",
+    ]) {
+      expect(resolveApiTier(path)?.bucket).toBe("api");
+    }
+  });
+
+  test("the image family does not swallow deeper paths", () => {
+    for (const path of [
+      "/api/users/avatar/user123/image/extra",
+      "/api/users/avatar/user123/metadata",
+    ]) {
+      expect(resolveApiTier(path)?.bucket).not.toBe("media");
+    }
+  });
 });
 
 describe("guardApiRequest", () => {
@@ -156,6 +181,30 @@ describe("guardApiRequest", () => {
       expect(response.contentType).toBeNull();
       expect(response.body).toBe("");
     }
+  });
+
+  // The other half of the image/metadata split: the JSON sibling still gets a
+  // JSON throttle body, so a client parsing the response does not choke.
+  test("throttled profile metadata still gets a JSON body", async () => {
+    mockConsumeRateLimit.mockImplementation(() => ({
+      allowed: false,
+      remaining: 0,
+      resetAt: Date.now() + 60_000,
+      retryAfterSeconds: 30,
+    }));
+
+    const result = await guardApiRequest(
+      "/api/users/avatar/user123",
+      "198.51.100.7"
+    );
+
+    expect(result.response?.status).toBe(429);
+    expect(result.response?.headers.get("content-type")).toBe(
+      "application/json"
+    );
+    expect(await result.response?.json()).toEqual({
+      error: "Too many requests. Please slow down.",
+    });
   });
 
   test("a throttled response is never cached", async () => {
