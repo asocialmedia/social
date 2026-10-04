@@ -975,6 +975,7 @@ export function PostMediaScreen({
                 </Pressable>
                 <VoteCluster
                   aura={post.aura ?? 0}
+                  authorName={displayName}
                   onRequireLogin={requireLogin}
                   postId={post.id}
                   userVote={getUserVote(post)}

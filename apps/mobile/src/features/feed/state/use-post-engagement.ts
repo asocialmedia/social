@@ -23,7 +23,7 @@ import { logWarn } from "@/lib/telemetry";
 import { engagementStore, normalizeEngagement } from "../lib/engagement-store";
 import type { PostEngagement } from "../lib/engagement-store";
 import { submitBookmark, submitVote } from "../lib/feed-api";
-import type { ApiCallOptions } from "../lib/feed-api";
+import type { ApiCallOptions, VoteInfo } from "../lib/feed-api";
 
 export interface UsePostEngagementOptions {
   /**
@@ -55,8 +55,13 @@ export interface PostEngagementActions {
   refresh: () => Promise<void>;
   /** Optimistically toggles the bookmark, rolls back on error. */
   toggleBookmark: () => Promise<void>;
-  /** Optimistically casts a vote, reconciles on success, rolls back on error. */
-  vote: (value: 1 | -1) => Promise<void>;
+  /**
+   * Optimistically casts a vote, reconciles on success, rolls back on error.
+   *
+   * Resolves to the server's confirmed vote so the caller can announce it, or
+   * `null` when a newer vote superseded this one and the result is stale.
+   */
+  vote: (value: 1 | -1) => Promise<VoteInfo | null>;
 }
 
 async function requestContext(): Promise<ApiCallOptions> {
@@ -191,12 +196,16 @@ export function usePostEngagement({
           commentId
         );
         if (generationRef.current !== generation) {
-          return;
+          // A newer vote superseded this one, so this result is stale and the
+          // caller must not announce it. `null` distinguishes that from a real
+          // vote landing, which `VoteCluster` turns into a toast.
+          return null;
         }
         publish({ aura: info.aura, userVote: info.userVote });
+        return info;
       } catch (error) {
         if (generationRef.current !== generation) {
-          return;
+          return null;
         }
         publish(previous);
         logWarn("engagement.vote_failed", {

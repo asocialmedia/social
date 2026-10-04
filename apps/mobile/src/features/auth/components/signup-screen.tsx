@@ -38,6 +38,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
 import signupBgImage from "@/assets/images/signup-image.jpg";
+import { toast } from "@/components/feedback/toast";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { validateSignup } from "@/features/auth/lib/auth-validation";
@@ -273,6 +274,14 @@ export default function SignupScreen() {
     setTurnstileReset((value) => value + 1);
     if (result.requiresEmailVerification === false) {
       clearSignupState();
+      // Web raises this from the tail of its verification handler
+      // (`apps/web/src/components/auth/forms/sign-up-form.tsx`) on the same
+      // no-verification branch, before redirecting to login.
+      toast({
+        description:
+          "Your account has been created successfully. Please log in.",
+        title: "Welcome to asocialmedia!",
+      });
       router.replace("/(auth)/login");
       return;
     }
@@ -311,6 +320,14 @@ export default function SignupScreen() {
         setOtp("");
         setFormError(result.error ?? "That code didn't match.");
         triggerShake();
+        // Web raises this from its verification `catch`
+        // (`apps/web/src/components/auth/forms/sign-up-form.tsx`) with the thrown
+        // message as the description.
+        toast({
+          description: result.error ?? "OTP verification failed",
+          title: "Verification Failed",
+          variant: "destructive",
+        });
         return;
       }
       clearSignupState();
@@ -332,6 +349,15 @@ export default function SignupScreen() {
       if (!DIGITS_ONLY.test(val)) {
         setOtpError(true);
         setFormError("We're looking for digits, not your life story!");
+        // Same branch in web's OTP handler
+        // (`apps/web/src/components/auth/forms/sign-up-form.tsx`), same 2s
+        // duration -- it is a typing nudge, not a failure worth lingering on.
+        toast({
+          description: "We're looking for digits, not your life story!",
+          duration: 2000,
+          title: "Numbers only, please!",
+          variant: "destructive",
+        });
         return;
       }
       setFormError(null);
@@ -355,6 +381,16 @@ export default function SignupScreen() {
     setTooltipDismissed(false);
     if (!result.ok) {
       setFormError(result.error ?? "Couldn't send a new code.");
+      // Web splits this into three toasts -- rate limited, plain failure, and
+      // success -- in `handleResendOtp`
+      // (`apps/web/src/components/auth/forms/sign-up-form.tsx`). The mobile API
+      // returns one error shape with no rate-limit flag, so this is the plain
+      // "Failed to Resend" branch.
+      toast({
+        description: result.error || "Failed to resend verification code.",
+        title: "Failed to Resend",
+        variant: "destructive",
+      });
       return;
     }
     setOtp("");
@@ -362,6 +398,10 @@ export default function SignupScreen() {
     setOtpDeadline(Date.now() + OTP_EXPIRY_MS);
     setResendAvailableAt(Date.now() + OTP_RESEND_GATE_MS);
     setNow(Date.now());
+    toast({
+      description: "A new verification code has been sent.",
+      title: "Code Sent!",
+    });
   }, [currentEmail, email, isResending]);
 
   const handleVerifyViaEmailLink = useCallback(() => {
@@ -389,9 +429,18 @@ export default function SignupScreen() {
     setIsResending(false);
     if (!result.ok) {
       setFormError(result.error ?? "Couldn't send the verification link.");
+      toast({
+        description: result.error || "Failed to send verification link.",
+        title: "Failed to Send",
+        variant: "destructive",
+      });
       return;
     }
     setEmailSent(true);
+    toast({
+      description: "Check your inbox for the verification link.",
+      title: "Email Link Sent!",
+    });
   }, [currentEmail, email, isResending]);
 
   const inputShadow = (field: "email" | "password" | "username") => {

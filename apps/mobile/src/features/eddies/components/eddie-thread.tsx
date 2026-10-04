@@ -387,6 +387,7 @@ function EddieRow({
             <View style={styles.commentActions}>
               <VoteCluster
                 aura={comment.aura ?? 0}
+                authorName={name}
                 commentId={comment.id}
                 onRequireLogin={() => handlers.onRequireLogin()}
                 postId={postId}

@@ -391,6 +391,13 @@ export function GooeyToast({
     // travels down by exactly the content height as the body opens
     // (`pillY = visualHeight - toastHeight`, which is the open content height).
     const openHeight = open.value * contentHeight.value;
+    // The pill is positioned from its own content width, so `alignedX` places it
+    // per `align`: flush right in a right-aligned viewport, centred in a
+    // centred one. Anchoring it with the body's width instead pinned every
+    // toast's pill to the left edge, because a full-width body resolves to an
+    // offset of 0 whatever the alignment. Upstream's SVG gooey filter bridges
+    // the width gap between the pill and the body, which React Native cannot
+    // run, so the native toast keeps a stepped right edge here by design.
     return {
       height: toastHeight,
       left: alignedX(headerWidth.value, align, containerWidth),
@@ -406,6 +413,8 @@ export function GooeyToast({
     width: bodyWidth,
   }));
 
+  // The header overlays the pill, so it shares the pill's left edge and stays
+  // shrink-wrapped to its own content.
   const headerAnimatedStyle = useAnimatedStyle(() => ({
     height: toastHeight,
     left: alignedX(headerWidth.value, align, containerWidth),
@@ -529,14 +538,23 @@ export function GooeyToast({
             Upstream fuses them with an SVG gooey filter chain; React Native
             cannot run that filter (react-native-svg's Android blur is built on
             RenderScript, which no longer ships in Android), and at an opaque
-            fill the GOOEY_JOIN overlap alone reads as one continuous surface. */}
-        <Animated.View
-          pointerEvents="none"
-          style={[surfaceStyle, bodyAnimatedProps]}
-        />
+            fill the GOOEY_JOIN overlap alone reads as one continuous surface.
+
+            The stacking follows upstream's `group.append(this.pillRect,
+            this.bodyRect)` (gooey-toast@0.2.2 `dist/toast.js`): the pill goes in
+            first and the body second, and both SVG and React Native paint later
+            siblings on top, so the body covers the pill. Reversing these two
+            put the pill's `boxShadow` -- inset rim included -- on top of the
+            body, which drew a visible seam across the overlap and made the pill
+            read as a separate card floating over the toast instead of part of
+            it. Paint order here is load-bearing, not incidental. */}
         <Animated.View
           pointerEvents="none"
           style={[surfaceStyle, pillAnimatedProps]}
+        />
+        <Animated.View
+          pointerEvents="none"
+          style={[surfaceStyle, bodyAnimatedProps]}
         />
 
         {/* Upstream's `[data-gooey-title-measure]`: the header's own children,
