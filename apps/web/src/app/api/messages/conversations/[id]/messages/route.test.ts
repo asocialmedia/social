@@ -48,7 +48,9 @@ function unreadRecipients(): string[] {
 }
 const mockPublishCreated = mock(() => Promise.resolve());
 const mockPublishActivity = mock(() => Promise.resolve());
-const mockKeyFirst = mock(() => ({ ratchetCounter: 0 }));
+// The newest epoch's row, version included: the CAS pins the version it read, so
+// the read has to carry one.
+const mockKeyFirst = mock(() => ({ ratchetCounter: 0, version: 3 }));
 // The row a cursor names. The client holds only an id, and the route's composite
 // sort needs the timestamp too, so this read is what turns an id into a keyset
 // anchor. Overridable per test so a test can make the anchor vanish.
@@ -57,6 +59,9 @@ const mockAnchorFirst = mock(() => ({
   id: "m-020",
 }));
 const mockKeyUpdateAndCount = mock(() => 1);
+// The columns the ratchet CAS matched on, recorded so a MISSING one is visible.
+// Asserting the counter value cannot see a column that was never matched on.
+let casWhere: Record<string, unknown> = {};
 const mockConversationUpdate = mock(() => ({}));
 // The queue. Every created notification is enqueued by its own id, so the
 // calls are the fan-out's report to the worker.
@@ -234,7 +239,16 @@ const txClient = {
           };
           return { where: () => keyQuery };
         },
-        where: () => ({ updateAndCount: mockKeyUpdateAndCount }),
+        // The ratchet CAS, inside the transaction. Its predicate is recorded
+        // because the defect was a MISSING column rather than a wrong value, and
+        // asserting the new value cannot see a column that was never matched on.
+        where: (filter: ((accessor: unknown) => unknown) | object) => {
+          casWhere =
+            typeof filter === "function"
+              ? (filter(recordingAccessor()) as Record<string, unknown>)
+              : (filter as Record<string, unknown>);
+          return { updateAndCount: mockKeyUpdateAndCount };
+        },
       },
       MessageConversations: {
         where: () => ({ update: mockConversationUpdate }),
@@ -479,6 +493,33 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     expect(res.status).toBe(403);
   });
 
+  test("the ratchet CAS pins the epoch it read, not just the counter", async () => {
+    // A member holds one wrap per root-key epoch, so a rotated key leaves several
+    // rows for the same conversation - and freshly rotated ones share a counter,
+    // because rotation copies it rather than advancing it. Matching on the counter
+    // alone therefore updated EVERY epoch at that value, `updateAndCount` returned
+    // something other than 1, and the retry re-read the same untouched state and
+    // failed identically until it gave up. The send then 500ed with "Could not
+    // update message ratchet" in any conversation whose keys had been rotated.
+    //
+    // `(conversationId, ownerUserId, version)` is a unique key, so pinning version
+    // makes the write hit exactly one row and `updated === 1` a real
+    // compare-and-swap again.
+    await POST(
+      new Request(convoUrl("messages"), {
+        body: JSON.stringify({ ciphertext: "abc", iv: "def", ratchetIndex: 0 }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "convo-1" }) }
+    );
+    expect(casWhere.version).toEqual({ eq: 3 });
+    // The counter is still part of the CAS, so a lost race is still detected.
+    expect(casWhere.ratchetCounter).toEqual({ eq: 0 });
+    // And it wrote the NEXT value, once.
+    expect(mockKeyUpdateAndCount).toHaveBeenCalledWith({ ratchetCounter: 1 });
+  });
+
   test("stores the server-authoritative ratchet index and notifies the peer", async () => {
     const res = await POST(validPostRequest(), {
       params: Promise.resolve({ id: "convo-1" }),
@@ -588,6 +629,7 @@ describe("POST to a den fans a notification out to the members", () => {
     mockCreateDenMessageNotifications.mockClear();
     mockNextRatchetIndex.mockReset();
     mockKeyUpdateAndCount.mockClear();
+    casWhere = {};
     mockConversationUpdate.mockClear();
     mockTransaction.mockReset();
     mockGetSession.mockClear();

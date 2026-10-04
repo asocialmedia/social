@@ -90,7 +90,8 @@ async function updateMessageRatchetWithCas(
   // Only the newest root-key epoch drives the counter; older wraps belong to
   // epochs the conversation has already rotated past.
   const key = await tx.orm.public.MessageConversationKeys.select(
-    "ratchetCounter"
+    "ratchetCounter",
+    "version"
   )
     .where((candidate) =>
       and(
@@ -103,11 +104,28 @@ async function updateMessageRatchetWithCas(
   if (!key) {
     return;
   }
+  // `version` is part of the predicate, and it has to be.
+  //
+  // A member holds one wrap per root-key epoch, so rotating a den's key leaves the
+  // owner with several rows for the same conversation - and freshly rotated ones
+  // all carry the same counter, because a rotation copies it rather than
+  // advancing it. A CAS that matched on the counter alone therefore updated EVERY
+  // epoch at that value, so `updateAndCount` returned 2, the `=== 1` check failed,
+  // and the retry re-read the same untouched state and failed identically eight
+  // times. The send then failed with "Could not update message ratchet" in any
+  // conversation whose keys had been rotated, which is every den that has had a
+  // member added or removed.
+  //
+  // `(conversationId, ownerUserId, version)` is a unique key, so pinning it makes
+  // the write hit exactly the row this read observed, and `=== 1` becomes a real
+  // compare-and-swap again: 1 means this writer won, 0 means another writer moved
+  // the counter first and the retry is the correct response.
   const updated = await tx.orm.public.MessageConversationKeys.where(
     (candidate) =>
       and(
         candidate.conversationId.eq(conversationId),
         candidate.ownerUserId.eq(ownerUserId),
+        candidate.version.eq(key.version),
         candidate.ratchetCounter.eq(key.ratchetCounter)
       )
   ).updateAndCount({ ratchetCounter: key.ratchetCounter + 1 });
