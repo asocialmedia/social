@@ -24,10 +24,10 @@ export const registerToaster = (handle: ToasterHandle | null): void => {
 
 const noopHandle: ToasterHandle = {
   unmount: () => {
-    /* empty */
+    // Nothing to tear down without a mounted toaster.
   },
   update: () => {
-    /* empty */
+    // Nothing to push without a mounted toaster.
   },
 };
 

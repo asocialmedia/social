@@ -156,7 +156,12 @@ export function GooeyToast({
 
   // Upstream defaults a missing title to the state name.
   const resolvedTitle = title ?? state;
-  const hasContent = resolvedDescription !== null || button !== null;
+  // `button` is optional, so an omitted prop arrives as undefined. A `!== null`
+  // test counted that as present and let a title-only toast expand around a
+  // button that does not exist. Both spellings of absent now mean absent,
+  // matching the nullish handling used for icon.
+  const hasContent =
+    resolvedDescription !== null || (button !== null && button !== undefined);
 
   const placement = useMemo(
     () => resolvePlacement(record.position),
@@ -339,7 +344,11 @@ export function GooeyToast({
 
   // Entry/exit. Upstream fades and translates by `--_entry-y` (8px for
   // bottom-edge toasts, -8px for top) while scaling 0.98 -> 1.
-  const entry = useSharedValue(record.exiting ? 0 : 1);
+  // Starting at 0 is what makes a newly mounted toast animate in. Deriving the
+  // initial value from `record.exiting` left a live toast at 1, so the effect
+  // below animated 1 -> 1 and the entry transition never played. The effect
+  // still drives the exit case back to 0.
+  const entry = useSharedValue(0);
   useEffect(() => {
     // oxlint-disable-next-line react/immutability -- assigning a Reanimated shared value is how an animation is started; the same pattern is used by Spinner3D's rotation
     entry.value = withTiming(record.exiting ? 0 : 1, {

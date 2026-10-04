@@ -178,7 +178,9 @@ export const dismissToast = (id: string): void => {
     all.map((item) => (item.id === id ? { ...item, exiting: true } : item))
   );
   const previous = exitTimers.get(key);
-  if (previous !== null) {
+  // Map.get yields undefined for an absent key, never null, so the null check
+  // passed for the missing case and handed undefined to clearTimeout.
+  if (previous !== undefined) {
     clearTimeout(previous);
   }
   const timer = setTimeout(() => {

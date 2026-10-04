@@ -95,7 +95,8 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
         store.update(() => []);
       },
       update: () => {
-        /* empty */
+        // Toasts arrive through the store directly, so there is nothing to
+        // push into the manager here.
       },
     });
     return () => {
@@ -178,17 +179,10 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
     }
   }, [getRemaining]);
 
-  // Adopt the requested position as the store default, the way upstream's
-  // `ToasterManager` constructor assigns `store.position = this.position`. The
-  // store resolves each record's position at creation, so without this a
-  // `<GooeyToaster position="bottom-center" />` would leave new toasts on the
-  // store's own `top-right` default.
-  useEffect(() => {
-    if (!position) {
-      return;
-    }
-    store.position = position;
-  }, [position]);
+  // Adopt the requested position as the store default. The `setDefaultPosition`
+  // effect above is the sole path: it also re-homes unpinned records already in
+  // the store. This second effect assigned `store.position` directly, skipped
+  // that re-homing, and ran afterwards, so the outcome depended on effect order.
 
   // Upstream's `render` prunes dismiss states whose key has left the live set.
   // Without this a reused `id` keeps its predecessor's timer, which then
@@ -228,15 +222,20 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
     if (resumeTimer.current !== null) {
       clearTimeout(resumeTimer.current);
     }
+    // The finger is already off this toast, so drop the touching flag now.
+    // Leaving it set until the deferred check meant the check saw `true` and
+    // bailed every time: one tap latched the toaster into "touching" for good,
+    // so the dismiss timers never resumed and setTouching(false) never ran.
+    touchingRef.current = false;
     // Upstream waits HOVER_RESUME_DELAY and re-checks that nothing is still
     // hovered before resuming, so a quick tap cannot restart the timer while
-    // the finger is still down on another toast.
+    // the finger is still down on another toast. A press that starts inside
+    // the window sets the flag back and the check defers to it.
     resumeTimer.current = setTimeout(() => {
       resumeTimer.current = null;
       if (touchingRef.current) {
         return;
       }
-      touchingRef.current = false;
       setTouching(false);
       scheduleDismiss(toasts);
     }, HOVER_RESUME_DELAY);
@@ -315,10 +314,12 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
 
   const resolveOffset = (edge: "top" | "right" | "bottom" | "left"): number => {
     // Upstream's `[data-gooey-viewport] { padding: 0.75rem }` is always on the
-    // viewport, and `offset` lands *on top of* it as an inset:
-    // `applyViewportOffset` writes `style.right` / `style.bottom` and leaves the
-    // stylesheet's padding in place. So the base 12 is unconditional and only
-    // the inset is configurable.
+    // viewport and `offset` lands *on top of* it as an inset, so the base 12 is
+    // unconditional. What was missing was the safe-area inset, which upstream
+    // gets from the fixed viewport: every branch now adds its own edge's inset
+    // so toasts clear the status bar and the gesture bar. Reading `insets.top`
+    // for the horizontal edges would push them out by the status bar height, so
+    // each edge reads only its own.
     //
     // `offset` is optional, so an omitted prop has to be treated the same as an
     // explicit null. Testing `=== null` alone would fall through to the indexed
@@ -327,16 +328,12 @@ export function GooeyToaster({ offset, position }: GooeyToasterProps) {
       return 0;
     }
     if (typeof offset === "number") {
-      return offset;
+      return offset + insets[edge];
     }
     if (offset === undefined) {
-      // With no explicit offset, add the safe-area inset so toasts clear the
-      // status bar and the gesture bar, the way a fixed web viewport does. Each
-      // edge reads its own inset: reading `insets.top` for the horizontal edges
-      // would push them out by the status bar height.
       return BASE_VIEWPORT_PADDING + insets[edge];
     }
-    return BASE_VIEWPORT_PADDING + (offset[edge] ?? 0);
+    return BASE_VIEWPORT_PADDING + (offset[edge] ?? 0) + insets[edge];
   };
 
   // Without an explicit offset, fall back to the safe-area inset plus padding,

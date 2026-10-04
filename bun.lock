@@ -375,7 +375,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.47",
+      "version": "1.0.48",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",
