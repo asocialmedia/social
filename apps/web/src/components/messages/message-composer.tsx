@@ -27,7 +27,7 @@ import { toast } from "@/lib/gooey-toast";
 import { shouldShowAccessEndedNotice } from "@/lib/messages/access-ended";
 import {
   MessagesApiError,
-  appendMessageToLastPage,
+  foldMessageIntoPages,
   ensureConversationKeys,
   fetchConversationDetail,
   sendEncryptedMessage,
@@ -274,8 +274,8 @@ export function MessageComposer({
           payload
         );
 
-        // Fold the sent message into the cache (deduped against the SSE echo
-        // of the same message) and clear the input.
+        // Fold the sent message into the cache (deduped against the SSE echo of
+        // the same message) and clear the input.
         queryClient.setQueryData(
           ["messages", conversation.conversation.id],
           (old: unknown) => {
@@ -283,7 +283,7 @@ export function MessageComposer({
               return old;
             }
             const data = old as InfiniteData<MessagePage, string | undefined>;
-            const nextPages = appendMessageToLastPage(data.pages, sent);
+            const nextPages = foldMessageIntoPages(data.pages, sent);
             return nextPages ? { ...data, pages: nextPages } : old;
           }
         );

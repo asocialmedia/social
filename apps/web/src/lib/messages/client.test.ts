@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   appendMessageToLastPage,
+  foldMessageIntoPages,
   createRootKeyStore,
   ensureConversationKeys,
   fetchConversationDetail,
@@ -1641,6 +1642,79 @@ describe("appendMessageToLastPage", () => {
 
   test("handles an empty page list", () => {
     expect(appendMessageToLastPage([], { id: "m1" })).toBeNull();
+  });
+});
+
+// A message as it arrives on the wire: ISO strings where the cache is typed as
+// Dates. Both fold call sites hand this shape in - the composer's POST response
+// and the thread's SSE frame.
+function wireRow(id: string, createdAt: string) {
+  return {
+    ciphertext: "c",
+    conversationId: "convo-1",
+    createdAt,
+    deletedAt: null,
+    editedAt: null,
+    id,
+    iv: "i",
+    ratchetIndex: 0,
+    senderId: "me",
+  };
+}
+
+// The same row as the FETCHING path hands it over: already normalized, because
+// `fetchMessages` revives every row it reads.
+function fetchedRow(id: string, createdAt: string) {
+  return { ...wireRow(id, createdAt), createdAt: new Date(createdAt) };
+}
+
+describe("foldMessageIntoPages", () => {
+  // The composer used to skip normalization, so a sent row entered the cache with
+  // an ISO string where the transcript's merge expected a Date - and a row it
+  // cannot compare against the rows around it lands wherever the append put it.
+  test("normalizes the timestamps the row arrives with", () => {
+    const next = foldMessageIntoPages(
+      [{ messages: [fetchedRow("m-1", "2026-01-01T00:00:00.000Z")] }],
+      wireRow("m-2", "2026-01-02T00:00:00.000Z")
+    );
+    const folded = next?.at(-1)?.messages.at(-1);
+    expect(folded?.createdAt).toBeInstanceOf(Date);
+    expect(folded?.createdAt.getTime()).toBe(
+      new Date("2026-01-02T00:00:00.000Z").getTime()
+    );
+  });
+
+  test("a folded row is comparable with a fetched one beside it", () => {
+    // What the transcript's merge actually does, stated as a test because both the
+    // misplacement and a whole-thread crash were this comparison meeting a string.
+    const next = foldMessageIntoPages(
+      [{ messages: [fetchedRow("m-1", "2026-01-01T00:00:00.000Z")] }],
+      wireRow("m-2", "2026-01-02T00:00:00.000Z")
+    );
+    const rows = next?.at(-1)?.messages ?? [];
+    const ascending = rows.every((row, index) => {
+      const previous = rows[index - 1];
+      return (
+        index === 0 ||
+        row.createdAt.getTime() >= (previous?.createdAt.getTime() ?? 0)
+      );
+    });
+    expect(ascending).toBe(true);
+    // And it is genuinely the newest, which is the placement the send must have.
+    expect(rows.at(-1)?.id).toBe("m-2");
+  });
+
+  test("still dedupes the sender's own SSE echo", () => {
+    const first = foldMessageIntoPages(
+      [{ messages: [] }],
+      wireRow("m-2", "2026-01-02T00:00:00.000Z")
+    );
+    expect(
+      foldMessageIntoPages(
+        first ?? [],
+        wireRow("m-2", "2026-01-02T00:00:00.000Z")
+      )
+    ).toBeNull();
   });
 });
 

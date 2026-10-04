@@ -1466,6 +1466,23 @@ export function appendMessageToLastPage<
   return pagesCopy;
 }
 
+// Folds a message that just arrived over the wire into the transcript cache.
+//
+// Normalization lives HERE rather than at each call site because both callers had
+// a reason to forget it and one of them did: the composer folded the raw POST
+// response while the realtime handler folded `toCachedMessage(message)`. A row
+// whose `createdAt` is still an ISO string cannot be compared against the rows
+// around it, and the transcript's merge does exactly that - so the send landed in
+// a position nothing could correct until the next fetch replaced it.
+//
+// Dedupe by id is preserved, because the SSE stream echoes the sender's own write.
+export function foldMessageIntoPages<P extends { messages: MessageData[] }>(
+  pages: P[],
+  message: MessageData
+): P[] | null {
+  return appendMessageToLastPage(pages, toCachedMessage(message));
+}
+
 // Replaces an existing message row in place across an infinite-query page list,
 // matching by id. Returns null when no page holds the id (an edit for a message
 // this session has not loaded), so callers can skip a needless cache write.

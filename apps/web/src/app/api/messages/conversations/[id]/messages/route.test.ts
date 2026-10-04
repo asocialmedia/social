@@ -49,6 +49,13 @@ function unreadRecipients(): string[] {
 const mockPublishCreated = mock(() => Promise.resolve());
 const mockPublishActivity = mock(() => Promise.resolve());
 const mockKeyFirst = mock(() => ({ ratchetCounter: 0 }));
+// The row a cursor names. The client holds only an id, and the route's composite
+// sort needs the timestamp too, so this read is what turns an id into a keyset
+// anchor. Overridable per test so a test can make the anchor vanish.
+const mockAnchorFirst = mock(() => ({
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  id: "m-020",
+}));
 const mockKeyUpdateAndCount = mock(() => 1);
 const mockConversationUpdate = mock(() => ({}));
 // The queue. Every created notification is enqueued by its own id, so the
@@ -104,6 +111,10 @@ let peerMutedAt: Date | null = null;
 // What the composed Prisma 8 read resolved to, so assertions can inspect the
 // where/orderBy/limit the route actually built instead of Prisma 7 call args.
 interface RecordedQuery {
+  // The keyset anchor the route sought from, when it used one. Recorded because
+  // a composite sort has to be sought on BOTH of its columns, and a cursor
+  // carrying only the id is the defect rather than the fix.
+  cursorAnchor?: Record<string, unknown>;
   limit?: number;
   orderBy?: Record<string, string>;
   where: Record<string, unknown>;
@@ -119,6 +130,16 @@ const record = (column: string, op: string) => (value?: unknown) => ({
 
 // A minimal accessor that records which column each comparison ran against, in
 // the Prisma 8 predicate shape (message.id.gt(cursor) etc).
+// One level of nesting is all the combinators produce, but recursing is cheaper
+// than being wrong about it later.
+function flatten(conditions: unknown[]): object[] {
+  return conditions
+    .filter(Boolean)
+    .flatMap((condition) =>
+      Array.isArray(condition) ? flatten(condition) : [condition as object]
+    );
+}
+
 function recordingAccessor() {
   return new Proxy(
     {},
@@ -162,22 +183,34 @@ function buildMessageQuery() {
       recorded = state;
       return mockFindMany();
     },
-    cursor: () => query,
+    cursor: (anchor: Record<string, unknown>) => {
+      state.cursorAnchor = anchor;
+      return query;
+    },
     first: () => mockMessageFirst(),
     limit: (n: number) => {
       state.limit = n;
       return query;
     },
-    orderBy: (predicate: (accessor: unknown) => unknown) => {
-      const built = predicate(recordingAccessor());
-      if (typeof built === "string") {
-        const [column, direction] = built.split(":");
-        state.orderBy = { [column ?? ""]: direction ?? "asc" };
-      } else if (Array.isArray(built)) {
-        state.orderBy = Object.fromEntries(
-          built.filter((entry) => typeof entry === "string")
-        );
-      }
+    // Both shapes the real API accepts: one predicate, or an array of them for a
+    // composite sort. The transcript needs the array form - a chronological sort
+    // with the id breaking ties is two columns - so a single-predicate mock would
+    // make the fix untestable rather than merely awkward.
+    orderBy: (
+      predicate:
+        | ((accessor: unknown) => unknown)
+        | ((accessor: unknown) => unknown)[]
+    ) => {
+      const built = Array.isArray(predicate)
+        ? predicate.map((entry) => entry(recordingAccessor()))
+        : predicate(recordingAccessor());
+      const entries = (Array.isArray(built) ? built : [built]).flatMap(
+        (entry) =>
+          typeof entry === "string" ? [entry.split(":")] : ([] as string[][])
+      );
+      state.orderBy = Object.fromEntries(
+        entries.map(([column, direction]) => [column ?? "", direction ?? "asc"])
+      );
       return query;
     },
     where: applyWhere,
@@ -250,18 +283,22 @@ const limiter = messageRouteLimiter();
 mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@asm/db", () => ({
-  // The real `and` composes predicates into one expression; merging the
-  // recorded column predicates into a flat object is what makes the composed
-  // query inspectable.
-  and: (...conditions: unknown[]) =>
-    Object.assign({}, ...(conditions.filter(Boolean) as object[])),
+  // The real `and` composes predicates into one expression; merging the recorded
+  // column predicates into a flat object is what makes the composed query
+  // inspectable.
+  //
+  // Flattened, because the real combinators nest: a row-wise bound like
+  // `(createdAt, id) <= anchor` is an `or` of two branches, one of which is an
+  // `and`, and a mock that cannot flatten reports the branch list under numeric
+  // keys instead of under the columns it touches.
+  and: (...conditions: unknown[]) => Object.assign({}, ...flatten(conditions)),
   consumeRateLimit: mockConsumeRateLimit,
   createDenMessageNotifications: mockCreateDenMessageNotifications,
   enqueueNotificationCreated: mockEnqueueNotificationCreated,
   enqueueNotificationDeleted: mock(() => Promise.resolve()),
   fromPrismaDateTime: (value: Date) => value,
   getMessageDataQuery: buildMessageQuery,
-  or: (...conditions: unknown[]) => conditions,
+  or: (...conditions: unknown[]) => flatten(conditions),
   prisma: {
     orm: {
       public: {
@@ -272,7 +309,10 @@ mock.module("@asm/db", () => ({
         MessageConversations: {
           where: () => ({ update: mockConversationUpdate }),
         },
-        Messages: { create: mockCreate },
+        Messages: {
+          create: mockCreate,
+          select: () => ({ where: () => ({ first: mockAnchorFirst }) }),
+        },
       },
     },
     transaction: mockTransaction,
@@ -902,13 +942,23 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     expect(mockFindMany).toHaveBeenCalledTimes(1);
   });
 
-  test("passes the cursor through as an id.lt filter", async () => {
-    mockFindMany.mockReturnValueOnce([{ id: "m-010" }]);
+  test("orders chronologically, so a random id cannot shuffle the transcript", async () => {
+    // The regression this file exists for. `messages.id` is a random UUID, so an
+    // id-ordered page returns messages in an order unrelated to when they were
+    // sent - measured on a 100-message thread, 53 of 99 adjacent pairs came back
+    // inverted, and a freshly sent message landed anywhere in the window.
+    mockFindMany.mockReturnValueOnce([{ id: "m-001" }]);
     const req = new Request(convoUrl("messages?cursor=m-020"), {
       method: "GET",
     });
     await GET(req, { params: Promise.resolve({ id: "convo-1" }) });
-    expect(mockFindMany).toHaveBeenCalledTimes(1);
+    expect(recorded.orderBy).toEqual({ createdAt: "desc", id: "desc" });
+    // And the cursor is a keyset seek over that same pair, not an id range.
+    expect(recorded.where.id?.lt).toBeUndefined();
+    expect(recorded.cursorAnchor).toEqual({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      id: "m-020",
+    });
   });
 
   test("honors a valid limit for faster history walks", async () => {
@@ -1008,10 +1058,16 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // Odd page: 4 older + 3 newer, each with one probe row.
     expect(olderQuery?.limit).toBe(5);
     expect(newerQuery?.limit).toBe(4);
-    expect(olderQuery?.orderBy?.id).toBe("desc");
-    expect(newerQuery?.orderBy?.id).toBe("asc");
-    expect(olderQuery?.where.id).toEqual({ lte: "m-1" });
-    expect(newerQuery?.where.id).toEqual({ gt: "m-1" });
+    // Chronological, with the id breaking ties. `id: desc` alone is the defect:
+    // message ids are random UUIDs, so that sort is a shuffle.
+    expect(olderQuery?.orderBy).toEqual({ createdAt: "desc", id: "desc" });
+    expect(newerQuery?.orderBy).toEqual({ createdAt: "asc", id: "asc" });
+    // The older half is INCLUSIVE of the anchor, so `anchorIndex` can point at
+    // it, and the bound has to be a row-wise `<=` over the same pair rather than
+    // an id comparison - an id bound compares a random value.
+    expect(olderQuery?.where.createdAt).toBeDefined();
+    // And the newer half must be STRICT, or the anchor returns on both sides.
+    expect(newerQuery?.where.createdAt).toBeDefined();
   });
 
   test("anchored read excludes messages hidden for the caller", async () => {
@@ -1049,8 +1105,14 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // Growth older from the window's edge is always offered, so the transcript
     // auto-loader can keep paging down.
     expect(body.previousCursor).toBe("m-31");
-    expect(recorded.orderBy?.id).toBe("asc");
-    expect(recorded.where.id).toEqual({ gt: "m-30" });
+    expect(recorded.orderBy).toEqual({ createdAt: "asc", id: "asc" });
+    // Seeking, not an id filter. The client holds only the id, so the route
+    // resolved the anchor's timestamp and seeks on BOTH columns of the sort; a
+    // seek on the id alone pages a range that has nothing to do with time.
+    expect(recorded.cursorAnchor).toEqual({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      id: "m-30",
+    });
   });
 
   test("newer paging reports no next cursor on the last page", async () => {

@@ -85,7 +85,7 @@ import {
 import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
-  appendMessageToLastPage,
+  foldMessageIntoPages,
   toCachedMessage,
   deleteMessage,
   editMessage,
@@ -4328,12 +4328,7 @@ export function MessageThread({
             }
             // Dedupe against the sender's own optimistic fold of the same
             // message (the SSE stream echoes every write, including ours).
-            // Normalised on the way in: the frame carries ISO strings and the
-            // cache is typed as Dates.
-            const nextPages = appendMessageToLastPage(
-              old.pages,
-              toCachedMessage(message)
-            );
+            const nextPages = foldMessageIntoPages(old.pages, message);
             return nextPages ? { ...old, pages: nextPages } : old;
           }
         );
