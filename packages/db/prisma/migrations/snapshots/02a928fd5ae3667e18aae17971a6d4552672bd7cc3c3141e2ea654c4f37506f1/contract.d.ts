@@ -13720,9 +13720,9 @@ type ContractBase = Omit<
       readonly defaults: readonly [
         {
           readonly ref: {
+            readonly entry: "accounts";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "accounts";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13731,9 +13731,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "aura_logs";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "aura_logs";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13742,9 +13742,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "bookmarks";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "bookmarks";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13753,9 +13753,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "comments";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "comments";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13764,9 +13764,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "communities";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "communities";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13775,9 +13775,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "community_join_bonuses";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "community_join_bonuses";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13786,9 +13786,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "community_members";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "community_members";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13797,9 +13797,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "community_post_shares";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "community_post_shares";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13808,9 +13808,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "community_subscriptions";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "community_subscriptions";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13819,9 +13819,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "community_visits";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "community_visits";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13830,9 +13830,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "device_push_tokens";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "device_push_tokens";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13841,9 +13841,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "hn_story_shares";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "hn_story_shares";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13852,9 +13852,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "HNBookmark";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "HNBookmark";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13863,9 +13863,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "jwks";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "jwks";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13874,9 +13874,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "mentions";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "mentions";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13885,9 +13885,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "message_conversation_keys";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "message_conversation_keys";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13896,9 +13896,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "message_conversations";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "message_conversations";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13907,9 +13907,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "messages";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "messages";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13918,9 +13918,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "notifications";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "notifications";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13929,9 +13929,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "passkey";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "passkey";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13940,9 +13940,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "password_reset_tokens";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "password_reset_tokens";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13951,9 +13951,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "post_media";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "post_media";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13962,9 +13962,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "post_media_derivatives";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "post_media_derivatives";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13973,9 +13973,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "post_visits";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "post_visits";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13984,9 +13984,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "posts";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "posts";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -13995,9 +13995,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "push_subscriptions";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "push_subscriptions";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14006,9 +14006,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "recommendation_events";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "recommendation_events";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14017,9 +14017,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "sessions";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "sessions";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14028,9 +14028,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "share_stats";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "share_stats";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14039,9 +14039,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "twoFactor";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "twoFactor";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14050,9 +14050,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "username_aliases";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "username_aliases";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14061,9 +14061,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "users";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "users";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
@@ -14072,9 +14072,9 @@ type ContractBase = Omit<
         },
         {
           readonly ref: {
+            readonly entry: "verification";
+            readonly field: "id";
             readonly namespace: "public";
-            readonly table: "verification";
-            readonly column: "id";
           };
           readonly onCreate: {
             readonly kind: "generator";
