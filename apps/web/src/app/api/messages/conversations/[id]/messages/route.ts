@@ -22,6 +22,7 @@ import {
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
+import { readerMessageWindow } from "@/lib/messages/reader-window";
 import {
   areBlocked,
   getConversationForUser,
@@ -310,25 +311,51 @@ export async function GET(
     }
   }
 
-  const visible = visibleToUser(user.id);
-  // A departed reader sees the room as it was the moment they left.
-  // `getConversationForUser` admits them on purpose so the history stays readable;
-  // this is the other half of that split. The message query is capped at their
-  // `leftAt`, so a reload cannot page in ciphertext from after the departure. They
-  // hold no key for it either way, but "cannot decrypt" is not the same as "was
-  // not sent to them", and a transcript should not show rows that were never theirs
-  // to read. `myMember` is the row the read gate already loaded, so there is no
-  // second read here.
+  // This reader's window over the transcript, and the filter that applies it.
+  //
+  // `getConversationForUser` admits somebody who left on purpose so their history stays
+  // readable, and this is the other half of that split. A departed reader is capped at
+  // their `leftAt`, so a reload cannot page in ciphertext from after the departure. A
+  // reader who has just JOINED is floored at their membership's `createdAt`, so a
+  // newcomer is not handed the room's history - which they could not decrypt anyway,
+  // having been wrapped for no epoch minted before they arrived.
+  //
+  // Both bounds are decided in one place, `readerMessageWindow`, and `myMember` is the
+  // row the read gate already loaded, so this costs no query.
   const myMember = conversation.members.find(
     (member) => member.userId === user.id
   );
-  const readCutoff = myMember?.leftAt
-    ? toPrismaDateTime(myMember.leftAt)
-    : null;
-  const readerVisible = (message: Parameters<typeof visible>[0]) =>
-    readCutoff === null
-      ? visible(message)
-      : and(visible(message), message.createdAt.lte(readCutoff));
+  // `fromPrismaDateTime` rather than a bare read: the member mapper converts the
+  // timestamps the routes use but leaves `createdAt` as the raw temporal value, and
+  // the window is compared against real dates.
+  const readerWindow = readerMessageWindow({
+    conversationType: conversation.type,
+    membership: myMember
+      ? {
+          createdAt: fromPrismaDateTime(myMember.createdAt),
+          leftAt: myMember.leftAt,
+        }
+      : null,
+  });
+  // `ReturnType<typeof visibleToUser>[0]` rather than `Parameters<...>[0]`, because
+  // `visibleToUser` takes the user id and RETURNS the message filter: indexing the
+  // parameter type would describe the id.
+  const readerVisible = (
+    message: Parameters<ReturnType<typeof visibleToUser>>[0]
+  ) => {
+    const conditions = [visibleToUser(user.id)(message)];
+    if (readerWindow.after !== null) {
+      conditions.push(
+        message.createdAt.gte(toPrismaDateTime(readerWindow.after))
+      );
+    }
+    if (readerWindow.before !== null) {
+      conditions.push(
+        message.createdAt.lte(toPrismaDateTime(readerWindow.before))
+      );
+    }
+    return and(...conditions);
+  };
 
   // Anchored window: a page centered on one message, so a search hit or a
   // permalink can open the transcript at that point without walking every page

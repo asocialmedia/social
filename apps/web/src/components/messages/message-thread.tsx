@@ -52,6 +52,7 @@ import {
   detailsPlacement,
   showsDetailsRailToggle,
 } from "@/components/messages/details-placement";
+import { MessageAccessEndedDialog } from "@/components/messages/message-access-ended-dialog";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
 import {
@@ -78,7 +79,6 @@ import {
   ACCESS_ENDED_DISMISS_LABEL,
   ACCESS_ENDED_MESSAGE,
   accessEndedOnArrival,
-  accessEndedToast,
   consumeSelfLeave,
   SELF_LEAVE_DESCRIPTION,
 } from "@/lib/messages/access-ended";
@@ -531,27 +531,20 @@ export function MessageThread({
   // path degrading rather than bricking), so the thread stays exactly where it is
   // and only the composer goes quiet.
   //
-  // `noticeDismissed` is the reader having put the composer's notice away. It
-  // lives here rather than in the composer because the two have ONE lifetime:
-  // both describe this visit to this conversation, so they are set and cleared
-  // together and a dismissal cannot outlive the removal it was given for. Reset
-  // on a conversation switch — same as the removal, and for the same reason, so a
-  // rejoin through a fresh invite code can post again. Deliberately NOT kept
-  // across the switch: the removal is re-established from scratch on every visit
-  // (the server re-checks membership on every stream connect), so a dismissal
-  // that survived the switch would leave a removed member with every composer
-  // control disabled and nothing on screen saying why. The notice is the
-  // standing explanation, so it has to keep standing.
+  // Reset on a conversation switch - same as the removal, and for the same reason, so
+  // a rejoin through a fresh invite code can post again.
   const [accessEndedNotice, setAccessEndedNotice] = useState(
     accessEndedOnArrival()
   );
-  // The centered dialog after the reader leaves a den themselves, as opposed to
-  // the toast a removal gets. One or the other, never both: the stream handler
-  // below consumes the self-leave marker and routes to exactly one.
+  // The two dialogs, and the two endings they describe. One or the other, never
+  // both: the stream handler below consumes the self-leave marker and routes to
+  // exactly one.
   const [selfLeftNotice, setSelfLeftNotice] = useState(false);
+  const [removedNotice, setRemovedNotice] = useState(false);
   useEffect(() => {
     setAccessEndedNotice(accessEndedOnArrival());
     setSelfLeftNotice(false);
+    setRemovedNotice(false);
   }, [conversationId]);
   // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
   // is anchored on, or null when closed. Stored as a key, not an index, so
@@ -4415,6 +4408,12 @@ export function MessageThread({
   useEffect(() => {
     if (leftDen) {
       setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
+      // The popup too, so a tab reloaded after a removal says the same thing a tab
+      // that was open when it happened does. The live path routes here through
+      // `consumeSelfLeave`; this one has no marker to consult, because a reload is
+      // not a leave anybody pressed a button for - which is exactly the case this
+      // dialog is for.
+      setRemovedNotice(true);
     }
   }, [conversationId, leftDen]);
 
@@ -4463,15 +4462,17 @@ export function MessageThread({
           return;
         }
         setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
-        // Leaving is something the reader did, and it gets a centered dialog
-        // rather than a toast; a removal is something that happened to them, and
-        // keeps the destructive toast. `consumeSelfLeave` is single-use, so a
-        // genuine removal can never be mistaken for the reader's own exit.
+        // Both endings get a centered dialog and nothing else. A removal used to
+        // fire a destructive toast while the composer carried a persistent line, so
+        // the same sentence appeared twice at once and the reader still had to work
+        // out why the input was dead. `consumeSelfLeave` is single-use, so a genuine
+        // removal can never be mistaken for the reader's own exit - the two share a
+        // title and differ only in what they say survived.
         if (consumeSelfLeave(conversationId)) {
           setSelfLeftNotice(true);
           return;
         }
-        toast({ ...accessEndedToast(), variant: "destructive" });
+        setRemovedNotice(true);
       },
       [conversationId]
     )
@@ -4927,10 +4928,18 @@ export function MessageThread({
               body. Layering over the transcript (rather than replacing it)
               keeps the virtualizer's measured rows and scroll anchor, so
               jumping from a result and returning lands where it should. */}
-            {/* The centered acknowledgement after the reader leaves a den. A
-              dialog rather than the removal toast: leaving is a choice, and the
-              one useful thing to say is that the den is not gone. The removal
-              toast still fires for a kick, because that is news. */}
+            {/* The removal popup. Sits next to the self-leave dialog rather than
+              above the composer, which is where it used to be drawn: a line
+              above the input was the quietest place to put news that had already
+              happened to somebody, and it left a dead input with no stated
+              reason. The composer now carries the reason in its placeholder, so
+              this only has to announce. */}
+            <MessageAccessEndedDialog
+              onDismiss={() => {
+                setRemovedNotice(false);
+              }}
+              open={removedNotice}
+            />
             <Dialog
               onOpenChange={(open) => !open && setSelfLeftNotice(false)}
               open={selfLeftNotice}
@@ -5007,16 +5016,9 @@ export function MessageThread({
 
           <MessageComposer
             accessEnded={accessEndedNotice.accessEnded}
-            accessNoticeDismissed={accessEndedNotice.noticeDismissed}
             conversation={detail}
             editTarget={editTarget}
             replyTarget={replyTarget}
-            onAccessNoticeDismiss={() =>
-              setAccessEndedNotice((state) => ({
-                ...state,
-                noticeDismissed: true,
-              }))
-            }
             onEditCancel={() => setEditTarget(null)}
             onEditSave={handleEditSave}
             onReplyCancel={() => setReplyTarget(null)}

@@ -83,6 +83,11 @@ const mockCreateDenMessageNotifications = mock(() =>
 // Den members, with the mute a test can set. The fan-out mock honours the same
 // rule the real one does: not the sender, and nobody muted.
 let denMembers: { mutedAt: Date | null; userId: string }[] = [];
+// When user1's membership row says they joined. Undefined by default, which the
+// window answers as "no floor" so every pre-existing paging test is unaffected.
+let viewerJoinAt: Date | undefined;
+// And when they left, for the cap that predates the floor.
+let viewerLeftAt: Date | undefined;
 mockCreateDenMessageNotifications.mockImplementation(
   (_tx: unknown, input: { conversationId: string; senderId: string }) => {
     if (denFanOutFailure) {
@@ -271,7 +276,17 @@ mock.module("@/lib/messages/server", () => ({
     if (conversationId === "den-1") {
       return {
         id: "den-1",
-        members: [{ mutedAt: null, userId: "user1" }, ...denMembers],
+        members: [
+          // `viewerJoinAt` is how a test makes user1 a newcomer: a membership row
+          // whose `createdAt` is later than the messages being paged.
+          {
+            createdAt: viewerJoinAt,
+            leftAt: viewerLeftAt,
+            mutedAt: null,
+            userId: "user1",
+          },
+          ...denMembers,
+        ],
         type: "DEN",
       };
     }
@@ -929,6 +944,8 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     mockFindMany.mockClear();
     recordedQueries = [];
     recorded = { where: {} };
+    viewerJoinAt = undefined;
+    viewerLeftAt = undefined;
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockConsumeRateLimit.mockClear();
@@ -940,6 +957,42 @@ describe("GET /api/messages/conversations/:id/messages", () => {
         retryAfterSeconds: 60,
       })
     );
+  });
+
+  // The fix. A newcomer holds no wrap for any epoch minted before they arrived, so
+  // paging in pre-join ciphertext produced rows this device could never decrypt - a
+  // wall of unreadable bubbles for somebody who had just been invited.
+  test("floors a newcomer at their join so pre-join rows are never paged", async () => {
+    const joinedAt = new Date("2026-03-01T12:00:00.000Z");
+    viewerJoinAt = joinedAt;
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.createdAt).toEqual({ gte: joinedAt });
+  });
+
+  // The bound that already existed, restated next to its new sibling so the two
+  // cannot be mistaken for the same rule.
+  test("caps a departed reader at the moment they left", async () => {
+    const leftAt = new Date("2026-03-02T12:00:00.000Z");
+    viewerLeftAt = leftAt;
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.createdAt).toEqual({ lte: leftAt });
+  });
+
+  // A DM has two participants who were both there from the start, so flooring one at
+  // its membership row's createdAt would blank a conversation whose first message
+  // predates the row.
+  test("never floors a DM", async () => {
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(convoUrl("messages")), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(recorded.where.createdAt).toBeUndefined();
   });
 
   test("returns the page and a cursor for older messages", async () => {

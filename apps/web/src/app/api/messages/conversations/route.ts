@@ -27,6 +27,8 @@ import {
   parseMemberIds,
   validateDenRoster,
 } from "@/lib/messages/den-roster";
+import { readerMessageWindow } from "@/lib/messages/reader-window";
+import type { ReaderMessageWindow } from "@/lib/messages/reader-window";
 import {
   areBlocked,
   hasMessageIdentity,
@@ -109,6 +111,44 @@ type ConversationQueryDataWithMessages = ConversationQueryData & {
 //
 // A DM carries no code, so redaction cannot change a DM's payload and the type
 // does not have to be branched on.
+// The viewer's own membership row for this conversation, in the shape the reader
+// window takes. Null when there is no row, which the window answers as "no window".
+function viewerMembership(
+  conversation: ConversationQueryDataWithMessages,
+  viewerId: string
+) {
+  const member = conversation.messageConversationMembers.find(
+    (candidate) => candidate.userId === viewerId
+  );
+  if (!member) {
+    return null;
+  }
+  return {
+    createdAt: fromPrismaDateTime(member.createdAt),
+    leftAt: member.leftAt ? fromPrismaDateTime(member.leftAt) : null,
+  };
+}
+
+// Drops the preview rows that fall outside the reader's window.
+//
+// Only ever removes a row, and the input is the single newest message the query
+// already limited, so this is at most one comparison per conversation on screen.
+function previewInWindow<T extends { createdAt: unknown }>(
+  messages: T[],
+  window: ReaderMessageWindow
+): T[] {
+  if (window.after === null && window.before === null) {
+    return messages;
+  }
+  return messages.filter((message) => {
+    const at = fromPrismaDateTime(message.createdAt).getTime();
+    if (window.after !== null && at < window.after.getTime()) {
+      return false;
+    }
+    return window.before === null || at <= window.before.getTime();
+  });
+}
+
 function mapConversation(
   conversation: ConversationQueryDataWithMessages,
   viewerId: string
@@ -116,6 +156,10 @@ function mapConversation(
   const canManage = conversation.messageConversationMembers.some(
     (member) => member.userId === viewerId && canManageDen(member.role)
   );
+  const previewWindow = readerMessageWindow({
+    conversationType: conversation._type,
+    membership: viewerMembership(conversation, viewerId),
+  });
   return {
     // Den columns, null on a DM. `type` is never null, so a caller can branch on
     // it without a fallback.
@@ -185,14 +229,26 @@ function mapConversation(
     // member reading it learns only how many changes they may have missed - the
     // same thing the stream tells them.
     membershipSeq: conversation.membershipSeq,
-    messages: (conversation.messages ?? []).map((message) => ({
-      ...message,
-      createdAt: fromPrismaDateTime(message.createdAt),
-      deletedAt: message.deletedAt
-        ? fromPrismaDateTime(message.deletedAt)
-        : null,
-      editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
-    })),
+    // The preview is the newest message this viewer may see, and the transcript
+    // route already floors that by the viewer's join - so without this the list row
+    // could offer a pre-join message the transcript then refuses to open. Same
+    // window, same helper, applied here because this route cannot express a per
+    // conversation floor inside the nested query: the bound is a fact about the
+    // VIEWER's membership row, and there is one of those per conversation on screen.
+    // Filtering the already-limited single row costs nothing and keeps the list and
+    // the thread from disagreeing about what this person has seen.
+    messages: previewInWindow(conversation.messages ?? [], previewWindow).map(
+      (message) => ({
+        ...message,
+        createdAt: fromPrismaDateTime(message.createdAt),
+        deletedAt: message.deletedAt
+          ? fromPrismaDateTime(message.deletedAt)
+          : null,
+        editedAt: message.editedAt
+          ? fromPrismaDateTime(message.editedAt)
+          : null,
+      })
+    ),
     pairKey: conversation.pairKey,
     type: conversation._type,
     updatedAt: fromPrismaDateTime(conversation.updatedAt),

@@ -26,6 +26,7 @@ import {
   filterConversationsByType,
 } from "@/lib/messages/den-label";
 import type { DenListFilter } from "@/lib/messages/den-label";
+import { newConversationErrorToast } from "@/lib/messages/new-conversation-copy";
 import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
@@ -120,12 +121,12 @@ export function ConversationList({
         refetchList();
         onSelect(conversation.id);
       } catch (error) {
-        toast({
-          description:
-            error instanceof Error ? error.message : "Couldn't start chat",
-          title: "Can't message",
-          variant: "destructive",
-        });
+        // One decision, in the file that owns it: a 401 here means this device has
+        // no session, and the server's body for it is the bare word "Unauthorized",
+        // which is the route's shape rather than an answer. Everything the server
+        // wrote for a human to read - the follow gate, the block, the missing
+        // identity - is still shown verbatim.
+        toast(newConversationErrorToast(error));
       }
       // The catch above never rethrows and the try body has no early returns,
       // so resetting here matches the previous `finally` semantics.

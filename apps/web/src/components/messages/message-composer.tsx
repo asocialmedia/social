@@ -19,12 +19,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
-import { MessageAccessEndedNotice } from "@/components/messages/message-access-ended-notice";
 import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
-import { shouldShowAccessEndedNotice } from "@/lib/messages/access-ended";
 import {
   MessagesApiError,
   foldMessageIntoPages,
@@ -34,6 +32,10 @@ import {
   sendTypingIndicator,
 } from "@/lib/messages/client";
 import type { ConversationDetailResponse } from "@/lib/messages/client";
+import {
+  composerPlaceholder,
+  replySenderFallbackName,
+} from "@/lib/messages/composer-copy";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import type { MessagePage } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
@@ -45,16 +47,10 @@ const MessageImageEditDialog = dynamic(
 );
 
 interface MessageComposerProps {
-  // Set once the reader has put the "you have lost your spot" notice away. The
-  // thread holds it beside its own `accessEnded` so the two share one lifetime:
-  // both describe this visit to this conversation, so a conversation switch
-  // clears them together and a dismissal cannot outlive the removal it was
-  // given for.
-  accessNoticeDismissed?: boolean;
-  // Set when the server told us this member is no longer inside the
-  // conversation. The composer stays mounted and keeps its draft; only the
-  // controls go quiet, so being removed from a den mid-sentence does not throw
-  // away what was being written.
+  // Set when the server told us this member is no longer inside the conversation.
+  // The composer stays mounted and keeps its draft; only the controls go quiet, so
+  // being removed from a den mid-sentence does not throw away what was being
+  // written, and the placeholder below explains why the input is dead.
   accessEnded?: boolean;
   conversation: ConversationDetailResponse;
   editTarget: {
@@ -62,7 +58,6 @@ interface MessageComposerProps {
     id: string;
     payloadType: MessagePayload["type"];
   } | null;
-  onAccessNoticeDismiss: () => void;
   onDraftInput: () => void;
   onEditCancel: () => void;
   onEditSave: (content: string) => Promise<boolean>;
@@ -115,10 +110,8 @@ async function sendWithRatchetRetry(
 
 export function MessageComposer({
   accessEnded = false,
-  accessNoticeDismissed = false,
   conversation,
   editTarget,
-  onAccessNoticeDismiss,
   onDraftInput,
   onEditCancel,
   onEditSave,
@@ -198,13 +191,39 @@ export function MessageComposer({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- text intentionally triggers a height re-measure on every keystroke
   }, [text, adjustTextareaHeight]);
 
+  // The peer, and only once this device knows who it is.
+  //
+  // Gated on the session rather than only on the comparison, because with no session
+  // every `member.userId !== undefined` is true and the FIRST member came back - so
+  // during the window before the session resolved a DM named the wrong person, and a
+  // den named whichever of its members happened to be listed first. Nothing downstream
+  // can act on it (`sendPayload` already refuses without a user), but it is the one
+  // thing the reader can see, so it says "them" instead.
+  //
+  // `user` rather than `user?.id` as the dependency, which the React Compiler
+  // enforces: it infers `user`, and a narrower listed dependency is a manual memo it
+  // cannot preserve.
   const peer = useMemo(
     () =>
-      conversation.conversation.members.find(
-        (member) => member.userId !== user?.id
-      ),
-    [conversation.conversation.members, user?.id]
+      user
+        ? conversation.conversation.members.find(
+            (member) => member.userId !== user.id
+          )
+        : undefined,
+    [conversation.conversation.members, user]
   );
+
+  // A den has no single peer, so it is never addressed by one. `peer` above stays
+  // as it is because the send path guards on it, but the two things that NAME
+  // somebody - the placeholder and the reply byline - read this instead.
+  const isDen = conversation.conversation.type === "DEN";
+  const placeholder = composerPlaceholder({
+    denName: conversation.conversation.name ?? null,
+    editing,
+    isDen,
+    peerDisplayName: peer?.user.displayName ?? null,
+    writeBlockedByMembership: accessEnded,
+  });
 
   // Unwrap the root key, encrypt, post, and fold the sent message into the
   // cache. Shared by text, image, and GIF sends so every message type uses the
@@ -592,22 +611,6 @@ export function MessageComposer({
     [editing, handleCancelEdit, handleSend]
   );
 
-  // Dismissing the removal notice is a state flip and nothing else: no request,
-  // no navigation, nothing deleted, the draft untouched, and not one write gate
-  // moves. The reader is already out of the den, so there is no den to leave.
-  //
-  // Guarded so a failure here cannot escape into React's event dispatch, where an
-  // uncaught error is reported at the root and takes the composer down with it —
-  // over a bar whose only job is to disappear. Nothing here can fail on purpose;
-  // the guard is there so it cannot fail by accident either.
-  const handleDismissAccessNotice = useCallback(() => {
-    try {
-      onAccessNoticeDismiss();
-    } catch (error: unknown) {
-      console.error("Couldn't dismiss the den notice:", error);
-    }
-  }, [onAccessNoticeDismiss]);
-
   const busy = sending || savingEdit;
   // In edit mode only the text matters: attachments are hidden, so the button
   // is enabled purely by a non-empty body. A media/post caption may be cleared
@@ -648,17 +651,6 @@ export function MessageComposer({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* Announced rather than a replacement: unmounting the input row would
-          throw away whatever was being typed, and the reader can still scroll
-          back and read what they were part of. The notice is drawn IN ADDITION to
-          the row, never instead of it, and its button only puts the notice away,
-          so neither half can cost the draft below. */}
-      {shouldShowAccessEndedNotice({
-        accessEnded,
-        noticeDismissed: accessNoticeDismissed,
-      }) ? (
-        <MessageAccessEndedNotice onDismiss={handleDismissAccessNotice} />
-      ) : null}
       {editing ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <Pencil className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
@@ -688,9 +680,11 @@ export function MessageComposer({
             <span className="text-muted-foreground">Replying to </span>
             <span className="font-medium">
               {replyTarget.senderName ??
-                (replyTarget.senderId === user?.id
-                  ? "yourself"
-                  : (peer?.user.displayName ?? "them"))}
+                replySenderFallbackName({
+                  isDen,
+                  peerDisplayName: peer?.user.displayName ?? null,
+                  senderIsMe: replyTarget.senderId === user?.id,
+                })}
             </span>
             {replyTarget.content ? (
               <span className="text-muted-foreground block truncate">
@@ -769,11 +763,7 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            editing
-              ? "Edit message…"
-              : `Message ${peer?.user.displayName ?? "them"}…`
-          }
+          placeholder={placeholder}
           ref={textareaRef}
           rows={1}
           value={text}
