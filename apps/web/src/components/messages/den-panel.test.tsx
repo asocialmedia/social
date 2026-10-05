@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DenRole } from "@asm/db/messages/dens";
+import type { ReactNode } from "react";
+import { isValidElement } from "react";
 import { renderToString } from "react-dom/server";
 
 import type { DenMember } from "@/lib/messages/client";
@@ -50,8 +52,20 @@ function visible(html: string): string {
   return html.replaceAll(/<!--.*?-->/gu, "");
 }
 
+// Every action, so a helper that forgot a handler could not render the row that uses
+// it. The `onBan` in particular was missing here while the component required it, and
+// nothing caught it: test files are excluded from the app's typecheck, so a stale
+// fixture is only visible where a test renders the row that needs it.
+const EVERY_ACTION = [
+  "ban",
+  "demote",
+  "promote",
+  "remove",
+  "transfer",
+] as const;
+
 function renderMenu(
-  actions: ("demote" | "promote" | "remove" | "transfer")[],
+  actions: (typeof EVERY_ACTION)[number][],
   busy = false
 ): string {
   return renderToString(
@@ -59,11 +73,87 @@ function renderMenu(
       actions={actions}
       busy={busy}
       member={member()}
+      onBan={() => {}}
       onRemove={() => {}}
       onRole={() => {}}
       onTransfer={() => {}}
     />
   );
+}
+
+// The menu's items, read off the element tree. A Radix menu is unmounted until it
+// opens, so this is the only way to see what a row actually offers.
+interface MenuItem {
+  label: string;
+  select: (() => void) | undefined;
+}
+
+function menuItems(node: ReactNode, found: MenuItem[] = []): MenuItem[] {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      menuItems(child, found);
+    }
+    return found;
+  }
+  if (!isValidElement(node)) {
+    return found;
+  }
+  const props = node.props as {
+    children?: ReactNode;
+    onSelect?: () => void;
+  };
+  if (typeof props.onSelect === "function") {
+    const text = nodeText(props.children);
+    if (text) {
+      found.push({ label: text, select: props.onSelect });
+    }
+  }
+  if (props.children) {
+    menuItems(props.children, found);
+  }
+  return found;
+}
+
+function menuTree(
+  actions: (typeof EVERY_ACTION)[number][],
+  handlers: Partial<{
+    onBan: () => void;
+    onRemove: () => void;
+    onRole: (role: "ADMIN" | "MEMBER") => void;
+    onTransfer: () => void;
+  }> = {}
+): ReactNode {
+  return MemberActionMenu({
+    actions: [...actions],
+    busy: false,
+    member: member(),
+    onBan: handlers.onBan ?? (() => {}),
+    onRemove: handlers.onRemove ?? (() => {}),
+    onRole: handlers.onRole ?? (() => {}),
+    onTransfer: handlers.onTransfer ?? (() => {}),
+  });
+}
+
+function menuItemLabels(actions: (typeof EVERY_ACTION)[number][]): string[] {
+  return menuItems(menuTree(actions)).map((item) => item.label);
+}
+
+// The text under an element, flattened. Icons render as SVG with no text, so they
+// simply contribute nothing here.
+function nodeText(node: ReactNode): string {
+  if (typeof node === "string") {
+    return node;
+  }
+  if (typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map((child) => nodeText(child)).join("");
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return nodeText(node.props.children);
+  }
+  return "";
 }
 
 describe("RoleChip", () => {
@@ -129,6 +219,54 @@ describe("MemberActionMenu", () => {
     expect(renderMenu(["demote"])).toContain(
       'aria-label="Remove Ada as Elder"'
     );
+    expect(renderMenu(["ban"])).toContain('aria-label="Ban Ada from den"');
+  });
+
+  // The two words a manager has to be able to tell apart, asserted as a pair on the
+  // same menu. "Remove Ada from den" and "Ban Ada from den" are different decisions
+  // about the same person, and one of them cannot be undone by the other, so a menu
+  // that drew the first without the second would be hiding the tool.
+  //
+  // On the element tree rather than on rendered HTML: Radix keeps its items unmounted
+  // until the menu opens, so `renderToString` sees only the trigger. Calling the
+  // component returns exactly the tree React renders, which is enough to read the
+  // labels and - more importantly - the handler each one is wired to.
+  test("a row offering both names both, and draws ban last", () => {
+    const labels = menuItemLabels(["remove", "ban"]);
+    expect(labels).toContain("Remove Ada from den");
+    expect(labels).toContain("Ban Ada from den");
+    // Ban last, so it is never the entry a reaching hand lands on first.
+    expect(labels.at(-1)).toBe("Ban Ada from den");
+    // And the trigger names the row rather than picking one of the two.
+    expect(renderMenu(["remove", "ban"])).toContain('aria-label="Manage Ada"');
+  });
+
+  // The wiring is the part that cannot be asserted from HTML: a menu item rendered
+  // with no handler, or with the wrong one, still looks perfect.
+  test("ban and remove are wired to different handlers", () => {
+    let banned = 0;
+    let removed = 0;
+    const tree = menuTree(["remove", "ban"], {
+      onBan: () => {
+        banned += 1;
+      },
+      onRemove: () => {
+        removed += 1;
+      },
+    });
+    for (const item of menuItems(tree)) {
+      if (item.label.startsWith("Ban ")) {
+        item.select?.();
+      }
+      if (item.label.startsWith("Remove ")) {
+        item.select?.();
+      }
+    }
+    // Pressing both must do both, and neither may run the other. A menu where Ban
+    // fell through to onRemove would remove without closing the door, which is the
+    // one outcome this whole feature exists to make impossible to reach by accident.
+    expect(banned).toBe(1);
+    expect(removed).toBe(1);
   });
 
   test("a row with several actions is triggered by its subject", () => {
@@ -142,11 +280,13 @@ describe("MemberActionMenu", () => {
 
   test("no trigger is named after the stored role", () => {
     for (const actions of [
+      ["ban"],
       ["demote"],
       ["promote"],
       ["remove"],
       ["transfer"],
-      ["transfer", "demote", "remove"],
+      ["remove", "ban"],
+      ["transfer", "demote", "remove", "ban"],
     ] as const) {
       expect(renderMenu([...actions])).not.toMatch(/admin/iu);
     }

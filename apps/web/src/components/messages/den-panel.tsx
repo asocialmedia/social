@@ -21,6 +21,7 @@ import {
 } from "@asm/ui/shadui/dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Ban,
   Copy,
   Crown,
   Loader2,
@@ -37,6 +38,8 @@ import { useCallback, useMemo, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
+import { DenBanDialog } from "@/components/messages/den-ban-dialog";
+import { DenBannedSection } from "@/components/messages/den-banned-section";
 import { DenConfirmDialog } from "@/components/messages/den-confirm-dialog";
 import {
   MemberPicker,
@@ -47,19 +50,24 @@ import { toast } from "@/lib/gooey-toast";
 import { forgetSelfLeave, noteSelfLeave } from "@/lib/messages/access-ended";
 import {
   addDenMembers,
+  banDenMember,
   dissolveDen,
   ensureConversationKeys,
-  fetchDen,
-  fetchDenMembers,
   fetchConversationDetail,
+  fetchDen,
+  fetchDenBans,
+  fetchDenMembers,
   leaveDen,
+  MessagesApiError,
   removeDenMember,
   rotateDenInvite,
   setDenMemberRole,
   transferDenOwnership,
+  unbanDenMember,
   updateDenDetails,
 } from "@/lib/messages/client";
-import type { DenMember } from "@/lib/messages/client";
+import type { DenBannedMember, DenMember } from "@/lib/messages/client";
+import { denBanAddRefusal } from "@/lib/messages/den-ban-copy";
 import { denAddRoom, denIsFull } from "@/lib/messages/den-capacity";
 import { denInviteUrl } from "@/lib/messages/den-invite";
 import { denMemberCountLabel } from "@/lib/messages/den-label";
@@ -108,6 +116,19 @@ interface DenPanelProps {
   onLeft?: (outcome: { dissolved: boolean }) => void;
 }
 
+// Which den action is waiting to be confirmed, or null when none is.
+//
+// Every one of these ends a person being somewhere they were not, so each has its own
+// confirmation rather than a shared "are you sure". `unban-member` has its own arm
+// because its member is a banned row rather than a roster row - and because unban is
+// the one case here that is a grant: the button sits in a collapsed list with one row
+// per person and no other identifying context, so a mis-press hands a stranger the door
+// back.
+type DenConfirmState =
+  | { kind: "delete-den" | "leave-den" }
+  | { kind: "remove-member" | "transfer-ownership"; member: DenMember }
+  | { kind: "unban-member"; member: DenBannedMember }
+  | null;
 export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   const { user } = useSession();
   const { privateKey } = useMessagesIdentity();
@@ -121,11 +142,14 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   const [selected, setSelected] = useState<MessagePickerRecipient[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<
-    | { kind: "delete-den" | "leave-den" }
-    | { kind: "remove-member" | "transfer-ownership"; member: DenMember }
-    | null
-  >(null);
+  const [confirm, setConfirm] = useState<DenConfirmState>(null);
+  // The ban is its own dialog rather than another `confirm` case, because it is the one
+  // den action with a field in it. Lifting a ban is a `confirm` case instead - it has
+  // no field, and it sits beside Remove where the reader already looks.
+  const [banDialog, setBanDialog] = useState<{ member: DenMember } | null>(
+    null
+  );
+  const [unbanningId, setUnbanningId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
@@ -137,6 +161,15 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   const roster = useQuery({
     queryFn: () => fetchDenMembers(conversationId, DEN_LIMITS.membersMax),
     queryKey: [...DEN_QUERY_PREFIX, conversationId, "members"],
+  });
+  // Gated on the detail row rather than fired unconditionally. The route is
+  // manager-only, so a plain member's panel would log a 403 for a section it is not
+  // going to draw - and a list nobody may read should not be requested on their behalf
+  // just because the panel happens to render for them.
+  const bans = useQuery({
+    enabled: detail.data?.canManage === true,
+    queryFn: () => fetchDenBans(conversationId),
+    queryKey: [...DEN_QUERY_PREFIX, conversationId, "bans"],
   });
 
   const viewer = useMemo(
@@ -253,6 +286,19 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
       // to: a den admits regardless of who blocks whom, so the only 403 left here
       // is the genuine FORBIDDEN, and the server already wrote a sentence for it.
       // The generic toast below shows that message verbatim.
+      //
+      // A ban is the exception: it gets its own sentence, because the reader's
+      // question is not "why did that fail" but "why is this one person in the way",
+      // and the picker normally answers that before they press anything. Reaching here
+      // means the ban landed between the picker's read and this submit.
+      if (error instanceof MessagesApiError && error.code === "BANNED") {
+        toast({
+          description: denBanAddRefusal(1),
+          title: "Couldn't add members",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         description:
           error instanceof Error ? error.message : "Couldn't add them",
@@ -267,6 +313,67 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
       await healAfterRosterChange();
     },
   });
+
+  // Banning somebody who is still inside also removes them, which rotates the root
+  // key so nobody who stays keeps an epoch the banned member can read. The same
+  // discipline `removeMember` follows, and for the same reason: the roster moved, so
+  // the fan-out has to be redone before the next send.
+  const banMember = useCallback(
+    async (member: DenMember | DenBannedMember, reason: string) => {
+      setBusy(true);
+      try {
+        await banDenMember(conversationId, member.id, reason || null);
+        setBanDialog(null);
+        refresh();
+        await healAfterRosterChange();
+        const name = member.displayName ?? member.username ?? "They";
+        toast({
+          description: `${name} can't rejoin with an invite link or be added back until somebody unbans them.`,
+          title: `${name} was banned`,
+        });
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't ban them",
+          title: "Couldn't ban member",
+          variant: "destructive",
+        });
+      }
+      setBusy(false);
+    },
+    [conversationId, healAfterRosterChange, refresh]
+  );
+
+  // No key rotation here, and that asymmetry is the point: an unban changes who is
+  // PERMITTED, not who is inside. Nobody's membership row moves, so the current epoch
+  // is still exactly right for everyone who remains.
+  const unbanMember = useCallback(
+    async (member: DenBannedMember) => {
+      setUnbanningId(member.id);
+      try {
+        await unbanDenMember(conversationId, member.id);
+        // Only on success. A failed lift leaves the dialog open over the row it names,
+        // which is where a retry belongs - closing it would report the refusal as a
+        // success with no trace.
+        setConfirm(null);
+        refresh();
+        const name = member.displayName ?? member.username ?? "They";
+        toast({
+          description: "They can rejoin with an invite or be added again.",
+          title: `${name} was unbanned`,
+        });
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't unban them",
+          title: "Couldn't unban",
+          variant: "destructive",
+        });
+      }
+      setUnbanningId(null);
+    },
+    [conversationId, refresh]
+  );
 
   const setRole = useMutation({
     mutationFn: async (input: { role: "ADMIN" | "MEMBER"; userId: string }) => {
@@ -591,7 +698,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           <p className="text-sm font-medium">Invite link</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             Anyone with this link can join, whether or not they follow anybody
-            in here.
+            in here. Banned accounts are still refused.
           </p>
           <div className="mt-2 flex gap-1.5">
             <button
@@ -679,6 +786,9 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
                     actions={actions}
                     busy={busy}
                     member={member}
+                    onBan={() => {
+                      setBanDialog({ member });
+                    }}
                     onRemove={() =>
                       setConfirm({ kind: "remove-member", member })
                     }
@@ -694,6 +804,23 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
             );
           })}
         </ul>
+
+        {/* The banned list, as the last thing in the Members card and manager only.
+            Collapsed to one row until it is opened, because it is almost always
+            empty and it is a tool rather than a part of the roster. */}
+        {denWide.canBanMembers ? (
+          <DenBannedSection
+            bans={bans.data ?? []}
+            // A refused read is not an empty list. Reachable rather than theoretical:
+            // `refresh()` invalidates the whole den prefix, so every mutation in the
+            // panel spends a ban-list read against its budget.
+            error={bans.isError ? "Couldn't load the banned list." : null}
+            busyUserId={unbanningId}
+            onUnban={(member) => {
+              setConfirm({ kind: "unban-member", member });
+            }}
+          />
+        ) : null}
 
         {rosterFull && denWide.canAddMembers ? (
           <p className="text-muted-foreground mt-2 text-xs">
@@ -745,8 +872,9 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           <DialogHeader>
             <DialogTitle>Add members</DialogTitle>
             <DialogDescription>
-              Anyone here who will not accept a direct add is greyed out. You
-              can always share the invite link instead.
+              Anyone here who will not accept a direct add is greyed out, as is
+              anyone banned from this den. Everyone else you can always reach
+              with the invite link.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2">
@@ -756,6 +884,16 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
               value={query}
             />
             <MemberPicker
+              // Shown and greyed rather than hidden, and that is the point: a manager
+              // who types somebody's name and finds nothing has no way to tell a ban
+              // from a typo. The row says so, and says what to do about it.
+              //
+              // This prop was accepted by `MemberPicker` and had no call site, so the
+              // dead-row handling in there ran for nobody and a banned person was
+              // selectable - the refusal then arriving only on submit, from a route
+              // that checks this itself. Hence the dialog's own promise that banned
+              // candidates are greyed out was not true.
+              bannedIds={bans.data?.map((ban) => ban.id)}
               excludeIds={[
                 myUserId,
                 ...members.map((member) => member.id),
@@ -805,15 +943,32 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         </DialogContent>
       </Dialog>
 
+      {/* Not mounted at all when nobody is being banned, so the dialog cannot be handed
+          a member that is not there and cannot render a title built from nothing. The
+          dialog needs no `open={false}` path for the same reason: there is no state to
+          animate away from, because there is no component. */}
+      {banDialog ? (
+        <DenBanDialog
+          ban={banDialog.member}
+          busy={busy}
+          onConfirm={(reason) => {
+            void banMember(banDialog.member, reason);
+          }}
+          onOpenChange={(next) => {
+            if (!next && !busy) {
+              setBanDialog(null);
+            }
+          }}
+          open
+        />
+      ) : null}
+
       <DenConfirmDialog
-        busy={busy}
+        // Either request in flight closes the dialog's buttons, so a slow lift cannot
+        // be fired twice by an impatient second press.
+        busy={busy || unbanningId !== null}
         kind={confirm?.kind ?? "leave-den"}
-        memberName={
-          confirm?.kind === "remove-member" ||
-          confirm?.kind === "transfer-ownership"
-            ? confirm.member.displayName
-            : null
-        }
+        memberName={denConfirmMemberName(confirm)}
         onConfirm={() => {
           if (confirm?.kind === "remove-member") {
             void removeMember(confirm.member);
@@ -823,6 +978,10 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
             void handOver(confirm.member);
             return;
           }
+          if (confirm?.kind === "unban-member") {
+            void unbanMember(confirm.member);
+            return;
+          }
           if (confirm?.kind === "delete-den") {
             void destroy();
             return;
@@ -830,7 +989,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           void leave();
         }}
         onOpenChange={(next) => {
-          if (!next && !busy) {
+          if (!next && !busy && unbanningId === null) {
             setConfirm(null);
           }
         }}
@@ -880,10 +1039,24 @@ export function RoleChip({ role }: { role: DenMember["role"] }) {
 // there is one, and the subject when there are several, for the reason
 // `denRowMenuLabel` gives. Exported with `RoleChip` because the accessible name is
 // the only part of this component that renders without an open menu.
+// The name a den confirmation is addressed to, or null when the case has no person in
+// it. Three of the four kinds name somebody and one does not, and at the call site that
+// is a nested ternary inside JSX - so it gets a name instead.
+function denConfirmMemberName(state: DenConfirmState): string | null {
+  // Tested on the presence of a member rather than on the kind. "delete-den" and
+  // "leave-den" share one arm whose `kind` is a union of both, so excluding the two
+  // literals does not narrow that arm away - the shape does.
+  if (state === null || !("member" in state)) {
+    return null;
+  }
+  return state.member.displayName;
+}
+
 export function MemberActionMenu({
   actions,
   busy,
   member,
+  onBan,
   onRemove,
   onRole,
   onTransfer,
@@ -891,6 +1064,7 @@ export function MemberActionMenu({
   actions: DenRoleActionKind[];
   busy: boolean;
   member: DenMember;
+  onBan: () => void;
   onRemove: () => void;
   onRole: (role: "ADMIN" | "MEMBER") => void;
   onTransfer: () => void;
@@ -946,6 +1120,23 @@ export function MemberActionMenu({
             <UserMinus className="size-4" />
             {denRoleActionLabel({
               action: "remove",
+              memberName: member.displayName,
+            })}
+          </DropdownMenuItem>
+        ) : null}
+        {/* Ban last, and next to remove rather than after it, for the reason
+            `denRowActions` gives: the two are different decisions about the same person
+            rather than two strengths of one, and a reader who has to remember which of
+            two adjacent destructive entries is the reversible one will eventually get
+            it wrong in the direction that locks somebody out. */}
+        {actions.includes("ban") ? (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={onBan}
+          >
+            <Ban className="size-4" />
+            {denRoleActionLabel({
+              action: "ban",
               memberName: member.displayName,
             })}
           </DropdownMenuItem>

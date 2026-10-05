@@ -34,6 +34,7 @@ class DenError extends Error {
 }
 
 interface Preview {
+  avatarMediaId: string | null;
   expired: boolean;
   id: string;
   inviteCode: string;
@@ -46,6 +47,7 @@ type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "newcomer" } }));
 
 let preview: Preview | null = {
+  avatarMediaId: "media-1",
   expired: false,
   id: "den-1",
   inviteCode: "code-abcdefghijk",
@@ -96,10 +98,19 @@ mock.module("@/lib/messages/server", () => ({
   hasMessageIdentity: mockHasMessageIdentity,
 }));
 
+// Whether the holder of this code is banned from the den it names. Stubbed rather than
+// left to reach `prisma`, because the real helper would build a query against the
+// mocked barrel and 500 on a bind it cannot express - a failure that looks like a route
+// bug and says nothing about the ban.
+const mockIsDenBanned = mock((_conversationId: string, _userId: string) =>
+  Promise.resolve(false)
+);
+
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   DenError,
   getDenMembership: mockGetDenMembership,
+  isDenBanned: mockIsDenBanned,
   joinDenByInviteCode: mockJoinDenByInviteCode,
   previewInvite: mockPreviewInvite,
 }));
@@ -125,6 +136,7 @@ function join(code = "code-abcdefghijk", session: Session = null) {
 describe("GET /api/messages/dens/join/:code", () => {
   beforeEach(() => {
     preview = {
+      avatarMediaId: "media-1",
       expired: false,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
@@ -138,6 +150,8 @@ describe("GET /api/messages/dens/join/:code", () => {
     mockConsumeDenRateLimit.mockClear();
     mockGetDenMembership.mockClear();
     mockGetSession.mockClear();
+    mockIsDenBanned.mockClear();
+    mockIsDenBanned.mockImplementation(() => Promise.resolve(false));
     mockPreviewInvite.mockClear();
     mockPreviewInvite.mockImplementation(() => Promise.resolve(preview));
   });
@@ -168,14 +182,61 @@ describe("GET /api/messages/dens/join/:code", () => {
     expect(await unexplainable.json()).toEqual(await neverExisted.json());
   });
 
-  test("a live code's payload is byte-identical to what it always was", async () => {
-    // The promise the whole retired-code branch rests on: adding the archive must
-    // not change what somebody holding a WORKING code is told. `expired` is absent
-    // rather than false, and `ownerId` is absent rather than named, so a reader with
-    // a live code learns exactly what they learned before.
+  // The promise the whole retired-code branch rests on, restated for the one field
+  // that was added to it. Adding the archive must not change what somebody holding a
+  // WORKING code is told beyond the picture; `expired` is absent rather than false,
+  // and `ownerId` is absent rather than named, so a reader with a live code learns
+  // exactly what they learned before plus the room's own image.
+  test("a live code's payload is the four facts plus the den's image", async () => {
     const res = await previewRequest();
     expect(await res.json()).toEqual({
-      den: { id: "den-1", memberCount: 4, name: "game night" },
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  // The one fact the preview adds that is about the READER rather than the den. It has
+  // to be here rather than discovered by pressing Join: a banned reader who is only
+  // told on submit has already been through the door, and the screen they land on is a
+  // dead end. It is scoped to the session's own account, so it says nothing about
+  // anybody else - see the disclosure test below.
+  test("tells a banned holder they cannot join rather than letting them try", async () => {
+    mockIsDenBanned.mockImplementation(() => Promise.resolve(true));
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "stranger-1" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: true,
+      isMember: false,
+    });
+  });
+
+  test("a live code for a den with no image says so rather than omitting it", async () => {
+    // Carried as an explicit null rather than dropped, so the client can tell "this
+    // den has no picture" from an older server that did not send the field at all.
+    preview = { ...preview, avatarMediaId: null };
+    const res = await previewRequest();
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: null,
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
       isMember: false,
     });
   });
@@ -185,6 +246,9 @@ describe("GET /api/messages/dens/join/:code", () => {
     // holder of a retired code was given it by somebody in that den, so it names a
     // room and a person they were already told about - and it hands back no way in.
     preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
       expired: true,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
@@ -194,6 +258,9 @@ describe("GET /api/messages/dens/join/:code", () => {
     };
     const res = await previewRequest();
     expect(res.status).toBe(200);
+    // No `avatarMediaId` key at all, asserted rather than left implicit: the image
+    // is disclosed on a code that still works and on nothing else, so this payload
+    // has to be exactly the four facts and the flag.
     expect(await res.json()).toEqual({
       den: {
         id: "den-1",
@@ -211,6 +278,7 @@ describe("GET /api/messages/dens/join/:code", () => {
     // rather than reaching for another id, because the join screen's whole choice -
     // offer "ask for a new invite", or degrade - hangs on this being null.
     preview = {
+      avatarMediaId: null,
       expired: true,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
@@ -228,6 +296,9 @@ describe("GET /api/messages/dens/join/:code", () => {
     // here would turn a "go ask the owner" screen into a history of a room people
     // have since left.
     preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
       expired: true,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
@@ -254,6 +325,9 @@ describe("GET /api/messages/dens/join/:code", () => {
     // Same disclosure rule as the live path, and it is what stops the screen offering
     // somebody already inside a den a conversation with its owner.
     preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
       expired: true,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
@@ -274,6 +348,9 @@ describe("GET /api/messages/dens/join/:code", () => {
     // A leaked code must not tell an outsider whether somebody is still inside the
     // den, and that rule is the same one the live path has always had.
     preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
       expired: true,
       id: "den-1",
       inviteCode: "code-abcdefghijk",
@@ -295,6 +372,7 @@ describe("GET /api/messages/dens/join/:code", () => {
       isMember: boolean;
     };
     expect(body.den).toEqual({
+      avatarMediaId: "media-1",
       id: "den-1",
       memberCount: 4,
       name: "game night",
@@ -304,12 +382,23 @@ describe("GET /api/messages/dens/join/:code", () => {
 
   test("never discloses the roster or a member identity", async () => {
     // Possession of a code is not a reason to enumerate who is in a den, so the
-    // whole payload is asserted rather than a few keys of it.
+    // whole payload is asserted rather than a few keys of it. The image is in the
+    // list because it was added deliberately: it identifies the room, which is the
+    // same class of fact as the name and the size, and it is not a roster.
+    //
+    // `isBanned` is in the list for the same reason and it is worth being precise:
+    // it is a fact about the READER, answered from their own session, so it discloses
+    // nothing about anybody else in the den. The payload still names no other person,
+    // which is the property this test actually protects.
     const res = await previewRequest();
     const body = (await res.json()) as Record<string, unknown>;
-    expect(Object.keys(body).toSorted()).toEqual(["den", "isMember"]);
+    expect(Object.keys(body).toSorted()).toEqual([
+      "den",
+      "isBanned",
+      "isMember",
+    ]);
     expect(Object.keys(body.den as Record<string, unknown>).toSorted()).toEqual(
-      ["id", "memberCount", "name"]
+      ["avatarMediaId", "id", "memberCount", "name"]
     );
     expect(JSON.stringify(body)).not.toContain("inviteCode");
   });

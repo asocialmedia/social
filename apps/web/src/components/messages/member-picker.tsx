@@ -16,6 +16,7 @@ import {
   fetchConversationList,
   fetchGroupAddEligibility,
 } from "@/lib/messages/client";
+import { DEN_BAN_PICKER_REFUSAL } from "@/lib/messages/den-ban-copy";
 import {
   toPickerRecipient,
   useMessageUserSearch,
@@ -53,6 +54,18 @@ export interface MemberPickerProps {
   // Ids that cannot be picked: the reader themselves, and (when adding) the
   // roster already in the den.
   excludeIds?: readonly string[];
+  // Ids this den has banned, which cannot be picked but are still SHOWN and labelled.
+  //
+  // Shown rather than hidden, on purpose, and this is the one case that differs from
+  // every other dead row in this picker. A person who is excluded because they are
+  // already on the roster is filtered out, because the reader is not looking for them.
+  // Somebody the reader is specifically trying to invite who turns out to be banned is a
+  // different situation: they were found, and an empty result would say nothing about
+  // why. So the row appears, greyed, with the reason attached.
+  //
+  // Optional because this picker is also the DEN CREATE dialog's, where there is no den
+  // yet and therefore nobody to be banned from.
+  bannedIds?: readonly string[];
   // A ceiling on the selection, so the picker cannot be used to propose a roster
   // the server will refuse. Null means the caller has no opinion.
   maxSelected?: number | null;
@@ -64,6 +77,7 @@ export interface MemberPickerProps {
 }
 
 export function MemberPicker({
+  bannedIds,
   excludeIds,
   maxSelected = null,
   onToggle,
@@ -85,6 +99,7 @@ export function MemberPicker({
     () => new Set([...(excludeIds ?? []), user?.id ?? ""]),
     [excludeIds, user?.id]
   );
+  const banned = useMemo(() => new Set(bannedIds), [bannedIds]);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   // Peers only, deduplicated across conversations: somebody in three chats is
@@ -170,7 +185,14 @@ export function MemberPicker({
     // indistinguishable from a control that is broken, and "they said no" is a
     // fact the reader is entitled to before they tap, not after they are refused.
     let unavailableReason: string | null = null;
-    if (person.hasIdentity === false) {
+    // A ban first, before the other two. The others are things the candidate chose or
+    // has not finished setting up; a ban is a decision somebody else made about them,
+    // and it is the only one of the three that no amount of the reader's own action
+    // will clear. Putting it first also means the row's reason is the one that is
+    // actually about them.
+    if (banned.has(person.id)) {
+      unavailableReason = DEN_BAN_PICKER_REFUSAL;
+    } else if (person.hasIdentity === false) {
       unavailableReason = "hasn't enabled Messages";
     } else if (person.addRefusal !== null) {
       unavailableReason = GROUP_ADD_REFUSAL_COPY[person.addRefusal];

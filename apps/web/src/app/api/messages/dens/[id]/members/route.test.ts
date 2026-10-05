@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { DenError as DenErrorClass } from "@asm/db";
-import { DEN_LIMITS } from "@asm/db/messages/dens";
+import type { GroupAddPolicy } from "@asm/db/messages/dens";
+import {
+  DEN_LIMITS,
+  groupAddRefusal,
+  groupAddRefusalError,
+} from "@asm/db/messages/dens";
 
 import {
   DEN_ADD_MEMBERS_RATE_LIMIT,
   denRateLimitDouble,
 } from "@/lib/messages/test-support/den-rate-limit-double";
+import { probeWhere, probedIds } from "@/lib/messages/test-support/where-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { GET, POST } from "./route";
@@ -63,46 +69,21 @@ let lastRosterWhere: Record<string, unknown> = {};
 let blockRows: { blockerId: string; blockedId: string }[] = [];
 let blocksQueried = false;
 
-// Invokes a Prisma predicate against recording accessors, so a mocked table can
-// answer from the constraints the query actually expressed rather than from a
-// guess about which branch of the route called it.
-function probeWhere(
-  predicate: unknown,
-  columns: string[]
-): Record<string, unknown> {
-  const seen: Record<string, unknown> = {};
-  const accessors: Record<string, unknown> = {};
-  for (const column of columns) {
-    accessors[column] = {
-      asc: () => "asc",
-      desc: () => "desc",
-      eq: (value: unknown) => {
-        seen[column] = value;
-        return {};
-      },
-      in: (value: unknown) => {
-        seen[column] = value;
-        return {};
-      },
-      isNotNull: () => {
-        seen[`${column}:isNotNull`] = true;
-        return {};
-      },
-      isNull: () => {
-        seen[`${column}:isNull`] = true;
-        return {};
-      },
-    };
-  }
-  (predicate as (value: unknown) => unknown)(accessors);
-  return seen;
-}
-
+// The ids a mocked table was asked about, narrowed to the ones that exist.
+//
+// Three columns because the three tables this suite doubles are keyed differently - a
+// block pair is two id columns and this is the single shape that reads all of them
+// without each table having to describe its own. Falls back to every known id when the
+// probe found no list, so a table whose mock was reached in a shape this does not
+// recognise answers with the whole fixture rather than silently with nothing.
 function restrict(ids: string[], seen: Record<string, unknown>): string[] {
-  const requested = seen.id ?? seen.userId ?? seen.followingId;
-  return Array.isArray(requested)
-    ? requested.filter((id) => ids.includes(id as string))
-    : ids;
+  for (const column of ["id", "userId", "followingId"]) {
+    const requested = probedIds(seen, column);
+    if (requested.length > 0) {
+      return requested.filter((id) => ids.includes(id));
+    }
+  }
+  return ids;
 }
 
 mock.module("@/lib/auth/session", () => ({
@@ -120,6 +101,30 @@ mock.module("@/lib/messages/den-rate-limit", () =>
   denRateLimitDouble(mockConsumeDenRateLimit)
 );
 
+// Which of the requested ids are banned from this den. A set because that is what the
+// helper really returns, so a test cannot pass by returning an array that merely
+// happens to be truthy.
+// The authority gate the route now takes BEFORE its ban pre-check. Authorised by
+// default, so every other test in this file reads as a manager and a refusal is about
+// the ordering rather than about permission.
+//
+// A flag rather than `mockImplementationOnce`, because a queued one-shot implementation
+// survives `mockClear` and leaks into whichever test runs next if the test that queued it
+// never reaches the call. That produced an order-dependent failure here, which is the
+// class of bug this file exists to be free of.
+let managerRefusal: DenError | null = null;
+const mockRequireDenManager = mock(
+  (_conversationId: string, _actorId: string) =>
+    managerRefusal
+      ? Promise.reject(managerRefusal)
+      : Promise.resolve({ role: "OWNER" })
+);
+
+const mockFilterBannedUserIds = mock(
+  (_conversationId: string, _userIds: string[]) =>
+    Promise.resolve(new Set<string>())
+);
+
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   // The REAL limits, spread in. `@asm/db/messages/dens` is a different
@@ -131,6 +136,49 @@ mock.module("@asm/db", () => ({
   DEN_LIMITS: { ...DEN_LIMITS },
   DenError,
   addDenMembers: mockAddDenMembers,
+  // Nobody is banned unless a test says so. Stubbed rather than left to reach
+  // `prisma`: the real helper would build a query against this mocked barrel and 500
+  // on a bind it cannot express, which reads as a route bug and proves nothing about
+  // bans.
+  filterBannedUserIds: mockFilterBannedUserIds,
+  // The group-add policy, answered from THIS file's fixtures.
+  //
+  // It has to be supplied rather than inherited, because it lives on the `@asm/db`
+  // barrel - a module every route test replaces wholesale - and the sibling
+  // conversations suite answers it permissively for its own den-create branch. Whichever
+  // file registered a barrel last decided this suite's policy answers, which is how two
+  // "somebody who allows no direct adds is refused" tests came back as successes in a
+  // full run while passing alone.
+  //
+  // Only the DATA is faked. Both `groupAddRefusal` - which decides - and
+  // `groupAddRefusalError` - which words it - are the real functions, read from
+  // `@asm/db/messages/dens`, a different specifier from the mocked barrel so they resolve
+  // for real. So this suite cannot drift from the policy or from the words the product
+  // shows; only the two inputs are this file's.
+  //
+  // What genuinely cannot be had here is the real `groupAddRefusalFor` itself, because it
+  // reads `users` and `follows` through the barrel this file replaces. These two functions
+  // are its entire body. The rules are also proved against a database in
+  // `den-group-add.integration.test.ts`; what this suite is about is what the route does
+  // with an answer.
+  groupAddRefusalFor: (actorId: string, candidateIds: readonly string[]) => {
+    const followsActor = new Set(followingActorIds);
+    for (const candidateId of new Set(candidateIds)) {
+      // The actor is always a member, so their own policy is never a reason to refuse
+      // them - the same exclusion the real eligibility read makes.
+      if (candidateId === actorId) {
+        continue;
+      }
+      const refusal = groupAddRefusal(
+        (policyById[candidateId] ?? "FOLLOWING_ONLY") as GroupAddPolicy,
+        followsActor.has(candidateId)
+      );
+      if (refusal !== null) {
+        return { code: refusal, error: groupAddRefusalError(refusal) };
+      }
+    }
+    return null;
+  },
   prisma: {
     orm: {
       public: {
@@ -279,7 +327,21 @@ mock.module("@asm/db", () => ({
                     id,
                   }));
                 }
-                return ids.map((id) => ({ [fields[0] as string]: id }));
+                // Whatever the caller asked for, from the row this test describes. A
+                // display name is EMPTY unless a test sets one, because an account
+                // with no display name is a real state and the name read has a
+                // fallback for it. Defaulting it to the id would make that fallback
+                // unreachable and the branch untestable.
+                return ids.map((id) => {
+                  const row: Record<string, string> = { id };
+                  for (const field of fields) {
+                    if (field === "id") {
+                      continue;
+                    }
+                    row[field] = fakeFieldValue(field, id);
+                  }
+                  return row;
+                });
               },
               where: (predicate: unknown) => {
                 pendingUsers = predicate;
@@ -292,12 +354,34 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  requireDenManager: mockRequireDenManager,
   requireDenMembership: mockRequireDenMembership,
 }));
 
 // The predicates handed to `.where()` are kept so the matching `.all()` can
 // evaluate them: the builder chain separates the two calls.
 let pendingUsers: unknown = null;
+// Names for the rows above, for the read that has to NAME a banned candidate. An
+// absent display name means the account has none, and an absent username falls back to
+// the id, so a test asserting on a name has to set one and cannot pass by accident.
+const displayNameById: Record<string, string> = {};
+const usernameById: Record<string, string> = {};
+
+// One requested field, answered from the tables above. A function rather than an
+// expression because the choice between the two names is not a ternary's job: a name
+// the test did not set has a DIFFERENT default depending on which field it is, and
+// folding that into one expression is how the blank-display-name case stops being
+// reachable.
+function fakeFieldValue(field: string, id: string): string {
+  if (field === "displayName") {
+    return displayNameById[id] ?? "";
+  }
+  if (field === "username") {
+    return usernameById[id] || id;
+  }
+  return id;
+}
+
 let pendingIdentities: unknown = null;
 let pendingFollows: unknown = null;
 let pendingBlocks: unknown = null;
@@ -478,8 +562,20 @@ describe("POST /api/messages/dens/:id/members", () => {
     pendingFollows = null;
     pendingIdentities = null;
     pendingUsers = null;
+    for (const id of Object.keys(displayNameById)) {
+      displayNameById[id] = "";
+    }
+    for (const id of Object.keys(usernameById)) {
+      usernameById[id] = "";
+    }
     mockAddDenMembers.mockClear();
     mockAddDenMembers.mockImplementation(() => Promise.resolve(["user-3"]));
+    mockRequireDenManager.mockClear();
+    managerRefusal = null;
+    mockFilterBannedUserIds.mockClear();
+    mockFilterBannedUserIds.mockImplementation(() =>
+      Promise.resolve(new Set<string>())
+    );
     mockConsumeDenRateLimit.mockClear();
     chargedBuckets.length = 0;
     mockConsumeDenRateLimit.mockImplementation((rule) => {
@@ -743,5 +839,102 @@ describe("POST /api/messages/dens/:id/members", () => {
       code: "LIMIT_REACHED",
       error: `A den can have at most ${DEN_LIMITS.membersMax} members`,
     });
+  });
+
+  // The banned pre-check, which exists so the refusal NAMES somebody instead of
+  // handing back a generic failure for a batch. The load-bearing check is the one
+  // inside `addDenMembers`, under its claim lock; this one only decides the wording.
+  test("refuses a banned candidate by name, without adding anybody", async () => {
+    displayNameById["user-3"] = "Ada Lovelace";
+    usernameById["user-3"] = "ada";
+    mockFilterBannedUserIds.mockImplementationOnce(() =>
+      Promise.resolve(new Set(["user-3"]))
+    );
+    const res = await add({ memberIds: ["user-3"] });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      code: "BANNED",
+      error:
+        "Ada Lovelace is banned from this den. Unban them from the banned list first.",
+    });
+    expect(mockAddDenMembers).not.toHaveBeenCalled();
+  });
+
+  test("refuses a mixed batch for naming, and still adds nobody", async () => {
+    // Naming only the banned one rather than listing all five: the manager needs to
+    // know who to unban, not who else they had selected.
+    displayNameById["user-3"] = "Ada Lovelace";
+    usernameById["user-3"] = "ada";
+    mockFilterBannedUserIds.mockImplementationOnce(() =>
+      Promise.resolve(new Set(["user-3"]))
+    );
+    const res = await add({ memberIds: ["user-3", "user-4"] });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Ada Lovelace");
+    expect(mockAddDenMembers).not.toHaveBeenCalled();
+  });
+
+  // A ban is not a roster rule, so it must not leak past the group-add policy either:
+  // somebody who also refuses direct adds is refused for THAT, which is a different
+  // conversation with the candidate.
+  test("checks the ban before the roster policy, so the ban is what is named", async () => {
+    policyById = { "user-3": "NO_DIRECT_ADDS" };
+    mockFilterBannedUserIds.mockImplementationOnce(() =>
+      Promise.resolve(new Set(["user-3"]))
+    );
+    const res = await add({ memberIds: ["user-3"] });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("BANNED");
+  });
+
+  test("falls back to a username when the account has no display name", async () => {
+    // " is banned from this den" is a broken sentence, and naming somebody is the
+    // entire reason this pre-check exists.
+    // An account with no display name at all, which is why the query falls back to the
+    // username rather than to an empty string.
+    usernameById["user-3"] = "ada";
+    mockFilterBannedUserIds.mockImplementationOnce(() =>
+      Promise.resolve(new Set(["user-3"]))
+    );
+    const res = await add({ memberIds: ["user-3"] });
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("ada is banned from this den");
+  });
+
+  // The ordering, pinned. The ban pre-check names the banned person and the naming reads
+  // `Users.displayName` for caller-supplied ids, so running it before the authority gate
+  // made it a per-id oracle over a manager-only list: anybody who could sign in could
+  // POST an arbitrary user id and learn whether that person was banned from a den they
+  // were not in, plus their display name. `addDenMembers` gates too, but it gates LAST.
+  test("checks authority before the ban pre-check, which discloses", async () => {
+    // The ban double is left at its permissive default on purpose. Queueing a ban here
+    // would be self-defeating: the assertion is that the pre-check is never REACHED, so
+    // a queued answer would sit unconsumed and hand the next test a banned user.
+    managerRefusal = new DenError("FORBIDDEN", "Managers only");
+    const res = await add({ memberIds: ["user-3"] });
+    // The permission answer, not the ban answer.
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code: string }).code).toBe("FORBIDDEN");
+    // And nothing was read about the ids the caller supplied.
+    expect(mockFilterBannedUserIds).not.toHaveBeenCalled();
+    expect(mockAddDenMembers).not.toHaveBeenCalled();
+  });
+
+  test("checks authority even when nobody is banned", async () => {
+    // The control for the case above. Without it, a suite that simply never set a ban
+    // would pass the ordering test for the wrong reason.
+    managerRefusal = new DenError("FORBIDDEN", "Managers only");
+    const res = await add({ memberIds: ["user-3"] });
+    expect(res.status).toBe(403);
+    expect(mockAddDenMembers).not.toHaveBeenCalled();
+  });
+
+  test("lets an unbanned batch through untouched", async () => {
+    const res = await add({ memberIds: ["user-3"] });
+    expect(res.status).toBe(201);
+    // Checked with the whole requested set, so the helper can answer in one query.
+    expect(mockFilterBannedUserIds).toHaveBeenCalledWith("den-1", ["user-3"]);
   });
 });

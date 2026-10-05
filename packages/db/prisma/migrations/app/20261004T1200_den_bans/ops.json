@@ -1,0 +1,233 @@
+[
+  {
+    "id": "table.message_den_bans",
+    "label": "Create table \"message_den_bans\"",
+    "summary": "Creates table \"message_den_bans\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_den_bans"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_den_bans\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_den_bans\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_den_bans\"",
+        "sql": "CREATE TABLE \"public\".\"message_den_bans\" (\n  \"bannedById\" text,\n  \"conversationId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"reason\" text,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_den_bans_pkey\" PRIMARY KEY (\"conversationId\", \"userId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_den_bans\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_den_bans\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_den_bans.mdb_conversationId_createdAt_idx",
+    "label": "Create index \"mdb_conversationId_createdAt_idx\" on \"message_den_bans\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "mdb_conversationId_createdAt_idx",
+        "table": "message_den_bans"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"mdb_conversationId_createdAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"mdb_conversationId_createdAt_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"mdb_conversationId_createdAt_idx\"",
+        "sql": "CREATE INDEX \"mdb_conversationId_createdAt_idx\" ON \"public\".\"message_den_bans\" (\"conversationId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"mdb_conversationId_createdAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"mdb_conversationId_createdAt_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_den_bans.mdb_userId_idx",
+    "label": "Create index \"mdb_userId_idx\" on \"message_den_bans\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "mdb_userId_idx",
+        "table": "message_den_bans"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"mdb_userId_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"mdb_userId_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"mdb_userId_idx\"",
+        "sql": "CREATE INDEX \"mdb_userId_idx\" ON \"public\".\"message_den_bans\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"mdb_userId_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"mdb_userId_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_den_bans.message_den_bans_conversationId_fkey",
+    "label": "Add foreign key \"message_den_bans_conversationId_fkey\" on \"message_den_bans\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_den_bans_conversationId_fkey",
+        "table": "message_den_bans"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_den_bans_conversationId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_den_bans_conversationId_fkey",
+          "public",
+          "\"public\".\"message_den_bans\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_den_bans_conversationId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_den_bans\"\nADD CONSTRAINT \"message_den_bans_conversationId_fkey\"\nFOREIGN KEY (\"conversationId\")\nREFERENCES \"public\".\"message_conversations\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_den_bans_conversationId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_den_bans_conversationId_fkey",
+          "public",
+          "\"public\".\"message_den_bans\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_den_bans.message_den_bans_userId_fkey",
+    "label": "Add foreign key \"message_den_bans_userId_fkey\" on \"message_den_bans\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_den_bans_userId_fkey",
+        "table": "message_den_bans"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_den_bans_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_den_bans_userId_fkey",
+          "public",
+          "\"public\".\"message_den_bans\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_den_bans_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_den_bans\"\nADD CONSTRAINT \"message_den_bans_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_den_bans_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_den_bans_userId_fkey",
+          "public",
+          "\"public\".\"message_den_bans\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_den_bans.message_den_bans_bannedById_fkey",
+    "label": "Add foreign key \"message_den_bans_bannedById_fkey\" on \"message_den_bans\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_den_bans_bannedById_fkey",
+        "table": "message_den_bans"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_den_bans_bannedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_den_bans_bannedById_fkey",
+          "public",
+          "\"public\".\"message_den_bans\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_den_bans_bannedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_den_bans\"\nADD CONSTRAINT \"message_den_bans_bannedById_fkey\"\nFOREIGN KEY (\"bannedById\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE SET NULL\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_den_bans_bannedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_den_bans_bannedById_fkey",
+          "public",
+          "\"public\".\"message_den_bans\""
+        ]
+      }
+    ]
+  }
+]

@@ -2,7 +2,9 @@ import {
   DEN_LIMITS,
   addDenMembers,
   and,
+  filterBannedUserIds,
   prisma,
+  requireDenManager,
   requireDenMembership,
 } from "@asm/db";
 
@@ -151,6 +153,40 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
+    // Authority FIRST. The ban pre-check below discloses, and it is the only thing in
+    // this route that does: it names the banned person, and the naming reads
+    // `Users.displayName` for caller-supplied ids with no membership in the den. Run
+    // before `requireDenManager` - which lives inside `addDenMembers` - that made the
+    // refusal a per-id oracle over a list the feature states is manager-only, available
+    // to anybody who could sign in. A non-manager learns who is banned from a den they
+    // are not even in, and learns their display name for free.
+    //
+    // The sibling GET on this file gates with `requireDenMembership` before touching the
+    // roster, and this is the same discipline one step stricter.
+    await requireDenManager(id, user.userId);
+
+    // A banned candidate is refused HERE, before the roster is even read, so the
+    // manager is told which person is the problem rather than being handed a generic
+    // failure for a batch of five. `addDenMembers` re-checks the same fact under its
+    // claim lock, which is the check that is actually load-bearing: this one exists so
+    // the refusal names somebody, and a race between the two is closed by the service
+    // rather than by this read.
+    //
+    // Before the cap for the same reason the join door checks it before capacity: a
+    // full room is the wrong answer to "why can I not add Ada".
+    const banned = await filterBannedUserIds(id, parsed.memberIds);
+    if (banned.size > 0) {
+      const bannedNames = await bannedDisplayNames([...banned]);
+      const named = [...bannedNames];
+      return denCandidateFailureResponse({
+        code: "BANNED",
+        error:
+          named.length === 1
+            ? `${named[0]} is banned from this den. Unban them from the banned list first.`
+            : "Some of those people are banned from this den. Unban them from the banned list first.",
+      });
+    }
+
     // Each candidate's own group-add policy decides. Nothing else is checked
     // about the relationship between a candidate and the room - a den admits
     // regardless of blocks, so there is no block rule for the service to
@@ -173,6 +209,25 @@ export async function POST(request: Request, { params }: Params) {
       userId: user.userId,
     });
   }
+}
+
+// Display names for a refusal that has to name somebody.
+//
+// Falls back to a username rather than an empty string, because " is banned from this
+// den" is a broken sentence and the whole point of this pre-check was to name the
+// person. One query for the whole set, so a batch of five costs one round trip.
+async function bannedDisplayNames(userIds: string[]): Promise<string[]> {
+  const rows = await prisma.orm.public.Users.select(
+    "displayName",
+    "id",
+    "username"
+  )
+    .where((user) => user.id.in(userIds))
+    .all();
+  const byId = new Map(
+    rows.map((row) => [row.id, row.displayName || row.username])
+  );
+  return userIds.map((id) => byId.get(id) ?? "That person");
 }
 
 // One read for the cap pre-check. A den holds at most DEN_LIMITS.membersMax

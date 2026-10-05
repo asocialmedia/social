@@ -180,6 +180,7 @@ namespace public {
     // The codes this den has rotated away, so a link that was already shared can
     // still name the den. See `MessageConversationInviteCodes`.
     messageConversationInviteCodes MessageConversationInviteCodes[]
+    messageConversationBans MessageDenBans[]
     messageConversationMembershipEvents MessageConversationMembershipEvents[]
     messageConversationKeys        MessageConversationKeys[]
     messageConversationMembers     MessageConversationMembers[]
@@ -339,6 +340,8 @@ namespace public {
     communityVisits            CommunityVisits[]
     devicePushTokens           DevicePushTokens[]
     mentions                   Mentions[]
+    messageConversationBans    MessageDenBans[]            @relation(name: "message_den_bans_userId_fkey")
+    messageConversationBansBy  MessageDenBans[]            @relation(name: "message_den_bans_bannedById_fkey")
     messageConversationKeys    MessageConversationKeys[]    @relation(name: "message_conversation_keys_ownerUserId_fkey")
     messageConversationMembers MessageConversationMembers[]    @relation(name: "message_conversation_members_userId_fkey")
     messageHiddens             MessageHiddens[]
@@ -706,6 +709,53 @@ namespace public {
     // single index probe.
     @@index([conversationId, retiredAt], map: "message_conversation_invite_codes_conversationId_retiredAt_idx")
     @@map("message_conversation_invite_codes")
+  }
+
+  model MessageDenBans {
+    // Somebody who cannot come back to a den, however they arrive.
+    //
+    // This is the table that separates "remove" from "ban". A removal stamps
+    // `leftAt` on the membership row and stops access from now on, but it grants
+    // nothing about the future: a removed person can walk back in with a live
+    // invite link, which is correct for somebody who was removed and correct for
+    // somebody who left voluntarily, and useless for somebody who was removed on
+    // purpose. A ban is the answer to the second case, and it has to be its own
+    // row rather than a flag on the membership because the two facts are
+    // independent: a ban outlives the departure (there may not BE a membership row
+    // at the moment it is applied), and a departure outlives nothing.
+    //
+    // Deliberately NOT inferred from the membership log. `REMOVED` says a manager
+    // took somebody out; it does not say they were never allowed back, and
+    // retroactively banning every removed member would lock out people a manager
+    // expects to return. A ban is only ever written by an explicit ban action.
+    conversationId String
+    userId          String
+    // Who imposed it. SetNull rather than Cascade: deleting the account of an
+    // Elder who banned somebody must not delete the ban and quietly let them back
+    // into a room they were kept out of on purpose.
+    bannedById      String?
+    // Why, in the moderator's own words. Manager-only and never shown to the
+    // banned person, so it is a note to the next manager rather than a sentence
+    // somebody has to answer for. Nullable, because a ban does not require a
+    // reason and a mandatory field is a reason people stop using the control.
+    reason          String?
+    createdAt       Timestamp(3)                 @default(now())
+    conversation    MessageConversations @relation(name: "message_den_bans_conversationId_fkey", fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_conversationId_fkey", index: false)
+    user            Users                @relation(name: "message_den_bans_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_userId_fkey", index: false)
+    bannedBy        Users?               @relation(name: "message_den_bans_bannedById_fkey", fields:[bannedById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_den_bans_bannedById_fkey", index: false)
+
+    // One row per person per den, which is the whole identity of the fact: a ban is
+    // a set membership, not a log. Unbanning deletes the row rather than stamping it,
+    // so there is no "was banned once" state to consult at the door - and no way for
+    // the door to be wrong because an expiry was misread.
+    @@id([conversationId, userId], map: "message_den_bans_pkey")
+    // The manager-facing list is "this den's bans, newest first", which is a range
+    // scan on this index.
+    @@index([conversationId, createdAt], map: "mdb_conversationId_createdAt_idx")
+    // "What has this account been kept out of", for a ban count on a profile and for
+    // the sweep that would answer it.
+    @@index([userId], map: "mdb_userId_idx")
+    @@map("message_den_bans")
   }
 
   model MessageConversationMembershipEvents {

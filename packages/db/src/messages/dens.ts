@@ -143,6 +143,53 @@ export function groupAddRefusal(
   return candidateFollowsActor ? null : "NOT_FOLLOWING_YOU";
 }
 
+// The cap on a ban reason.
+//
+// In this module rather than beside the ban queries because it is a RULE, not a query,
+// and the client has to be able to hold the same one: the dialog's `maxLength` and the
+// server's slice coming from different numbers is how a textarea starts rejecting input
+// the server would have truncated, or the reverse - a reason that silently loses its
+// tail with no indication to either side.
+export const DEN_BAN_REASON_MAX = 140;
+
+// Reads a ban reason out of an untrusted body.
+//
+// A type guard first and a cap second, in that order, because the two failures are
+// different: a `reason` that is not a string is somebody sending the wrong shape and
+// deserves a 400, while an over-long one is a well-formed note that is simply too big,
+// and coercing it to "140" would store a sentence nobody wrote.
+export function normalizeDenBanReason(
+  value: unknown
+): { ok: true; reason: string | null } | { ok: false } {
+  if (value === undefined || value === null) {
+    return { ok: true, reason: null };
+  }
+  if (typeof value !== "string") {
+    return { ok: false };
+  }
+  const trimmed = value.trim();
+  return {
+    ok: true,
+    reason: trimmed.length === 0 ? null : trimmed.slice(0, DEN_BAN_REASON_MAX),
+  };
+}
+
+// The route's whole sentence for a refusal.
+//
+// Third person, unlike the picker's row: this is an error about a proposal, and it has
+// to survive being shown where the candidate is not named.
+//
+// Moved here from `den-group-add.ts`, which cannot be reached from a route test that
+// replaces the `@asm/db` barrel - so a test standing in for `groupAddRefusalFor` had to
+// restate these two sentences, and a reword in production would have left the test
+// asserting its own copy and calling it a pass. Beside `GROUP_ADD_REFUSAL_COPY`, which is
+// the same two rules in the second person.
+export function groupAddRefusalError(refusal: GroupAddRefusal): string {
+  return refusal === "NO_DIRECT_ADDS"
+    ? "Some of those people don't allow being added to groups"
+    : "Some of those people only let people they follow add them";
+}
+
 // The reader-facing wording for a refusal, shared so the greyed-out row in the
 // picker and the error the route returns are the same sentence.
 //

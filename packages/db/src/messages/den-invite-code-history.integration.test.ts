@@ -504,6 +504,10 @@ describe("a retired code identifies the den and grants nothing", () => {
     await rotateInviteCode(denId, OWNER_ID);
 
     expect(await previewInvite(outgoing)).toEqual({
+      // Deliberately null, and asserted rather than omitted: the picture is
+      // disclosed on live codes only, so a link the den has already withdrawn
+      // never names a media id anybody could ask the avatar route about.
+      avatarMediaId: null,
       expired: true,
       id: denId,
       // The code is echoed back normalized, so the screen can key on it without

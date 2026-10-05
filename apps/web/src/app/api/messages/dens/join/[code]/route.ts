@@ -1,6 +1,7 @@
 import {
   DenError,
   getDenMembership,
+  isDenBanned,
   joinDenByInviteCode,
   previewInvite,
 } from "@asm/db";
@@ -41,14 +42,22 @@ function unusableCodeResponse(): Response {
   );
 }
 
-// The join screen. Read-only and deliberately thin: a name, a member count and
-// nothing else.
+// The join screen. Read-only and deliberately thin: a name, a member count, the
+// den's own image and nothing else.
 //
 // No roster, no message history, no member identities. Possession of a code is
 // not a reason to enumerate who is in a den, so the preview carries only what a
 // person needs to decide whether they want to join. A code that resolves to nothing
 // answers 404, and the bytes are the same whatever the reason, so this endpoint
 // cannot be used to test whether a guessed code was ever valid.
+//
+// The image is a fourth fact on the live path and is the same class as the name
+// and the size: it identifies the room, it is not a roster, and the reader has to
+// be able to tell whether the link they followed is the room somebody invited them
+// to. The bytes come from this route's `avatar` endpoint rather than from
+// `/api/media/{id}`, so the id above is not a second door: that route admits
+// conversation members and refuses everybody else, and a non-member holding a code
+// cannot turn it into a durable public URL.
 //
 // A code that WAS rotated out is the one case that resolves, and it is a deliberate
 // exception: it answers 200 with `expired` and the den's owner, so somebody holding
@@ -108,12 +117,27 @@ export async function GET(request: Request, { params }: Params) {
         isMember: membership !== null,
       });
     }
+    // Whether THIS reader is banned, and only when they are. Never a false, and never
+    // for anybody else: this answers one question about the account making the request
+    // and cannot become a way to ask whether somebody else is excluded.
+    //
+    // Only for the LIVE path, and that is a product rule rather than a privacy one. A
+    // retired code's screen exists to send somebody to the owner who can mint a
+    // replacement, and telling a banned person "you are also banned, never mind" on a
+    // dead link tells them nothing they could not learn and costs the screen the one
+    // thing it is for.
+    const banned = userId ? await isDenBanned(preview.id, userId) : false;
     return Response.json({
       den: {
+        // The den's own image, on the live path only. `previewInvite` already
+        // refuses to carry one for a retired code, so this branch cannot leak it
+        // into the expired shape above even by accident.
+        avatarMediaId: preview.avatarMediaId,
         id: preview.id,
         memberCount: preview.memberCount,
         name: preview.name,
       },
+      isBanned: banned,
       isMember: membership !== null,
     });
   } catch (error) {
@@ -189,6 +213,19 @@ export async function POST(_request: Request, { params }: Params) {
     // already given away.
     if (error instanceof DenError && error.code === "LIMIT_REACHED") {
       return unusableCodeResponse();
+    }
+    // A ban is the one refusal this door forwards rather than collapsing, and the
+    // reason is the reader: they already hold a live code for this den, so telling them
+    // the code works and they are still not welcome discloses nothing they could not
+    // learn by pressing the button - and it is the only way they learn WHY. Collapsing
+    // it into `unusableCodeResponse` would answer a banned person with "this link is cut
+    // short, mistyped, or points to a den that's gone", which sends them to check a
+    // link that is perfectly fine.
+    if (error instanceof DenError && error.code === "BANNED") {
+      return Response.json(
+        { code: "BANNED", error: error.message },
+        { status: 403 }
+      );
     }
     // Everything else the join service can throw is a NOT_FOUND, which
     // `unusableCodeResponse` already covers, so in practice this line is

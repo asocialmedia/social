@@ -44,8 +44,17 @@ export {
   groupAddRefusalFor,
 } from "./src/messages/den-group-add";
 export {
+  DEN_BAN_REASON_MAX,
+  filterBannedUserIds,
+  isDenBanned,
+  listDenBans,
+  normalizeDenBanReason,
+} from "./src/messages/den-bans";
+export type { DenBan } from "./src/messages/den-bans";
+export {
   DenError,
   addDenMembers,
+  banDenMember,
   createDen,
   dissolveDen,
   generateInviteCode,
@@ -61,6 +70,7 @@ export {
   rotateInviteCode,
   setDenMemberRole,
   transferDenOwnership,
+  unbanDenMember,
   updateDenDetails,
 } from "./src/messages/den-service";
 export type {

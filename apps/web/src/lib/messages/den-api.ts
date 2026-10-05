@@ -23,6 +23,12 @@ const logger = createLogger({ serviceName: "den-api" });
 // a request that falls through to a 400 nobody chose.
 const DEN_ERROR_STATUS: Record<DenErrorClass["code"], number> = {
   ALREADY_MEMBER: 409,
+  // 403 and not 404, and the distinction is load-bearing: a 404 here would be the
+  // join door's indistinguishable "that code is not valid" answer, which is the whole
+  // anti-oracle design. A ban is not a secret - the person holds a working code and
+  // would be refused by pressing the button - so naming it costs nothing and is the
+  // only way they learn why.
+  BANNED: 403,
   FORBIDDEN: 403,
   INVALID_INPUT: 400,
   INVALID_ROLE: 400,

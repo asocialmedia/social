@@ -52,6 +52,9 @@ describe("denAffordances, den-wide controls", () => {
     // target, so this row only asserts the remove path through `denRowActions`.
     const affordances = denAffordances({ viewer: viewer("ADMIN") });
     expect(affordances.canAddMembers).toBe(true);
+    // An Elder moderates: they read the banned list and impose bans. Same authority as
+    // adding and removing, which is the set the server gates behind requireDenManager.
+    expect(affordances.canBanMembers).toBe(true);
     expect(affordances.canDeleteDen).toBe(false);
     expect(
       denRowActions({
@@ -61,7 +64,7 @@ describe("denAffordances, den-wide controls", () => {
         }),
         target: target("MEMBER"),
       })
-    ).toEqual(["remove"]);
+    ).toEqual(["remove", "ban"]);
   });
 
   test("a plain member can only leave", () => {
@@ -87,12 +90,38 @@ describe("denAffordances, den-wide controls", () => {
       denAffordances({ viewer: { canManage: true, role: "MEMBER" } })
         .canAddMembers
     ).toBe(false);
+    // The banned list is read the same way, and it gates on the same flag, so a panel
+    // opened against a half-stale response draws neither.
+    expect(
+      denAffordances({ viewer: { canManage: false, role: "ADMIN" } })
+        .canBanMembers
+    ).toBe(false);
+    expect(
+      denAffordances({ viewer: { canManage: true, role: "MEMBER" } })
+        .canBanMembers
+    ).toBe(false);
+  });
+
+  test("only the owner and the Elders may see the banned list", () => {
+    // A ban is a decision about a person made by somebody else, so the room is not
+    // party to it. Both managers get it - an Elder who can remove somebody can
+    // certainly be told they may not rejoin - and a plain member gets neither.
+    expect(denAffordances({ viewer: viewer("OWNER") }).canBanMembers).toBe(
+      true
+    );
+    expect(denAffordances({ viewer: viewer("ADMIN") }).canBanMembers).toBe(
+      true
+    );
+    expect(denAffordances({ viewer: viewer("MEMBER") }).canBanMembers).toBe(
+      false
+    );
   });
 
   test("somebody who is not on the roster is offered nothing", () => {
     const affordances = denAffordances({ viewer: viewer(null) });
     expect(affordances).toEqual({
       canAddMembers: false,
+      canBanMembers: false,
       canCopyInvite: false,
       canDeleteDen: false,
       canDemote: false,
@@ -264,7 +293,7 @@ describe("denAffordances, per roster row", () => {
 });
 
 describe("denRowActions", () => {
-  test("an owner can promote a Member, kick them, or hand the den over", () => {
+  test("an owner can promote a Member, kick them, ban them, or hand the den over", () => {
     // All three are legal for this row at once and all three used to be
     // unreachable behind whichever one the ladder returned first. The kick and the
     // hand-over are the two the owner is most likely to want on a row they do not
@@ -277,10 +306,10 @@ describe("denRowActions", () => {
         }),
         target: target("MEMBER"),
       })
-    ).toEqual(["promote", "remove"]);
+    ).toEqual(["promote", "remove", "ban"]);
   });
 
-  test("an owner can hand over, demote, and kick an Elder", () => {
+  test("an owner can hand over, demote, kick and ban an Elder", () => {
     // The bug, exactly. `canDemote` and `canRemove` were both already true for
     // this row, and the single-action return made them unreachable: the owner
     // could neither demote somebody back to Member nor remove them from the den.
@@ -292,12 +321,13 @@ describe("denRowActions", () => {
         }),
         target: target("ADMIN"),
       })
-    ).toEqual(["transfer", "demote", "remove"]);
+    ).toEqual(["transfer", "demote", "remove", "ban"]);
   });
 
-  test("an Elder who cannot reassign roles is offered only the kick", () => {
-    // `canSetRole` is owner-only, so none of the three role moves reach here, and
-    // the kick is all an Elder ever had on a row.
+  test("an Elder who cannot reassign roles is offered the kick and the ban", () => {
+    // `canSetRole` is owner-only, so none of the role moves reach here. What an Elder
+    // has always had is the kick, and a ban is that plus closing the door - which is
+    // exactly the same authority the remove route already checks.
     expect(
       denRowActions({
         affordances: denAffordances({
@@ -306,7 +336,7 @@ describe("denRowActions", () => {
         }),
         target: target("MEMBER"),
       })
-    ).toEqual(["remove"]);
+    ).toEqual(["remove", "ban"]);
     expect(
       denRowActions({
         affordances: denAffordances({
@@ -315,7 +345,48 @@ describe("denRowActions", () => {
         }),
         target: target("ADMIN"),
       })
-    ).toEqual(["remove"]);
+    ).toEqual(["remove", "ban"]);
+  });
+
+  // The matrix below catches a ban appearing where remove is absent, but this states
+  // the rule rather than only implying it, because "a row cannot offer a ban it cannot
+  // remove" is the invariant a reader of the affordances object would want written down.
+  test("no row ever offers a ban without offering the remove beside it", () => {
+    const roles = ["OWNER", "ADMIN", "MEMBER"] as const;
+    for (const viewerRole of roles) {
+      for (const targetRole of roles) {
+        for (const isSelf of [false, true]) {
+          const affordances = denAffordances({
+            target: target(targetRole, isSelf),
+            viewer: viewer(viewerRole),
+          });
+          const actions = denRowActions({
+            affordances,
+            target: target(targetRole, isSelf),
+          });
+          expect(actions.includes("ban")).toBe(actions.includes("remove"));
+        }
+      }
+    }
+  });
+
+  test("only an owner may ban the owner, and nobody may at all", () => {
+    // There is exactly one owner and they are not banable: ownership moves by a
+    // transfer or by leaving. The row offers nothing, so the action cannot be reached
+    // to be refused.
+    const owner = viewer("OWNER");
+    expect(
+      denAffordances({ target: target("OWNER"), viewer: owner }).canRemove
+    ).toBe(false);
+    expect(
+      denRowActions({
+        affordances: denAffordances({
+          target: target("OWNER"),
+          viewer: owner,
+        }),
+        target: target("OWNER"),
+      })
+    ).toEqual([]);
   });
 
   test("a row with no legal action has no menu at all", () => {
@@ -365,7 +436,10 @@ describe("denRowActions", () => {
             target: target(targetRole, isSelf),
             viewer: viewer(viewerRole),
           });
+          // Ban is read off `canRemove` rather than a flag of its own, so this table
+          // cannot disagree with the row.
           const legal: Record<DenRoleActionKind, boolean> = {
+            ban: affordances.canRemove,
             demote: affordances.canDemote,
             promote: affordances.canPromote,
             remove: affordances.canRemove,
@@ -393,6 +467,7 @@ describe("denRowActions", () => {
     // from this set - it was computed and then shadowed by the transfer - so naming
     // the set is what records that it is now reachable on its own.
     expect([...seen].toSorted()).toEqual([
+      "ban",
       "demote",
       "promote",
       "remove",

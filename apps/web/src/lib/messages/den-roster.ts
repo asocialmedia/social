@@ -20,6 +20,7 @@ import { areUsersMissingMessageIdentity, doUsersExist } from "./den-candidates";
 // block with", and nobody asks that. See the header of `./blocks.ts`.
 
 export type DenCandidateFailureCode =
+  | "BANNED"
   | "INVALID_INPUT"
   | "LIMIT_REACHED"
   | "MEMBERS_REQUIRED"
@@ -43,6 +44,10 @@ export interface DenCandidateFailure {
 // one of the people who said no. That is what 403 is for, and it is also why
 // these two replaced the follow rule that used to sit here alone.
 const FAILURE_STATUS: Record<DenCandidateFailureCode, number> = {
+  // 403 like the two group-add refusals, and for the same reason: the request is well
+  // formed and the caller may add many people - it is one of them who was kept out of
+  // this den on purpose.
+  BANNED: 403,
   INVALID_INPUT: 400,
   LIMIT_REACHED: 409,
   MEMBERS_REQUIRED: 400,

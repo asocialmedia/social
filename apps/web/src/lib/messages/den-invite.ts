@@ -24,6 +24,7 @@
 import { DEN_LIMITS } from "@asm/db/messages/dens";
 
 import type { DenInvitePreviewResponse } from "./client";
+import { DEN_BAN_JOIN_DESCRIPTION, DEN_BAN_JOIN_TITLE } from "./den-ban-copy";
 import { denIsFull } from "./den-capacity";
 
 // Where the join screen lives. A path rather than a bare function so the invite
@@ -170,6 +171,7 @@ export type DenExpiredInvite = Extract<
 // the screen acts on, and the ceiling is a rule about who can join, not about
 // who can open what they are already in.
 export type DenJoinOutcome =
+  | { den: DenInvitePreviewResponse["den"]; kind: "banned" }
   | { kind: "invalid"; reason: "unknown-code" }
   | { den: DenExpiredInvite; kind: "expired" }
   | { den: DenInvitePreviewResponse["den"]; kind: "full" }
@@ -195,9 +197,33 @@ export function denJoinOutcome(input: {
       ? { den: preview.den, kind: "already-member" }
       : { den: preview.den, kind: "expired" };
   }
+  // The ban is checked BEFORE `isMember`, and it has to be.
+  //
+  // `isMember` means "this account has a membership row", not "is inside" - a departed
+  // member still has one, which is why `requireDenMembership` has to layer an
+  // `isCurrentDenMember` check on top of the same read. And a ban always implies a
+  // membership row, because banning somebody who was never a member is refused. So for
+  // EVERY banned account both flags are true at once, the `isMember` arm wins, and the
+  // `banned` arm below was unreachable: a banned person opening the invite link was told
+  // "You're already in this den", with a button to open it.
+  //
+  // Checking the ban first is also the direction that fails closed. Being both inside
+  // and banned is not a state a correct system produces, so when the two disagree about
+  // a real account, "keep them out" is the answer worth giving.
+  //
+  // Safe to answer from the preview because it answers only about the account making
+  // the request. It is never a property of the den and never about anybody else, so
+  // this cannot become a way to ask whether a particular person has been excluded.
+  if (preview.isBanned === true) {
+    return { den: preview.den, kind: "banned" };
+  }
   if (preview.isMember) {
     return { den: preview.den, kind: "already-member" };
   }
+  // Before the capacity check, for the reason the service checks it in the same place:
+  // a banned person in a full room must be told they are banned, because "this den is
+  // full" is a problem they cannot solve and sends them off to wait for room that may
+  // never come.
   // The same comparison the join service makes under its claim lock, so the
   // screen's "full" and the server's are one rule rather than two.
   return denIsFull(preview.den.memberCount)
@@ -214,6 +240,11 @@ export function denJoinOutcome(input: {
 //     too, when the preview that named it was fetched before the rotation landed
 //     and the press landed after it - which is why the retired case cannot be
 //     answered from a refusal at all.
+//   - 403 with a BANNED code: this account was kept out of this den on purpose. It is
+//     the one refusal that names itself, and the route forwards it deliberately - see
+//     the comment there. It is keyed off the CODE and not the status because 403 is
+//     also the generic "you may not do that", and answering a ban with "that didn't
+//     come back from the server" would be both useless and wrong.
 //   - 409: the viewer has no message identity. Actionable, and the one that needs
 //     somewhere to send them.
 //   - 429: rate limited. Real, expected, and different from "invalid".
@@ -229,12 +260,19 @@ export function denJoinOutcome(input: {
 // `rate-limited` would be a guess, and both send the reader off chasing something
 // that is not the problem.
 export type DenJoinFailure =
+  | "banned"
   | "invalid"
   | "needs-messages"
   | "rate-limited"
   | "unavailable";
 
-export function denJoinFailure(status: number | null): DenJoinFailure {
+export function denJoinFailure(
+  status: number | null,
+  code?: string | undefined
+): DenJoinFailure {
+  if (status === 403 && code === "BANNED") {
+    return "banned";
+  }
   if (status === 404) {
     return "invalid";
   }
@@ -262,6 +300,9 @@ export function denJoinTitle(outcome: DenJoinOutcome): string {
     }
     case "full": {
       return "This den is full";
+    }
+    case "banned": {
+      return DEN_BAN_JOIN_TITLE;
     }
     case "already-member": {
       return "You're already in this den";
@@ -302,6 +343,12 @@ export function denJoinDescription(outcome: DenJoinOutcome): string {
   if (outcome.kind === "full") {
     return `${name} already has ${DEN_LIMITS.membersMax} members, which is as many as a den can hold.`;
   }
+  if (outcome.kind === "banned") {
+    // Says nothing about the den's name, deliberately. The reader cannot act on this
+    // at all, so the only thing worth their attention is who can change it - and naming
+    // the room here would just be a fact they cannot do anything with.
+    return DEN_BAN_JOIN_DESCRIPTION;
+  }
   return outcome.kind === "already-member"
     ? `Open ${name} to carry on.`
     : `You'll join ${name}.`;
@@ -322,7 +369,8 @@ export function denJoinActionLabel(
   if (
     outcome.kind === "invalid" ||
     outcome.kind === "expired" ||
-    outcome.kind === "full"
+    outcome.kind === "full" ||
+    outcome.kind === "banned"
   ) {
     return null;
   }

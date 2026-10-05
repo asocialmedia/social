@@ -84,6 +84,11 @@ async function createUsers(ids: readonly string[]): Promise<void> {
 // part-way through.
 const denIds: string[] = [];
 
+// Every media row the invite-avatar tests make. Tracked separately because a den
+// delete cascades its own rows but not the object a den merely points at, so these
+// would otherwise outlive the file and be picked up by a later run's assertions.
+const mediaIds: string[] = [];
+
 // The budget for the two hundred-way races below, and the only timeout in this
 // file that is not the default.
 //
@@ -197,6 +202,12 @@ afterAll(async () => {
   if (denIds.length > 0) {
     await prisma.orm.public.MessageConversations.where((conversation) =>
       conversation.id.in(denIds)
+    ).deleteAndCount();
+  }
+  // After the dens, so the avatar foreign key is already gone.
+  if (mediaIds.length > 0) {
+    await prisma.orm.public.PostMedia.where((media) =>
+      media.id.in(mediaIds)
     ).deleteAndCount();
   }
   await prisma.orm.public.Users.where((user) =>
@@ -1266,6 +1277,57 @@ describe("dissolving a den", () => {
 });
 
 describe("invite codes", () => {
+  // A den's `avatarMediaId` is a real foreign key into post_media, so a test that
+  // wants the join screen to have a picture to show has to make one. READY, because
+  // a den avatar that is still in a pre-READY pipeline state is a case the avatar
+  // route refuses rather than serves.
+  async function denAvatarMedia(label: string): Promise<string> {
+    const media = await prisma.orm.public.PostMedia.create({
+      id: `media-${label}-${RUN_ID}`,
+      mimeType: "image/png",
+      status: "READY",
+      url: `https://example.test/${label}.png`,
+      userId: OWNER_ID,
+    });
+    mediaIds.push(media.id);
+    return media.id;
+  }
+
+  test("a live code carries the den's own image", async () => {
+    // The join screen's picture. Read from the den's live row, so it is a property
+    // of the room rather than something the preview decided to show.
+    const avatarMediaId = await denAvatarMedia("avatar-live");
+    const den = await createDen({
+      avatarMediaId,
+      creatorId: OWNER_ID,
+      memberIds: [ADMIN_ID],
+      name: `Avatar ${RUN_ID}`,
+    });
+    denIds.push(den.id);
+    expect(await previewInvite(den.inviteCode)).toMatchObject({
+      avatarMediaId,
+      expired: false,
+    });
+  });
+
+  test("a rotated code carries no image at all", async () => {
+    // The product decision, asserted where it is decided: the picture rides on a
+    // code that still works, and a link the den has withdrawn gets none.
+    const avatarMediaId = await denAvatarMedia("avatar-retired");
+    const den = await createDen({
+      avatarMediaId,
+      creatorId: OWNER_ID,
+      memberIds: [ADMIN_ID],
+      name: `Avatar Rotated ${RUN_ID}`,
+    });
+    denIds.push(den.id);
+    await rotateInviteCode(den.id, OWNER_ID);
+    expect(await previewInvite(den.inviteCode)).toMatchObject({
+      avatarMediaId: null,
+      expired: true,
+    });
+  });
+
   test("preview resolves a code without disclosing the roster", async () => {
     const denId = await makeDen([ADMIN_ID, OLDEST_ID]);
     const den = await prisma.orm.public.MessageConversations.select(
@@ -1277,10 +1339,12 @@ describe("invite codes", () => {
     expect(preview?.id).toBe(denId);
     expect(preview?.memberCount).toBe(3);
     // Every field this den preview has ever carried, and nothing that identifies a
-    // member. `expired` and `ownerId` joined the shape when the archive landed; the
-    // rest is unchanged, which is what the join route's byte-identical promise to a
-    // live code rests on.
+    // member. `expired` and `ownerId` joined the shape when the archive landed, and
+    // `avatarMediaId` when the join screen was given the den's picture; the rest is
+    // unchanged. This den has no image, so the field reads null - carried, and
+    // disclosed, on every live code.
     expect(Object.keys(preview ?? {}).toSorted()).toEqual([
+      "avatarMediaId",
       "expired",
       "id",
       "inviteCode",
@@ -1292,6 +1356,9 @@ describe("invite codes", () => {
     // value this preview made up.
     expect(preview?.expired).toBe(false);
     expect(preview?.ownerId).toBe(OWNER_ID);
+    // The image is a property of the den, read from its live row rather than
+    // invented, and this den simply has none.
+    expect(preview?.avatarMediaId).toBeNull();
   });
 
   test("preview tolerates whitespace and case from a pasted code", async () => {

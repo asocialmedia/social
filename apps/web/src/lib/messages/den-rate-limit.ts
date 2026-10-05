@@ -97,6 +97,34 @@ export const DEN_REMOVE_MEMBER_RATE_LIMIT: DenRateLimitRule = {
   windowSeconds: 3600,
 };
 
+// Bans, and un-banning. Both are single-row writes on a den this person already
+// manages, and both are rare in the way a role change is rare.
+//
+// One shared bucket rather than two, for the same reason the hand-over shares the
+// roles budget: unbanning is the same manager decision as banning in the other
+// direction, it needs no confirmation of its own, and two budgets would mean the
+// looser of the pair existing only to be spent by something nobody would build.
+//
+// Tighter than the details budget and separate from it, because this is the one
+// management operation that can be pointed at a person rather than at a den: a
+// rename storm cannot lock anybody out of the ability to let somebody back in.
+export const DEN_BAN_RATE_LIMIT: DenRateLimitRule = {
+  bucket: "den-ban",
+  limit: 60,
+  window: "fixed",
+  windowSeconds: 3600,
+};
+
+// Reading the ban list. A manager opens it to find one person, so it is generous in
+// the same way the roster read is: the panel refetches it after every mutation, and a
+// tighter budget here would break a panel rather than slow a script.
+export const DEN_BANS_LIST_RATE_LIMIT: DenRateLimitRule = {
+  bucket: "den-bans-list",
+  limit: 120,
+  window: "fixed",
+  windowSeconds: 3600,
+};
+
 // Joining by code is the widest door in the product: the URL is shareable and
 // anyone with it can present it. Generous per-account, because one person
 // legitimately joining several dens in an afternoon is normal.

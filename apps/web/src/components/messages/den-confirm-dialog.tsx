@@ -34,7 +34,12 @@ export function DenConfirmDialog({
   open,
 }: {
   busy: boolean;
-  kind: "delete-den" | "leave-den" | "remove-member" | "transfer-ownership";
+  kind:
+    | "delete-den"
+    | "leave-den"
+    | "remove-member"
+    | "transfer-ownership"
+    | "unban-member";
   memberName?: string | null;
   onConfirm: () => void;
   onOpenChange: (open: boolean) => void;
@@ -51,7 +56,14 @@ export function DenConfirmDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            // Destructive only where the action takes something away. An unban hands
+            // somebody the right to come back, so it wears the ordinary button: the
+            // red one would say this is a punishment when it is the opposite.
+            className={
+              kind === "unban-member"
+                ? undefined
+                : "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            }
             disabled={busy}
             onClick={(event) => {
               event.preventDefault();

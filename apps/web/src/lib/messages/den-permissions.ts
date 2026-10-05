@@ -23,6 +23,8 @@
 import type { DenRole } from "@asm/db/messages/dens";
 import { canManageDen, canManageRole } from "@asm/db/messages/dens";
 
+import { denBanConfirmCopy, denUnbanConfirmCopy } from "./den-ban-copy";
+
 // The role a member holds, as the detail route reports it.
 export interface DenViewerRole {
   canManage: boolean;
@@ -39,6 +41,10 @@ export interface DenAffordanceTarget {
 
 export interface DenAffordances {
   canAddMembers: boolean;
+  // Manager-wide, because the banned list is a section rather than a per-row control.
+  // Read here and asserted in `den-ban-copy.test.ts` against the same conditions as
+  // `canRemove`, so the two can never be offered for one row and not the other.
+  canBanMembers: boolean;
   canCopyInvite: boolean;
   canDeleteDen: boolean;
   // Per-target, so the caller reads one object for the row it is drawing.
@@ -88,6 +94,11 @@ export function denAffordances(input: {
     // Adding is a management act, not an owner one: an elder adding somebody is
     // the whole reason the role exists.
     canAddMembers: manage,
+    // The banned list, for the same reason `canAddMembers` is `manage` rather than
+    // owner-only: it is a moderation tool rather than a control over the room itself,
+    // and an Elder who can remove somebody can certainly be told they may not rejoin.
+    // The route re-checks with `requireDenManager`, so this only decides what is drawn.
+    canBanMembers: manage,
     // Withheld from plain members by the server (the code IS the door), so the
     // panel only offers the copy when it actually holds a code.
     canCopyInvite: manage,
@@ -163,7 +174,18 @@ export const DEN_ASSIGNABLE_ROLES = ["ADMIN", "MEMBER"] as const;
 export type DenAssignableRole = (typeof DEN_ASSIGNABLE_ROLES)[number];
 
 // What a roster row's role control can offer, given what the affordances allow.
-export type DenRoleActionKind = "demote" | "promote" | "remove" | "transfer";
+//
+// `ban` joins `remove` rather than replacing it, and that is the point of the whole
+// feature: they are two decisions, not a severity range. "Remove" ends access now and
+// says nothing about the future, which is the right tool for somebody removed in
+// error. "Ban" closes the door as well, and is the only answer to somebody removed on
+// purpose - because the invite link they were given is still live.
+export type DenRoleActionKind =
+  | "ban"
+  | "demote"
+  | "promote"
+  | "remove"
+  | "transfer";
 
 // Every legal action for one row, in the order the menu draws them.
 //
@@ -185,8 +207,10 @@ export type DenRoleActionKind = "demote" | "promote" | "remove" | "transfer";
 // from den" are opposite operations, and putting the two that share the word
 // "Remove" next to each other is what keeps them from being read as the same one.
 //
-// Remove is always last. It is the only action here that takes a person out of
-// the den, and a destructive entry never leads a menu.
+// Remove sits second-last and ban last. They are the only two actions here that take
+// a person out of the den, and a destructive entry never leads a menu. Ban is the
+// heavier of the pair - it ends access AND closes the door - so it is the one that
+// goes last, where it cannot be reached by a reflex.
 export function denRowActions(input: {
   affordances: DenAffordances;
   target: DenAffordanceTarget;
@@ -204,6 +228,15 @@ export function denRowActions(input: {
   }
   if (affordances.canRemove) {
     actions.push("remove");
+  }
+  // Ban after remove, and the two adjacent on purpose. Both take a person out of the
+  // den and they differ only in whether the door is left open, so the pair is drawn
+  // together: a reader who wants "they cannot come back" sees both words side by side
+  // and has to choose, rather than finding one buried. Gated on `canRemove` rather than
+  // its own flag so the two can never come apart - a row offering "Ban" without
+  // offering "Remove" would be an authority the server does not have.
+  if (affordances.canRemove) {
+    actions.push("ban");
   }
   return actions;
 }
@@ -254,6 +287,9 @@ export function denRoleActionLabel(input: {
   if (input.action === "transfer") {
     return `Hand this den to ${name}`;
   }
+  if (input.action === "ban") {
+    return `Ban ${name} from den`;
+  }
   return `Remove ${name} from den`;
 }
 
@@ -267,7 +303,13 @@ export function denRoleActionLabel(input: {
 // is the one confirmation where the reader gives up more authority than they keep
 // and the other person gains more than they lose, so both halves are named.
 export function denConfirmCopy(input: {
-  kind: "delete-den" | "leave-den" | "remove-member" | "transfer-ownership";
+  kind:
+    | "ban-member"
+    | "delete-den"
+    | "leave-den"
+    | "remove-member"
+    | "transfer-ownership"
+    | "unban-member";
   memberName?: string | null;
 }): { confirmLabel: string; description: string; title: string } {
   if (input.kind === "remove-member") {
@@ -277,6 +319,15 @@ export function denConfirmCopy(input: {
       description: `${name} loses access to this den immediately. Everything they have already read stays on their device, and they can't read anything sent from now on.`,
       title: `Remove ${name}?`,
     };
+  }
+  if (input.kind === "ban-member") {
+    // The copy lives in `den-ban-copy.ts` beside the other ban wording rather than
+    // here, because there is a lot of it and it is all about one subject; a copy deck
+    // is a worse home for it than the file that owns the feature.
+    return denBanConfirmCopy(input.memberName);
+  }
+  if (input.kind === "unban-member") {
+    return denUnbanConfirmCopy(input.memberName);
   }
   if (input.kind === "leave-den") {
     return {

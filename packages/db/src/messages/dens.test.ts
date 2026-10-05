@@ -144,6 +144,7 @@ describe("the den error union", () => {
   // union member the literal leaves out.
   const modelled: Record<DenError["code"], true> = {
     ALREADY_MEMBER: true,
+    BANNED: true,
     FORBIDDEN: true,
     INVALID_INPUT: true,
     INVALID_ROLE: true,
@@ -157,6 +158,7 @@ describe("the den error union", () => {
   test("is exactly the set of codes the den can refuse with", () => {
     expect(Object.keys(modelled).toSorted()).toEqual([
       "ALREADY_MEMBER",
+      "BANNED",
       "FORBIDDEN",
       "INVALID_INPUT",
       "INVALID_ROLE",

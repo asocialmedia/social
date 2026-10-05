@@ -10,6 +10,7 @@ import {
   DEN_DM_CREATE_RATE_LIMIT,
 } from "@/lib/messages/den-rate-limit";
 import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
+import { probeWhere, probedIds } from "@/lib/messages/test-support/where-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { GET, POST } from "./route";
@@ -253,12 +254,23 @@ mock.module("@/lib/auth/session", () => ({
 const limiter = messageRouteLimiter();
 mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
-// Roster rules are den-service's business and are covered there; this file is
-// about what the route does with the answer, so the validator answers "legal".
-const mockValidateDenRoster = mock(() => null);
-mock.module("@/lib/messages/den-roster", () => ({
-  validateDenRoster: mockValidateDenRoster,
-}));
+// The predicate the `Users` double was last handed. The builder chain separates `.where`
+// from the terminal call, so it has to be kept to pair them up - the same arrangement
+// `probeWhere` exists to make readable.
+let probedWhere: unknown = null;
+
+// The roster validator is NOT mocked, and the den branch is wired to satisfy it for
+// real instead. It used to be stubbed to "always legal", which is what this file wanted
+// - and it silently rewrote the answer for the members-add suite too, because bun's
+// `mock.module` is hoisted and process-global: `den-roster` is a shared module, so
+// whichever file registered a replacement of it last decided what both said. That suite
+// asserts refusals, and they came back as successes in a full run while passing alone.
+//
+// So the leaves are doubled instead and the rules run: `groupAddRefusalFor` below, plus
+// the `Users` and `MessageIdentities` reads in the prisma double. A fake that has to be
+// overridden everywhere it leaks is worse than the two reads it was hiding, and this way
+// the den branch reaches the same verdict the product would - these candidates exist,
+// they have Messages, and nobody objects to being added.
 
 mock.module("@/lib/messages/server", () => ({
   areBlocked: mockAreBlocked,
@@ -285,6 +297,7 @@ mock.module("@asm/db", () => ({
   // importing the barrel should get the barrel's export either way.
   canManageDen: (role: string) => role === "OWNER" || role === "ADMIN",
   createDen: mockCreateDen,
+  // The last thing `validateDenRoster` asks, and the only one that cannot be answered by
   getMessageConversationDataQuery: () => {
     // One chainable query for both verbs. The GET reads a page through
     // include/where/orderBy/limit/all; the POST resolves a single row through
@@ -358,10 +371,15 @@ mock.module("@asm/db", () => ({
     };
     return query;
   },
+  // The last thing `validateDenRoster` asks, and the only one a prisma double cannot
+  // answer: it reads the follow graph inside the database package, which this file has
+  // replaced wholesale. Permissive, so the den branch gets past it and reaches
+  // `createDen`, which is the only thing this file is about.
+  groupAddRefusalFor: () => null,
   // The list route's per-user visibility filter is a no-op for these fixtures:
   // nothing here is hidden, and the filter is exercised in the query that returns
   // the preview messages.
-  or: (...conditions: unknown[]) => conditions,
+  // The last thing `validateDenRoster` asks, and the only one a prisma double cannot
   prisma: {
     orm: {
       public: {
@@ -391,6 +409,23 @@ mock.module("@asm/db", () => ({
           // The keyset cursor anchor.
           select: () => ({
             where: () => ({ first: () => Promise.resolve(null) }),
+          }),
+        },
+        // The two bulk reads `validateDenRoster` makes of a proposed roster. They are
+        // answered for real - every candidate this file names is present and has a
+        // Messages identity - so the validator reaches the policy check and returns
+        // legal on its own terms rather than being told to.
+        //
+        // Keyed off the requested field rather than the call order, so adding a read
+        // cannot silently repoint an existing one.
+        MessageIdentities: {
+          select: (field: string) => ({
+            where: (predicate: unknown) => ({
+              all: () =>
+                probedIds(probeWhere(predicate, [field]), field).map((id) => ({
+                  [field]: id,
+                })),
+            }),
           }),
         },
         Messages: {
@@ -426,11 +461,24 @@ mock.module("@asm/db", () => ({
           }),
         },
         Users: {
-          select: () => ({
-            where: (where: { id: string }) => ({
-              first: () => mockFindUniqueUser({ where }),
-            }),
-          }),
+          select: () => {
+            const builder = {
+              // The bulk existence read `doUsersExist` makes. Every id asked about is
+              // answered present, because every candidate this file names is: the point
+              // of the double is to reach the POLICY check, not to re-test existence.
+              all: () =>
+                probedIds(probeWhere(probedWhere, ["id"]), "id").map((id) => ({
+                  id,
+                })),
+              // The creator lookup, which wants one row by id.
+              first: () => mockFindUniqueUser({ where: probedWhere }),
+              where: (predicate: unknown) => {
+                probedWhere = predicate;
+                return builder;
+              },
+            };
+            return builder;
+          },
         },
       },
     },
@@ -483,7 +531,7 @@ describe("a den create binds its avatar so the roster can load it", () => {
     postMediaUpdates.length = 0;
     postMediaUpdateCount = 1;
     mockCreateDen.mockClear();
-    mockValidateDenRoster.mockClear();
+    probedWhere = null;
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockHasMessageIdentity.mockImplementation(() => true);
     limiter.reset();

@@ -496,6 +496,73 @@ export async function addDenMembers(
   return body.added ?? [];
 }
 
+// One banned member, as the manager-facing list reports it.
+//
+// Deliberately not `DenBan` from the server package: that type carries a `Date`, and
+// every den client type on the wire carries the ISO string the route serialises. The
+// reason is optional, because it is optional on the way in as well.
+export interface DenBannedMember {
+  avatarUrl: string | null;
+  bannedById: string | null;
+  bannedByName: string | null;
+  createdAt: string;
+  displayName: string | null;
+  id: string;
+  reason: string | null;
+  username: string | null;
+}
+
+// This den's bans, newest first. Manager only; the route refuses anybody else, so a
+// plain member's panel simply never calls this.
+export async function fetchDenBans(
+  conversationId: string
+): Promise<DenBannedMember[]> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/bans`, {
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as { bans?: DenBannedMember[] };
+  return body.bans ?? [];
+}
+
+// Keeps somebody out of a den. Removes them first if they were still inside, in the
+// same transaction - see the service for why the two cannot be separate writes.
+export async function banDenMember(
+  conversationId: string,
+  userId: string,
+  reason?: string | null
+): Promise<void> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/bans`, {
+    body: JSON.stringify({
+      reason: reason ?? null,
+      userId,
+    }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Restores eligibility only. It does not add the person back - that is the add
+// control, deliberately a separate visible act.
+export async function unbanDenMember(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/bans/${encodeURIComponent(userId)}`,
+    { credentials: "same-origin", method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
 export async function removeDenMember(
   conversationId: string,
   userId: string
@@ -602,20 +669,41 @@ export async function rotateDenInvite(conversationId: string): Promise<string> {
 }
 
 // What a join link shows before anybody commits to it: the den's name, how many
-// people are in it, and whether the viewer is already one of them. Nothing
-// else, because possession of a code is not a reason to enumerate a roster.
+// people are in it, whether the viewer is already one of them, and - on a live
+// code - the den's own image. Nothing else, because possession of a code is not a
+// reason to enumerate a roster.
 //
 // The retired case is a second shape rather than two more fields on this one, so
-// the live payload stays byte-identical to what it always was and a reader holding
-// a working code is told nothing new. A code a rotation has retired still resolves
-// - to the den it used to open, and to that den's owner, because the only way to
-// hold such a code is to have been given it. `expired` is absent (not `false`) on
-// the live shape, which is what makes `preview.expired` a usable discriminant; a
-// server that sends `expired: false` also narrows correctly.
+// the live payload stays additive: a reader holding a working code is told the same
+// things they were before plus the picture they need to recognise the room. A code a
+// rotation has retired still resolves - to the den it used to open, and to that
+// den's owner, because the only way to hold such a code is to have been given it -
+// and carries NO image, which is the whole reason the two shapes are separate.
+// `expired` is absent (not `false`) on the live shape, which is what makes
+// `preview.expired` a usable discriminant; a server that sends `expired: false` also
+// narrows correctly.
 export type DenInvitePreviewResponse =
   | {
-      den: { id: string; memberCount: number; name: string | null };
+      den: {
+        // The den's own image, on the live shape only. A retired code deliberately
+        // has none: the picture is disclosed to somebody holding a link that still
+        // works, not to somebody holding one the den has withdrawn.
+        avatarMediaId: string | null;
+        id: string;
+        memberCount: number;
+        name: string | null;
+      };
       expired?: undefined;
+      // Whether the ACCOUNT ASKING is banned from this den. Not a property of the den
+      // and never anybody else's, which is why it sits beside `isMember` rather than
+      // inside `den`: the preview answers two questions about the caller and nothing
+      // about the room's moderation state.
+      //
+      // Absent (rather than false) on the retired shape, and the join screen narrows
+      // on `expired` first anyway - a dead link's screen exists to send somebody to the
+      // owner who can mint a replacement, and telling a banned person "never mind" on
+      // a link that no longer works tells them nothing and costs the screen its point.
+      isBanned?: boolean;
       isMember: boolean;
     }
   | {
@@ -643,6 +731,37 @@ export async function fetchDenInvitePreview(
     throw await parseDenError(response);
   }
   return (await response.json()) as DenInvitePreviewResponse;
+}
+
+// A short-lived URL for the den's picture, for the join screen to draw.
+//
+// Separate from the preview on purpose. The preview names the media so the screen
+// knows whether there IS an image, and this mints a presigned URL for it because
+// `/api/media/{id}` admits conversation members and refuses everybody else - a
+// reader who has not joined yet is nobody, so the ordinary route would answer 404
+// and the screen would show its placeholder even for a den that has a perfectly
+// good picture.
+//
+// Null is the ordinary answer for a den with no image and for a code this endpoint
+// will not serve - a retired one, or a full den the reader is not inside of - and
+// the screen draws the same placeholder for all three. So this never rejects for a
+// picture that is merely absent: only a 401 or a 429 propagate, because those are
+// about this device rather than about the image.
+export async function fetchDenInviteAvatar(
+  code: string
+): Promise<string | null> {
+  const response = await fetch(
+    `/api/messages/dens/join/${encodeURIComponent(code)}/avatar`,
+    { credentials: "same-origin" }
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as { avatarUrl?: unknown };
+  return typeof body.avatarUrl === "string" ? body.avatarUrl : null;
 }
 
 // Joins through an invite code. `alreadyMember` is a success, not a failure: a

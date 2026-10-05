@@ -114,6 +114,61 @@ describe("denInviteUrl", () => {
 });
 
 describe("denJoinOutcome", () => {
+  // The regression this pins. `isMember` on the wire means "has a membership row", and
+  // a departed member still has one - `requireDenMembership` layers an
+  // `isCurrentDenMember` check on top of the same read for exactly that reason. Since a
+  // ban always implies a row exists, EVERY banned account reports `isMember: true` AND
+  // `isBanned: true` at once. With `isMember` checked first the ban arm was unreachable,
+  // and a banned person opening the link was told they were already inside, with a
+  // button to open the room they had just been kept out of.
+  test("a banned account is told so even though it also has a membership row", () => {
+    expect(
+      denJoinOutcome({ preview: preview({ isBanned: true, isMember: true }) })
+    ).toEqual({
+      den: { id: "den-1", memberCount: 7, name: "Study group" },
+      kind: "banned",
+    });
+  });
+
+  test("still reads as a join offer for somebody who is neither", () => {
+    // The control for the case above: without a ban, the same pair of flags means the
+    // ordinary thing.
+    expect(denJoinOutcome({ preview: preview({ isMember: true }) })).toEqual({
+      den: { id: "den-1", memberCount: 7, name: "Study group" },
+      kind: "already-member",
+    });
+  });
+
+  test("a banned account in a FULL den is told banned, not full", () => {
+    // "This den is full" is a problem the reader cannot solve, and it sends them off to
+    // wait for room that may never come - which is the same reason the service checks
+    // the ban before the cap.
+    //
+    // Fullness is DERIVED from the count rather than carried as a flag, so the fixture
+    // has to actually be full for this to mean anything; a `isFull: true` that nothing
+    // reads would pass here while the ordering below it was still wrong.
+    const full = preview({
+      den: {
+        id: "den-1",
+        memberCount: DEN_LIMITS.membersMax,
+        name: "Study group",
+      },
+      isBanned: true,
+      isMember: true,
+    });
+    expect(denJoinOutcome({ preview: full })).toMatchObject({ kind: "banned" });
+    // And the control: the same full den, for somebody who is NOT banned and NOT a
+    // member, is still "full". Otherwise this would pass because the capacity check had
+    // become unreachable rather than because the ban outranks it.
+    //
+    // `isMember` has to go false for the control, not just `isBanned`: a member is told
+    // they are already inside before capacity is consulted at all, which is correct and
+    // is why the ban has to be checked ahead of both.
+    expect(
+      denJoinOutcome({ preview: { ...full, isBanned: false, isMember: false } })
+    ).toMatchObject({ kind: "full" });
+  });
+
   test("a preview with no membership is a join offer", () => {
     expect(denJoinOutcome({ preview: preview() })).toEqual({
       den: { id: "den-1", memberCount: 7, name: "Study group" },

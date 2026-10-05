@@ -1,7 +1,7 @@
 import { and } from "@prisma/orm-postgres/orm-client";
 
 import prisma from "../prisma";
-import { groupAddRefusal } from "./dens";
+import { groupAddRefusal, groupAddRefusalError } from "./dens";
 import type { GroupAddPolicy, GroupAddRefusal } from "./dens";
 
 // Reading who may be put in a group, for a whole proposed roster at once.
@@ -84,12 +84,8 @@ export async function groupAddRefusalFor(
   return null;
 }
 
-// The route's whole sentence for a refusal.
-//
-// Third person, unlike the picker's row: this is an error about a proposal, and it
-// has to survive being shown where the candidate is not named.
-export function groupAddRefusalError(refusal: GroupAddRefusal): string {
-  return refusal === "NO_DIRECT_ADDS"
-    ? "Some of those people don't allow being added to groups"
-    : "Some of those people only let people they follow add them";
-}
+// The route's sentence for a refusal lives in `./dens`, beside the picker's copy of the
+// same two rules and reachable from a route test that replaces the `@asm/db` barrel.
+// Re-exported here because the barrel has always published it from this module and
+// moving an export between modules is not a reason to break a caller.
+export { groupAddRefusalError } from "./dens";

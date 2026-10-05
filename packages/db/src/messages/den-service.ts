@@ -12,6 +12,7 @@ import type { DenMembershipEndedNotification } from "./den-membership-notificati
 import {
   canManageDen,
   canManageRole,
+  DEN_BAN_REASON_MAX,
   DEN_INVITE_CODE_ALPHABET,
   DEN_LIMITS,
   normalizeDenName,
@@ -44,6 +45,7 @@ export class DenError extends Error {
   // here should find its absence, which is why this union is not padded back out.
   code:
     | "ALREADY_MEMBER"
+    | "BANNED"
     | "FORBIDDEN"
     | "INVALID_INPUT"
     | "INVALID_ROLE"
@@ -874,6 +876,33 @@ export async function addDenMembers(
       const wanted = [...new Set(userIds)]
         .toSorted()
         .filter((userId) => !insideIds.has(userId));
+      // The ban check, under the same lock as the write and for the same reason the
+      // join door has one: a ban committed a moment ago must not be raceable.
+      //
+      // Refused BEFORE the capacity check and as a whole batch, because a partial add
+      // is the worst possible answer here. A manager who picked five people and
+      // silently got three has no way to tell that the fourth was a deliberate
+      // refusal rather than a ceiling, and would retry the same five forever. One
+      // refused batch says what happened.
+      if (wanted.length > 0) {
+        const banned = await tx.orm.public.MessageDenBans.select("userId")
+          .where((ban) =>
+            and(ban.conversationId.eq(conversationId), ban.userId.in(wanted))
+          )
+          .all();
+        if (banned.length > 0) {
+          const names = await denEventNames(
+            tx,
+            banned.map((ban) => ban.userId)
+          );
+          throw new DenError(
+            "BANNED",
+            banned.length === 1
+              ? `${names.get(banned[0].userId) ?? "That person"} is banned from this den. Unban them first.`
+              : "Some of those people are banned from this den. Unban them first."
+          );
+        }
+      }
       if (wanted.length > room) {
         throw new DenError(
           "LIMIT_REACHED",
@@ -1055,6 +1084,228 @@ function roleRank(role: DenRole): number {
     return 0;
   }
   return role === "ADMIN" ? 1 : 2;
+}
+
+// Keeps somebody out of a den, however they arrive.
+//
+// "However they arrive" is the whole requirement, and it is why this cannot be a
+// flag on the membership row or a consequence of the removal. A removal stamps
+// `leftAt` and stops access from now on; it grants nothing about the future, which
+// is right for somebody removed and right for somebody who left, and useless for
+// somebody removed on purpose, because the invite link they were given is still
+// live. So the ban is its own row and this function is the only writer.
+//
+// Two shapes, and the difference is whether the person is still inside:
+//
+//   - Still inside: the removal and the ban commit TOGETHER, under one claim lock.
+//     Doing them as two writes would open a window in which the person is out of the
+//     den but not yet banned, and could walk straight back in through the link - the
+//     exact failure this feature exists to close. So this calls the same removal
+//     machinery the remove route uses, in the same transaction, and the removal half
+//     of a ban is by construction the same operation as a removal: same `REMOVED`
+//     line, same announcement, same `membership-ended` notification, same epoch
+//     rotation.
+//
+//   - Already out: only the ban row is written. There is nobody to remove, no roster
+//     to move and nobody to notify, so a removal stamp and a `REMOVED` line would be
+//     two rows describing an event that did not just happen. This is the case the
+//     feature is really for: somebody who left, or who was removed last week, and is
+//     coming back through a link somebody else still holds.
+//
+// Neither branch touches `membershipSeq` on its own account. A ban that removed an
+// active member moves the roster and therefore does move it, through the removal. A
+// standalone ban on a departed person moves nothing anybody can see, and moving the
+// counter for it would make every current member's client refetch a roster that did
+// not change.
+export async function banDenMember(
+  conversationId: string,
+  actorId: string,
+  targetUserId: string,
+  options: { reason?: string | null } = {}
+): Promise<void> {
+  if (actorId === targetUserId) {
+    throw new DenError("SELF_ACTION", "Use leave to remove yourself");
+  }
+  // The actor's own role is carried into the transaction rather than re-read, for the
+  // reason `removeDenMember` gives: `requireDenManager` has already resolved it, and
+  // the question below is `canManageRole(actorRole, targetRole)`.
+  const manager = await requireDenManager(conversationId, actorId);
+  // Trimmed AND capped here, not only in the route. This function is the authority on
+  // who may do what; a rule that lives in the route is a rule the next caller - a
+  // script, the mobile client, a future bulk endpoint - walks straight past, and the
+  // route is exactly the layer this file's own header says must not hold one. The route
+  // still normalizes and 400s a malformed body, because rejecting a wrong shape is a
+  // parsing decision; the length is not.
+  const trimmedReason = options.reason?.trim();
+  const reason =
+    trimmedReason && trimmedReason.length > 0
+      ? trimmedReason.slice(0, DEN_BAN_REASON_MAX)
+      : null;
+
+  const members = await prisma.orm.public.MessageConversationMembers.select(
+    "leftAt",
+    "role",
+    "userId"
+  )
+    .where((member) => member.conversationId.eq(conversationId))
+    .all();
+  const target = members.find((member) => member.userId === targetUserId);
+  // A membership row is required, active or not. "Banning a stranger" would be a
+  // preemptive ban of somebody who has never been in the room, which this product has
+  // no surface for and no reason to have: a den is not a blocklist, and a ban that can
+  // be aimed at somebody who never joined cannot be shown in the list that explains it.
+  if (!target) {
+    throw new DenError(
+      "NOT_FOUND",
+      "That person has never been a member of this den"
+    );
+  }
+  // The shared helper, so the button on screen and the write behind it read one rule.
+  // It also carries the owner case: a den has exactly one owner and ownership moves by
+  // transfer or by leaving, so the only actor who could pass `canManageRole(_, "OWNER")`
+  // is another owner, and there is never one.
+  if (!canManageRole(manager.role, target.role)) {
+    throw new DenError("FORBIDDEN", "The owner cannot be banned");
+  }
+
+  // ONE claim-locked path for both cases, rather than a lock-free branch for the
+  // already-departed and a locked one for the still-inside.
+  //
+  // The distinction used to be drawn outside the transaction, which made the
+  // interleaving below reachable: the pre-lock read saw a departed member, and before
+  // the ban row landed the person opened the live invite link, whose own locked read saw
+  // no ban and admitted them. The commit order then left somebody ACTIVE and BANNED at
+  // once - inside a room they were kept out of, while a manager's list insists they are
+  // out. It needs a concurrent manager action and a self-join to land together, and it
+  // is precisely the window this feature exists to close.
+  //
+  // Deciding inside the claim makes it unexpressible: both entry doors serialise on this
+  // same claim, so a join cannot interleave with the decision, and whichever way it went
+  // the ban row and the removal are written by the same transaction.
+  await withDenMembershipChange(
+    conversationId,
+    actorId,
+    async (tx, claimed) => {
+      const inside = await tx.orm.public.MessageConversationMembers.select(
+        "leftAt",
+        "role",
+        "userId"
+      )
+        .where((member) => member.conversationId.eq(conversationId))
+        .all();
+      const current = inside.find((member) => member.userId === targetUserId);
+      // Re-read under the claim rather than trusting the rows above: they were true when
+      // they were read and this write happens later.
+      if (!current) {
+        throw new DenError(
+          "NOT_FOUND",
+          "That person has never been a member of this den"
+        );
+      }
+      if (!canManageRole(manager.role, current.role)) {
+        throw new DenError("FORBIDDEN", "The owner cannot be banned");
+      }
+
+      // The ban row goes FIRST, before any removal and before the roster counter, so no
+      // observer can ever see the person out of the den with the door still open to them.
+      //
+      // An upsert rather than a create. The claim makes a pre-existing row unreachable
+      // through here, but one left behind by an older version of this code would
+      // otherwise be a primary-key violation - which `runWithRetry` treats as retryable,
+      // replays four times, and then surfaces as an unexplained 500. The manager's
+      // intent is already satisfied either way, and the latest reason and author are the
+      // ones worth keeping.
+      await tx.orm.public.MessageDenBans.where((ban) =>
+        and(ban.conversationId.eq(conversationId), ban.userId.eq(targetUserId))
+      ).upsert({
+        conflictOn: { conversationId, userId: targetUserId },
+        create: {
+          bannedById: actorId,
+          conversationId,
+          reason,
+          userId: targetUserId,
+        },
+        update: { bannedById: actorId, reason },
+      });
+
+      // Already out. The ban row is the whole job: no removal stamp, no `REMOVED` line,
+      // no announcement and no `membership-ended` notification, because there is nobody
+      // to remove and nothing anybody is inside can see has changed. A removal stamp here
+      // would be a second row describing an event that did not just happen.
+      if (!isCurrentDenMember(current)) {
+        return { announce: null, ended: null, value: undefined };
+      }
+
+      await tx.orm.public.MessageConversationMembers.where((member) =>
+        and(
+          member.conversationId.eq(conversationId),
+          member.userId.eq(targetUserId)
+        )
+      ).updateAndCount({
+        leftAt: toPrismaDateTime(new Date()),
+        role: "MEMBER",
+      });
+      const names = await denEventNames(tx, [actorId, targetUserId]);
+      await recordDenMembershipEvent(tx, {
+        action: "REMOVED",
+        actorId,
+        actorName: names.get(actorId) ?? null,
+        conversationId,
+        targetId: targetUserId,
+        targetName: names.get(targetUserId) ?? null,
+      });
+      const membershipSeq = await touchDen(tx, claimed, conversationId);
+      // The same notification a plain removal sends, to the same one person: a banned
+      // member whose tab is open has to learn they are out, and the reason they find
+      // out later must not be that the den silently stopped opening.
+      const ended = await createDenMembershipEndedNotifications(tx, {
+        actorId,
+        conversationId,
+        reason: "removed",
+        recipientIds: [targetUserId],
+      });
+      return {
+        announce: {
+          action: "member_removed" as const,
+          memberIds: announceAudienceIds(inside, [targetUserId]),
+          membershipSeq,
+        },
+        ended,
+        value: undefined,
+      };
+    }
+  );
+}
+
+// Lifts a ban, restoring ELIGIBILITY and nothing else.
+//
+// No membership row is written here, on purpose. Unbanning is a manager saying "this
+// person may come back if they choose to"; quietly putting them back in a conversation
+// is a different act, it would hand somebody a transcript they never agreed to read
+// again, and it would do it without a line in the log to say so. So this deletes a
+// row and returns; putting somebody back is an explicit add, which is already a
+// control a manager has.
+//
+// Deliberately does not move `membershipSeq` either, for the same reason: no roster
+// changed, and a counter that moves for an invisible change teaches every client to
+// refetch for nothing.
+//
+// Idempotent by construction. An unban of somebody who is not banned finds no row to
+// delete and succeeds, because "this person may return" is true afterwards either way
+// and two managers pressing the button at once is not an error.
+export async function unbanDenMember(
+  conversationId: string,
+  actorId: string,
+  targetUserId: string
+): Promise<void> {
+  // Manager rights, and the same gate as everything else that changes who may act.
+  // There is no target to look up before this, because a ban may exist without any
+  // membership row and there is no role to compare against - so the authorization
+  // question is only ever about the actor.
+  await requireDenManager(conversationId, actorId);
+  await prisma.orm.public.MessageDenBans.where((ban) =>
+    and(ban.conversationId.eq(conversationId), ban.userId.eq(targetUserId))
+  ).deleteAndCount();
 }
 
 export interface LeaveDenResult {
@@ -1630,6 +1881,21 @@ export async function dissolveDen(
 // roster, a message, or the member identities: possession of a code must not be
 // enough to enumerate who is in a den.
 export interface DenInvitePreview {
+  // The den's own image, and ONLY on a live code.
+  //
+  // A live code is the widest door in the product, and the preview already
+  // discloses the den's name and its size to anybody holding one, so the picture
+  // is the same class of fact as those two and not a roster. It is null for a
+  // retired code, where the disclosure above this comment does not apply: a holder
+  // of a link the den has already withdrawn is not somebody the room should be
+  // pictured to.
+  //
+  // A null here means the den has no image, not that it is hidden, so the join
+  // screen draws its placeholder either way. The bytes are NOT served from
+  // `/api/media/{id}`, which admits conversation members and refuses everybody else:
+  // the join screen asks the invite route for them instead, so a non-member holding
+  // a link cannot turn the id into a permanent public URL.
+  avatarMediaId: string | null;
   // True when the code has been rotated away and the den named here is only what
   // it used to open. The join route refuses an expired code exactly as it refuses
   // an unknown one, so this flag is a presentation decision and never a door: it
@@ -1764,6 +2030,10 @@ async function previewRetiredInvite(
     return null;
   }
   return {
+    // Deliberately null, and the reason is the one above the field: a retired code
+    // identifies the den but no longer opens it, and this preview exists to get a
+    // reader to the owner. A picture of the room is not that.
+    avatarMediaId: null,
     expired: true,
     id: row.id,
     inviteCode: normalizeInviteCode(inviteCode),
@@ -1791,6 +2061,7 @@ export async function previewInvite(
   // One read carries everything, so the preview cannot observe a code that was
   // rotated between the lookup and the read below.
   const row = await prisma.orm.public.MessageConversations.select(
+    "avatarMediaId",
     "id",
     "inviteCode",
     "name",
@@ -1806,6 +2077,7 @@ export async function previewInvite(
     return null;
   }
   return {
+    avatarMediaId: row.avatarMediaId,
     expired: false,
     id: row.id,
     inviteCode: row.inviteCode,
@@ -1862,6 +2134,14 @@ export async function joinDenByInviteCode(
         .all();
       const inside = members.filter((member) => isCurrentDenMember(member));
       const mine = members.find((member) => member.userId === userId);
+      // The ban check, and its position is the whole point. Before the capacity check
+      // below, because a banned person pressing a full room should be told they are
+      // banned rather than that the room is full - the second answer would send them
+      // off to solve a problem that is not theirs. And inside the claim lock rather
+      // than before it, so a ban committed a moment ago cannot be raced: this is the
+      // only place in the join path where the ban and the membership row are
+      // serialised against each other, and moving the read outside the lock would open
+      // exactly the window the feature closes.
       if (mine && isCurrentDenMember(mine)) {
         // Re-opening a link you already joined changes nothing, so nothing is
         // announced: a client would refetch its roster to learn the roster it
@@ -1869,6 +2149,22 @@ export async function joinDenByInviteCode(
         // half of that: an increment here would leave the next real change looking
         // like a gap and cost every member a refetch for it.
         return { announce: null, ended: null, value: false };
+      }
+      const banned = await tx.orm.public.MessageDenBans.select("userId")
+        .where((ban) =>
+          and(ban.conversationId.eq(den.id), ban.userId.eq(userId))
+        )
+        .first();
+      if (banned) {
+        // The one refusal on this door that names itself, and the reason it is safe
+        // here is the comment above: the reader ALREADY holds a live code for this
+        // den, so telling them the code works and they are still not welcome leaks
+        // nothing they could not learn by pressing the button. It is also the only way
+        // they learn WHY, which is the difference between a locked door and a bug.
+        throw new DenError(
+          "BANNED",
+          "You can't rejoin this den. Ask an owner or Elder to unban you."
+        );
       }
       if (inside.length >= DEN_LIMITS.membersMax) {
         throw new DenError(

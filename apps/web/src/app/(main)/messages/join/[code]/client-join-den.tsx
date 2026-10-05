@@ -7,8 +7,10 @@ import {
   Link2Off,
   Loader2,
   Lock,
+  ShieldAlert,
   Users,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -16,10 +18,16 @@ import { useCallback, useEffect, useState } from "react";
 import {
   MessagesApiError,
   createConversation,
+  fetchDenInviteAvatar,
   fetchDenInvitePreview,
   joinDen,
 } from "@/lib/messages/client";
 import type { DenInvitePreviewResponse } from "@/lib/messages/client";
+import {
+  DEN_BAN_JOIN_DESCRIPTION,
+  DEN_BAN_JOIN_DISMISS,
+  DEN_BAN_JOIN_TITLE,
+} from "@/lib/messages/den-ban-copy";
 import {
   denAskOwner,
   denJoinActionLabel,
@@ -58,7 +66,11 @@ import { denMemberCountLabel } from "@/lib/messages/den-label";
 
 type ScreenState =
   | { kind: "loading" }
-  | { kind: "ready"; preview: DenInvitePreviewResponse | null }
+  | {
+      kind: "ready";
+      avatarUrl: string | null;
+      preview: DenInvitePreviewResponse | null;
+    }
   | { kind: "failed"; reason: DenJoinFailure };
 
 export default function ClientJoinDen({ code }: { code: string }) {
@@ -71,6 +83,14 @@ export default function ClientJoinDen({ code }: { code: string }) {
   // it for a code that never existed and for one whose den has been dissolved, and
   // those are the same thing to the person holding the link.
   //
+  // The avatar is a second read rather than a field on this one, because the bytes
+  // have to be fetched through a route that checks the code is still live. The
+  // picture is worth a round trip and never worth a failure: a 404 here means the
+  // den has no image, the code is not one this screen may draw a picture for, or
+  // the object is not servable yet, and all three end in the same placeholder. So
+  // the catch is swallowed here and the screen degrades, which is the same contract
+  // the rest of this surface keeps.
+  //
   // An async function inside the effect rather than a `.then` chain: the try/catch
   // is real, and cancellation is one guard at each exit rather than a flag read
   // twice.
@@ -82,7 +102,17 @@ export default function ClientJoinDen({ code }: { code: string }) {
         if (cancelled) {
           return;
         }
-        setState({ kind: "ready", preview });
+        setState({ avatarUrl: null, kind: "ready", preview });
+        // Only the LIVE shape carries an image, so the retired one is answered from
+        // the preview alone and never spends a request on a picture it may not have.
+        if (preview.expired || !preview.den.avatarMediaId) {
+          return;
+        }
+        const avatarUrl = await fetchDenInviteAvatar(code);
+        if (cancelled) {
+          return;
+        }
+        setState({ avatarUrl, kind: "ready", preview });
       } catch (error) {
         if (cancelled) {
           return;
@@ -155,7 +185,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
       // to. And it is not announced as a failure - the reader pressed a button that
       // does not work, which is a dead end, not a fault of theirs.
       setAsking(false);
-      setState({ kind: "ready", preview: null });
+      setState({ avatarUrl: null, kind: "ready", preview: null });
     },
     [router]
   );
@@ -203,6 +233,14 @@ export default function ClientJoinDen({ code }: { code: string }) {
   const outcome = denJoinOutcome({ preview: state.preview });
   const action = denJoinActionLabel(outcome, joining);
 
+  // A banned reader is shown the same screen a refused press would produce, so the two
+  // paths - caught by the preview, caught by the route - cannot reach a reader with
+  // two different explanations of the same denial.
+  if (outcome.kind === "banned") {
+    return (
+      <DenJoinFailureScreen onNevermind={handleNevermind} reason="banned" />
+    );
+  }
   if (outcome.kind === "expired") {
     return (
       <DenExpiredScreen
@@ -216,13 +254,16 @@ export default function ClientJoinDen({ code }: { code: string }) {
 
   return (
     <Screen>
-      <span className="chip-3d flex size-14 items-center justify-center rounded-2xl">
-        {outcome.kind === "full" ? (
-          <Users aria-hidden className="text-muted-foreground size-6" />
-        ) : (
-          <Link2Off aria-hidden className="text-muted-foreground size-6" />
-        )}
-      </span>
+      <JoinScreenIcon
+        avatarUrl={state.avatarUrl}
+        fallback={
+          outcome.kind === "full" ? (
+            <Users aria-hidden className="text-muted-foreground size-6" />
+          ) : (
+            <Link2Off aria-hidden className="text-muted-foreground size-6" />
+          )
+        }
+      />
       <h1 className="text-lg font-semibold tracking-tight">
         {denJoinTitle(outcome)}
       </h1>
@@ -300,6 +341,52 @@ export default function ClientJoinDen({ code }: { code: string }) {
 // state a preview maps to is decided and tested in `den-invite.ts`, while what a
 // state SAYS to somebody is decided here, and a screen whose copy is wrong is wrong
 // however correctly it was reached.
+
+// The chip at the top of the join screen: the den's own picture when the live code
+// carried one, and the caller's icon when it did not.
+//
+// `unoptimized`, and that is load-bearing rather than a shortcut. The URL is a
+// presigned object-storage address on whatever host `ASMOB_ENDPOINT` names, which
+// the image optimizer is not configured to fetch, so optimizing it would turn a
+// working picture into a 400 and land on the fallback anyway - after a request the
+// reader can see failing.
+//
+// `alt=""` because the heading immediately below names the den in words. The image
+// confirms a picture, and the name is the fact; announcing both would read the same
+// information twice.
+//
+// The failed-load state is not paranoia: the URL expires in an hour, and a screen
+// left open across that boundary would otherwise draw a broken image.
+function JoinScreenIcon({
+  avatarUrl,
+  fallback,
+}: {
+  avatarUrl: string | null;
+  fallback: React.ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const showPicture = Boolean(avatarUrl) && !failed;
+  return (
+    <span className="chip-3d flex size-14 items-center justify-center overflow-hidden rounded-2xl">
+      {showPicture && avatarUrl ? (
+        <Image
+          alt=""
+          className="size-full object-cover"
+          height={56}
+          onError={() => {
+            setFailed(true);
+          }}
+          src={avatarUrl}
+          unoptimized
+          width={56}
+        />
+      ) : (
+        fallback
+      )}
+    </span>
+  );
+}
+
 export function DenExpiredScreen({
   asking,
   den,
@@ -387,6 +474,29 @@ export function DenJoinFailureScreen({
   onNevermind: () => void;
   reason: DenJoinFailure;
 }) {
+  // The ban, and it is a full screen rather than a line because there is nothing the
+  // reader can do here at all. The preview normally catches it before this screen is
+  // reached; arriving means a ban landed between the preview and the press.
+  if (reason === "banned") {
+    return (
+      <Screen>
+        <span className="chip-3d flex size-14 items-center justify-center rounded-2xl">
+          <ShieldAlert aria-hidden className="text-muted-foreground size-6" />
+        </span>
+        <h1 className="text-lg font-semibold tracking-tight">
+          {DEN_BAN_JOIN_TITLE}
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          {DEN_BAN_JOIN_DESCRIPTION}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          <Button asChild className="rounded-lg text-sm" variant="premium">
+            <Link href="/messages">{DEN_BAN_JOIN_DISMISS}</Link>
+          </Button>
+        </div>
+      </Screen>
+    );
+  }
   if (reason === "needs-messages") {
     return (
       <Screen>

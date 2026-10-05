@@ -78,6 +78,8 @@ const {
   DEN_ACTIVITY_STREAM_RATE_LIMIT,
   DEN_ADD_ELIGIBILITY_RATE_LIMIT,
   DEN_ADD_MEMBERS_RATE_LIMIT,
+  DEN_BANS_LIST_RATE_LIMIT,
+  DEN_BAN_RATE_LIMIT,
   DEN_CREATE_RATE_LIMIT,
   DEN_DELIVERY_RECEIPT_RATE_LIMIT,
   DEN_DETAILS_RATE_LIMIT,
@@ -111,6 +113,8 @@ const ALL_RULES = {
   DEN_ACTIVITY_STREAM_RATE_LIMIT,
   DEN_ADD_ELIGIBILITY_RATE_LIMIT,
   DEN_ADD_MEMBERS_RATE_LIMIT,
+  DEN_BANS_LIST_RATE_LIMIT,
+  DEN_BAN_RATE_LIMIT,
   DEN_CREATE_RATE_LIMIT,
   DEN_DELIVERY_RECEIPT_RATE_LIMIT,
   DEN_DETAILS_RATE_LIMIT,
@@ -137,12 +141,25 @@ const ALL_RULES = {
   DEN_WALLPAPER_RATE_LIMIT,
 } as const;
 
-// The buckets that existed before the conversation-route pass, all of them on
-// hour-long fixed windows. Named rather than derived from the window length so
-// the "the old ones are fixed, the new ones slide" split is stated rather than
-// inferred from a threshold somebody could move.
-const PRE_EXISTING_RULES: Record<string, DenRateLimitRule> = {
+// The membership mutations that sit on an hour-long fixed window, as opposed to the
+// hot paths that slide. A list rather than a threshold, so the split is stated and
+// somebody adding an hourly management operation has to decide where it goes instead
+// of inheriting an answer from a window length.
+//
+// Named for what the group IS rather than for when it was written: it started as "the
+// buckets that predate the conversation-route pass" and grew by one when bans landed,
+// which is exactly the kind of name that stops describing its contents. The reason
+// hour-long fixed is acceptable here is the one on the test below - at 3600s the worst
+// a fixed window allows is two budget-fills across a single boundary.
+const HOURLY_FIXED_RULES: Record<string, DenRateLimitRule> = {
   DEN_ADD_MEMBERS_RATE_LIMIT,
+  // Reading the list the panel refetches after every one of those writes.
+  DEN_BANS_LIST_RATE_LIMIT,
+  // Bans and unbans. Both are single-row writes a manager makes by hand, and a ban
+  // is the one management operation that targets a PERSON rather than a den, so it
+  // keeps its own budget rather than sharing the removal one - a kick loop and a ban
+  // loop are different abuses with different blast radii.
+  DEN_BAN_RATE_LIMIT,
   DEN_CREATE_RATE_LIMIT,
   DEN_DETAILS_RATE_LIMIT,
   DEN_DISSOLVE_RATE_LIMIT,
@@ -151,7 +168,6 @@ const PRE_EXISTING_RULES: Record<string, DenRateLimitRule> = {
   DEN_REMOVE_MEMBER_RATE_LIMIT,
   DEN_ROLES_RATE_LIMIT,
 };
-
 function headersWith(values: Record<string, string>): Headers {
   return new Headers(values);
 }
@@ -239,7 +255,7 @@ describe("den rate-limit buckets", () => {
     // exists to prevent.
     const audited = new Set(Object.keys(ALL_RULES));
     const known = new Set([
-      ...Object.keys(PRE_EXISTING_RULES),
+      ...Object.keys(HOURLY_FIXED_RULES),
       ...Object.keys(ALL_RULES),
     ]);
     for (const name of audited) {
@@ -265,20 +281,20 @@ describe("den rate-limit buckets", () => {
     }
   });
 
-  test("the pre-existing membership mutations keep their fixed windows", () => {
+  test("the hourly membership mutations keep their fixed windows", () => {
     // Stated rather than left implicit, because the split is deliberate and
     // needs defending in both directions. At 3600s the worst a fixed window
     // allows is two budget-fills across one boundary; for a ten-per-hour create
     // budget that is twenty creates, which is not what anyone is defending
     // against. Turning them sliding would cost Redis memory and buy nothing.
-    for (const rule of Object.values(PRE_EXISTING_RULES)) {
+    for (const rule of Object.values(HOURLY_FIXED_RULES)) {
       expect(rule.window).toBe("fixed");
       expect(rule.windowSeconds).toBe(3600);
     }
   });
 
-  test("every bucket added by the conversation-route pass slides", () => {
-    const names = new Set(Object.keys(PRE_EXISTING_RULES));
+  test("every bucket outside the hourly membership mutations slides", () => {
+    const names = new Set(Object.keys(HOURLY_FIXED_RULES));
     for (const [name, rule] of Object.entries(ALL_RULES)) {
       if (names.has(name)) {
         continue;
