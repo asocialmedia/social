@@ -160,7 +160,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.38",
+      "version": "1.5.39",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -350,13 +350,17 @@
     },
     "packages/next": {
       "name": "@asm/next",
-      "version": "1.0.17",
+      "version": "1.0.18",
       "dependencies": {
         "dotenv": "^17.4.2",
         "next": "^16.3.0",
       },
       "devDependencies": {
         "@asm/config": "workspace:*",
+      },
+      "peerDependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
       },
     },
     "packages/notifications": {
