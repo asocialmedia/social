@@ -33,6 +33,7 @@ import {
   UserMinus,
   UserPlus,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -769,17 +770,24 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
             });
             return (
               <li className="flex items-center gap-2.5 py-2" key={member.id}>
-                <UserAvatar avatarUrl={member.avatarUrl} size={32} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {isSelf
-                      ? `${member.displayName} (you)`
-                      : member.displayName}
+                {/* The identity half is the profile link; the row itself is not,
+                    so the role chip and the action menu keep their own targets. */}
+                <Link
+                  className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                  href={`/users/${member.username}`}
+                >
+                  <UserAvatar avatarUrl={member.avatarUrl} size={32} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium group-hover:underline">
+                      {isSelf
+                        ? `${member.displayName} (you)`
+                        : member.displayName}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      @{member.username}
+                    </span>
                   </span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    @{member.username}
-                  </span>
-                </span>
+                </Link>
                 <RoleChip role={member.role} />
                 {actions.length > 0 ? (
                   <MemberActionMenu
