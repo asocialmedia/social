@@ -38,7 +38,6 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
-import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import { DenBanDialog } from "@/components/messages/den-ban-dialog";
 import { DenBannedSection } from "@/components/messages/den-banned-section";
 import { DenConfirmDialog } from "@/components/messages/den-confirm-dialog";
@@ -71,14 +70,12 @@ import type { DenBannedMember, DenMember } from "@/lib/messages/client";
 import { denBanAddRefusal } from "@/lib/messages/den-ban-copy";
 import { denAddRoom, denIsFull } from "@/lib/messages/den-capacity";
 import { denInviteUrl } from "@/lib/messages/den-invite";
-import { denMemberCountLabel } from "@/lib/messages/den-label";
 import {
   denAffordances,
   denRoleActionLabel,
   denRoleLabel,
   denRowActions,
   denRowMenuLabel,
-  denViewerRoleLine,
 } from "@/lib/messages/den-permissions";
 import type { DenRoleActionKind } from "@/lib/messages/den-permissions";
 import type { MessagePickerRecipient } from "@/lib/messages/use-message-user-search";
@@ -587,107 +584,95 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   // capped, so a den at exactly the ceiling and a den with unread members beyond
   // the first page are different states and only one of them is full.
   const rosterFull = denIsFull(den.memberCount);
-  // Null for a plain member, so the subtitle stops after the count rather than
-  // telling somebody what they already are.
-  const viewerRoleLine = denViewerRoleLine(viewer.role);
 
   return (
     <div className="flex flex-col gap-3">
-      {/* The den's identity, as a raised in-page card. The avatar is the same
-          stack the list row draws, so the two cannot disagree about who is in
-          this den. */}
+      {/* The den's own card is the description only: the avatar, name and count
+          all live in the header above, and repeating them here read as a second,
+          smaller header rather than as information. Editing still covers the
+          name too, because this is the panel's one rename surface. */}
       <div className="surface-3d rounded-2xl px-3.5 py-3">
-        <div className="flex items-center gap-3">
-          <DenAvatarCollage
-            avatarMediaId={den.avatarMediaId}
-            members={members}
-            myUserId={myUserId}
-            size={44}
-          />
-          <div className="min-w-0 flex-1">
-            {editing ? (
-              // Name and description in one form, because the PATCH carries them
-              // together and a reader changing one almost always wants to look at
-              // the other while they are there.
-              <div className="flex flex-col gap-1.5">
-                <input
-                  aria-label="Den name"
-                  className="premium-input w-full rounded-lg text-sm"
-                  maxLength={DEN_LIMITS.nameMax}
-                  onChange={(event) => setNameDraft(event.target.value)}
-                  placeholder="Name this den"
-                  value={nameDraft}
-                />
-                <textarea
-                  aria-label="Den description"
-                  className="premium-input w-full resize-none rounded-lg text-xs"
-                  maxLength={DEN_LIMITS.descriptionMax}
-                  onChange={(event) => setDescriptionDraft(event.target.value)}
-                  placeholder="What this den is for."
-                  rows={2}
-                  value={descriptionDraft}
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    className="text-primary shrink-0 text-xs font-medium"
-                    disabled={
-                      busy ||
-                      draftNameError !== null ||
-                      draftDescriptionError !== null
-                    }
-                    onClick={() => {
-                      void rename();
-                    }}
-                    type="button"
-                  >
-                    Save
-                  </button>
-                  <button
-                    className="text-muted-foreground shrink-0 text-xs font-medium"
-                    onClick={() => setEditing(false)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  {draftNameError || draftDescriptionError ? (
-                    <span className="text-destructive text-xs">
-                      {draftNameError ?? draftDescriptionError}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <div className="flex min-w-0 items-center gap-1.5">
-                <span className="min-w-0 truncate text-sm font-semibold">
-                  {den.name ?? "Unnamed den"}
+        {editing ? (
+          // Name and description in one form, because the PATCH carries them
+          // together and a reader changing one almost always wants to look at
+          // the other while they are there.
+          <div className="flex flex-col gap-1.5">
+            <input
+              aria-label="Den name"
+              className="premium-input w-full rounded-lg text-sm"
+              maxLength={DEN_LIMITS.nameMax}
+              onChange={(event) => setNameDraft(event.target.value)}
+              placeholder="Name this den"
+              value={nameDraft}
+            />
+            <textarea
+              aria-label="Den description"
+              className="premium-input w-full resize-none rounded-lg text-xs"
+              maxLength={DEN_LIMITS.descriptionMax}
+              onChange={(event) => setDescriptionDraft(event.target.value)}
+              placeholder="What this den is for."
+              rows={2}
+              value={descriptionDraft}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                className="text-primary shrink-0 text-xs font-medium"
+                disabled={
+                  busy ||
+                  draftNameError !== null ||
+                  draftDescriptionError !== null
+                }
+                onClick={() => {
+                  void rename();
+                }}
+                type="button"
+              >
+                Save
+              </button>
+              <button
+                className="text-muted-foreground shrink-0 text-xs font-medium"
+                onClick={() => setEditing(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              {draftNameError || draftDescriptionError ? (
+                <span className="text-destructive text-xs">
+                  {draftNameError ?? draftDescriptionError}
                 </span>
-                {denWide.canRename ? (
-                  <button
-                    aria-label="Rename den"
-                    className="text-muted-foreground hover:text-foreground shrink-0"
-                    onClick={() => {
-                      setDescriptionDraft(den.description ?? "");
-                      setNameDraft(den.name ?? "");
-                      setEditing(true);
-                    }}
-                    type="button"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                ) : null}
-              </div>
-            )}
-            <p className="text-muted-foreground text-xs">
-              {denMemberCountLabel(den.memberCount)}
-              {viewerRoleLine ? ` · ${viewerRoleLine}` : ""}
-            </p>
+              ) : null}
+            </div>
           </div>
-        </div>
-        {den.description ? (
-          <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
-            {den.description}
-          </p>
-        ) : null}
+        ) : (
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium">About this den</p>
+              {denWide.canRename ? (
+                <button
+                  aria-label="Edit name and description"
+                  className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
+                  onClick={() => {
+                    setDescriptionDraft(den.description ?? "");
+                    setNameDraft(den.name ?? "");
+                    setEditing(true);
+                  }}
+                  type="button"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+            {den.description ? (
+              <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
+                {den.description}
+              </p>
+            ) : (
+              <p className="text-muted-foreground mt-1.5 text-xs italic">
+                No description yet.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Invite controls. The code is the door, and the server withholds it from
