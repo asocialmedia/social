@@ -403,11 +403,11 @@ async function cleanupFixtures(): Promise<void> {
 describe("personalized feed against local Postgres and Redis", () => {
   beforeAll(async () => {
     await createFixtures();
-  }, 60000);
+  }, 60_000);
 
   afterAll(async () => {
     await cleanupFixtures();
-  }, 30000);
+  }, 30_000);
 
   // Retryable: asserts an exact count over a Postgres shared with ~216
   // parallel test files, so rows can churn between the pool query and the
