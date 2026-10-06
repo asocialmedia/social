@@ -4,7 +4,7 @@ import path from "node:path";
 import { config as loadEnv } from "dotenv";
 import type { NextConfig } from "next";
 
-export type { NextConfig };
+export { type NextConfig } from "next";
 
 export function loadRootEnv(): void {
   let dir = process.cwd();
