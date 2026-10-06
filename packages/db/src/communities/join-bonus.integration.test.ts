@@ -266,7 +266,7 @@ describe("community join bonus", () => {
         user.id.eq(sweepId)
       ).deleteAndCount();
     }
-  }, 30000);
+  }, 30_000);
 
   test("parallel joins cannot overshoot the daily ceiling", async () => {
     // The cap check and the payout race when joins run concurrently: without a
@@ -327,5 +327,5 @@ describe("community join bonus", () => {
         user.id.eq(racerId)
       ).deleteAndCount();
     }
-  }, 30000);
+  }, 30_000);
 });
