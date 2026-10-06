@@ -39,14 +39,36 @@ export interface MessageSender {
   username: string;
 }
 
+// One stretch of a member's presence in a den, as the server computed it from
+// the membership log: they were inside from `after` until `before`, and a null
+// bound is open on that side. ISO strings on the wire.
+//
+// The member row alone cannot express "left and came back" - a rejoin clears
+// `leftAt` on the original row, so `createdAt` is always the FIRST join - and a
+// member with a gap in their presence must not be handed a wrap for an epoch
+// minted inside it. The heal gate (`cannotHealIntoEpoch` in client.ts) reads
+// these windows instead of the raw join timestamp.
+export interface MessageConversationWindow {
+  after: string | null;
+  before: string | null;
+}
+
 export interface MessageConversationMember {
   conversationId: string;
-  // When this person joined. Den send paths read it to tell a member who was in
-  // the room when the current root-key epoch was minted from one who arrived
-  // after it: the first can be handed a missing wrap for that epoch, the second
-  // must not be, because that epoch's root already encrypts everything written
-  // before they arrived.
+  // When this person FIRST joined. Den send paths read it to tell a member who
+  // was in the room when the current root-key epoch was minted from one who
+  // arrived after it: the first can be handed a missing wrap for that epoch, the
+  // second must not be, because that epoch's root already encrypts everything
+  // written before they arrived. For anything finer - a member who left and came
+  // back - `membershipWindows` is the answer; this column stays the first join.
   createdAt: Date;
+  // The member's presence stints in this den, ISO-bounded, computed server-side
+  // from the membership log. Optional because it is: a payload cached before the
+  // field existed, a list response (which carries no windows), and every DM can
+  // all arrive without it. The heal gate reads absent as "cannot prove they were
+  // in the room", which fails closed into a rotation - the same answer an
+  // unreadable epoch start already gets.
+  membershipWindows?: MessageConversationWindow[];
   // Den-only provenance: who added this member, absent for the creator and for
   // somebody who arrived through an invite link.
   invitedById?: string | null;

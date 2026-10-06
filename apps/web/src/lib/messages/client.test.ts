@@ -148,6 +148,15 @@ function makeDenConversation(
       createdAt: member.createdAt ?? DEN_EPOCH_ONE_AT,
       lastReadAt: null,
       leftAt: member.leftAt ?? null,
+      // The one-stint window the detail route would attach for a member who
+      // never left: inside since their join, unclosed. The heal gate fails
+      // closed without it, which would rotate where the fixture means a heal.
+      membershipWindows: [
+        {
+          after: (member.createdAt ?? DEN_EPOCH_ONE_AT).toISOString(),
+          before: null,
+        },
+      ],
       user: makeSender({
         id: member.id,
         publicKeyBase64: member.publicKeyBase64 ?? null,

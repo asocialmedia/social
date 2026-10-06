@@ -57,6 +57,11 @@ interface Member {
   id: string;
   pair: CryptoKeyPair;
   publicKeyBase64: string;
+  // The member's presence stints as the server would have read them off the
+  // membership log. Unset means "inside since `createdAt`, never left" - the
+  // one-stint window the row alone describes. Tests that model a leave-and-rejoin
+  // set the two stints explicitly, because the row alone cannot.
+  windows?: { after: number; before: number | null }[];
 }
 
 // The clock is explicit and monotonic so "joined after the epoch" is a fact about
@@ -267,6 +272,18 @@ function snapshot(
       conversationId: id,
       createdAt: new Date(member.createdAt),
       lastReadAt: null,
+      // What the detail route would have attached: one bounded range per stint,
+      // ISO on the wire. An unreadable instant becomes an unparseable string, the
+      // same shape a deleted timestamp takes over the wire.
+      membershipWindows: (
+        member.windows ?? [{ after: member.createdAt, before: null }]
+      ).map((window) => ({
+        after: Number.isNaN(window.after)
+          ? "not-a-date"
+          : new Date(window.after).toISOString(),
+        before:
+          window.before === null ? null : new Date(window.before).toISOString(),
+      })),
       user:
         member.id === options.withoutIdentity
           ? profile(member, null)
@@ -809,9 +826,10 @@ describe("den root-key epochs end to end", () => {
   test("a member who left and came back gets a new epoch, not the one they missed", async () => {
     // The rejoin. Their old wraps survive the round trip, because a key row hangs
     // off the conversation rather than the membership, so the wrap set alone cannot
-    // distinguish them from an interrupted fan-out. Only the membership timestamp
-    // can, and it is decisive here because a rejoin is strictly later than the
-    // epoch they did not receive.
+    // distinguish them from an interrupted fan-out. The membership row cannot
+    // either: a rejoin clears `leftAt` on the ORIGINAL row, so `createdAt` is
+    // still the first join and reads as "present since before the gap". Only the
+    // presence windows the server reads off the membership log are decisive here.
     const [alice, bob, carol] = await makeMembers(3);
     roster = [alice, bob, carol];
     const whileTheyWereIn = await send(
@@ -820,6 +838,7 @@ describe("den root-key epochs end to end", () => {
       0,
       "while carol was in the room"
     );
+    const leftAt = tick();
     roster = [alice, bob];
     const duringTheGap = await send(
       alice,
@@ -828,8 +847,14 @@ describe("den root-key epochs end to end", () => {
       "after carol left"
     );
 
-    // Carol is back, with the epoch they left on still in their pocket.
-    carol.createdAt = tick();
+    // Carol is back, with the epoch they left on still in their pocket. The row
+    // keeps the FIRST join, exactly as the service writes it; the gap is carried
+    // by the windows alone.
+    const rejoinedAt = tick();
+    carol.windows = [
+      { after: EPOCH_ONE_AT, before: leftAt },
+      { after: rejoinedAt, before: null },
+    ];
     roster = [alice, bob, carol];
     const afterRejoin = await send(alice, snapshot(roster), 2, "welcome back");
     const view = snapshot(roster);

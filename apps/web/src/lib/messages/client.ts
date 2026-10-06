@@ -2118,19 +2118,27 @@ function epochStartedAt(
 //     heal. One row at this version with an unreadable timestamp used to read as
 //     "no newcomers" and unlock a full-history fan-out; it now costs an epoch.
 //
-//   - A member who holds an older wrap but not this one, and who joined at or
-//     after the mint, left and came back. Their old wrap survives the round trip
-//     because a key row hangs off the conversation rather than the membership, so
-//     the wrap set cannot tell them apart from an interrupted fan-out; the join
-//     timestamp can, because a rejoin is strictly later than the epoch it missed.
+//   - A member who holds an older wrap but not this one is either an interrupted
+//     fan-out or somebody who left and came back: their old wrap survives the
+//     round trip because a key row hangs off the conversation rather than the
+//     membership, so the wrap set cannot tell the two apart. The member's
+//     PRESENCE WINDOWS can. A rejoin clears `leftAt` on the original membership
+//     row rather than writing a new one, so the row's `createdAt` is always the
+//     first join and says nothing about the gap; the windows are the server's
+//     reading of the membership log, one bounded range per stint, and an epoch
+//     minted while the member was away falls outside every one of them. The
+//     interrupted fan-out's epoch falls inside the current stint and heals; the
+//     rejoiner's gap epoch costs a rotation instead of leaking its history.
 //
-// `>=` rather than `>` on that last comparison, for the case where even that is
-// ambiguous: a rejoin whose membership row lands in the same millisecond the epoch
-// was written in. Two events the database put in one millisecond cannot be ordered
-// against each other, so equality has to read as "at or after". It cannot loop:
-// the rotation this decision forces writes the new epoch's wrap for that member,
-// and a member who already holds the newest epoch is never a heal candidate again,
-// so two joins and a rotation inside one millisecond cost exactly one extra epoch.
+// The window test is STRICT on both ends, for the case where even a window is
+// ambiguous: a join or a leave whose log line lands in the same millisecond the
+// epoch was written in. Two events the database put in one millisecond cannot be
+// ordered against each other, so equality has to read as "not present" - the
+// epoch may already encrypt a message from the wrong side of the boundary. It
+// cannot loop: the rotation this refusal forces writes the new epoch's wrap for
+// that member, and a member who already holds the newest epoch is never a heal
+// candidate again, so two joins and a rotation inside one millisecond cost
+// exactly one extra epoch.
 function cannotHealIntoEpoch(
   conversation: MessageConversationData,
   userId: string,
@@ -2148,10 +2156,26 @@ function cannotHealIntoEpoch(
   if (epochStart === null) {
     return true;
   }
-  const joinedAt = toMillis(
-    conversation.members.find((member) => member.userId === userId)?.createdAt
-  );
-  return joinedAt === null || joinedAt >= epochStart;
+  const windows = conversation.members.find(
+    (member) => member.userId === userId
+  )?.membershipWindows;
+  // No windows proves nothing about anybody - a payload cached before the field
+  // existed, a list response, a trimmed snapshot - and "cannot tell" resolves in
+  // favour of a rotation, which is the same answer an unreadable epoch start
+  // above gets.
+  if (!windows || windows.length === 0) {
+    return true;
+  }
+  return !windows.some((window) => {
+    const after = toMillis(window.after);
+    // An unreadable floor proves nothing either: the stint's start is the one
+    // fact the heal is decided on.
+    if (after === null || epochStart <= after) {
+      return false;
+    }
+    const before = toMillis(window.before);
+    return before === null || epochStart < before;
+  });
 }
 
 // Wrap recipients among `userIds`: the rotator from their own private key, every
