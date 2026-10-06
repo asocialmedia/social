@@ -1,6 +1,7 @@
 import {
   DenError,
   getDenMembership,
+  isCurrentDenMember,
   isDenBanned,
   joinDenByInviteCode,
   previewInvite,
@@ -102,9 +103,16 @@ export async function GET(request: Request, { params }: Params) {
     // for both shapes: an expired code carries the same field, and a member who
     // re-opens a link whose code has since rotated is exactly the person the
     // screen must not describe as an outsider.
+    //
+    // `isCurrentDenMember`, not "a row exists". Leaving and removal set `leftAt`
+    // rather than deleting the row, so the row-exists reading answered `true` for
+    // every departed member - which sent a kicked or departed person holding a live
+    // link to "You're already in this den" instead of a Join offer. This is the one
+    // definition of the field, on both shapes; a second one is how that happened.
     const membership = userId
       ? await getDenMembership(preview.id, userId)
       : null;
+    const isMember = membership !== null && isCurrentDenMember(membership);
     if (preview.expired) {
       return Response.json({
         den: {
@@ -114,7 +122,7 @@ export async function GET(request: Request, { params }: Params) {
           ownerId: preview.ownerId,
         },
         expired: true,
-        isMember: membership !== null,
+        isMember,
       });
     }
     // Whether THIS reader is banned, and only when they are. Never a false, and never
@@ -138,7 +146,7 @@ export async function GET(request: Request, { params }: Params) {
         name: preview.name,
       },
       isBanned: banned,
-      isMember: membership !== null,
+      isMember,
     });
   } catch (error) {
     return denErrorResponse(error, { operation: "den.join.preview" });

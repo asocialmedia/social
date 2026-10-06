@@ -15,11 +15,17 @@ import {
   DEN_BAN_REASON_MAX,
   DEN_INVITE_CODE_ALPHABET,
   DEN_LIMITS,
+  isCurrentDenMember,
   normalizeDenName,
   validateDenDescription,
   validateDenName,
 } from "./dens";
 import type { DenMembershipEventAction, DenRole } from "./dens";
+
+// Re-exported because callers of the service read it from here, and the barrel should
+// keep publishing it from the module it always has. The definition moved to `./dens`
+// so the invite-preview route can ask the same question without the database client.
+export { isCurrentDenMember } from "./dens";
 
 // Den (group conversation) mutation layer.
 //
@@ -358,15 +364,6 @@ export async function getDenMembership(
 // election, no cap count, and never in the audience for a key wrap. Only the read
 // path wants them.
 //
-// Two spellings, because there are two shapes of question. A `where` takes
-// `member.leftAt.isNull()` inline, the way every other filter in this file reads.
-// A read that has already happened asks the boolean below, so a roster loaded for
-// a reason other than filtering still has to decide rather than silently include
-// whoever walked out.
-export function isCurrentDenMember(member: { leftAt: unknown }): boolean {
-  return member.leftAt === null;
-}
-
 // Membership, and DM-aware. A DM row carries MEMBER too, so the type check is what
 // stops a management route from being pointed at somebody's private thread and
 // finding a plausible-looking member row there.

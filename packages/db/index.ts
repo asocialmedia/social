@@ -59,6 +59,7 @@ export {
   dissolveDen,
   generateInviteCode,
   getDenMembership,
+  isCurrentDenMember,
   joinDenByInviteCode,
   leaveDen,
   listDenMembershipEvents,

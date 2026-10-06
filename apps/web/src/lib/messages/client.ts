@@ -704,6 +704,12 @@ export type DenInvitePreviewResponse =
       // owner who can mint a replacement, and telling a banned person "never mind" on
       // a link that no longer works tells them nothing and costs the screen its point.
       isBanned?: boolean;
+      // Whether the account asking is CURRENTLY INSIDE this den. Not "has a
+      // membership row": leaving and removal set `leftAt` and keep the row, so the
+      // row-exists reading said `true` for every kicked or departed member and the
+      // join screen told them they were already in. The route answers it with
+      // `isCurrentDenMember`, and the join screen's "already in" / Join offer both
+      // key off this one flag.
       isMember: boolean;
     }
   | {
@@ -717,6 +723,7 @@ export type DenInvitePreviewResponse =
         ownerId: string | null;
       };
       expired: true;
+      // Same meaning as the live shape: currently inside, not merely a row holder.
       isMember: boolean;
     };
 

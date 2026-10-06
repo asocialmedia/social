@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { DenError as DenErrorClass } from "@asm/db";
-import { DEN_LIMITS } from "@asm/db/messages/dens";
+import {
+  DEN_LIMITS,
+  isCurrentDenMember as realIsCurrentDenMember,
+} from "@asm/db/messages/dens";
 
 import {
   DEN_JOIN_PREVIEW_RATE_LIMIT,
@@ -57,7 +60,10 @@ let preview: Preview | null = {
 };
 const mockPreviewInvite = mock((_code: string) => Promise.resolve(preview));
 
-let membership: { role: string } | null = null;
+// `leftAt` is carried because it is the column the route now reads. Null means
+// currently inside; a timestamp means departed. The existing fixtures leave it null,
+// which is what "inside" is, so they keep their meaning.
+let membership: { leftAt: Date | null; role: string } | null = null;
 const mockGetDenMembership = mock((_conversationId: string, _userId: string) =>
   Promise.resolve(membership)
 );
@@ -110,6 +116,10 @@ mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   DenError,
   getDenMembership: mockGetDenMembership,
+  // The REAL predicate. `@asm/db/messages/dens` is a different specifier from the
+  // mocked barrel, so it resolves for real, and the route's answer is the product's
+  // rather than this file's idea of "inside".
+  isCurrentDenMember: realIsCurrentDenMember,
   isDenBanned: mockIsDenBanned,
   joinDenByInviteCode: mockJoinDenByInviteCode,
   previewInvite: mockPreviewInvite,
@@ -335,7 +345,7 @@ describe("GET /api/messages/dens/join/:code", () => {
       name: "game night",
       ownerId: "owner-1",
     };
-    membership = { role: "MEMBER" };
+    membership = { leftAt: null, role: "MEMBER" };
     const res = await previewRequest("code-abcdefghijk", {
       user: { id: "member-1" },
     });
@@ -448,7 +458,7 @@ describe("GET /api/messages/dens/join/:code", () => {
   });
 
   test("tells a signed-in member they are already inside", async () => {
-    membership = { role: "MEMBER" };
+    membership = { leftAt: null, role: "MEMBER" };
     const res = await previewRequest("code-abcdefghijk", {
       user: { id: "member-1" },
     });
@@ -456,6 +466,41 @@ describe("GET /api/messages/dens/join/:code", () => {
     expect(res.status).toBe(200);
     expect(body.isMember).toBe(true);
     expect(mockGetDenMembership).toHaveBeenCalledWith("den-1", "member-1");
+  });
+
+  // The bug. Leaving and removal set `leftAt` and keep the row, so a departed member
+  // still has a membership row. Answered as "a row exists", the flag was true for every
+  // kicked or departed person, and the join screen told them "You're already in this
+  // den" instead of offering to join - even though the join behind it would have worked.
+  test("a departed member is NOT told they are inside", async () => {
+    membership = { leftAt: new Date(0), role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(res.status).toBe(200);
+    expect(body.isMember).toBe(false);
+  });
+
+  test("a departed member of a retired code reaches the expired screen", async () => {
+    // Same definition on both shapes, deliberately: a second one is how the live
+    // shape's bug happened. A dead link's screen names whoever can mint a replacement,
+    // and it says no more to somebody who was once in the room than to a stranger.
+    preview = {
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    membership = { leftAt: new Date(0), role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(body.isMember).toBe(false);
   });
 
   test("tells a signed-in stranger they are not inside", async () => {

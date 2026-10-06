@@ -185,13 +185,20 @@ export function denJoinOutcome(input: {
   if (!preview) {
     return { kind: "invalid", reason: "unknown-code" };
   }
-  // Before `isMember`, and deliberately. A reader who is already inside this den
+  // Before `isMember`, and deliberately. A reader who is currently inside this den
   // and re-opens a link whose code has since rotated is not an outsider being
   // pointed at a stranger: `ownerId` is the den's own owner, so the expired screen
   // would offer to open a DM with the person who owns the room the reader is
   // already in. That is harmless but it is noise, and the one thing this state must
   // never do is talk somebody into messaging a den's owner for no reason. So the
   // owner is only ever named to somebody the den has not admitted yet.
+  //
+  // A departed member is not "currently inside", so on a retired link they reach the
+  // expired screen like anybody else holding a dead code. That is deliberate: the
+  // screen's one job is to name who can mint a replacement, and it discloses no more
+  // to somebody who was once in the room than it already does to a stranger. Keeping
+  // the old row-exists reading here would mean two definitions of `isMember`, which is
+  // what produced the "already in this den" bug in the first place.
   if (preview.expired) {
     return preview.isMember
       ? { den: preview.den, kind: "already-member" }
@@ -199,17 +206,17 @@ export function denJoinOutcome(input: {
   }
   // The ban is checked BEFORE `isMember`, and it has to be.
   //
-  // `isMember` means "this account has a membership row", not "is inside" - a departed
-  // member still has one, which is why `requireDenMembership` has to layer an
-  // `isCurrentDenMember` check on top of the same read. And a ban always implies a
-  // membership row, because banning somebody who was never a member is refused. So for
-  // EVERY banned account both flags are true at once, the `isMember` arm wins, and the
-  // `banned` arm below was unreachable: a banned person opening the invite link was told
-  // "You're already in this den", with a button to open it.
+  // `isMember` means "currently inside this den" - the route answers it with
+  // `getDenMembership` AND `isCurrentDenMember`, because leaving and removal set
+  // `leftAt` rather than deleting the row. It used to mean only "a row exists", and
+  // that is why a kicked or departed member holding a live link was told "You're
+  // already in this den": their row was still there, so the flag was true and this
+  // arm swallowed them before the Join offer below could be reached.
   //
-  // Checking the ban first is also the direction that fails closed. Being both inside
-  // and banned is not a state a correct system produces, so when the two disagree about
-  // a real account, "keep them out" is the answer worth giving.
+  // The ban is still checked first, because a ban and membership are independent:
+  // a banned account always has a row (banning a stranger is refused), so `isMember`
+  // is false for them and this arm is what names the reason. Preferring the ban is
+  // also the direction that fails closed.
   //
   // Safe to answer from the preview because it answers only about the account making
   // the request. It is never a property of the den and never about anybody else, so

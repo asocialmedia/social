@@ -202,6 +202,23 @@ export const GROUP_ADD_REFUSAL_COPY: Record<GroupAddRefusal, string> = {
   NO_DIRECT_ADDS: "doesn't allow being added to groups",
 };
 
+// Whether a membership row is still acting, or has left.
+//
+// Two spellings, because there are two shapes of question. A `where` takes
+// `member.leftAt.isNull()` inline, the way every other filter reads. A read that has
+// already happened asks this boolean, so a roster loaded for a reason other than
+// filtering still has to decide rather than silently include whoever walked out.
+//
+// Lives here rather than beside the service because it is a pure predicate over one
+// column, and because the invite-preview route needs to ask the exact question the
+// service asks without pulling in the database client. Leaving and removal set
+// `leftAt` rather than deleting the row, so "has a row" and "is inside" are different
+// questions, and reading the first as the second is how a departed member was told
+// they were still in a den.
+export function isCurrentDenMember(member: { leftAt: unknown }): boolean {
+  return member.leftAt === null;
+}
+
 // Whether `role` may run a management route. Callers that need finer
 // distinctions (only the owner may promote, or delete the den) must check the
 // role directly rather than widen this helper.

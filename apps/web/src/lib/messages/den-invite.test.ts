@@ -114,16 +114,30 @@ describe("denInviteUrl", () => {
 });
 
 describe("denJoinOutcome", () => {
-  // The regression this pins. `isMember` on the wire means "has a membership row", and
-  // a departed member still has one - `requireDenMembership` layers an
-  // `isCurrentDenMember` check on top of the same read for exactly that reason. Since a
-  // ban always implies a row exists, EVERY banned account reports `isMember: true` AND
-  // `isBanned: true` at once. With `isMember` checked first the ban arm was unreachable,
-  // and a banned person opening the link was told they were already inside, with a
-  // button to open the room they had just been kept out of.
-  test("a banned account is told so even though it also has a membership row", () => {
+  // The regression this pins. A banned account always has a membership row - banning a
+  // stranger is refused - so `isBanned` and a membership row are always true together.
+  // When `isMember` meant "has a row" and was checked first, the ban arm was unreachable
+  // and a banned person was told they were already inside, with a button to open the
+  // room they had just been kept out of.
+  //
+  // The route no longer produces this exact pair - `isMember` now means "currently
+  // inside", which a banned account is not - but the precedence still matters, because
+  // the two facts are independent and the preview is not the only thing that could ever
+  // carry both. Preferring the ban is also the direction that fails closed.
+  test("a banned account is told so even if it also reads as a member", () => {
     expect(
       denJoinOutcome({ preview: preview({ isBanned: true, isMember: true }) })
+    ).toEqual({
+      den: { id: "den-1", memberCount: 7, name: "Study group" },
+      kind: "banned",
+    });
+  });
+
+  // The shape the route actually sends for a banned account: a ban implies a row, but
+  // the row is not "inside", so the two flags are NOT both true.
+  test("a banned account with no current membership is still told banned", () => {
+    expect(
+      denJoinOutcome({ preview: preview({ isBanned: true, isMember: false }) })
     ).toEqual({
       den: { id: "den-1", memberCount: 7, name: "Study group" },
       kind: "banned",
@@ -137,6 +151,15 @@ describe("denJoinOutcome", () => {
       den: { id: "den-1", memberCount: 7, name: "Study group" },
       kind: "already-member",
     });
+  });
+
+  // The bug this whole change is about. A departed member is `isMember: false`, so the
+  // screen offers the Join it always could have - rather than "You're already in this
+  // den", which is what a row-exists reading of the same flag produced.
+  test("a departed member gets a join offer, not already-in", () => {
+    expect(
+      denJoinOutcome({ preview: preview({ isBanned: false, isMember: false }) })
+    ).toMatchObject({ kind: "joinable" });
   });
 
   test("a banned account in a FULL den is told banned, not full", () => {
