@@ -354,9 +354,9 @@ namespace public {
     targetUserId String?
     createdAt    Timestamp(3)      @default(now())
     comment      Comments?         @relation(fields:[commentId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_commentId_fkey", index: false)
-    issuer       Users             @relation(name: "aura_logs_issuerId_fkey", fields:[issuerId], references:[id], onDelete: Restrict, onUpdate: Cascade, map: "aura_logs_issuerId_fkey", index: false)
+    issuer       Users             @relation(name: "aura_logs_issuerId_fkey", fields:[issuerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_issuerId_fkey", index: false)
     post         Posts?            @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_postId_fkey", index: false)
-    user         Users             @relation(name: "aura_logs_userId_fkey", fields:[userId], references:[id], onDelete: Restrict, onUpdate: Cascade, map: "aura_logs_userId_fkey", index: false)
+    user         Users             @relation(name: "aura_logs_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_userId_fkey", index: false)
 
     @@index([issuerId, targetUserId, createdAt], map: "aura_logs_issuerId_targetUserId_createdAt_idx")
     @@index([userId, createdAt], map: "aura_logs_userId_createdAt_idx")
@@ -516,7 +516,7 @@ namespace public {
     userId    String
     storyId   Int
     createdAt Timestamp(3) @default(now())
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Restrict, onUpdate: Cascade, map: "HNBookmark_userId_fkey")
+    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "HNBookmark_userId_fkey")
 
     @@index([userId, createdAt], map: "HNBookmark_userId_createdAt_idx")
     @@index([userId], map: "HNBookmark_userId_idx")
