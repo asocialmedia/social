@@ -386,3 +386,54 @@ export function denJoinActionLabel(
   }
   return outcome.kind === "already-member" ? "Open den" : "Join den";
 }
+
+// How long an invite link still has, in the coarsest unit that is honest.
+//
+// The panel shows this next to the link, and its whole job is to answer "do I
+// need to think about this yet". A link with weeks left reads as days; the
+// moment the honest unit is hours, it says hours, and under an hour it says
+// minutes - the granularity tightens as the deadline approaches because that is
+// exactly when the number starts changing someone's behaviour. A link that
+// never expires says so rather than rendering an absent line, because a missing
+// line next to a door reads as a bug rather than as a promise.
+//
+// Past is not a state this answers: the panel switches to its expired card when
+// `inviteExpiresAt` is in the past, so this helper is only ever called while the
+// link is alive. A past instant still gets a label (clamped to zero) rather than
+// a negative number, which keeps a clock skew between server and client from
+// painting "-3d" on the screen.
+export function denInviteCountdown(
+  inviteExpiresAt: Date | null,
+  now: Date = new Date()
+): string {
+  if (inviteExpiresAt === null) {
+    return "No expiry";
+  }
+  const remaining = Math.max(0, inviteExpiresAt.getTime() - now.getTime());
+  const minutes = Math.floor(remaining / 60_000);
+  if (minutes < 1) {
+    return "Expires in under a minute";
+  }
+  if (minutes < 60) {
+    return `Expires in ${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) {
+    return `Expires in ${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  return `Expires in ${days}d`;
+}
+
+// Whether a link has already stopped opening the den, judged against an
+// explicit `now` so the answer is a pure function of two timestamps rather than
+// of the wall clock a component happens to render at. The server makes the same
+// comparison at preview and join; this mirror exists for display only, and the
+// two cannot disagree about a link the server has already answered, because the
+// server's answer is the one that shipped the timestamp being compared.
+export function denInviteIsExpired(
+  inviteExpiresAt: Date | null,
+  now: Date
+): boolean {
+  return inviteExpiresAt !== null && inviteExpiresAt.getTime() <= now.getTime();
+}

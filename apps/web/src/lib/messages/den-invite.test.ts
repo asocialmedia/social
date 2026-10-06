@@ -7,6 +7,8 @@ import type { DenExpiredInvite } from "./den-invite";
 import {
   DEN_JOIN_PATH_PREFIX,
   denAskOwner,
+  denInviteCountdown,
+  denInviteIsExpired,
   denInvitePath,
   denInviteUrl,
   denJoinActionLabel,
@@ -592,5 +594,69 @@ describe("DenExpiredInvite", () => {
       "name",
       "ownerId",
     ]);
+  });
+});
+
+describe("denInviteCountdown", () => {
+  const NOW = new Date("2026-10-06T12:00:00.000Z");
+
+  test("a link that never expires says so", () => {
+    expect(denInviteCountdown(null, NOW)).toBe("No expiry");
+  });
+
+  test("the unit tightens as the deadline approaches", () => {
+    const days = (n: number) => new Date(NOW.getTime() + n * 86_400_000);
+    expect(denInviteCountdown(days(30), NOW)).toBe("Expires in 30d");
+    expect(denInviteCountdown(days(3), NOW)).toBe("Expires in 3d");
+    expect(denInviteCountdown(days(2), NOW)).toBe("Expires in 2d");
+    // The hours bucket is the last two days minus one hour: at exactly 48h the
+    // unit has already flipped to days, which is the coarsest honest reading.
+    expect(
+      denInviteCountdown(new Date(NOW.getTime() + 47 * 3_600_000), NOW)
+    ).toBe("Expires in 47h");
+    expect(denInviteCountdown(new Date(NOW.getTime() + 90 * 60_000), NOW)).toBe(
+      "Expires in 1h"
+    );
+    expect(denInviteCountdown(new Date(NOW.getTime() + 5 * 60_000), NOW)).toBe(
+      "Expires in 5m"
+    );
+    expect(denInviteCountdown(new Date(NOW.getTime() + 30_000), NOW)).toBe(
+      "Expires in under a minute"
+    );
+  });
+
+  test("a clock skew clamps to the floor rather than going negative", () => {
+    // The client renders from a server-written timestamp, and the two clocks
+    // need not agree to the millisecond. A past instant is the expired card's
+    // business; this helper only has to refuse to paint "-3d".
+    expect(denInviteCountdown(new Date(NOW.getTime() - 86_400_000), NOW)).toBe(
+      "Expires in under a minute"
+    );
+  });
+});
+
+describe("denInviteIsExpired", () => {
+  const NOW = new Date("2026-10-06T12:00:00.000Z");
+
+  test("a link with no expiry never expires", () => {
+    expect(denInviteIsExpired(null, NOW)).toBe(false);
+  });
+
+  test("the boundary is inclusive, matching the server's comparison", () => {
+    // The expiry sits one minute ahead of the reading clock here. One
+    // millisecond before the boundary the link is still alive; at the boundary
+    // itself it is dead, which is the same `<=` the server's preview and join
+    // use, and anything after it is dead too.
+    const expiry = new Date(NOW.getTime() + 60_000);
+    expect(denInviteIsExpired(expiry, new Date(NOW.getTime() + 59_999))).toBe(
+      false
+    );
+    expect(denInviteIsExpired(expiry, NOW)).toBe(false);
+    expect(denInviteIsExpired(expiry, new Date(NOW.getTime() + 60_000))).toBe(
+      true
+    );
+    expect(denInviteIsExpired(expiry, new Date(NOW.getTime() + 61_000))).toBe(
+      true
+    );
   });
 });

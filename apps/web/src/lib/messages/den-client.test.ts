@@ -14,7 +14,7 @@ import {
   joinDen,
   leaveDen,
   removeDenMember,
-  rotateDenInvite,
+  createDenInvite,
   setDenMemberRole,
   transferDenOwnership,
   updateDenDetails,
@@ -467,22 +467,37 @@ describe("dissolveDen", () => {
   });
 });
 
-describe("rotateDenInvite", () => {
-  test("returns the new code", async () => {
-    // Rotation is the revocation step, so the panel replaces the link it copied
-    // rather than leaving a dead one on screen.
-    route = (url) =>
-      url === "/api/messages/dens/den-1/invite"
-        ? Response.json({ inviteCode: "new456", ok: true })
-        : null;
-    expect(await rotateDenInvite("den-1")).toBe("new456");
+describe("createDenInvite", () => {
+  test("sends the chosen duration and returns code and expiry", async () => {
+    // Minting is the revocation step, so the panel replaces the link it copied
+    // rather than leaving a dead one on screen. The duration rides the body and
+    // the expiry comes back server-computed, so the panel never derives a
+    // lifetime from a client clock.
+    let sent: unknown = null;
+    route = (url, init) => {
+      if (url !== "/api/messages/dens/den-1/invite") {
+        return null;
+      }
+      sent = JSON.parse(String(init?.body ?? "{}"));
+      return Response.json({
+        inviteCode: "new456",
+        inviteExpiresAt: "2026-10-13T00:00:00.000Z",
+        ok: true,
+      });
+    };
+    const invite = await createDenInvite("den-1", 7);
+    expect(sent).toEqual({ durationDays: 7 });
+    expect(invite.inviteCode).toBe("new456");
+    expect(invite.inviteExpiresAt?.toISOString()).toBe(
+      "2026-10-13T00:00:00.000Z"
+    );
   });
 
   test("a response with no code is an error, not an empty link", async () => {
     // Copying an empty invite link would hand the reader a link that resolves to
-    // nothing, which is the exact failure rotation exists to prevent.
+    // nothing, which is the exact failure minting exists to prevent.
     route = () => Response.json({ ok: true });
-    await expect(rotateDenInvite("den-1")).rejects.toThrow(
+    await expect(createDenInvite("den-1", null)).rejects.toThrow(
       "The new join link did not come back"
     );
   });

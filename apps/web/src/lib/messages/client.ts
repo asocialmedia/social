@@ -1,4 +1,8 @@
-import type { DenRole, GroupAddRefusal } from "@asm/db/messages/dens";
+import type {
+  DenInviteDurationDays,
+  DenRole,
+  GroupAddRefusal,
+} from "@asm/db/messages/dens";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
@@ -414,6 +418,14 @@ export interface DenDetailResponse {
     avatarMediaId: string | null;
     description: string | null;
     inviteCode: string | null;
+    // The expiry facts ride with the code, under the same manager gate: they
+    // describe the door, and a member who cannot hold the door does not need
+    // its state. `inviteExpiresAt` is null for a link that never expires, and
+    // `inviteDurationDays` is the last preset a manager picked - the next
+    // picker's default - which is null for the same reason and for every den
+    // whose link predates expiry.
+    inviteDurationDays: number | null;
+    inviteExpiresAt: string | null;
     memberCount: number;
     name: string | null;
     ownerId: string | null;
@@ -650,22 +662,38 @@ export async function dissolveDen(conversationId: string): Promise<void> {
   }
 }
 
-// Retires the current join code and mints a new one. The old code stops
-// resolving the moment this returns, which is the revocation step for a code
-// that leaked into a screenshot or a forwarded thread.
-export async function rotateDenInvite(conversationId: string): Promise<string> {
+// Mints a fresh invite link, retiring the current one. The old code stops
+// resolving the moment this returns - the revocation step for a code that
+// leaked, and the "it expired, give me another" step in one. `durationDays` is
+// one of the presets the server whitelists, or null for a link that never
+// expires; the server computes the expiry from its own clock, and the response
+// carries it back so the panel can show the countdown without a refetch.
+export async function createDenInvite(
+  conversationId: string,
+  durationDays: DenInviteDurationDays | null
+): Promise<{ inviteCode: string; inviteExpiresAt: Date | null }> {
   const response = await fetch(`/api/messages/dens/${conversationId}/invite`, {
+    body: JSON.stringify({ durationDays }),
     credentials: "same-origin",
+    headers: { "content-type": "application/json" },
     method: "POST",
   });
   if (!response.ok) {
     throw await parseDenError(response);
   }
-  const body = (await response.json()) as { inviteCode?: string };
+  const body = (await response.json()) as {
+    inviteCode?: string;
+    inviteExpiresAt?: string | null;
+  };
   if (!body.inviteCode) {
     throw new Error("The new join link did not come back");
   }
-  return body.inviteCode;
+  return {
+    inviteCode: body.inviteCode,
+    inviteExpiresAt: body.inviteExpiresAt
+      ? new Date(body.inviteExpiresAt)
+      : null,
+  };
 }
 
 // What a join link shows before anybody commits to it: the den's name, how many
