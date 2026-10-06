@@ -10,7 +10,7 @@
 // event before routing to /users/[username], so they never open the post.
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -146,8 +146,8 @@ function ThreadRail({
 
 interface PostCardProps {
   // Whether the card's feed/list is on screen. Backgrounded home tabs stay
-  // mounted (the swipe pager keeps all four alive), and their lone videos must
-  // not autoplay; defaults to active for every other surface.
+  // mounted beside the active page. Undefined preserves unrestricted media
+  // on detail and other surfaces that do not publish feed viewport IDs.
   active?: boolean;
   hasThreadChild: boolean;
   hasThreadParent: boolean;
@@ -166,7 +166,7 @@ interface PostCardProps {
 // main scroll-jank source on long feeds.
 export const PostCard = memo(
   ({
-    active = true,
+    active,
     hasThreadChild,
     hasThreadParent,
     onMore,
@@ -210,15 +210,6 @@ export const PostCard = memo(
       // exactly one post, so truncating turns colliding prefixes into 404s.
       router.push({ params: { postId: post.id }, pathname: "/posts/[postId]" });
     };
-    const openMedia = useCallback(
-      (mediaIndex: number) => {
-        router.push({
-          params: { index: String(mediaIndex), postId: post.id },
-          pathname: "/posts/[postId]/media/[index]",
-        });
-      },
-      [post.id, router]
-    );
     const openAuthor = (event: GestureResponderEvent) => {
       event.stopPropagation();
       if (!author?.username) {
@@ -467,7 +458,7 @@ export const PostCard = memo(
                                 active={active}
                                 apiBase={apiBase}
                                 attachments={attachments}
-                                onPressMedia={openMedia}
+                                onPressMedia={openDetail}
                                 postId={post.id}
                               />
                             ) : null}
@@ -484,7 +475,7 @@ export const PostCard = memo(
                               active={active}
                               apiBase={apiBase}
                               attachments={attachments}
-                              onPressMedia={openMedia}
+                              onPressMedia={openDetail}
                               postId={post.id}
                             />
                           ) : null}

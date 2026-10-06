@@ -432,7 +432,12 @@ export function PostDetailScreen({ postId }: { postId: string }) {
             Post
           </Text>
         </View>
-        <View style={styles.centerWrap}>
+        <View
+          style={[
+            styles.centerWrap,
+            showGuestBar ? { paddingBottom: feedBottomPad } : null,
+          ]}
+        >
           <Image
             contentFit="contain"
             source={missing ? notFoundImage : errorImage}

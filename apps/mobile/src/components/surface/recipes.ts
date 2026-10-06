@@ -52,6 +52,17 @@ export const DARK_CHIP_GRADIENT = ["#3a3f4a", "#23262e"] as const;
 export const DARK_CHIP_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.35)";
 
+// Web's AiGeneratedBadge: the violet dual-border chip. Its outer ring is violet,
+// so it must not borrow the orange primary's ring (ACCENT_CHIP_SHADOWS).
+export const AI_BADGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
+
+// Web's media-viewer ALT badge: zinc (from-zinc-500 to-zinc-700), not the slate
+// DARK_CHIP_GRADIENT chrome chip, and it carries its own stronger ring.
+export const ALT_BADGE_GRADIENT = ["#71717a", "#3f3f46"] as const;
+export const ALT_BADGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(35, 35, 40, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
+
 // `.orange-3d-surface` (mode toggle active segment) light + dark.
 export function orangeSurfaceShadows(isDark: boolean): string {
   return isDark

@@ -68,3 +68,27 @@ export function settleIndex(
   }
   return clampIndex(origin, pageCount);
 }
+
+export interface MountedPageRange {
+  first: number;
+  last: number;
+}
+
+// Preload neighbours once and retain mounted pages across tab detours. Bounds
+// stay within the pager, and an unchanged range keeps its state identity.
+export function retainPagerPages(
+  activeIndex: number,
+  pageCount: number,
+  previous?: MountedPageRange
+): MountedPageRange {
+  const active = clampIndex(activeIndex, pageCount);
+  const first = Math.max(0, Math.min(previous?.first ?? active, active - 1));
+  const last = Math.min(
+    pageCount - 1,
+    Math.max(previous?.last ?? active, active + 1)
+  );
+  if (previous?.first === first && previous.last === last) {
+    return previous;
+  }
+  return { first, last };
+}

@@ -29,6 +29,7 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { FeedVariant } from "../lib/feed-api";
+import { feedPrefetchUrls } from "../lib/feed-prefetch";
 import { groupPostsIntoThreads, orderByIndex } from "../lib/feed-types";
 import type { FeedPost, FeedThreadGroup } from "../lib/feed-types";
 import {
@@ -37,12 +38,6 @@ import {
   resetHeaderScroll,
 } from "../lib/header-visibility";
 import { hasVideoAttachment } from "../lib/media-kind";
-import {
-  isVideoMedia,
-  mediaGridImageUrl,
-  mediaImageUrl,
-  mediaPosterUrl,
-} from "../lib/media-url";
 import { viewBatcher } from "../lib/view-batcher";
 import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
 import { consumeFeedTop, feedCache } from "../state/feed-store";
@@ -56,6 +51,19 @@ import type { PillAuthor } from "./new-content-pill";
 import { PostCard } from "./post-card";
 import { ShareSheet } from "./share-sheet";
 import { usePostOverflow } from "./use-post-overflow";
+
+// All lists reconcile through the same handler, whose lifetime is the batcher,
+// so unmounting a neighbouring tab cannot remove another tab's reconciliation.
+viewBatcher.onFlush = (counts) => {
+  feedCache.updatePostsEverywhere(
+    new Map(
+      Object.entries(counts).map(([postId, viewCount]) => [
+        postId,
+        { viewCount },
+      ])
+    )
+  );
+};
 
 // Scroll offsets survive tab switches (and unmounts) like web's
 // useFeedScrollMemory with memoryKey `home:${tab}`.
@@ -136,33 +144,6 @@ export function FeedList({
   // becomes active; the FlatList retains the first closure, so activity is
   // read through a ref.
   const enabledRef = useRef(isActive);
-  // Session cookie + api base cached once per session, not per scroll. The old
-  // code awaited SecureStore on every viewability pass, which stalled the JS
-  // thread while scrolling.
-  const networkRef = useRef<{ apiBase: string; cookie?: string }>({
-    apiBase: getApiBaseUrl(),
-  });
-  const viewerIdForNetwork = user?.id;
-  useEffect(() => {
-    void viewerIdForNetwork;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const cookie = await authClient.getCookie();
-        if (!cancelled) {
-          networkRef.current = { apiBase: getApiBaseUrl(), cookie };
-        }
-      } catch {
-        // Best-effort; view batching retries with fresh credentials.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Re-caches credentials on account switch; the id itself is the re-key,
-    // read here so the effect subscribes to it.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-key on session change only
-  }, [viewerIdForNetwork]);
   const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
   // The autoplay owner the last viewability pass nominated, retained for the
   // same reason as the ids: switching back to this tab restores playback
@@ -190,23 +171,6 @@ export function FeedList({
     status,
     undoDismiss,
   } = useFeedTab({ enabled, userId, variant });
-
-  // Reconcile batched view counts into every cached tab, like web's
-  // applyViewCountToCaches. All mounted tab lists share one batcher; only
-  // clear the handler if it is still ours.
-  useEffect(() => {
-    const reconcile = (counts: Record<string, number>) => {
-      for (const [postId, viewCount] of Object.entries(counts)) {
-        feedCache.updatePostEverywhere(postId, { viewCount });
-      }
-    };
-    viewBatcher.onFlush = reconcile;
-    return () => {
-      if (viewBatcher.onFlush === reconcile) {
-        viewBatcher.onFlush = null;
-      }
-    };
-  }, []);
 
   const overflow = usePostOverflow({
     onDeleted: (postId) => {
@@ -275,6 +239,7 @@ export function FeedList({
   // request is one-shot and claimed here, so the memory restore below is
   // skipped for that visit instead of the two fighting over the offset.
   const jumpedToTop = useRef(false);
+  const restoredScroll = useRef(false);
   useEffect(() => {
     if (!isActive || !consumeFeedTop(variant)) {
       return;
@@ -288,17 +253,19 @@ export function FeedList({
     if (status !== "success" || posts.length === 0) {
       return;
     }
-    if (jumpedToTop.current) {
+    if (jumpedToTop.current || restoredScroll.current) {
       return;
     }
     const offset = scrollMemory.get(memoryKey) ?? 0;
     if (offset > 0) {
       const timer = setTimeout(() => {
+        restoredScroll.current = true;
         listRef.current?.scrollToOffset({ animated: false, offset });
       }, 60);
       return () => clearTimeout(timer);
     }
-    // Runs when content lands; offsets are keyed per tab.
+    restoredScroll.current = true;
+    // Restore once after content arrives, never on pagination or refresh.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- one-shot restore on content arrival, not a subscription
   }, [memoryKey, posts.length, status]);
 
@@ -321,6 +288,11 @@ export function FeedList({
       const stored = latestVisibleRef.current;
       setVisiblePostIds(stored);
       setAutoplayPostId(latestAutoplayRef.current);
+      return () => {
+        enabledRef.current = false;
+        setVisiblePostIds(new Set());
+        setAutoplayPostId(null);
+      };
     }
   }, [isActive]);
 
@@ -331,12 +303,14 @@ export function FeedList({
       if (!enabledRef.current) {
         return;
       }
-      // Synchronous batch enqueue with cached credentials: no SecureStore hop
-      // per scroll frame, so fast flings never stall on async IO.
+      // Enqueue synchronously; read fresh credentials once when the batch
+      // flushes, rather than storing an expiring cookie for this list's lifetime.
       if (ids.size > 0) {
-        const { apiBase, cookie } = networkRef.current;
         for (const id of ids) {
-          viewBatcher.mark(id, { apiBase, cookie });
+          viewBatcher.mark(id, {
+            apiBase: getApiBaseUrl(),
+            getCookie: () => authClient.getCookie(),
+          });
         }
       }
       setVisiblePostIds(new Set(ids));
@@ -405,56 +379,17 @@ export function FeedList({
       userId,
     ]
   );
-  // Prefetch upcoming images while idle so scrolling never waits on the
-  // network for avatars and posters already in the cache window. Prefetches
-  // the exact URLs the tiles render (lg for singles, md for grids, poster
-  // for video) so the disk cache hits instead of re-downloading.
+  const prefetchKey = JSON.stringify(feedPrefetchUrls(posts, getApiBaseUrl()));
   useEffect(() => {
-    if (!enabled || posts.length === 0) {
+    if (!enabled || prefetchKey === "[]") {
       return;
     }
+    const urls: string[] = JSON.parse(prefetchKey);
     const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const { apiBase } = networkRef.current;
-          const urls: string[] = [];
-          for (const post of posts.slice(0, 20)) {
-            const avatar = post.user?.avatarUrl;
-            if (avatar && urls.length < 30) {
-              urls.push(
-                avatar.startsWith("http") ? avatar : `${apiBase}${avatar}`
-              );
-            }
-            const attachments = post.attachments ?? [];
-            const single = attachments.length === 1;
-            for (const att of attachments) {
-              if (urls.length >= 30) {
-                break;
-              }
-              if (!att?.id) {
-                continue;
-              }
-              if (isVideoMedia(att)) {
-                urls.push(mediaPosterUrl(apiBase, att.id));
-              } else if (single) {
-                urls.push(mediaImageUrl(apiBase, att));
-              } else {
-                urls.push(mediaGridImageUrl(apiBase, att));
-              }
-            }
-          }
-          // Parallel, not serial: the old one-at-a-time loop took 12
-          // round-trips back-to-back while the user scrolled past.
-          await Promise.allSettled(
-            urls.slice(0, 16).map((url) => Image.prefetch(url))
-          );
-        } catch {
-          // Prefetch is best-effort.
-        }
-      })();
+      void Promise.allSettled(urls.map((url) => Image.prefetch(url)));
     }, 600);
     return () => clearTimeout(timer);
-  }, [enabled, posts]);
+  }, [enabled, prefetchKey]);
 
   // Memoized above every early return: without this every parent render
   // handed FlatList a new data array identity, re-rendering every row.
@@ -467,7 +402,12 @@ export function FeedList({
   if ((variant === "following" || variant === "personalized") && !user) {
     const copy = EMPTY_COPY[variant];
     return (
-      <View style={[styles.centerWrap, { paddingBottom: bottomInset }]}>
+      <View
+        style={[
+          styles.centerWrap,
+          { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
+        ]}
+      >
         <AuthPromptCard
           description={copy.description}
           imageSize={128}
@@ -495,7 +435,12 @@ export function FeedList({
   if (status === "error" && posts.length === 0) {
     return (
       <FeedState>
-        <View style={styles.centerWrap}>
+        <View
+          style={[
+            styles.centerWrap,
+            { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
+          ]}
+        >
           <View style={styles.errorWrap}>
             <Image
               contentFit="contain"
@@ -524,7 +469,12 @@ export function FeedList({
     const copy = EMPTY_COPY[variant];
     return (
       <FeedState>
-        <View style={styles.centerWrap}>
+        <View
+          style={[
+            styles.centerWrap,
+            { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
+          ]}
+        >
           <Image
             contentFit="contain"
             source={noFeedImage}

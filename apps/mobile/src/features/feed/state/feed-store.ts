@@ -54,7 +54,7 @@ let pendingFeedTop: string | null = null;
 let topRequestVersion = 0;
 const topRequestListeners = new Set<() => void>();
 
-/** Asks the named feed to scroll to the top the next time it is shown. */
+// Asks the named feed to scroll to the top the next time it is shown.
 export function requestFeedTop(variant: string): void {
   pendingFeedTop = variant;
   topRequestVersion += 1;
@@ -74,10 +74,8 @@ export function subscribeFeedTopRequests(listener: () => void): () => void {
   };
 }
 
-/**
- * Claims a pending scroll-to-top for `variant`. Returns true at most once per
- * request, so the list that acts on it does not fight a later remount.
- */
+// Claims a pending scroll-to-top for `variant`. Returns true at most once per
+// request, so the list that acts on it does not fight a later remount.
 export function consumeFeedTop(variant: string): boolean {
   if (pendingFeedTop !== variant) {
     return false;
@@ -86,7 +84,7 @@ export function consumeFeedTop(variant: string): boolean {
   return true;
 }
 
-/** Drops any pending request, so a stale one cannot hijack a later visit. */
+// Drops any pending request, so a stale one cannot hijack a later visit.
 export function clearFeedTopRequest(): void {
   pendingFeedTop = null;
 }
@@ -124,7 +122,7 @@ export class FeedCache {
     this.now = now;
   }
 
-  /** Subscribe to cache writes (view-count reconciles included). */
+  // Subscribe to cache writes (view-count reconciles included).
   subscribe(listener: (changedKeys?: FeedCacheChangeKeys) => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -164,7 +162,7 @@ export class FeedCache {
   patch(key: string, partial: Partial<TabFeed>): TabFeed {
     const next = { ...this.get(key), ...partial, fetchedAt: this.now() };
     this.tabs.set(key, next);
-    this.notify();
+    this.notify(new Set([key]));
     try {
       scheduleFeedPersist();
     } catch {
@@ -173,7 +171,7 @@ export class FeedCache {
     return next;
   }
 
-  /** Applies normalized page data (filter shared with the list render). */
+  // Applies normalized page data (filter shared with the list render).
   applyPage(
     key: string,
     posts: FeedPost[],
@@ -194,16 +192,14 @@ export class FeedCache {
     });
   }
 
-  /**
-   * Puts a just-published post at the head of a tab so it is on screen the
-   * moment the reader lands there, instead of after a refetch round-trip.
-   *
-   * Two cases, because the tab may never have been opened: a tab that already
-   * has pages gets the post prepended to page one with the cursor untouched
-   * (the same shape the new-content pill uses), and a tab with nothing cached
-   * gets a one-page entry marked stale, so it renders the post at once and then
-   * refetches the real first page when it mounts.
-   */
+  // Puts a just-published post at the head of a tab so it is on screen the
+  // moment the reader lands there, instead of after a refetch round-trip.
+  //
+  // Two cases, because the tab may never have been opened: a tab that already
+  // has pages gets the post prepended to page one with the cursor untouched
+  // (the same shape the new-content pill uses), and a tab with nothing cached
+  // gets a one-page entry marked stale, so it renders the post at once and then
+  // refetches the real first page when it mounts.
   showPublishedPost(key: string, post: FeedPost): void {
     const current = this.get(key);
     if (current.pages.length === 0) {
@@ -223,20 +219,35 @@ export class FeedCache {
     }
   }
 
-  /** Patches one post everywhere it is cached (view-count reconcile). */
+  // Patches one post everywhere it is cached (view-count reconcile).
   updatePostEverywhere(postId: string, partial: Partial<FeedPost>): void {
+    this.updatePostsEverywhere(new Map([[postId, partial]]));
+  }
+
+  // Reconcile a server batch in one pass and publish once. Unchanged rows and
+  // pages keep their identity, including repeated view counts from the server.
+  updatePostsEverywhere(updates: ReadonlyMap<string, Partial<FeedPost>>): void {
     const changedKeys = new Set<string>();
     for (const [key, feed] of this.tabs) {
       let tabChanged = false;
-      const pages = feed.pages.map((page) =>
-        page.map((post) => {
-          if (post.id !== postId) {
+      const pages = feed.pages.map((page) => {
+        let pageChanged = false;
+        const nextPage = page.map((post) => {
+          const partial = updates.get(post.id);
+          if (
+            !partial ||
+            Object.entries(partial).every(
+              ([field, value]) => post[field as keyof FeedPost] === value
+            )
+          ) {
             return post;
           }
+          pageChanged = true;
           tabChanged = true;
           return { ...post, ...partial };
-        })
-      );
+        });
+        return pageChanged ? nextPage : page;
+      });
       if (tabChanged) {
         changedKeys.add(key);
         this.tabs.set(key, { ...feed, pages });
@@ -247,7 +258,7 @@ export class FeedCache {
     }
   }
 
-  /** Marks every tab stale so remounts refetch (publish/moderation paths). */
+  // Marks every tab stale so remounts refetch (publish/moderation paths).
   invalidateAll(): void {
     for (const [key, feed] of this.tabs) {
       this.tabs.set(key, { ...feed, stale: true });
@@ -259,7 +270,7 @@ export class FeedCache {
     const feed = this.tabs.get(key);
     if (feed) {
       this.tabs.set(key, { ...feed, stale: true });
-      this.notify();
+      this.notify(new Set([key]));
     }
   }
 
@@ -268,7 +279,7 @@ export class FeedCache {
   }
 }
 
-/** Process-wide feed cache used by the hooks. */
+// Process-wide feed cache used by the hooks.
 export const feedCache = new FeedCache();
 
 // Persistent snapshot shape for disk. Only success entries with pages are

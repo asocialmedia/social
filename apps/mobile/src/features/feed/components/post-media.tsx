@@ -1,15 +1,16 @@
-import { useEvent, useEventListener } from "expo";
+import { useEventListener } from "expo";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 // Post media gallery: single / 2-grid / 3-5 bento / 6+ overflow layouts,
 // video tap-to-play, audio rows, the explicit-content gate and the moderated
 // notice. Mirrors web's MediaPreviews + ExplicitContentGate arrangement.
-// Image tiles open the fullscreen viewer when onPressMedia is set (the post
-// detail screen passes it; the feed passes none, so feed tiles stay put).
-// Videos keep tap-to-play (the tap drives playback, never navigation) and
-// detail-only autoplay/captions stay out.
+// The containing card owns preview navigation: feed previews open their post,
+// then detail previews open the fullscreen viewer. Playback pills stay inline.
 import { Image } from "expo-image";
+import type { ImageProps } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { useIsFocused } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
+import type { VideoPlayer } from "expo-video";
 import {
   Pause,
   Play,
@@ -18,10 +19,20 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode } from "react";
 import {
   Animated,
+  AppState,
   Easing,
   Platform,
   Pressable,
@@ -67,7 +78,12 @@ import {
 } from "../lib/transcript-cues";
 import type { TranscriptCue } from "../lib/transcript-cues";
 import {
+  updateVideoClockDuration,
+  updateVideoClockTime,
+} from "../lib/video-clock";
+import {
   isAutoplayPost,
+  isPostVisible,
   subscribeAutoplayPost,
   subscribePostVisibility,
 } from "../lib/visible-posts";
@@ -81,6 +97,47 @@ import {
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { useVideoMuteStore } from "../state/video-mute-store";
 
+// Feed cards keep their complete poster/chrome while native media resources
+// follow viewport activity. Detail screens have no feed activity restriction.
+const MediaActivityContext = createContext<{
+  active: boolean | undefined;
+  focused: boolean;
+  postId: string;
+} | null>(null);
+
+function useMediaActivity(fallbackPostId = "") {
+  const context = useContext(MediaActivityContext);
+  const postId = context?.postId ?? fallbackPostId;
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const stopVisibility = subscribePostVisibility(postId, notify);
+      const stopAutoplay = subscribeAutoplayPost(postId, notify);
+      const appStateSubscription = AppState.addEventListener("change", notify);
+      return () => {
+        stopVisibility();
+        stopAutoplay();
+        appStateSubscription.remove();
+      };
+    },
+    [postId]
+  );
+  const getSnapshot = useCallback(
+    () =>
+      `${AppState.currentState === "active"}:${isPostVisible(postId)}:${isAutoplayPost(postId)}`,
+    [postId]
+  );
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const [foreground, inViewport, owner] = snapshot.split(":");
+  return {
+    autoplayOwner: owner === "true",
+    visible:
+      foreground === "true" &&
+      (context?.focused ?? true) &&
+      (context?.active === undefined ||
+        (context.active && inViewport === "true")),
+  };
+}
+
 interface GalleryProps {
   // Whether the containing screen/tab is on screen. A backgrounded feed (a
   // mounted-but-inactive home tab) passes false so its lone-video autoplay
@@ -88,9 +145,8 @@ interface GalleryProps {
   active?: boolean;
   apiBase: string;
   attachments: FeedMedia[];
-  // Opens the fullscreen media viewer at the tapped image index. Optional:
-  // surfaces without a viewer route (the home feed) leave it unset and
-  // image tiles render static, exactly as before.
+  // The containing surface decides the next step for a preview tap. Feed
+  // cards open post detail; the detail card opens the selected media index.
   onPressMedia?: (index: number) => void;
   postId: string;
 }
@@ -109,6 +165,36 @@ function useFailedImages() {
   };
 }
 
+function AnimatedFeedImage(props: ImageProps) {
+  const { visible } = useMediaActivity();
+  const imageRef = useRef<Image>(null);
+  const synchronizeAnimation = useCallback(() => {
+    const image = imageRef.current;
+    if (!image) {
+      return;
+    }
+    // autoplay controls initial loading; the native methods also pause an
+    // already-loaded GIF and resume it without replacing its displayed frame.
+    const update = visible ? image.startAnimating() : image.stopAnimating();
+    // oxlint-disable-next-line promise/prefer-await-to-then -- native view can disappear before its asynchronous animation call completes
+    void update.catch(() => {
+      // Navigation can dispose the native image before this command arrives.
+    });
+  }, [visible]);
+  useEffect(synchronizeAnimation, [synchronizeAnimation]);
+  return (
+    <Image
+      {...props}
+      autoplay={visible}
+      ref={imageRef}
+      onLoad={(event) => {
+        props.onLoad?.(event);
+        synchronizeAnimation();
+      }}
+    />
+  );
+}
+
 function SingleImage({
   apiBase,
   index = 0,
@@ -122,6 +208,7 @@ function SingleImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
+  const MediaImage = isGifMedia(media) ? AnimatedFeedImage : Image;
   const stored =
     media.width && media.height && media.height > 0
       ? { h: media.height, w: media.width }
@@ -145,7 +232,7 @@ function SingleImage({
         portrait && styles.singleLeft,
       ]}
     >
-      <Image
+      <MediaImage
         accessibilityLabel={media.altText ?? "Post image"}
         cachePolicy={imageCachePolicy(
           mediaImageUrl(apiBase, media),
@@ -201,6 +288,7 @@ function GridImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
+  const MediaImage = isGifMedia(media) ? AnimatedFeedImage : Image;
   const { isDark } = useAppTheme();
   const frameStyle = [
     styles.gridTileWrap,
@@ -208,7 +296,7 @@ function GridImage({
   ];
   const content = (
     <>
-      <Image
+      <MediaImage
         accessibilityLabel={media.altText ?? "Post image"}
         cachePolicy={imageCachePolicy(
           mediaGridImageUrl(apiBase, media),
@@ -338,6 +426,7 @@ function VideoTile({
   apiBase,
   autoPlayEnabled,
   media,
+  onPressPreview,
   postId,
   tile,
 }: {
@@ -346,6 +435,7 @@ function VideoTile({
   // tap-to-play so a multi-video post does not blast them all at once.
   autoPlayEnabled?: boolean;
   media: FeedMedia;
+  onPressPreview?: () => void;
   postId: string;
   // Inside a grid cell the tile forces the frame; a lone video keeps its
   // natural aspect and the larger feed radius, like web's single preview.
@@ -356,54 +446,70 @@ function VideoTile({
   // Shared captions preference, toggled from the post's More menu.
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
-  const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id), (created) => {
-    // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
-    created.muted = useVideoMuteStore.getState().isMuted;
-    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
-    created.timeUpdateEventInterval = 0.25;
-  });
-  const { isPlaying } = useEvent(player, "playingChange", {
+  const { autoplayOwner, visible } = useMediaActivity(postId);
+  const [engaged, setEngaged] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
+  const prepareVideo =
+    visible &&
+    ((autoPlayEnabled === true && autoplayOwner) || engaged || hasPlayed);
+  const player = useVideoPlayer(
+    prepareVideo ? mediaVideoUrl(apiBase, media.id) : null,
+    (created) => {
+      // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
+      created.muted = useVideoMuteStore.getState().isMuted;
+      // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+      created.timeUpdateEventInterval = 0.25;
+    }
+  );
+  // SDK 57 recreates the player when its source changes. Event state belongs
+  // to that instance; an old playing/error event must not describe the next one.
+  const [playback, setPlayback] = useState(() => ({
     isPlaying: player.playing,
-  });
-  const { status: videoStatus } = useEvent(player, "statusChange", {
+    player,
+  }));
+  const [sourceStatus, setSourceStatus] = useState(() => ({
+    player,
     status: player.status,
+  }));
+  const isPlaying =
+    playback.player === player ? playback.isPlaying : player.playing;
+  const videoStatus =
+    sourceStatus.player === player ? sourceStatus.status : player.status;
+  useEventListener(player, "statusChange", (event) => {
+    setSourceStatus({ player, status: event.status });
   });
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   // Web's isFailed: a broken poster or clip shows the nomedia still.
   const [posterFailed, setPosterFailed] = useState(false);
   // Web's isVideoActive: set once frames are actually on screen while
   // playing, and kept through a pause so the paused frame stays visible.
   const [firstFrame, setFirstFrame] = useState(false);
-  const [hasPlayed, setHasPlayed] = useState(false);
   // Web shows the pills on hover; a grid tile shows them once started.
-  const [engaged, setEngaged] = useState(false);
   const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
   // A manual pause holds while the post stays in the viewport; leaving the
   // viewport clears it, so scrolling back resumes autoplay.
   const manualPausedRef = useRef(false);
   const endedRef = useRef(false);
+  const playbackTimeRef = useRef(0);
 
   const isFailed = posterFailed || videoStatus === "error";
-  const isVideoActive = firstFrame && hasPlayed;
+  const isVideoActive = prepareVideo && firstFrame && hasPlayed;
   const controlsVisible = autoPlayEnabled === true || engaged;
 
-  useEventListener(player, "timeUpdate", (payload) => {
-    setCurrentTime(payload.currentTime);
-    const next = player.duration;
-    if (Number.isFinite(next) && next > 0) {
-      setDuration((previous) => (previous === next ? previous : next));
-    }
+  useEventListener(player, "timeUpdate", (event) => {
+    playbackTimeRef.current = event.currentTime;
   });
-  useEventListener(player, "sourceLoad", (payload) => {
-    if (Number.isFinite(payload.duration) && payload.duration > 0) {
-      setDuration(payload.duration);
+  useEventListener(player, "sourceLoad", (event) => {
+    if (playbackTimeRef.current > 0 && event.duration > 0) {
+      // oxlint-disable-next-line react/immutability -- restore the playhead through expo-video's documented seek property
+      player.currentTime = Math.min(playbackTimeRef.current, event.duration);
     }
   });
   useEventListener(player, "playToEnd", () => {
     endedRef.current = true;
+    playbackTimeRef.current = 0;
   });
   useEventListener(player, "playingChange", (payload) => {
+    setPlayback({ isPlaying: payload.isPlaying, player });
     if (payload.isPlaying) {
       endedRef.current = false;
       setHasPlayed(true);
@@ -425,68 +531,44 @@ function VideoTile({
     player.play();
   };
 
-  // Viewport autoplay, muted by default like web's autoPlay previews.
-  //
-  // Two gates, and both are needed:
-  //   1. Ownership. The enabled feed nominates ONE autoplay post (the topmost
-  //      visible video), so a post mounted in two tabs - or two half-visible
-  //      cards in one tab - cannot play twice at once, which is heard as
-  //      doubled, slightly detuned audio.
-  //   2. Feed activity. `autoPlayEnabled` is three-valued: true (this tab is
-  //      on screen and may autoplay), false (mounted but backgrounded, so stop
-  //      - otherwise swiping away leaves the old tab's video playing), and
-  //      undefined (a tap-to-play grid tile that owns its playback, so this
-  //      lane must never touch it).
   useEffect(() => {
-    if (autoPlayEnabled !== true) {
-      if (autoPlayEnabled === false) {
-        player.pause();
-      }
+    if (autoPlayEnabled === true && !autoplayOwner) {
+      // oxlint-disable-next-line react/set-state-in-effect -- ownership comes from the external viewport store; clear manual playback on handoff
+      setEngaged(false);
+    }
+  }, [autoPlayEnabled, autoplayOwner]);
+
+  // A paused native player still buffers and owns a decoder. Off-screen
+  // cards use a null source; visible paused frames retain their loaded source.
+  useEffect(() => {
+    if (!visible) {
+      manualPausedRef.current = false;
+      // oxlint-disable-next-line react/set-state-in-effect -- reset the frame latch when the external viewport releases this native source
+      setFirstFrame(false);
+      setHasPlayed(false);
+      setEngaged(false);
+      player.pause();
       return;
     }
-    if (isAutoplayPost(postId)) {
-      player.play();
-    }
-    // Losing the slot pauses; gaining it resumes, unless the viewer paused by
-    // hand. Leaving the viewport also clears that manual pause, so scrolling
-    // back resumes autoplay like web.
-    const unsubscribeAutoplay = subscribeAutoplayPost(postId, (isOwner) => {
-      if (!isOwner) {
-        manualPausedRef.current = false;
-        player.pause();
-        return;
-      }
-      if (player.status === "error") {
-        return;
-      }
+    if (
+      prepareVideo &&
+      !manualPausedRef.current &&
+      ((autoPlayEnabled === true && autoplayOwner) || engaged)
+    ) {
       if (endedRef.current) {
         endedRef.current = false;
         player.replay();
-        return;
+      } else {
+        player.play();
       }
-      player.play();
-    });
-    const unsubscribeVisibility = subscribePostVisibility(postId, (visible) => {
-      if (player.status === "error") {
-        return;
-      }
-      if (visible) {
-        return;
-      }
-      manualPausedRef.current = false;
-      if (!isAutoplayPost(postId)) {
-        player.pause();
-      }
-    });
-    return () => {
-      unsubscribeAutoplay();
-      unsubscribeVisibility();
-    };
-  }, [autoPlayEnabled, player, postId]);
+    } else {
+      player.pause();
+    }
+  }, [autoPlayEnabled, autoplayOwner, engaged, player, prepareVideo, visible]);
 
   // Web fetches the WebVTT track once the preview is live; an empty track
   // falls back to spreading the transcript across the clip.
-  const wantsCaptions = showCaptions && (autoPlayEnabled === true || engaged);
+  const wantsCaptions = showCaptions && prepareVideo;
   useEffect(() => {
     if (!wantsCaptions || fetchedCues.length > 0) {
       return;
@@ -533,17 +615,18 @@ function VideoTile({
     [media.transcript]
   );
   const cues = fetchedCues.length > 0 ? fetchedCues : directCues;
-  const activeCue =
-    showCaptions && (isVideoActive || isPlaying || engaged)
-      ? findActiveCue(cues, currentTime)
-      : null;
-
   const posterOpacity = useFade(!isVideoActive, 500, POSTER_FADE);
   const badgeOpacity = useFade(!isVideoActive, 300, CSS_EASE);
   const controlsOpacity = useFade(controlsVisible, 200, CSS_EASE);
 
   const togglePlayback = () => {
     setEngaged(true);
+    if (!prepareVideo) {
+      // The source-bearing player is created on the next render. Its effect
+      // starts playback; issuing play on the empty player sends stale events.
+      manualPausedRef.current = false;
+      return;
+    }
     if (player.playing) {
       manualPausedRef.current = true;
       player.pause();
@@ -608,17 +691,21 @@ function VideoTile({
     );
   }
 
+  const playbackLabel = isPlaying ? "Pause video" : "Play video";
+  const previewLabel = onPressPreview ? "Open video" : playbackLabel;
   return (
     <View style={frameStyle}>
-      <VideoView
-        contentFit="cover"
-        nativeControls={false}
-        onFirstFrameRender={() => setFirstFrame(true)}
-        player={player}
-        pointerEvents="none"
-        style={styles.fill}
-        surfaceType="textureView"
-      />
+      {prepareVideo ? (
+        <VideoView
+          contentFit="cover"
+          nativeControls={false}
+          onFirstFrameRender={() => setFirstFrame(true)}
+          player={player}
+          pointerEvents="none"
+          style={styles.fill}
+          surfaceType="textureView"
+        />
+      ) : null}
       <Animated.View
         pointerEvents="none"
         style={[styles.fill, { opacity: posterOpacity }]}
@@ -644,11 +731,9 @@ function VideoTile({
         style={styles.fill}
       />
       <Pressable
-        accessibilityLabel={
-          media.altText ?? (isPlaying ? "Pause video" : "Play video")
-        }
-        accessibilityRole="button"
-        onPress={togglePlayback}
+        accessibilityLabel={media.altText ?? previewLabel}
+        accessibilityRole={onPressPreview ? "link" : "button"}
+        onPress={onPressPreview ?? togglePlayback}
         style={styles.fill}
       />
       <Animated.View
@@ -717,29 +802,86 @@ function VideoTile({
             )}
           </Gradient3D>
         </Pressable>
-        <View pointerEvents="none" style={styles.timePill}>
-          <Gradient3D
-            colors={["#3a3f4a", "#23262e"]}
-            radius={6}
-            shadows={DARK_PILL_SHADOWS}
-            style={styles.timeGradient}
-          >
-            <Text style={styles.timeText}>
-              {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
-            </Text>
-          </Gradient3D>
-        </View>
+        <VideoTimePill player={player} />
       </Animated.View>
       {media.aiGenerated ? <AiBadge bottom={44} /> : null}
-      {activeCue ? (
-        <View pointerEvents="none" style={styles.captionRow}>
-          <View style={styles.captionBox}>
-            <Text numberOfLines={2} style={styles.captionText}>
-              {activeCue.text}
-            </Text>
-          </View>
-        </View>
-      ) : null}
+      <VideoCaptions
+        cues={cues}
+        enabled={showCaptions && (isVideoActive || isPlaying || engaged)}
+        player={player}
+      />
+    </View>
+  );
+}
+
+// Clock ticks stay inside the clock/caption leaves. The video surface, shadows,
+// poster and buttons do not rerender four times a second during playback.
+function VideoTimePill({ player }: { player: VideoPlayer }) {
+  const [clock, setClock] = useState(() => ({
+    duration: player.duration,
+    player,
+    seconds: Math.floor(player.currentTime),
+  }));
+  if (clock.player !== player) {
+    setClock({
+      duration: player.duration,
+      player,
+      seconds: Math.floor(player.currentTime),
+    });
+  }
+  useEventListener(player, "timeUpdate", (event) => {
+    setClock((current) =>
+      updateVideoClockTime(current, player, event.currentTime)
+    );
+  });
+  useEventListener(player, "sourceLoad", (event) => {
+    if (Number.isFinite(event.duration) && event.duration > 0) {
+      setClock((current) =>
+        updateVideoClockDuration(current, player, event.duration)
+      );
+    }
+  });
+  return (
+    <View pointerEvents="none" style={styles.timePill}>
+      <Gradient3D
+        colors={["#3a3f4a", "#23262e"]}
+        radius={6}
+        shadows={DARK_PILL_SHADOWS}
+        style={styles.timeGradient}
+      >
+        <Text style={styles.timeText}>
+          {formatMediaTime(clock.seconds)} / {formatMediaTime(clock.duration)}
+        </Text>
+      </Gradient3D>
+    </View>
+  );
+}
+
+function VideoCaptions({
+  cues,
+  enabled,
+  player,
+}: {
+  cues: TranscriptCue[];
+  enabled: boolean;
+  player: VideoPlayer;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  useEventListener(player, "timeUpdate", (event) => {
+    if (enabled) {
+      setText(findActiveCue(cues, event.currentTime)?.text ?? null);
+    }
+  });
+  if (!enabled || !text) {
+    return null;
+  }
+  return (
+    <View pointerEvents="none" style={styles.captionRow}>
+      <View style={styles.captionBox}>
+        <Text numberOfLines={2} style={styles.captionText}>
+          {text}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -789,12 +931,21 @@ export function AudioRow({
   media: FeedMedia;
 }) {
   const { isDark, theme } = useAppTheme();
-  const player = useAudioPlayer(mediaAudioUrl(apiBase, media.id), {
-    updateInterval: 250,
-  });
+  const { visible } = useMediaActivity();
+  const player = useAudioPlayer(
+    visible ? mediaAudioUrl(apiBase, media.id) : null,
+    {
+      updateInterval: 250,
+    }
+  );
   // Real-time status must come from useAudioPlayerStatus: reading the player
   // fields directly never re-renders.
   const status = useAudioPlayerStatus(player);
+  useEffect(() => {
+    if (!visible) {
+      player.pause();
+    }
+  }, [player, visible]);
   const [trackWidth, setTrackWidth] = useState(0);
   const [waveform, setWaveform] = useState<number[] | null>(
     () => waveformCache.get(media.id) ?? null
@@ -849,7 +1000,7 @@ export function AudioRow({
   const currentTime = finished ? 0 : status.currentTime;
 
   const isWaveformLoading = waveform === null;
-  const animating = isWaveformLoading || playing;
+  const animating = visible && (isWaveformLoading || playing);
 
   // asm-eq: one looping 0..1 driver over the 0.8s period; every bar maps it
   // through its own phase-shifted keyframe table (web's -index * 0.04s
@@ -1271,19 +1422,26 @@ export function MediaGallery({
   postId,
 }: GalleryProps) {
   const { failed, markFailed } = useFailedImages();
+  const focused = useIsFocused();
+  const activity = useMemo(
+    () => ({ active, focused, postId }),
+    [active, focused, postId]
+  );
   const visible = attachments.filter((media) => media && !failed.has(media.id));
   if (visible.length === 0) {
     return null;
   }
   return (
-    <SingleOrGrid
-      active={active}
-      apiBase={apiBase}
-      items={visible}
-      onFailed={markFailed}
-      onPressMedia={onPressMedia}
-      postId={postId}
-    />
+    <MediaActivityContext.Provider value={activity}>
+      <SingleOrGrid
+        active={active}
+        apiBase={apiBase}
+        items={visible}
+        onFailed={markFailed}
+        onPressMedia={onPressMedia}
+        postId={postId}
+      />
+    </MediaActivityContext.Provider>
   );
 }
 
@@ -1323,6 +1481,7 @@ function SingleOrGrid({
         apiBase={apiBase}
         autoPlayEnabled={active}
         media={first}
+        onPressPreview={onPressMedia ? () => onPressMedia(0) : undefined}
         postId={postId}
       />
     );
@@ -1501,10 +1660,15 @@ function mediaCell(
   onPressMedia?: (index: number) => void
 ) {
   if (isVideoMedia(media)) {
-    // Video tiles keep tap-to-play (the tap drives playback); the viewer
-    // route is reached from the detail card's single-image tiles and the
-    // overflow tile instead.
-    return <VideoTile apiBase={apiBase} media={media} postId={postId} tile />;
+    return (
+      <VideoTile
+        apiBase={apiBase}
+        media={media}
+        onPressPreview={onPressMedia ? () => onPressMedia(index) : undefined}
+        postId={postId}
+        tile
+      />
+    );
   }
   if (isAudioMedia(media)) {
     return <AudioRow apiBase={apiBase} media={media} />;
