@@ -47,7 +47,7 @@ import {
   ConversationDetailsRail,
   DetailsRailToggleIcon,
 } from "@/components/messages/conversation-details-rail";
-import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
+import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import {
   detailsPlacement,
   showsDetailsRailToggle,
@@ -5710,7 +5710,7 @@ function ThreadHeader({
       >
         <span className="relative shrink-0">
           {denIdentity ? (
-            <DenAvatarStack
+            <DenAvatarCollage
               avatarMediaId={denIdentity.avatarMediaId}
               members={denIdentity.members}
               myUserId={denIdentity.myUserId}

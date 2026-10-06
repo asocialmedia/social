@@ -8,7 +8,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { ConversationRow } from "@/components/messages/conversation-list-item";
 import { CreateDenDialog } from "@/components/messages/create-den-dialog";
-import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
+import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -404,7 +404,7 @@ export function ConversationList({
         >
           <div className="relative">
             {item.conversation.type === "DEN" ? (
-              <DenAvatarStack
+              <DenAvatarCollage
                 avatarMediaId={item.conversation.avatarMediaId ?? null}
                 members={item.conversation.members.map((member) => ({
                   avatarUrl: member.user.avatarUrl,

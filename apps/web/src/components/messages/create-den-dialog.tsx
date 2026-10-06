@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import {
   MemberPicker,
   MemberPickerSearch,
@@ -345,11 +346,44 @@ export function CreateDenDialog({
 
           {/* The avatar. AvatarInput owns its own file picking, cropping and GIF
               centring, exactly as it does in the community wizard and the profile
-              editor, so this dialog holds only the media id. */}
+              editor, so this dialog holds only the media id.
+
+              With nothing picked it draws the member stack the den will actually
+              show, rather than the stock face the generic input falls back to. The
+              copy beside it has always promised "without one the den shows its
+              members", and a stock face in the well contradicted the den it was
+              about to make. Assembled exactly as the roster will be - the creator
+              first and as OWNER, then the picked members in selection order - so
+              `denAvatarFaces` picks the same faces here as it will in the list. */}
           <div className="flex items-center gap-3">
             <AvatarInput
               canDelete={Boolean(avatarMediaId)}
               className="size-16"
+              emptySlot={
+                user ? (
+                  <DenAvatarCollage
+                    avatarMediaId={null}
+                    members={[
+                      {
+                        avatarUrl: user.avatarUrl ?? user.image ?? null,
+                        displayName: user.name || user.username || "You",
+                        id: user.id,
+                        role: "OWNER",
+                        username: user.username || user.id,
+                      },
+                      ...selected.map((member) => ({
+                        avatarUrl: member.avatarUrl,
+                        displayName: member.displayName,
+                        id: member.id,
+                        role: "MEMBER",
+                        username: member.username,
+                      })),
+                    ]}
+                    myUserId={user.id}
+                    size={64}
+                  />
+                ) : null
+              }
               isDeleted={false}
               isUploading={uploading}
               onDelete={() => {

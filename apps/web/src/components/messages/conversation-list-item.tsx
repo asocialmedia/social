@@ -5,7 +5,7 @@ import { memo } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
-import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
+import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import type { ConversationListItem } from "@/lib/messages/client";
 import {
   conversationDisplayName,
@@ -133,7 +133,7 @@ function ConversationRowInner({
     >
       <span className="relative shrink-0">
         {isDen ? (
-          <DenAvatarStack
+          <DenAvatarCollage
             avatarMediaId={item.conversation.avatarMediaId ?? null}
             members={item.conversation.members.map((member) => ({
               avatarUrl: member.user.avatarUrl,

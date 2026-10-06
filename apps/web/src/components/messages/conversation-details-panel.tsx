@@ -93,7 +93,7 @@ import type { SharedContentMessage } from "./conversation-shared-content";
 import { ConversationSharedLinksTab } from "./conversation-shared-links-tab";
 import { ConversationSharedMediaTab } from "./conversation-shared-media-tab";
 import { ConversationSharedPostsTab } from "./conversation-shared-posts-tab";
-import { DenAvatarStack } from "./den-avatar-stack";
+import { DenAvatarCollage } from "./den-avatar-collage";
 import { DenPanel } from "./den-panel";
 import type { ConversationMediaItem } from "./message-conversation-media";
 import { useOpenConversationMedia } from "./message-media-viewer-context";
@@ -979,7 +979,7 @@ function DetailsHeader({
               gives it its own depth, and a pane-colored frame around it is what
               read as a cut edge against the banner. */}
           {den ? (
-            <DenAvatarStack
+            <DenAvatarCollage
               avatarMediaId={den.avatarMediaId}
               members={den.members}
               myUserId={den.myUserId}

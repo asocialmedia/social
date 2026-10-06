@@ -6,7 +6,7 @@ import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { ImagePlus, Pencil, Trash2 } from "lucide-react";
 import Image from "next/image";
 import type { StaticImageData } from "next/image";
-import type { SyntheticEvent } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Resizer from "react-image-file-resizer";
 
@@ -328,6 +328,17 @@ export interface AvatarInputProps {
   shape?: "circle" | "squircle";
   stage?: UploadStage | null;
   src: string | StaticImageData;
+  // What to draw in the empty slot, in place of the generic placeholder asset.
+  //
+  // The default placeholder is right whenever an avatar belongs to a person: no
+  // picture yet means a stock face. It is wrong for a den, which has no single
+  // person - and the create sheet promised "without one the den shows its
+  // members", so an empty well showing a stock face contradicted the den it was
+  // about to make. A caller that has something truer to show passes it here.
+  //
+  // Only used when `src` is empty: once a file is picked the preview is the
+  // person's chosen bytes, placeholder or not.
+  emptySlot?: ReactNode;
   // See BannerInputProps.user.
   user: Pick<PrivateUserData, "id">;
   // "row" is the dialog's bordered row with helper copy; "bare" is just the
@@ -339,6 +350,7 @@ export const AvatarInput = (props: AvatarInputProps) => {
   const {
     canDelete,
     className,
+    emptySlot,
     isDeleted,
     isUploading,
     onDelete,
@@ -360,6 +372,11 @@ export const AvatarInput = (props: AvatarInputProps) => {
     () => resolveAvatarSrc(src, avatarPlaceholder.src),
     [src]
   );
+  // Whether the caller supplied real bytes. A `StaticImageData` counts as real (it
+  // is the bundled placeholder), so only an empty or whitespace string is empty -
+  // the same test `resolveAvatarSrc` makes to decide to substitute the placeholder.
+  const hasSuppliedSrc = typeof src !== "string" || src.trim().length > 0;
+  const slot = hasSuppliedSrc ? null : emptySlot;
 
   const resetInput = useCallback(() => {
     if (fileInputRef.current) {
@@ -478,20 +495,22 @@ export const AvatarInput = (props: AvatarInputProps) => {
         onClick={handleAvatarClick}
         type="button"
       >
-        <Image
-          alt="Avatar preview"
-          className={cn(
-            "avatar-ring size-24 flex-none object-cover",
-            shapeClass,
-            isUploading && "opacity-50",
-            className
-          )}
-          height={150}
-          onError={handleAvatarError}
-          src={avatarSrc}
-          unoptimized
-          width={150}
-        />
+        {slot ?? (
+          <Image
+            alt="Avatar preview"
+            className={cn(
+              "avatar-ring size-24 flex-none object-cover",
+              shapeClass,
+              isUploading && "opacity-50",
+              className
+            )}
+            height={150}
+            onError={handleAvatarError}
+            src={avatarSrc}
+            unoptimized
+            width={150}
+          />
+        )}
         {isUploading ? (
           <span
             className={cn(

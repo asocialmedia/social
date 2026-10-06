@@ -37,7 +37,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
-import { DenAvatarStack } from "@/components/messages/den-avatar-stack";
+import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import { DenBanDialog } from "@/components/messages/den-ban-dialog";
 import { DenBannedSection } from "@/components/messages/den-banned-section";
 import { DenConfirmDialog } from "@/components/messages/den-confirm-dialog";
@@ -597,7 +597,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           this den. */}
       <div className="surface-3d rounded-2xl px-3.5 py-3">
         <div className="flex items-center gap-3">
-          <DenAvatarStack
+          <DenAvatarCollage
             avatarMediaId={den.avatarMediaId}
             members={members}
             myUserId={myUserId}
