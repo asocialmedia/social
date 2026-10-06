@@ -4,6 +4,7 @@ import {
   createDen,
   fromPrismaDateTime,
   getMessageConversationDataQuery,
+  listDenMembershipEventsForUser,
   or,
   prisma,
   toPrismaDateTime,
@@ -27,8 +28,14 @@ import {
   parseMemberIds,
   validateDenRoster,
 } from "@/lib/messages/den-roster";
-import { readerMessageWindow } from "@/lib/messages/reader-window";
-import type { ReaderMessageWindow } from "@/lib/messages/reader-window";
+import {
+  readerMessageWindows,
+  readerWindowsContain,
+} from "@/lib/messages/reader-window";
+import type {
+  ReaderMembershipEvent,
+  ReaderMessageWindow,
+} from "@/lib/messages/reader-window";
 import {
   areBlocked,
   hasMessageIdentity,
@@ -129,36 +136,41 @@ function viewerMembership(
   };
 }
 
-// Drops the preview rows that fall outside the reader's window.
+// Drops the preview rows that fall outside every one of the reader's windows.
 //
 // Only ever removes a row, and the input is the single newest message the query
 // already limited, so this is at most one comparison per conversation on screen.
-function previewInWindow<T extends { createdAt: unknown }>(
+function previewInWindows<T extends { createdAt: unknown }>(
   messages: T[],
-  window: ReaderMessageWindow
+  windows: readonly ReaderMessageWindow[]
 ): T[] {
-  if (window.after === null && window.before === null) {
+  if (
+    windows.some((window) => window.after === null && window.before === null)
+  ) {
     return messages;
   }
-  return messages.filter((message) => {
-    const at = fromPrismaDateTime(message.createdAt).getTime();
-    if (window.after !== null && at < window.after.getTime()) {
-      return false;
-    }
-    return window.before === null || at <= window.before.getTime();
-  });
+  return messages.filter((message) =>
+    readerWindowsContain(windows, fromPrismaDateTime(message.createdAt))
+  );
 }
 
 function mapConversation(
   conversation: ConversationQueryDataWithMessages,
-  viewerId: string
+  viewerId: string,
+  // The viewer's own membership log lines for this conversation, oldest first.
+  // A rejoin leaves the row unable to say which stretch the viewer missed, so the
+  // stint boundaries come from the log; the create paths pass nothing because a
+  // conversation being born has no stints to miss.
+  membershipEvents: readonly ReaderMembershipEvent[]
 ): ConversationWithLastMessage {
   const canManage = conversation.messageConversationMembers.some(
     (member) => member.userId === viewerId && canManageDen(member.role)
   );
-  const previewWindow = readerMessageWindow({
+  const previewWindows = readerMessageWindows({
     conversationType: conversation._type,
+    events: membershipEvents,
     membership: viewerMembership(conversation, viewerId),
+    userId: viewerId,
   });
   return {
     // Den columns, null on a DM. `type` is never null, so a caller can branch on
@@ -232,12 +244,12 @@ function mapConversation(
     // The preview is the newest message this viewer may see, and the transcript
     // route already floors that by the viewer's join - so without this the list row
     // could offer a pre-join message the transcript then refuses to open. Same
-    // window, same helper, applied here because this route cannot express a per
-    // conversation floor inside the nested query: the bound is a fact about the
-    // VIEWER's membership row, and there is one of those per conversation on screen.
+    // windows, same helper, applied here because this route cannot express a per
+    // conversation floor inside the nested query: the bounds are facts about the
+    // VIEWER's membership, and there is one of those per conversation on screen.
     // Filtering the already-limited single row costs nothing and keeps the list and
     // the thread from disagreeing about what this person has seen.
-    messages: previewInWindow(conversation.messages ?? [], previewWindow).map(
+    messages: previewInWindows(conversation.messages ?? [], previewWindows).map(
       (message) => ({
         ...message,
         createdAt: fromPrismaDateTime(message.createdAt),
@@ -337,10 +349,20 @@ export async function GET(request: Request) {
     }
   }
   const conversationRows = await conversationQuery.all();
+  // The viewer's own stint boundaries for every den on the page, in one read.
+  // A rejoin leaves the membership row unable to say which stretch of the
+  // transcript the viewer was away for, and the preview below must not offer a
+  // message from that stretch any more than the transcript route may serve it.
+  const membershipEventsByDen = await listDenMembershipEventsForUser(
+    conversationRows.filter((row) => row._type === "DEN").map((row) => row.id),
+    user.id
+  );
   // Bound, so the mapper's viewer is the session's and not a closure over
   // something that a later caller could get wrong. `map` passes (row, index), and
   // an index would silently become the viewer id if this were passed bare.
-  const page = conversationRows.map((row) => mapConversation(row, user.id));
+  const page = conversationRows.map((row) =>
+    mapConversation(row, user.id, membershipEventsByDen.get(row.id) ?? [])
+  );
   const hasMore = page.length > PAGE_SIZE;
   const visiblePage = hasMore ? page.slice(0, PAGE_SIZE) : page;
 
@@ -573,7 +595,7 @@ export async function POST(request: Request) {
     .first();
   if (existingRow) {
     return Response.json({
-      conversation: mapConversation(existingRow, user.id),
+      conversation: mapConversation(existingRow, user.id, []),
       isNew: false,
     });
   }
@@ -602,7 +624,7 @@ export async function POST(request: Request) {
       if (!row) {
         throw new Error("Conversation not found after creation");
       }
-      return mapConversation(row, user.id);
+      return mapConversation(row, user.id, []);
     })
     .catch(async (error: unknown) => {
       if (!isUniqueConstraintViolation(error)) {
@@ -612,7 +634,7 @@ export async function POST(request: Request) {
         .where({ pairKey })
         .first();
       if (winner) {
-        return mapConversation(winner, user.id);
+        return mapConversation(winner, user.id, []);
       }
       throw error;
     });
@@ -747,7 +769,7 @@ async function createDenFromRequest(
     }
     return Response.json(
       {
-        conversation: mapConversation(row, creatorId),
+        conversation: mapConversation(row, creatorId, []),
         inviteCode: created.inviteCode,
         isNew: true,
       },

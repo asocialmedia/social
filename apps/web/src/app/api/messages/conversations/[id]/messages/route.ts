@@ -4,6 +4,7 @@ import {
   createDenMessageNotifications,
   fromPrismaDateTime,
   getMessageDataQuery,
+  listDenMembershipEvents,
   prisma,
   publishMessageActivity,
   or,
@@ -22,7 +23,7 @@ import {
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
-import { readerMessageWindow } from "@/lib/messages/reader-window";
+import { readerMessageWindows } from "@/lib/messages/reader-window";
 import {
   areBlocked,
   getConversationForUser,
@@ -311,31 +312,40 @@ export async function GET(
     }
   }
 
-  // This reader's window over the transcript, and the filter that applies it.
+  // This reader's windows over the transcript, and the filter that applies them.
   //
   // `getConversationForUser` admits somebody who left on purpose so their history stays
   // readable, and this is the other half of that split. A departed reader is capped at
   // their `leftAt`, so a reload cannot page in ciphertext from after the departure. A
   // reader who has just JOINED is floored at their membership's `createdAt`, so a
   // newcomer is not handed the room's history - which they could not decrypt anyway,
-  // having been wrapped for no epoch minted before they arrived.
+  // having been wrapped for no epoch minted before they arrived. And a reader who left
+  // and came back holds one window per STINT, so the stretch they were gone stays
+  // hidden: the membership row alone cannot express it (a rejoin clears `leftAt` on
+  // the original row), which is what the membership log is loaded for.
   //
-  // Both bounds are decided in one place, `readerMessageWindow`, and `myMember` is the
-  // row the read gate already loaded, so this costs no query.
+  // The log is uncapped: this filter is about the reader's own stints, and their own
+  // lines all lie at or before any departure of theirs. It is also one bounded read -
+  // a den's log is churn-sized - and it is skipped for a DM, which has no log and no
+  // join floor at all.
   const myMember = conversation.members.find(
     (member) => member.userId === user.id
   );
+  const membershipEvents =
+    conversation.type === "DEN" ? await listDenMembershipEvents(id, null) : [];
   // `fromPrismaDateTime` rather than a bare read: the member mapper converts the
   // timestamps the routes use but leaves `createdAt` as the raw temporal value, and
   // the window is compared against real dates.
-  const readerWindow = readerMessageWindow({
+  const readerWindows = readerMessageWindows({
     conversationType: conversation.type,
+    events: membershipEvents,
     membership: myMember
       ? {
           createdAt: fromPrismaDateTime(myMember.createdAt),
           leftAt: myMember.leftAt,
         }
       : null,
+    userId: user.id,
   });
   // `ReturnType<typeof visibleToUser>[0]` rather than `Parameters<...>[0]`, because
   // `visibleToUser` takes the user id and RETURNS the message filter: indexing the
@@ -344,15 +354,23 @@ export async function GET(
     message: Parameters<ReturnType<typeof visibleToUser>>[0]
   ) => {
     const conditions = [visibleToUser(user.id)(message)];
-    if (readerWindow.after !== null) {
-      conditions.push(
-        message.createdAt.gte(toPrismaDateTime(readerWindow.after))
-      );
-    }
-    if (readerWindow.before !== null) {
-      conditions.push(
-        message.createdAt.lte(toPrismaDateTime(readerWindow.before))
-      );
+    // One bounded range per stint, OR-ed. A stint with neither bound admits the
+    // whole transcript on its own, so no range is added at all - which is also
+    // what keeps a DM on exactly the filter it had before windows existed.
+    const ranges = readerWindows
+      .map((window) => {
+        const bounds = [];
+        if (window.after !== null) {
+          bounds.push(message.createdAt.gte(toPrismaDateTime(window.after)));
+        }
+        if (window.before !== null) {
+          bounds.push(message.createdAt.lte(toPrismaDateTime(window.before)));
+        }
+        return bounds.length === 0 ? null : and(...bounds);
+      })
+      .filter((range) => range !== null);
+    if (ranges.length === readerWindows.length) {
+      conditions.push(or(...ranges));
     }
     return and(...conditions);
   };

@@ -82,6 +82,19 @@ let postMediaUpdateCount = 1;
 // because the point of the filter is that a single list has to treat them
 // differently.
 let conversationPage: Record<string, unknown>[] = [];
+// The viewer's membership log lines per den, keyed by conversation id, as
+// `listDenMembershipEventsForUser` groups them. Empty by default, which is the
+// no-broken-membership answer: the preview's windows then come from the row
+// alone, exactly as they did before stints existed.
+let listMembershipEventsByDen = new Map<
+  string,
+  {
+    action: string;
+    actorId: string | null;
+    createdAt: Date;
+    targetUserId: string | null;
+  }[]
+>();
 let blockedOutbound: string[] = [];
 let blockedInbound: string[] = [];
 let unreadConversationIds: string[] = [];
@@ -233,6 +246,22 @@ function pageConversation(
     ...overrides,
   };
 }
+
+// A preview row on the den the stint tests page in, stamped so its position
+// against the reader's windows is the fact under test.
+function denPreview(createdAt: Date): Record<string, unknown> {
+  return {
+    ciphertext: "c",
+    conversationId: "den-1",
+    createdAt,
+    deletedAt: null,
+    editedAt: null,
+    id: `m-${createdAt.toISOString()}`,
+    iv: "i",
+    ratchetIndex: 0,
+    senderId: "user2",
+  };
+}
 const mockFindUniqueUser = mock((args: { where: { id: string } }) =>
   args.where.id === "user2" ? { id: "user2" } : null
 );
@@ -297,7 +326,6 @@ mock.module("@asm/db", () => ({
   // importing the barrel should get the barrel's export either way.
   canManageDen: (role: string) => role === "OWNER" || role === "ADMIN",
   createDen: mockCreateDen,
-  // The last thing `validateDenRoster` asks, and the only one that cannot be answered by
   getMessageConversationDataQuery: () => {
     // One chainable query for both verbs. The GET reads a page through
     // include/where/orderBy/limit/all; the POST resolves a single row through
@@ -376,6 +404,11 @@ mock.module("@asm/db", () => ({
   // replaced wholesale. Permissive, so the den branch gets past it and reaches
   // `createDen`, which is the only thing this file is about.
   groupAddRefusalFor: () => null,
+  // The viewer's own membership log lines per den, for the preview's stint
+  // windows. Empty by default: no test den here has a broken membership, and the
+  // empty answer falls back to the row window every reader had before stints.
+  listDenMembershipEventsForUser: () =>
+    Promise.resolve(listMembershipEventsByDen),
   // The list route's per-user visibility filter is a no-op for these fixtures:
   // nothing here is hidden, and the filter is exercised in the query that returns
   // the preview messages.
@@ -695,6 +728,7 @@ describe("POST /api/messages/conversations", () => {
 describe("GET /api/messages/conversations", () => {
   beforeEach(() => {
     conversationPage = [];
+    listMembershipEventsByDen = new Map();
     blockedOutbound = [];
     blockedInbound = [];
     unreadConversationIds = [];
@@ -771,6 +805,64 @@ describe("GET /api/messages/conversations", () => {
     expect(lastUnreadBranches.map((row) => row.conversationId)).toEqual([
       "den-1",
     ]);
+  });
+
+  // A rejoiner's preview must not offer a message from the stretch they were
+  // gone: the transcript route hides that stretch, and a list row that previews
+  // it advertises a message that opens to nothing.
+  test("drops a preview from the gap between a rejoiner's stints", async () => {
+    const joinedAt = new Date("2026-01-01T00:00:00Z");
+    const leftAt = new Date("2026-02-01T00:00:00Z");
+    const rejoinedAt = new Date("2026-03-01T00:00:00Z");
+    listMembershipEventsByDen = new Map([
+      [
+        "den-1",
+        [
+          {
+            action: "JOINED",
+            actorId: "user1",
+            createdAt: joinedAt,
+            targetUserId: null,
+          },
+          {
+            action: "LEFT",
+            actorId: "user1",
+            createdAt: leftAt,
+            targetUserId: null,
+          },
+          {
+            action: "JOINED",
+            actorId: "user1",
+            createdAt: rejoinedAt,
+            targetUserId: null,
+          },
+        ],
+      ],
+    ]);
+    conversationPage = [
+      pageConversation("den-1", "DEN", ["user1", "user2"], {
+        messageConversationMembers: [
+          memberRow("den-1", "user1", { createdAt: joinedAt, leftAt: null }),
+          memberRow("den-1", "user2"),
+        ],
+        messages: [denPreview(new Date("2026-02-15T00:00:00Z"))],
+      }),
+    ];
+    let body = await readList();
+    expect(body.items[0]?.lastMessage).toBeNull();
+
+    // A message from the CURRENT stint previews exactly as before.
+    conversationPage = [
+      pageConversation("den-1", "DEN", ["user1", "user2"], {
+        messageConversationMembers: [
+          memberRow("den-1", "user1", { createdAt: joinedAt, leftAt: null }),
+          memberRow("den-1", "user2"),
+        ],
+        messages: [denPreview(new Date("2026-03-15T00:00:00Z"))],
+      }),
+    ];
+    body = await readList();
+    expect(body.items[0]?.lastMessage).not.toBeNull();
   });
 
   test("bounds each conversation by its OWN watermark", async () => {

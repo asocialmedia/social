@@ -1,6 +1,12 @@
-import { and, prisma } from "@asm/db";
+import {
+  and,
+  fromPrismaDateTime,
+  listDenMembershipEvents,
+  prisma,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { readerMessageWindows } from "@/lib/messages/reader-window";
 import { getConversationForUser } from "@/lib/messages/server";
 
 export async function GET(
@@ -43,8 +49,43 @@ export async function GET(
     (member) => member.userId === user.id
   );
 
+  // Every member's presence stints, so the client's heal gate can tell "was in
+  // the room when this epoch was minted" for a member who left and came back -
+  // the row alone cannot say it, because a rejoin clears `leftAt` on the
+  // original row and keeps the first join as `createdAt`.
+  //
+  // The log is capped at the reader's own `leftAt`, the same cutoff the
+  // transcript's events route applies: a departed reader is shown the room as it
+  // was when they walked out, and a window derived from lines past that moment
+  // would leak the roster changes themselves. For the reader's OWN windows the
+  // cap costs nothing - their lines all lie at or before their own departure.
+  const membershipEvents =
+    conversation.type === "DEN"
+      ? await listDenMembershipEvents(id, myMember?.leftAt ?? null)
+      : [];
+
   return Response.json({
-    conversation,
+    conversation: {
+      ...conversation,
+      members: conversation.members.map((member) => ({
+        ...member,
+        membershipWindows:
+          conversation.type === "DEN"
+            ? readerMessageWindows({
+                conversationType: conversation.type,
+                events: membershipEvents,
+                membership: {
+                  createdAt: fromPrismaDateTime(member.createdAt),
+                  leftAt: member.leftAt ?? null,
+                },
+                userId: member.userId,
+              }).map((window) => ({
+                after: window.after?.toISOString() ?? null,
+                before: window.before?.toISOString() ?? null,
+              }))
+            : undefined,
+      })),
+    },
     // The wrapper columns ride along because a den reader needs them: a wrap row
     // says which member produced it, and only that member's public key can unwrap
     // it. A DM row has neither, and the client falls back to the peer.

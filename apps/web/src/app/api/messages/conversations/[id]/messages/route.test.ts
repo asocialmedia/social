@@ -88,6 +88,16 @@ let denMembers: { mutedAt: Date | null; userId: string }[] = [];
 let viewerJoinAt: Date | undefined;
 // And when they left, for the cap that predates the floor.
 let viewerLeftAt: Date | undefined;
+// The den's membership log lines as `listDenMembershipEvents` returns them. A
+// rejoiner's stint boundaries come from here: the row alone cannot say which
+// stretch they missed. Empty by default, which is the no-log answer every
+// membership that never broke gets.
+let membershipEvents: {
+  action: string;
+  actorId: string | null;
+  createdAt: Date;
+  targetUserId: string | null;
+}[] = [];
 mockCreateDenMessageNotifications.mockImplementation(
   (_tx: unknown, input: { conversationId: string; senderId: string }) => {
     if (denFanOutFailure) {
@@ -148,6 +158,33 @@ function flatten(conditions: unknown[]): object[] {
     .flatMap((condition) =>
       Array.isArray(condition) ? flatten(condition) : [condition as object]
     );
+}
+
+// Deep per-key merge for the `and` mock: two predicates on the SAME column keep
+// both ops (`{ createdAt: { gte, lte } }`) instead of the second overwriting the
+// first. Non-object values replace, which is what a repeated plain key means.
+function mergePredicates(
+  target: Record<string, unknown>,
+  condition: Record<string, unknown>
+): void {
+  for (const [key, value] of Object.entries(condition)) {
+    const existing = target[key];
+    if (
+      existing !== null &&
+      value !== null &&
+      typeof existing === "object" &&
+      typeof value === "object" &&
+      !Array.isArray(existing) &&
+      !Array.isArray(value)
+    ) {
+      mergePredicates(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>
+      );
+    } else {
+      target[key] = value;
+    }
+  }
 }
 
 function recordingAccessor() {
@@ -313,21 +350,31 @@ mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@asm/db", () => ({
   // The real `and` composes predicates into one expression; merging the recorded
-  // column predicates into a flat object is what makes the composed query
-  // inspectable.
-  //
-  // Flattened, because the real combinators nest: a row-wise bound like
-  // `(createdAt, id) <= anchor` is an `or` of two branches, one of which is an
-  // `and`, and a mock that cannot flatten reports the branch list under numeric
-  // keys instead of under the columns it touches.
-  and: (...conditions: unknown[]) => Object.assign({}, ...flatten(conditions)),
+  // column predicates into one object is what makes the composed query
+  // inspectable. The merge is DEEP per column: a closed stint range is an `and`
+  // of `gte` and `lte` on the same `createdAt`, and a shallow merge would keep
+  // only the second op, hiding the floor the test exists to assert.
+  and: (...conditions: unknown[]) => {
+    const merged: Record<string, unknown> = {};
+    for (const condition of flatten(conditions)) {
+      mergePredicates(merged, condition as Record<string, unknown>);
+    }
+    return merged;
+  },
   consumeRateLimit: mockConsumeRateLimit,
   createDenMessageNotifications: mockCreateDenMessageNotifications,
   enqueueNotificationCreated: mockEnqueueNotificationCreated,
   enqueueNotificationDeleted: mock(() => Promise.resolve()),
   fromPrismaDateTime: (value: Date) => value,
   getMessageDataQuery: buildMessageQuery,
-  or: (...conditions: unknown[]) => flatten(conditions),
+  // The membership log the route reads to split a rejoiner's transcript into
+  // stints. Tests set `membershipEvents`; the empty default is the no-log answer
+  // every pre-stint membership gets.
+  listDenMembershipEvents: () => Promise.resolve(membershipEvents),
+  // Tagged rather than flattened: a rejoiner's windows are an `or` of one range
+  // per stint, and flattening the branches into the surrounding `and` made every
+  // branch but the last overwrite each other on the `createdAt` key.
+  or: (...conditions: unknown[]) => ({ OR: flatten(conditions) }),
   prisma: {
     orm: {
       public: {
@@ -946,6 +993,7 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     recorded = { where: {} };
     viewerJoinAt = undefined;
     viewerLeftAt = undefined;
+    membershipEvents = [];
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockConsumeRateLimit.mockClear();
@@ -969,7 +1017,7 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     await GET(new Request(denUrl()), {
       params: Promise.resolve({ id: "den-1" }),
     });
-    expect(recorded.where.createdAt).toEqual({ gte: joinedAt });
+    expect(recorded.where.OR).toEqual([{ createdAt: { gte: joinedAt } }]);
   });
 
   // The bound that already existed, restated next to its new sibling so the two
@@ -981,7 +1029,91 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     await GET(new Request(denUrl()), {
       params: Promise.resolve({ id: "den-1" }),
     });
-    expect(recorded.where.createdAt).toEqual({ lte: leftAt });
+    expect(recorded.where.OR).toEqual([{ createdAt: { lte: leftAt } }]);
+  });
+
+  // The rejoin case. A member who left and came back holds one window per stint:
+  // the row alone cannot express it (a rejoin clears `leftAt` on the original row
+  // and keeps the first join as `createdAt`), so the gap between the stints is
+  // excluded by OR-ing the two bounded ranges the membership log provides.
+  test("hides the gap for a member who left and rejoined", async () => {
+    const joinedAt = new Date("2026-03-01T12:00:00.000Z");
+    const leftAt = new Date("2026-03-02T12:00:00.000Z");
+    const rejoinedAt = new Date("2026-03-04T12:00:00.000Z");
+    viewerJoinAt = joinedAt;
+    membershipEvents = [
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: joinedAt,
+        targetUserId: null,
+      },
+      {
+        action: "LEFT",
+        actorId: "user1",
+        createdAt: leftAt,
+        targetUserId: null,
+      },
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: rejoinedAt,
+        targetUserId: null,
+      },
+    ];
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.OR).toEqual([
+      { createdAt: { gte: joinedAt, lte: leftAt } },
+      { createdAt: { gte: rejoinedAt } },
+    ]);
+  });
+
+  // The same gap, closed on both ends: removed by a manager (the subject rides in
+  // `targetUserId`), re-added later, and out again now.
+  test("hides every gap for a member removed and re-added", async () => {
+    const joinedAt = new Date("2026-03-01T12:00:00.000Z");
+    const removedAt = new Date("2026-03-02T12:00:00.000Z");
+    const readdedAt = new Date("2026-03-04T12:00:00.000Z");
+    const leftAt = new Date("2026-03-05T12:00:00.000Z");
+    viewerJoinAt = joinedAt;
+    viewerLeftAt = leftAt;
+    membershipEvents = [
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: joinedAt,
+        targetUserId: null,
+      },
+      {
+        action: "REMOVED",
+        actorId: "owner1",
+        createdAt: removedAt,
+        targetUserId: "user1",
+      },
+      {
+        action: "JOINED",
+        actorId: "owner1",
+        createdAt: readdedAt,
+        targetUserId: "user1",
+      },
+      {
+        action: "LEFT",
+        actorId: "user1",
+        createdAt: leftAt,
+        targetUserId: null,
+      },
+    ];
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.OR).toEqual([
+      { createdAt: { gte: joinedAt, lte: removedAt } },
+      { createdAt: { gte: readdedAt, lte: leftAt } },
+    ]);
   });
 
   // A DM has two participants who were both there from the start, so flooring one at
@@ -1160,9 +1292,16 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // The older half is INCLUSIVE of the anchor, so `anchorIndex` can point at
     // it, and the bound has to be a row-wise `<=` over the same pair rather than
     // an id comparison - an id bound compares a random value.
-    expect(olderQuery?.where.createdAt).toBeDefined();
+    const anchorTime = new Date("2026-01-01T00:00:00.000Z");
+    expect(olderQuery?.where.OR).toEqual([
+      { createdAt: { lt: anchorTime } },
+      { createdAt: { eq: anchorTime }, id: { lte: "m-020" } },
+    ]);
     // And the newer half must be STRICT, or the anchor returns on both sides.
-    expect(newerQuery?.where.createdAt).toBeDefined();
+    expect(newerQuery?.where.OR).toEqual([
+      { createdAt: { gt: anchorTime } },
+      { createdAt: { eq: anchorTime }, id: { gt: "m-020" } },
+    ]);
   });
 
   test("anchored read excludes messages hidden for the caller", async () => {

@@ -2,6 +2,7 @@ import type { MessageCountInfo } from "@asm/db";
 import {
   and,
   fromPrismaDateTime,
+  listDenMembershipEventsForUser,
   prisma,
   unreadMessageCache,
   unreadMessagesWhere,
@@ -9,6 +10,7 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { dmPeerId, isHiddenByBlock } from "@/lib/messages/blocks";
+import { readerMessageWindows } from "@/lib/messages/reader-window";
 
 // The number of conversations a reader is in is not bounded by anything they
 // control: a member of a hundred dens plus a few hundred DMs is an ordinary
@@ -51,8 +53,13 @@ export async function GET() {
   const [memberships, iBlocked, blockedMe] = await Promise.all([
     prisma.orm.public.MessageConversationMembers.select(
       "conversationId",
+      "createdAt",
       "lastReadAt"
     )
+      // The conversation's type rides the same read: the windows below apply to
+      // dens only, and asking the type separately would be a second round trip
+      // for a fact this row already points at.
+      .include("conversation", (conversation) => conversation.select("_type"))
       .where((member) =>
         and(
           member.userId.eq(user.id),
@@ -126,6 +133,39 @@ export async function GET() {
     }
   }
 
+  // The membership windows each den branch is counted within. A reader who left
+  // a den and came back is shown neither stint's gap in the transcript, and the
+  // badge must not count what the thread refuses to show - a badge that opens to
+  // nothing reads as lost messages. Only dens need the log: a DM has no stints,
+  // and its branch carries no windows at all.
+  const denMemberships = visibleMemberships.filter(
+    (membership) => membership.conversation?._type === "DEN"
+  );
+  const windowsByDen = new Map<
+    string,
+    ReturnType<typeof readerMessageWindows>
+  >();
+  if (denMemberships.length > 0) {
+    const membershipEventsByDen = await listDenMembershipEventsForUser(
+      denMemberships.map((membership) => membership.conversationId),
+      user.id
+    );
+    for (const membership of denMemberships) {
+      windowsByDen.set(
+        membership.conversationId,
+        readerMessageWindows({
+          conversationType: "DEN",
+          events: membershipEventsByDen.get(membership.conversationId) ?? [],
+          membership: {
+            createdAt: fromPrismaDateTime(membership.createdAt),
+            leftAt: null,
+          },
+          userId: user.id,
+        })
+      );
+    }
+  }
+
   let unreadCount = 0;
   if (visibleMemberships.length > 0) {
     // ONE read for the whole inbox.
@@ -151,6 +191,11 @@ export async function GET() {
             lastReadAt: membership.lastReadAt
               ? fromPrismaDateTime(membership.lastReadAt)
               : null,
+            // Undefined for a DM: no windows, no range, the branch stays exactly
+            // what it was. For a den the windows are the reader's stints, so a
+            // stretch they were away for cannot inflate a badge they will spend
+            // against a thread that hides it.
+            windows: windowsByDen.get(membership.conversationId),
           })),
         })
       )
