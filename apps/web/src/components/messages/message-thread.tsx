@@ -4296,6 +4296,24 @@ export function MessageThread({
         void queryClient.invalidateQueries({
           queryKey: ["den-events", conversationId],
         });
+        // And the details panel's own reads: the roster, the den's own detail and the
+        // banned list, all keyed under this prefix (`DEN_QUERY_PREFIX` in
+        // `den-panel.tsx`).
+        //
+        // Without this the panel only ever moved for the tab that made the change,
+        // because its `refresh()` runs from its own mutation handlers and nothing else
+        // subscribed it to the roster. So somebody else joining, leaving, being removed
+        // or promoted left the members list on screen stale until a manual reload - the
+        // panel was the one place in the den that was not live, while the transcript
+        // beside it was.
+        //
+        // Inline rather than imported from the panel, matching how the two keys above
+        // are written. Same reason both are invalidated from here: this handler is the
+        // single place that already knows a membership frame arrived, and a second
+        // subscriber would be a second stream connection to the same endpoint.
+        void queryClient.invalidateQueries({
+          queryKey: ["message-den", conversationId],
+        });
         return;
       }
       if (event.kind === "keys.rotated") {
