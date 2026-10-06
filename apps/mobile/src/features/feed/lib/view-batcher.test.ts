@@ -78,3 +78,37 @@ describe("ViewBatcher", () => {
     expect(batcher.size).toBe(0);
   });
 });
+
+test("view batches read renewed cookies at flush time rather than scroll time", async () => {
+  let cookie = "old";
+  const sent: (string | undefined)[] = [];
+  const batcher = new ViewBatcher((_ids, options) => {
+    sent.push(options.cookie);
+    return Promise.resolve({});
+  });
+  batcher.mark("p1", {
+    apiBase: OPTIONS.apiBase,
+    getCookie: () => Promise.resolve(cookie),
+  });
+  cookie = "renewed";
+  await batcher.flush();
+  expect(sent).toEqual(["renewed"]);
+});
+
+test("a slow batch cannot overlap the next view batch", async () => {
+  const response = Promise.withResolvers<Record<string, number>>();
+  const batches: string[][] = [];
+  const batcher = new ViewBatcher((ids) => {
+    batches.push(ids);
+    return batches.length === 1 ? response.promise : Promise.resolve({});
+  });
+  batcher.mark("p1", OPTIONS);
+  const first = batcher.flush();
+  batcher.mark("p2", OPTIONS);
+  await batcher.flush();
+  expect(batches).toEqual([["p1"]]);
+  response.resolve({ p1: 1 });
+  await first;
+  await batcher.flush();
+  expect(batches).toEqual([["p1"], ["p2"]]);
+});

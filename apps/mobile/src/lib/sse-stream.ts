@@ -16,16 +16,14 @@
 export const SSE_INITIAL_RETRY_MS = 1000;
 export const SSE_MAX_RETRY_MS = 30_000;
 
-/** One decoded `event:`/`data:` frame. */
+// One decoded `event:`/`data:` frame.
 export interface SseFrame {
   data: string;
   event: string;
 }
 
-/**
- * Pulls every complete frame out of `buffer` and returns whatever tail is
- * still incomplete, so a frame split across two chunks is not lost.
- */
+// Pulls every complete frame out of `buffer` and returns whatever tail is
+// still incomplete, so a frame split across two chunks is not lost.
 export function drainSseFrames(buffer: string): {
   frames: SseFrame[];
   rest: string;
@@ -58,19 +56,34 @@ export function drainSseFrames(buffer: string): {
   return { frames, rest };
 }
 
+export type SseFetch = (
+  url: string,
+  init: { headers: Record<string, string>; signal: AbortSignal }
+) => Promise<{
+  body: {
+    getReader: () => {
+      read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+    };
+  } | null;
+  ok: boolean;
+  status: number;
+}>;
+
 export interface SseStreamOptions {
-  /** Full URL of the stream endpoint. */
+  // Full URL of the stream endpoint.
   url: string;
-  /** Cookies for the session, sent as a Cookie header. */
+  // Cookies for the session, sent as a Cookie header.
   cookie?: string | null;
-  /** Called for each frame that parses and passes the name filter. */
+  // Read cookies at every connection attempt, including backoff retries.
+  getCookie?: () => Promise<string | null | undefined>;
+  // Called for each frame that parses and passes the name filter.
   onEvent: (event: string, data: unknown) => void;
-  /** Only frames with this `event:` name are delivered. */
+  // Only frames with this `event:` name are delivered.
   eventName: string;
-  baseFetch?: typeof fetch;
+  baseFetch?: SseFetch;
   onStatusChange?: (status: SseStatus) => void;
-  // Called when the endpoint responds with 401 Unauthorized, halting retries.
-  onUnauthorized?: () => void;
+  // Return true after revalidation to retry with renewed credentials.
+  onUnauthorized?: (() => void) | (() => boolean | Promise<boolean>);
   // Aborts the in-flight request and stops reconnecting.
   signal?: AbortSignal;
   // Injected for tests; defaults to the platform timer.
@@ -88,6 +101,7 @@ export async function readSseStream({
   clearTimeoutFn = clearTimeout,
   cookie,
   eventName,
+  getCookie,
   onEvent,
   onStatusChange,
   onUnauthorized,
@@ -131,8 +145,12 @@ export async function readSseStream({
     signal?.addEventListener("abort", onAbort);
     try {
       const headers: Record<string, string> = { accept: "text/event-stream" };
-      if (cookie) {
-        headers.cookie = cookie;
+      const currentCookie = getCookie ? await getCookie() : cookie;
+      if (stopped || controller.signal.aborted) {
+        return;
+      }
+      if (currentCookie) {
+        headers.cookie = currentCookie;
       }
       const response = await baseFetch(url, {
         headers,
@@ -140,9 +158,11 @@ export async function readSseStream({
       });
       if (!response.ok || !response.body) {
         if (response.status === 401) {
-          onUnauthorized?.();
-          stop();
-          return;
+          if ((await onUnauthorized?.()) !== true) {
+            stop();
+            return;
+          }
+          throw new Error("Stream credentials need revalidation");
         }
         throw new Error(`Stream returned ${response.status}`);
       }

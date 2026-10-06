@@ -125,7 +125,7 @@ describe("FeedCache.updatePostEverywhere", () => {
     stop();
   });
 
-  test("notifies everyone on unkeyed writes", () => {
+  test("scopes invalidation to its own tab", () => {
     const cache = new FeedCache();
     cache.applyPage("a", [post("x")], null, {}, false);
     const seen: (ReadonlySet<string> | null | undefined)[] = [];
@@ -133,7 +133,7 @@ describe("FeedCache.updatePostEverywhere", () => {
       seen.push(changedKeys);
     });
     cache.invalidate("a");
-    expect(seen).toEqual([null]);
+    expect(seen).toEqual([new Set(["a"])]);
     stop();
   });
 });
@@ -225,5 +225,52 @@ describe("feed top request", () => {
     requestFeedTop("latest");
     expect(notified).toBe(1);
     clearFeedTopRequest();
+  });
+});
+
+describe("FeedCache batched reconciliation", () => {
+  test("one server batch notifies once and preserves unchanged pages and rows", () => {
+    const cache = new FeedCache();
+    cache.applyPage("latest", [post("a"), post("b")], "next", {}, false);
+    cache.applyPage("latest", [post("c")], null, {}, true);
+    cache.applyPage("trending", [post("a")], null, {}, false);
+    cache.applyPage("following", [post("d")], null, {}, false);
+    const before = cache.get("latest");
+    const untouchedFeed = cache.get("following");
+    const notifications: (ReadonlySet<string> | null | undefined)[] = [];
+    cache.subscribe((keys) => {
+      notifications.push(keys);
+    });
+    cache.updatePostsEverywhere(
+      new Map([
+        ["a", { viewCount: 42 }],
+        ["b", { viewCount: 7 }],
+      ])
+    );
+    expect(notifications).toEqual([new Set(["latest", "trending"])]);
+    expect(cache.get("latest").pages[1]).toBe(before.pages[1]);
+    expect(cache.get("following")).toBe(untouchedFeed);
+    expect(cache.get("trending").pages[0]?.[0]?.viewCount).toBe(42);
+    const after = cache.get("latest");
+    cache.updatePostsEverywhere(
+      new Map([
+        ["a", { viewCount: 42 }],
+        ["missing", { viewCount: 1 }],
+      ])
+    );
+    expect(cache.get("latest")).toBe(after);
+    expect(notifications).toHaveLength(1);
+  });
+
+  test("loading a neighbour only notifies its own feed", () => {
+    const cache = new FeedCache();
+    const seen: (ReadonlySet<string> | null | undefined)[] = [];
+    cache.subscribe((keys) => {
+      seen.push(keys);
+    });
+    cache.patch("trending", { status: "loading" });
+    expect(seen).toEqual([new Set(["trending"])]);
+    cache.invalidateAll();
+    expect(seen[1]).toBe(null);
   });
 });

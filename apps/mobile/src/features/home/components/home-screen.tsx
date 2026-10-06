@@ -1,3 +1,4 @@
+import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 // Root home page: mobile header, the four-tab feed (For you / Latest /
 // Trending / Following) with swipe navigation, and the guest auth bar docked
@@ -37,6 +38,7 @@ import { headerSlide, MobileHeader } from "./mobile-header";
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();
+  const isFocused = useIsFocused();
 
   const { isPending, user } = useSessionContext();
   // While the session is still resolving, `user` is null for everyone. Treating
@@ -61,7 +63,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [dockHeight, setDockHeight] = useState(56);
   const [dockHidden, setDockHidden] = useState(false);
-  const [bannerHeight, setBannerHeight] = useState(0);
+  const [bannerHeight, setBannerHeight] = useState(90);
   const showGuestBar = !isPending && !user;
   const dockLift = dockHeight + insets.bottom + 20;
   // A transform, never a layout prop: tweening `bottom` or a margin runs on
@@ -90,7 +92,7 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: [0, -dockLift],
   });
-  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : 0;
+  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : dockLift;
   const activeIndex = Math.max(
     0,
     HOME_TAB_DEFS.findIndex((entry) => entry.value === tab)
@@ -192,9 +194,10 @@ export default function HomeScreen() {
             // the session: first paint wins, and the session upgrade
             // re-keys (guest to user) and refetches with identity.
             <FeedList
-              active={index === activeIndex}
+              active={isFocused && index === activeIndex}
               bottomInset={feedBottomPad}
               enabled={
+                isFocused &&
                 Math.abs(index - activeIndex) <= 1 &&
                 // For you and Following are account-only; a guest sees the
                 // sign-in prompt in FeedList instead, and nothing is fetched.

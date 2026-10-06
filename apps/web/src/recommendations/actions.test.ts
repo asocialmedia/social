@@ -16,6 +16,16 @@ const createdEvents: {
   postId: string;
   userId: string;
 }[] = [];
+const upsertCalls: {
+  conflictOn: { dedupeKey: string };
+  create: {
+    dedupeKey: string;
+    eventType: string;
+    postId: string;
+    userId: string;
+  };
+  update: Record<string, never>;
+}[] = [];
 const deletedEvents: EventExpression[][] = [];
 const updatedEventIds: string[] = [];
 const invalidatedUsers: string[] = [];
@@ -81,6 +91,19 @@ const mockPrisma = {
               ),
           }),
         }),
+        upsert: (args: {
+          conflictOn: { dedupeKey: string };
+          create: {
+            dedupeKey: string;
+            eventType: string;
+            postId: string;
+            userId: string;
+          };
+          update: Record<string, never>;
+        }) => {
+          upsertCalls.push(args);
+          return Promise.resolve(args.create);
+        },
         where: (
           predicate:
             | ((model: Record<string, unknown>) => unknown)
@@ -127,6 +150,7 @@ mock.module("@/lib/auth/session", () => ({
 describe("recommendation hide actions", () => {
   beforeEach(() => {
     createdEvents.length = 0;
+    upsertCalls.length = 0;
     deletedEvents.length = 0;
     updatedEventIds.length = 0;
     invalidatedUsers.length = 0;
@@ -136,31 +160,42 @@ describe("recommendation hide actions", () => {
     mockGetSession.mockImplementation(() => ({ user: { id: USER_ID } }));
   });
 
-  test("hide creates the event when the dedupe key does not exist", async () => {
+  test("hide upserts the event atomically (no select-then-create race)", async () => {
     const { hideRecommendationPost } = await import("./actions");
     await hideRecommendationPost(POST_ID);
 
-    expect(createdEvents).toEqual([
+    // One atomic ON CONFLICT write: concurrent tabs can no longer both read
+    // "no row" and insert duplicates (or trip the unique ERROR log).
+    expect(upsertCalls).toEqual([
       {
-        dedupeKey: DEDUPE_KEY,
-        eventType: "NOT_INTERESTED",
-        postId: POST_ID,
-        userId: USER_ID,
+        conflictOn: { dedupeKey: DEDUPE_KEY },
+        create: {
+          dedupeKey: DEDUPE_KEY,
+          eventType: "NOT_INTERESTED",
+          postId: POST_ID,
+          userId: USER_ID,
+        },
+        update: {},
       },
     ]);
+    expect(createdEvents).toEqual([]);
     expect(updatedEventIds).toEqual([]);
     expect(deletedEvents).toEqual([]);
     expect(invalidatedUsers).toEqual([USER_ID]);
   });
 
-  test("hide updates the existing event for the dedupe key", async () => {
+  test("hide is idempotent when the dismissal already exists", async () => {
     const { hideRecommendationPost } = await import("./actions");
     existingDedupeKey = DEDUPE_KEY;
 
     await hideRecommendationPost(POST_ID);
 
+    // Same single upsert regardless of prior state - the second writer hits
+    // ON CONFLICT and becomes a no-op instead of an error.
+    expect(upsertCalls).toHaveLength(1);
+    expect(upsertCalls[0]?.conflictOn).toEqual({ dedupeKey: DEDUPE_KEY });
     expect(createdEvents).toEqual([]);
-    expect(updatedEventIds).toEqual(["event-1"]);
+    expect(updatedEventIds).toEqual([]);
     expect(invalidatedUsers).toEqual([USER_ID]);
   });
 

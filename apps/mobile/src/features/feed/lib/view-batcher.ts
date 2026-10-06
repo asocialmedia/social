@@ -16,12 +16,14 @@ const COUNTED_LIMIT = 300;
 interface BatcherOptions {
   apiBase: string;
   cookie?: string;
+  getCookie?: () => Promise<string | null | undefined>;
 }
 
 export class ViewBatcher {
   private consecutiveFailures = 0;
+  private flushing = false;
   private latest: BatcherOptions | null = null;
-  /** Called with reconciled counts after every flush (view-count display). */
+  // Called with reconciled counts after every flush (view-count display).
   public onFlush: ((counts: Record<string, number>) => void) | null = null;
   private pending: string[] = [];
   // Ids already counted this session. Without this, a post that scrolls out of
@@ -91,12 +93,23 @@ export class ViewBatcher {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    if (this.flushing) {
+      return {};
+    }
     const batch = this.pending.splice(0, MAX_BATCH);
     if (batch.length === 0 || !this.latest) {
       return {};
     }
+    this.flushing = true;
     try {
-      const counts = await this.submit(batch, this.latest);
+      const options = this.latest;
+      const cookie = options.getCookie
+        ? await options.getCookie()
+        : options.cookie;
+      const counts = await this.submit(batch, {
+        apiBase: options.apiBase,
+        cookie: cookie ?? undefined,
+      });
       this.consecutiveFailures = 0;
       // Only a confirmed send retires the ids. A failed batch is requeued
       // below, and must stay eligible on the next attempt.
@@ -118,6 +131,7 @@ export class ViewBatcher {
       }
       return {};
     } finally {
+      this.flushing = false;
       // A batch caps at MAX_BATCH; keep draining while work remains.
       this.scheduleFlush();
     }
@@ -128,5 +142,5 @@ export class ViewBatcher {
   }
 }
 
-/** Process-wide view batcher used by feed lists. */
+// Process-wide view batcher used by feed lists.
 export const viewBatcher = new ViewBatcher();

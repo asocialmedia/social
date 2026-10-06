@@ -1,6 +1,6 @@
 {
   "name": "@asm/next",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "private": true,
   "description": "asocialmedia Next.js package contains shared configs for Next.js",
   "main": "./src/index.ts",
@@ -20,5 +20,9 @@
   },
   "devDependencies": {
     "@asm/config": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }

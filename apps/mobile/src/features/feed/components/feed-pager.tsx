@@ -4,9 +4,9 @@
 // follows the finger at 60fps without re-rendering React per frame (the old
 // PanResponder + Animated.Value did all moves on the JS thread, which dropped
 // frames while lists mounted).
-// Only the active tab plus neighbours mount their lists; far tabs render an
-// empty page of the same width so geometry stays exact while mount cost drops
-// from four lists to at most three.
+// Preload neighbours, then retain pages that have mounted. Tab changes reuse
+// measured rows and scroll positions instead of allocating a feed again while
+// the swipe is settling. Inactive media releases its native decoding source.
 // Handoff + settle math lives in lib/pager-navigation and is unchanged.
 // Worklet rule: gesture callbacks never capture JS refs. Everything the UI
 // thread touches is a shared value; the two scheduleOnRN hops (drag flag,
@@ -24,7 +24,12 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { clampIndex, handoffIndex, settleIndex } from "../lib/pager-navigation";
+import {
+  clampIndex,
+  handoffIndex,
+  retainPagerPages,
+  settleIndex,
+} from "../lib/pager-navigation";
 
 // Tap-driven index change animation. Fast ease-out, same feel as the tab
 // indicator (220ms).
@@ -47,6 +52,13 @@ export function FeedPager({
 }: FeedPagerProps) {
   const pageCount = children.length;
   const clampedIndex = clampIndex(activeIndex, pageCount);
+  const [mountedRange, setMountedRange] = useState(() =>
+    retainPagerPages(clampedIndex, pageCount)
+  );
+  const retained = retainPagerPages(clampedIndex, pageCount, mountedRange);
+  if (retained !== mountedRange) {
+    setMountedRange(retained);
+  }
   // Start on the active page, not page 0: otherwise the first paint shows
   // the wrong tab and slides over, which reads as a glitch.
   const translateX = useSharedValue(
@@ -122,13 +134,13 @@ export function FeedPager({
     width: widthSv.get() * countSv.get(),
   }));
 
-  /* eslint-disable react/capitalized-calls -- Gesture.Pan is a factory, not a component */
   const gesture = useMemo(
     () =>
+      // oxlint-disable-next-line react/capitalized-calls -- Gesture.Pan is a factory, not a component
       Gesture.Pan()
         .activeOffsetX([-10, 10])
         .failOffsetY([-12, 12])
-        .onBegin(() => {
+        .onStart(() => {
           draggingSv.set(true);
           scheduleOnRN(setDragging, true);
           const origin = clampIndex(originSv.get(), countSv.get());
@@ -184,7 +196,6 @@ export function FeedPager({
       widthSv,
     ]
   );
-  /* eslint-enable react/capitalized-calls */
 
   return (
     <View
@@ -203,10 +214,10 @@ export function FeedPager({
       <GestureDetector gesture={gesture}>
         <Animated.View style={[styles.track, animatedStyle]}>
           {children.map((child, index) => {
-            const near = Math.abs(index - clampedIndex) <= 1;
+            const mounted = index >= retained.first && index <= retained.last;
             return (
               <View key={index} style={[styles.page, { width: pageWidth }]}>
-                {near ? child : null}
+                {mounted ? child : null}
               </View>
             );
           })}

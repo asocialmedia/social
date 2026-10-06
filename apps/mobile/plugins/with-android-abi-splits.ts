@@ -51,6 +51,20 @@ export const ANDROID_SPLIT_ABIS = [
 
 export type AndroidSplitAbi = (typeof ANDROID_SPLIT_ABIS)[number];
 
+// The one ABI a published APK may carry: every current Android phone runs
+// arm64-v8a, and it is the only split a real device loads. x86 and x86_64 exist
+// purely so an emulator can run, and armeabi-v7a is 32-bit legacy.
+//
+// It is also the only ABI allowed to back `asocialmedia-latest.apk`, the stable
+// public download link. Android loads native libraries from the device's
+// *primary* ABI directory, so an APK built for one ABI cannot start on a device
+// whose primary ABI differs - it dies in MainApplication.onCreate with
+// "couldn't find DSO to load: libreactnative.so", before any JS runs. Putting
+// that ABI in the artifact name, and refusing to publish the alias for any other
+// one, is what stops a local emulator build from quietly replacing the public
+// link with an APK no phone can install.
+export const SHIPPING_ABI: AndroidSplitAbi = "arm64-v8a";
+
 /**
  * Whether a build is asking for an ABI the split actually produces. Gradle
  * would silently skip a split it does not know, so an unrecognised ABI has to

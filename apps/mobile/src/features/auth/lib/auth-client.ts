@@ -78,7 +78,7 @@ export const authClient = createAuthClient({
     // redirect flag, so the plugin must not navigate away on its own.
     twoFactorClient({
       onTwoFactorRedirect: () => {
-        /* handled by the login screen */
+        // Handled by the login screen.
       },
     }),
     expoClient({
@@ -87,4 +87,7 @@ export const authClient = createAuthClient({
       storagePrefix: "asocialmedia",
     }),
   ],
+  // The native guard serializes foreground renewal and SSE reconnect. Avoid
+  // Better Auth starting a competing focus request that cancels that renewal.
+  sessionOptions: { refetchOnWindowFocus: Platform.OS === "web" },
 });

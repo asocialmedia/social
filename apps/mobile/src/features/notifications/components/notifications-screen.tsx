@@ -18,6 +18,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
 import noNotificationsImage from "@/assets/images/noNotifications.png";
@@ -93,6 +94,8 @@ export function NotificationsScreen() {
   // Ids dismissed this session, so an in-flight page cannot resurrect a row.
   const dismissedIds = useRef(new Set<string>());
   const unread = useUnreadNotificationCount(viewerId, showUser);
+  const insets = useSafeAreaInsets();
+  const [dockHeight, setDockHeight] = useState(56);
   // Push diagnostics banner: names why device push is off (Expo Go, emulator,
   // no Firebase, permission) instead of failing silently.
   const [pushStatus, setPushStatus] = useState<PushSetupStatus | null>(null);
@@ -360,7 +363,7 @@ export function NotificationsScreen() {
           // of collapsing to the top; harmless once rows exist.
           contentContainerStyle={{
             flexGrow: 1,
-            paddingBottom: HEADER_BAR_HEIGHT,
+            paddingBottom: HEADER_BAR_HEIGHT + dockHeight + insets.bottom + 12,
           }}
           data={active.items}
           keyExtractor={(item) => item.id}
@@ -392,7 +395,7 @@ export function NotificationsScreen() {
           showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         />
       </Animated.View>
-      <MobileBottomNav />
+      <MobileBottomNav onHeightChange={setDockHeight} />
     </View>
   );
 }

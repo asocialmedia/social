@@ -20,7 +20,7 @@ export function getUsernameChangeWindowStart(now = new Date()): Date {
   return new Date(now.getTime() - USERNAME_CHANGE_WINDOW_MS);
 }
 
-function exactInsensitivePattern(value: string): string {
+export function exactInsensitivePattern(value: string): string {
   return value.replaceAll(/[\\%_]/g, "\\$&");
 }
 

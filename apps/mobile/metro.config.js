@@ -5,6 +5,12 @@ const { withNativewind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
+// Bun can install multiple physical copies of react-native-css for different
+// peers. NativeWind must resolve every CSS import to the copy its Metro plugin
+// uses, or it rewrites another copy's internal React Native import to itself.
+// extraNodeModules is only a fallback and cannot override those nearby copies.
+const mobilePackagePath = path.join(__dirname, "package.json");
+
 // `@noble/*` (the messages crypto) ships untranspiled ESM behind explicit subpath
 // exports (`@noble/curves/nist.js`). Metro resolves those through package exports,
 // which RN 0.79+ enables by default, and Hermes parses the ESM directly, so no
@@ -22,6 +28,16 @@ const findExpoRouterRoot = (originModulePath) => {
 };
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (
+    moduleName === "react-native-css" ||
+    moduleName.startsWith("react-native-css/")
+  ) {
+    return context.resolveRequest(
+      { ...context, originModulePath: mobilePackagePath },
+      moduleName,
+      platform
+    );
+  }
   try {
     return context.resolveRequest(context, moduleName, platform);
   } catch (error) {

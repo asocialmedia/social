@@ -192,7 +192,6 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         error: null,
         status: opening,
       });
-      setTick((value) => value + 1);
       try {
         const apiBase = getApiBaseUrl();
         const cookie = await authClient.getCookie();
@@ -217,7 +216,6 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         if (inflightKey.current === cacheKey) {
           inflightKey.current = null;
         }
-        setTick((value) => value + 1);
       } catch (fetchError) {
         feedCache.patch(cacheKey, {
           error:
@@ -238,7 +236,6 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         if (inflightKey.current === cacheKey) {
           inflightKey.current = null;
         }
-        setTick((value) => value + 1);
       }
     },
     [cacheKey, startProbe, variant]
@@ -317,7 +314,6 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         );
         if (added) {
           feedCache.patch(cacheKey, { pages: nextPages });
-          setTick((value) => value + 1);
         }
       }
       return [];

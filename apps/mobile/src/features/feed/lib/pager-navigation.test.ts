@@ -6,6 +6,7 @@ import {
   SWIPE_DISTANCE,
   clampIndex,
   handoffIndex,
+  retainPagerPages,
   settleIndex,
 } from "./pager-navigation";
 
@@ -77,5 +78,26 @@ describe("settleIndex", () => {
   test("never runs past the edges", () => {
     expect(settleIndex(0, SWIPE_DISTANCE, 0, 4)).toBe(0);
     expect(settleIndex(3, -SWIPE_DISTANCE, 0, 4)).toBe(3);
+  });
+});
+
+describe("retained feed pages", () => {
+  test("initial mount preloads only adjacent pages", () => {
+    expect(retainPagerPages(0, 4)).toEqual({ first: 0, last: 1 });
+    expect(retainPagerPages(1, 4)).toEqual({ first: 0, last: 2 });
+    expect(retainPagerPages(3, 4)).toEqual({ first: 2, last: 3 });
+  });
+
+  test("a tab detour keeps measured lists mounted on the return journey", () => {
+    const initial = retainPagerPages(1, 4);
+    const following = retainPagerPages(3, 4, initial);
+    expect(following).toEqual({ first: 0, last: 3 });
+    expect(retainPagerPages(1, 4, following)).toBe(following);
+  });
+
+  test("retention never extends past the page count", () => {
+    expect(retainPagerPages(999, 4)).toEqual({ first: 2, last: 3 });
+    expect(retainPagerPages(0, 1)).toEqual({ first: 0, last: 0 });
+    expect(retainPagerPages(0, 0)).toEqual({ first: 0, last: -1 });
   });
 });

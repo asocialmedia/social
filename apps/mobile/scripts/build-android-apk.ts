@@ -34,6 +34,7 @@ import { $ } from "bun";
 import {
   ANDROID_SPLIT_ABIS,
   isAndroidSplitAbi,
+  SHIPPING_ABI,
 } from "../plugins/with-android-abi-splits";
 import {
   googleServicesCandidates,
@@ -41,7 +42,10 @@ import {
   validateGoogleServices,
 } from "./google-services-lib";
 import {
+  describeApkTarget,
   describeMissingReleaseApk,
+  publishesLatestAlias,
+  releaseApkArtifactName,
   resolveReleaseApk,
 } from "./release-apk-lib";
 
@@ -63,9 +67,11 @@ const GOOGLE_SERVICES_FILE = path.join(MOBILE_DIR, "google-services.json");
 // either way). CI supplies it as a base64 secret, so neither is committed.
 const ROOT_GOOGLE_SERVICES_FILE = path.join(repoRoot, "google-services.json");
 
-// shipping APKs carry arm64-v8a; the other ABIs are emulator-only (x86/x86_64)
-// or 32-bit legacy, and together account for ~62 MB nobody downloads.
-const DEFAULT_ABI = "arm64-v8a";
+// Shipping APKs carry arm64-v8a; the other ABIs are emulator-only (x86/x86_64)
+// or 32-bit legacy, and together account for ~62 MB nobody downloads. The
+// canonical value lives with the split so the build and the publishing gate can
+// never drift apart.
+const DEFAULT_ABI: string = SHIPPING_ABI;
 
 // assembleRelease writes one APK per ABI here, and - because the split sets
 // `universalApk false` - no plain app-release.apk alongside them.
@@ -563,7 +569,11 @@ async function main(): Promise<void> {
       step("Verifying APK signature");
       await $`${findApksigner()} verify --print-certs ${apkSource}`;
 
-      const apkName = `asocialmedia-v${version}.apk`;
+      // The ABI is part of the name because a split APK only installs where the
+      // device's primary ABI matches. An architecture-less name let an
+      // emulator-only build pass as the shipping artifact and crash on startup
+      // with "couldn't find DSO to load: libreactnative.so" and no hint why.
+      const apkName = releaseApkArtifactName({ abi, version });
       step("Packaging APK artifact");
       const destination = path.join(ARTIFACT_DIR, apkName);
       await copyFile(apkSource, destination);
@@ -578,24 +588,36 @@ async function main(): Promise<void> {
       // resolves releases/latest/download/<asset> against the newest
       // non-prerelease release, so publishing this name alongside the
       // versioned one gives the project one link that never needs editing.
-      const latestName = LATEST_APK_NAME;
-      const latestDestination = path.join(ARTIFACT_DIR, latestName);
-      await copyFile(destination, latestDestination);
-      await Bun.write(
-        `${latestDestination}.sha256`,
-        `${digest}  ${latestName}\n`
-      );
-
-      console.log(`APK:      ${destination}`);
-      console.log(`Latest:   ${latestDestination}`);
-      console.log(`SHA-256:  ${digest}`);
+      //
+      // Only the shipping ABI may claim it. This name is the public download
+      // the README links, so letting an emulator build overwrite it would
+      // replace a working phone download with an APK no device can load.
+      const latestDestination = path.join(ARTIFACT_DIR, LATEST_APK_NAME);
+      if (publishesLatestAlias(abi)) {
+        await copyFile(destination, latestDestination);
+        await Bun.write(
+          `${latestDestination}.sha256`,
+          `${digest}  ${LATEST_APK_NAME}\n`
+        );
+        console.log(`APK:      ${destination}`);
+        console.log(`Latest:   ${latestDestination}`);
+        console.log(`SHA-256:  ${digest}`);
+      } else {
+        console.log(`APK:      ${destination}`);
+        console.log(`SHA-256:  ${digest}`);
+        console.log(
+          `Latest:   skipped - ${LATEST_APK_NAME} is the public download and is ` +
+            `reserved for ${SHIPPING_ABI}; this build is ${abi}.`
+        );
+      }
+      console.log(describeApkTarget(abi));
     }
 
     step("Done");
     console.log(`Version:  v${version}`);
     if (mode === "apk" || mode === "all") {
       console.log(
-        `\nInstall APK with: adb install -r "${path.join(ARTIFACT_DIR, `asocialmedia-v${version}.apk`)}"`
+        `\nInstall APK with: adb install -r "${path.join(ARTIFACT_DIR, releaseApkArtifactName({ abi, version }))}"`
       );
     }
     if (mode === "bundle" || mode === "all") {
