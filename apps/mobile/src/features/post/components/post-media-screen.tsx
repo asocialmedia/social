@@ -31,9 +31,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
-  Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -61,7 +59,6 @@ import {
   BookmarkToggle,
   VoteCluster,
 } from "@/features/feed/components/post-actions";
-import { PostComments } from "@/features/feed/components/post-comments";
 import {
   AudioRow,
   ExplicitGate,
@@ -90,6 +87,8 @@ import {
 } from "@/features/feed/lib/transcript-cues";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
 import { useVideoMuteStore } from "@/features/feed/state/video-mute-store";
+import { GustEddiesSheet } from "@/features/gusts/components/gust-eddies-sheet";
+import { TranscriptDrawer } from "@/features/gusts/components/transcript-drawer";
 import { BioContent } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
@@ -202,6 +201,8 @@ function ChipButton({
 export interface VideoHandle {
   cycleSpeed: () => void;
   enterFullscreen: () => void;
+  // The transcript drawer seeks by cue start time, like web's onSeek.
+  seek: (seconds: number) => void;
   toggleMute: () => void;
   togglePlay: () => void;
 }
@@ -292,6 +293,19 @@ function VideoSurface({
             // the viewer, so this is a no-op enhancement.
           }
         })();
+      },
+      seek: (seconds: number) => {
+        try {
+          // oxlint-disable-next-line react/immutability -- expo-video's documented player API
+          player.currentTime = seconds;
+          // Resume rather than toggle: tapping a cue in a paused video should
+          // play it, and toggling would pause a video that was already playing.
+          // Same as the gust card's transcript seek.
+          player.play();
+        } catch {
+          // Older runtimes reject a seek before the first frame; playback
+          // resumes from the start, which is still better than a dead control.
+        }
       },
       toggleMute: () => {
         setMuted(!useVideoMuteStore.getState().isMuted);
@@ -547,7 +561,7 @@ export function PostMediaScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mediaId?: string }>();
-  const { isPending, user } = useSessionContext();
+  const { user } = useSessionContext();
   const viewerId = user?.id;
   const { width } = useWindowDimensions();
 
@@ -1010,12 +1024,9 @@ export function PostMediaScreen({
                 <Pressable
                   accessibilityLabel="View eddies"
                   accessibilityRole="button"
-                  onPress={() =>
-                    router.push({
-                      params: { postId: post.id },
-                      pathname: "/posts/[postId]",
-                    })
-                  }
+                  onPress={() => {
+                    setShowEddies(true);
+                  }}
                   style={styles.eddiesBtn}
                 >
                   <Gradient3D
@@ -1076,65 +1087,39 @@ export function PostMediaScreen({
         </View>
       ) : null}
 
-      {showEddies && !isPending ? (
-        <Modal
-          animationType="slide"
-          onRequestClose={() => setShowEddies(false)}
-          transparent
-          visible
-        >
-          <Pressable
-            onPress={() => setShowEddies(false)}
-            style={styles.sheetBackdrop}
-          >
-            <Pressable style={styles.sheet}>
-              <ScrollView showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}>
-                <PostComments postId={post.id} viewerId={viewerId} />
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
-      ) : null}
+      {/* Web's phone eddies drawer, the same component the gusts page uses.
+          This was an unreachable bare Modal - nothing ever set showEddies - so
+          the comments surface here was a flat grey sheet instead of the reels
+          panel with its close row, spring slide-up and keyboard avoidance. */}
+      <GustEddiesSheet
+        onClose={() => {
+          setShowEddies(false);
+        }}
+        postId={showEddies ? post.id : null}
+        viewerId={viewerId}
+      />
 
-      {showTranscript ? (
-        <Modal
-          animationType="slide"
-          onRequestClose={() => setShowTranscript(false)}
-          transparent
-          visible
-        >
-          <Pressable
-            onPress={() => setShowTranscript(false)}
-            style={styles.sheetBackdrop}
-          >
-            <Pressable style={styles.sheet}>
-              <Text style={styles.sheetTitle}>Transcript</Text>
-              <ScrollView
-                style={styles.transcriptList}
-                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-              >
-                {transcriptCues.length === 0 ? (
-                  <Text style={styles.transcriptEmpty}>
-                    No transcript for this video.
-                  </Text>
-                ) : (
-                  transcriptCues.map((cue, index) => (
-                    <Text key={index} style={styles.transcriptLine}>
-                      {cue.text}
-                    </Text>
-                  ))
-                )}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
+      {/* Web's VideoTranscriptDrawer, the same component the gust card uses.
+          The page had a bare title over plain text lines: no grab handle, no
+          Zeph header, no copy, no search, no cue timestamps and no tap to
+          seek. Reusing the shared drawer is what keeps the two in parity. */}
+      {showTranscript && isVideoMedia(currentMedia) ? (
+        <TranscriptDrawer
+          cues={transcriptCues}
+          currentTime={videoSnap.currentTime}
+          loading={false}
+          onClose={() => setShowTranscript(false)}
+          onSeek={(seconds) => {
+            activeVideoHandle?.seek(seconds);
+          }}
+          rawTranscript={currentMedia.transcript}
+        />
       ) : null}
 
       <ShareSheet
         onClose={() => setShareOpen(false)}
         post={shareOpen ? post : null}
       />
-      {isPending ? null : null}
     </View>
   );
 }
@@ -1411,25 +1396,6 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  sheet: {
-    backgroundColor: "#171717",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "80%",
-    padding: 16,
-  },
-  sheetBackdrop: {
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheetTitle: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 16,
-    fontWeight: "normal",
-    marginBottom: 12,
-  },
   speedChip: {
     height: 44,
     minWidth: 44,
@@ -1451,22 +1417,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "normal",
     textAlign: "center",
-  },
-  transcriptEmpty: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontFamily: "SofiaProReg",
-    fontSize: 13,
-    fontWeight: "normal",
-  },
-  transcriptLine: {
-    color: "#ffffff",
-    fontFamily: "SofiaProReg",
-    fontSize: 14,
-    fontWeight: "normal",
-    marginBottom: 8,
-  },
-  transcriptList: {
-    maxHeight: 320,
   },
   userRow: {
     alignItems: "center",
