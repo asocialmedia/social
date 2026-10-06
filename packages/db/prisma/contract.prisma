@@ -143,9 +143,20 @@ namespace public {
     // resolves (transfer or dissolve), not a cascade.
     ownerId                    String?
     createdById                String?
-    // Rotatable, non-expiring join code. NULL on a DM. Unique index tolerates
-    // many NULLs, same as pairKey.
+    // Rotatable join code. NULL on a DM. Unique index tolerates many NULLs,
+    // same as pairKey.
     inviteCode                 String?
+    // When the current code stops opening the den. NULL means it never expires,
+    // which is what every code minted before this column existed is, and what
+    // the "never" preset writes. Expiry is evaluated lazily at preview/join time
+    // rather than by a worker: the boundary is a read decision, not an event, so
+    // there is nothing to schedule and nothing to write at the moment it passes.
+    inviteExpiresAt           Timestamp(3)?
+    // The last duration a manager chose when minting a link, in days. NULL means
+    // "never". Kept so the next mint's picker defaults to what this den last
+    // used, rather than resetting every time. A preference, not a rule: the code
+    // itself is bounded by `inviteExpiresAt`, not by this column.
+    inviteDurationDays         Int?
     createdAt                  Timestamp(3)                 @default(now())
     updatedAt                  Timestamp(3)                 @default(now())
     // Roster-only change counter. Incremented by exactly one on every committed

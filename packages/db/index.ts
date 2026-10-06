@@ -16,6 +16,7 @@ export * from "./src/communities/slug";
 export { communityVisibilityWhere } from "./src/communities/visibility";
 export {
   DEN_INVITE_CODE_ALPHABET,
+  DEN_INVITE_DURATION_DAYS,
   DEN_LIMITS,
   DEN_MANAGEMENT_ROLES,
   DEN_ROLES,
@@ -23,7 +24,9 @@ export {
   GROUP_ADD_REFUSAL_COPY,
   canManageDen,
   canManageRole,
+  denInviteExpiresAt,
   groupAddRefusal,
+  isDenInviteDurationDays,
   isDenRole,
   isGroupAddPolicy,
   normalizeDenName,
@@ -32,6 +35,7 @@ export {
 } from "./src/messages/dens";
 export type {
   ConversationType,
+  DenInviteDurationDays,
   DenManagementRole,
   DenMembershipEventAction,
   DenRole,
@@ -69,7 +73,7 @@ export {
   requireDenManager,
   requireDenMembership,
   requireDenOwner,
-  rotateInviteCode,
+  createDenInvite,
   setDenMemberRole,
   transferDenOwnership,
   unbanDenMember,

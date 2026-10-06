@@ -1,0 +1,70 @@
+[
+  {
+    "id": "column.public.message_conversations.inviteDurationDays",
+    "label": "Add column \"inviteDurationDays\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "inviteDurationDays",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"inviteDurationDays\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "inviteDurationDays"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"inviteDurationDays\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"inviteDurationDays\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"inviteDurationDays\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "inviteDurationDays"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversations.inviteExpiresAt",
+    "label": "Add column \"inviteExpiresAt\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "inviteExpiresAt",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"inviteExpiresAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "inviteExpiresAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"inviteExpiresAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"inviteExpiresAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"inviteExpiresAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "inviteExpiresAt"]
+      }
+    ]
+  }
+]

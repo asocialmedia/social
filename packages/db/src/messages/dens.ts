@@ -39,6 +39,45 @@ export const DEN_LIMITS = {
 export const DEN_INVITE_CODE_ALPHABET =
   "abcdefghjkmnpqrstuvwxyz23456789" as const;
 
+// The expiry presets a manager picks from when minting an invite link, in days.
+//
+// Deliberately short: a week is a shared link, a month is a standing one, a day
+// is "use it tonight". "Never" is not in this list because it is the absence of an
+// expiry rather than a number, and spelling it `null` keeps the arithmetic honest -
+// a null expiry is never compared against a clock, while a zero or infinity sentinel
+// would be a number pretending to be a state.
+//
+// Expiry is evaluated lazily at preview and join time, never by a scheduler: the
+// boundary is a read decision, so there is nothing to run at the moment it passes.
+export const DEN_INVITE_DURATION_DAYS = [1, 7, 30] as const;
+
+export type DenInviteDurationDays = (typeof DEN_INVITE_DURATION_DAYS)[number];
+
+// Whether a client-supplied duration is one of the presets. A route uses this to
+// refuse rather than coerce, so an unknown number can never silently become a link
+// whose real lifetime the caller did not ask for.
+export function isDenInviteDurationDays(
+  value: unknown
+): value is DenInviteDurationDays {
+  return (DEN_INVITE_DURATION_DAYS as readonly number[]).includes(
+    value as number
+  );
+}
+
+// When a link minted now stops opening the den, or null for "never".
+//
+// Pure and total so the service and its tests share one arithmetic: a preset times
+// a day of milliseconds, and null in means null out.
+export function denInviteExpiresAt(
+  durationDays: DenInviteDurationDays | null,
+  mintedAt: Date
+): Date | null {
+  if (durationDays === null) {
+    return null;
+  }
+  return new Date(mintedAt.getTime() + durationDays * 86_400_000);
+}
+
 // Role model. Exactly one member is the Owner, any number may be an Elder, and
 // everyone else is a Member. Those are the words a person reads; the stored
 // values are OWNER, ADMIN and MEMBER, and only the display layer translates
