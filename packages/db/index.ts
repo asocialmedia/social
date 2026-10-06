@@ -63,6 +63,7 @@ export {
   joinDenByInviteCode,
   leaveDen,
   listDenMembershipEvents,
+  listDenMembershipEventsForUser,
   previewInvite,
   removeDenMember,
   requireDenManager,

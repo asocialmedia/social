@@ -34,21 +34,55 @@ export function visibleToUser(
 // Each OR branch carries its OWN watermark rather than one global earliest: a
 // never-read thread would otherwise drag in every message in every other
 // conversation the reader has, which is both wrong and slower.
+//
+// A branch may also carry the reader's membership WINDOWS for that conversation:
+// the stretches of a den transcript they were actually inside for, one bounded
+// range per stint. A reader who left a den and came back is shown neither stint's
+// gap in the transcript, and the badge must not count what the thread refuses to
+// show, or it advertises messages that open to nothing. Omitted windows (every
+// DM, and every membership that never broke) apply no range at all, which keeps
+// the branch exactly what it was before windows existed.
 export function unreadMessagesWhere(params: {
   userId: string;
-  watermarks: readonly { conversationId: string; lastReadAt: Date | null }[];
+  watermarks: readonly {
+    conversationId: string;
+    lastReadAt: Date | null;
+    windows?: readonly { after: Date | null; before: Date | null }[];
+  }[];
 }): (message: MessageAccessor) => AnyExpression {
   return (message) =>
     and(
       or(
-        ...params.watermarks.map((watermark) =>
-          and(
+        ...params.watermarks.map((watermark) => {
+          const branch = and(
             message.conversationId.eq(watermark.conversationId),
             message.createdAt.gt(
               toPrismaDateTime(watermark.lastReadAt ?? new Date(0))
             )
-          )
-        )
+          );
+          const ranges = (watermark.windows ?? [])
+            .map((window) => {
+              const bounds = [];
+              if (window.after !== null) {
+                bounds.push(
+                  message.createdAt.gte(toPrismaDateTime(window.after))
+                );
+              }
+              if (window.before !== null) {
+                bounds.push(
+                  message.createdAt.lte(toPrismaDateTime(window.before))
+                );
+              }
+              return bounds.length === 0 ? null : and(...bounds);
+            })
+            .filter((range) => range !== null);
+          // A window with neither bound admits the whole transcript, so no range
+          // is applied at all unless every window is bounded.
+          if (ranges.length === (watermark.windows ?? []).length) {
+            return and(branch, or(...ranges));
+          }
+          return branch;
+        })
       ),
       message.deletedAt.isNull(),
       message.hiddenFor.none((hidden) => hidden.userId.eq(params.userId)),

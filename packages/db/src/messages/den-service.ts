@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { and } from "@prisma/orm-postgres/orm-client";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 import { enqueueNotificationCreated } from "../../queue";
 import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
@@ -171,6 +171,68 @@ export async function listDenMembershipEvents(
     .filter(
       (event) => visibleUntil === null || event.createdAt <= visibleUntil
     );
+}
+
+// One user's own membership log lines across many dens at once, grouped by den.
+//
+// The reader-window routes (the conversation list's previews, the unread badge)
+// need the same stint boundaries the single-conversation log provides, but for
+// every den on screen: a join opens a stint, a leave or removal closes it, and a
+// rejoin starts a new one, and that is what decides which stretches of each
+// transcript this reader may still see. One query for the whole inbox rather
+// than one per row, for the same reason the badge seed reads all its watermarks
+// at once: an inbox is N conversations, and N round trips is the shape that does
+// not scale.
+//
+// Only lines whose SUBJECT is the user are returned. The subject of a line is
+// `targetUserId ?? actorId`: a join or leave names the actor with a null target,
+// while an add or removal names the subject in `targetUserId`. Selecting on both
+// columns therefore also returns lines where the user was the ACTOR on somebody
+// else ("Ada removed Bob" returned for Ada); those are not about Ada's stints,
+// and the caller's subject filter (`targetUserId ?? actorId`) discards them. The
+// wider read is deliberate: the typed builder cannot express the null-coalescing
+// subject test, and the over-read is bounded by how often one person acts.
+export async function listDenMembershipEventsForUser(
+  conversationIds: readonly string[],
+  userId: string
+): Promise<Map<string, DenMembershipEvent[]>> {
+  const grouped = new Map<string, DenMembershipEvent[]>();
+  if (conversationIds.length === 0) {
+    return grouped;
+  }
+  const rows =
+    await prisma.orm.public.MessageConversationMembershipEvents.select(
+      "action",
+      "actorId",
+      "actorName",
+      "conversationId",
+      "createdAt",
+      "id",
+      "targetName",
+      "targetUserId"
+    )
+      .where((event) =>
+        and(
+          event.conversationId.in(conversationIds),
+          or(event.actorId.eq(userId), event.targetUserId.eq(userId))
+        )
+      )
+      .orderBy((event) => event.createdAt.asc())
+      .all();
+  for (const row of rows) {
+    const list = grouped.get(row.conversationId) ?? [];
+    list.push({
+      action: row.action,
+      actorId: row.actorId,
+      actorName: row.actorName,
+      createdAt: fromPrismaDateTime(row.createdAt),
+      id: row.id,
+      targetName: row.targetName,
+      targetUserId: row.targetUserId,
+    });
+    grouped.set(row.conversationId, list);
+  }
+  return grouped;
 }
 
 export interface CreateDenInput {
