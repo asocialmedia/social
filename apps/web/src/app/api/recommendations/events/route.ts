@@ -130,28 +130,64 @@ export async function POST(request: Request) {
   }
 
   const insertEvents = async (eventList: RecommendationEventInput[]) => {
+    // One impression per (user, post, day) is enforced by the unique dedupeKey.
+    // The client re-sends impressions on re-render/scroll/refetch, so the same
+    // key arrives repeatedly. A plain create() turns every repeat into a
+    // Postgres ERROR log line (even when the app swallows it). Upsert on the
+    // key is atomic (ON CONFLICT DO NOTHING) so repeats are silent, and
+    // in-batch dedupe avoids firing N identical writes for the same key.
+    const day = new Date().toISOString().slice(0, 10);
+    const seenImpressionKeys = new Set<string>();
+    const deduped = eventList.filter((event) => {
+      if (event.eventType !== "IMPRESSION") {
+        return true;
+      }
+      const key = `impression:${userId}:${event.postId}:${day}`;
+      if (seenImpressionKeys.has(key)) {
+        return false;
+      }
+      seenImpressionKeys.add(key);
+      return true;
+    });
+
     const insertEvent = async (event: RecommendationEventInput) => {
+      const dedupeKey =
+        event.eventType === "IMPRESSION"
+          ? `impression:${userId}:${event.postId}:${day}`
+          : null;
       try {
-        await prisma.orm.public.RecommendationEvents.create({
-          dedupeKey:
-            event.eventType === "IMPRESSION"
-              ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
-              : null,
-          durationMs: event.durationMs ?? null,
-          eventType: event.eventType,
-          postId: event.postId,
-          sessionId: session.session?.id ?? null,
-          userId,
-          value: event.value ?? null,
-        });
+        await (dedupeKey
+          ? prisma.orm.public.RecommendationEvents.upsert({
+              conflictOn: { dedupeKey },
+              create: {
+                dedupeKey,
+                durationMs: event.durationMs ?? null,
+                eventType: event.eventType,
+                postId: event.postId,
+                sessionId: session.session?.id ?? null,
+                userId,
+                value: event.value ?? null,
+              },
+              update: {},
+            })
+          : prisma.orm.public.RecommendationEvents.create({
+              dedupeKey,
+              durationMs: event.durationMs ?? null,
+              eventType: event.eventType,
+              postId: event.postId,
+              sessionId: session.session?.id ?? null,
+              userId,
+              value: event.value ?? null,
+            }));
       } catch (error) {
+        // Safety net for a race between two batches carrying the same key.
         if (!isDuplicateKeyError(error)) {
           throw error;
         }
       }
     };
 
-    await Promise.all(eventList.map(insertEvent));
+    await Promise.all(deduped.map(insertEvent));
   };
 
   try {
