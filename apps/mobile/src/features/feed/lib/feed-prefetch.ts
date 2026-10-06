@@ -31,12 +31,12 @@ export function feedPrefetchUrls(posts: FeedPost[], apiBase: string): string[] {
         );
       }
       if (urls.size >= 16) {
-        return [...urls];
+        return [...urls].slice(0, 16);
       }
     }
     if (urls.size >= 16) {
       break;
     }
   }
-  return [...urls];
+  return [...urls].slice(0, 16);
 }

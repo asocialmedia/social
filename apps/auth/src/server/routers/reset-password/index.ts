@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { and, prisma, toPrismaDateTime } from "@asm/db";
+import {
+  and,
+  exactInsensitivePattern,
+  prisma,
+  toPrismaDateTime,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
@@ -103,8 +108,8 @@ export const resetPasswordRouter = router({
         )
           .where((candidate) =>
             EMAIL_REGEX.test(identifier)
-              ? candidate.email.ilike(identifier)
-              : candidate.username.ilike(identifier)
+              ? candidate.email.ilike(exactInsensitivePattern(identifier))
+              : candidate.username.ilike(exactInsensitivePattern(identifier))
           )
           .first();
 

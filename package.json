@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -63,7 +63,7 @@
     "react-native": "0.86.3",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "5.7.0",
-    "react-native-svg": "15.15.4"
+    "react-native-svg": "15.15.5"
   },
   "packageManager": "bun@1.4.0"
 }

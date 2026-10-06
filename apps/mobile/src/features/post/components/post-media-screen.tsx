@@ -298,14 +298,15 @@ function VideoSurface({
         try {
           // oxlint-disable-next-line react/immutability -- expo-video's documented player API
           player.currentTime = seconds;
-          // Resume rather than toggle: tapping a cue in a paused video should
-          // play it, and toggling would pause a video that was already playing.
-          // Same as the gust card's transcript seek.
-          player.play();
         } catch {
-          // Older runtimes reject a seek before the first frame; playback
-          // resumes from the start, which is still better than a dead control.
+          // Older runtimes reject a seek before the first frame; the rejected
+          // seek leaves the playhead where it was.
         }
+        // Resume rather than toggle: tapping a cue in a paused video should
+        // play it, and toggling would pause a video that was already playing.
+        // Same as the gust card's transcript seek. Kept outside the try so a
+        // rejected seek never strands a paused video.
+        player.play();
       },
       toggleMute: () => {
         setMuted(!useVideoMuteStore.getState().isMuted);
@@ -446,34 +447,36 @@ function VideoControlsRow({
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   return (
     <View style={styles.videoControls}>
-      {/* Web groups the play button and the clock in one left cluster, so the
-            clock keeps its natural width. Flat in the row it was the only
-            flexing child, and `minWidth: 0` let it shrink below its content and
-            break "0:10 / 0:10" onto two lines. */}
-      <View style={styles.videoControlsLeft}>
-        <Pressable
-          accessibilityLabel={snapshot.playing ? "Pause video" : "Play video"}
-          accessibilityRole="button"
-          onPress={() => video?.togglePlay()}
-        >
-          <Gradient3D
-            colors={ORANGE_GRADIENT}
-            radius={9999}
-            shadows={ACCENT_CHIP_SHADOWS}
-            style={styles.playBtn}
+      {
+        // Web groups the play button and the clock in one left cluster, so the
+        // clock keeps its natural width. Flat in the row it was the only
+        // flexing child, and `minWidth: 0` let it shrink below its content and
+        // break "0:10 / 0:10" onto two lines.
+        <View style={styles.videoControlsLeft}>
+          <Pressable
+            accessibilityLabel={snapshot.playing ? "Pause video" : "Play video"}
+            accessibilityRole="button"
+            onPress={() => video?.togglePlay()}
           >
-            {snapshot.playing ? (
-              <Pause color="#ffffff" fill="#ffffff" size={20} />
-            ) : (
-              <Play color="#ffffff" fill="#ffffff" size={20} />
-            )}
-          </Gradient3D>
-        </Pressable>
-        <Text numberOfLines={1} style={styles.videoTime}>
-          {formatPlaybackTime(snapshot.currentTime)} /{" "}
-          {formatPlaybackTime(snapshot.duration)}
-        </Text>
-      </View>
+            <Gradient3D
+              colors={ORANGE_GRADIENT}
+              radius={9999}
+              shadows={ACCENT_CHIP_SHADOWS}
+              style={styles.playBtn}
+            >
+              {snapshot.playing ? (
+                <Pause color="#ffffff" fill="#ffffff" size={20} />
+              ) : (
+                <Play color="#ffffff" fill="#ffffff" size={20} />
+              )}
+            </Gradient3D>
+          </Pressable>
+          <Text numberOfLines={1} style={styles.videoTime}>
+            {formatPlaybackTime(snapshot.currentTime)} /{" "}
+            {formatPlaybackTime(snapshot.duration)}
+          </Text>
+        </View>
+      }
       <View style={styles.videoBtns}>
         <ChipButton
           label={isMuted ? "Unmute" : "Mute"}
@@ -1087,34 +1090,38 @@ export function PostMediaScreen({
         </View>
       ) : null}
 
-      {/* Web's phone eddies drawer, the same component the gusts page uses.
-          This was an unreachable bare Modal - nothing ever set showEddies - so
-          the comments surface here was a flat grey sheet instead of the reels
-          panel with its close row, spring slide-up and keyboard avoidance. */}
-      <GustEddiesSheet
-        onClose={() => {
-          setShowEddies(false);
-        }}
-        postId={showEddies ? post.id : null}
-        viewerId={viewerId}
-      />
-
-      {/* Web's VideoTranscriptDrawer, the same component the gust card uses.
-          The page had a bare title over plain text lines: no grab handle, no
-          Zeph header, no copy, no search, no cue timestamps and no tap to
-          seek. Reusing the shared drawer is what keeps the two in parity. */}
-      {showTranscript && isVideoMedia(currentMedia) ? (
-        <TranscriptDrawer
-          cues={transcriptCues}
-          currentTime={videoSnap.currentTime}
-          loading={false}
-          onClose={() => setShowTranscript(false)}
-          onSeek={(seconds) => {
-            activeVideoHandle?.seek(seconds);
+      {
+        // Web's phone eddies drawer, the same component the gusts page uses.
+        // This was an unreachable bare Modal - nothing ever set showEddies - so
+        // the comments surface here was a flat grey sheet instead of the reels
+        // panel with its close row, spring slide-up and keyboard avoidance.
+        <GustEddiesSheet
+          onClose={() => {
+            setShowEddies(false);
           }}
-          rawTranscript={currentMedia.transcript}
+          postId={showEddies ? post.id : null}
+          viewerId={viewerId}
         />
-      ) : null}
+      }
+
+      {
+        // Web's VideoTranscriptDrawer, the same component the gust card uses.
+        // The page had a bare title over plain text lines: no grab handle, no
+        // Zeph header, no copy, no search, no cue timestamps and no tap to
+        // seek. Reusing the shared drawer is what keeps the two in parity.
+        showTranscript && isVideoMedia(currentMedia) ? (
+          <TranscriptDrawer
+            cues={transcriptCues}
+            currentTime={videoSnap.currentTime}
+            loading={false}
+            onClose={() => setShowTranscript(false)}
+            onSeek={(seconds) => {
+              activeVideoHandle?.seek(seconds);
+            }}
+            rawTranscript={currentMedia.transcript}
+          />
+        ) : null
+      }
 
       <ShareSheet
         onClose={() => setShareOpen(false)}

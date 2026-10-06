@@ -7,7 +7,7 @@ import {
   USERNAME_REGEX,
 } from "@asm/auth/validation";
 import { debugLog } from "@asm/config/debug";
-import { prisma } from "@asm/db";
+import { exactInsensitivePattern, prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
@@ -125,14 +125,18 @@ export async function requestPasswordReset(
     // casing differs from what was stored at signup.
     if (EMAIL_REGEX.test(identifier)) {
       user = await prisma.orm.public.Users.select("email", "id", "username")
-        .where((candidate) => candidate.email.ilike(identifier))
+        .where((candidate) =>
+          candidate.email.ilike(exactInsensitivePattern(identifier))
+        )
         .first();
       // Send to the stored address (preserves the verified casing) rather
       // than echoing the typed identifier.
       email = user?.email || identifier;
     } else {
       user = await prisma.orm.public.Users.select("email", "id", "username")
-        .where((candidate) => candidate.username.ilike(identifier))
+        .where((candidate) =>
+          candidate.username.ilike(exactInsensitivePattern(identifier))
+        )
         .first();
       email = user?.email || null;
     }

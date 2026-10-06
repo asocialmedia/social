@@ -13,15 +13,15 @@ import {
   splitApkFileName,
 } from "../plugins/with-android-abi-splits";
 
-/**
- * The published artifact name, carrying the ABI it was built for.
- *
- * A split APK is not universal: it installs only where the device's primary ABI
- * matches. Leaving the ABI out of the filename is what made an emulator-only
- * build indistinguishable from a shipping one, so a name like
- * `asocialmedia-latest.apk` got installed on an x86_64 emulator and crashed on
- * startup with no hint that the artifact was the wrong architecture.
- */
+//
+// The published artifact name, carrying the ABI it was built for.
+//
+// A split APK is not universal: it installs only where the device's primary ABI
+// matches. Leaving the ABI out of the filename is what made an emulator-only
+// build indistinguishable from a shipping one, so a name like
+// `asocialmedia-latest.apk` got installed on an x86_64 emulator and crashed on
+// startup with no hint that the artifact was the wrong architecture.
+//
 export function releaseApkArtifactName({
   abi,
   version,
@@ -32,19 +32,19 @@ export function releaseApkArtifactName({
   return `asocialmedia-v${version}-${abi}.apk`;
 }
 
-/**
- * Whether this build's APK may back the stable `asocialmedia-latest.apk`
- * download link.
- *
- * Only the shipping ABI qualifies. That link is what the README publishes, so
- * letting an emulator or legacy build claim it would replace a working
- * download with an APK that no phone can load.
- */
+//
+// Whether this build's APK may back the stable `asocialmedia-latest.apk`
+// download link.
+//
+// Only the shipping ABI qualifies. That link is what the README publishes, so
+// letting an emulator or legacy build claim it would replace a working
+// download with an APK that no phone can load.
+//
 export function publishesLatestAlias(abi: string): boolean {
   return abi === SHIPPING_ABI;
 }
 
-/** One line naming the artifact and the devices it can actually start on. */
+//  One line naming the artifact and the devices it can actually start on.
 export function describeApkTarget(abi: string): string {
   const device = publishesLatestAlias(abi)
     ? "physical Android devices (this is the published download)"

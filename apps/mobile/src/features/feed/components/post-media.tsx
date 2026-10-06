@@ -866,13 +866,29 @@ function VideoCaptions({
   enabled: boolean;
   player: VideoPlayer;
 }) {
-  const [text, setText] = useState<string | null>(null);
+  // Track the playhead, not the rendered text, so a caption is never
+  // carried over from before captions were switched off.
+  const [currentTime, setCurrentTime] = useState(() => player.currentTime);
+  const [wasEnabled, setWasEnabled] = useState(enabled);
+  if (enabled !== wasEnabled) {
+    // Re-enabling captions must resolve the active cue at the current
+    // playhead rather than waiting for the next timeUpdate tick. Adjusted
+    // during render the same way VideoTimePill re-syncs on a player swap.
+    // Cue changes re-derive below without an effect.
+    setWasEnabled(enabled);
+    if (enabled) {
+      setCurrentTime(player.currentTime);
+    }
+  }
   useEventListener(player, "timeUpdate", (event) => {
     if (enabled) {
-      setText(findActiveCue(cues, event.currentTime)?.text ?? null);
+      setCurrentTime(event.currentTime);
     }
   });
-  if (!enabled || !text) {
+  const text = enabled
+    ? (findActiveCue(cues, currentTime)?.text ?? null)
+    : null;
+  if (!text) {
     return null;
   }
   return (
