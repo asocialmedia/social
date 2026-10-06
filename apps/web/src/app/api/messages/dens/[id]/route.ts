@@ -1,6 +1,7 @@
 import {
   and,
   canManageDen,
+  fromPrismaDateTime,
   prisma,
   requireDenMembership,
   updateDenDetails,
@@ -40,6 +41,8 @@ export async function GET(_request: Request, { params }: Params) {
         "avatarMediaId",
         "description",
         "inviteCode",
+        "inviteDurationDays",
+        "inviteExpiresAt",
         "name",
         "ownerId"
       )
@@ -71,8 +74,15 @@ export async function GET(_request: Request, { params }: Params) {
         avatarMediaId: den.avatarMediaId,
         description: den.description,
         // The invite code is the ability to add strangers, so it is withheld
-        // from plain members even though they can see the den exists.
+        // from plain members even though they can see the den exists. The
+        // expiry facts travel with it, for the same reason: they describe the
+        // door, and a member who cannot hold the door does not need its state.
         inviteCode: canManage ? den.inviteCode : null,
+        inviteDurationDays: canManage ? den.inviteDurationDays : null,
+        inviteExpiresAt:
+          canManage && den.inviteExpiresAt
+            ? fromPrismaDateTime(den.inviteExpiresAt).toISOString()
+            : null,
         memberCount: members.count,
         name: den.name,
         ownerId: den.ownerId,
