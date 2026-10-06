@@ -120,14 +120,19 @@ export async function requestPasswordReset(
       null;
     let email: string | null = null;
 
+    // Case-insensitive to match signup (ilike) and the auth service: an
+    // exact-match here would silently skip sending the reset email when the
+    // casing differs from what was stored at signup.
     if (EMAIL_REGEX.test(identifier)) {
       user = await prisma.orm.public.Users.select("email", "id", "username")
-        .where({ email: identifier })
+        .where((candidate) => candidate.email.ilike(identifier))
         .first();
-      email = identifier;
+      // Send to the stored address (preserves the verified casing) rather
+      // than echoing the typed identifier.
+      email = user?.email || identifier;
     } else {
       user = await prisma.orm.public.Users.select("email", "id", "username")
-        .where({ username: identifier })
+        .where((candidate) => candidate.username.ilike(identifier))
         .first();
       email = user?.email || null;
     }

@@ -700,6 +700,30 @@ export function createAuthConfig(config: AuthConfig = {}) {
             }
           },
         },
+        update: {
+          after: async (account) => {
+            // better-auth's native reset/change-password paths write only the
+            // credential account row. Users.passwordHash is a legacy mirror
+            // that other code still reads, so keep it in sync or the two
+            // stores diverge after every password change.
+            try {
+              if (
+                account.providerId === "credential" &&
+                typeof account.password === "string" &&
+                account.password.length > 0
+              ) {
+                await prisma.orm.public.Users.where({
+                  id: account.userId,
+                }).update({ passwordHash: account.password });
+              }
+            } catch (error) {
+              console.error(
+                "Failed to mirror credential password onto user:",
+                error instanceof Error ? error.message : error
+              );
+            }
+          },
+        },
       },
       session: {
         create: {

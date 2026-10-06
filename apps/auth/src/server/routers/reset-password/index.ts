@@ -34,6 +34,12 @@ function redactIdentifier(value: string): string {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 
+// better-auth 1.7 credential contract: the password that sign-in verifies
+// lives on the credential account row (providerId "credential",
+// issuer "local:credential", accountId = user id). Users.passwordHash is a
+// legacy mirror. Every password write must update BOTH or login diverges.
+const LOCAL_CREDENTIAL_ISSUER = "local:credential";
+
 const requestResetSchema = z
   .object({
     identifier: z
@@ -86,15 +92,19 @@ export const resetPasswordRouter = router({
           };
         }
 
+        // Email and username lookups are case-insensitive everywhere else
+        // (signup uses ilike). An exact-match here would miss Foo@Bar.com
+        // when the reset is requested as foo@bar.com, returning a fake
+        // success with no email ever sent.
         const user = await prisma.orm.public.Users.select(
           "email",
           "id",
           "username"
         )
-          .where(
+          .where((candidate) =>
             EMAIL_REGEX.test(identifier)
-              ? { email: identifier }
-              : { username: identifier }
+              ? candidate.email.ilike(identifier)
+              : candidate.username.ilike(identifier)
           )
           .first();
 
@@ -194,6 +204,31 @@ export const resetPasswordRouter = router({
           await tx.orm.public.Users.where({ id: userId }).update({
             passwordHash: hashedPassword,
           });
+
+          // Sign-in verifies Accounts.password, not Users.passwordHash. The
+          // old code updated only the user row, so a reset "completed" but
+          // the next login still checked the stale credential hash. Update
+          // both atomically; create the credential row for OAuth-only
+          // accounts setting their first password via reset.
+          const credential = await tx.orm.public.Accounts.select("id")
+            .where((account) =>
+              and(
+                account.providerId.eq("credential"),
+                account.userId.eq(userId)
+              )
+            )
+            .first();
+          await (credential
+            ? tx.orm.public.Accounts.where({
+                id: credential.id,
+              }).update({ password: hashedPassword })
+            : tx.orm.public.Accounts.create({
+                accountId: userId,
+                issuer: LOCAL_CREDENTIAL_ISSUER,
+                password: hashedPassword,
+                providerId: "credential",
+                userId,
+              }));
 
           await tx.orm.public.Verification.where({
             id: verification.id,
