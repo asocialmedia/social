@@ -25,7 +25,7 @@ import {
   prisma,
   previewInvite,
   removeDenMember,
-  rotateInviteCode,
+  createDenInvite,
   setDenMemberRole,
   subscribeToChannel,
   transferDenOwnership,
@@ -396,7 +396,7 @@ describe("den role model", () => {
     await expect(
       updateDenDetails(denId, OUTSIDER_ID, { name: "Hijacked" })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(rotateInviteCode(denId, OUTSIDER_ID)).rejects.toMatchObject({
+    await expect(createDenInvite(denId, OUTSIDER_ID)).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
     await expect(dissolveDen(denId, OUTSIDER_ID)).rejects.toMatchObject({
@@ -864,7 +864,7 @@ describe("a den somebody left", () => {
     await expect(
       addDenMembers(denId, ADMIN_ID, [OUTSIDER_ID])
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(rotateInviteCode(denId, ADMIN_ID)).rejects.toMatchObject({
+    await expect(createDenInvite(denId, ADMIN_ID)).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
     await expect(dissolveDen(denId, ADMIN_ID)).rejects.toMatchObject({
@@ -1321,7 +1321,7 @@ describe("invite codes", () => {
       name: `Avatar Rotated ${RUN_ID}`,
     });
     denIds.push(den.id);
-    await rotateInviteCode(den.id, OWNER_ID);
+    await createDenInvite(den.id, OWNER_ID);
     expect(await previewInvite(den.inviteCode)).toMatchObject({
       avatarMediaId: null,
       expired: true,
@@ -1388,12 +1388,14 @@ describe("invite codes", () => {
       .where({ id: denId })
       .first();
 
-    const rotated = await rotateInviteCode(denId, ADMIN_ID);
-    expect(rotated).not.toBe(before?.inviteCode);
+    const rotated = await createDenInvite(denId, ADMIN_ID);
+    expect(rotated.inviteCode).not.toBe(before?.inviteCode);
     // The old code stops joining at once. What it now does is IDENTIFY the den, which
     // is the point of the archive and the reason this assertion moved: a reader
     // holding it gets the owner rather than a dead end.
-    expect(await previewInvite(rotated)).toMatchObject({ expired: false });
+    expect(await previewInvite(rotated.inviteCode)).toMatchObject({
+      expired: false,
+    });
     const stale = await previewInvite(before?.inviteCode ?? "");
     expect(stale).toMatchObject({
       expired: true,
@@ -1408,7 +1410,7 @@ describe("invite codes", () => {
 
   test("a member may not rotate the code", async () => {
     const denId = await makeDenWithAdmin([ADMIN_ID, OLDEST_ID]);
-    await expect(rotateInviteCode(denId, OLDEST_ID)).rejects.toMatchObject({
+    await expect(createDenInvite(denId, OLDEST_ID)).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
   });
@@ -1516,7 +1518,7 @@ describe("joining by invite code", () => {
       .where({ id: denId })
       .first();
     const stale = before?.inviteCode ?? "";
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
 
     await expect(joinDenByInviteCode(stale, OUTSIDER_ID)).rejects.toMatchObject(
       { code: "NOT_FOUND" }
@@ -2004,7 +2006,7 @@ describe("membership changes are announced in real time", () => {
       await updateDenDetails(denId, ANNOUNCE_IDS.owner, {
         name: "Quiet renamed",
       });
-      await rotateInviteCode(denId, ANNOUNCE_IDS.owner);
+      await createDenInvite(denId, ANNOUNCE_IDS.owner);
     });
     expect(seen).toEqual([]);
   });

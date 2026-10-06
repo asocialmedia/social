@@ -17,7 +17,7 @@ import {
   leaveDen,
   prisma,
   removeDenMember,
-  rotateInviteCode,
+  createDenInvite,
   setDenMemberRole,
   toPrismaDateTime,
   transferDenOwnership,
@@ -406,9 +406,9 @@ describe("the mutations that must NOT move the counter", () => {
     const denId = await makeDen([ADMIN_ID, MEMBER_ID], "Rotate");
     const before = await membershipSeqOf(denId);
 
-    const rotated = await rotateInviteCode(denId, OWNER_ID);
+    const rotated = await createDenInvite(denId, OWNER_ID);
 
-    expect(rotated.length).toBeGreaterThan(0);
+    expect(rotated.inviteCode.length).toBeGreaterThan(0);
     expect(await membershipSeqOf(denId)).toBe(before);
   });
 
@@ -495,7 +495,7 @@ describe("the counter is monotonic", () => {
     await record();
     await addDenMembers(denId, OWNER_ID, [MEMBER_ID]);
     await record();
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
     await record();
     await updateDenDetails(denId, OWNER_ID, { name: "Still the same roster" });
     await record();

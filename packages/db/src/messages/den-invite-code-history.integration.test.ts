@@ -9,7 +9,7 @@ import {
   joinDenByInviteCode,
   previewInvite,
   prisma,
-  rotateInviteCode,
+  createDenInvite,
   toPrismaDateTime,
 } from "@asm/db";
 import { Client } from "pg";
@@ -263,9 +263,9 @@ describe("a rotation archives the code it invalidates", () => {
     const denId = await makeDen("Write");
     const outgoing = await inviteCodeOf(denId);
 
-    const rotated = await rotateInviteCode(denId, OWNER_ID);
+    const rotated = await createDenInvite(denId, OWNER_ID);
 
-    expect(rotated).not.toBe(outgoing);
+    expect(rotated.inviteCode).not.toBe(outgoing);
     // The archive names the den the dead code opened, so a stale link can be sent
     // to somebody who can fix it.
     expect(await archiveRowOf(outgoing)).toMatchObject({
@@ -273,7 +273,7 @@ describe("a rotation archives the code it invalidates", () => {
     });
     // And the replacement is on the conversation row, which is the only place the
     // join door reads.
-    expect(await inviteCodeOf(denId)).toBe(rotated);
+    expect(await inviteCodeOf(denId)).toBe(rotated.inviteCode);
     // One row for one rotation, so the prune's window is doing what it says.
     expect(await archivedCodes(denId)).toEqual([outgoing]);
   });
@@ -286,7 +286,7 @@ describe("a rotation archives the code it invalidates", () => {
     const outgoing = await inviteCodeOf(denId);
     const before = Date.now();
 
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
 
     const row = await prisma.orm.public.MessageConversationInviteCodes.select(
       "retiredAt"
@@ -313,14 +313,14 @@ describe("a rotation archives the code it invalidates", () => {
     // leave the second rotation's row behind, and an over-eager rollback would take
     // this first row with it - neither of which "the row is absent" alone can tell.
     const first = await inviteCodeOf(denId);
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
     const outgoing = await inviteCodeOf(denId);
     expect(await archiveRowOf(first)).not.toBeNull();
 
     await armRotationFault(denId);
     let hits = 0;
     try {
-      await expect(rotateInviteCode(denId, OWNER_ID)).rejects.toThrow(
+      await expect(createDenInvite(denId, OWNER_ID)).rejects.toThrow(
         /den rotation denied by test/u
       );
       // Read before the teardown, because the hit count lives on the sequence it
@@ -361,7 +361,7 @@ describe("a rotation archives the code it invalidates", () => {
     await armArchiveFault(denId);
     let hits = 0;
     try {
-      await expect(rotateInviteCode(denId, OWNER_ID)).rejects.toThrow(
+      await expect(createDenInvite(denId, OWNER_ID)).rejects.toThrow(
         /den archive denied by test/u
       );
       hits = await faultInjectionHits();
@@ -389,7 +389,8 @@ describe("retention is bounded", () => {
       rotation += 1
     ) {
       // oxlint-disable-next-line no-await-in-loop -- sequential rotations of one den, each must commit before the next
-      seen.push(await rotateInviteCode(denId, OWNER_ID));
+      const minted = await createDenInvite(denId, OWNER_ID);
+      seen.push(minted.inviteCode);
     }
 
     // Every code that was ever live on this den is now archived except the last,
@@ -412,7 +413,7 @@ describe("retention is bounded", () => {
 
     for (let rotation = 0; rotation < rotations; rotation += 1) {
       // oxlint-disable-next-line no-await-in-loop -- sequential rotations of one den, see above
-      await rotateInviteCode(denId, OWNER_ID);
+      await createDenInvite(denId, OWNER_ID);
     }
 
     const archived = await archivedCodes(denId);
@@ -439,7 +440,7 @@ describe("retention is bounded", () => {
       rotation += 1
     ) {
       // oxlint-disable-next-line no-await-in-loop -- sequential rotations of one den, see above
-      await rotateInviteCode(denId, OWNER_ID);
+      await createDenInvite(denId, OWNER_ID);
     }
 
     // Not merely "the count is right": the prune deletes by value, so the value that
@@ -467,9 +468,9 @@ describe("retention is bounded", () => {
       rotation += 1
     ) {
       // oxlint-disable-next-line no-await-in-loop -- sequential rotations of one den, see above
-      await rotateInviteCode(busy, OWNER_ID);
+      await createDenInvite(busy, OWNER_ID);
     }
-    await rotateInviteCode(quiet, OWNER_ID);
+    await createDenInvite(quiet, OWNER_ID);
 
     expect(await archivedCodes(busy)).toHaveLength(
       DEN_LIMITS.retiredInviteCodeMax
@@ -485,7 +486,7 @@ describe("retention is bounded", () => {
     const first = await makeDen("Unique a");
     const second = await makeDen("Unique b");
     const outgoing = await inviteCodeOf(first);
-    await rotateInviteCode(first, OWNER_ID);
+    await createDenInvite(first, OWNER_ID);
 
     await expect(
       prisma.orm.public.MessageConversationInviteCodes.create({
@@ -501,7 +502,7 @@ describe("a retired code identifies the den and grants nothing", () => {
   test("the preview reports the den, its size, and its owner", async () => {
     const denId = await makeDen("Preview");
     const outgoing = await inviteCodeOf(denId);
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
 
     expect(await previewInvite(outgoing)).toEqual({
       // Deliberately null, and asserted rather than omitted: the picture is
@@ -527,7 +528,7 @@ describe("a retired code identifies the den and grants nothing", () => {
     // codes were ever real, which is precisely the fact the archive now holds.
     const denId = await makeDen("Door");
     const outgoing = await inviteCodeOf(denId);
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
 
     const retired = await joinDenByInviteCode(outgoing, OUTSIDER_ID).catch(
       (error: unknown) => error
@@ -565,7 +566,7 @@ describe("a retired code identifies the den and grants nothing", () => {
     });
     denIds.push(den.id);
     const outgoing = await inviteCodeOf(den.id);
-    await rotateInviteCode(den.id, ghostOwnerId);
+    await createDenInvite(den.id, ghostOwnerId);
 
     await prisma.orm.public.Users.where((user) =>
       user.id.eq(ghostOwnerId)
@@ -584,7 +585,7 @@ describe("a retired code identifies the den and grants nothing", () => {
     // not there.
     const denId = await makeDen("Dissolved");
     const outgoing = await inviteCodeOf(denId);
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
     expect(await archiveRowOf(outgoing)).not.toBeNull();
 
     await dissolveDen(denId, OWNER_ID);
@@ -605,7 +606,7 @@ describe("a retired code identifies the den and grants nothing", () => {
       rotation += 1
     ) {
       // oxlint-disable-next-line no-await-in-loop -- sequential rotations of one den, see above
-      await rotateInviteCode(denId, OWNER_ID);
+      await createDenInvite(denId, OWNER_ID);
     }
     // At least one code from this den really was issued and is now gone.
     const survivors =
@@ -629,7 +630,7 @@ describe("a retired code identifies the den and grants nothing", () => {
     const live = await makeDen("Overlap live");
     const archived = await makeDen("Overlap archived");
     const shared = await inviteCodeOf(live);
-    await rotateInviteCode(live, OWNER_ID);
+    await createDenInvite(live, OWNER_ID);
     // The code is now archived from `live` and free to be installed anywhere.
     await prisma.orm.public.MessageConversations.where((candidate) =>
       candidate.id.eq(archived)
@@ -656,7 +657,7 @@ describe("the history read degrades rather than failing the screen", () => {
     // injected failure is the fallback and not the code being unknown all along.
     const denId = await makeDen("Degrade");
     const outgoing = await inviteCodeOf(denId);
-    await rotateInviteCode(denId, OWNER_ID);
+    await createDenInvite(denId, OWNER_ID);
     const before = await previewInvite(outgoing);
     expect(before).toMatchObject({ expired: true, id: denId });
 
@@ -682,5 +683,110 @@ describe("the history read degrades rather than failing the screen", () => {
       expired: false,
       id: denId,
     });
+  });
+});
+
+// The expiry half. A link whose `inviteExpiresAt` has passed must read as dead
+// at the door and as the den-naming screen at the preview - the same two answers
+// a rotated-away code gives - while nothing anywhere writes at the boundary.
+describe("an invite link with an expiry", () => {
+  test("a mint writes the server-computed expiry and remembers the preset", async () => {
+    const denId = await makeDen("Expiry mint");
+    const before = Date.now();
+
+    const minted = await createDenInvite(denId, OWNER_ID, 7);
+
+    const row = await prisma.orm.public.MessageConversations.select(
+      "inviteDurationDays",
+      "inviteExpiresAt"
+    )
+      .where({ id: denId })
+      .first();
+    const expiresAt = row?.inviteExpiresAt
+      ? fromPrismaDateTime(row.inviteExpiresAt)
+      : null;
+    // Bounded both ways: the server minted from its own clock, so the expiry is
+    // seven days from the call and not from anything a client could have sent.
+    expect(expiresAt?.getTime()).toBeGreaterThanOrEqual(
+      before + 7 * 86_400_000
+    );
+    expect(expiresAt?.getTime()).toBeLessThanOrEqual(
+      Date.now() + 7 * 86_400_000
+    );
+    expect(row?.inviteDurationDays).toBe(7);
+    expect(minted.inviteExpiresAt?.toISOString()).toBe(
+      expiresAt?.toISOString()
+    );
+  });
+
+  test("a never-expiring mint clears the expiry and forgets nothing", async () => {
+    const denId = await makeDen("Expiry never");
+    await createDenInvite(denId, OWNER_ID, 30);
+    const minted = await createDenInvite(denId, OWNER_ID, null);
+
+    const row = await prisma.orm.public.MessageConversations.select(
+      "inviteDurationDays",
+      "inviteExpiresAt"
+    )
+      .where({ id: denId })
+      .first();
+    expect(row?.inviteExpiresAt).toBeNull();
+    expect(row?.inviteDurationDays).toBeNull();
+    expect(minted.inviteExpiresAt).toBeNull();
+  });
+
+  test("an expired link is named by the preview and refused by the door", async () => {
+    const denId = await makeDen("Expiry dead");
+    const live = await inviteCodeOf(denId);
+    // Rewrite the expiry into the past directly: the point is the read-time
+    // decision, not the clock, and no worker needs to have run for the code to
+    // be dead.
+    await prisma.orm.public.MessageConversations.where((candidate) =>
+      candidate.id.eq(denId)
+    ).updateAndCount({
+      inviteExpiresAt: toPrismaDateTime(new Date(Date.now() - 60_000)),
+    });
+
+    const preview = await previewInvite(live);
+    expect(preview).toMatchObject({
+      avatarMediaId: null,
+      expired: true,
+      id: denId,
+      // The avatar is not part of the answer: the link opens nothing, so the
+      // preview names the room and the person to ask, and stops there.
+      ownerId: OWNER_ID,
+    });
+    // And the door refuses it byte-identically to a code that never existed,
+    // which is what keeps the refusal from being a validity oracle.
+    const refusal = joinDenByInviteCode(live, OUTSIDER_ID);
+    await expect(refusal).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "That join code is not valid",
+    });
+  });
+
+  test("a future expiry joins normally and the boundary is inclusive", async () => {
+    const denId = await makeDen("Expiry live");
+    const live = await inviteCodeOf(denId);
+    await prisma.orm.public.MessageConversations.where((candidate) =>
+      candidate.id.eq(denId)
+    ).updateAndCount({
+      inviteExpiresAt: toPrismaDateTime(new Date(Date.now() + 60_000)),
+    });
+    await expect(joinDenByInviteCode(live, OUTSIDER_ID)).resolves.toBeTruthy();
+
+    // A second den, expired to the exact millisecond of the read: the
+    // comparison is `<=`, so equality is dead. Two clocks in one millisecond
+    // cannot be ordered, and the door fails shut.
+    const boundaryId = await makeDen("Expiry boundary");
+    const boundaryCode = await inviteCodeOf(boundaryId);
+    await prisma.orm.public.MessageConversations.where((candidate) =>
+      candidate.id.eq(boundaryId)
+    ).updateAndCount({
+      inviteExpiresAt: toPrismaDateTime(new Date()),
+    });
+    await expect(
+      joinDenByInviteCode(boundaryCode, OUTSIDER_ID)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

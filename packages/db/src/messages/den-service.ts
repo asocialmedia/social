@@ -15,12 +15,17 @@ import {
   DEN_BAN_REASON_MAX,
   DEN_INVITE_CODE_ALPHABET,
   DEN_LIMITS,
+  denInviteExpiresAt,
   isCurrentDenMember,
   normalizeDenName,
   validateDenDescription,
   validateDenName,
 } from "./dens";
-import type { DenMembershipEventAction, DenRole } from "./dens";
+import type {
+  DenInviteDurationDays,
+  DenMembershipEventAction,
+  DenRole,
+} from "./dens";
 
 // Re-exported because callers of the service read it from here, and the barrel should
 // keep publishing it from the module it always has. The definition moved to `./dens`
@@ -1835,11 +1840,29 @@ async function pruneRetiredInviteCodes(
   }
 }
 
-export async function rotateInviteCode(
+// Mints a fresh invite link, retiring the old one.
+//
+// This is the revocation step AND the "it expired, give me another" step: both
+// replace the live code, and both archive the outgoing one so a link already in
+// the wild can still name the den it used to open. `durationDays` is one of the
+// presets, or null for a link that never expires; the preset is both written to
+// the link's `inviteExpiresAt` and remembered on the den so the next mint's
+// picker defaults to it.
+//
+// Expiry is never enforced here or anywhere else at a scheduled moment. It is
+// read at preview and join: a code past its `inviteExpiresAt` stops resolving,
+// which is a comparison and not an event. That is why there is no worker and no
+// write at the boundary.
+export async function createDenInvite(
   conversationId: string,
-  actorId: string
-): Promise<string> {
+  actorId: string,
+  durationDays: DenInviteDurationDays | null = null
+): Promise<{ inviteCode: string; inviteExpiresAt: Date | null }> {
   await requireDenManager(conversationId, actorId);
+  // Minted from the server's clock, never from anything the caller sent, so the
+  // lifetime of a link cannot be widened by a client forging a timestamp. The
+  // returned Date is what the panel renders its countdown from.
+  const inviteExpiresAt = denInviteExpiresAt(durationDays, new Date());
   for (let attempt = 1; attempt <= INVITE_CODE_ATTEMPTS; attempt += 1) {
     const inviteCode = generateInviteCode();
     try {
@@ -1851,7 +1874,7 @@ export async function rotateInviteCode(
         //
         // The outgoing code is read INSIDE the claim rather than before it, because
         // the claim holds the den's row lock to commit. That lock is what makes it
-        // safe to archive the value read here: no other rotation can replace the
+        // safe to archive the value read here: no other mint can replace the
         // code between this read and the archive write below, so the row written
         // always describes the code this transaction is actually retiring.
         const current = await tx.orm.public.MessageConversations.select(
@@ -1867,24 +1890,29 @@ export async function rotateInviteCode(
         }
         const outgoing = current.inviteCode;
         // ONE transaction for the archive and the replacement, and that is the
-        // load-bearing property rather than a tidiness choice. Without it a rotation
+        // load-bearing property rather than a tidiness choice. Without it a mint
         // could commit with the archive write lost, and the den would be left exactly
         // where it started: a code that no longer opens anything, with no record that
         // it ever did, so a stale link reads as a link that never existed and the
-        // reader is told nothing at all. Rolling the rotation back when the archive
+        // reader is told nothing at all. Rolling the mint back when the archive
         // write fails is the other half of the same argument and is deliberate: a
-        // rotation that could not explain itself is worse than a rotation that did
-        // not happen, because a manager who sees a refusal retries, and one who sees
-        // a success has been told the old link is dead for a reason.
+        // mint that could not explain itself is worse than one that did not happen,
+        // because a manager who sees a refusal retries, and one who sees a success
+        // has been told the old link is dead for a reason.
         if (outgoing) {
           await archiveRetiredInviteCode(tx, conversationId, outgoing);
         }
         await tx.orm.public.MessageConversations.where((candidate) =>
           candidate.id.eq(conversationId)
-        ).updateAndCount({ inviteCode });
+        ).updateAndCount({
+          inviteCode,
+          inviteDurationDays: durationDays,
+          inviteExpiresAt:
+            inviteExpiresAt === null ? null : toPrismaDateTime(inviteExpiresAt),
+        });
         await pruneRetiredInviteCodes(tx, conversationId, inviteCode);
       });
-      return inviteCode;
+      return { inviteCode, inviteExpiresAt };
     } catch (error) {
       if (isUniqueConstraintViolation(error) || isRetryableConflict(error)) {
         continue;
@@ -1984,8 +2012,11 @@ function normalizeInviteCode(raw: string): string {
 // `findRetiredDen` and by nothing that admits anybody.
 async function findDenByInviteCode(
   inviteCode: string
-): Promise<{ id: string } | null> {
-  const den = await prisma.orm.public.MessageConversations.select("id")
+): Promise<{ id: string; inviteExpiresAt: unknown } | null> {
+  const den = await prisma.orm.public.MessageConversations.select(
+    "id",
+    "inviteExpiresAt"
+  )
     .where((candidate) =>
       and(
         candidate._type.eq("DEN"),
@@ -1993,7 +2024,7 @@ async function findDenByInviteCode(
       )
     )
     .first();
-  return den ? { id: den.id } : null;
+  return den ? { id: den.id, inviteExpiresAt: den.inviteExpiresAt } : null;
 }
 
 // The den a rotated-away code used to open, or null when this archive holds no
@@ -2123,6 +2154,7 @@ export async function previewInvite(
     "avatarMediaId",
     "id",
     "inviteCode",
+    "inviteExpiresAt",
     "name",
     "ownerId"
   )
@@ -2134,6 +2166,27 @@ export async function previewInvite(
     // case where the caller genuinely does not know, and answering unknown is the
     // same thing the reader would have got a moment earlier.
     return null;
+  }
+  // The expiry check, evaluated here rather than at any scheduled moment. A code
+  // past its `inviteExpiresAt` resolves to the same screen a rotated-away code
+  // gets - the den it used to open, and who to ask - because to a reader holding
+  // it, "timed out" and "retired" are the same fact: this link no longer opens
+  // anything, and the den it belonged to is named so they can ask for a new one.
+  // The check never clears the column: the live code stays in place until a
+  // manager mints, so no read ever writes.
+  const expiresAt = row.inviteExpiresAt
+    ? fromPrismaDateTime(row.inviteExpiresAt)
+    : null;
+  if (expiresAt !== null && expiresAt <= new Date()) {
+    return {
+      avatarMediaId: null,
+      expired: true,
+      id: row.id,
+      inviteCode: row.inviteCode,
+      memberCount: await countDenMembers(row.id),
+      name: row.name,
+      ownerId: row.ownerId,
+    };
   }
   return {
     avatarMediaId: row.avatarMediaId,
@@ -2174,11 +2227,20 @@ export async function joinDenByInviteCode(
   //
   // The refusal is therefore byte-identical to the one a code that never existed
   // gets - same error code, same message, same 404 - so a caller cannot tell from a
-  // refused join whether the code was rotated, pruned, or never issued. The expired
-  // screen is told by the preview instead, which the client has already fetched and
-  // which only answers somebody already holding a code this den minted.
+  // refused join whether the code was rotated, EXPIRED, pruned, or never issued. The
+  // expired screen is told by the preview instead, which the client has already
+  // fetched and which only answers somebody already holding a code this den minted.
+  // The expiry comparison is the same lazy read the preview makes: past the
+  // timestamp, the code is dead, and no worker ever needed to run for that to be
+  // true.
   const den = await findDenByInviteCode(inviteCode);
   if (!den) {
+    throw new DenError("NOT_FOUND", "That join code is not valid");
+  }
+  const denExpiresAt = den.inviteExpiresAt
+    ? fromPrismaDateTime(den.inviteExpiresAt)
+    : null;
+  if (denExpiresAt !== null && denExpiresAt <= new Date()) {
     throw new DenError("NOT_FOUND", "That join code is not valid");
   }
   const outcome = await withDenMembershipChange(
