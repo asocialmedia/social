@@ -816,23 +816,29 @@ export function ConversationDetailsBody({
         >
           <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
             <div className="px-4 pb-2">
-              <TabsList className="grid h-auto min-h-11 w-full grid-cols-3">
+              <TabsList
+                appearance="raised"
+                className="grid h-auto min-h-11 w-full grid-cols-3 rounded-2xl!"
+              >
                 <TabsTrigger
-                  className="min-h-11 gap-1.5 px-2 text-xs"
+                  appearance="raised"
+                  className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
                   value="media"
                 >
                   Media
                   <Count value={refs.counts.media} />
                 </TabsTrigger>
                 <TabsTrigger
-                  className="min-h-11 gap-1.5 px-2 text-xs"
+                  appearance="raised"
+                  className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
                   value="posts"
                 >
                   Posts
                   <Count value={refs.counts.post} />
                 </TabsTrigger>
                 <TabsTrigger
-                  className="min-h-11 gap-1.5 px-2 text-xs"
+                  appearance="raised"
+                  className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
                   value="links"
                 >
                   Links
