@@ -1,7 +1,7 @@
 "use client";
 
+import noFeedImage from "@assets/general/nofeed.png";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { FileText } from "lucide-react";
 import { useCallback, useRef } from "react";
 
 import type { SharedPostItem } from "@/lib/messages/shared-refs-format";
@@ -77,7 +77,7 @@ export function ConversationSharedPostsTab({
         <EmptyShared
           body="Posts shared in this chat collect here."
           footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
-          icon={<FileText className="size-5" />}
+          illustration={noFeedImage}
           title="No posts yet"
         />
       }

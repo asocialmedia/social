@@ -1,7 +1,7 @@
 "use client";
 
+import noSearchImage from "@assets/general/nosearch.png";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Link2 } from "lucide-react";
 import { useCallback, useRef } from "react";
 
 import type { SharedLinkItem } from "@/lib/messages/shared-refs-format";
@@ -76,7 +76,7 @@ export function ConversationSharedLinksTab({
         <EmptyShared
           body="Links sent in this chat collect here."
           footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
-          icon={<Link2 className="size-5" />}
+          illustration={noSearchImage}
           title="No links yet"
         />
       }

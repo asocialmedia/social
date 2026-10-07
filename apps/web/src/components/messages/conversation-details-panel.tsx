@@ -811,7 +811,7 @@ export function ConversationDetailsBody({
         )}
 
         <TabsContent
-          className="mt-0 min-h-0 flex-1 overflow-hidden"
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
           value="media"
         >
           <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">

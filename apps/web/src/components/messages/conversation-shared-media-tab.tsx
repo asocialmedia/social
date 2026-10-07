@@ -1,7 +1,7 @@
 "use client";
 
+import noMediaImage from "@assets/general/nomedia.png";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Images } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -114,7 +114,7 @@ export function ConversationSharedMediaTab({
           <EmptyShared
             body="Images and GIFs sent in this chat collect here."
             footnote={EMPTY_FOOTNOTE}
-            icon={<Images className="size-5" />}
+            illustration={noMediaImage}
             title="No media yet"
           />
         ) : (
@@ -138,7 +138,7 @@ export function ConversationSharedMediaTab({
         <EmptyShared
           body="Images and GIFs sent in this chat collect here."
           footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
-          icon={<Images className="size-5" />}
+          illustration={noMediaImage}
           title="No media yet"
         />
       }
