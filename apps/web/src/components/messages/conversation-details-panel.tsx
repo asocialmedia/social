@@ -79,7 +79,7 @@ import {
   wallpaperMimeFor,
 } from "@/lib/messages/conversation-wallpaper-upload";
 import { denMemberCountLabel } from "@/lib/messages/den-label";
-import { denViewerRoleLine } from "@/lib/messages/den-permissions";
+import { denRoleLabel } from "@/lib/messages/den-permissions";
 import { hasDeparted, ownMembership } from "@/lib/messages/membership";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import type {
@@ -998,17 +998,14 @@ function DetailsHeader({
       {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
     </span>
   ) : null;
-  // Null for a plain member, so the subtitle stops after the count rather than
-  // telling somebody what they already are. The same judgement the roster's role
-  // chip makes, which is why both read one helper.
-  const viewerRoleLine = denViewerRoleLine(den?.myRole ?? null);
+  const viewerRole = den?.myRole ? denRoleLabel(den.myRole) : null;
   const description = den ? (
     <>
       <span>{denMemberCountLabel(den.members.length)}</span>
-      {viewerRoleLine ? (
+      {viewerRole ? (
         <>
           <span aria-hidden>·</span>
-          <span>{viewerRoleLine}</span>
+          <span>{viewerRole}</span>
         </>
       ) : null}
       {mutedChip}
@@ -1098,52 +1095,72 @@ function DetailsHeader({
         <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background))] to-transparent" />
       </div>
 
-      <div className="relative -mt-12 flex flex-col items-center px-6 pb-5 text-center">
-        <div className="relative flex items-center justify-center">
-          {/* No ring: the avatar sits in the ambient field rather than punching a
-              hole in it. The `avatar-ring` recipe the component carries already
-              gives it its own depth, and a pane-colored frame around it is what
-              read as a cut edge against the banner. */}
-          {den ? (
+      {den ? (
+        <div className="relative -mt-5 px-4 pb-4">
+          <div className="flex min-w-0 items-center gap-3">
             <DenAvatarCollage
               avatarMediaId={den.avatarMediaId}
               members={den.members}
               myUserId={den.myUserId}
-              size={96}
+              size={72}
             />
-          ) : (
-            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
-          )}
-          {presence ? (
-            <span
-              className={cn(
-                "absolute right-1 bottom-1 size-5 rounded-full border-4 ring-[hsl(var(--background))]",
-                presence === "online" ? "bg-green-500" : "bg-amber-500"
+            <div className="min-w-0 flex-1">
+              {asDialog ? (
+                <SheetTitle className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
+                  {name}
+                </SheetTitle>
+              ) : (
+                <h2 className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
+                  {name}
+                </h2>
               )}
-            />
-          ) : null}
+              {asDialog ? (
+                <SheetDescription className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
+                  {description}
+                </SheetDescription>
+              ) : (
+                <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
+                  {description}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
+      ) : (
+        <div className="relative -mt-12 flex flex-col items-center px-6 pb-5 text-center">
+          <div className="relative flex items-center justify-center">
+            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
+            {presence ? (
+              <span
+                className={cn(
+                  "absolute right-1 bottom-1 size-5 rounded-full border-4 ring-[hsl(var(--background))]",
+                  presence === "online" ? "bg-green-500" : "bg-amber-500"
+                )}
+              />
+            ) : null}
+          </div>
 
-        {asDialog ? (
-          <SheetTitle className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
-            {name}
-          </SheetTitle>
-        ) : (
-          <h2 className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
-            {name}
-          </h2>
-        )}
+          {asDialog ? (
+            <SheetTitle className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
+              {name}
+            </SheetTitle>
+          ) : (
+            <h2 className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
+              {name}
+            </h2>
+          )}
 
-        {asDialog ? (
-          <SheetDescription className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-            {description}
-          </SheetDescription>
-        ) : (
-          <p className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-            {description}
-          </p>
-        )}
-      </div>
+          {asDialog ? (
+            <SheetDescription className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
+              {description}
+            </SheetDescription>
+          ) : (
+            <p className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
+              {description}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
