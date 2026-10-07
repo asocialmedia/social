@@ -498,6 +498,16 @@ export const DEN_PRESENCE_RATE_LIMIT: DenRateLimitRule = {
 // Prefixed by kind so an account's preview budget and its join budget can never
 // collide on the same key, and so a signed-out viewer's "unknown" ingress
 // collapses into one shared identity rather than an unbounded number of them.
+//
+// DEPLOYMENT REQUIREMENT, and the honest limit of the fallback: production
+// ingress is Cloudflare (`cf-connecting-ip` is always present and
+// client-unforgeable). On any deployment where that header is absent, every
+// anonymous viewer shares the single "unknown" identity, which fails CLOSED -
+// one sweeper exhausts the shared budget for every legitimate signed-out
+// joiner - but it also means anonymous link previews are effectively capped
+// for everyone at once. A non-Cloudflare production deployment needs a
+// trusted-ingress equivalent before it can serve signed-out previews at any
+// volume; Cloudflare is a hard dependency, not a preference.
 export function denJoinPreviewIdentifier(
   headers: Pick<Headers, "get">,
   userId: string | undefined

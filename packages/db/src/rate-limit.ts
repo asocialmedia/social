@@ -194,13 +194,29 @@ export async function consumeRateLimitSliding(
 // The key chain matters: t3-env skips validation in production, so a missing
 // VIEWER_HASH_SECRET arrives as undefined and the zod .default() never fires.
 // Falling back to BETTER_AUTH_SECRET keeps the HMAC keyed by a real secret in
-// every deployment instead of crashing createHmac at request time.
+// every deployment instead of crashing createHmac at request time. The final
+// fallback is the one deployment mistake this file cannot fix silently: an
+// unkeyed hash is offline-recoverable over a small IP space, so running with
+// it defeats the pseudonym's whole purpose. That state is made LOUD - one
+// error per process, at first use - rather than fatal, because a dead
+// deployment leaks nothing and helps nobody; the operator who sees this in
+// their logs sets a real VIEWER_HASH_SECRET and restarts.
+let warnedUnkeyed = false;
 function viewerHashKey(): string {
-  return (
-    keys.VIEWER_HASH_SECRET ??
-    process.env.BETTER_AUTH_SECRET ??
-    "asm-viewer-hash-unkeyed"
-  );
+  const key = keys.VIEWER_HASH_SECRET ?? process.env.BETTER_AUTH_SECRET ?? null;
+  if (key === null) {
+    if (!warnedUnkeyed) {
+      warnedUnkeyed = true;
+      console.error(
+        "VIEWER_HASH_SECRET and BETTER_AUTH_SECRET are both unset; " +
+          "anonymous viewer pseudonyms are being derived with a fixed public " +
+          "key, which is offline-recoverable over a small IP space. Set " +
+          "VIEWER_HASH_SECRET to key the HMAC properly."
+      );
+    }
+    return "asm-viewer-hash-unkeyed";
+  }
+  return key;
 }
 
 export function hashViewerId(ip: string): string {
