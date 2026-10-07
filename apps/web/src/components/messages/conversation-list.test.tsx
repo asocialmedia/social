@@ -58,8 +58,9 @@ describe("ConversationList collapsible sidebar", () => {
     expect(html).toContain('placeholder="Search people you follow…"');
     expect(html).toContain('aria-label="Search people you follow"');
 
-    // New den button is visible
+    // New den and Join den buttons are visible
     expect(html).toContain('aria-label="New den"');
+    expect(html).toContain('aria-label="Join a den"');
 
     // Tabs are present
     expect(html).toContain('aria-label="Filter conversations"');
@@ -79,8 +80,9 @@ describe("ConversationList collapsible sidebar", () => {
     expect(html).toContain('aria-label="Search people"');
     expect(html).not.toContain('placeholder="Search people you follow…"');
 
-    // New den button is hidden
+    // New den and Join den buttons are hidden
     expect(html).not.toContain('aria-label="New den"');
+    expect(html).not.toContain('aria-label="Join a den"');
 
     // Tabs are hidden
     expect(html).not.toContain('aria-label="Filter conversations"');

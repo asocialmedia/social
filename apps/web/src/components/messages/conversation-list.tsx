@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   Plus,
   Search,
+  Ticket,
   Users,
   X,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { ConversationRow } from "@/components/messages/conversation-list-item";
 import { CreateDenDialog } from "@/components/messages/create-den-dialog";
+import { JoinDenDialog } from "@/components/messages/join-den-dialog";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -94,6 +96,7 @@ export function ConversationList({
   const [creating, setCreating] = useState<string | null>(null);
   const [filter, setFilter] = useState<DenListFilter>("ALL");
   const [denDialogOpen, setDenDialogOpen] = useState(false);
+  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryFn: () => fetchConversationList(),
@@ -520,6 +523,37 @@ export function ConversationList({
               ) : null}
             </Tooltip>
 
+            {/* Circular join den button beside search bar */}
+            <div
+              className={cn(
+                "shrink-0 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                collapsed
+                  ? "pointer-events-none -ml-2 max-w-0 scale-50 overflow-hidden opacity-0"
+                  : "max-w-9 scale-100 opacity-100"
+              )}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    aria-label={collapsed ? undefined : "Join a den"}
+                    className="icon-btn-3d text-foreground flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors"
+                    onClick={() => setJoinDialogOpen(true)}
+                    tabIndex={collapsed ? -1 : undefined}
+                    type="button"
+                  >
+                    <Ticket className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  className="tooltip-3d"
+                  side="bottom"
+                  sideOffset={8}
+                >
+                  Join a den
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
             {/* Circular create den button next to search bar on right */}
             <div
               className={cn(
@@ -622,6 +656,7 @@ export function ConversationList({
           onOpenChange={setDenDialogOpen}
           open={denDialogOpen}
         />
+        <JoinDenDialog onOpenChange={setJoinDialogOpen} open={joinDialogOpen} />
       </div>
     </TooltipProvider>
   );
