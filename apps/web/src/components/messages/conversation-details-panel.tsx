@@ -657,14 +657,15 @@ export function ConversationDetailsBody({
       >
         <div className="px-4 pb-2">
           <TabsList
+            appearance={isDen ? "raised" : "default"}
             className={cn(
               "grid h-auto min-h-11 w-full",
-              isDen ? "grid-cols-3" : "grid-cols-2"
+              isDen ? "grid-cols-3 rounded-2xl!" : "grid-cols-2"
             )}
           >
             {isDen ? (
               <TabsTrigger
-                className="min-h-11 gap-1.5 px-2 text-xs"
+                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-xs"
                 value="members"
               >
                 Members
@@ -680,7 +681,10 @@ export function ConversationDetailsBody({
               </TabsTrigger>
             )}
             <TabsTrigger
-              className="min-h-11 gap-1.5 px-2 text-xs"
+              className={cn(
+                "min-h-11 min-w-0 gap-1.5 px-2 text-xs",
+                isDen && "rounded-xl"
+              )}
               value="media"
             >
               Media
@@ -688,7 +692,7 @@ export function ConversationDetailsBody({
             </TabsTrigger>
             {isDen ? (
               <TabsTrigger
-                className="min-h-11 gap-1.5 px-2 text-xs"
+                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-xs"
                 value="settings"
               >
                 Settings
@@ -1652,9 +1656,7 @@ function Count({ value }: { value: number }) {
     return null;
   }
   return (
-    <span className="text-muted-foreground text-[10px] font-semibold tabular-nums">
-      {value}
-    </span>
+    <span className="text-[10px] font-semibold tabular-nums">{value}</span>
   );
 }
 

@@ -9,15 +9,18 @@ import { cn } from "../lib/utils";
 const Tabs = Root;
 
 const TabsList = ({
+  appearance = "default",
   className,
   ref,
   ...props
 }: ComponentPropsWithoutRef<typeof List> & {
+  appearance?: "default" | "raised";
   ref?: React.Ref<ElementRef<typeof List> | null>;
 }) => (
   <List
     className={cn(
-      "bg-muted text-muted-foreground inline-flex h-9 items-center justify-center rounded-lg p-1",
+      "text-muted-foreground inline-flex h-9 items-center justify-center rounded-lg p-1",
+      appearance === "raised" ? "surface-3d" : "bg-muted",
       className
     )}
     ref={ref}
