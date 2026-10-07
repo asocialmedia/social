@@ -39,27 +39,109 @@ export interface DenInviteShortCodeMinted {
   inviteShortCodeExpiresAt: Date | null;
 }
 
+// One door of the sheet, as its input shows it: the value being shared and the
+// expiry it was minted with. The expiry presets are NOT part of a door - they
+// are the manager's next choice, seeded from the den's last one.
+export interface DenInviteDoorState {
+  code: string | null;
+  expiresAt: Date | null;
+}
+
+// The state a CLOSED sheet re-seeds to, or null while it is open.
+//
+// The dialog can stay mounted for the whole time the panel is on screen, and
+// its props move on every refetch - most importantly after ANOTHER manager
+// rotates a door. Without a re-seed, the second manager to open the sheet reads
+// and copies a door that no longer works: the shown values are stale input
+// state, not stale props, so nothing else corrects them.
+//
+// The `open` gate is the other half of the contract. While the sheet is open
+// the shown values belong to the manager: a refetch that lands mid-mint must
+// not visually replace the value the mint just produced. So this answers "what
+// should I show right now" with null when the sheet is open, and the component
+// keeps whatever its user is looking at.
+export function reseededInviteDoor(
+  open: boolean,
+  input: {
+    code: string | null;
+    expiresAt: Date | null;
+  }
+): DenInviteDoorState | null {
+  if (open) {
+    return null;
+  }
+  return { code: input.code, expiresAt: input.expiresAt };
+}
+
+// The expiry preset a closed sheet's picker re-seeds to: the den's last choice
+// when that choice is one of the presets, and the default when it is not.
+// Same shape as the picker's own first seed, so a door that was rotated by
+// somebody else also rotates the picker back to what the den actually asked
+// for. Null while the sheet is open, for the same reason the doors are.
+export function reseededInviteDuration(
+  open: boolean,
+  lastPicked: number | null
+): DenInviteDurationDays | null {
+  if (open) {
+    return null;
+  }
+  if (lastPicked === 1 || lastPicked === 7 || lastPicked === 30) {
+    return lastPicked;
+  }
+  return DEFAULT_DURATION_DAYS;
+}
+
 // The den's invite sheet: the link and short code doors, how long each lives, and
 // the actions that change either independently.
 //
 // Tabs split "Link" and "Code" so each door can be shared or rotated on its own
 // preset without interfering with the other. Link remains the default tab to preserve
 // the established flow.
+//
+// The sheet can stay MOUNTED while its props move underneath it - the panel keeps
+// it alive whenever either door exists, and the detail payload the props come from
+// refetches after every mutation, including one made by ANOTHER manager in a
+// different tab. So while the sheet is CLOSED its shown doors and picked presets
+// follow `reseededInviteDoor`/`reseededInviteDuration` back to the live props; a
+// manager who reopens the sheet reads the doors that are live now, not the ones
+// that were live when they first opened it. While it is OPEN the state is the
+// user's - an in-flight mint must not be visually replaced by a refetch that
+// races it.
+
+// The code writer's label. Busy names the flight, a live code names the
+// rotation it invites, and the first mint is a plain "generate".
+function codeButtonLabel(busy: boolean, code: string | null): string {
+  if (busy) {
+    return "Creating…";
+  }
+  return code ? "Generate new code" : "Generate code";
+}
+
 export function DenInviteDialog({
   busy,
+  codeBusy = false,
   inviteCode,
   inviteDurationDays,
   inviteExpiresAt,
   inviteShortCode = null,
   inviteShortCodeDurationDays = null,
   inviteShortCodeExpiresAt = null,
+  linkBusy = false,
   now,
   onGenerate,
   onGenerateCode,
   onOpenChange,
   open,
 }: {
+  // The sheet-gate: true while ANY mutation in the panel is in flight, so a
+  // roster-affecting operation can't run under the sheet. The per-door flags
+  // below decide which writer shows its own spinner.
   busy: boolean;
+  // True while THIS door's mint is in flight. Separate from `busy` so a code
+  // mint doesn't disable the link writer (or vice versa) - each door has its
+  // own rotation budget, and the two are independent.
+  codeBusy?: boolean;
+  linkBusy?: boolean;
   inviteCode: string | null;
   // The preset the den last minted the link with, which seeds the link selector.
   inviteDurationDays: number | null;
@@ -74,7 +156,7 @@ export function DenInviteDialog({
   onGenerate: (
     durationDays: DenInviteDurationDays | null
   ) => Promise<DenInviteMinted | null>;
-  onGenerateCode?: (
+  onGenerateCode: (
     durationDays: DenInviteDurationDays | null
   ) => Promise<DenInviteShortCodeMinted | null>;
   onOpenChange: (open: boolean) => void;
@@ -82,58 +164,78 @@ export function DenInviteDialog({
 }) {
   const [tab, setTab] = useState<"link" | "code">("link");
 
-  const seededLink =
-    inviteDurationDays === 1 ||
-    inviteDurationDays === 7 ||
-    inviteDurationDays === 30
-      ? inviteDurationDays
-      : DEFAULT_DURATION_DAYS;
-  const [selectedLinkDuration, setSelectedLinkDuration] =
-    useState<DenInviteDurationDays | null>(seededLink);
-  const [shownLink, setShownLink] = useState<{
-    inviteCode: string | null;
-    inviteExpiresAt: Date | null;
-  }>({
-    inviteCode,
-    inviteExpiresAt,
-  });
-  const [copiedLink, setCopiedLink] = useState(false);
-
-  const seededCode =
-    inviteShortCodeDurationDays === 1 ||
-    inviteShortCodeDurationDays === 7 ||
-    inviteShortCodeDurationDays === 30
-      ? inviteShortCodeDurationDays
-      : DEFAULT_DURATION_DAYS;
-  const [selectedCodeDuration, setSelectedCodeDuration] =
-    useState<DenInviteDurationDays | null>(seededCode);
-  const [shownCode, setShownCode] = useState<{
-    inviteShortCode: string | null;
-    inviteShortCodeExpiresAt: Date | null;
-  }>({
-    inviteShortCode: inviteShortCode ?? null,
-    inviteShortCodeExpiresAt: inviteShortCodeExpiresAt ?? null,
-  });
-  const [copiedCode, setCopiedCode] = useState(false);
-
-  const linkExpired =
-    shownLink.inviteExpiresAt !== null && shownLink.inviteExpiresAt <= now;
-  const linkCountdown = denInviteCountdown(shownLink.inviteExpiresAt, now);
-
-  const codeExpired =
-    shownCode.inviteShortCodeExpiresAt !== null &&
-    shownCode.inviteShortCodeExpiresAt <= now;
-  const codeCountdown = denInviteCountdown(
-    shownCode.inviteShortCodeExpiresAt,
-    now
+  // Each door's shown value is DERIVED, not held: the props are the live truth
+  // (and they move on every refetch, including after ANOTHER manager rotates a
+  // door in a different tab), and this state holds only what the manager has
+  // minted in THIS sheet session that the refetch has not confirmed yet. When
+  // the sheet closes the overrides are dropped - there is nothing left to show
+  // ahead of the refetch once nobody is looking - so a reopened sheet always
+  // reads the doors that are live now.
+  const [linkOverride, setLinkOverride] = useState<DenInviteDoorState | null>(
+    null
+  );
+  const [codeOverride, setCodeOverride] = useState<DenInviteDoorState | null>(
+    null
   );
 
+  // The picker's preset is genuine state while the sheet is open (the manager
+  // is choosing what the NEXT mint lives for), and follows the props while the
+  // sheet is closed so a reopen re-seeds from the den's latest choice.
+  // `reseededInviteDuration` answers null while open, which distinguishes "the
+  // manager is picking" from "nothing is picked in this session".
+  const [pickedLink, setPickedLink] = useState<DenInviteDurationDays | null>(
+    () => reseededInviteDuration(false, inviteDurationDays)
+  );
+  const [pickedLinkOpen, setPickedLinkOpen] = useState(false);
+  const [pickedCode, setPickedCode] = useState<DenInviteDurationDays | null>(
+    () => reseededInviteDuration(false, inviteShortCodeDurationDays)
+  );
+  const [pickedCodeOpen, setPickedCodeOpen] = useState(false);
+  const linkDurationSeed = reseededInviteDuration(false, inviteDurationDays);
+  const codeDurationSeed = reseededInviteDuration(
+    false,
+    inviteShortCodeDurationDays
+  );
+  const pickedLinkShown = pickedLinkOpen ? pickedLink : linkDurationSeed;
+  const selectedLinkDuration = open ? pickedLinkShown : linkDurationSeed;
+  const pickedCodeShown = pickedCodeOpen ? pickedCode : codeDurationSeed;
+  const selectedCodeDuration = open ? pickedCodeShown : codeDurationSeed;
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  const shownLink: DenInviteDoorState = open
+    ? (linkOverride ?? {
+        code: inviteCode,
+        expiresAt: inviteExpiresAt,
+      })
+    : {
+        code: inviteCode,
+        expiresAt: inviteExpiresAt,
+      };
+  const shownCode: DenInviteDoorState = open
+    ? (codeOverride ?? {
+        code: inviteShortCode,
+        expiresAt: inviteShortCodeExpiresAt,
+      })
+    : {
+        code: inviteShortCode,
+        expiresAt: inviteShortCodeExpiresAt,
+      };
+
+  const linkExpired =
+    shownLink.expiresAt !== null && shownLink.expiresAt <= now;
+  const linkCountdown = denInviteCountdown(shownLink.expiresAt, now);
+
+  const codeExpired =
+    shownCode.expiresAt !== null && shownCode.expiresAt <= now;
+  const codeCountdown = denInviteCountdown(shownCode.expiresAt, now);
+
   const copyLink = async () => {
-    if (!shownLink.inviteCode) {
+    if (!shownLink.code) {
       return;
     }
     const origin = typeof window === "undefined" ? "" : window.location.origin;
-    const link = denInviteUrl(origin, shownLink.inviteCode);
+    const link = denInviteUrl(origin, shownLink.code);
     try {
       await navigator.clipboard.writeText(link);
       setCopiedLink(true);
@@ -146,11 +248,11 @@ export function DenInviteDialog({
   };
 
   const copyCode = async () => {
-    if (!shownCode.inviteShortCode) {
+    if (!shownCode.code) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(shownCode.inviteShortCode);
+      await navigator.clipboard.writeText(shownCode.code);
       setCopiedCode(true);
       setTimeout(() => {
         setCopiedCode(false);
@@ -163,18 +265,23 @@ export function DenInviteDialog({
   const generateLink = async () => {
     const minted = await onGenerate(selectedLinkDuration);
     if (minted) {
-      setShownLink(minted);
+      setLinkOverride({
+        code: minted.inviteCode,
+        expiresAt: minted.inviteExpiresAt,
+      });
+      setPickedLinkOpen(true);
       setCopiedLink(false);
     }
   };
 
   const generateCode = async () => {
-    if (!onGenerateCode) {
-      return;
-    }
     const minted = await onGenerateCode(selectedCodeDuration);
     if (minted) {
-      setShownCode(minted);
+      setCodeOverride({
+        code: minted.inviteShortCode,
+        expiresAt: minted.inviteShortCodeExpiresAt,
+      });
+      setPickedCodeOpen(true);
       setCopiedCode(false);
     }
   };
@@ -202,90 +309,112 @@ export function DenInviteDialog({
           </TabsList>
 
           <TabsContent className="flex flex-col gap-4 pt-2" value="link">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-muted-foreground text-xs">
-                Link expires
-              </span>
-              <fieldset
-                aria-label="Link expiry"
-                className="flex flex-wrap gap-1.5 border-0 p-0"
-              >
-                {INVITE_DURATION_CHOICES.map((days) => (
-                  <button
-                    aria-pressed={selectedLinkDuration === days}
-                    className={cn(
-                      "chip-3d cursor-pointer rounded-full text-xs",
-                      selectedLinkDuration === days &&
-                        "border-primary/60 bg-primary/15"
-                    )}
-                    key={days === null ? "never" : days}
-                    onClick={() => {
-                      setSelectedLinkDuration(days);
-                    }}
-                    type="button"
+            {shownLink.code ? (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-muted-foreground text-xs">
+                    Link expires
+                  </span>
+                  <fieldset
+                    aria-label="Link expiry"
+                    className="flex flex-wrap gap-1.5 border-0 p-0"
                   >
-                    {days === null
-                      ? "No expiry"
-                      : `${days} day${days === 1 ? "" : "s"}`}
-                  </button>
-                ))}
-              </fieldset>
-            </div>
+                    {INVITE_DURATION_CHOICES.map((days) => (
+                      <button
+                        aria-pressed={selectedLinkDuration === days}
+                        className={cn(
+                          "chip-3d cursor-pointer rounded-full text-xs",
+                          selectedLinkDuration === days &&
+                            "border-primary/60 bg-primary/15"
+                        )}
+                        key={days === null ? "never" : days}
+                        onClick={() => {
+                          setPickedLink(days);
+                          setPickedLinkOpen(true);
+                        }}
+                        type="button"
+                      >
+                        {days === null
+                          ? "No expiry"
+                          : `${days} day${days === 1 ? "" : "s"}`}
+                      </button>
+                    ))}
+                  </fieldset>
+                </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label
-                className="text-muted-foreground text-xs"
-                htmlFor="den-invite-link"
-              >
-                Invite link
-              </label>
-              <div className="relative">
-                <input
-                  aria-label="Invite link"
-                  className="premium-input w-full pr-10! text-xs"
-                  id="den-invite-link"
-                  onFocus={(event) => {
-                    event.currentTarget.select();
-                  }}
-                  readOnly
-                  value={
-                    shownLink.inviteCode
-                      ? denInviteUrl(
-                          typeof window === "undefined"
-                            ? ""
-                            : window.location.origin,
-                          shownLink.inviteCode
-                        )
-                      : ""
-                  }
-                />
+                <div className="flex flex-col gap-1.5">
+                  <label
+                    className="text-muted-foreground text-xs"
+                    htmlFor="den-invite-link"
+                  >
+                    Invite link
+                  </label>
+                  <div className="relative">
+                    <input
+                      aria-label="Invite link"
+                      className="premium-input w-full pr-10! text-xs"
+                      id="den-invite-link"
+                      onFocus={(event) => {
+                        event.currentTarget.select();
+                      }}
+                      readOnly
+                      value={denInviteUrl(
+                        typeof window === "undefined"
+                          ? ""
+                          : window.location.origin,
+                        shownLink.code
+                      )}
+                    />
+                    <button
+                      aria-label={copiedLink ? "Copied" : "Copy invite link"}
+                      className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
+                      disabled={busy || linkBusy}
+                      onClick={() => {
+                        void copyLink();
+                      }}
+                      title="Copy invite link"
+                      type="button"
+                    >
+                      {copiedLink ? (
+                        <Check className="text-primary size-3.5" />
+                      ) : (
+                        <Copy className="size-3.5" />
+                      )}
+                    </button>
+                  </div>
+                  <p
+                    className={cn(
+                      "text-xs tabular-nums",
+                      linkExpired ? "text-destructive" : "text-muted-foreground"
+                    )}
+                  >
+                    {linkExpired
+                      ? "This link has expired. Generate a new one to keep sharing access."
+                      : linkCountdown}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-xl p-5 text-center">
+                <p className="text-muted-foreground text-xs">
+                  No link yet — generate one to share with others.
+                </p>
                 <button
-                  aria-label={copiedLink ? "Copied" : "Copy invite link"}
-                  className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
+                  className="btn-3d inline-flex h-8 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium disabled:opacity-50"
+                  disabled={busy || linkBusy}
                   onClick={() => {
-                    void copyLink();
+                    void generateLink();
                   }}
-                  title="Copy invite link"
                   type="button"
                 >
-                  {copiedLink ? (
-                    <Check className="text-primary size-3.5" />
-                  ) : (
-                    <Copy className="size-3.5" />
-                  )}
+                  <RefreshCw
+                    aria-hidden
+                    className={linkBusy ? "size-3.5 animate-spin" : "size-3.5"}
+                  />
+                  {linkBusy ? "Creating…" : "Generate link"}
                 </button>
               </div>
-              <p
-                className={cn(
-                  "text-xs tabular-nums",
-                  linkExpired ? "text-destructive" : "text-muted-foreground"
-                )}
-              >
-                {linkExpired
-                  ? "This link has expired. Generate a new one to keep sharing access."
-                  : linkCountdown}
-              </p>
-            </div>
+            )}
           </TabsContent>
 
           <TabsContent className="flex flex-col gap-4 pt-2" value="code">
@@ -307,7 +436,8 @@ export function DenInviteDialog({
                     )}
                     key={days === null ? "never" : days}
                     onClick={() => {
-                      setSelectedCodeDuration(days);
+                      setPickedCode(days);
+                      setPickedCodeOpen(true);
                     }}
                     type="button"
                   >
@@ -319,7 +449,7 @@ export function DenInviteDialog({
               </fieldset>
             </div>
 
-            {shownCode.inviteShortCode ? (
+            {shownCode.code ? (
               <div className="flex flex-col gap-1.5">
                 <label
                   className="text-muted-foreground text-xs"
@@ -336,11 +466,12 @@ export function DenInviteDialog({
                       event.currentTarget.select();
                     }}
                     readOnly
-                    value={shownCode.inviteShortCode}
+                    value={shownCode.code}
                   />
                   <button
                     aria-label={copiedCode ? "Copied" : "Copy invite code"}
                     className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
+                    disabled={busy || codeBusy}
                     onClick={() => {
                       void copyCode();
                     }}
@@ -372,14 +503,17 @@ export function DenInviteDialog({
                 </p>
                 <button
                   className="btn-3d inline-flex h-8 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium disabled:opacity-50"
-                  disabled={busy}
+                  disabled={busy || codeBusy}
                   onClick={() => {
                     void generateCode();
                   }}
                   type="button"
                 >
-                  <RefreshCw aria-hidden className="size-3.5" />
-                  {busy ? "Creating…" : "Generate code"}
+                  <RefreshCw
+                    aria-hidden
+                    className={codeBusy ? "size-3.5 animate-spin" : "size-3.5"}
+                  />
+                  {codeBusy ? "Creating…" : "Generate code"}
                 </button>
               </div>
             )}
@@ -400,27 +534,33 @@ export function DenInviteDialog({
           {tab === "link" && (
             <button
               className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
-              disabled={busy}
+              disabled={busy || linkBusy}
               onClick={() => {
                 void generateLink();
               }}
               type="button"
             >
-              <RefreshCw aria-hidden className="size-4" />
-              {busy ? "Creating…" : "Generate new link"}
+              <RefreshCw
+                aria-hidden
+                className={linkBusy ? "size-4 animate-spin" : "size-4"}
+              />
+              {linkBusy ? "Creating…" : "Generate new link"}
             </button>
           )}
-          {tab === "code" && shownCode.inviteShortCode && (
+          {tab === "code" && (
             <button
               className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
-              disabled={busy}
+              disabled={busy || codeBusy}
               onClick={() => {
                 void generateCode();
               }}
               type="button"
             >
-              <RefreshCw aria-hidden className="size-4" />
-              {busy ? "Creating…" : "Generate new code"}
+              <RefreshCw
+                aria-hidden
+                className={codeBusy ? "size-4 animate-spin" : "size-4"}
+              />
+              {codeButtonLabel(codeBusy, shownCode.code)}
             </button>
           )}
         </DialogFooter>

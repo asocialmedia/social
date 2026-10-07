@@ -3,7 +3,11 @@ import { describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 
-import { DenInviteDialog } from "./den-invite-dialog";
+import {
+  DenInviteDialog,
+  reseededInviteDoor,
+  reseededInviteDuration,
+} from "./den-invite-dialog";
 
 // Radix Dialog renders into a portal which SSR renderToString drops.
 // Mocking the primitives to render their children inline lets renderToString
@@ -129,5 +133,69 @@ describe("DenInviteDialog", () => {
   test("does not render dialog content when open is false", () => {
     const html = renderDialog({ open: false });
     expect(html).not.toContain("Invite another member");
+  });
+
+  test("renders the link tab empty state when inviteCode is null", () => {
+    const html = renderDialog({
+      inviteCode: null,
+      inviteDurationDays: null,
+      inviteExpiresAt: null,
+    });
+    expect(html).toContain("No link yet — generate one to share with others.");
+    expect(html).toContain("Generate link");
+    expect(html).not.toContain('id="den-invite-link"');
+  });
+
+  // The per-door busy flags. A mint on one door must not disable the other
+  // door's writer - each door has its own rotation budget and the two are
+  // independent - while the sheet-gate disables both. The code tab's writer is
+  // not drawn for the default (link) tab, so the assertion rides on the code
+  // tab's copy button, which the tab mock renders for both tabs.
+  test("a code mint disables the code tab's controls but leaves the link's free", () => {
+    const busyHtml = renderDialog({ codeBusy: true });
+    expect(busyHtml).toContain('aria-label="Copy invite code"');
+    expect(busyHtml).toContain(
+      '<button aria-label="Copy invite code" class="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center" disabled=""'
+    );
+    expect(busyHtml).not.toContain(
+      '<button aria-label="Copy invite link" class="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center" disabled=""'
+    );
+  });
+
+  // The re-seed decisions, pinned where they are pure. While the sheet is
+  // closed it follows the props; while it is open the manager's session state
+  // stands and a racing refetch must not replace what they are looking at.
+  describe("reseededInviteDoor", () => {
+    test("a closed sheet follows the live props", () => {
+      const seed = reseededInviteDoor(false, {
+        code: "ABC123",
+        expiresAt: FUTURE,
+      });
+      expect(seed).toEqual({ code: "ABC123", expiresAt: FUTURE });
+    });
+
+    test("an open sheet answers null so the session state stands", () => {
+      expect(
+        reseededInviteDoor(true, { code: "ABC123", expiresAt: FUTURE })
+      ).toBeNull();
+    });
+  });
+
+  describe("reseededInviteDuration", () => {
+    test("a closed sheet re-seeds to the den's last preset", () => {
+      expect(reseededInviteDuration(false, 30)).toBe(30);
+      expect(reseededInviteDuration(false, 1)).toBe(1);
+    });
+
+    test("an out-of-band preset falls back to the default, never to null", () => {
+      // Null means "the den last minted a code that never expires", which is
+      // not a duration a picker can show, so it seeds the default.
+      expect(reseededInviteDuration(false, null)).toBe(7);
+      expect(reseededInviteDuration(false, 5)).toBe(7);
+    });
+
+    test("an open sheet answers null: the manager is choosing", () => {
+      expect(reseededInviteDuration(true, 30)).toBeNull();
+    });
   });
 });

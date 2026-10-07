@@ -300,11 +300,21 @@ export function DenPanel({
   // minted link is returned to the sheet so its input shows it at once; the
   // refetch confirms it into the panel's own payload. Failure is told here,
   // through the same channel every other panel mutation uses.
+  //
+  // The sheet's link and code writers share one sheet but keep SEPARATE busy
+  // flags, because each mint is bounded by its own rotation budget and the two
+  // doors are independent: `mintingLink` only gates the link writer (and
+  // closes the dialog with it), so a mint on one door can't keep the other
+  // door's button disabled or hide its spinner, and the shared `busy` continues
+  // to gate everything else in the panel.
+  const [mintingLink, setMintingLink] = useState(false);
+  const [mintingCode, setMintingCode] = useState(false);
   const mintInvite = useCallback(
     async (
       durationDays: DenInviteDurationDays | null
     ): Promise<{ inviteCode: string; inviteExpiresAt: Date | null } | null> => {
       setBusy(true);
+      setMintingLink(true);
       let minted: {
         inviteCode: string;
         inviteExpiresAt: Date | null;
@@ -334,6 +344,7 @@ export function DenPanel({
         });
       }
       setBusy(false);
+      setMintingLink(false);
       return minted;
     },
     [conversationId, refresh]
@@ -347,6 +358,7 @@ export function DenPanel({
       inviteShortCodeExpiresAt: Date | null;
     } | null> => {
       setBusy(true);
+      setMintingCode(true);
       let minted: {
         inviteShortCode: string;
         inviteShortCodeExpiresAt: Date | null;
@@ -376,6 +388,7 @@ export function DenPanel({
         });
       }
       setBusy(false);
+      setMintingCode(false);
       return minted;
     },
     [conversationId, refresh]
@@ -1026,7 +1039,9 @@ export function DenPanel({
       {/* The invite sheet */}
       {inviteCode || inviteShortCode ? (
         <DenInviteDialog
-          busy={busy}
+          busy={busy || mintingLink || mintingCode}
+          linkBusy={mintingLink}
+          codeBusy={mintingCode}
           inviteCode={inviteCode}
           inviteDurationDays={den.inviteDurationDays}
           inviteExpiresAt={inviteExpiresAt}
