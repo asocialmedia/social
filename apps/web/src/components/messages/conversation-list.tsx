@@ -1,5 +1,6 @@
 "use client";
 
+import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -37,6 +38,7 @@ import {
   DEN_LIST_FILTERS,
   countConversationsByType,
   filterConversationsByType,
+  isDenListFilter,
 } from "@/lib/messages/den-label";
 import type { DenListFilter } from "@/lib/messages/den-label";
 import { newConversationErrorToast } from "@/lib/messages/new-conversation-copy";
@@ -119,6 +121,12 @@ export function ConversationList({
   // from rather than from a second query, so a badge on a tab and the rows under it
   // are one read.
   const counts = useMemo(() => countConversationsByType(items), [items]);
+
+  const handleFilterChange = useCallback((value: string) => {
+    if (isDenListFilter(value)) {
+      setFilter(value);
+    }
+  }, []);
 
   const refetchList = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -600,39 +608,31 @@ export function ConversationList({
             "shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
             collapsed
               ? "pointer-events-none h-0 py-0 opacity-0"
-              : "h-9 px-2 pt-1 pb-1 opacity-100"
+              : "px-2 py-1 opacity-100"
           )}
         >
-          <div
-            aria-label={collapsed ? undefined : "Filter conversations"}
-            className="flex gap-1 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
-            role={collapsed ? undefined : "tablist"}
-          >
-            {DEN_LIST_FILTERS.map((option) => {
-              const isSelected = filter === option;
-              return (
-                <button
-                  aria-selected={collapsed ? undefined : isSelected}
-                  className={cn(
-                    "pill-3d-hover flex-1 cursor-pointer rounded-full px-2 py-1 text-xs font-medium transition-colors",
-                    isSelected
-                      ? "border-border/60 bg-primary/15 border"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
+          <Tabs onValueChange={handleFilterChange} value={filter}>
+            <TabsList
+              aria-label={collapsed ? undefined : "Filter conversations"}
+              appearance="raised"
+              className="grid h-auto min-h-11 w-full grid-cols-3 rounded-2xl!"
+            >
+              {DEN_LIST_FILTERS.map((option) => (
+                <TabsTrigger
+                  appearance="raised"
+                  className="min-h-11 min-w-0 rounded-xl px-1.5 text-xs sm:text-sm"
                   key={option}
-                  onClick={() => setFilter(option)}
-                  role={collapsed ? undefined : "tab"}
                   tabIndex={collapsed ? -1 : undefined}
-                  type="button"
+                  value={option}
                 >
                   {FILTER_LABEL[option]}
-                  <span className="ml-1 text-[10px] tabular-nums opacity-70">
+                  <span className="text-[10px] tabular-nums opacity-70">
                     {counts[option]}
                   </span>
-                </button>
-              );
-            })}
-          </div>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         </div>
 
         {/* Conversation list */}
