@@ -722,7 +722,7 @@ export function DenPanel({
         {canInvite ? (
           <Button
             aria-label="Invite members"
-            className="h-11 min-w-0 flex-1 rounded-2xl px-3 lg:h-9"
+            className="h-11 min-w-0 flex-1 rounded-2xl! px-3 lg:h-9"
             onClick={() => setInviteDialogOpen(true)}
             type="button"
             variant="outline"
