@@ -86,7 +86,11 @@ export {
 } from "../den-rate-limit";
 
 // The module a test hands to `mock.module`, with the real rules and a
-// `consumeDenRateLimit` of the caller's choosing.
+// `consumeDenRateLimit` of the caller's choosing. BOTH limiter entries are the
+// same double: the plain limiter covers every single-row route, and
+// `consumeDenJoinRateLimit` is the join door's fail-closed sibling that shares
+// the same counting, so a test that wants to refuse a request or observe which
+// budget was charged gets both with one mock.
 export function denRateLimitDouble(
   consumeDenRateLimit: (
     rule: DenRateLimitRule,
@@ -123,6 +127,7 @@ export function denRateLimitDouble(
     DEN_TYPING_RATE_LIMIT,
     DEN_USER_SEARCH_RATE_LIMIT,
     DEN_WALLPAPER_RATE_LIMIT,
+    consumeDenJoinRateLimit: consumeDenRateLimit,
     consumeDenRateLimit,
     denJoinPreviewIdentifier,
   };

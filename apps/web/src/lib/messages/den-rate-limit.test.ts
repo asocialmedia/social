@@ -105,6 +105,7 @@ const {
   DEN_TYPING_RATE_LIMIT,
   DEN_USER_SEARCH_RATE_LIMIT,
   DEN_WALLPAPER_RATE_LIMIT,
+  consumeDenJoinRateLimit,
   consumeDenRateLimit,
   denJoinPreviewIdentifier,
 } = await import("./den-rate-limit");
@@ -519,6 +520,67 @@ describe("consumeDenRateLimit", () => {
     } finally {
       allow = true;
     }
+  });
+});
+
+describe("consumeDenJoinRateLimit", () => {
+  // The join door is the one surface where fail-open removes the last bound on
+  // an attack: the preview budget is what makes sweeping the 36^6 short-code
+  // space irrational, and an unbounded preview during a Redis outage is the
+  // sweep running for free. So the door DEGRADES instead of failing open - a
+  // process-local window, no Redis - while every other bucket in this file
+  // keeps its fail-open contract.
+  test("counts through the same buckets while Redis answers", async () => {
+    const before = consumed.length;
+    const slidingBefore = slidingConsumed.length;
+    expect(
+      await consumeDenJoinRateLimit(DEN_JOIN_RATE_LIMIT, "joiner-1")
+    ).toBeNull();
+    expect(consumed.length).toBe(before + 1);
+    expect(slidingConsumed.length).toBe(slidingBefore);
+    expect(consumed.at(-1)?.bucket).toBe(DEN_JOIN_RATE_LIMIT.bucket);
+  });
+
+  test("a limiter that throws degrades to a local window instead of failing open", async () => {
+    const original = console.error;
+    const logged: unknown[] = [];
+    console.error = (...args: unknown[]) => {
+      logged.push(args[1]);
+    };
+    try {
+      brokenHelpers.throwOnConsume = true;
+      // The degraded window admits up to the rule's own budget.
+      expect(
+        await consumeDenJoinRateLimit(DEN_JOIN_RATE_LIMIT, "degraded-1")
+      ).toBeNull();
+      expect(
+        await consumeDenJoinRateLimit(DEN_JOIN_PREVIEW_RATE_LIMIT, "degraded-2")
+      ).toBeNull();
+      // A DIFFERENT bucket is its own degraded window, mirroring the bucket
+      // separation the Redis limiter keeps.
+      expect(
+        await consumeDenJoinRateLimit(DEN_JOIN_RATE_LIMIT, "degraded-1")
+      ).toBeNull();
+      // The window's ceiling is the rule's own limit, so flooding to exactly
+      // the boundary and one past it is what a refill helper is for. The
+      // counting must be sequential - each hit fills the same degraded window
+      // - but the helper reads one call at a time by design.
+      let refused: Response | null = null;
+      for (
+        let i = 0;
+        i < DEN_JOIN_RATE_LIMIT.limit + 1 && refused === null;
+        i += 1
+      ) {
+        // oxlint-disable-next-line no-await-in-loop -- the window counts each hit, so they must be sequential
+        refused = await consumeDenJoinRateLimit(DEN_JOIN_RATE_LIMIT, "flood-1");
+      }
+      expect(refused?.status).toBe(429);
+      expect(refused?.headers.get("retry-after")).toBeTruthy();
+    } finally {
+      brokenHelpers.throwOnConsume = false;
+      console.error = original;
+    }
+    expect(logged.length).toBeGreaterThanOrEqual(1);
   });
 });
 

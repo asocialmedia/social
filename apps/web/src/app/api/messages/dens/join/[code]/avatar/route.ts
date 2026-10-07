@@ -13,7 +13,7 @@ import { generatePresignedUrl } from "@/lib/media/object-storage";
 import { denIsFull } from "@/lib/messages/den-capacity";
 import {
   DEN_JOIN_PREVIEW_RATE_LIMIT,
-  consumeDenRateLimit,
+  consumeDenJoinRateLimit,
   denJoinPreviewIdentifier,
 } from "@/lib/messages/den-rate-limit";
 
@@ -59,7 +59,7 @@ export async function GET(request: Request, { params }: Params) {
     return unavailable();
   }
 
-  const limited = await consumeDenRateLimit(
+  const limited = await consumeDenJoinRateLimit(
     DEN_JOIN_PREVIEW_RATE_LIMIT,
     denJoinPreviewIdentifier(request.headers, userId)
   );

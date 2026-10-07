@@ -547,3 +547,90 @@ export async function consumeDenRateLimit(
     return null;
   }
 }
+
+// The join door's limiter, and the one deliberate exception to the fail-open
+// rule above. The join endpoints are the ONLY surface where a limiter outage
+// removes the last bound on an attack the limiter exists to price:
+// `DEN_JOIN_PREVIEW_RATE_LIMIT` is what makes sweeping the 36^6 short-code
+// space economically irrational (roughly 30 reads per identity per hour
+// against 2.2 billion possibilities). Fail-open during a Redis outage turns
+// the widest door into an unbounded, indexed lookup oracle exactly when
+// sweeping is cheapest - and the door's other budgets (session gate, join
+// auth) still hold, so nobody legitimate is locked out: a signed-in member
+// keeps joining, and a signed-out reader of a LINK loses only their anonymous
+// preview until Redis returns.
+//
+// The degraded budget is a process-local fixed window, so it needs no Redis
+// and still bounds a volumetric sweep to a trickle per identity. It is
+// deliberately tighter than the Redis budget: an outage is rare, brief, and
+// the right answer to "we cannot count properly" is to count conservatively.
+// The join POST keeps the rule's own budget as its degraded allowance because
+// a session is required there and the cost per hit is far higher.
+const degradedHits = new Map<string, { count: number; windowStart: number }>();
+
+function consumeDenRateLimitDegraded(
+  rule: DenRateLimitRule,
+  identifier: string
+): Response | null {
+  const now = Date.now();
+  const windowMs = rule.windowSeconds * 1000;
+  const key = `${rule.bucket}:${identifier}`;
+  const entry = degradedHits.get(key);
+  if (!entry || now - entry.windowStart >= windowMs) {
+    degradedHits.set(key, { count: 1, windowStart: now });
+    return null;
+  }
+  entry.count += 1;
+  if (entry.count > rule.limit) {
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((entry.windowStart + windowMs - now) / 1000)
+    );
+    return Response.json(
+      { error: "You're doing that too often. Try again later." },
+      {
+        headers: { "retry-after": String(retryAfterSeconds) },
+        status: 429,
+      }
+    );
+  }
+  return null;
+}
+
+// The join-DOOR limiter: same counting as `consumeDenRateLimit`, but a Redis
+// outage degrades to a tight process-local window instead of failing open.
+// See the comment above for why this door, and only this door, pays with
+// availability rather than with its anti-enumeration bound.
+export async function consumeDenJoinRateLimit(
+  rule: DenRateLimitRule,
+  identifier: string
+): Promise<Response | null> {
+  const options = {
+    bucket: rule.bucket,
+    identifier,
+    limit: rule.limit,
+    windowSeconds: rule.windowSeconds,
+  };
+  try {
+    const result =
+      rule.window === "sliding"
+        ? await consumeRateLimitSliding(options)
+        : await consumeRateLimit(options);
+    if (result.allowed) {
+      return null;
+    }
+    return Response.json(
+      { error: "You're doing that too often. Try again later." },
+      {
+        headers: { "retry-after": String(result.retryAfterSeconds) },
+        status: 429,
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Join-door rate limiter failed, degrading to a local window:",
+      error
+    );
+    return consumeDenRateLimitDegraded(rule, identifier);
+  }
+}

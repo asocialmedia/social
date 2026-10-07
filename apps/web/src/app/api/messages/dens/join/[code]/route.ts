@@ -14,7 +14,7 @@ import { denErrorResponse } from "@/lib/messages/den-api";
 import {
   DEN_JOIN_PREVIEW_RATE_LIMIT,
   DEN_JOIN_RATE_LIMIT,
-  consumeDenRateLimit,
+  consumeDenJoinRateLimit,
   denJoinPreviewIdentifier,
 } from "@/lib/messages/den-rate-limit";
 import { hasMessageIdentity } from "@/lib/messages/server";
@@ -115,7 +115,7 @@ export async function GET(request: Request, { params }: Params) {
   // costs no query. Signed in, that is the account; signed out, it is the
   // ingress IP under a keyed hash, because this route needs no session and
   // "no session" must not mean "no limit". See `denJoinPreviewIdentifier`.
-  const limited = await consumeDenRateLimit(
+  const limited = await consumeDenJoinRateLimit(
     DEN_JOIN_PREVIEW_RATE_LIMIT,
     denJoinPreviewIdentifier(request.headers, userId)
   );
@@ -220,7 +220,7 @@ export async function POST(_request: Request, { params }: Params) {
   // This is the widest door in the product - the URL is shareable and anyone
   // holding it can present it - so it carries the tightest membership-mutation
   // budget even though one person legitimately joins several dens a day.
-  const limited = await consumeDenRateLimit(DEN_JOIN_RATE_LIMIT, userId);
+  const limited = await consumeDenJoinRateLimit(DEN_JOIN_RATE_LIMIT, userId);
   if (limited) {
     return limited;
   }

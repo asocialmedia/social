@@ -37,12 +37,17 @@ function routeFiles(directory: string): string[] {
   return found.toSorted();
 }
 
-// A handler that mentions one of these has a limiter. Both spellings are accepted
-// because both are legitimate: `consumeDenRateLimit` for the per-account rules in
-// `lib/messages/den-rate-limit.ts`, and a direct `consumeRateLimit` for the two
-// budgets that predate them (the history walk and the cursor page) and live in
-// the route itself.
-const LIMITER_MARKERS = ["consumeDenRateLimit", "consumeRateLimit"];
+// A handler that mentions one of these has a limiter. All three spellings are
+// accepted because all are legitimate: `consumeDenRateLimit` for the per-account
+// rules in `lib/messages/den-rate-limit.ts`, `consumeDenJoinRateLimit` for the
+// join door's fail-closed sibling of the same counter, and a direct
+// `consumeRateLimit` for the two budgets that predate them (the history walk and
+// the cursor page) and live in the route itself.
+const LIMITER_MARKERS = [
+  "consumeDenRateLimit",
+  "consumeDenJoinRateLimit",
+  "consumeRateLimit",
+];
 
 // Each handler deliberately left unmetered, keyed `METHOD path`, with the reason
 // it survives review.
