@@ -287,7 +287,7 @@ export const Tags = ({
       </div>
 
       <Dialog onOpenChange={setIsEditing} open={isEditing}>
-        <DialogContent className="border-primary/15 shadow-primary/5 rounded-xl border shadow-lg sm:max-w-[400px]">
+        <DialogContent className="rounded-2xl! sm:max-w-[400px]">
           <DialogTitle className="flex items-center gap-2 text-base font-medium">
             <Hash className="text-primary h-3.5 w-3.5" />
             Edit Tags

@@ -420,7 +420,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
         onClick={handleOverlayClick}
       />
 
-      <div className="apple-panel relative w-full max-w-xl overflow-hidden rounded-2xl shadow-none">
+      <div className="panel-3d relative w-full max-w-xl overflow-hidden rounded-2xl!">
         <div className="border-border/60 flex items-center gap-3 border-b px-4 py-3">
           <Search className="text-muted-foreground h-5 w-5 shrink-0" />
           <input
@@ -439,7 +439,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
         </div>
 
         <div
-          className="hide-native-scrollbar max-h-[60vh] overflow-x-hidden overflow-y-auto p-1.5"
+          className="hide-native-scrollbar max-h-[60vh] overflow-x-hidden overflow-y-auto p-2"
           ref={listRef}
         >
           {isFetching && trimmedQuery ? (

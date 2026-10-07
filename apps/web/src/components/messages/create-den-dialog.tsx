@@ -478,7 +478,7 @@ export function CreateDenDialog({
             Cancel
           </Button>
           <Button
-            className="min-h-11 rounded-2xl! px-5 text-sm!"
+            className="min-h-11 rounded-2xl! px-4 text-sm!"
             disabled={!canCreate}
             onClick={() => {
               void handleCreate();

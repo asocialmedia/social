@@ -527,7 +527,7 @@ export function ConversationMediaViewer({
   return (
     <Dialog onOpenChange={onClose} open>
       <DialogContent
-        className="bg-background text-foreground flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 [&>button:last-child]:hidden"
+        className="bg-background text-foreground flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none! border-0 p-0 [&>button:last-child]:hidden"
         onClick={(event) => event.stopPropagation()}
       >
         <VisuallyHidden>

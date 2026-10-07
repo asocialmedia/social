@@ -110,10 +110,7 @@ export const HNSearchBar = ({
             <ChevronDown className="h-3 w-3" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="apple-panel min-w-44 p-1.5 shadow-none"
-        >
+        <DropdownMenuContent align="end" className="min-w-44 rounded-2xl! p-2">
           {HN_FILTER_OPTIONS.map((option) => (
             <DropdownMenuItem
               className={cn(

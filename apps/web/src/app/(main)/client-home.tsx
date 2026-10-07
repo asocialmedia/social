@@ -181,11 +181,11 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       align="start"
-                      className="min-w-52 p-1.5"
+                      className="min-w-52 rounded-2xl! p-2"
                     >
                       <DropdownMenuItem
                         aria-disabled="true"
-                        className="cursor-not-allowed rounded-md px-2 py-2 opacity-60"
+                        className="cursor-not-allowed rounded-lg px-2 py-2 opacity-60"
                         disabled
                       >
                         <span className="flex items-center gap-3">

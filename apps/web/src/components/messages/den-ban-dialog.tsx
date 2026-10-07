@@ -66,7 +66,7 @@ export function DenBanDialog({
   // sentence somebody would send.
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl! sm:max-h-[calc(100dvh-4rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>

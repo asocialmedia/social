@@ -29,7 +29,7 @@ const TooltipContent = ({
   <Portal>
     <Content
       className={cn(
-        "fade-in-0 zoom-in-95 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 animate-in panel-3d text-foreground data-[state=closed]:animate-out z-50 origin-center overflow-hidden rounded-md px-3 py-1.5 text-xs duration-200 motion-reduce:animate-none!",
+        "fade-in-0 zoom-in-95 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 animate-in panel-3d text-foreground data-[state=closed]:animate-out z-50 origin-center overflow-hidden rounded-lg! px-3 py-2 text-xs duration-200 motion-reduce:animate-none!",
         className
       )}
       ref={ref}

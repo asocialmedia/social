@@ -50,7 +50,7 @@ export function DenConfirmDialog({
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent
         aria-busy={busy}
-        className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full"
+        className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl! sm:max-h-[calc(100dvh-4rem)] sm:w-full"
       >
         <AlertDialogHeader>
           <AlertDialogTitle>{copy.title}</AlertDialogTitle>

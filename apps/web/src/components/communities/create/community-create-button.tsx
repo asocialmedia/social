@@ -82,7 +82,11 @@ export function CommunityCreationInfo({
           <Info className="size-4" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-3.5" side="bottom">
+      <PopoverContent
+        align="end"
+        className="w-64 rounded-2xl! p-4"
+        side="bottom"
+      >
         <CommunityCreationGate quota={quota} />
       </PopoverContent>
     </Popover>

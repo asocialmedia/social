@@ -290,7 +290,7 @@ export function DenInviteDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl! sm:max-h-[calc(100dvh-4rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle>Invite another member</DialogTitle>
           <DialogDescription>

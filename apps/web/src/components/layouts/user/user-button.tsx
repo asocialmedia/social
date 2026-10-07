@@ -237,7 +237,7 @@ export default function UserButton({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="border-border/50 bg-background/75 z-50 w-56 overflow-hidden rounded-xl border shadow-lg backdrop-blur-xl"
+          className="z-50 w-56 overflow-hidden rounded-2xl! backdrop-blur-xl"
           sideOffset={8}
         >
           <motion.div
@@ -333,7 +333,7 @@ export default function UserButton({
               />
 
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="hover:bg-primary/10 focus:bg-primary/10 relative my-1 w-full cursor-pointer rounded-md transition-colors duration-200">
+                <DropdownMenuSubTrigger className="hover:bg-primary/10 focus:bg-primary/10 relative my-1 w-full cursor-pointer rounded-lg transition-colors duration-200">
                   <Monitor className="mr-2 size-4" />
                   <span>Theme</span>
                 </DropdownMenuSubTrigger>
@@ -395,7 +395,7 @@ export default function UserButton({
                 whileTap={{ scale: 0.98 }}
               >
                 <DropdownMenuItem
-                  className="group cursor-pointer rounded-md text-red-500 hover:bg-red-500/10 focus:bg-red-500/10 focus:text-red-500"
+                  className="group cursor-pointer rounded-lg text-red-500 hover:bg-red-500/10 focus:bg-red-500/10 focus:text-red-500"
                   onClick={handleOpenDialog}
                 >
                   <motion.div

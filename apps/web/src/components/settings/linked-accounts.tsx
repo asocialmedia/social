@@ -206,8 +206,8 @@ export default function LinkedAccounts({
         }}
         open={providerToConfirm !== null}
       >
-        <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[440px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
-          <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[440px] gap-0 overflow-hidden rounded-2xl! p-0">
+          <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
                 <Link2 className="size-4" />
@@ -221,7 +221,7 @@ export default function LinkedAccounts({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 px-5 py-4">
+          <div className="space-y-3 px-4 py-4">
             <div className="border-border/60 flex items-center gap-3 rounded-xl border p-3">
               {providerToConfirm && (
                 <Image
@@ -252,7 +252,7 @@ export default function LinkedAccounts({
             </p>
           </div>
 
-          <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-5 py-3 sm:space-x-0">
+          <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-4 py-3 sm:space-x-0">
             <Button
               className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
               onClick={() => setProviderToConfirm(null)}

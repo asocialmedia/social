@@ -136,7 +136,7 @@ export const MobileUserMenu = ({
                 initial="hidden"
                 variants={menuVariants}
               >
-                <div className="border-border/50 bg-background/100 relative overflow-hidden rounded-2xl border p-6 shadow-lg backdrop-blur-xl">
+                <div className="panel-3d relative overflow-hidden rounded-2xl! p-4">
                   <motion.button
                     className="text-muted-foreground hover:bg-primary/10 absolute top-4 right-4 rounded-full p-2"
                     onClick={onCloseAction}
