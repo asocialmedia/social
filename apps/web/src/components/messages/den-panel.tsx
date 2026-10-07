@@ -2,7 +2,6 @@
 
 import {
   DEN_LIMITS,
-  isDenInviteDurationDays,
   normalizeDenName,
   validateDenDescription,
   validateDenName,
@@ -24,12 +23,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
-  Copy,
   Crown,
   Loader2,
   MoreHorizontal,
   Pencil,
-  RefreshCw,
   Shield,
   Trash2,
   UserMinus,
@@ -43,6 +40,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import { DenBanDialog } from "@/components/messages/den-ban-dialog";
 import { DenBannedSection } from "@/components/messages/den-banned-section";
 import { DenConfirmDialog } from "@/components/messages/den-confirm-dialog";
+import { DenInviteDialog } from "@/components/messages/den-invite-dialog";
 import {
   MemberPicker,
   MemberPickerSearch,
@@ -71,11 +69,7 @@ import {
 import type { DenBannedMember, DenMember } from "@/lib/messages/client";
 import { denBanAddRefusal } from "@/lib/messages/den-ban-copy";
 import { denAddRoom, denIsFull } from "@/lib/messages/den-capacity";
-import {
-  denInviteCountdown,
-  denInviteIsExpired,
-  denInviteUrl,
-} from "@/lib/messages/den-invite";
+import { denInviteCountdown } from "@/lib/messages/den-invite";
 import {
   denAffordances,
   denRoleActionLabel,
@@ -86,11 +80,6 @@ import {
 import type { DenRoleActionKind } from "@/lib/messages/den-permissions";
 import type { MessagePickerRecipient } from "@/lib/messages/use-message-user-search";
 import { cn } from "@/lib/utils";
-
-// The picker's options, in display order: the three presets, then the absence of
-// an expiry. A mirror of the server's `DEN_INVITE_DURATION_DAYS` plus its null,
-// kept as a tuple so the chips render in this order and no other.
-const INVITE_DURATION_CHOICES = [1, 7, 30, null] as const;
 
 // The den's management surface, rendered inside the conversation details pane.
 //
@@ -162,15 +151,10 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   const [editing, setEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
-  // The invite picker: closed until "Replace link" or the expired card asks for
-  // it, and seeded from the den's last-chosen preset so a manager replacing a
-  // 7-day link is offered 7 days again rather than starting over. `undefined`
-  // means untouched - distinct from null, which is the deliberate "No expiry"
-  // choice.
-  const [invitePickerOpen, setInvitePickerOpen] = useState(false);
-  const [inviteDuration, setInviteDuration] = useState<
-    DenInviteDurationDays | null | undefined
-  >();
+  // The invite sheet. Everything else about the link - the link itself, its
+  // countdown, the expiry choice - lives in the dialog, which mounts fresh each
+  // time so a stale selection never survives a close.
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
 
   const detail = useQuery({
     queryFn: () => fetchDen(conversationId),
@@ -231,34 +215,29 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
     refreshReadable();
   }, [conversationId, queryClient, refreshReadable]);
 
-  const copyInvite = useCallback(async () => {
-    const code = detail.data?.den.inviteCode;
-    if (!code) {
-      return;
-    }
-    const link = denInviteUrl(window.location.origin, code);
-    try {
-      await navigator.clipboard.writeText(link);
-      toast({ description: link, title: "Invite link copied" });
-    } catch {
-      toast({
-        description: link,
-        title: "Copy this link",
-        variant: "destructive",
-      });
-    }
-  }, [detail.data]);
-
   // Mint a fresh link with the chosen expiry, retiring whatever is live. The
   // response carries the new expiry so the toast can name it in the same breath
   // as the fact that the old link is gone; the card's own countdown comes back
   // with the `refresh()` refetch.
+  // Mint a fresh link with the chosen expiry, retiring whatever is live. The
+  // minted link is returned to the sheet so its input shows it at once; the
+  // refetch confirms it into the panel's own payload. Failure is told here,
+  // through the same channel every other panel mutation uses.
   const mintInvite = useCallback(
-    async (durationDays: DenInviteDurationDays | null) => {
+    async (
+      durationDays: DenInviteDurationDays | null
+    ): Promise<{ inviteCode: string; inviteExpiresAt: Date | null } | null> => {
       setBusy(true);
+      let minted: {
+        inviteCode: string;
+        inviteExpiresAt: Date | null;
+      } | null = null;
       try {
         const invite = await createDenInvite(conversationId, durationDays);
-        setInvitePickerOpen(false);
+        minted = {
+          inviteCode: invite.inviteCode,
+          inviteExpiresAt: invite.inviteExpiresAt,
+        };
         refresh();
         toast({
           description:
@@ -278,6 +257,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         });
       }
       setBusy(false);
+      return minted;
     },
     [conversationId, refresh]
   );
@@ -617,24 +597,16 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
   // capped, so a den at exactly the ceiling and a den with unread members beyond
   // the first page are different states and only one of them is full.
   const rosterFull = denIsFull(den.memberCount);
-  // The live link's expiry, judged against the moment the detail payload was
-  // fetched rather than against a clock read during render. The server owns the
-  // enforcement at preview and join - this flag only decides which card to
-  // draw - and anchoring to `dataUpdatedAt` keeps the render pure while still
-  // flipping to the expired card on every refetch past the boundary.
+  // The live link's expiry facts for the sheet, judged against the moment the
+  // detail payload was fetched rather than against a clock read during render.
+  // The server owns the enforcement at preview and join - this only decides
+  // what the sheet's countdown and status line say - and anchoring to
+  // `dataUpdatedAt` keeps the render pure while still flipping the sheet's
+  // expired state on every refetch past the boundary.
   const fetchedAt = new Date(detail.dataUpdatedAt);
   const inviteExpiresAt = den.inviteExpiresAt
     ? new Date(den.inviteExpiresAt)
     : null;
-  const linkExpired = denInviteIsExpired(inviteExpiresAt, fetchedAt);
-  // The picker's seeded choice: the den's last-used preset. `undefined` (not yet
-  // touched) falls back to it; the den's own null means its last link never
-  // expired, which is the honest default for a den with no expiry history.
-  const seededDuration = isDenInviteDurationDays(den.inviteDurationDays)
-    ? den.inviteDurationDays
-    : null;
-  const chosenDuration =
-    inviteDuration === undefined ? seededDuration : inviteDuration;
 
   return (
     <div className="flex flex-col gap-3">
@@ -726,96 +698,26 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         )}
       </div>
 
-      {/* Invite controls. The code is the door, and the server withholds it from
-          anybody who is not a manager, so this block is only drawn when the panel
-          actually holds one — a plain member is not shown a control that could
-          only ever be disabled. */}
-      {/* The invite card, in three states that share one shape. A live link
-          shows its countdown and its copy button; an expired one names the fact
-          and asks for a duration; either way "replace" opens the same four-chip
-          picker, seeded with the preset this den last used. A plain member is
-          shown none of it — the server withholds the code, so a control that
-          could only ever be disabled is not drawn. */}
+      {/* The invite card is one job in one state: it opens the invite sheet,
+          which holds the link, its expiry and the generate action. A plain
+          member is shown none of it - the server withholds the code, so a
+          control that could only ever be disabled is not drawn. */}
       {inviteCode && denWide.canCopyInvite ? (
         <div className="surface-3d rounded-2xl px-3.5 py-3">
-          <p className="text-sm font-medium">Invite link</p>
+          <p className="text-sm font-medium">Invite another member</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {linkExpired
-              ? "This link has expired. Anyone holding it is turned away."
-              : "Anyone with this link can join, whether or not they follow anybody in here. Banned accounts are still refused."}
+            Share a link that joins this den.
           </p>
-          {!linkExpired && (
-            <p className="text-muted-foreground mt-1.5 text-xs tabular-nums">
-              {denInviteCountdown(inviteExpiresAt, fetchedAt)}
-            </p>
-          )}
-          {invitePickerOpen || linkExpired ? (
-            <div className="mt-2.5">
-              <p className="text-muted-foreground text-xs">
-                {linkExpired
-                  ? "Pick how long the next link lives."
-                  : "Pick how long the replacement lives."}
-              </p>
-              <fieldset className="mt-1.5 flex flex-wrap gap-1.5 border-0 p-0">
-                {INVITE_DURATION_CHOICES.map((days) => (
-                  <button
-                    aria-pressed={chosenDuration === days}
-                    className={cn(
-                      "chip-3d cursor-pointer rounded-full text-xs",
-                      chosenDuration === days &&
-                        "border-primary/60 bg-primary/15"
-                    )}
-                    key={days === null ? "never" : days}
-                    onClick={() => {
-                      setInviteDuration(days);
-                    }}
-                    type="button"
-                  >
-                    {days === null
-                      ? "No expiry"
-                      : `${days} day${days === 1 ? "" : "s"}`}
-                  </button>
-                ))}
-              </fieldset>
-              <button
-                className="btn-3d mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg! text-xs"
-                disabled={busy}
-                onClick={() => {
-                  void mintInvite(chosenDuration);
-                }}
-                type="button"
-              >
-                <RefreshCw className="size-3.5" />
-                {linkExpired ? "Create new link" : "Replace link"}
-              </button>
-            </div>
-          ) : (
-            <div className="mt-2 flex gap-1.5">
-              <button
-                className="btn-3d-gray flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg! text-xs"
-                onClick={() => {
-                  void copyInvite();
-                }}
-                type="button"
-              >
-                <Copy className="size-3.5" />
-                Copy link
-              </button>
-              <button
-                aria-label="Replace invite link"
-                className="btn-3d-gray flex h-8 items-center justify-center gap-1.5 rounded-lg! px-2.5 text-xs"
-                onClick={() => {
-                  setInviteDuration(undefined);
-                  setInvitePickerOpen(true);
-                }}
-                title="Retire this link and mint a new one"
-                type="button"
-              >
-                <RefreshCw className="size-3.5" />
-                Replace
-              </button>
-            </div>
-          )}
+          <button
+            className="btn-3d mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg! text-xs"
+            onClick={() => {
+              setInviteDialogOpen(true);
+            }}
+            type="button"
+          >
+            <UserPlus className="size-3.5" />
+            Invite
+          </button>
         </div>
       ) : null}
 
@@ -1040,6 +942,23 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* The invite sheet. Mounted only when this panel actually holds a code,
+          so a dialog cannot exist for a den whose door the viewer cannot hold.
+          `busy` closes its buttons, and `mintInvite`'s answer is what flips the
+          input to the freshly minted link before the refetch lands. */}
+      {inviteCode ? (
+        <DenInviteDialog
+          busy={busy}
+          inviteCode={inviteCode}
+          inviteDurationDays={den.inviteDurationDays}
+          inviteExpiresAt={inviteExpiresAt}
+          now={fetchedAt}
+          onGenerate={(durationDays) => mintInvite(durationDays)}
+          onOpenChange={setInviteDialogOpen}
+          open={inviteDialogOpen}
+        />
+      ) : null}
 
       {/* Not mounted at all when nobody is being banned, so the dialog cannot be handed
           a member that is not there and cannot render a title built from nothing. The
