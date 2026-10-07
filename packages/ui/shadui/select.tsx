@@ -120,7 +120,7 @@ const SelectContent = ({
       <SelectScrollUpButton />
       <Viewport
         className={cn(
-          "p-1",
+          "p-2",
           position === "popper" &&
             "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
         )}
@@ -141,7 +141,7 @@ const SelectLabel = ({
   ref?: React.Ref<React.ElementRef<typeof Label> | null>;
 }) => (
   <Label
-    className={cn("px-2 py-1.5 text-sm font-semibold", className)}
+    className={cn("px-2 py-2 text-sm font-semibold", className)}
     ref={ref}
     {...props}
   />
@@ -158,7 +158,7 @@ const SelectItem = ({
 }) => (
   <Item
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default items-center rounded-xs py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 w-full cursor-default items-center rounded-lg py-2 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9",
       className
     )}
     ref={ref}

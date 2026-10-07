@@ -37,7 +37,7 @@ const ContextMenuSubTrigger = ({
 }) => (
   <ContextMenuPrimitive.SubTrigger
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-xs px-2 py-1.5 text-sm outline-hidden select-none",
+      "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex min-h-11 cursor-default items-center rounded-lg px-2 py-2 text-sm outline-hidden select-none sm:min-h-9",
       inset && "pl-8",
       className
     )}
@@ -61,7 +61,7 @@ const ContextMenuSubContent = ({
 }) => (
   <ContextMenuPrimitive.SubContent
     className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] origin-center overflow-hidden rounded-2xl! p-1 duration-200 motion-reduce:animate-none!",
+      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] origin-center overflow-hidden rounded-2xl! p-2 duration-200 motion-reduce:animate-none!",
       className
     )}
     ref={ref}
@@ -80,7 +80,7 @@ const ContextMenuContent = ({
   <ContextMenuPrimitive.Portal>
     <ContextMenuPrimitive.Content
       className={cn(
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] origin-center overflow-hidden rounded-2xl! p-1 duration-200 motion-reduce:animate-none!",
+        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] origin-center overflow-hidden rounded-2xl! p-2 duration-200 motion-reduce:animate-none!",
         className
       )}
       ref={ref}
@@ -102,7 +102,7 @@ const ContextMenuItem = ({
 }) => (
   <ContextMenuPrimitive.Item
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center rounded-lg px-2 py-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9",
       inset && "pl-8",
       className
     )}
@@ -126,7 +126,7 @@ const ContextMenuCheckboxItem = ({
   <ContextMenuPrimitive.CheckboxItem
     checked={checked}
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center rounded-lg py-2 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9",
       className
     )}
     ref={ref}
@@ -155,7 +155,7 @@ const ContextMenuRadioItem = ({
 }) => (
   <ContextMenuPrimitive.RadioItem
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center rounded-lg py-2 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9",
       className
     )}
     ref={ref}
@@ -183,7 +183,7 @@ const ContextMenuLabel = ({
 }) => (
   <ContextMenuPrimitive.Label
     className={cn(
-      "text-foreground px-2 py-1.5 text-sm font-semibold",
+      "text-foreground px-2 py-2 text-sm font-semibold",
       inset && "pl-8",
       className
     )}

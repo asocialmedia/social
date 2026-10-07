@@ -79,7 +79,7 @@ export function DenBanDialog({
             {DEN_BAN_REASON_LABEL}
           </label>
           <Input
-            className="min-h-11 w-full rounded-2xl! text-base sm:text-sm"
+            className="min-h-11 w-full rounded-xl! text-base sm:text-sm"
             id="den-ban-reason"
             // The server's own number, not a literal. `DEN_BAN_REASON_MAX` moved to
             // `@asm/db/messages/dens` for this: the cap is a rule, and a rule written

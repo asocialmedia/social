@@ -52,7 +52,7 @@ const AlertDialogContent = ({
     <AlertDialogOverlay />
     <Content
       className={cn(
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d data-[state=closed]:animate-out data-[state=open]:animate-in fixed top-[50%] left-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg origin-center translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl! p-4 duration-200 motion-reduce:animate-none! sm:p-5",
+        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d data-[state=closed]:animate-out data-[state=open]:animate-in fixed top-[50%] left-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg origin-center translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl! p-4 duration-200 motion-reduce:animate-none!",
         className
       )}
       ref={ref}

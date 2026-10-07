@@ -340,7 +340,7 @@ export function DenInviteDialog({
                       <button
                         aria-pressed={selectedLinkDuration === days}
                         className={cn(
-                          "chip-3d min-h-11 cursor-pointer rounded-xl! px-3 text-xs",
+                          "chip-3d min-h-11 cursor-pointer rounded-lg! px-3 text-xs",
                           selectedLinkDuration === days &&
                             "border-primary/60 bg-primary/15"
                         )}
@@ -369,7 +369,7 @@ export function DenInviteDialog({
                   <div className="relative">
                     <Input
                       aria-label="Invite link"
-                      className="min-h-11 w-full rounded-2xl! pr-12! text-base sm:text-sm"
+                      className="min-h-11 w-full rounded-xl! pr-12! text-base sm:text-sm"
                       id="den-invite-link"
                       onFocus={(event) => {
                         event.currentTarget.select();
@@ -412,7 +412,7 @@ export function DenInviteDialog({
                 </div>
               </>
             ) : (
-              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-5 text-center">
+              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-4 text-center">
                 <p className="text-muted-foreground text-xs">
                   No link yet — generate one to share with others.
                 </p>
@@ -448,7 +448,7 @@ export function DenInviteDialog({
                   <button
                     aria-pressed={selectedCodeDuration === days}
                     className={cn(
-                      "chip-3d min-h-11 cursor-pointer rounded-xl! px-3 text-xs",
+                      "chip-3d min-h-11 cursor-pointer rounded-lg! px-3 text-xs",
                       selectedCodeDuration === days &&
                         "border-primary/60 bg-primary/15"
                     )}
@@ -478,7 +478,7 @@ export function DenInviteDialog({
                 <div className="relative">
                   <Input
                     aria-label="Invite code"
-                    className="min-h-11 w-full rounded-2xl! pr-12! text-center font-mono text-base font-semibold tracking-[0.3em]"
+                    className="min-h-11 w-full rounded-xl! pr-12! text-center font-mono text-base font-semibold tracking-[0.3em]"
                     id="den-invite-code"
                     onFocus={(event) => {
                       event.currentTarget.select();
@@ -519,7 +519,7 @@ export function DenInviteDialog({
                 </p>
               </div>
             ) : (
-              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-5 text-center">
+              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-4 text-center">
                 <p className="text-muted-foreground text-xs">
                   No code yet — generate one to share with others.
                 </p>

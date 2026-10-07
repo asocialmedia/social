@@ -37,7 +37,7 @@ const DropdownMenuSubTrigger = ({
 }) => (
   <DropdownMenuPrimitive.SubTrigger
     className={cn(
-      "focus:bg-accent data-[state=open]:bg-accent flex cursor-default items-center gap-2 rounded-xs px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+      "focus:bg-accent data-[state=open]:bg-accent flex min-h-11 cursor-default items-center gap-2 rounded-lg px-2 py-2 text-sm outline-hidden select-none sm:min-h-9 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
       inset && "pl-8",
       className
     )}
@@ -62,7 +62,7 @@ const DropdownMenuSubContent = ({
 }) => (
   <DropdownMenuPrimitive.SubContent
     className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] origin-center overflow-hidden rounded-2xl! p-1 duration-200 motion-reduce:animate-none!",
+      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 panel-3d text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] origin-center overflow-hidden rounded-2xl! p-2 duration-200 motion-reduce:animate-none!",
       className
     )}
     ref={ref}
@@ -88,7 +88,7 @@ const DropdownMenuContent = ({
         // Rounded corners are part of the base recipe: without them the panel's
         // `overflow-hidden` clipped the menu to square corners. Declared here so
         // every dropdown matches, not per call site.
-        "panel-3d text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-2xl! p-1",
+        "panel-3d text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-2xl! p-2",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=open]:animate-in origin-center duration-200 motion-reduce:animate-none!",
         className
       )}
@@ -112,7 +112,7 @@ const DropdownMenuItem = ({
 }) => (
   <DropdownMenuPrimitive.Item
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-xs px-2 py-1.5 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center gap-2 rounded-lg px-2 py-2 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9 [&>svg]:size-4 [&>svg]:shrink-0",
       inset && "pl-8",
       className
     )}
@@ -136,7 +136,7 @@ const DropdownMenuCheckboxItem = ({
   <DropdownMenuPrimitive.CheckboxItem
     checked={checked}
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center rounded-lg py-2 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9",
       className
     )}
     ref={ref}
@@ -165,7 +165,7 @@ const DropdownMenuRadioItem = ({
 }) => (
   <DropdownMenuPrimitive.RadioItem
     className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center rounded-lg py-2 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-9",
       className
     )}
     ref={ref}
@@ -193,7 +193,7 @@ const DropdownMenuLabel = ({
 }) => (
   <DropdownMenuPrimitive.Label
     className={cn(
-      "px-2 py-1.5 text-sm font-semibold",
+      "px-2 py-2 text-sm font-semibold",
       inset && "pl-8",
       className
     )}
