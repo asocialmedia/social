@@ -173,6 +173,8 @@ export function ConversationDetailsBody({
   // True while a tile is being jumped to, so the tabs can hold the panel rather
   // than let the user act on a list that is about to be replaced underneath them.
   const [openingMedia, setOpeningMedia] = useState(false);
+  const [denActionsContainer, setDenActionsContainer] =
+    useState<HTMLDivElement | null>(null);
   // The mute switch is addressed by a label, and the id it hangs off was a
   // constant -- correct only while one copy of this content exists. A per-instance
   // id keeps the pairing right in a sheet, in a rail, and in a DOM that briefly
@@ -645,8 +647,9 @@ export function ConversationDetailsBody({
       />
 
       {isDen ? (
-        <div className="shrink-0 px-4 pb-2">
+        <div className="shrink-0 px-4 pb-3">
           <DenAboutCard conversationId={conversationId} />
+          <div className="mt-3 empty:hidden" ref={setDenActionsContainer} />
         </div>
       ) : null}
 
@@ -709,6 +712,7 @@ export function ConversationDetailsBody({
             )}
           >
             <DenPanel
+              actionsContainer={denActionsContainer}
               activeTab={activeTab === "settings" ? "settings" : "members"}
               conversationId={conversationId}
               onLeft={onClose}

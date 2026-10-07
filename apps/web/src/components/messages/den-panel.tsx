@@ -7,6 +7,7 @@ import {
   validateDenName,
 } from "@asm/db/messages/dens";
 import type { DenInviteDurationDays } from "@asm/db/messages/dens";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
-  ChevronRight,
   Crown,
   Link2,
   Loader2,
@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useId, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -113,8 +114,10 @@ import { cn } from "@/lib/utils";
 const DEN_QUERY_PREFIX = ["message-den"];
 
 export interface DenPanelProps {
+  // The header owns placement; this panel keeps the actions and dialogs together.
+  actionsContainer?: HTMLElement | null;
   // Which tab to display: "all" (both), "members" (roster and management),
-  // or "settings" (about, invite, preferences, danger zone).
+  // or "settings" (preferences and danger zone).
   activeTab?: "all" | "members" | "settings";
   conversationId: string;
   // Called after the reader is no longer a member (leave, or a den that
@@ -139,6 +142,7 @@ type DenConfirmState =
   | { kind: "unban-member"; member: DenBannedMember }
   | null;
 export function DenPanel({
+  actionsContainer,
   activeTab = "members",
   conversationId,
   onLeft,
@@ -709,36 +713,44 @@ export function DenPanel({
     ? new Date(den.inviteShortCodeExpiresAt)
     : null;
 
-  const membersSection = (
-    <div className="flex flex-col gap-3">
+  const canInvite =
+    Boolean(inviteCode || inviteShortCode) && denWide.canCopyInvite;
+  const canAddMembers = denWide.canAddMembers && !rosterFull;
+  const memberActions =
+    canInvite || canAddMembers ? (
       <div className="flex w-full gap-2">
-        {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
-          <button
+        {canInvite ? (
+          <Button
             aria-label="Invite members"
-            className="btn-3d-gray flex min-h-11 w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl! px-3 text-sm font-medium lg:min-h-9"
+            className="h-11 min-w-0 flex-1 rounded-2xl px-3 lg:h-9"
             onClick={() => setInviteDialogOpen(true)}
             type="button"
+            variant="outline"
           >
-            <Link2 className="size-3.5" />
+            <Link2 aria-hidden="true" />
             <span>Invite</span>
-          </button>
+          </Button>
         ) : null}
-        {denWide.canAddMembers && !rosterFull ? (
-          <button
+        {canAddMembers ? (
+          <Button
             aria-label="Add members"
-            className="btn-3d flex min-h-11 w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl! px-3 text-sm font-medium lg:min-h-9"
+            className="h-11 min-w-0 flex-1 rounded-2xl! px-3 text-sm lg:h-9"
             onClick={() => {
               setAdding(true);
               setSelected([]);
             }}
             type="button"
+            variant="premium"
           >
-            <UserPlus className="size-3.5" />
+            <UserPlus aria-hidden="true" />
             <span>Add</span>
-          </button>
+          </Button>
         ) : null}
       </div>
+    ) : null;
 
+  const membersSection = (
+    <div className="flex flex-col gap-3">
       <div className="relative flex items-center">
         <Search className="text-muted-foreground pointer-events-none absolute left-3 size-4" />
         <input
@@ -879,27 +891,6 @@ export function DenPanel({
 
   const settingsSection = (
     <div className="flex flex-col gap-3">
-      {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
-        <button
-          className="surface-3d pill-3d-hover flex min-h-16 w-full items-center gap-3 rounded-2xl px-3 text-left"
-          onClick={() => {
-            setInviteDialogOpen(true);
-          }}
-          type="button"
-        >
-          <span className="chip-3d flex size-9 shrink-0 items-center justify-center rounded-xl">
-            <Link2 className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">Invite members</span>
-            <span className="text-muted-foreground block text-xs">
-              Share a link or code
-            </span>
-          </span>
-          <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-        </button>
-      ) : null}
-
       {/* Conversation preferences: Mute, Theme, Wallpaper */}
       {preferences}
 
@@ -947,6 +938,10 @@ export function DenPanel({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      {actionsContainer ? createPortal(memberActions, actionsContainer) : null}
+      {actionsContainer === undefined && memberActions ? (
+        <div className="px-4 pb-3">{memberActions}</div>
+      ) : null}
       <div
         className={cn(
           "min-h-0 flex-1 overflow-y-auto px-4",
