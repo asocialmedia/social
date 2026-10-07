@@ -87,14 +87,14 @@ describe("DenBannedSection", () => {
     ).toContain("2");
   });
 
-  test("collapsed by default, and the rows are not drawn", () => {
+  test("collapsed by default, with the roster in a hidden region", () => {
     // The expanded state is an attribute, so it is asserted on the raw HTML - the
     // text-stripped copy cannot carry it.
     const raw = renderSection([ban({ id: "u-1" })]);
     expect(raw).toContain('aria-expanded="false"');
-    const html = visible(raw);
-    expect(html).not.toContain("Grace");
-    expect(html).not.toContain("Unban");
+    expect(raw).toMatch(
+      /<div[^>]*aria-labelledby="[^"]+"[^>]*class="[^"]*\bhidden\b[^"]*"[^>]*>[\s\S]*Grace[\s\S]*Unban/u
+    );
   });
 
   test("the toggle is a real button, and announces the collapsed state", () => {

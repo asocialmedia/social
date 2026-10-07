@@ -591,7 +591,7 @@ export function ConversationDetailsBody({
 
   const denPreferences = (
     <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
-      <div className="flex items-center gap-3 px-3.5 py-3">
+      <div className="flex items-center gap-3 px-2.5 py-2">
         <RowIcon
           icon={
             muted ? (
@@ -645,7 +645,7 @@ export function ConversationDetailsBody({
       />
 
       {isDen ? (
-        <div className="shrink-0 px-4 pb-3">
+        <div className="shrink-0 px-2.5 pb-3">
           <DenAboutCard conversationId={conversationId} />
           <div className="mt-3 empty:hidden" ref={setDenActionsContainer} />
         </div>
@@ -656,7 +656,7 @@ export function ConversationDetailsBody({
         onValueChange={handleTabChange}
         value={activeTab}
       >
-        <div className="px-4 pb-2">
+        <div className="px-2.5 pb-2">
           <TabsList
             aria-label={isDen ? "Den details" : "Conversation details"}
             appearance={isDen ? "raised" : "default"}
@@ -728,7 +728,7 @@ export function ConversationDetailsBody({
             <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
               {peer ? (
                 <Link
-                  className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
+                  className="pill-3d-hover flex items-center gap-3 px-2.5 py-2"
                   href={`/users/${peer.username}`}
                   onClick={onClose}
                 >
@@ -745,7 +745,7 @@ export function ConversationDetailsBody({
                 </Link>
               ) : null}
 
-              <div className="flex items-center gap-3 px-3.5 py-3">
+              <div className="flex items-center gap-3 px-2.5 py-2">
                 <RowIcon
                   icon={
                     muted ? (
@@ -815,7 +815,7 @@ export function ConversationDetailsBody({
           value="media"
         >
           <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
-            <div className="px-4 pb-2">
+            <div className="px-2.5 pb-2">
               <TabsList
                 appearance="raised"
                 className="grid h-auto min-h-11 w-full grid-cols-3 rounded-2xl!"
@@ -1111,7 +1111,7 @@ function DetailsHeader({
       </div>
 
       {den ? (
-        <div className="relative -mt-12 px-4 pb-4">
+        <div className="relative -mt-12 px-2.5 pb-3">
           <div className="flex min-w-0 items-center gap-3">
             <DenAvatarCollage
               avatarMediaId={den.avatarMediaId}
@@ -1197,7 +1197,7 @@ function ThemeRow({
     <div>
       <button
         aria-expanded={open}
-        className="pill-3d-hover flex w-full items-center gap-3 px-3.5 py-3 text-left"
+        className="pill-3d-hover flex w-full items-center gap-3 px-2.5 py-2 text-left"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
@@ -1230,7 +1230,7 @@ function ThemeRow({
       </button>
 
       {open ? (
-        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 grid grid-cols-3 gap-2 px-3.5 pt-1 pb-3.5 motion-safe:duration-200">
+        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 grid grid-cols-3 gap-2 px-2.5 pt-1 pb-2.5 motion-safe:duration-200">
           {CONVERSATION_THEMES.map((option) => (
             <ThemeSwatch
               isSelected={option.key === selected.key}
@@ -1260,7 +1260,7 @@ function ThemeSwatch({
   return (
     <button
       aria-pressed={isSelected}
-      className="pill-3d-hover flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5"
+      className="pill-3d-hover flex flex-col items-center gap-1.5 rounded-lg px-2.5 py-2"
       onClick={() => onSelect(theme.key)}
       type="button"
     >
@@ -1343,7 +1343,7 @@ function WallpaperRow({
     <div>
       <button
         aria-expanded={open}
-        className="pill-3d-hover flex w-full items-center gap-3 px-3.5 py-3 text-left"
+        className="pill-3d-hover flex w-full items-center gap-3 px-2.5 py-2 text-left"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
@@ -1385,7 +1385,7 @@ function WallpaperRow({
       </button>
 
       {open ? (
-        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 px-3.5 pt-1 pb-3.5 motion-safe:duration-200">
+        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 px-2.5 pt-1 pb-2.5 motion-safe:duration-200">
           <div className="grid grid-cols-3 gap-2">
             <WallpaperSwatch
               background={null}
@@ -1530,7 +1530,7 @@ function WallpaperUploadTile({
   uploadProgress: number;
 }) {
   return (
-    <label className="pill-3d-hover flex cursor-pointer flex-col items-center gap-1.5 rounded-xl px-2 py-2.5">
+    <label className="pill-3d-hover flex cursor-pointer flex-col items-center gap-1.5 rounded-lg px-2.5 py-2">
       <span className="border-border/70 text-muted-foreground flex size-10 items-center justify-center rounded-lg border border-dashed">
         {busy ? (
           <Spinner3D className="size-4" />
@@ -1580,7 +1580,7 @@ function WallpaperSwatch({
   return (
     <button
       aria-pressed={isSelected}
-      className="pill-3d-hover flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5"
+      className="pill-3d-hover flex flex-col items-center gap-1.5 rounded-lg px-2.5 py-2"
       onClick={() => onSelect(wallpaperKey)}
       type="button"
     >
@@ -1621,7 +1621,7 @@ function ActionRow({
 }) {
   return (
     <button
-      className="pill-3d-hover flex w-full items-center gap-3 px-3.5 py-3 text-left"
+      className="pill-3d-hover flex w-full items-center gap-3 px-2.5 py-2 text-left"
       onClick={onClick}
       type="button"
     >
@@ -1653,7 +1653,7 @@ function RowIcon({
   return (
     <span
       className={cn(
-        "chip-3d flex size-8 shrink-0 items-center justify-center rounded-xl",
+        "chip-3d flex size-8 shrink-0 items-center justify-center rounded-lg",
         tone === "destructive" && "text-destructive"
       )}
     >

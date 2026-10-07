@@ -308,7 +308,7 @@ export function PickerRow({
     <button
       aria-pressed={selected ?? false}
       className={cn(
-        "pill-3d-hover flex min-h-11 items-center gap-2.5 rounded-xl px-2 py-2 text-left",
+        "pill-3d-hover flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
         disabled && "cursor-not-allowed opacity-50"
       )}
       disabled={disabled ?? false}

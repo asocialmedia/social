@@ -796,7 +796,7 @@ export function DenPanel({
           </button>
         </div>
       ) : (
-        <div className="surface-3d rounded-2xl p-3">
+        <div className="surface-3d rounded-2xl p-2">
           {roleSections.map((section, sectionIdx) => (
             <div
               className={cn(
@@ -804,7 +804,7 @@ export function DenPanel({
               )}
               key={section.key}
             >
-              <div className="flex items-center gap-1.5 px-1.5 py-1">
+              <div className="flex items-center gap-1.5 px-2 py-1">
                 {section.icon}
                 <span className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
                   {section.title}
@@ -829,7 +829,7 @@ export function DenPanel({
                   });
                   return (
                     <li
-                      className="flex items-center gap-2 px-1.5 py-2.5 transition-colors"
+                      className="flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-2 transition-colors"
                       key={member.id}
                     >
                       <Link
@@ -880,7 +880,7 @@ export function DenPanel({
       )}
 
       {rosterFull && denWide.canAddMembers ? (
-        <div className="surface-3d rounded-2xl px-3.5 py-2.5">
+        <div className="surface-3d rounded-2xl px-2.5 py-2">
           <p className="text-muted-foreground text-xs">
             This den is full at {DEN_LIMITS.membersMax} members. Remove somebody
             before adding anyone.
@@ -941,11 +941,11 @@ export function DenPanel({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       {actionsContainer ? createPortal(memberActions, actionsContainer) : null}
       {actionsContainer === undefined && memberActions ? (
-        <div className="px-4 pb-3">{memberActions}</div>
+        <div className="px-2.5 pb-3">{memberActions}</div>
       ) : null}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto px-4 pt-2",
+          "min-h-0 flex-1 overflow-y-auto px-2.5 pt-2",
           activeTab === "settings"
             ? "pb-[max(1rem,env(safe-area-inset-bottom))]"
             : "pb-16"
@@ -1446,12 +1446,12 @@ function DestructiveRow({
 }) {
   return (
     <button
-      className="pill-3d-hover flex w-full items-center gap-3 px-3.5 py-3 text-left disabled:opacity-50"
+      className="pill-3d-hover flex w-full items-center gap-3 px-2.5 py-2 text-left disabled:opacity-50"
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      <span className="chip-3d text-destructive flex size-8 shrink-0 items-center justify-center rounded-xl">
+      <span className="chip-3d text-destructive flex size-8 shrink-0 items-center justify-center rounded-lg">
         {icon}
       </span>
       <span className="min-w-0 flex-1">

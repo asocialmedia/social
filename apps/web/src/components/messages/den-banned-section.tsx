@@ -44,7 +44,7 @@ export function DenBannedSection({
   const toggleId = useId();
 
   return (
-    <section className="pointer-events-none absolute inset-x-4 bottom-0 z-20">
+    <section className="pointer-events-none absolute inset-x-2.5 bottom-0 z-20">
       <div
         className={cn(
           "panel-3d pointer-events-auto flex flex-col overflow-hidden rounded-t-2xl",
@@ -54,7 +54,7 @@ export function DenBannedSection({
         <div
           aria-labelledby={toggleId}
           className={cn(
-            "max-h-[65dvh] min-h-0 overflow-y-auto overscroll-contain px-3 pt-1",
+            "max-h-[65dvh] min-h-0 overflow-y-auto overscroll-contain px-2.5 pt-1",
             !open && "hidden"
           )}
           id={regionId}
@@ -73,7 +73,7 @@ export function DenBannedSection({
         <button
           aria-controls={regionId}
           aria-expanded={open}
-          className="hover:bg-muted/50 focus-visible:ring-ring/50 flex min-h-14 w-full shrink-0 items-center gap-2 px-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          className="hover:bg-muted/50 focus-visible:ring-ring/50 flex min-h-14 w-full shrink-0 items-center gap-2 px-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
           id={toggleId}
           onClick={() => {
             setOpen((current) => !current);
@@ -159,7 +159,7 @@ export function DenBannedRow({
   onUnban: () => void;
 }) {
   return (
-    <li className="flex items-center gap-2.5 py-2">
+    <li className="flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2">
       <UserAvatar avatarUrl={ban.avatarUrl} size={32} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">
