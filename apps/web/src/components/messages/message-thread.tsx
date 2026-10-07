@@ -747,6 +747,10 @@ export function MessageThread({
   // is showing, so its three indexes cost nothing when the user is just reading
   // the thread.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTabState, setDetailsTabState] = useState<{
+    conversationId: string;
+    tab: string;
+  } | null>(null);
   // Whether this viewport pins the details pane beside the transcript, replacing
   // the online friends rail. Resolved from the media query rather than left to a
   // CSS class, because the rule is about what is MOUNTED: a display-none copy of
@@ -892,6 +896,10 @@ export function MessageThread({
     // invalidates this explicitly after it posts new wrapped keys.
     staleTime: 5 * 60 * 1000,
   });
+  const selectedDetailsTab =
+    detail && detailsTabState?.conversationId === detail.conversation.id
+      ? detailsTabState.tab
+      : undefined;
 
   const messagesQuery = useInfiniteQuery<
     MessagePage,
@@ -5073,6 +5081,12 @@ export function MessageThread({
             <ConversationDetailsPanel
               key={detail.conversation.id}
               detail={detail}
+              onSelectedTabChange={(tab) => {
+                setDetailsTabState({
+                  conversationId: detail.conversation.id,
+                  tab,
+                });
+              }}
               // A walk in flight, so the tabs can say "indexing" rather than imply
               // the list is the whole conversation.
               indexingRefs={coverage?.state === "running"}
@@ -5090,6 +5104,7 @@ export function MessageThread({
               // subscription that would re-read on a different schedule.
               refsRefreshToken={searchIndex?.refreshToken ?? 0}
               searchIndexStore={searchIndexStore}
+              selectedTab={selectedDetailsTab}
             />
           ) : null}
         </div>
@@ -5104,6 +5119,12 @@ export function MessageThread({
           <ConversationDetailsRail
             key={detail.conversation.id}
             detail={detail}
+            onSelectedTabChange={(tab) => {
+              setDetailsTabState({
+                conversationId: detail.conversation.id,
+                tab,
+              });
+            }}
             indexingRefs={coverage?.state === "running"}
             messages={allMessages}
             onJumpToMessage={jumpToMessage}
@@ -5112,6 +5133,7 @@ export function MessageThread({
             presence={peerPresence}
             refsRefreshToken={searchIndex?.refreshToken ?? 0}
             searchIndexStore={searchIndexStore}
+            selectedTab={selectedDetailsTab}
           />
         ) : null}
       </div>
