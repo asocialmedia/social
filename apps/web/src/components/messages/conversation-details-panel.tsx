@@ -1096,7 +1096,7 @@ function DetailsHeader({
       </div>
 
       {den ? (
-        <div className="relative -mt-5 px-4 pb-4">
+        <div className="relative -mt-7 px-4 pb-4">
           <div className="flex min-w-0 items-center gap-3">
             <DenAvatarCollage
               avatarMediaId={den.avatarMediaId}
