@@ -586,8 +586,6 @@ export function ConversationDetailsBody({
   const requestedTab = selectedTab ?? tab;
   const activeTab =
     !isDen && requestedTab === "members" ? "settings" : requestedTab;
-  const denMemberCount =
-    denHeader?.members.length ?? detail.conversation.members.length;
   const totalMediaCount =
     refs.counts.media + refs.counts.post + refs.counts.link;
 
@@ -660,6 +658,7 @@ export function ConversationDetailsBody({
       >
         <div className="px-4 pb-2">
           <TabsList
+            aria-label={isDen ? "Den details" : "Conversation details"}
             appearance={isDen ? "raised" : "default"}
             className={cn(
               "grid h-auto min-h-11 w-full",
@@ -668,11 +667,11 @@ export function ConversationDetailsBody({
           >
             {isDen ? (
               <TabsTrigger
-                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-xs"
+                appearance="raised"
+                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
                 value="members"
               >
                 Members
-                <Count value={denMemberCount} />
               </TabsTrigger>
             ) : null}
             {isDen ? null : (
@@ -684,9 +683,10 @@ export function ConversationDetailsBody({
               </TabsTrigger>
             )}
             <TabsTrigger
+              appearance={isDen ? "raised" : "default"}
               className={cn(
-                "min-h-11 min-w-0 gap-1.5 px-2 text-xs",
-                isDen && "rounded-xl"
+                "min-h-11 min-w-0 gap-1.5 px-2",
+                isDen ? "rounded-xl text-sm" : "text-xs"
               )}
               value="media"
             >
@@ -695,7 +695,8 @@ export function ConversationDetailsBody({
             </TabsTrigger>
             {isDen ? (
               <TabsTrigger
-                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-xs"
+                appearance="raised"
+                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
                 value="settings"
               >
                 Settings
