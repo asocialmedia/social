@@ -613,44 +613,50 @@ export function ConversationList({
         {/* All / DMs / Dens tabs */}
         <div
           className={cn(
-            "shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "grid shrink-0 grid-cols-1 px-1.5 transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none",
             collapsed
-              ? "pointer-events-none h-0 py-0 opacity-0"
-              : "px-2.5 py-1 opacity-100"
+              ? "pointer-events-none grid-rows-[0fr] opacity-0"
+              : "grid-rows-[1fr] opacity-100"
           )}
         >
-          <Tabs onValueChange={handleFilterChange} value={filter}>
-            <TabsList
-              aria-label={collapsed ? undefined : "Filter conversations"}
-              appearance="raised"
-              className="grid h-auto min-h-11 w-full grid-cols-3 rounded-2xl!"
+          <div className="min-h-0 overflow-hidden">
+            <Tabs
+              className="px-1 py-1"
+              onValueChange={handleFilterChange}
+              value={filter}
             >
-              {DEN_LIST_FILTERS.map((option) => (
-                <TabsTrigger
-                  aria-label={`${FILTER_LABEL[option]}, ${counts[option]} conversations${unreadCounts[option] > 0 ? ", unread messages" : ""}`}
-                  appearance="raised"
-                  className="relative min-h-11 min-w-0 gap-2 rounded-xl px-2 text-xs sm:text-sm"
-                  key={option}
-                  tabIndex={collapsed ? -1 : undefined}
-                  value={option}
-                >
-                  {FILTER_LABEL[option]}
-                  <span
-                    aria-hidden
-                    className="chip-3d inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums"
+              <TabsList
+                aria-label={collapsed ? undefined : "Filter conversations"}
+                appearance="raised"
+                className="grid h-auto min-h-11 w-full grid-cols-3 rounded-2xl!"
+              >
+                {DEN_LIST_FILTERS.map((option) => (
+                  <TabsTrigger
+                    aria-label={`${FILTER_LABEL[option]}, ${counts[option]} conversations${unreadCounts[option] > 0 ? ", unread messages" : ""}`}
+                    appearance="raised"
+                    className="relative min-h-11 min-w-0 gap-2 rounded-xl px-2 text-xs sm:text-sm"
+                    key={option}
+                    tabIndex={collapsed ? -1 : undefined}
+                    value={option}
                   >
-                    {counts[option]}
-                  </span>
-                  {unreadCounts[option] > 0 ? (
+                    {FILTER_LABEL[option]}
                     <span
                       aria-hidden
-                      className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-linear-to-b from-[#ffb45c] to-[#e65500] shadow-[0_0_6px_rgba(255,149,0,0.5)]"
-                    />
-                  ) : null}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+                      className="chip-3d inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums"
+                    >
+                      {counts[option]}
+                    </span>
+                    {unreadCounts[option] > 0 ? (
+                      <span
+                        aria-hidden
+                        className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-linear-to-b from-[#ffb45c] to-[#e65500] shadow-[0_0_6px_rgba(255,149,0,0.5)]"
+                      />
+                    ) : null}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
 
         {/* Conversation list */}

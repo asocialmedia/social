@@ -206,7 +206,7 @@ function ConversationRowInner({
               "min-w-0 flex-1 text-left transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
               collapsed
                 ? "pointer-events-none max-w-0 overflow-hidden opacity-0"
-                : "opacity-100"
+                : "max-w-full opacity-100"
             )}
           >
             <span className="flex min-w-0 items-center gap-1.5 text-left">
@@ -255,7 +255,7 @@ function ConversationRowInner({
               "flex shrink-0 flex-col items-end gap-1.5 self-stretch pt-0.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
               collapsed
                 ? "pointer-events-none max-w-0 overflow-hidden opacity-0"
-                : "opacity-100"
+                : "max-w-full opacity-100"
             )}
           >
             <span
