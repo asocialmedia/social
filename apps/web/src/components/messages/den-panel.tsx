@@ -161,9 +161,6 @@ export function DenPanel({
     null
   );
   const [unbanningId, setUnbanningId] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  const [descriptionDraft, setDescriptionDraft] = useState("");
   // The invite sheet. Everything else about the link - the link itself, its
   // countdown, the expiry choice - lives in the dialog, which mounts fresh each
   // time so a stale selection never survives a close.
@@ -604,40 +601,6 @@ export function DenPanel({
     setBusy(false);
   }, [conversationId, forgetConversation, onLeft]);
 
-  const rename = useCallback(async () => {
-    const invalid = validateDenName(nameDraft);
-    if (invalid) {
-      toast({
-        description: invalid,
-        title: "Name not changed",
-        variant: "destructive",
-      });
-      return;
-    }
-    setBusy(true);
-    try {
-      // Both fields, because they are edited together in one form. The route
-      // reads an absent key as "leave this alone" and an explicit null as "clear",
-      // so an untouched description is sent as its own text rather than omitted --
-      // this is a last-write-wins form, and pretending otherwise would be a lie
-      // about what it does.
-      await updateDenDetails(conversationId, {
-        description: descriptionDraft.trim(),
-        name: normalizeDenName(nameDraft),
-      });
-      setEditing(false);
-      refresh();
-    } catch (error) {
-      toast({
-        description:
-          error instanceof Error ? error.message : "Couldn't rename that den",
-        title: "Name not changed",
-        variant: "destructive",
-      });
-    }
-    setBusy(false);
-  }, [conversationId, descriptionDraft, nameDraft, refresh]);
-
   if (detail.isLoading || roster.isLoading) {
     return (
       <div className="flex items-center justify-center py-6">
@@ -670,8 +633,6 @@ export function DenPanel({
   const members = roster.data ?? [];
   const { inviteCode } = den;
   const myUserId = userId;
-  const draftNameError = validateDenName(nameDraft);
-  const draftDescriptionError = validateDenDescription(descriptionDraft);
   // The detail route's count rather than the roster page's length: the page is
   // capped, so a den at exactly the ceiling and a den with unread members beyond
   // the first page are different states and only one of them is full.
@@ -873,88 +834,6 @@ export function DenPanel({
 
   const settingsSection = (
     <div className="flex flex-col gap-3">
-      {/* About this den card */}
-      <div className="surface-3d rounded-2xl px-3.5 py-3">
-        {editing ? (
-          <div className="flex flex-col gap-1.5">
-            <input
-              aria-label="Den name"
-              className="premium-input w-full rounded-lg text-sm"
-              maxLength={DEN_LIMITS.nameMax}
-              onChange={(event) => setNameDraft(event.target.value)}
-              placeholder="Name this den"
-              value={nameDraft}
-            />
-            <textarea
-              aria-label="Den description"
-              className="premium-input w-full resize-none rounded-lg text-xs"
-              maxLength={DEN_LIMITS.descriptionMax}
-              onChange={(event) => setDescriptionDraft(event.target.value)}
-              placeholder="What this den is for."
-              rows={2}
-              value={descriptionDraft}
-            />
-            <div className="flex items-center gap-2">
-              <button
-                className="text-primary shrink-0 text-xs font-medium"
-                disabled={
-                  busy ||
-                  draftNameError !== null ||
-                  draftDescriptionError !== null
-                }
-                onClick={() => {
-                  void rename();
-                }}
-                type="button"
-              >
-                Save
-              </button>
-              <button
-                className="text-muted-foreground shrink-0 text-xs font-medium"
-                onClick={() => setEditing(false)}
-                type="button"
-              >
-                Cancel
-              </button>
-              {draftNameError || draftDescriptionError ? (
-                <span className="text-destructive text-xs">
-                  {draftNameError ?? draftDescriptionError}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium">About this den</p>
-              {denWide.canRename ? (
-                <button
-                  aria-label="Edit name and description"
-                  className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
-                  onClick={() => {
-                    setDescriptionDraft(den.description ?? "");
-                    setNameDraft(den.name ?? "");
-                    setEditing(true);
-                  }}
-                  type="button"
-                >
-                  <Pencil className="size-3.5" />
-                </button>
-              ) : null}
-            </div>
-            {den.description ? (
-              <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
-                {den.description}
-              </p>
-            ) : (
-              <p className="text-muted-foreground mt-1.5 text-xs italic">
-                No description yet.
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Invite link card */}
       {inviteCode && denWide.canCopyInvite ? (
         <div className="surface-3d rounded-2xl px-3.5 py-3">
@@ -1158,6 +1037,159 @@ export function DenPanel({
         }}
         open={confirm !== null}
       />
+    </div>
+  );
+}
+
+// The den's about card: name, description, and rename editing for managers.
+// Rendered above the tabs in the conversation details pane, so the room's
+// purpose is visible by default regardless of which tab is active.
+export function DenAboutCard({ conversationId }: { conversationId: string }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const detail = useQuery({
+    queryFn: () => fetchDen(conversationId),
+    queryKey: [...DEN_QUERY_PREFIX, conversationId, "detail"],
+  });
+
+  const viewer = useMemo(
+    () => ({
+      canManage: detail.data?.canManage ?? false,
+      role: detail.data?.membership.role ?? null,
+    }),
+    [detail.data]
+  );
+  const denWide = denAffordances({ viewer });
+
+  const rename = useCallback(async () => {
+    const invalid = validateDenName(nameDraft);
+    if (invalid) {
+      toast({
+        description: invalid,
+        title: "Name not changed",
+        variant: "destructive",
+      });
+      return;
+    }
+    setBusy(true);
+    try {
+      await updateDenDetails(conversationId, {
+        description: descriptionDraft.trim(),
+        name: normalizeDenName(nameDraft),
+      });
+      setEditing(false);
+      void queryClient.invalidateQueries({
+        queryKey: [...DEN_QUERY_PREFIX, conversationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["message-conversation", conversationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["den-events", conversationId],
+      });
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't rename that den",
+        title: "Name not changed",
+        variant: "destructive",
+      });
+    }
+    setBusy(false);
+  }, [conversationId, descriptionDraft, nameDraft, queryClient]);
+
+  if (detail.isLoading || !detail.data) {
+    return null;
+  }
+
+  const { den } = detail.data;
+  const draftNameError = validateDenName(nameDraft);
+  const draftDescriptionError = validateDenDescription(descriptionDraft);
+
+  return (
+    <div className="surface-3d rounded-2xl px-3.5 py-3">
+      {editing ? (
+        <div className="flex flex-col gap-1.5">
+          <input
+            aria-label="Den name"
+            className="premium-input w-full rounded-lg text-sm"
+            maxLength={DEN_LIMITS.nameMax}
+            onChange={(event) => setNameDraft(event.target.value)}
+            placeholder="Name this den"
+            value={nameDraft}
+          />
+          <textarea
+            aria-label="Den description"
+            className="premium-input w-full resize-none rounded-lg text-xs"
+            maxLength={DEN_LIMITS.descriptionMax}
+            onChange={(event) => setDescriptionDraft(event.target.value)}
+            placeholder="What this den is for."
+            rows={2}
+            value={descriptionDraft}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              className="text-primary shrink-0 text-xs font-medium"
+              disabled={
+                busy ||
+                draftNameError !== null ||
+                draftDescriptionError !== null
+              }
+              onClick={() => {
+                void rename();
+              }}
+              type="button"
+            >
+              Save
+            </button>
+            <button
+              className="text-muted-foreground shrink-0 text-xs font-medium"
+              onClick={() => setEditing(false)}
+              type="button"
+            >
+              Cancel
+            </button>
+            {draftNameError || draftDescriptionError ? (
+              <span className="text-destructive text-xs">
+                {draftNameError ?? draftDescriptionError}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium">About this den</p>
+            {denWide.canRename ? (
+              <button
+                aria-label="Edit name and description"
+                className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
+                onClick={() => {
+                  setDescriptionDraft(den.description ?? "");
+                  setNameDraft(den.name ?? "");
+                  setEditing(true);
+                }}
+                type="button"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+          {den.description ? (
+            <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
+              {den.description}
+            </p>
+          ) : (
+            <p className="text-muted-foreground mt-1.5 text-xs italic">
+              No description yet.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -94,7 +94,7 @@ import { ConversationSharedLinksTab } from "./conversation-shared-links-tab";
 import { ConversationSharedMediaTab } from "./conversation-shared-media-tab";
 import { ConversationSharedPostsTab } from "./conversation-shared-posts-tab";
 import { DenAvatarCollage } from "./den-avatar-collage";
-import { DenPanel } from "./den-panel";
+import { DenAboutCard, DenPanel } from "./den-panel";
 import type { ConversationMediaItem } from "./message-conversation-media";
 import { useOpenConversationMedia } from "./message-media-viewer-context";
 import { useSharedRefsReader } from "./use-shared-refs-reader";
@@ -630,6 +630,12 @@ export function ConversationDetailsBody({
         peer={peer}
         presence={presence}
       />
+
+      {isDen ? (
+        <div className="shrink-0 px-4 pb-2.5">
+          <DenAboutCard conversationId={conversationId} />
+        </div>
+      ) : null}
 
       <Tabs
         className="flex min-h-0 flex-1 flex-col"
