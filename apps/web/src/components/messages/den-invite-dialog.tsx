@@ -495,6 +495,10 @@ export function DenInviteDialog({
                     ? "This code has expired. Generate a new one to keep sharing access."
                     : codeCountdown}
                 </p>
+                <p className="text-muted-foreground text-[11px]">
+                  Copy it rather than reading it aloud — 0/O and 1/I are easy to
+                  mistype.
+                </p>
               </div>
             ) : (
               <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-xl p-5 text-center">

@@ -51,7 +51,17 @@ export function JoinDenDialog({ onOpenChange, open }: JoinDenDialogProps) {
       setError("That code is not valid.");
       return;
     }
-    router.push(`/messages/join/${code}`);
+    try {
+      router.push(`/messages/join/${code}`);
+    } catch {
+      // A push that threw (navigation interrupted, offline route fetch) leaves
+      // the dialog open with the code intact so the reader can press Continue
+      // again instead of retyping. A push that only queued and then failed at
+      // the network layer is caught by the join screen's own failure states,
+      // which is the honest surface for them.
+      setError("Couldn't open that screen. Try again.");
+      return;
+    }
     onOpenChange(false);
     setCode("");
     setError(null);

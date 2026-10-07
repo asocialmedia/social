@@ -32,9 +32,12 @@ import { denIsFull } from "./den-capacity";
 export const DEN_JOIN_PATH_PREFIX = "/messages/join";
 
 function normalizeCode(code: string): string {
-  // Codes are lowercase and unambiguous, so a pasted code is normalized the same
-  // way the server normalizes before comparing. Trimming here means a code
-  // carried across with a trailing space still resolves rather than 404ing.
+  // Links are lowercase and unambiguous, so a pasted code is normalized the
+  // same way the server normalizes before comparing. Trimming here means a
+  // code carried across with a trailing space still resolves rather than
+  // 404ing. Short codes ride the same lowercase path because the server's
+  // short-code lookup normalizes to uppercase AFTER this has already run on
+  // the client - the two normalizations compose, they do not fight.
   return code.trim().toLowerCase();
 }
 

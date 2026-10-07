@@ -137,10 +137,12 @@ export const DEN_JOIN_RATE_LIMIT: DenRateLimitRule = {
 
 // The PREVIEW is the read half of that same door, and it is the cheaper and more
 // abusable one: it takes no write, needs no session, and its 200-versus-404
-// answer is exactly what a code-guessing loop would be reading. The code space
-// is 31^12, so the codes themselves are not guessable, but an unmetered
-// endpoint that runs an indexed lookup per request is a volumetric amplifier
-// whether or not its answer is useful, and it needs no session at all.
+// answer is exactly what a code-guessing loop would be reading. Link codes are
+// 31^12 and not guessable; the 6-character short codes (36^6) ARE guessable at
+// the margin, which is why their anonymous preview is session-gated at the
+// route and why an outage here degrades rather than fails open. For links the
+// budget remains a volumetric bound on an indexed lookup, not a guessing
+// bound, and it needs no session at all.
 //
 // Its own bucket, and TIGHTER than the join it sits behind, which is the
 // opposite of how cost usually orders these. A join is a claim lock and a write;

@@ -725,12 +725,15 @@ namespace public {
     // The primary key rather than a surrogate id with a unique beside it, because
     // the code IS this row's identity and there is nothing else to look one up by.
     //
-    // It is NOT unique against `message_conversations.inviteCode`, which is a
-    // different table, so a code can in principle be current on one den and
-    // archived from another. Nothing constructs that state on its own - the code
-    // space is 31^12, and a rotation only ever archives the code it has just
-    // replaced - and the lookup answers it anyway by reading the live column first,
-    // so a live code always beats an archive row naming some other den.
+    // It is NOT unique against the two live columns, which are in a different
+    // table, so a code can in principle be current on one den and archived from
+    // another. The mint-time archive probe makes that state near-impossible for
+    // both namespaces (a rotation archives only the code it is replacing, and
+    // never adopts an archived value), and the lookup answers the residue anyway
+    // by reading the live columns first, so a live code always beats an archive
+    // row naming some other den. This table holds BOTH namespaces - retired
+    // 12-character links and retired 6-character short codes - under one shared
+    // per-den retention budget.
     @@id([code], map: "message_conversation_invite_codes_pkey")
     // Serves the prune, which is the only query that reads this table by
     // conversation: it asks for one den's newest archived codes. The join screen's

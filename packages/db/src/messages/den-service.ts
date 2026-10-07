@@ -300,9 +300,11 @@ export function generateDenShortCode(): string {
   return code;
 }
 
-// Bounds the invite-code retry loop. 31^12 codes make a collision a
-// non-event; the loop exists so a pathological state degrades to a clean error
-// rather than spinning.
+// Bounds the invite-code retry loop. For the two live columns the spaces are
+// 31^12 (links) and 36^6 (short codes), and the archive probe removes the
+// third collision source (another den's retired code) before the write, so a
+// collision is a non-event; the loop exists so a pathological state degrades
+// to a clean error rather than spinning.
 const INVITE_CODE_ATTEMPTS = 5;
 
 // One create attempt. Null means the code collided and the caller should try
@@ -1844,9 +1846,9 @@ async function archiveRetiredInviteCode(
 // that pushed it over.
 //
 // Retention is bounded rather than unbounded on purpose: every row here is a
-// twelve-character secret that granted nothing the moment it was rotated, so an
-// archive with no prune is a slow-motion leak whose size tracks how often somebody
-// pressed a button. See `DEN_LIMITS.retiredInviteCodeMax` for the number.
+// secret that granted nothing the moment it was rotated, so an archive with no
+// prune is a slow-motion leak whose size tracks how often somebody pressed a
+// button. The budget is shared by both doors - see DEN_LIMITS.retiredInviteCodeMax. See `DEN_LIMITS.retiredInviteCodeMax` for the number.
 //
 // Ordered with the code as the tiebreak rather than the timestamp alone: two
 // rotations inside one millisecond produce two rows with equal `retiredAt`, and
@@ -2390,10 +2392,11 @@ export async function previewInvite(
   const den = await findDenByInviteCode(inviteCode);
   if (!den) {
     // Current first, then history, then unknown - and that order is the answer to
-    // "what if a code is live on one den and archived from another". It cannot arise
-    // from any code path here (a rotation archives only the code it is replacing,
-    // and the code space is 31^12), but the two unique indexes live in two different
-    // tables so nothing in the schema forbids it. Live wins because it is the state
+    // "what if a code is live on one den and archived from another". The mint-time
+    // archive probe makes it near-impossible for either namespace (a rotation
+    // archives only the code it is replacing, and never adopts an archived value),
+    // but the two unique indexes live in two different tables so nothing in the
+    // schema forbids it. Live wins because it is the state
     // that grants access: a reader holding such a code is somebody the live den
     // admitted an instant ago, and answering them with another den's owner would
     // point them at the wrong person for a code that demonstrably works.
