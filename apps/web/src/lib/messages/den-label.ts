@@ -144,10 +144,10 @@ export function denPreviewLine(input: {
 
 // The faces a den's stacked avatar draws, when it has no image of its own.
 //
-// Everyone except the reader, capped at three and ordered by role then by the
-// order the roster arrived in, so the owner's face leads. The cap is a layout
-// decision (four overlapping squircles stop reading as a group) rather than a
-// membership one; the roster itself is a separate read.
+// All members (including the reader), capped at three by default and ordered
+// by role then by the order the roster arrived in, so the owner's face leads.
+// The cap is a layout decision (four overlapping squircles stop reading as a group)
+// rather than a membership one; the roster itself is a separate read.
 export const DEN_AVATAR_FACES_MAX = 3;
 
 const ROLE_ORDER: Record<string, number> = {
@@ -158,12 +158,11 @@ const ROLE_ORDER: Record<string, number> = {
 
 export function denAvatarFaces(
   members: readonly (DenLabelMember & { role?: string | null })[],
-  myUserId: string,
+  _myUserId?: string,
   limit: number = DEN_AVATAR_FACES_MAX
 ): DenLabelMember[] {
   return members
     .map((member, index) => ({ index, member }))
-    .filter(({ member }) => member.id !== myUserId)
     .toSorted((left, right) => {
       const rank =
         (ROLE_ORDER[left.member.role ?? "MEMBER"] ?? 2) -

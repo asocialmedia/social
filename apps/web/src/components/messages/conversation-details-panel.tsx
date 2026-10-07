@@ -507,17 +507,19 @@ export function ConversationDetailsBody({
       isDen
         ? {
             avatarMediaId: detail.conversation.avatarMediaId ?? null,
-            members: detail.conversation.members.map((member) => ({
-              avatarUrl: member.user.avatarUrl,
-              displayName: member.user.displayName,
-              id: member.userId,
-              // The fallback is a sort key, not a name: this list is only
-              // read by `denAvatarFaces` to decide whose face leads the
-              // stack, and a row with no stored role (a DM row) belongs at
-              // the back. Nothing here renders a role.
-              role: member.role ?? "MEMBER",
-              username: member.user.username,
-            })),
+            members: detail.conversation.members
+              .filter((member) => !hasDeparted(member))
+              .map((member) => ({
+                avatarUrl: member.user.avatarUrl,
+                displayName: member.user.displayName,
+                id: member.userId,
+                // The fallback is a sort key, not a name: this list is only
+                // read by `denAvatarFaces` to decide whose face leads the
+                // stack, and a row with no stored role (a DM row) belongs at
+                // the back. Nothing here renders a role.
+                role: member.role ?? "MEMBER",
+                username: member.user.username,
+              })),
             myRole:
               detail.conversation.members.find(
                 (member) => member.userId === myUserId
@@ -873,11 +875,7 @@ function DetailsHeader({
   const viewerRoleLine = denViewerRoleLine(den?.myRole ?? null);
   const description = den ? (
     <>
-      <span>
-        {denMemberCountLabel(
-          den.members.filter((member) => member.id !== den.myUserId).length
-        )}
-      </span>
+      <span>{denMemberCountLabel(den.members.length)}</span>
       {viewerRoleLine ? (
         <>
           <span aria-hidden>·</span>
@@ -973,7 +971,7 @@ function DetailsHeader({
       </div>
 
       <div className="relative -mt-12 flex flex-col items-center px-6 pb-5 text-center">
-        <div className="relative">
+        <div className="relative flex items-center justify-center">
           {/* No ring: the avatar sits in the ambient field rather than punching a
               hole in it. The `avatar-ring` recipe the component carries already
               gives it its own depth, and a pane-colored frame around it is what

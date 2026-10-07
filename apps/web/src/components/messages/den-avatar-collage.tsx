@@ -39,7 +39,7 @@ export interface DenAvatarCollageProps {
   avatarMediaId?: string | null;
   className?: string;
   members: readonly (DenLabelMember & { role?: string | null })[];
-  myUserId: string;
+  myUserId?: string;
   size?: number;
 }
 
@@ -96,7 +96,7 @@ export function DenAvatarCollage({
 
   const faces = denAvatarFaces(members, myUserId, 4);
   if (faces.length === 0) {
-    // A den with nobody else in it, which the create rules prevent but a
+    // A den with nobody in it, which the create rules prevent but a
     // just-dissolved or freshly-loaded one can still render. The gradient
     // fallback inside UserAvatar is exactly the right answer here.
     return <UserAvatar className={className} seed="den" size={size} />;
@@ -124,28 +124,27 @@ export function DenAvatarCollage({
   // Past four the tile stops growing faces and starts counting: the last slot is
   // the tally, so a 100-member den is still four circles and an honest number.
   //
-  // Gated on the ROSTER, not on the faces: `denAvatarFaces` caps at four, so with
-  // exactly four others `faces.length` is also four and there is nothing to count.
-  // Reading the faces would turn a full grid into three faces and a "+1" that lies.
-  const others = members.filter((member) => member.id !== myUserId).length;
-  const overflow = others > 4 ? others - 3 : 0;
+  // Gated on the total member count (including the viewer), not on the faces:
+  // `denAvatarFaces` caps at four, so with exactly four members `faces.length` is
+  // also four and there is nothing to count.
+  const memberCount = members.length;
+  const overflow = memberCount > 4 ? memberCount - 3 : 0;
 
   return (
     <span
       aria-hidden
-      // `inline-block` is load-bearing, not styling. This box carries its size in
-      // inline `width`/`height` and every child it has is absolutely positioned,
-      // and a `<span>` is `display: inline` by default - which IGNORES width and
-      // height. As bare `inline` this measured 0x0 with no content in flow to give
-      // it height, and a den with no picture drew an empty square.
-      //
+      // `flex shrink-0 items-center justify-center` keeps the box strictly square
+      // and centered without the baseline strut or descender shift of `inline-block`.
       // Deliberately NO frame: no `overflow-hidden`, no rounded rect, no edge. The
       // circles are free to overflow the nominal box rather than being clipped to
       // it, so the pile reads as faces spilling out instead of pictures nailed
       // inside a tile. The box still reserves exactly `size` by `size` for layout,
       // so rows never shift; only paint may exceed it, and only by the circles'
       // own bleed.
-      className={cn("relative inline-block shrink-0", className)}
+      className={cn(
+        "relative flex shrink-0 items-center justify-center",
+        className
+      )}
       style={{ height: size, width: size }}
     >
       {slots.map((slot, index) => {

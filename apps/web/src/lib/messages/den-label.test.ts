@@ -266,7 +266,7 @@ describe("denPreviewLine", () => {
 });
 
 describe("denAvatarFaces", () => {
-  test("excludes the reader and leads with the owner", () => {
+  test("includes all members and leads with the owner", () => {
     const faces = denAvatarFaces(
       [
         member("u-me", "Me", "ADMIN"),
@@ -276,11 +276,7 @@ describe("denAvatarFaces", () => {
       ],
       "u-me"
     );
-    expect(faces.map((face) => face.id)).toEqual([
-      "u-ada",
-      "u-alan",
-      "u-grace",
-    ]);
+    expect(faces.map((face) => face.id)).toEqual(["u-ada", "u-me", "u-alan"]);
   });
 
   test("caps at three faces", () => {
@@ -320,7 +316,12 @@ describe("denAvatarFaces", () => {
 
   test("an empty roster draws no faces", () => {
     expect(denAvatarFaces([], "u-me")).toEqual([]);
-    expect(denAvatarFaces([member("u-me", "Me")], "u-me")).toEqual([]);
+  });
+
+  test("single member roster includes the member", () => {
+    expect(denAvatarFaces([member("u-me", "Me")], "u-me")).toEqual([
+      member("u-me", "Me"),
+    ]);
   });
 });
 

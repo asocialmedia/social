@@ -53,13 +53,13 @@ describe("DenAvatarCollage", () => {
         size={44}
       />
     );
-    expect(html).toContain("inline-block");
+    expect(html).toContain("flex");
     // No clipping frame on the tile itself: the circles may overflow the nominal
     // box rather than being cut to it. Asserted on the wrapper's own opening tag,
     // because the face circles legitimately keep their own round clipping (that is
     // what makes a square photo read as a face).
     expect(html).toContain(
-      '<span aria-hidden="true" class="relative inline-block shrink-0"'
+      '<span aria-hidden="true" class="relative flex shrink-0 items-center justify-center"'
     );
     expect(html).toContain("height:44px");
     expect(html).toContain("width:44px");
@@ -68,7 +68,7 @@ describe("DenAvatarCollage", () => {
   test("two faces sit on the diagonal, the second in front", () => {
     const html = renderToString(
       <DenAvatarCollage
-        members={[member("u-me"), member("u-ada"), member("u-grace")]}
+        members={[member("u-me"), member("u-ada")]}
         myUserId="u-me"
         size={44}
       />
@@ -82,8 +82,8 @@ describe("DenAvatarCollage", () => {
     // Face order is DOM order, and later siblings paint on top - so the second
     // face's URL comes after the first's, which is what makes the overlap
     // sequential rather than noise.
-    expect(html.indexOf("/api/users/avatar/u-ada/image")).toBeLessThan(
-      html.indexOf("/api/users/avatar/u-grace/image")
+    expect(html.indexOf("/api/users/avatar/u-me/image")).toBeLessThan(
+      html.indexOf("/api/users/avatar/u-ada/image")
     );
   });
 
@@ -91,10 +91,9 @@ describe("DenAvatarCollage", () => {
     const html = renderToString(
       <DenAvatarCollage
         members={[
-          member("u-me"),
           member("u-ada", "OWNER"),
+          member("u-me", "ADMIN"),
           member("u-grace", "MEMBER"),
-          member("u-alan", "MEMBER"),
         ]}
         myUserId="u-me"
         size={44}
@@ -104,10 +103,10 @@ describe("DenAvatarCollage", () => {
     expect(html).toContain("width:22px");
     expect(html).toContain("left:11px");
     const ada = html.indexOf("/api/users/avatar/u-ada/image");
+    const me = html.indexOf("/api/users/avatar/u-me/image");
     const grace = html.indexOf("/api/users/avatar/u-grace/image");
-    const alan = html.indexOf("/api/users/avatar/u-alan/image");
-    expect(ada).toBeLessThan(grace);
-    expect(grace).toBeLessThan(alan);
+    expect(ada).toBeLessThan(me);
+    expect(me).toBeLessThan(grace);
   });
 
   test("four faces make the grid", () => {
@@ -118,7 +117,6 @@ describe("DenAvatarCollage", () => {
           member("u-ada"),
           member("u-grace"),
           member("u-alan"),
-          member("u-edsger"),
         ]}
         myUserId="u-me"
         size={44}
@@ -126,7 +124,7 @@ describe("DenAvatarCollage", () => {
     );
     // d = 0.55 * 44 = 24, on the quarter grid.
     expect(html).toContain("width:24px");
-    for (const id of ["u-ada", "u-grace", "u-alan", "u-edsger"]) {
+    for (const id of ["u-me", "u-ada", "u-grace", "u-alan"]) {
       expect(html).toContain(`/api/users/avatar/${id}/image`);
     }
   });
@@ -135,27 +133,25 @@ describe("DenAvatarCollage", () => {
     const html = renderToString(
       <DenAvatarCollage
         members={[
-          member("u-me"),
-          member("u-ada"),
-          member("u-grace"),
-          member("u-alan"),
-          member("u-edsger"),
-          member("u-dijkstra"),
+          member("u-me", "OWNER"),
+          member("u-ada", "ADMIN"),
+          member("u-grace", "MEMBER"),
+          member("u-alan", "MEMBER"),
+          member("u-edsger", "MEMBER"),
+          member("u-dijkstra", "MEMBER"),
         ]}
         myUserId="u-me"
         size={44}
       />
     );
-    // Three faces drawn, the fifth and sixth behind the tally, not beside it.
+    // Three faces drawn, the fourth, fifth and sixth behind the tally, not beside it.
+    expect(html).toContain("/api/users/avatar/u-me/image");
     expect(html).toContain("/api/users/avatar/u-ada/image");
     expect(html).toContain("/api/users/avatar/u-grace/image");
-    expect(html).toContain("/api/users/avatar/u-alan/image");
+    expect(html).not.toContain("/api/users/avatar/u-alan/image");
     expect(html).not.toContain("/api/users/avatar/u-edsger/image");
     expect(html).not.toContain("/api/users/avatar/u-dijkstra/image");
-    expect(visible(html)).toContain("+2");
-    // The reader is never one of the faces; a den does not introduce you to
-    // yourself.
-    expect(html).not.toContain("/api/users/avatar/u-me/image");
+    expect(visible(html)).toContain("+3");
   });
 
   test("the collage is aria-hidden, because the row already names the den", () => {
@@ -168,23 +164,20 @@ describe("DenAvatarCollage", () => {
     expect(html).toContain('aria-hidden="true"');
   });
 
-  test("a two-person den falls back to one avatar, which is correct", () => {
-    // One face with nothing behind it is exactly what a two-person den is. A lone
+  test("a one-person den falls back to one avatar, which is correct", () => {
+    // One face with nothing behind it is exactly what a one-person den is. A lone
     // circle in a square frame would read as a person's chat, which is the
-    // confusion the pile exists to prevent — so a single face stays full-bleed.
+    // confusion the pile exists to prevent - so a single face stays full-bleed.
     const html = renderToString(
-      <DenAvatarCollage
-        members={[member("u-me"), member("u-ada")]}
-        myUserId="u-me"
-      />
+      <DenAvatarCollage members={[member("u-me")]} myUserId="u-me" />
     );
-    expect(html).toContain("/api/users/avatar/u-ada/image");
+    expect(html).toContain("/api/users/avatar/u-me/image");
     expect(visible(html)).not.toContain("+");
   });
 
-  test("a den with nobody else in it still draws something", () => {
+  test("a den with nobody in it still draws something", () => {
     const html = renderToString(
-      <DenAvatarCollage members={[member("u-me")]} myUserId="u-me" size={44} />
+      <DenAvatarCollage members={[]} myUserId="u-me" size={44} />
     );
     expect(html).toContain("<img");
   });

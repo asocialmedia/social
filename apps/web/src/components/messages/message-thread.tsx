@@ -5602,13 +5602,15 @@ function ThreadHeader({
           memberCount: conversation.conversation.members.filter(
             (member) => !hasDeparted(member)
           ).length,
-          members: conversation.conversation.members.map((member) => ({
-            avatarUrl: member.user.avatarUrl,
-            displayName: member.user.displayName,
-            id: member.userId,
-            role: member.role ?? null,
-            username: member.user.username,
-          })),
+          members: conversation.conversation.members
+            .filter((member) => !hasDeparted(member))
+            .map((member) => ({
+              avatarUrl: member.user.avatarUrl,
+              displayName: member.user.displayName,
+              id: member.userId,
+              role: member.role ?? null,
+              username: member.user.username,
+            })),
           myUserId: user?.id ?? "",
         }
       : null;
@@ -5726,7 +5728,7 @@ function ThreadHeader({
         title={`${headerName} — conversation details`}
         type="button"
       >
-        <span className="relative shrink-0">
+        <span className="relative flex shrink-0 items-center justify-center">
           {denIdentity ? (
             <DenAvatarCollage
               avatarMediaId={denIdentity.avatarMediaId}

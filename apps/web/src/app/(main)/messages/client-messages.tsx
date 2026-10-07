@@ -1,6 +1,6 @@
 "use client";
 
-import noMessageImage from "@assets/general/nomessage.png";
+import messagesImage from "@assets/general/messages.png";
 import { Users } from "lucide-react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -245,9 +245,9 @@ function EmptyThreadState() {
           alt=""
           className="h-40 w-auto object-contain opacity-90"
           draggable={false}
-          height={1024}
-          src={noMessageImage}
-          width={1536}
+          height={1254}
+          src={messagesImage}
+          width={1254}
         />
         <h2 className="text-lg font-semibold">Your messages</h2>
         <p className="text-muted-foreground max-w-64 text-sm">

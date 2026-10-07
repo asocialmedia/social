@@ -123,9 +123,12 @@ function ConversationRowInner({
     },
     myUserId
   );
+  const activeMembers = item.conversation.members.filter(
+    (member) => !hasDeparted(member)
+  );
   const rowName =
     item.conversation.type === "DEN"
-      ? `${heading}, ${denMemberCountLabel(item.conversation.members.length)}`
+      ? `${heading}, ${denMemberCountLabel(activeMembers.length)}`
       : heading;
   const label =
     item.unreadCount > 0
@@ -155,11 +158,11 @@ function ConversationRowInner({
           onClick={() => onSelect(item.conversation.id)}
           type="button"
         >
-          <span className="relative shrink-0">
+          <span className="relative flex shrink-0 items-center justify-center">
             {isDen ? (
               <DenAvatarCollage
                 avatarMediaId={item.conversation.avatarMediaId ?? null}
-                members={item.conversation.members.map((member) => ({
+                members={activeMembers.map((member) => ({
                   avatarUrl: member.user.avatarUrl,
                   displayName: member.user.displayName,
                   id: member.userId,
