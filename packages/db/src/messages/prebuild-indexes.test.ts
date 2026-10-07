@@ -5,6 +5,7 @@ import type { PrebuildQueryClient } from "./prebuild-indexes";
 
 const MESSAGES_INDEX = "messages_conversationId_id_idx";
 const KEYS_INDEX = "message_conversation_keys_conversationId_ownerUserId_idx";
+const SHORT_CODE_INDEX = "message_conversations_inviteShortCode_key";
 
 // Stands in for pg's Client, answering the existence probe from a set of index
 // names that are already present and recording every build statement.
@@ -71,10 +72,10 @@ describe("prebuildDmIndexes", () => {
       createClient: () => client,
     });
     expect(result).toEqual({
-      built: [MESSAGES_INDEX, KEYS_INDEX],
+      built: [MESSAGES_INDEX, KEYS_INDEX, SHORT_CODE_INDEX],
       present: [],
     });
-    expect(executed).toHaveLength(2);
+    expect(executed).toHaveLength(3);
   });
 
   test("always uses CREATE INDEX CONCURRENTLY, never a blocking build", async () => {
@@ -82,9 +83,11 @@ describe("prebuildDmIndexes", () => {
     await prebuildDmIndexes("postgres://unused", {
       createClient: () => client,
     });
-    expect(executed).toHaveLength(2);
+    expect(executed).toHaveLength(3);
     for (const statement of executed) {
-      expect(statement).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS");
+      // UNIQUE indexes match too: the invariant is CONCURRENTLY, which a
+      // unique build satisfies exactly as a plain one does.
+      expect(statement).toContain("CONCURRENTLY IF NOT EXISTS");
     }
   });
 
@@ -96,7 +99,7 @@ describe("prebuildDmIndexes", () => {
     const result = await prebuildDmIndexes("postgres://unused", {
       createClient: () => client,
     });
-    expect(result.built).toEqual([KEYS_INDEX]);
+    expect(result.built).toEqual([KEYS_INDEX, SHORT_CODE_INDEX]);
     expect(result.present).toEqual([MESSAGES_INDEX]);
     expect(
       executed.some((statement) => statement.includes(MESSAGES_INDEX))
@@ -113,9 +116,20 @@ describe("prebuildDmIndexes", () => {
     });
     expect(second).toEqual({
       built: [],
-      present: [MESSAGES_INDEX, KEYS_INDEX],
+      present: [MESSAGES_INDEX, KEYS_INDEX, SHORT_CODE_INDEX],
     });
-    expect(executed).toHaveLength(2);
+    expect(executed).toHaveLength(3);
+  });
+
+  test("the short-code index builds UNIQUE: the live column enforces the door's identity", async () => {
+    const { client, executed } = fakeClient();
+    await prebuildDmIndexes("postgres://unused", {
+      createClient: () => client,
+    });
+    const shortCodeStatement = executed.find((statement) =>
+      statement.includes(SHORT_CODE_INDEX)
+    );
+    expect(shortCodeStatement).toContain("CREATE UNIQUE INDEX");
   });
 
   test("fails loudly on an INVALID index instead of reporting success", async () => {
