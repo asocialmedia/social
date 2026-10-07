@@ -1,6 +1,7 @@
 "use client";
 
 import { DEN_BAN_REASON_MAX } from "@asm/db/messages/dens";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Input } from "@asm/ui/shadui/input";
 import { Ban } from "lucide-react";
 import { useState } from "react";
 
@@ -64,7 +66,7 @@ export function DenBanDialog({
   // sentence somebody would send.
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
@@ -76,8 +78,8 @@ export function DenBanDialog({
           >
             {DEN_BAN_REASON_LABEL}
           </label>
-          <input
-            className="premium-input min-h-11 w-full rounded-xl text-base sm:text-sm"
+          <Input
+            className="min-h-11 w-full rounded-2xl! text-base sm:text-sm"
             id="den-ban-reason"
             // The server's own number, not a literal. `DEN_BAN_REASON_MAX` moved to
             // `@asm/db/messages/dens` for this: the cap is a rule, and a rule written
@@ -93,8 +95,9 @@ export function DenBanDialog({
           />
         </div>
         <DialogFooter>
-          <button
-            className="text-muted-foreground min-h-11 px-3 text-sm font-medium disabled:opacity-50"
+          <Button
+            className="min-h-11 rounded-2xl! px-4 text-sm"
+            variant="outline"
             disabled={busy}
             onClick={() => {
               onOpenChange(false);
@@ -102,11 +105,12 @@ export function DenBanDialog({
             type="button"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             // A ban takes somebody out AND locks the door, so it wears the
             // destructive treatment.
-            className="btn-3d bg-destructive text-destructive-foreground hover:bg-destructive/90 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+            className="min-h-11 rounded-2xl! px-4 text-sm"
+            variant="destructive"
             disabled={busy}
             onClick={() => {
               onConfirm(reason);
@@ -115,7 +119,7 @@ export function DenBanDialog({
           >
             <Ban aria-hidden className="size-4" />
             {busy ? "Working…" : copy.confirmLabel}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

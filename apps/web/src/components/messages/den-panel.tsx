@@ -12,6 +12,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
@@ -974,7 +975,7 @@ export function DenPanel({
         }}
         open={adding}
       >
-        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl sm:max-h-[calc(100dvh-4rem)] sm:max-w-md">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl! sm:max-h-[calc(100dvh-4rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add members</DialogTitle>
             <DialogDescription>
@@ -1008,9 +1009,10 @@ export function DenPanel({
               selectedIds={selected.map((member) => member.id)}
             />
           </div>
-          <div className="flex justify-end gap-2">
-            <button
-              className="text-muted-foreground px-3 py-1.5 text-sm font-medium"
+          <DialogFooter>
+            <Button
+              className="min-h-11 rounded-2xl! px-4 text-sm"
+              variant="outline"
               onClick={() => {
                 setAdding(false);
                 setSelected([]);
@@ -1018,9 +1020,10 @@ export function DenPanel({
               type="button"
             >
               Cancel
-            </button>
-            <button
-              className="btn-3d h-9 rounded-lg px-4 text-sm"
+            </Button>
+            <Button
+              className="min-h-11 rounded-2xl! px-4 text-sm"
+              variant="premium"
               disabled={selected.length === 0 || addMembers.isPending}
               onClick={() => {
                 addMembers.mutate(selected.map((member) => member.id));
@@ -1033,8 +1036,8 @@ export function DenPanel({
               {addMembers.isPending
                 ? "Adding…"
                 : `Add ${selected.length || ""}`.trim()}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { isDenShortCode } from "@asm/db/messages/dens";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -95,7 +96,7 @@ export function JoinDenDialog({ onOpenChange, open }: JoinDenDialogProps) {
               <InputOTPGroup className="gap-2">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <InputOTPSlot
-                    className="h-12 w-10 text-lg uppercase sm:h-14 sm:w-12 sm:text-2xl"
+                    className="h-11 w-8 rounded-xl! text-lg uppercase sm:h-14 sm:w-12 sm:text-2xl"
                     index={index}
                     key={index}
                   />
@@ -115,20 +116,22 @@ export function JoinDenDialog({ onOpenChange, open }: JoinDenDialogProps) {
           </div>
 
           <DialogFooter>
-            <button
-              className="text-muted-foreground px-3 py-1.5 text-sm font-medium"
+            <Button
+              className="min-h-11 rounded-2xl! px-4 text-sm"
+              variant="outline"
               onClick={() => handleOpenChange(false)}
               type="button"
             >
               Cancel
-            </button>
-            <button
-              className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+            </Button>
+            <Button
+              className="min-h-11 rounded-2xl! px-4 text-sm"
+              variant="premium"
               disabled={!canSubmit}
               type="submit"
             >
               Continue
-            </button>
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

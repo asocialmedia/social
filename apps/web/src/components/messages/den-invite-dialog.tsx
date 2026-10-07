@@ -1,6 +1,7 @@
 "use client";
 
 import type { DenInviteDurationDays } from "@asm/db/messages/dens";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -288,7 +290,7 @@ export function DenInviteDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle>Invite another member</DialogTitle>
           <DialogDescription>
@@ -303,11 +305,22 @@ export function DenInviteDialog({
           onValueChange={(val) => setTab(val as "link" | "code")}
           value={tab}
         >
-          <TabsList className="grid h-auto min-h-11 w-full grid-cols-2">
-            <TabsTrigger className="min-h-11" value="link">
+          <TabsList
+            appearance="raised"
+            className="grid h-auto min-h-11 w-full grid-cols-2 rounded-2xl! p-1"
+          >
+            <TabsTrigger
+              appearance="raised"
+              className="min-h-11 rounded-xl"
+              value="link"
+            >
               Link
             </TabsTrigger>
-            <TabsTrigger className="min-h-11" value="code">
+            <TabsTrigger
+              appearance="raised"
+              className="min-h-11 rounded-xl"
+              value="code"
+            >
               Code
             </TabsTrigger>
           </TabsList>
@@ -327,7 +340,7 @@ export function DenInviteDialog({
                       <button
                         aria-pressed={selectedLinkDuration === days}
                         className={cn(
-                          "chip-3d min-h-11 cursor-pointer rounded-full px-3 text-xs",
+                          "chip-3d min-h-11 cursor-pointer rounded-xl! px-3 text-xs",
                           selectedLinkDuration === days &&
                             "border-primary/60 bg-primary/15"
                         )}
@@ -354,9 +367,9 @@ export function DenInviteDialog({
                     Invite link
                   </label>
                   <div className="relative">
-                    <input
+                    <Input
                       aria-label="Invite link"
-                      className="premium-input min-h-11 w-full pr-12! text-base sm:text-sm"
+                      className="min-h-11 w-full rounded-2xl! pr-12! text-base sm:text-sm"
                       id="den-invite-link"
                       onFocus={(event) => {
                         event.currentTarget.select();
@@ -399,12 +412,13 @@ export function DenInviteDialog({
                 </div>
               </>
             ) : (
-              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-xl p-5 text-center">
+              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-5 text-center">
                 <p className="text-muted-foreground text-xs">
                   No link yet — generate one to share with others.
                 </p>
-                <button
-                  className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-sm font-medium disabled:opacity-50"
+                <Button
+                  className="min-h-11 rounded-2xl! px-4 text-sm"
+                  variant="premium"
                   disabled={busy || linkBusy}
                   onClick={() => {
                     void generateLink();
@@ -416,7 +430,7 @@ export function DenInviteDialog({
                     className={linkBusy ? "size-3.5 animate-spin" : "size-3.5"}
                   />
                   {linkBusy ? "Creating…" : "Generate link"}
-                </button>
+                </Button>
               </div>
             )}
           </TabsContent>
@@ -434,7 +448,7 @@ export function DenInviteDialog({
                   <button
                     aria-pressed={selectedCodeDuration === days}
                     className={cn(
-                      "chip-3d min-h-11 cursor-pointer rounded-full px-3 text-xs",
+                      "chip-3d min-h-11 cursor-pointer rounded-xl! px-3 text-xs",
                       selectedCodeDuration === days &&
                         "border-primary/60 bg-primary/15"
                     )}
@@ -462,9 +476,9 @@ export function DenInviteDialog({
                   Invite code
                 </label>
                 <div className="relative">
-                  <input
+                  <Input
                     aria-label="Invite code"
-                    className="premium-input min-h-11 w-full pr-12! text-center font-mono text-base font-semibold tracking-[0.3em]"
+                    className="min-h-11 w-full rounded-2xl! pr-12! text-center font-mono text-base font-semibold tracking-[0.3em]"
                     id="den-invite-code"
                     onFocus={(event) => {
                       event.currentTarget.select();
@@ -505,12 +519,13 @@ export function DenInviteDialog({
                 </p>
               </div>
             ) : (
-              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-xl p-5 text-center">
+              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-5 text-center">
                 <p className="text-muted-foreground text-xs">
                   No code yet — generate one to share with others.
                 </p>
-                <button
-                  className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-sm font-medium disabled:opacity-50"
+                <Button
+                  className="min-h-11 rounded-2xl! px-4 text-sm"
+                  variant="premium"
                   disabled={busy || codeBusy}
                   onClick={() => {
                     void generateCode();
@@ -522,15 +537,16 @@ export function DenInviteDialog({
                     className={codeBusy ? "size-3.5 animate-spin" : "size-3.5"}
                   />
                   {codeBusy ? "Creating…" : "Generate code"}
-                </button>
+                </Button>
               </div>
             )}
           </TabsContent>
         </Tabs>
 
         <DialogFooter>
-          <button
-            className="text-muted-foreground min-h-11 px-3 text-sm font-medium disabled:opacity-50"
+          <Button
+            className="min-h-11 rounded-2xl! px-4 text-sm"
+            variant="outline"
             disabled={busy}
             onClick={() => {
               onOpenChange(false);
@@ -538,10 +554,11 @@ export function DenInviteDialog({
             type="button"
           >
             Close
-          </button>
+          </Button>
           {tab === "link" && (
-            <button
-              className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+            <Button
+              className="min-h-11 rounded-2xl! px-4 text-sm"
+              variant="premium"
               disabled={busy || linkBusy}
               onClick={() => {
                 void generateLink();
@@ -553,11 +570,12 @@ export function DenInviteDialog({
                 className={linkBusy ? "size-4 animate-spin" : "size-4"}
               />
               {linkBusy ? "Creating…" : "Generate new link"}
-            </button>
+            </Button>
           )}
           {tab === "code" && (
-            <button
-              className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+            <Button
+              className="min-h-11 rounded-2xl! px-4 text-sm"
+              variant="premium"
               disabled={busy || codeBusy}
               onClick={() => {
                 void generateCode();
@@ -569,7 +587,7 @@ export function DenInviteDialog({
                 className={codeBusy ? "size-4 animate-spin" : "size-4"}
               />
               {codeButtonLabel(codeBusy, shownCode.code)}
-            </button>
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>

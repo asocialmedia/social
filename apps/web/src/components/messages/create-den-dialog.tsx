@@ -272,7 +272,7 @@ export function CreateDenDialog({
       {/* The community wizard's shell: a gutter on phones (DialogContent's base
           is `w-full`, flush to both edges), rounded from the smallest width, and
           the stock close hidden in favour of the app's 3D one in the header. */}
-      <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg [&>button:last-child]:hidden">
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl! p-0 sm:max-w-lg [&>button:last-child]:hidden">
         <header className="border-border/60 flex shrink-0 items-center gap-3 border-b px-4 py-2.5">
           <DialogTitle className="text-base leading-tight font-bold tracking-tight">
             New den
@@ -469,16 +469,16 @@ export function CreateDenDialog({
 
         <footer className="border-border/60 flex shrink-0 items-center justify-end gap-2 border-t px-4 py-2.5">
           <Button
-            className="btn-3d-gray h-9 rounded-lg! px-4 text-sm!"
+            className="min-h-11 rounded-2xl! px-4 text-sm!"
             disabled={creating || uploading}
             onClick={() => handleOpenChange(false)}
             type="button"
-            variant="ghost"
+            variant="outline"
           >
             Cancel
           </Button>
           <Button
-            className="h-9 rounded-lg px-5 text-sm!"
+            className="min-h-11 rounded-2xl! px-5 text-sm!"
             disabled={!canCreate}
             onClick={() => {
               void handleCreate();

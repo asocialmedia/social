@@ -15,6 +15,7 @@ import type * as React from "react";
 
 import { cn } from "../lib/utils";
 import { buttonVariants } from "./button";
+import type { ButtonProps } from "./button";
 
 const AlertDialog = Root;
 
@@ -51,7 +52,7 @@ const AlertDialogContent = ({
     <AlertDialogOverlay />
     <Content
       className={cn(
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] bg-background data-[state=closed]:animate-out data-[state=open]:animate-in fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 sm:rounded-lg",
+        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] panel-3d data-[state=closed]:animate-out data-[state=open]:animate-in fixed top-[50%] left-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl! p-4 duration-200 sm:p-5",
         className
       )}
       ref={ref}
@@ -65,13 +66,7 @@ const AlertDialogHeader = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className={cn(
-      "flex flex-col space-y-2 text-center sm:text-left",
-      className
-    )}
-    {...props}
-  />
+  <div className={cn("flex flex-col gap-2 text-left", className)} {...props} />
 );
 AlertDialogHeader.displayName = "AlertDialogHeader";
 
@@ -81,7 +76,7 @@ const AlertDialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
       className
     )}
     {...props}
@@ -121,12 +116,18 @@ AlertDialogDescription.displayName = Description.displayName;
 
 const AlertDialogAction = ({
   className,
+  variant = "premium",
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof Action> & {
+  variant?: ButtonProps["variant"];
   ref?: React.Ref<React.ElementRef<typeof Action> | null>;
 }) => (
-  <Action className={cn(buttonVariants(), className)} ref={ref} {...props} />
+  <Action
+    className={cn(buttonVariants({ variant }), className)}
+    ref={ref}
+    {...props}
+  />
 );
 AlertDialogAction.displayName = Action.displayName;
 
@@ -138,11 +139,7 @@ const AlertDialogCancel = ({
   ref?: React.Ref<React.ElementRef<typeof Cancel> | null>;
 }) => (
   <Cancel
-    className={cn(
-      buttonVariants({ variant: "outline" }),
-      "mt-2 sm:mt-0",
-      className
-    )}
+    className={cn(buttonVariants({ variant: "outline" }), className)}
     ref={ref}
     {...props}
   />

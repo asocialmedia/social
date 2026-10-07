@@ -279,7 +279,7 @@ export function MemberPicker({
 
 function PickerFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex max-h-[40dvh] flex-col overflow-y-auto sm:max-h-72">
+    <div className="surface-3d flex max-h-[40dvh] flex-col overflow-y-auto rounded-2xl! p-2 sm:max-h-72">
       {children}
     </div>
   );

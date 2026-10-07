@@ -154,11 +154,11 @@ describe("DenInviteDialog", () => {
   test("a code mint disables the code tab's controls but leaves the link's free", () => {
     const busyHtml = renderDialog({ codeBusy: true });
     expect(busyHtml).toContain('aria-label="Copy invite code"');
-    expect(busyHtml).toContain(
-      '<button aria-label="Copy invite code" class="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center" disabled=""'
+    expect(busyHtml).toMatch(
+      /<button[^>]*aria-label="Copy invite code"[^>]*disabled=""/u
     );
-    expect(busyHtml).not.toContain(
-      '<button aria-label="Copy invite link" class="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center" disabled=""'
+    expect(busyHtml).not.toMatch(
+      /<button[^>]*aria-label="Copy invite link"[^>]*disabled=""/u
     );
   });
 

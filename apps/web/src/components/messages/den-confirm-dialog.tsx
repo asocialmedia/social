@@ -12,7 +12,6 @@ import {
 } from "@asm/ui/shadui/alert-dialog";
 
 import { denConfirmCopy } from "@/lib/messages/den-permissions";
-import { cn } from "@/lib/utils";
 
 // Confirmation for every den action a person has to agree to: removing a member,
 // leaving, handing the den to somebody else, and deleting it outright.
@@ -51,7 +50,7 @@ export function DenConfirmDialog({
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent
         aria-busy={busy}
-        className="max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full"
+        className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full"
       >
         <AlertDialogHeader>
           <AlertDialogTitle>{copy.title}</AlertDialogTitle>
@@ -59,7 +58,7 @@ export function DenConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel
-            className="min-h-11 w-full sm:w-auto"
+            className="min-h-11 w-full rounded-2xl! sm:w-auto"
             disabled={busy}
           >
             Cancel
@@ -68,12 +67,8 @@ export function DenConfirmDialog({
             // Destructive only where the action takes something away. An unban hands
             // somebody the right to come back, so it wears the ordinary button: the
             // red one would say this is a punishment when it is the opposite.
-            className={cn(
-              "min-h-11 w-full sm:w-auto",
-              kind === "unban-member"
-                ? undefined
-                : "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            )}
+            className="min-h-11 w-full rounded-2xl! px-4 sm:w-auto"
+            variant={kind === "unban-member" ? "premium" : "destructive"}
             disabled={busy}
             onClick={(event) => {
               event.preventDefault();
