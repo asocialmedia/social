@@ -342,9 +342,10 @@ export async function createConversation(
 // the response lands on the same conversation cache entry the thread already
 // reads and the client lands on the same `?c=<id>` deep link.
 //
-// `inviteCode` is the door, and it comes back exactly once: at creation. The
-// details route withholds it from anybody who is not a manager, so the creator
-// is the only one who ever sees this value from this call.
+// `inviteCode` and `inviteShortCode` are the two doors, and they come back
+// exactly once: at creation. The details route withholds both from anybody who
+// is not a manager, so the creator is the only one who ever sees these values
+// from this call.
 export async function createDen(input: {
   avatarMediaId?: string | null;
   description?: string | null;
@@ -353,6 +354,7 @@ export async function createDen(input: {
 }): Promise<{
   conversation: MessageConversationData;
   inviteCode: string;
+  inviteShortCode: string;
   isNew: boolean;
 }> {
   const response = await fetch("/api/messages/conversations", {
@@ -379,6 +381,7 @@ export async function createDen(input: {
   const body = (await response.json()) as {
     conversation: MessageConversationData;
     inviteCode: string;
+    inviteShortCode: string;
     isNew: boolean;
   };
   // Recorded like a DM read, because a create is a membership mutation too: the

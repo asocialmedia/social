@@ -2183,35 +2183,25 @@ function normalizeInviteCode(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-// The live column ONLY, and deliberately: this is the join door's own lookup, and
-// a code that has been rotated must not resolve through it. Checks the live link
-// column (lowercased) first, then the live short-code column (uppercased) second.
-// The archive is read by `findRetiredDen` and by nothing that admits anybody.
+// The live columns ONLY, and deliberately: this is the join door's own lookup, and
+// a code that has been rotated must not resolve through it. The archive is read by
+// `findRetiredDen` and by nothing that admits anybody.
+//
+// The first probe is KIND-ROUTED. A 6-character uppercase alphanumeric string
+// can only be a short code, so those go straight to the short-code column and
+// every short-code preview and join pays one indexed lookup instead of always
+// paying for a guaranteed link miss first. Anything else starts with the link
+// column, which keeps the lowercase link alphabet authoritative for 12-char
+// codes. A 6-char string that matches neither live column falls through to a
+// link probe only when it could be one - and a 6-char string cannot, so the
+// fall-through is skipped for codes and kept for links whose length happens to
+// differ.
 async function findDenByInviteCode(inviteCode: string): Promise<{
   id: string;
   inviteExpiresAt: unknown;
   kind: "link" | "shortCode";
   matchedCode: string;
 } | null> {
-  const normalizedLink = normalizeInviteCode(inviteCode);
-  const denByLink = await prisma.orm.public.MessageConversations.select(
-    "id",
-    "inviteCode",
-    "inviteExpiresAt"
-  )
-    .where((candidate) =>
-      and(candidate._type.eq("DEN"), candidate.inviteCode.eq(normalizedLink))
-    )
-    .first();
-  if (denByLink && denByLink.inviteCode) {
-    return {
-      id: denByLink.id,
-      inviteExpiresAt: denByLink.inviteExpiresAt,
-      kind: "link",
-      matchedCode: denByLink.inviteCode,
-    };
-  }
-
   const normalizedShort = normalizeDenShortCode(inviteCode);
   if (isDenShortCode(normalizedShort)) {
     const denByShort = await prisma.orm.public.MessageConversations.select(
@@ -2234,8 +2224,51 @@ async function findDenByInviteCode(inviteCode: string): Promise<{
         matchedCode: denByShort.inviteShortCode,
       };
     }
+    // A 6-character uppercase alphanumeric string is outside the link
+    // alphabet's canonical form only by case, and the link lookup lowercases
+    // - which this string already is after normalization only if it was
+    // lowercase coming in. Rather than reason about that overlap, probe the
+    // link column too: one extra indexed miss on the rare ambiguous shape is
+    // cheaper than a missing door.
+    const normalizedLink = normalizeInviteCode(inviteCode);
+    const denByLink = await prisma.orm.public.MessageConversations.select(
+      "id",
+      "inviteCode",
+      "inviteExpiresAt"
+    )
+      .where((candidate) =>
+        and(candidate._type.eq("DEN"), candidate.inviteCode.eq(normalizedLink))
+      )
+      .first();
+    if (denByLink && denByLink.inviteCode) {
+      return {
+        id: denByLink.id,
+        inviteExpiresAt: denByLink.inviteExpiresAt,
+        kind: "link",
+        matchedCode: denByLink.inviteCode,
+      };
+    }
+    return null;
   }
 
+  const normalizedLink = normalizeInviteCode(inviteCode);
+  const denByLink = await prisma.orm.public.MessageConversations.select(
+    "id",
+    "inviteCode",
+    "inviteExpiresAt"
+  )
+    .where((candidate) =>
+      and(candidate._type.eq("DEN"), candidate.inviteCode.eq(normalizedLink))
+    )
+    .first();
+  if (denByLink && denByLink.inviteCode) {
+    return {
+      id: denByLink.id,
+      inviteExpiresAt: denByLink.inviteExpiresAt,
+      kind: "link",
+      matchedCode: denByLink.inviteCode,
+    };
+  }
   return null;
 }
 

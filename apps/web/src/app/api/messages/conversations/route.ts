@@ -770,7 +770,12 @@ async function createDenFromRequest(
     return Response.json(
       {
         conversation: mapConversation(row, creatorId, []),
+        // Both doors come back at creation: the creator is the person most
+        // likely to share immediately, and the details route would otherwise
+        // be the only way to learn the short code exists. Manager-scoped
+        // exactly like `inviteCode` - the creator is the only reader here.
         inviteCode: created.inviteCode,
+        inviteShortCode: created.inviteShortCode,
         isNew: true,
       },
       { status: 201 }
