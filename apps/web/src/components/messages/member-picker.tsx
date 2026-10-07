@@ -279,7 +279,9 @@ export function MemberPicker({
 
 function PickerFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex max-h-72 flex-col overflow-y-auto">{children}</div>
+    <div className="flex max-h-[40dvh] flex-col overflow-y-auto sm:max-h-72">
+      {children}
+    </div>
   );
 }
 
@@ -306,7 +308,7 @@ export function PickerRow({
     <button
       aria-pressed={selected ?? false}
       className={cn(
-        "pill-3d-hover flex items-center gap-2.5 rounded-xl px-2 py-2 text-left",
+        "pill-3d-hover flex min-h-11 items-center gap-2.5 rounded-xl px-2 py-2 text-left",
         disabled && "cursor-not-allowed opacity-50"
       )}
       disabled={disabled ?? false}
@@ -345,10 +347,10 @@ export function MemberPickerSearch({
   value: string;
 }) {
   return (
-    <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
+    <div className="reels-input flex min-h-11 items-center gap-2 rounded-xl! px-3">
       <Search className="text-muted-foreground h-4 w-4 shrink-0" />
       <input
-        className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+        className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-base outline-none sm:text-sm"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         type="search"

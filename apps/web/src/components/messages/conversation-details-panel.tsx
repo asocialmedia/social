@@ -78,7 +78,6 @@ import {
   WALLPAPER_ACCEPT,
   wallpaperMimeFor,
 } from "@/lib/messages/conversation-wallpaper-upload";
-import { denMemberCountLabel } from "@/lib/messages/den-label";
 import { denViewerRoleLine } from "@/lib/messages/den-permissions";
 import { hasDeparted, ownMembership } from "@/lib/messages/membership";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
@@ -108,6 +107,8 @@ export interface ConversationDetailsBodyProps {
   // paragraph. Passing one flag rather than the two elements keeps the header's
   // markup and copy in a single place, which is the point of sharing it.
   asDialog?: boolean;
+  onSelectedTabChange?: (tab: string) => void;
+  selectedTab?: string;
   detail: ConversationDetailResponse;
   indexingRefs: boolean;
   messages: readonly SharedContentMessage[];
@@ -159,9 +160,11 @@ export function ConversationDetailsBody({
   onClose,
   onJumpToMessage,
   onRequestDecrypts,
+  onSelectedTabChange,
   peer,
   presence,
   refsRefreshToken,
+  selectedTab,
   searchIndexStore,
 }: ConversationDetailsBodyProps) {
   const conversationId = detail.conversation.id;
@@ -489,6 +492,13 @@ export function ConversationDetailsBody({
   const isDen = detail.conversation.type === "DEN";
   const defaultTab = isDen ? "members" : "settings";
   const [tab, setTab] = useState<string>(defaultTab);
+  const handleTabChange = useCallback(
+    (nextTab: string) => {
+      setTab(nextTab);
+      onSelectedTabChange?.(nextTab);
+    },
+    [onSelectedTabChange]
+  );
 
   // Sync default tab if the opened conversation changes
   const [syncedConversationId, setSyncedConversationId] =
@@ -570,7 +580,9 @@ export function ConversationDetailsBody({
     return null;
   }
 
-  const activeTab = !isDen && tab === "members" ? "settings" : tab;
+  const requestedTab = selectedTab ?? tab;
+  const activeTab =
+    !isDen && requestedTab === "members" ? "settings" : requestedTab;
   const denMemberCount =
     denHeader?.members.length ?? detail.conversation.members.length;
   const totalMediaCount =
@@ -632,37 +644,52 @@ export function ConversationDetailsBody({
       />
 
       {isDen ? (
-        <div className="shrink-0 px-4 pb-2.5">
+        <div className="shrink-0 px-4 pb-2">
           <DenAboutCard conversationId={conversationId} />
         </div>
       ) : null}
 
       <Tabs
         className="flex min-h-0 flex-1 flex-col"
-        onValueChange={setTab}
+        onValueChange={handleTabChange}
         value={activeTab}
       >
         <div className="px-4 pb-2">
           <TabsList
-            className={cn("grid w-full", isDen ? "grid-cols-3" : "grid-cols-2")}
+            className={cn(
+              "grid h-auto min-h-11 w-full",
+              isDen ? "grid-cols-3" : "grid-cols-2"
+            )}
           >
             {isDen ? (
-              <TabsTrigger className="gap-1.5 text-xs" value="members">
+              <TabsTrigger
+                className="min-h-11 gap-1.5 px-2 text-xs"
+                value="members"
+              >
                 Members
                 <Count value={denMemberCount} />
               </TabsTrigger>
             ) : null}
             {isDen ? null : (
-              <TabsTrigger className="gap-1.5 text-xs" value="settings">
+              <TabsTrigger
+                className="min-h-11 gap-1.5 px-2 text-xs"
+                value="settings"
+              >
                 Details
               </TabsTrigger>
             )}
-            <TabsTrigger className="gap-1.5 text-xs" value="media">
+            <TabsTrigger
+              className="min-h-11 gap-1.5 px-2 text-xs"
+              value="media"
+            >
               Media
               <Count value={totalMediaCount} />
             </TabsTrigger>
             {isDen ? (
-              <TabsTrigger className="gap-1.5 text-xs" value="settings">
+              <TabsTrigger
+                className="min-h-11 gap-1.5 px-2 text-xs"
+                value="settings"
+              >
                 Settings
               </TabsTrigger>
             ) : null}
@@ -779,16 +806,25 @@ export function ConversationDetailsBody({
         >
           <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
             <div className="px-4 pb-2">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger className="gap-1.5 text-xs" value="media">
+              <TabsList className="grid h-auto min-h-11 w-full grid-cols-3">
+                <TabsTrigger
+                  className="min-h-11 gap-1.5 px-2 text-xs"
+                  value="media"
+                >
                   Media
                   <Count value={refs.counts.media} />
                 </TabsTrigger>
-                <TabsTrigger className="gap-1.5 text-xs" value="posts">
+                <TabsTrigger
+                  className="min-h-11 gap-1.5 px-2 text-xs"
+                  value="posts"
+                >
                   Posts
                   <Count value={refs.counts.post} />
                 </TabsTrigger>
-                <TabsTrigger className="gap-1.5 text-xs" value="links">
+                <TabsTrigger
+                  className="min-h-11 gap-1.5 px-2 text-xs"
+                  value="links"
+                >
                   Links
                   <Count value={refs.counts.link} />
                 </TabsTrigger>
@@ -877,13 +913,13 @@ export function ConversationDetailsPanel({
       <SheetContent
         // `overflow-hidden` so the banner is clipped by the rounded top corners
         // rather than squaring them off.
-        className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-2xl border-t p-0"
+        className="flex h-[100dvh] max-h-[100dvh] flex-col gap-0 overflow-hidden rounded-t-2xl border-t p-0 pb-[env(safe-area-inset-bottom)] sm:h-[92dvh] sm:max-h-[92dvh]"
         showCloseButton={false}
         side="bottom"
       >
         <button
           aria-label="Close chat details"
-          className="bg-background/70 text-foreground border-border/60 hover:bg-background/90 absolute top-3 right-3 z-10 flex size-9 items-center justify-center rounded-full border backdrop-blur-md transition-colors"
+          className="bg-background/70 text-foreground border-border/60 hover:bg-background/90 absolute top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-10 flex size-11 items-center justify-center rounded-full border backdrop-blur-md transition-colors"
           onClick={onClose}
           type="button"
         >
@@ -955,28 +991,17 @@ function DetailsHeader({
   );
   // The muted chip is shared: it describes the reader's own preference, so it
   // reads the same in a DM and in a den.
-  const mutedChip = muted ? (
-    <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-      <BellOff className="size-2.5" />
-      {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
-    </span>
-  ) : null;
-  // Null for a plain member, so the subtitle stops after the count rather than
-  // telling somebody what they already are. The same judgement the roster's role
-  // chip makes, which is why both read one helper.
+  const mutedChip =
+    muted && !den ? (
+      <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+        <BellOff className="size-2.5" />
+        {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
+      </span>
+    ) : null;
+  // Null for a plain member, so the compact den header does not repeat a role
+  // that the grouped roster already identifies.
   const viewerRoleLine = denViewerRoleLine(den?.myRole ?? null);
-  const description = den ? (
-    <>
-      <span>{denMemberCountLabel(den.members.length)}</span>
-      {viewerRoleLine ? (
-        <>
-          <span aria-hidden>·</span>
-          <span>{viewerRoleLine}</span>
-        </>
-      ) : null}
-      {mutedChip}
-    </>
-  ) : (
+  const description = (
     <>
       <span>@{peer?.username}</span>
       {presence ? (
@@ -989,18 +1014,57 @@ function DetailsHeader({
     </>
   );
 
-  // A den has no banner of its own, so it takes the same path a DM with no
-  // banner does: the room's ambient colour field. Same fallback rather than a
-  // new one, precisely so the two headers cannot grow apart.
+  // The DM header uses the peer's banner, falling back to their avatar when none
+  // is set. Dens take the compact identity layout below.
   const headerBannerUrl = peer?.bannerUrl ?? null;
   const fallbackAvatarUrl = peer?.avatarUrl ?? null;
 
-  let banner: React.ReactNode;
   if (den) {
-    banner = (
-      <div className="absolute inset-0 bg-linear-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+    const denDescription = viewerRoleLine ?? "Den conversation";
+    const dialogClass = asDialog ? "pr-12" : "";
+
+    return (
+      <div
+        className={cn(
+          "pointer-events-none relative isolate shrink-0 overflow-hidden px-4 pt-3 pb-3",
+          dialogClass
+        )}
+      >
+        <div className="absolute inset-x-0 top-0 -z-10 h-20 bg-linear-to-br from-[#ff9500]/35 via-[#e65500]/15 to-transparent" />
+        <div className="flex min-w-0 items-center gap-3">
+          <DenAvatarCollage
+            avatarMediaId={den.avatarMediaId}
+            members={den.members}
+            myUserId={den.myUserId}
+            size={56}
+          />
+          <div className="min-w-0 flex-1">
+            {asDialog ? (
+              <SheetTitle className="flex max-w-full items-center gap-1.5 truncate text-base font-semibold tracking-tight">
+                {name}
+              </SheetTitle>
+            ) : (
+              <h2 className="flex max-w-full items-center gap-1.5 truncate text-base font-semibold tracking-tight">
+                {name}
+              </h2>
+            )}
+            {asDialog ? (
+              <SheetDescription className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                {denDescription}
+              </SheetDescription>
+            ) : (
+              <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                {denDescription}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
     );
-  } else if (headerBannerUrl && !bannerFailed) {
+  }
+
+  let banner: React.ReactNode;
+  if (headerBannerUrl && !bannerFailed) {
     banner = (
       <Image
         alt=""
@@ -1068,16 +1132,7 @@ function DetailsHeader({
               hole in it. The `avatar-ring` recipe the component carries already
               gives it its own depth, and a pane-colored frame around it is what
               read as a cut edge against the banner. */}
-          {den ? (
-            <DenAvatarCollage
-              avatarMediaId={den.avatarMediaId}
-              members={den.members}
-              myUserId={den.myUserId}
-              size={96}
-            />
-          ) : (
-            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
-          )}
+          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
           {presence ? (
             <span
               className={cn(

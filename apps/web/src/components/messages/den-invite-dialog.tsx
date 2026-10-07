@@ -288,7 +288,7 @@ export function DenInviteDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle>Invite another member</DialogTitle>
           <DialogDescription>
@@ -303,9 +303,13 @@ export function DenInviteDialog({
           onValueChange={(val) => setTab(val as "link" | "code")}
           value={tab}
         >
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="link">Link</TabsTrigger>
-            <TabsTrigger value="code">Code</TabsTrigger>
+          <TabsList className="grid h-auto min-h-11 w-full grid-cols-2">
+            <TabsTrigger className="min-h-11" value="link">
+              Link
+            </TabsTrigger>
+            <TabsTrigger className="min-h-11" value="code">
+              Code
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent className="flex flex-col gap-4 pt-2" value="link">
@@ -323,7 +327,7 @@ export function DenInviteDialog({
                       <button
                         aria-pressed={selectedLinkDuration === days}
                         className={cn(
-                          "chip-3d cursor-pointer rounded-full text-xs",
+                          "chip-3d min-h-11 cursor-pointer rounded-full px-3 text-xs",
                           selectedLinkDuration === days &&
                             "border-primary/60 bg-primary/15"
                         )}
@@ -352,7 +356,7 @@ export function DenInviteDialog({
                   <div className="relative">
                     <input
                       aria-label="Invite link"
-                      className="premium-input w-full pr-10! text-xs"
+                      className="premium-input min-h-11 w-full pr-12! text-base sm:text-sm"
                       id="den-invite-link"
                       onFocus={(event) => {
                         event.currentTarget.select();
@@ -367,7 +371,7 @@ export function DenInviteDialog({
                     />
                     <button
                       aria-label={copiedLink ? "Copied" : "Copy invite link"}
-                      className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
+                      className="icon-btn-3d absolute top-1/2 right-1 flex size-11 -translate-y-1/2 items-center justify-center rounded-full"
                       disabled={busy || linkBusy}
                       onClick={() => {
                         void copyLink();
@@ -400,7 +404,7 @@ export function DenInviteDialog({
                   No link yet — generate one to share with others.
                 </p>
                 <button
-                  className="btn-3d inline-flex h-8 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium disabled:opacity-50"
+                  className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-sm font-medium disabled:opacity-50"
                   disabled={busy || linkBusy}
                   onClick={() => {
                     void generateLink();
@@ -430,7 +434,7 @@ export function DenInviteDialog({
                   <button
                     aria-pressed={selectedCodeDuration === days}
                     className={cn(
-                      "chip-3d cursor-pointer rounded-full text-xs",
+                      "chip-3d min-h-11 cursor-pointer rounded-full px-3 text-xs",
                       selectedCodeDuration === days &&
                         "border-primary/60 bg-primary/15"
                     )}
@@ -460,7 +464,7 @@ export function DenInviteDialog({
                 <div className="relative">
                   <input
                     aria-label="Invite code"
-                    className="premium-input w-full pr-10! text-center font-mono text-base font-semibold tracking-[0.3em]"
+                    className="premium-input min-h-11 w-full pr-12! text-center font-mono text-base font-semibold tracking-[0.3em]"
                     id="den-invite-code"
                     onFocus={(event) => {
                       event.currentTarget.select();
@@ -470,7 +474,7 @@ export function DenInviteDialog({
                   />
                   <button
                     aria-label={copiedCode ? "Copied" : "Copy invite code"}
-                    className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
+                    className="icon-btn-3d absolute top-1/2 right-1 flex size-11 -translate-y-1/2 items-center justify-center rounded-full"
                     disabled={busy || codeBusy}
                     onClick={() => {
                       void copyCode();
@@ -506,7 +510,7 @@ export function DenInviteDialog({
                   No code yet — generate one to share with others.
                 </p>
                 <button
-                  className="btn-3d inline-flex h-8 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium disabled:opacity-50"
+                  className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-sm font-medium disabled:opacity-50"
                   disabled={busy || codeBusy}
                   onClick={() => {
                     void generateCode();
@@ -526,7 +530,7 @@ export function DenInviteDialog({
 
         <DialogFooter>
           <button
-            className="text-muted-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+            className="text-muted-foreground min-h-11 px-3 text-sm font-medium disabled:opacity-50"
             disabled={busy}
             onClick={() => {
               onOpenChange(false);
@@ -537,7 +541,7 @@ export function DenInviteDialog({
           </button>
           {tab === "link" && (
             <button
-              className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+              className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
               disabled={busy || linkBusy}
               onClick={() => {
                 void generateLink();
@@ -553,7 +557,7 @@ export function DenInviteDialog({
           )}
           {tab === "code" && (
             <button
-              className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+              className="btn-3d inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
               disabled={busy || codeBusy}
               onClick={() => {
                 void generateCode();

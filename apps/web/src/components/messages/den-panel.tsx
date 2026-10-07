@@ -23,7 +23,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
+  ChevronRight,
   Crown,
+  Link2,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -36,7 +38,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -708,52 +710,40 @@ export function DenPanel({
     : null;
 
   const membersSection = (
-    <div className="flex flex-col gap-2.5">
-      {/* Roster toolbar with counts and quick action buttons */}
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold">Members</p>
-          <span className="chip-3d text-muted-foreground inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums">
-            {searchQuery
-              ? `${filteredMembers.length} of ${den.memberCount}`
-              : den.memberCount}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
-            <button
-              aria-label="Invite another member"
-              className="btn-3d flex h-7 items-center gap-1 rounded-lg! px-2 text-xs font-medium"
-              onClick={() => setInviteDialogOpen(true)}
-              type="button"
-            >
-              <UserPlus className="size-3.5" />
-              <span>Invite</span>
-            </button>
-          ) : null}
-          {denWide.canAddMembers && !rosterFull ? (
-            <button
-              aria-label="Add members"
-              className="btn-3d flex h-7 items-center gap-1 rounded-lg! px-2 text-xs font-medium"
-              onClick={() => {
-                setAdding(true);
-                setSelected([]);
-              }}
-              type="button"
-            >
-              <UserPlus className="size-3.5" />
-              <span>Add</span>
-            </button>
-          ) : null}
-        </div>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
+          <button
+            aria-label="Invite another member"
+            className="btn-3d-gray flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium lg:min-h-9"
+            onClick={() => setInviteDialogOpen(true)}
+            type="button"
+          >
+            <Link2 className="size-3.5" />
+            <span>Invite</span>
+          </button>
+        ) : null}
+        {denWide.canAddMembers && !rosterFull ? (
+          <button
+            aria-label="Add members"
+            className="btn-3d flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium lg:min-h-9"
+            onClick={() => {
+              setAdding(true);
+              setSelected([]);
+            }}
+            type="button"
+          >
+            <UserPlus className="size-3.5" />
+            <span>Add</span>
+          </button>
+        ) : null}
       </div>
 
-      {/* Member search input */}
       <div className="relative flex items-center">
-        <Search className="text-muted-foreground pointer-events-none absolute left-2.5 size-3.5" />
+        <Search className="text-muted-foreground pointer-events-none absolute left-3 size-4" />
         <input
           aria-label="Search members"
-          className="premium-input h-8 w-full rounded-lg pr-7 pl-8 text-xs"
+          className="premium-input min-h-11 w-full rounded-xl pr-12 pl-10 text-base sm:text-sm"
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder="Search members..."
           type="text"
@@ -762,7 +752,7 @@ export function DenPanel({
         {searchQuery ? (
           <button
             aria-label="Clear member search"
-            className="text-muted-foreground hover:text-foreground absolute right-2 flex size-4 items-center justify-center rounded-full"
+            className="icon-btn-3d absolute right-1 flex size-11 items-center justify-center rounded-full"
             onClick={() => setSearchQuery("")}
             type="button"
           >
@@ -770,6 +760,12 @@ export function DenPanel({
           </button>
         ) : null}
       </div>
+      {searchQuery ? (
+        <p className="text-muted-foreground -mt-1 px-1 text-xs">
+          {filteredMembers.length}{" "}
+          {filteredMembers.length === 1 ? "match" : "matches"}
+        </p>
+      ) : null}
 
       {/* Grouped roster or empty search state */}
       {filteredMembers.length === 0 ? (
@@ -787,7 +783,7 @@ export function DenPanel({
           </button>
         </div>
       ) : (
-        <div className="surface-3d rounded-2xl p-2.5">
+        <div className="surface-3d rounded-2xl p-3">
           {roleSections.map((section, sectionIdx) => (
             <div
               className={cn(
@@ -804,7 +800,10 @@ export function DenPanel({
                   · {section.members.length}
                 </span>
               </div>
-              <ul className="divide-border/40 divide-y">
+              <ul
+                aria-label={section.title}
+                className="divide-border/40 divide-y"
+              >
                 {section.members.map((member) => {
                   const isSelf = member.id === myUserId;
                   const affordances = denAffordances({
@@ -817,11 +816,11 @@ export function DenPanel({
                   });
                   return (
                     <li
-                      className="flex items-center gap-2.5 px-1.5 py-2 transition-colors"
+                      className="flex items-center gap-2 px-1.5 py-2.5 transition-colors"
                       key={member.id}
                     >
                       <Link
-                        className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                        className="group flex min-w-0 flex-1 items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
                         href={`/users/${member.username}`}
                       >
                         <UserAvatar avatarUrl={member.avatarUrl} size={32} />
@@ -836,7 +835,6 @@ export function DenPanel({
                           </span>
                         </span>
                       </Link>
-                      <RoleChip role={member.role} />
                       {actions.length > 0 ? (
                         <MemberActionMenu
                           actions={actions}
@@ -893,24 +891,25 @@ export function DenPanel({
 
   const settingsSection = (
     <div className="flex flex-col gap-3">
-      {/* Invite link card */}
       {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
-        <div className="surface-3d rounded-2xl px-3.5 py-3">
-          <p className="text-sm font-medium">Invite another member</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            Share a link or code that joins this den.
-          </p>
-          <button
-            className="btn-3d mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg! text-xs"
-            onClick={() => {
-              setInviteDialogOpen(true);
-            }}
-            type="button"
-          >
-            <UserPlus className="size-3.5" />
-            Invite
-          </button>
-        </div>
+        <button
+          className="surface-3d pill-3d-hover flex min-h-16 w-full items-center gap-3 rounded-2xl px-3 text-left"
+          onClick={() => {
+            setInviteDialogOpen(true);
+          }}
+          type="button"
+        >
+          <span className="chip-3d flex size-9 shrink-0 items-center justify-center rounded-xl">
+            <Link2 className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">Invite members</span>
+            <span className="text-muted-foreground block text-xs">
+              Share a link or code
+            </span>
+          </span>
+          <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+        </button>
       ) : null}
 
       {/* Conversation preferences: Mute, Theme, Wallpaper */}
@@ -959,7 +958,7 @@ export function DenPanel({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       {content}
 
       {/* Add members dialog */}
@@ -972,7 +971,7 @@ export function DenPanel({
         }}
         open={adding}
       >
-        <DialogContent className="w-[calc(100%-2rem)] rounded-2xl sm:max-w-md">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl sm:max-h-[calc(100dvh-4rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add members</DialogTitle>
             <DialogDescription>
@@ -1112,9 +1111,11 @@ export function DenPanel({
 export function DenAboutCard({ conversationId }: { conversationId: string }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const descriptionId = useId();
 
   const detail = useQuery({
     queryFn: () => fetchDen(conversationId),
@@ -1172,16 +1173,18 @@ export function DenAboutCard({ conversationId }: { conversationId: string }) {
   }
 
   const { den } = detail.data;
+  const description = den.description?.trim() ?? "";
+  const canExpandDescription = description.length > 100;
   const draftNameError = validateDenName(nameDraft);
   const draftDescriptionError = validateDenDescription(descriptionDraft);
 
   return (
-    <div className="surface-3d rounded-2xl px-3.5 py-3">
+    <section aria-label="About this den" className="min-w-0">
       {editing ? (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <input
             aria-label="Den name"
-            className="premium-input w-full rounded-lg text-sm"
+            className="premium-input min-h-11 w-full rounded-xl px-3 text-base sm:text-sm"
             maxLength={DEN_LIMITS.nameMax}
             onChange={(event) => setNameDraft(event.target.value)}
             placeholder="Name this den"
@@ -1189,16 +1192,16 @@ export function DenAboutCard({ conversationId }: { conversationId: string }) {
           />
           <textarea
             aria-label="Den description"
-            className="premium-input w-full resize-none rounded-lg text-xs"
+            className="premium-input min-h-20 w-full resize-y rounded-xl px-3 py-2 text-base sm:text-sm"
             maxLength={DEN_LIMITS.descriptionMax}
             onChange={(event) => setDescriptionDraft(event.target.value)}
             placeholder="What this den is for."
             rows={2}
             value={descriptionDraft}
           />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              className="text-primary shrink-0 text-xs font-medium"
+              className="btn-3d min-h-11 rounded-lg! px-4 text-sm font-medium"
               disabled={
                 busy ||
                 draftNameError !== null ||
@@ -1212,7 +1215,7 @@ export function DenAboutCard({ conversationId }: { conversationId: string }) {
               Save
             </button>
             <button
-              className="text-muted-foreground shrink-0 text-xs font-medium"
+              className="btn-3d-gray min-h-11 rounded-lg! px-4 text-sm font-medium"
               onClick={() => setEditing(false)}
               type="button"
             >
@@ -1226,36 +1229,52 @@ export function DenAboutCard({ conversationId }: { conversationId: string }) {
           </div>
         </div>
       ) : (
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium">About this den</p>
-            {denWide.canRename ? (
+        <div className="flex min-w-0 items-start gap-2">
+          <div className="min-w-0 flex-1">
+            {description ? (
+              <p
+                className={cn(
+                  "text-muted-foreground text-xs leading-relaxed",
+                  !descriptionExpanded && "line-clamp-2"
+                )}
+                id={descriptionId}
+              >
+                {description}
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-xs italic">
+                No description yet.
+              </p>
+            )}
+            {canExpandDescription ? (
               <button
-                aria-label="Edit name and description"
-                className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
-                onClick={() => {
-                  setDescriptionDraft(den.description ?? "");
-                  setNameDraft(den.name ?? "");
-                  setEditing(true);
-                }}
+                aria-controls={descriptionId}
+                aria-expanded={descriptionExpanded}
+                className="text-primary mt-0.5 min-h-11 text-xs font-medium lg:min-h-8"
+                onClick={() => setDescriptionExpanded((value) => !value)}
                 type="button"
               >
-                <Pencil className="size-3.5" />
+                {descriptionExpanded ? "Show less" : "Read more"}
               </button>
             ) : null}
           </div>
-          {den.description ? (
-            <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
-              {den.description}
-            </p>
-          ) : (
-            <p className="text-muted-foreground mt-1.5 text-xs italic">
-              No description yet.
-            </p>
-          )}
+          {denWide.canRename ? (
+            <button
+              aria-label="Edit den name and description"
+              className="icon-btn-3d flex size-11 shrink-0 items-center justify-center rounded-full lg:size-9"
+              onClick={() => {
+                setDescriptionDraft(den.description ?? "");
+                setNameDraft(den.name ?? "");
+                setEditing(true);
+              }}
+              type="button"
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          ) : null}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -1339,7 +1358,7 @@ export function MemberActionMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={label}
-        className="text-muted-foreground hover:text-foreground shrink-0"
+        className="icon-btn-3d flex size-11 shrink-0 items-center justify-center rounded-full lg:size-8"
         disabled={busy}
       >
         <MoreHorizontal className="size-4" />

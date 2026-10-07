@@ -64,7 +64,7 @@ export function DenBanDialog({
   // sentence somebody would send.
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] overflow-y-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
@@ -77,7 +77,7 @@ export function DenBanDialog({
             {DEN_BAN_REASON_LABEL}
           </label>
           <input
-            className="premium-input w-full rounded-lg text-sm"
+            className="premium-input min-h-11 w-full rounded-xl text-base sm:text-sm"
             id="den-ban-reason"
             // The server's own number, not a literal. `DEN_BAN_REASON_MAX` moved to
             // `@asm/db/messages/dens` for this: the cap is a rule, and a rule written
@@ -94,7 +94,7 @@ export function DenBanDialog({
         </div>
         <DialogFooter>
           <button
-            className="text-muted-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+            className="text-muted-foreground min-h-11 px-3 text-sm font-medium disabled:opacity-50"
             disabled={busy}
             onClick={() => {
               onOpenChange(false);
@@ -106,7 +106,7 @@ export function DenBanDialog({
           <button
             // A ban takes somebody out AND locks the door, so it wears the
             // destructive treatment.
-            className="btn-3d bg-destructive text-destructive-foreground hover:bg-destructive/90 inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+            className="btn-3d bg-destructive text-destructive-foreground hover:bg-destructive/90 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
             disabled={busy}
             onClick={() => {
               onConfirm(reason);
