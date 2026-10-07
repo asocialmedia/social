@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { useId, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { DenBannedMember } from "@/lib/messages/client";
@@ -15,16 +15,12 @@ import { cn } from "@/lib/utils";
 
 // Who cannot come back to this den.
 //
-// Collapsed by default and inside the Members card rather than on its own page or as
-// another filter tab. That placement is the whole UI decision: it is a moderation tool
-// about the roster, so it belongs next to the roster, and it is almost always empty,
-// so it must not be a top-level surface a reader scrolls past to get to the people
-// they actually manage.
+// The collapsed control stays at the bottom of the roster. Opening it adds a bounded
+// list above that control, so the list grows upward over the member panel and scrolls
+// independently without changing the details sheet's overall height.
 //
-// Shown even when empty, as one slim row. A manager who never bans anybody should be
-// able to find it, and the first time she needs it is the moment somebody asks her why
-// a person she invited cannot get in. A section that only appears once it has content
-// is a section she never learns exists.
+// Shown even when empty, so a manager can find the moderation control before the first
+// ban and read an authoritative empty state when they open it.
 export function DenBannedSection({
   bans,
   busyUserId,
@@ -44,44 +40,60 @@ export function DenBannedSection({
   onUnban: (member: DenBannedMember) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const regionId = useId();
+  const toggleId = useId();
 
   return (
-    <div className="border-border/60 mt-2 border-t pt-2">
-      <button
-        aria-expanded={open}
-        className="flex w-full items-center gap-1.5 text-left"
-        onClick={() => {
-          setOpen((current) => !current);
-        }}
-        type="button"
-      >
-        <span className="text-sm font-medium">{DEN_BAN_TERM}</span>
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {bans.length}
-        </span>
-        {open ? (
-          <ChevronDown
-            aria-hidden
-            className="text-muted-foreground ml-auto size-4"
-          />
-        ) : (
-          <ChevronRight
-            aria-hidden
-            className="text-muted-foreground ml-auto size-4"
-          />
+    <section className="pointer-events-none absolute inset-x-4 bottom-0 z-20">
+      <div
+        className={cn(
+          "panel-3d pointer-events-auto flex flex-col overflow-hidden rounded-t-2xl",
+          open && "max-h-[min(65dvh,100%)]"
         )}
-      </button>
-      <p className="text-muted-foreground mt-0.5 text-xs">{DEN_BANS_SUMMARY}</p>
+      >
+        <div
+          aria-labelledby={toggleId}
+          className={cn(
+            "max-h-[65dvh] min-h-0 overflow-y-auto overscroll-contain px-3 pt-1",
+            !open && "hidden"
+          )}
+          id={regionId}
+        >
+          <p className="text-muted-foreground px-1 pt-2 pb-1 text-xs">
+            {DEN_BANS_SUMMARY}
+          </p>
+          <BannedList
+            bans={bans}
+            busyUserId={busyUserId}
+            error={error}
+            onUnban={onUnban}
+          />
+        </div>
 
-      {open ? (
-        <BannedList
-          bans={bans}
-          busyUserId={busyUserId}
-          error={error}
-          onUnban={onUnban}
-        />
-      ) : null}
-    </div>
+        <button
+          aria-controls={regionId}
+          aria-expanded={open}
+          className="hover:bg-muted/50 focus-visible:ring-ring/50 flex min-h-14 w-full shrink-0 items-center gap-2 px-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          id={toggleId}
+          onClick={() => {
+            setOpen((current) => !current);
+          }}
+          type="button"
+        >
+          <span className="min-w-0 flex-1 text-sm font-semibold">
+            {DEN_BAN_TERM}
+          </span>
+          <span className="chip-3d inline-flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-medium tabular-nums">
+            {bans.length}
+          </span>
+          {open ? (
+            <ChevronDown aria-hidden className="text-muted-foreground size-4" />
+          ) : (
+            <ChevronUp aria-hidden className="text-muted-foreground size-4" />
+          )}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -159,7 +171,7 @@ export function DenBannedRow({
       </span>
       <button
         className={cn(
-          "btn-3d-gray shrink-0 rounded-lg! px-2.5 py-1 text-xs font-medium",
+          "btn-3d-gray min-h-11 shrink-0 rounded-lg! px-3 text-xs font-medium sm:min-h-9",
           busy && "opacity-50"
         )}
         disabled={busy}

@@ -866,18 +866,6 @@ export function DenPanel({
         </div>
       )}
 
-      {/* Collapsible banned section */}
-      {denWide.canBanMembers ? (
-        <DenBannedSection
-          bans={bans.data ?? []}
-          busyUserId={unbanningId}
-          error={bans.isError ? "Couldn't load the banned list." : null}
-          onUnban={(member) => {
-            setConfirm({ kind: "unban-member", member });
-          }}
-        />
-      ) : null}
-
       {rosterFull && denWide.canAddMembers ? (
         <div className="surface-3d rounded-2xl px-3.5 py-2.5">
           <p className="text-muted-foreground text-xs">
@@ -958,8 +946,28 @@ export function DenPanel({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-      {content}
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto px-4",
+          activeTab === "settings"
+            ? "pb-[max(1rem,env(safe-area-inset-bottom))]"
+            : "pb-16"
+        )}
+      >
+        {content}
+      </div>
+
+      {activeTab !== "settings" && denWide.canBanMembers ? (
+        <DenBannedSection
+          bans={bans.data ?? []}
+          busyUserId={unbanningId}
+          error={bans.isError ? "Couldn't load the banned list." : null}
+          onUnban={(member) => {
+            setConfirm({ kind: "unban-member", member });
+          }}
+        />
+      ) : null}
 
       {/* Add members dialog */}
       <Dialog
