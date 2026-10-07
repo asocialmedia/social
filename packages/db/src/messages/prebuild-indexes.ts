@@ -48,6 +48,17 @@ const INDEXES = [
     name: "message_conversation_keys_conversationId_ownerUserId_idx",
     sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_conversation_keys_conversationId_ownerUserId_idx" ON "message_conversation_keys" ("conversationId", "ownerUserId")',
   },
+  {
+    // The short-code join door's live lookup. `message_conversations` is the
+    // hottest table in the den feature - every send bumps its `updatedAt` under
+    // a lock - so a SHARE lock held for the whole build would stall every
+    // conversation read for the duration. Nullable column, so a fresh build on
+    // a table with millions of DM rows is still only an index over the dens,
+    // but the lock alone is the reason this is here and not left to the
+    // migration transaction.
+    name: "message_conversations_inviteShortCode_key",
+    sql: 'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "message_conversations_inviteShortCode_key" ON "message_conversations" ("inviteShortCode")',
+  },
 ] as const;
 
 export interface PrebuildIndexesResult {
