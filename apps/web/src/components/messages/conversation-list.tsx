@@ -1,14 +1,27 @@
 "use client";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@asm/ui/shadui/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellOff, MessageCircle, Plus, Search, Users, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Search,
+  Users,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { ConversationRow } from "@/components/messages/conversation-list-item";
 import { CreateDenDialog } from "@/components/messages/create-den-dialog";
-import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -20,9 +33,7 @@ import type { SearchUserResult } from "@/lib/messages/client";
 import type { ConversationListLayout } from "@/lib/messages/conversation-list-layout";
 import {
   DEN_LIST_FILTERS,
-  conversationDisplayName,
   countConversationsByType,
-  denMemberCountLabel,
   filterConversationsByType,
 } from "@/lib/messages/den-label";
 import type { DenListFilter } from "@/lib/messages/den-label";
@@ -52,18 +63,31 @@ interface ConversationListProps {
   // owns.
   layout: ConversationListLayout;
   onSelect: (conversationId: string) => void;
+  // Whether the sidebar is currently collapsed into rail mode.
+  isCollapsed?: boolean;
+  // Toggle the collapsed/expanded state.
+  onToggleCollapse?: () => void;
+  // Explicitly expand the sidebar.
+  onExpand?: () => void;
 }
 
 export function ConversationList({
   activeConversationId,
+  isCollapsed,
   layout,
+  onExpand,
   onSelect,
+  onToggleCollapse,
 }: ConversationListProps) {
   const { user } = useSession();
   const queryClient = useQueryClient();
   const onlineUsers = usePresence(true);
 
-  const [searchOpen, setSearchOpen] = useState(false);
+  const collapsed = isCollapsed ?? layout === "rail";
+  const full = layout === "full" && !collapsed;
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchUserResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -81,16 +105,12 @@ export function ConversationList({
   // Previews are what the full list is FOR, and the rail shows none, so the rail
   // asks the decryptor for nothing rather than decrypting twenty conversations to
   // throw the text away.
-  useConversationPreviewRequests(layout === "full" ? items : NO_ITEMS);
+  useConversationPreviewRequests(full ? items : NO_ITEMS);
 
-  // The rail has no room for tabs and no room for a den either, so the filter and
-  // the visible set are computed for the full list only. On the rail the list is
-  // a way around to whatever is already open, and the search is how you start
-  // something new.
+  // Filtered conversation items matching the active filter tab.
   const visibleItems = useMemo(
-    () =>
-      layout === "full" ? filterConversationsByType(items, filter) : items,
-    [filter, items, layout]
+    () => filterConversationsByType(items, filter),
+    [filter, items]
   );
   // Per-filter counts for the tab strip, from the same array the rows are rendered
   // from rather than from a second query, so a badge on a tab and the rows under it
@@ -109,6 +129,33 @@ export function ConversationList({
   // server owns the ordering (by conversation activity) and the preview, and
   // re-deriving either here would be a second implementation to keep in step.
   useMessageActivity(refetchList);
+
+  // Clear search query if sidebar gets collapsed.
+  useEffect(() => {
+    if (collapsed && query) {
+      const timer = setTimeout(() => setQuery(""), 0);
+      return () => clearTimeout(timer);
+    }
+  }, [collapsed, query]);
+
+  // Dismiss search results dropdown when clicking outside the search container.
+  useEffect(() => {
+    if (!query) {
+      return;
+    }
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [query]);
 
   // Shared create-conversation flow used by both entry points (the custom
   // "new conversation" event and the search result row): creating state,
@@ -148,7 +195,7 @@ export function ConversationList({
     const handler = (event: Event) => {
       const { detail } = event as CustomEvent<{ userId?: string }>;
       if (detail?.userId) {
-        setSearchOpen(false);
+        setQuery("");
         void handleNewConversationRequest(detail.userId);
       }
     };
@@ -162,7 +209,7 @@ export function ConversationList({
   // requests are ignored so an out-of-order response cannot overwrite newer
   // results.
   useEffect(() => {
-    if (!searchOpen || query.trim().length === 0) {
+    if (query.trim().length === 0) {
       const clearTimer = setTimeout(() => setResults([]), 0);
       return () => clearTimeout(clearTimer);
     }
@@ -186,7 +233,15 @@ export function ConversationList({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, searchOpen]);
+  }, [query]);
+
+  // Expand the sidebar and focus the search input in one smooth action.
+  const handleExpandAndFocusSearch = useCallback(() => {
+    onExpand?.();
+    setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 50);
+  }, [onExpand]);
 
   const handleStartConversation = useCallback(
     async (recipient: SearchUserResult) => {
@@ -199,7 +254,6 @@ export function ConversationList({
         return;
       }
       await startConversation(recipient.id);
-      setSearchOpen(false);
       setQuery("");
     },
     [startConversation]
@@ -253,42 +307,9 @@ export function ConversationList({
     ));
   }
 
-  function renderSearchPopover() {
-    if (!searchOpen) {
-      return null;
-    }
-    return (
-      <div
-        className={cn(
-          "panel-3d absolute top-16 z-50 rounded-2xl p-2",
-          // The rail is 64px wide with no room to open into, so its popover sits
-          // to the side of it; the full list has the width, so it opens over its
-          // own rows.
-          layout === "full"
-            ? "inset-x-2"
-            : "left-full ml-2 w-72 max-w-[calc(100vw-5.5rem)]"
-        )}
-      >
-        <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
-          <Search className="text-muted-foreground h-4 w-4 shrink-0" />
-          <input
-            autoFocus
-            className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search people you follow…"
-            value={query}
-          />
-        </div>
-        <div className="mt-2 flex max-h-80 flex-col overflow-y-auto">
-          {renderSearchResults()}
-        </div>
-      </div>
-    );
-  }
-
-  function renderFullList() {
+  function renderConversationList() {
     if (isLoading) {
-      return <ConversationListSkeleton full />;
+      return <ConversationListSkeleton full={!collapsed} />;
     }
     // Two different empty states, because they have two different causes and two
     // different next actions: no conversations at all is "search for somebody",
@@ -297,8 +318,13 @@ export function ConversationList({
       if (items.length === 0) {
         return (
           <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-            <MessageCircle className="text-muted-foreground/40 h-6 w-6" />
-            <p className="text-muted-foreground text-xs leading-relaxed">
+            <MessageCircle className="text-muted-foreground/40 h-6 w-6 shrink-0" />
+            <p
+              className={cn(
+                "text-muted-foreground text-xs leading-relaxed transition-opacity duration-200",
+                collapsed ? "hidden" : "block"
+              )}
+            >
               No conversations yet. Search for someone you follow to start one,
               or make a den for a group.
             </p>
@@ -307,8 +333,13 @@ export function ConversationList({
       }
       return (
         <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-          <Users className="text-muted-foreground/40 h-6 w-6" />
-          <p className="text-muted-foreground text-xs leading-relaxed">
+          <Users className="text-muted-foreground/40 h-6 w-6 shrink-0" />
+          <p
+            className={cn(
+              "text-muted-foreground text-xs leading-relaxed transition-opacity duration-200",
+              collapsed ? "hidden" : "block"
+            )}
+          >
             No {FILTER_LABEL[filter].toLowerCase()} yet.
           </p>
         </div>
@@ -326,6 +357,7 @@ export function ConversationList({
       return (
         <ConversationRow
           active={item.conversation.id === activeConversationId}
+          collapsed={collapsed}
           item={item}
           key={item.conversation.id}
           myUserId={myId}
@@ -336,224 +368,258 @@ export function ConversationList({
     });
   }
 
-  function renderRail() {
-    if (isLoading) {
-      return <ConversationListSkeleton />;
-    }
-    if (items.length === 0) {
-      return (
-        <MessageCircle className="text-muted-foreground/40 mt-6 h-6 w-6" />
-      );
-    }
-    return items.map((item) => {
-      const myId = user?.id ?? "";
-      const myMember = item.conversation.members.find(
-        (member) => member.userId === myId
-      );
-      const peer = item.conversation.members.find(
-        (member) => member.userId !== myId
-      )?.user;
-      // Mute is this member's own preference, so the indicator is read off their
-      // membership row rather than anything the peer can see.
-      const muted = Boolean(myMember?.mutedAt);
-      const presence = peer
-        ? onlineUsers.find((u) => u.id === peer.id)
-        : undefined;
-      const active = item.conversation.id === activeConversationId;
-      // The rail's icon has no text of its own, so the row's name has to be
-      // computed here. A den gets the same heading the full list gives it, plus
-      // its size, because "Study group" alone does not say how many people are in
-      // the room -- and that is the one fact somebody scanning the rail wants.
-      const heading = conversationDisplayName(
-        {
-          members: item.conversation.members.map((member) => ({
-            avatarUrl: member.user.avatarUrl,
-            displayName: member.user.displayName,
-            id: member.userId,
-            username: member.user.username,
-          })),
-          name: item.conversation.name,
-          type: item.conversation.type,
-        },
-        myId
-      );
-      const rowName =
-        item.conversation.type === "DEN"
-          ? `${heading}, ${denMemberCountLabel(item.conversation.members.length)}`
-          : heading;
-      // Spelled out rather than nested in the JSX: a mute and an unread count are
-      // two independent facts about the same row, and a muted chat carries no
-      // count at all, so the unread branch wins when both are somehow present.
-      const label =
-        item.unreadCount > 0
-          ? `${rowName}, ${item.unreadCount} unread message${item.unreadCount === 1 ? "" : "s"}`
-          : `${rowName}${muted ? ", muted" : ""}`;
-      return (
-        <button
-          aria-label={label}
-          className={cn(
-            "relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors",
-            active
-              ? "border-border/60 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
-              : "hover:bg-muted/50"
-          )}
-          key={item.conversation.id}
-          onClick={() => onSelect(item.conversation.id)}
-          title={heading}
-          type="button"
-        >
-          <div className="relative">
-            {item.conversation.type === "DEN" ? (
-              <DenAvatarCollage
-                avatarMediaId={item.conversation.avatarMediaId ?? null}
-                members={item.conversation.members.map((member) => ({
-                  avatarUrl: member.user.avatarUrl,
-                  displayName: member.user.displayName,
-                  id: member.userId,
-                  role: member.role ?? null,
-                  username: member.user.username,
-                }))}
-                myUserId={myId}
-                size={38}
-              />
-            ) : (
-              <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={38} />
-            )}
-            {presence?.status ? (
-              <span
-                className={cn(
-                  "border-background absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.2)]",
-                  presence.status === "online" ? "bg-green-500" : "bg-amber-500"
-                )}
-              />
-            ) : null}
-            {muted ? (
-              <span className="bg-background absolute -bottom-0.5 -left-0.5 flex size-3.5 items-center justify-center rounded-full">
-                <BellOff className="text-muted-foreground size-2.5" />
-              </span>
-            ) : null}
-          </div>
-          {item.unreadCount > 0 ? (
-            <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
-              {item.unreadCount}
-            </span>
-          ) : null}
-        </button>
-      );
-    });
-  }
-
   // A phone with a conversation open shows that conversation and nothing else; the
   // thread's back button is what brings the list back.
   if (layout === "hidden") {
     return null;
   }
 
-  const full = layout === "full";
-
   return (
-    <div
-      className={cn(
-        "relative flex shrink-0 flex-col border-r border-[hsl(var(--border))]",
-        full ? "w-full md:w-72 xl:w-80" : "w-16 items-center"
-      )}
-    >
-      {/* Discord-style icon rail: no header, just the search trigger. */}
+    <TooltipProvider delayDuration={150}>
       <div
         className={cn(
-          "border-border/60 flex h-14 shrink-0 items-center gap-2 border-b",
-          full ? "justify-between px-4" : "justify-center px-0"
+          "relative flex shrink-0 flex-col overflow-x-hidden border-r border-[hsl(var(--border))] transition-[width] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+          collapsed ? "w-16" : "w-full md:w-72 xl:w-80"
         )}
       >
-        {full ? (
-          <h2 className="text-sm font-semibold tracking-tight">Messages</h2>
-        ) : null}
-        {/* Dens are not reachable from the search popover, which starts a DM with
-            one person. This is the entry point, and it sits beside the search
-            rather than inside it so the two jobs stay separate. */}
-        <button
-          aria-label="New den"
-          className={cn(
-            "icon-btn-3d flex h-9 w-9 cursor-pointer items-center justify-center rounded-full",
-            full && "ml-auto"
-          )}
-          onClick={() => setDenDialogOpen(true)}
-          title="New den"
-          type="button"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-        <button
-          aria-label="Search people"
-          className={cn(
-            "icon-btn-3d flex h-9 w-9 cursor-pointer items-center justify-center rounded-full",
-            searchOpen && "border-border/60 bg-primary/15 border"
-          )}
-          onClick={() => setSearchOpen((open) => !open)}
-          type="button"
-        >
-          {searchOpen ? (
-            <X className="h-4 w-4" />
-          ) : (
-            <Search className="h-4 w-4" />
-          )}
-        </button>
-      </div>
+        {/* Header row: Messages title + Sidebar toggle button */}
+        <div className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-4 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]">
+          <h2
+            className={cn(
+              "text-base font-semibold tracking-tight whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+              collapsed
+                ? "pointer-events-none max-w-0 -translate-x-3 overflow-hidden opacity-0"
+                : "max-w-[200px] translate-x-0 opacity-100"
+            )}
+          >
+            Messages
+          </h2>
 
-      {/* All / DMs / Dens. A tablist rather than three buttons, so arrow-key
-          navigation and the pressed state come from the role rather than from
-          anything hand-rolled. Full list only: the rail has 64px. */}
-      {full ? (
-        <div
-          aria-label="Filter conversations"
-          className="flex shrink-0 gap-1 px-2 pt-2"
-          role="tablist"
-        >
-          {DEN_LIST_FILTERS.map((option) => {
-            const isSelected = filter === option;
-            return (
-              <button
-                aria-selected={isSelected}
-                className={cn(
-                  "pill-3d-hover flex-1 cursor-pointer rounded-full px-2 py-1 text-xs font-medium transition-colors",
-                  isSelected
-                    ? "border-border/60 bg-primary/15 border"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                key={option}
-                onClick={() => setFilter(option)}
-                role="tab"
-                type="button"
+          <div className="absolute right-4 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  className={cn(
+                    "icon-btn-3d text-muted-foreground hover:text-foreground h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors",
+                    collapsed ? "flex" : "hidden md:flex"
+                  )}
+                  onClick={onToggleCollapse}
+                  type="button"
+                >
+                  <div className="relative flex h-4 w-4 items-center justify-center">
+                    <PanelLeftClose
+                      className={cn(
+                        "absolute inset-0 h-4 w-4 transition-all duration-300 ease-out",
+                        collapsed
+                          ? "scale-75 rotate-90 opacity-0"
+                          : "scale-100 rotate-0 opacity-100"
+                      )}
+                    />
+                    <PanelLeftOpen
+                      className={cn(
+                        "absolute inset-0 h-4 w-4 transition-all duration-300 ease-out",
+                        collapsed
+                          ? "scale-100 rotate-0 opacity-100"
+                          : "scale-75 -rotate-90 opacity-0"
+                      )}
+                    />
+                  </div>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                className="tooltip-3d"
+                side={collapsed ? "right" : "bottom"}
+                sideOffset={collapsed ? 12 : 8}
               >
-                {FILTER_LABEL[option]}
-                <span className="ml-1 text-[10px] tabular-nums opacity-70">
-                  {counts[option]}
-                </span>
-              </button>
-            );
-          })}
+                {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-      ) : null}
 
-      <div
-        className={cn(
-          "hide-native-scrollbar flex flex-1 flex-col overflow-y-auto",
-          full ? "gap-0.5 p-2" : "items-center gap-1.5 p-2"
-        )}
-      >
-        {full ? renderFullList() : renderRail()}
+        {/* Search & Create Den row below the title */}
+        <div
+          className="relative flex h-14 shrink-0 items-center px-3.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
+          ref={searchContainerRef}
+        >
+          <div className="flex w-full items-center gap-2">
+            {/* Search Bar / Icon button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className={cn(
+                    "relative flex h-9 items-center overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                    collapsed
+                      ? "icon-btn-3d w-9 justify-center rounded-full px-0"
+                      : "reels-input flex-1 rounded-xl! px-3 focus-within:shadow-[0_0_0_2px_rgba(255,149,0,0.25)]"
+                  )}
+                >
+                  <button
+                    aria-label={collapsed ? "Search people" : undefined}
+                    className={cn(
+                      "flex shrink-0 cursor-pointer items-center justify-center transition-colors",
+                      collapsed ? "h-9 w-9 rounded-full" : "h-4 w-4"
+                    )}
+                    onClick={
+                      collapsed
+                        ? handleExpandAndFocusSearch
+                        : () => searchInputRef.current?.focus()
+                    }
+                    type="button"
+                  >
+                    <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+                  </button>
+                  <input
+                    aria-label={
+                      collapsed ? undefined : "Search people you follow"
+                    }
+                    className={cn(
+                      "placeholder:text-muted-foreground bg-transparent text-sm transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] outline-none",
+                      collapsed
+                        ? "pointer-events-none ml-0 max-w-0 p-0 opacity-0"
+                        : "ml-2 min-w-0 flex-1 opacity-100"
+                    )}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setQuery("");
+                        searchInputRef.current?.blur();
+                      }
+                    }}
+                    placeholder={
+                      collapsed ? undefined : "Search people you follow…"
+                    }
+                    ref={searchInputRef}
+                    tabIndex={collapsed ? -1 : undefined}
+                    value={query}
+                  />
+                  {query && !collapsed ? (
+                    <button
+                      aria-label="Clear search"
+                      className="text-muted-foreground hover:text-foreground flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full"
+                      onClick={() => {
+                        setQuery("");
+                        searchInputRef.current?.focus();
+                      }}
+                      type="button"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </TooltipTrigger>
+              {collapsed ? (
+                <TooltipContent
+                  className="tooltip-3d"
+                  side="right"
+                  sideOffset={12}
+                >
+                  Search people
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
+
+            {/* Circular create den button next to search bar on right */}
+            <div
+              className={cn(
+                "shrink-0 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                collapsed
+                  ? "pointer-events-none -ml-2 max-w-0 scale-50 overflow-hidden opacity-0"
+                  : "max-w-9 scale-100 opacity-100"
+              )}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    aria-label={collapsed ? undefined : "New den"}
+                    className="icon-btn-3d text-foreground flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors"
+                    onClick={() => setDenDialogOpen(true)}
+                    tabIndex={collapsed ? -1 : undefined}
+                    type="button"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  className="tooltip-3d"
+                  side="bottom"
+                  sideOffset={8}
+                >
+                  New den
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          {/* Dropdown with search results */}
+          {query.trim().length > 0 && !collapsed ? (
+            <div className="panel-3d absolute inset-x-2 top-[calc(100%+4px)] z-50 max-h-80 overflow-y-auto rounded-2xl p-2 shadow-2xl">
+              {renderSearchResults()}
+            </div>
+          ) : null}
+        </div>
+
+        {/* All / DMs / Dens tabs */}
+        <div
+          className={cn(
+            "shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            collapsed
+              ? "pointer-events-none h-0 py-0 opacity-0"
+              : "h-9 px-2 pt-1 pb-1 opacity-100"
+          )}
+        >
+          <div
+            aria-label={collapsed ? undefined : "Filter conversations"}
+            className="flex gap-1 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
+            role={collapsed ? undefined : "tablist"}
+          >
+            {DEN_LIST_FILTERS.map((option) => {
+              const isSelected = filter === option;
+              return (
+                <button
+                  aria-selected={collapsed ? undefined : isSelected}
+                  className={cn(
+                    "pill-3d-hover flex-1 cursor-pointer rounded-full px-2 py-1 text-xs font-medium transition-colors",
+                    isSelected
+                      ? "border-border/60 bg-primary/15 border"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  key={option}
+                  onClick={() => setFilter(option)}
+                  role={collapsed ? undefined : "tab"}
+                  tabIndex={collapsed ? -1 : undefined}
+                  type="button"
+                >
+                  {FILTER_LABEL[option]}
+                  <span className="ml-1 text-[10px] tabular-nums opacity-70">
+                    {counts[option]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Conversation list */}
+        <div
+          className={cn(
+            "hide-native-scrollbar flex flex-1 flex-col overflow-x-hidden overflow-y-auto p-2 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            collapsed ? "gap-1.5" : "gap-0.5"
+          )}
+        >
+          {renderConversationList()}
+        </div>
+
+        {/* Mounted unconditionally rather than on first open: the dialog owns its
+            draft state, and a conditional mount would throw that away every time
+            the reader closes it mid-form. */}
+        <CreateDenDialog
+          onCreated={refetchList}
+          onOpenChange={setDenDialogOpen}
+          open={denDialogOpen}
+        />
       </div>
-
-      {renderSearchPopover()}
-
-      {/* Mounted unconditionally rather than on first open: the dialog owns its
-          draft state, and a conditional mount would throw that away every time
-          the reader closes it mid-form. */}
-      <CreateDenDialog
-        onCreated={refetchList}
-        onOpenChange={setDenDialogOpen}
-        open={denDialogOpen}
-      />
-    </div>
+    </TooltipProvider>
   );
 }

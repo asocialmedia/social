@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@asm/ui/shadui/tooltip";
 import { BellOff } from "lucide-react";
 import { memo } from "react";
 
@@ -9,6 +14,7 @@ import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import type { ConversationListItem } from "@/lib/messages/client";
 import {
   conversationDisplayName,
+  denMemberCountLabel,
   denPreviewLine,
 } from "@/lib/messages/den-label";
 import { hasDeparted } from "@/lib/messages/membership";
@@ -19,6 +25,7 @@ import { cn, formatRelativeDate } from "@/lib/utils";
 
 interface ConversationRowProps {
   active: boolean;
+  collapsed?: boolean;
   item: ConversationListItem;
   myUserId: string;
   onSelect: (conversationId: string) => void;
@@ -52,6 +59,7 @@ interface ConversationRowProps {
 // list once per message.
 function ConversationRowInner({
   active,
+  collapsed = false,
   item,
   myUserId,
   onSelect,
@@ -115,114 +123,164 @@ function ConversationRowInner({
     },
     myUserId
   );
+  const rowName =
+    item.conversation.type === "DEN"
+      ? `${heading}, ${denMemberCountLabel(item.conversation.members.length)}`
+      : heading;
+  const label =
+    item.unreadCount > 0
+      ? `${rowName}, ${item.unreadCount} unread message${item.unreadCount === 1 ? "" : "s"}`
+      : `${rowName}${muted ? ", muted" : ""}`;
+
+  let activeStyle = "hover:bg-muted/50";
+  if (active && collapsed) {
+    activeStyle =
+      "border-border/60 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]";
+  } else if (active) {
+    activeStyle = "surface-3d";
+  }
 
   return (
-    <button
-      // No aria-label: the row's own text IS its name, so a screen reader reads the
-      // person and what they said. The badge is the one part that does not read as
-      // what it is -- a bare number -- so it carries the noun.
-      className={cn(
-        "group flex w-full cursor-pointer items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left",
-        // `surface-3d` on the selected row, and no background utility beside it: the
-        // recipe lives in `@layer components`, so a `bg-*` here would win the cascade
-        // and the lift would silently do nothing.
-        active ? "surface-3d" : "hover:bg-muted/50 transition-colors"
-      )}
-      onClick={() => onSelect(item.conversation.id)}
-      type="button"
-    >
-      <span className="relative shrink-0">
-        {isDen ? (
-          <DenAvatarCollage
-            avatarMediaId={item.conversation.avatarMediaId ?? null}
-            members={item.conversation.members.map((member) => ({
-              avatarUrl: member.user.avatarUrl,
-              displayName: member.user.displayName,
-              id: member.userId,
-              role: member.role ?? null,
-              username: member.user.username,
-            }))}
-            myUserId={myUserId}
-            size={44}
-          />
-        ) : (
-          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={44} />
-        )}
-        {/* Presence is a property of a person, so a den has none to show. The
-            bell is not: it is this member's own preference and reads the same
-            either way. */}
-        {presence && !isDen ? (
-          <span
-            className={cn(
-              "border-background absolute right-0 bottom-0 size-3 rounded-full border-2",
-              presence === "online" ? "bg-green-500" : "bg-amber-500"
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={collapsed ? label : undefined}
+          className={cn(
+            "group relative flex w-full cursor-pointer items-center overflow-hidden text-left transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            collapsed
+              ? "h-12 justify-center gap-0 rounded-xl px-0"
+              : "h-16 justify-start gap-3 rounded-2xl px-2.5 py-2.5",
+            activeStyle
+          )}
+          onClick={() => onSelect(item.conversation.id)}
+          type="button"
+        >
+          <span className="relative shrink-0">
+            {isDen ? (
+              <DenAvatarCollage
+                avatarMediaId={item.conversation.avatarMediaId ?? null}
+                members={item.conversation.members.map((member) => ({
+                  avatarUrl: member.user.avatarUrl,
+                  displayName: member.user.displayName,
+                  id: member.userId,
+                  role: member.role ?? null,
+                  username: member.user.username,
+                }))}
+                myUserId={myUserId}
+                size={40}
+              />
+            ) : (
+              <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={40} />
             )}
-          />
-        ) : null}
-        {muted ? (
-          <span className="bg-background absolute -bottom-0.5 -left-0.5 flex size-4 items-center justify-center rounded-full">
-            <BellOff className="text-muted-foreground size-2.5" />
+            {/* Presence is a property of a person, so a den has none to show. The
+                bell is not: it is this member's own preference and reads the same
+                either way. */}
+            {presence && !isDen ? (
+              <span
+                className={cn(
+                  "border-background absolute right-0 bottom-0 size-3 rounded-full border-2",
+                  presence === "online" ? "bg-green-500" : "bg-amber-500"
+                )}
+              />
+            ) : null}
+            {muted ? (
+              <span className="bg-background absolute -bottom-0.5 -left-0.5 flex size-4 items-center justify-center rounded-full">
+                <BellOff className="text-muted-foreground size-2.5" />
+              </span>
+            ) : null}
+            {/* Rail unread badge top-right of avatar when collapsed */}
+            <span
+              className={cn(
+                "bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums shadow-xs transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                unread && collapsed
+                  ? "scale-100 opacity-100"
+                  : "pointer-events-none scale-0 opacity-0"
+              )}
+            >
+              {formatArrivalCount(item.unreadCount)}
+            </span>
           </span>
-        ) : null}
-      </span>
 
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-1.5">
           <span
             className={cn(
-              "min-w-0 truncate text-sm",
-              unread ? "font-semibold" : "font-medium",
-              left && "text-muted-foreground"
+              "min-w-0 flex-1 text-left transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+              collapsed
+                ? "pointer-events-none max-w-0 overflow-hidden opacity-0"
+                : "opacity-100"
             )}
           >
-            {heading}
-          </span>
-          {/* A room has no badge of its own, and a den member's badge says nothing
-              about the room, so the per-person badge row is DM-only. The one chip a
-              den row does carry is "Left": it is not about a person. */}
-          {left ? (
-            <span className="chip-3d text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-              Left
+            <span className="flex min-w-0 items-center gap-1.5 text-left">
+              <span
+                className={cn(
+                  "min-w-0 truncate text-left text-sm",
+                  unread ? "font-semibold" : "font-medium",
+                  left && "text-muted-foreground"
+                )}
+              >
+                {heading}
+              </span>
+              {/* A room has no badge of its own, and a den member's badge says nothing
+                  about the room, so the per-person badge row is DM-only. The one chip a
+                  den row does carry is "Left": it is not about a person. */}
+              {left ? (
+                <span className="chip-3d text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+                  Left
+                </span>
+              ) : null}
+              {isDen ? null : (
+                <UserBadge
+                  badge={peer?.badge}
+                  badges={peer?.badges}
+                  communityRoles={peer?.communityMemberships}
+                />
+              )}
             </span>
-          ) : null}
-          {isDen ? null : (
-            <UserBadge
-              badge={peer?.badge}
-              badges={peer?.badges}
-              communityRoles={peer?.communityMemberships}
-            />
-          )}
-        </span>
-        <span
-          className={cn(
-            "mt-0.5 block truncate text-xs",
-            unread ? "text-foreground/90 font-medium" : "text-muted-foreground"
-          )}
-        >
-          {/* A departed den ignores the preview: "what was said last" is not what
-              this row's reader needs to know, and the newest message may even be
-              one they cannot decrypt. The state they are in is the useful line. */}
-          {left ? "You left this den" : preview || (muted ? "Muted" : "")}
-        </span>
-      </span>
-
-      <span className="flex shrink-0 flex-col items-end gap-1.5 self-stretch pt-0.5">
-        <span
-          className={cn(
-            "text-[10px] tabular-nums",
-            unread ? "text-primary font-semibold" : "text-muted-foreground"
-          )}
-        >
-          {time}
-        </span>
-        {unread ? (
-          <span className="bg-primary text-primary-foreground flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
-            {formatArrivalCount(item.unreadCount)}
-            <span className="sr-only"> unread</span>
+            <span
+              className={cn(
+                "mt-0.5 block truncate text-left text-xs",
+                unread
+                  ? "text-foreground/90 font-medium"
+                  : "text-muted-foreground"
+              )}
+            >
+              {/* A departed den ignores the preview: "what was said last" is not what
+                  this row's reader needs to know, and the newest message may even be
+                  one they cannot decrypt. The state they are in is the useful line. */}
+              {left ? "You left this den" : preview || (muted ? "Muted" : "")}
+            </span>
           </span>
-        ) : null}
-      </span>
-    </button>
+
+          <span
+            className={cn(
+              "flex shrink-0 flex-col items-end gap-1.5 self-stretch pt-0.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+              collapsed
+                ? "pointer-events-none max-w-0 overflow-hidden opacity-0"
+                : "opacity-100"
+            )}
+          >
+            <span
+              className={cn(
+                "text-[10px] tabular-nums",
+                unread ? "text-primary font-semibold" : "text-muted-foreground"
+              )}
+            >
+              {time}
+            </span>
+            {unread ? (
+              <span className="bg-primary text-primary-foreground flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
+                {formatArrivalCount(item.unreadCount)}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
+          </span>
+        </button>
+      </TooltipTrigger>
+      {collapsed ? (
+        <TooltipContent className="tooltip-3d" side="right" sideOffset={12}>
+          {rowName}
+        </TooltipContent>
+      ) : null}
+    </Tooltip>
   );
 }
 

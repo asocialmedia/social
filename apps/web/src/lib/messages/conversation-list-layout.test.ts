@@ -32,12 +32,54 @@ describe("conversationListLayout", () => {
     ).toBe("hidden");
   });
 
+  test("explicit collapse on desktop toggles between rail and full", () => {
+    // Collapsing with no conversation open yields rail.
+    expect(
+      conversationListLayout({
+        collapsed: true,
+        conversationOpen: false,
+        desktopViewport: true,
+      })
+    ).toBe("rail");
+    // Expanding with a conversation open yields full list.
+    expect(
+      conversationListLayout({
+        collapsed: false,
+        conversationOpen: true,
+        desktopViewport: true,
+      })
+    ).toBe("full");
+  });
+
+  test("phone ignores desktop collapse toggle and keeps single-pane behavior", () => {
+    expect(
+      conversationListLayout({
+        collapsed: true,
+        conversationOpen: false,
+        desktopViewport: false,
+      })
+    ).toBe("full");
+    expect(
+      conversationListLayout({
+        collapsed: false,
+        conversationOpen: true,
+        desktopViewport: false,
+      })
+    ).toBe("hidden");
+  });
+
   test("every input resolves to exactly one layout", () => {
     for (const conversationOpen of [true, false]) {
       for (const desktopViewport of [true, false]) {
-        expect(["full", "hidden", "rail"]).toContain(
-          conversationListLayout({ conversationOpen, desktopViewport })
-        );
+        for (const collapsed of [undefined, true, false]) {
+          expect(["full", "hidden", "rail"]).toContain(
+            conversationListLayout({
+              collapsed,
+              conversationOpen,
+              desktopViewport,
+            })
+          );
+        }
       }
     }
   });

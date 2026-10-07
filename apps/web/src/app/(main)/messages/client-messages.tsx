@@ -15,9 +15,12 @@ import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { conversationListLayout } from "@/lib/messages/conversation-list-layout";
 import { cn } from "@/lib/utils";
+import { useMessagesSidebarStore } from "@/store/messages-sidebar-store";
 
 export default function ClientMessages() {
   const { status, reset } = useMessagesIdentity();
+  const { isCollapsed, setCollapsed, toggleCollapsed } =
+    useMessagesSidebarStore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
@@ -97,6 +100,7 @@ export default function ClientMessages() {
   }
 
   const listLayout = conversationListLayout({
+    collapsed: isCollapsed,
     conversationOpen: Boolean(pendingConversation),
     desktopViewport: desktopList,
   });
@@ -119,8 +123,11 @@ export default function ClientMessages() {
       >
         <ConversationList
           activeConversationId={pendingConversation ?? null}
+          isCollapsed={listLayout === "rail"}
           layout={listLayout}
+          onExpand={() => setCollapsed(false)}
           onSelect={selectConversation}
+          onToggleCollapse={toggleCollapsed}
         />
 
         {/* On a phone with a conversation open this is the whole screen; with none
