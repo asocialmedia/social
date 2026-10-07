@@ -78,6 +78,7 @@ import {
   WALLPAPER_ACCEPT,
   wallpaperMimeFor,
 } from "@/lib/messages/conversation-wallpaper-upload";
+import { denMemberCountLabel } from "@/lib/messages/den-label";
 import { denViewerRoleLine } from "@/lib/messages/den-permissions";
 import { hasDeparted, ownMembership } from "@/lib/messages/membership";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
@@ -991,17 +992,28 @@ function DetailsHeader({
   );
   // The muted chip is shared: it describes the reader's own preference, so it
   // reads the same in a DM and in a den.
-  const mutedChip =
-    muted && !den ? (
-      <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-        <BellOff className="size-2.5" />
-        {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
-      </span>
-    ) : null;
-  // Null for a plain member, so the compact den header does not repeat a role
-  // that the grouped roster already identifies.
+  const mutedChip = muted ? (
+    <span className="chip-3d inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+      <BellOff className="size-2.5" />
+      {mutedSince ? mutedSinceLabel(mutedSince) : "Muted"}
+    </span>
+  ) : null;
+  // Null for a plain member, so the subtitle stops after the count rather than
+  // telling somebody what they already are. The same judgement the roster's role
+  // chip makes, which is why both read one helper.
   const viewerRoleLine = denViewerRoleLine(den?.myRole ?? null);
-  const description = (
+  const description = den ? (
+    <>
+      <span>{denMemberCountLabel(den.members.length)}</span>
+      {viewerRoleLine ? (
+        <>
+          <span aria-hidden>·</span>
+          <span>{viewerRoleLine}</span>
+        </>
+      ) : null}
+      {mutedChip}
+    </>
+  ) : (
     <>
       <span>@{peer?.username}</span>
       {presence ? (
@@ -1015,56 +1027,16 @@ function DetailsHeader({
   );
 
   // The DM header uses the peer's banner, falling back to their avatar when none
-  // is set. Dens take the compact identity layout below.
+  // is set. Dens use their warm room color field behind the member collage.
   const headerBannerUrl = peer?.bannerUrl ?? null;
   const fallbackAvatarUrl = peer?.avatarUrl ?? null;
 
-  if (den) {
-    const denDescription = viewerRoleLine ?? "Den conversation";
-    const dialogClass = asDialog ? "pr-12" : "";
-
-    return (
-      <div
-        className={cn(
-          "pointer-events-none relative isolate shrink-0 overflow-hidden px-4 pt-3 pb-3",
-          dialogClass
-        )}
-      >
-        <div className="absolute inset-x-0 top-0 -z-10 h-20 bg-linear-to-br from-[#ff9500]/35 via-[#e65500]/15 to-transparent" />
-        <div className="flex min-w-0 items-center gap-3">
-          <DenAvatarCollage
-            avatarMediaId={den.avatarMediaId}
-            members={den.members}
-            myUserId={den.myUserId}
-            size={56}
-          />
-          <div className="min-w-0 flex-1">
-            {asDialog ? (
-              <SheetTitle className="flex max-w-full items-center gap-1.5 truncate text-base font-semibold tracking-tight">
-                {name}
-              </SheetTitle>
-            ) : (
-              <h2 className="flex max-w-full items-center gap-1.5 truncate text-base font-semibold tracking-tight">
-                {name}
-              </h2>
-            )}
-            {asDialog ? (
-              <SheetDescription className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
-                {denDescription}
-              </SheetDescription>
-            ) : (
-              <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
-                {denDescription}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   let banner: React.ReactNode;
-  if (headerBannerUrl && !bannerFailed) {
+  if (den) {
+    banner = (
+      <div className="absolute inset-0 bg-linear-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+    );
+  } else if (headerBannerUrl && !bannerFailed) {
     banner = (
       <Image
         alt=""
@@ -1132,7 +1104,16 @@ function DetailsHeader({
               hole in it. The `avatar-ring` recipe the component carries already
               gives it its own depth, and a pane-colored frame around it is what
               read as a cut edge against the banner. */}
-          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
+          {den ? (
+            <DenAvatarCollage
+              avatarMediaId={den.avatarMediaId}
+              members={den.members}
+              myUserId={den.myUserId}
+              size={96}
+            />
+          ) : (
+            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
+          )}
           {presence ? (
             <span
               className={cn(
