@@ -339,9 +339,50 @@ describe("GET /api/messages/dens/join/:code/avatar", () => {
 
   test("a signed-out reader can see the picture of a joinable den", async () => {
     // The join screen renders for somebody who has not signed in, so a session may
-    // not be the gate on the picture.
+    // not be the gate on the picture - for LINK codes.
     session = null;
     const res = await avatarRequest();
     expect(res.status).toBe(200);
+  });
+
+  // The short-code half of the session gate: an anonymous sweep over the
+  // 6-character space must not be able to mint presigned images of the rooms
+  // it is hunting. Byte-identical refusal to a dead code, so the gate itself
+  // is not an oracle, and it runs before the limiter so the sweep spends
+  // nothing.
+  test("a signed-out picture request for a 6-character code is refused like a dead code", async () => {
+    session = null;
+    preview = null;
+    const dead = await avatarRequest("nope-nope-nope");
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const gated = await avatarRequest("ABC123");
+    expect(gated.status).toBe(404);
+    expect(await gated.text()).toBe(await dead.text());
+    expect(mockGeneratePresignedUrl).not.toHaveBeenCalled();
+  });
+
+  test("a signed-in picture request for a 6-character code works", async () => {
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await avatarRequest("ABC123");
+    expect(res.status).toBe(200);
+    expect(mockGeneratePresignedUrl).toHaveBeenCalledWith(
+      "dens/den-1/avatar.published.png"
+    );
   });
 });

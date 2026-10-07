@@ -3,7 +3,9 @@ import {
   getDenMembership,
   isCurrentDenMember,
   isDenBanned,
+  isDenShortCode,
   joinDenByInviteCode,
+  normalizeDenShortCode,
   previewInvite,
 } from "@asm/db";
 
@@ -80,6 +82,34 @@ export async function GET(request: Request, { params }: Params) {
   const session = await getSessionFromApi();
   const userId = session?.user?.id;
   const { code } = await params;
+
+  // SHORT CODES ARE THE SESSION-GATED HALF OF THIS DOOR, and the gate runs
+  // BEFORE the limiter so an anonymous sweep of the 6-character space spends
+  // neither its budget nor a database lookup.
+  //
+  // The preview's budgets were priced when the widest door was a 12-character
+  // link code (31^12, unguessable): 30 reads an hour per identity was a
+  // volumetric bound, not a guessing bound. A 6-character uppercase
+  // alphanumeric code is ~2.2 billion possibilities and mints are bounded by
+  // rotation budgets, so a pool of stolen sessions or IPv6 ranges makes a
+  // sweep economically rational - and every hit discloses a den's name, size
+  // and, on a retired or expired code, its owner. The owner disclosure in
+  // `previewRetiredInvite` was priced for "only somebody the den invited is
+  // holding this code"; a guessed short code breaks that premise.
+  //
+  // A LINK is still previewable signed out, because a link arrives in a chat
+  // or an email and the person following it may not have an account yet - the
+  // join screen exists for exactly that reader. A SHORT CODE has no such
+  // arrival story: it is typed or pasted INTO the app, from the code tab of a
+  // den the holder already has an account for. Gating it on a session costs
+  // that flow nothing and removes the anonymous half of the sweep.
+  //
+  // The refusal must stay byte-identical to an unknown code so the gate
+  // itself cannot become an oracle ("401 means it was worth trying"). It is
+  // the same `unusableCodeResponse` every unresolvable code gets.
+  if (!userId && isDenShortCode(normalizeDenShortCode(code))) {
+    return unusableCodeResponse();
+  }
 
   // Metered per viewer, before the database is touched, so a rejected sweep
   // costs no query. Signed in, that is the account; signed out, it is the

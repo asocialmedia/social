@@ -1,4 +1,11 @@
-import { and, getDenMembership, prisma, previewInvite } from "@asm/db";
+import {
+  and,
+  getDenMembership,
+  isDenShortCode,
+  normalizeDenShortCode,
+  prisma,
+  previewInvite,
+} from "@asm/db";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -42,6 +49,15 @@ export async function GET(request: Request, { params }: Params) {
   const session = await getSessionFromApi();
   const userId = session?.user?.id;
   const { code } = await params;
+
+  // The same session gate the preview route runs, for the same reason: a
+  // 6-character code is guessable where a 12-character link is not, and the
+  // picture endpoint would otherwise answer an anonymous sweep with a
+  // presigned image of the room it is hunting. Byte-identical refusal to a
+  // dead code, so the gate is not its own oracle.
+  if (!userId && isDenShortCode(normalizeDenShortCode(code))) {
+    return unavailable();
+  }
 
   const limited = await consumeDenRateLimit(
     DEN_JOIN_PREVIEW_RATE_LIMIT,

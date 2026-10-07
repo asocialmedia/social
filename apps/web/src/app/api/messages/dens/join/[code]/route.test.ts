@@ -192,6 +192,84 @@ describe("GET /api/messages/dens/join/:code", () => {
     expect(await unexplainable.json()).toEqual(await neverExisted.json());
   });
 
+  // The session gate on short codes. A 6-character code is guessable where a
+  // 12-character link is not, and the preview answers every hit with a den's
+  // name, size and - on a retired or expired code - its owner. A link is still
+  // previewable signed out because it arrives from outside the app; a code is
+  // only ever entered inside the app, by somebody who already has an account.
+  // The gate runs before the limiter and before the lookup, and its refusal is
+  // byte-identical to an unknown code so the gate cannot become its own oracle.
+  test("a signed-out preview of a 6-character code is refused like an unknown code", async () => {
+    // The reference for "unknown" is the route's own 404 for a code that does
+    // not resolve: with the preview nulled, a link code with no den behind it
+    // answers exactly those bytes.
+    preview = null;
+    const unknownLink = await previewRequest("nope-nope-nope");
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    // The reference request above legitimately charged both; only the GATED
+    // request must reach neither.
+    mockConsumeDenRateLimit.mockClear();
+    mockPreviewInvite.mockClear();
+    const gated = await previewRequest("ABC123");
+    expect(gated.status).toBe(404);
+    expect(await gated.text()).toBe(await unknownLink.text());
+    // Gated BEFORE the limiter and the lookup: an anonymous sweep of the
+    // short-code space spends neither its budget nor a query.
+    expect(mockConsumeDenRateLimit).not.toHaveBeenCalled();
+    expect(mockPreviewInvite).not.toHaveBeenCalled();
+  });
+
+  test("a signed-in preview of a 6-character code reads normally", async () => {
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest("ABC123", { user: { id: "newcomer" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  test("a lowercase-typed short code from a signed-out viewer is gated too", async () => {
+    // Normalization runs before the gate, so the lowercase form of a code
+    // cannot slip past it.
+    preview = null;
+    const unknownLink = await previewRequest("nope-nope-nope");
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const gated = await previewRequest("abc123");
+    expect(gated.status).toBe(404);
+    expect(await gated.text()).toBe(await unknownLink.text());
+  });
+
   test("previews a live 6-character short code", async () => {
     preview = {
       avatarMediaId: "media-1",
@@ -202,7 +280,9 @@ describe("GET /api/messages/dens/join/:code", () => {
       name: "game night",
       ownerId: "owner-1",
     };
-    const res = await previewRequest("ABC123");
+    // Signed in: a short code is previewed from inside the app, where the
+    // reader always has an account. The signed-out variant is the gate test.
+    const res = await previewRequest("ABC123", { user: { id: "newcomer" } });
     expect(res.status).toBe(200);
     expect(mockPreviewInvite).toHaveBeenCalledWith("ABC123");
     expect(await res.json()).toEqual({
@@ -219,8 +299,12 @@ describe("GET /api/messages/dens/join/:code", () => {
 
   test("an unknown 6-character code returns the same 404 as any invalid code", async () => {
     preview = null;
-    const unknownShort = await previewRequest("ABC123");
-    const neverExisted = await previewRequest("nope-nope-nope");
+    const unknownShort = await previewRequest("ABC123", {
+      user: { id: "newcomer" },
+    });
+    const neverExisted = await previewRequest("nope-nope-nope", {
+      user: { id: "newcomer" },
+    });
     expect(unknownShort.status).toBe(404);
     expect(await unknownShort.json()).toEqual(await neverExisted.json());
   });
@@ -407,7 +491,9 @@ describe("GET /api/messages/dens/join/:code", () => {
 
   test("reads without a session", async () => {
     // The join screen has to render for somebody who has not signed in yet, so
-    // this route is the one den endpoint that does not require a session.
+    // this route is the one den endpoint that does not require a session - for
+    // LINK codes. A 6-character code from a signed-out viewer is gated above;
+    // this fixture is a 12-character link, which keeps its anonymous preview.
     const res = await previewRequest();
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
