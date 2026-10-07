@@ -15,6 +15,7 @@ import {
   leaveDen,
   removeDenMember,
   createDenInvite,
+  createDenShortCode,
   setDenMemberRole,
   transferDenOwnership,
   updateDenDetails,
@@ -499,6 +500,36 @@ describe("createDenInvite", () => {
     route = () => Response.json({ ok: true });
     await expect(createDenInvite("den-1", null)).rejects.toThrow(
       "The new join link did not come back"
+    );
+  });
+});
+
+describe("createDenShortCode", () => {
+  test("sends the chosen duration and returns code and expiry", async () => {
+    let sent: unknown = null;
+    route = (url, init) => {
+      if (url !== "/api/messages/dens/den-1/invite-code") {
+        return null;
+      }
+      sent = JSON.parse(String(init?.body ?? "{}"));
+      return Response.json({
+        inviteShortCode: "ABC123",
+        inviteShortCodeExpiresAt: "2026-10-14T00:00:00.000Z",
+        ok: true,
+      });
+    };
+    const invite = await createDenShortCode("den-1", 7);
+    expect(sent).toEqual({ durationDays: 7 });
+    expect(invite.inviteShortCode).toBe("ABC123");
+    expect(invite.inviteShortCodeExpiresAt?.toISOString()).toBe(
+      "2026-10-14T00:00:00.000Z"
+    );
+  });
+
+  test("a response with no code is an error, not an empty code", async () => {
+    route = () => Response.json({ ok: true });
+    await expect(createDenShortCode("den-1", null)).rejects.toThrow(
+      "The new join code did not come back"
     );
   });
 });

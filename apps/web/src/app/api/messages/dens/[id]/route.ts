@@ -43,6 +43,9 @@ export async function GET(_request: Request, { params }: Params) {
         "inviteCode",
         "inviteDurationDays",
         "inviteExpiresAt",
+        "inviteShortCode",
+        "inviteShortCodeDurationDays",
+        "inviteShortCodeExpiresAt",
         "name",
         "ownerId"
       )
@@ -82,6 +85,14 @@ export async function GET(_request: Request, { params }: Params) {
         inviteExpiresAt:
           canManage && den.inviteExpiresAt
             ? fromPrismaDateTime(den.inviteExpiresAt).toISOString()
+            : null,
+        inviteShortCode: canManage ? den.inviteShortCode : null,
+        inviteShortCodeDurationDays: canManage
+          ? den.inviteShortCodeDurationDays
+          : null,
+        inviteShortCodeExpiresAt:
+          canManage && den.inviteShortCodeExpiresAt
+            ? fromPrismaDateTime(den.inviteShortCodeExpiresAt).toISOString()
             : null,
         memberCount: members.count,
         name: den.name,

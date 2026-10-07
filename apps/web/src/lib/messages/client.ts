@@ -426,6 +426,9 @@ export interface DenDetailResponse {
     // whose link predates expiry.
     inviteDurationDays: number | null;
     inviteExpiresAt: string | null;
+    inviteShortCode: string | null;
+    inviteShortCodeDurationDays: number | null;
+    inviteShortCodeExpiresAt: string | null;
     memberCount: number;
     name: string | null;
     ownerId: string | null;
@@ -692,6 +695,38 @@ export async function createDenInvite(
     inviteCode: body.inviteCode,
     inviteExpiresAt: body.inviteExpiresAt
       ? new Date(body.inviteExpiresAt)
+      : null,
+  };
+}
+
+// Mints a fresh 6-character invite code, retiring the current one.
+export async function createDenShortCode(
+  conversationId: string,
+  durationDays: DenInviteDurationDays | null
+): Promise<{ inviteShortCode: string; inviteShortCodeExpiresAt: Date | null }> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/invite-code`,
+    {
+      body: JSON.stringify({ durationDays }),
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as {
+    inviteShortCode?: string;
+    inviteShortCodeExpiresAt?: string | null;
+  };
+  if (!body.inviteShortCode) {
+    throw new Error("The new join code did not come back");
+  }
+  return {
+    inviteShortCode: body.inviteShortCode,
+    inviteShortCodeExpiresAt: body.inviteShortCodeExpiresAt
+      ? new Date(body.inviteShortCodeExpiresAt)
       : null,
   };
 }

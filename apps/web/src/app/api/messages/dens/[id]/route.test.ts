@@ -45,6 +45,11 @@ interface DenRow {
   avatarMediaId: string | null;
   description: string | null;
   inviteCode: string | null;
+  inviteDurationDays?: number | null;
+  inviteExpiresAt?: Date | null;
+  inviteShortCode?: string | null;
+  inviteShortCodeDurationDays?: number | null;
+  inviteShortCodeExpiresAt?: Date | null;
   name: string | null;
   ownerId: string;
 }
@@ -52,6 +57,11 @@ let denRow: DenRow | null = {
   avatarMediaId: null,
   description: "a den",
   inviteCode: "code-abcdefghijk",
+  inviteDurationDays: null,
+  inviteExpiresAt: null,
+  inviteShortCode: "ABC123",
+  inviteShortCodeDurationDays: 7,
+  inviteShortCodeExpiresAt: new Date("2026-10-14T00:00:00.000Z"),
   name: "game night",
   ownerId: "owner",
 };
@@ -141,6 +151,11 @@ describe("GET /api/messages/dens/:id", () => {
       avatarMediaId: null,
       description: "a den",
       inviteCode: "code-abcdefghijk",
+      inviteDurationDays: null,
+      inviteExpiresAt: null,
+      inviteShortCode: "ABC123",
+      inviteShortCodeDurationDays: 7,
+      inviteShortCodeExpiresAt: new Date("2026-10-14T00:00:00.000Z"),
       name: "game night",
       ownerId: "owner",
     };
@@ -217,13 +232,21 @@ describe("GET /api/messages/dens/:id", () => {
     const res = await get();
     const body = (await res.json()) as {
       canManage: boolean;
-      den: { inviteCode: string | null };
+      den: {
+        inviteCode: string | null;
+        inviteShortCode: string | null;
+        inviteShortCodeDurationDays: number | null;
+        inviteShortCodeExpiresAt: string | null;
+      };
       membership: DenMembership;
     };
     expect(res.status).toBe(200);
     // The code is the ability to add strangers, so a member who can see the den
     // exists must not receive the door.
     expect(body.den.inviteCode).toBeNull();
+    expect(body.den.inviteShortCode).toBeNull();
+    expect(body.den.inviteShortCodeDurationDays).toBeNull();
+    expect(body.den.inviteShortCodeExpiresAt).toBeNull();
     expect(body.canManage).toBe(false);
     expect(body.membership).toEqual({ role: "MEMBER" });
   });
@@ -233,11 +256,21 @@ describe("GET /api/messages/dens/:id", () => {
     const res = await get();
     const body = (await res.json()) as {
       canManage: boolean;
-      den: { inviteCode: string | null; memberCount: number; ownerId: string };
+      den: {
+        inviteCode: string | null;
+        inviteShortCode: string | null;
+        inviteShortCodeDurationDays: number | null;
+        inviteShortCodeExpiresAt: string | null;
+        memberCount: number;
+        ownerId: string;
+      };
       membership: DenMembership;
     };
     expect(res.status).toBe(200);
     expect(body.den.inviteCode).toBe("code-abcdefghijk");
+    expect(body.den.inviteShortCode).toBe("ABC123");
+    expect(body.den.inviteShortCodeDurationDays).toBe(7);
+    expect(body.den.inviteShortCodeExpiresAt).toBe("2026-10-14T00:00:00.000Z");
     expect(body.canManage).toBe(true);
     expect(body.membership).toEqual({ role: "OWNER" });
     expect(body.den.memberCount).toBe(3);
@@ -247,8 +280,11 @@ describe("GET /api/messages/dens/:id", () => {
   test("returns the invite code to an admin too", async () => {
     membership = { role: "ADMIN" };
     const res = await get();
-    const body = (await res.json()) as { den: { inviteCode: string | null } };
+    const body = (await res.json()) as {
+      den: { inviteCode: string | null; inviteShortCode: string | null };
+    };
     expect(body.den.inviteCode).toBe("code-abcdefghijk");
+    expect(body.den.inviteShortCode).toBe("ABC123");
   });
 });
 

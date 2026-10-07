@@ -209,6 +209,13 @@ export const DEN_INVITE_ROTATE_RATE_LIMIT: DenRateLimitRule = {
   windowSeconds: 3600,
 };
 
+export const DEN_INVITE_SHORT_CODE_ROTATE_RATE_LIMIT: DenRateLimitRule = {
+  bucket: "den-invite-short-code-rotate",
+  limit: 20,
+  window: "sliding",
+  windowSeconds: 3600,
+};
+
 // Leaving. Generous, because a person cleaning up their den list does it in one
 // sitting and never comes back.
 export const DEN_LEAVE_RATE_LIMIT: DenRateLimitRule = {

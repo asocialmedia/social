@@ -192,6 +192,39 @@ describe("GET /api/messages/dens/join/:code", () => {
     expect(await unexplainable.json()).toEqual(await neverExisted.json());
   });
 
+  test("previews a live 6-character short code", async () => {
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest("ABC123");
+    expect(res.status).toBe(200);
+    expect(mockPreviewInvite).toHaveBeenCalledWith("ABC123");
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  test("an unknown 6-character code returns the same 404 as any invalid code", async () => {
+    preview = null;
+    const unknownShort = await previewRequest("ABC123");
+    const neverExisted = await previewRequest("nope-nope-nope");
+    expect(unknownShort.status).toBe(404);
+    expect(await unknownShort.json()).toEqual(await neverExisted.json());
+  });
+
   // The promise the whole retired-code branch rests on, restated for the one field
   // that was added to it. Adding the archive must not change what somebody holding a
   // WORKING code is told beyond the picture; `expired` is absent rather than false,
@@ -603,6 +636,33 @@ describe("POST /api/messages/dens/join/:code", () => {
     );
     const res = await join("nope-nope-nope", { user: { id: "newcomer" } });
     expect(res.status).toBe(404);
+  });
+
+  test("joins with a 6-character short code", async () => {
+    joinResult = { alreadyMember: false, id: "den-1" };
+    const res = await join("ABC123", { user: { id: "newcomer" } });
+    expect(res.status).toBe(201);
+    expect(mockJoinDenByInviteCode).toHaveBeenCalledWith("ABC123", "newcomer");
+    expect(await res.json()).toEqual({
+      alreadyMember: false,
+      conversationId: "den-1",
+      ok: true,
+    });
+  });
+
+  test("an unknown 6-character code returns the same 404 on join", async () => {
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const unknownShort = await join("ABC123", { user: { id: "newcomer" } });
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const neverIssued = await join("nope-nope-nope", {
+      user: { id: "newcomer" },
+    });
+    expect(unknownShort.status).toBe(404);
+    expect(await unknownShort.text()).toBe(await neverIssued.text());
   });
 
   test("a retired code is refused exactly as one that never existed", async () => {
