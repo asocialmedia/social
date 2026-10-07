@@ -87,20 +87,21 @@ function ConversationRowInner({
     payload && payload !== "error" && payload !== "pending"
       ? payload
       : undefined;
+  const conversationLabel = {
+    members: item.conversation.members.map((member) => ({
+      avatarUrl: member.user.avatarUrl,
+      displayName: member.user.displayName,
+      id: member.userId,
+      username: member.user.username,
+    })),
+    name: item.conversation.name,
+    type: item.conversation.type,
+  };
   // The sender-prefixed den line and the bare DM line come out of one pure
   // helper, so a row cannot render "Ada: " in a DM by accident or drop the
   // prefix in a den.
   const preview = denPreviewLine({
-    conversation: {
-      members: item.conversation.members.map((member) => ({
-        avatarUrl: member.user.avatarUrl,
-        displayName: member.user.displayName,
-        id: member.userId,
-        username: member.user.username,
-      })),
-      name: item.conversation.name,
-      type: item.conversation.type,
-    },
+    conversation: conversationLabel,
     lastSenderId: lastMessage?.senderId ?? null,
     myUserId,
     preview: conversationPreviewText({
@@ -110,19 +111,7 @@ function ConversationRowInner({
     }),
   });
   const time = lastMessage ? formatRelativeDate(lastMessage.createdAt) : "";
-  const heading = conversationDisplayName(
-    {
-      members: item.conversation.members.map((member) => ({
-        avatarUrl: member.user.avatarUrl,
-        displayName: member.user.displayName,
-        id: member.userId,
-        username: member.user.username,
-      })),
-      name: item.conversation.name,
-      type: item.conversation.type,
-    },
-    myUserId
-  );
+  const heading = conversationDisplayName(conversationLabel, myUserId);
   const activeMembers = item.conversation.members.filter(
     (member) => !hasDeparted(member)
   );

@@ -87,6 +87,10 @@ export function ConversationList({
   const { user } = useSession();
   const queryClient = useQueryClient();
   const onlineUsers = usePresence(true);
+  const presenceByUserId = useMemo(
+    () => new Map(onlineUsers.map((person) => [person.id, person.status])),
+    [onlineUsers]
+  );
 
   const collapsed = isCollapsed ?? layout === "rail";
   const full = layout === "full" && !collapsed;
@@ -363,13 +367,12 @@ export function ConversationList({
     }
     const myId = user?.id ?? "";
     return visibleItems.map((item) => {
-      const peer = item.conversation.members.find(
-        (member) => member.userId !== myId
-      )?.user;
-      const presence = peer
-        ? (onlineUsers.find((candidate) => candidate.id === peer.id)?.status ??
-          null)
-        : null;
+      const peer =
+        item.conversation.type === "DM"
+          ? item.conversation.members.find((member) => member.userId !== myId)
+              ?.user
+          : undefined;
+      const presence = peer ? (presenceByUserId.get(peer.id) ?? null) : null;
       return (
         <ConversationRow
           active={item.conversation.id === activeConversationId}

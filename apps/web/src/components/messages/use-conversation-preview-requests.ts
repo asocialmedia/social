@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import type { ConversationListItem } from "@/lib/messages/client";
@@ -32,6 +32,10 @@ export function useConversationPreviewRequests(
   const { user } = useSession();
   const rootKeyStore = useRootKeyStore();
   const userId = user?.id;
+  const itemsByConversationId = useMemo(
+    () => new Map(items.map((item) => [item.conversation.id, item])),
+    [items]
+  );
 
   // Same scope the thread sets, so a payload decrypted here is not served to a
   // different identity and the reset path clears it. Idempotent when the thread
@@ -49,9 +53,7 @@ export function useConversationPreviewRequests(
       if (!rootKeyStore || !userId) {
         return [];
       }
-      const item = items.find(
-        (candidate) => candidate.conversation.id === targetConversationId
-      );
+      const item = itemsByConversationId.get(targetConversationId);
       if (!item) {
         return [];
       }
@@ -82,7 +84,7 @@ export function useConversationPreviewRequests(
         return [];
       }
     },
-    [items, rootKeyStore, userId]
+    [itemsByConversationId, rootKeyStore, userId]
   );
 
   useEffect(() => {
