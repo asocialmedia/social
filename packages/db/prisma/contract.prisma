@@ -157,6 +157,17 @@ namespace public {
     // used, rather than resetting every time. A preference, not a rule: the code
     // itself is bounded by `inviteExpiresAt`, not by this column.
     inviteDurationDays         Int?
+    // Rotatable 6-character uppercase alphanumeric join code. NULL on a DM and
+    // on dens whose manager has not minted one. Unique index tolerates many
+    // NULLs, same as inviteCode.
+    inviteShortCode            String?
+    // When the current short code stops opening the den. NULL means it never
+    // expires, matching the link code semantics. Lazy evaluation at preview/join.
+    inviteShortCodeExpiresAt   Timestamp(3)?
+    // The last duration a manager chose when minting a short code, in days.
+    // NULL means "never". Kept so the next short-code mint defaults to what
+    // this den last used, independent of the link code's duration.
+    inviteShortCodeDurationDays Int?
     createdAt                  Timestamp(3)                 @default(now())
     updatedAt                  Timestamp(3)                 @default(now())
     // Roster-only change counter. Incremented by exactly one on every committed
@@ -204,6 +215,7 @@ namespace public {
 
     @@index([avatarMediaId], map: "message_conversations_avatarMediaId_idx")
     @@unique([inviteCode], map: "message_conversations_inviteCode_key")
+    @@unique([inviteShortCode], map: "message_conversations_inviteShortCode_key")
     @@unique([pairKey], map: "message_conversations_pairKey_key")
     @@index([ownerId], map: "message_conversations_ownerId_idx")
     @@index([_type, updatedAt], map: "message_conversations_type_updatedAt_idx")
@@ -655,16 +667,22 @@ namespace public {
   }
 
   model MessageConversationInviteCodes {
-    // A join code a den has retired, kept so that a link which no longer joins can
-    // still identify the den it used to open.
+    // A join code a den has retired, kept so that a link or short code which
+    // no longer joins can still identify the den it used to open.
     //
-    // Rotating a den's code overwrote `message_conversations.inviteCode`, which
-    // meant a link that had already been copied into a chat stopped resolving with
-    // no trace at all. The person holding it got one dead end - "this link is not
-    // valid" - and no way to learn which den had retired the code or who to ask
-    // for a new one. This table is the fix, and it exists for exactly that: a code
-    // is written here in the SAME transaction that replaces it on the conversation
-    // row, so a rotation cannot commit without archiving the code it invalidated.
+    // Holds both kinds of retired join codes: 12-character link codes and
+    // 6-character short codes. Lengths (6 vs 12) are disjoint so primary keys
+    // can never collide across kinds. Live-column-first lookup keeps a live
+    // code beating an archive row. Shared retention window of 5 per den.
+    //
+    // Rotating a den's code overwrote `message_conversations.inviteCode` (or
+    // `inviteShortCode`), which meant a link or code that had already been
+    // shared stopped resolving with no trace at all. The person holding it got
+    // one dead end - "this link is not valid" - and no way to learn which den had
+    // retired the code or who to ask for a new one. This table is the fix, and
+    // it exists for exactly that: a code is written here in the SAME transaction
+    // that replaces it on the conversation row, so a rotation cannot commit
+    // without archiving the code it invalidated.
     //
     // What it must NOT be used for:
     //

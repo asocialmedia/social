@@ -3,13 +3,17 @@ import { describe, expect, test } from "bun:test";
 import {
   DEN_INVITE_CODE_ALPHABET,
   DEN_LIMITS,
+  DEN_SHORT_CODE_ALPHABET,
+  DEN_SHORT_CODE_LENGTH,
   DenError,
   DEN_MANAGEMENT_ROLES,
   DEN_ROLES,
   canManageDen,
   canManageRole,
   isDenRole,
+  isDenShortCode,
   normalizeDenName,
+  normalizeDenShortCode,
   validateDenDescription,
   validateDenName,
 } from "@asm/db";
@@ -122,6 +126,54 @@ describe("den invite code alphabet", () => {
     expect(new Set(DEN_INVITE_CODE_ALPHABET).size).toBe(
       DEN_INVITE_CODE_ALPHABET.length
     );
+  });
+});
+
+describe("den short code", () => {
+  test("alphabet and length match spec", () => {
+    expect(DEN_SHORT_CODE_LENGTH).toBe(6);
+    expect(DEN_SHORT_CODE_ALPHABET).toBe(
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
+    expect(DEN_SHORT_CODE_ALPHABET.length).toBe(36);
+    expect(new Set(DEN_SHORT_CODE_ALPHABET).size).toBe(36);
+  });
+
+  test("normalization trims whitespace and uppercases", () => {
+    expect(normalizeDenShortCode("  abc123  ")).toBe("ABC123");
+    expect(normalizeDenShortCode("xyz890")).toBe("XYZ890");
+    expect(normalizeDenShortCode("  ABC123  ")).toBe("ABC123");
+    expect(normalizeDenShortCode("")).toBe("");
+  });
+
+  test("regex accept/reject table", () => {
+    const validCodes = ["ABC123", "000000", "ZZZZZZ", "A1B2C3", "9XYZ8A"];
+    for (const code of validCodes) {
+      expect(isDenShortCode(code)).toBe(true);
+    }
+
+    const invalidCodes = [
+      "",
+      "A",
+      "AB",
+      "ABC",
+      "ABCD",
+      "ABCDE",
+      "ABCDEFG",
+      "abc123",
+      "ABC 12",
+      "AB-123",
+      "AB!@#$",
+      "A_B_C_",
+      "  ABC123  ",
+    ];
+    for (const code of invalidCodes) {
+      expect(isDenShortCode(code)).toBe(false);
+    }
+
+    // Normalizing first allows lowercase-typed inputs to pass validation
+    expect(isDenShortCode(normalizeDenShortCode("abc123"))).toBe(true);
+    expect(isDenShortCode(normalizeDenShortCode("  abc123  "))).toBe(true);
   });
 });
 

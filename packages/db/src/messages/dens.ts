@@ -39,6 +39,22 @@ export const DEN_LIMITS = {
 export const DEN_INVITE_CODE_ALPHABET =
   "abcdefghjkmnpqrstuvwxyz23456789" as const;
 
+// Uppercase alphanumeric alphabet for short 6-character join codes.
+// Deliberately 36 symbols (A-Z, 0-9), length 6 (~2.17B combinations).
+export const DEN_SHORT_CODE_LENGTH = 6;
+export const DEN_SHORT_CODE_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" as const;
+
+// Normalizes a short invite code: trimmed and uppercased.
+export function normalizeDenShortCode(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+// Strict regex guard for a 6-character uppercase alphanumeric short code.
+export function isDenShortCode(raw: string): boolean {
+  return /^[A-Z0-9]{6}$/.test(raw);
+}
+
 // The expiry presets a manager picks from when minting an invite link, in days.
 //
 // Deliberately short: a week is a shared link, a month is a standing one, a day

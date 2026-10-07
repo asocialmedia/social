@@ -1,0 +1,162 @@
+[
+  {
+    "id": "column.public.message_conversations.inviteShortCode",
+    "label": "Add column \"inviteShortCode\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "inviteShortCode",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"inviteShortCode\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "inviteShortCode"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"inviteShortCode\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"inviteShortCode\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"inviteShortCode\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "inviteShortCode"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversations.inviteShortCodeDurationDays",
+    "label": "Add column \"inviteShortCodeDurationDays\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "inviteShortCodeDurationDays",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"inviteShortCodeDurationDays\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_conversations",
+          "inviteShortCodeDurationDays"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"inviteShortCodeDurationDays\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"inviteShortCodeDurationDays\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"inviteShortCodeDurationDays\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_conversations",
+          "inviteShortCodeDurationDays"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversations.inviteShortCodeExpiresAt",
+    "label": "Add column \"inviteShortCodeExpiresAt\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "inviteShortCodeExpiresAt",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"inviteShortCodeExpiresAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_conversations",
+          "inviteShortCodeExpiresAt"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"inviteShortCodeExpiresAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"inviteShortCodeExpiresAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"inviteShortCodeExpiresAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_conversations",
+          "inviteShortCodeExpiresAt"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_conversations.message_conversations_inviteShortCode_key",
+    "label": "Add unique constraint on \"message_conversations\" (inviteShortCode)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_conversations_inviteShortCode_key",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_conversations_inviteShortCode_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversations_inviteShortCode_key",
+          "public",
+          "\"public\".\"message_conversations\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_conversations_inviteShortCode_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD CONSTRAINT \"message_conversations_inviteShortCode_key\" UNIQUE (\"inviteShortCode\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_conversations_inviteShortCode_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversations_inviteShortCode_key",
+          "public",
+          "\"public\".\"message_conversations\""
+        ]
+      }
+    ]
+  }
+]

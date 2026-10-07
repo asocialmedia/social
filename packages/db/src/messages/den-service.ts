@@ -15,9 +15,13 @@ import {
   DEN_BAN_REASON_MAX,
   DEN_INVITE_CODE_ALPHABET,
   DEN_LIMITS,
+  DEN_SHORT_CODE_ALPHABET,
+  DEN_SHORT_CODE_LENGTH,
   denInviteExpiresAt,
   isCurrentDenMember,
+  isDenShortCode,
   normalizeDenName,
+  normalizeDenShortCode,
   validateDenDescription,
   validateDenName,
 } from "./dens";
@@ -274,6 +278,28 @@ export function generateInviteCode(): string {
   return code;
 }
 
+// Generates a 6-character short join code from the uppercase alphanumeric alphabet.
+// Rejection sampling keeps the distribution uniform: 256 % 36 = 4, so bytes at or
+// above 252 are discarded rather than folded.
+export function generateDenShortCode(): string {
+  const alphabet = DEN_SHORT_CODE_ALPHABET;
+  const length = DEN_SHORT_CODE_LENGTH;
+  // 256 % 36 = 4, so bytes at or above 252 are discarded rather than folded.
+  const limit = 256 - (256 % alphabet.length);
+  let code = "";
+  while (code.length < length) {
+    for (const byte of randomBytes(length * 2)) {
+      if (byte < limit) {
+        code += alphabet[byte % alphabet.length];
+        if (code.length === length) {
+          break;
+        }
+      }
+    }
+  }
+  return code;
+}
+
 // Bounds the invite-code retry loop. 31^12 codes make a collision a
 // non-event; the loop exists so a pathological state degrades to a clean error
 // rather than spinning.
@@ -288,9 +314,14 @@ async function createDenAttempt(params: {
   creatorId: string;
   description: string | null;
   inviteCode: string;
+  inviteShortCode: string;
   memberIds: string[];
   name: string;
-}): Promise<{ id: string; inviteCode: string } | null> {
+}): Promise<{
+  id: string;
+  inviteCode: string;
+  inviteShortCode: string;
+} | null> {
   try {
     return await prisma.transaction(async (tx) => {
       // `membershipSeq` is left at its default of 0 rather than set to 1: a
@@ -304,6 +335,7 @@ async function createDenAttempt(params: {
         createdById: params.creatorId,
         description: params.description,
         inviteCode: params.inviteCode,
+        inviteShortCode: params.inviteShortCode,
         name: params.name,
         ownerId: params.creatorId,
       });
@@ -340,7 +372,11 @@ async function createDenAttempt(params: {
         actorName: names.get(params.creatorId) ?? null,
         conversationId: den.id,
       });
-      return { id: den.id, inviteCode: params.inviteCode };
+      return {
+        id: den.id,
+        inviteCode: params.inviteCode,
+        inviteShortCode: params.inviteShortCode,
+      };
     });
   } catch (error) {
     // Two possible causes: the code collided, or a member row collided. The
@@ -355,7 +391,7 @@ async function createDenAttempt(params: {
 
 export async function createDen(
   input: CreateDenInput
-): Promise<{ id: string; inviteCode: string }> {
+): Promise<{ id: string; inviteCode: string; inviteShortCode: string }> {
   const name = normalizeDenName(input.name);
   const nameError = validateDenName(name);
   if (nameError) {
@@ -387,6 +423,7 @@ export async function createDen(
       creatorId: input.creatorId,
       description: description || null,
       inviteCode: generateInviteCode(),
+      inviteShortCode: generateDenShortCode(),
       memberIds,
       name,
     });
@@ -1923,6 +1960,81 @@ export async function createDenInvite(
   throw new DenError("INVALID_INPUT", "Couldn't generate a join code");
 }
 
+// Mints a fresh 6-character invite code, retiring the old one.
+//
+// Mirror of createDenInvite for the short-code door. Both replace the live code,
+// and both archive the outgoing one so a code already in the wild can still name
+// the den it used to open. `durationDays` is one of the presets, or null for a
+// code that never expires; the preset is both written to the code's
+// `inviteShortCodeExpiresAt` and remembered on the den in
+// `inviteShortCodeDurationDays` so the next mint defaults to it.
+//
+// Expiry is never enforced here or anywhere else at a scheduled moment. It is
+// read at preview and join: a code past its `inviteShortCodeExpiresAt` stops
+// resolving, which is a comparison and not an event.
+export async function createDenShortCode(
+  conversationId: string,
+  actorId: string,
+  durationDays: DenInviteDurationDays | null = null
+): Promise<{ inviteShortCode: string; inviteShortCodeExpiresAt: Date | null }> {
+  await requireDenManager(conversationId, actorId);
+  // Minted from the server's clock, never from anything the caller sent, so the
+  // lifetime of a code cannot be widened by a client forging a timestamp. The
+  // returned Date is what the panel renders its countdown from.
+  const inviteShortCodeExpiresAt = denInviteExpiresAt(durationDays, new Date());
+  for (let attempt = 1; attempt <= INVITE_CODE_ATTEMPTS; attempt += 1) {
+    const inviteShortCode = generateDenShortCode();
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- bounded retry, same reason as the create loop
+      await withDenClaim(conversationId, async (tx) => {
+        // Deliberately NOT touchDen: a new code changes the door, never the room.
+        // Nobody's read or write access moves, so the counter stays where it is and
+        // no member's client refetches a roster that did not change.
+        //
+        // The outgoing code is read INSIDE the claim rather than before it, because
+        // the claim holds the den's row lock to commit. That lock is what makes it
+        // safe to archive the value read here: no other mint can replace the
+        // code between this read and the archive write below, so the row written
+        // always describes the code this transaction is actually retiring.
+        const current = await tx.orm.public.MessageConversations.select(
+          "inviteShortCode"
+        )
+          .where({ id: conversationId })
+          .first();
+        if (!current) {
+          // Deleted between `requireDenManager` above and the claim. The writes below
+          // would target a missing row anyway, and the foreign key would refuse the
+          // archive, so failing here names the real cause.
+          throw new DenError("NOT_FOUND", "Den not found");
+        }
+        const outgoing = current.inviteShortCode;
+        // ONE transaction for the archive and the replacement, matching createDenInvite.
+        if (outgoing) {
+          await archiveRetiredInviteCode(tx, conversationId, outgoing);
+        }
+        await tx.orm.public.MessageConversations.where((candidate) =>
+          candidate.id.eq(conversationId)
+        ).updateAndCount({
+          inviteShortCode,
+          inviteShortCodeDurationDays: durationDays,
+          inviteShortCodeExpiresAt:
+            inviteShortCodeExpiresAt === null
+              ? null
+              : toPrismaDateTime(inviteShortCodeExpiresAt),
+        });
+        await pruneRetiredInviteCodes(tx, conversationId, inviteShortCode);
+      });
+      return { inviteShortCode, inviteShortCodeExpiresAt };
+    } catch (error) {
+      if (isUniqueConstraintViolation(error) || isRetryableConflict(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new DenError("INVALID_INPUT", "Couldn't generate a join code");
+}
+
 export async function dissolveDen(
   conversationId: string,
   actorId: string
@@ -2008,23 +2120,59 @@ function normalizeInviteCode(raw: string): string {
 }
 
 // The live column ONLY, and deliberately: this is the join door's own lookup, and
-// a code that has been rotated must not resolve through it. The archive is read by
-// `findRetiredDen` and by nothing that admits anybody.
-async function findDenByInviteCode(
-  inviteCode: string
-): Promise<{ id: string; inviteExpiresAt: unknown } | null> {
-  const den = await prisma.orm.public.MessageConversations.select(
+// a code that has been rotated must not resolve through it. Checks the live link
+// column (lowercased) first, then the live short-code column (uppercased) second.
+// The archive is read by `findRetiredDen` and by nothing that admits anybody.
+async function findDenByInviteCode(inviteCode: string): Promise<{
+  id: string;
+  inviteExpiresAt: unknown;
+  kind: "link" | "shortCode";
+  matchedCode: string;
+} | null> {
+  const normalizedLink = normalizeInviteCode(inviteCode);
+  const denByLink = await prisma.orm.public.MessageConversations.select(
     "id",
+    "inviteCode",
     "inviteExpiresAt"
   )
     .where((candidate) =>
-      and(
-        candidate._type.eq("DEN"),
-        candidate.inviteCode.eq(normalizeInviteCode(inviteCode))
-      )
+      and(candidate._type.eq("DEN"), candidate.inviteCode.eq(normalizedLink))
     )
     .first();
-  return den ? { id: den.id, inviteExpiresAt: den.inviteExpiresAt } : null;
+  if (denByLink && denByLink.inviteCode) {
+    return {
+      id: denByLink.id,
+      inviteExpiresAt: denByLink.inviteExpiresAt,
+      kind: "link",
+      matchedCode: denByLink.inviteCode,
+    };
+  }
+
+  const normalizedShort = normalizeDenShortCode(inviteCode);
+  if (isDenShortCode(normalizedShort)) {
+    const denByShort = await prisma.orm.public.MessageConversations.select(
+      "id",
+      "inviteShortCode",
+      "inviteShortCodeExpiresAt"
+    )
+      .where((candidate) =>
+        and(
+          candidate._type.eq("DEN"),
+          candidate.inviteShortCode.eq(normalizedShort)
+        )
+      )
+      .first();
+    if (denByShort && denByShort.inviteShortCode) {
+      return {
+        id: denByShort.id,
+        inviteExpiresAt: denByShort.inviteShortCodeExpiresAt,
+        kind: "shortCode",
+        matchedCode: denByShort.inviteShortCode,
+      };
+    }
+  }
+
+  return null;
 }
 
 // The den a rotated-away code used to open, or null when this archive holds no
@@ -2047,14 +2195,20 @@ async function findDenByInviteCode(
 // what would turn it into a validity oracle.
 async function findRetiredDen(
   inviteCode: string
-): Promise<{ conversationId: string } | null> {
+): Promise<{ canonicalCode: string; conversationId: string } | null> {
   try {
+    const normalizedShort = normalizeDenShortCode(inviteCode);
+    const targetCode = isDenShortCode(normalizedShort)
+      ? normalizedShort
+      : normalizeInviteCode(inviteCode);
     const row = await prisma.orm.public.MessageConversationInviteCodes.select(
       "conversationId"
     )
-      .where({ code: normalizeInviteCode(inviteCode) })
+      .where({ code: targetCode })
       .first();
-    return row ? { conversationId: row.conversationId } : null;
+    return row
+      ? { canonicalCode: targetCode, conversationId: row.conversationId }
+      : null;
   } catch (error) {
     console.error("Failed to read retired den invite codes:", error);
     return null;
@@ -2126,7 +2280,7 @@ async function previewRetiredInvite(
     avatarMediaId: null,
     expired: true,
     id: row.id,
-    inviteCode: normalizeInviteCode(inviteCode),
+    inviteCode: retired.canonicalCode,
     memberCount: await countDenMembers(row.id),
     name: row.name,
     ownerId: row.ownerId,
@@ -2155,12 +2309,21 @@ export async function previewInvite(
     "id",
     "inviteCode",
     "inviteExpiresAt",
+    "inviteShortCode",
+    "inviteShortCodeExpiresAt",
     "name",
     "ownerId"
   )
     .where({ id: den.id })
     .first();
-  if (!row?.inviteCode) {
+  if (!row) {
+    return null;
+  }
+  const liveCode = den.kind === "link" ? row.inviteCode : row.inviteShortCode;
+  const rawExpiresAt =
+    den.kind === "link" ? row.inviteExpiresAt : row.inviteShortCodeExpiresAt;
+
+  if (liveCode !== den.matchedCode) {
     // Dissolved, or the code was rotated out from under this lookup. The archive is
     // NOT consulted here: a rotation that commits between the two reads is the one
     // case where the caller genuinely does not know, and answering unknown is the
@@ -2168,21 +2331,19 @@ export async function previewInvite(
     return null;
   }
   // The expiry check, evaluated here rather than at any scheduled moment. A code
-  // past its `inviteExpiresAt` resolves to the same screen a rotated-away code
-  // gets - the den it used to open, and who to ask - because to a reader holding
-  // it, "timed out" and "retired" are the same fact: this link no longer opens
-  // anything, and the den it belonged to is named so they can ask for a new one.
-  // The check never clears the column: the live code stays in place until a
-  // manager mints, so no read ever writes.
-  const expiresAt = row.inviteExpiresAt
-    ? fromPrismaDateTime(row.inviteExpiresAt)
-    : null;
+  // past its expiry resolves to the same screen a rotated-away code gets - the den
+  // it used to open, and who to ask - because to a reader holding it, "timed out"
+  // and "retired" are the same fact: this link or code no longer opens anything,
+  // and the den it belonged to is named so they can ask for a new one. The check
+  // never clears the column: the live code stays in place until a manager mints,
+  // so no read ever writes.
+  const expiresAt = rawExpiresAt ? fromPrismaDateTime(rawExpiresAt) : null;
   if (expiresAt !== null && expiresAt <= new Date()) {
     return {
       avatarMediaId: null,
       expired: true,
       id: row.id,
-      inviteCode: row.inviteCode,
+      inviteCode: den.matchedCode,
       memberCount: await countDenMembers(row.id),
       name: row.name,
       ownerId: row.ownerId,
@@ -2192,7 +2353,7 @@ export async function previewInvite(
     avatarMediaId: row.avatarMediaId,
     expired: false,
     id: row.id,
-    inviteCode: row.inviteCode,
+    inviteCode: den.matchedCode,
     memberCount: await countDenMembers(row.id),
     name: row.name,
     ownerId: row.ownerId,
