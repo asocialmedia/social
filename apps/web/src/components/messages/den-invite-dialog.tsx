@@ -12,8 +12,8 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { Check, Copy, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, Loader2, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { denInviteCountdown, denInviteUrl } from "@/lib/messages/den-invite";
 import { cn } from "@/lib/utils";
@@ -119,7 +119,13 @@ function codeButtonLabel(busy: boolean, code: string | null): string {
   return code ? "Generate new code" : "Generate code";
 }
 
-export function DenInviteDialog({
+export function DenInviteDialog(
+  props: Parameters<typeof DenInviteDialogSession>[0]
+) {
+  return props.open ? <DenInviteDialogSession {...props} /> : null;
+}
+
+function DenInviteDialogSession({
   busy,
   codeBusy = false,
   inviteCode,
@@ -165,6 +171,18 @@ export function DenInviteDialog({
   open: boolean;
 }) {
   const [tab, setTab] = useState<"link" | "code">("link");
+  const [creatingCode, setCreatingCode] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const codeRequestPending = useRef(false);
+  const autoCodeAttempted = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // Each door's shown value is DERIVED, not held: the props are the live truth
   // (and they move on every refetch, including after ANOTHER manager rotates a
@@ -231,6 +249,7 @@ export function DenInviteDialog({
   const codeExpired =
     shownCode.expiresAt !== null && shownCode.expiresAt <= now;
   const codeCountdown = denInviteCountdown(shownCode.expiresAt, now);
+  const generatingCode = codeBusy || creatingCode;
 
   const copyLink = async () => {
     if (!shownLink.code) {
@@ -276,17 +295,53 @@ export function DenInviteDialog({
     }
   };
 
-  const generateCode = async () => {
-    const minted = await onGenerateCode(selectedCodeDuration);
-    if (minted) {
-      setCodeOverride({
-        code: minted.inviteShortCode,
-        expiresAt: minted.inviteShortCodeExpiresAt,
-      });
-      setPickedCodeOpen(true);
-      setCopiedCode(false);
+  const generateCode = useCallback(async () => {
+    if (codeRequestPending.current) {
+      return;
     }
-  };
+    codeRequestPending.current = true;
+    setCreatingCode(true);
+    setCodeError(null);
+    try {
+      const minted = await onGenerateCode(selectedCodeDuration);
+      if (!mounted.current) {
+        return;
+      }
+      if (minted) {
+        setCodeOverride({
+          code: minted.inviteShortCode,
+          expiresAt: minted.inviteShortCodeExpiresAt,
+        });
+        setPickedCodeOpen(true);
+        setCopiedCode(false);
+      } else {
+        setCodeError("Couldn't create an invite code. Try again.");
+      }
+    } catch {
+      if (mounted.current) {
+        setCodeError("Couldn't create an invite code. Try again.");
+      }
+    }
+    codeRequestPending.current = false;
+    if (mounted.current) {
+      setCreatingCode(false);
+    }
+  }, [onGenerateCode, selectedCodeDuration]);
+
+  useEffect(() => {
+    if (
+      tab !== "code" ||
+      busy ||
+      generatingCode ||
+      (shownCode.code && !codeExpired) ||
+      autoCodeAttempted.current
+    ) {
+      return;
+    }
+    // One automatic attempt per open sheet, including StrictMode's effect replay.
+    autoCodeAttempted.current = true;
+    void generateCode();
+  }, [tab, busy, generatingCode, shownCode.code, codeExpired, generateCode]);
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -302,7 +357,11 @@ export function DenInviteDialog({
 
         <Tabs
           className="w-full"
-          onValueChange={(val) => setTab(val as "link" | "code")}
+          onValueChange={(value) => {
+            if (value === "link" || value === "code") {
+              setTab(value);
+            }
+          }}
           value={tab}
         >
           <TabsList
@@ -489,7 +548,7 @@ export function DenInviteDialog({
                   <button
                     aria-label={copiedCode ? "Copied" : "Copy invite code"}
                     className="icon-btn-3d absolute top-1/2 right-1 flex size-11 -translate-y-1/2 items-center justify-center rounded-full"
-                    disabled={busy || codeBusy}
+                    disabled={busy || generatingCode || codeExpired}
                     onClick={() => {
                       void copyCode();
                     }}
@@ -520,26 +579,24 @@ export function DenInviteDialog({
               </div>
             ) : (
               <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-4 text-center">
-                <p className="text-muted-foreground text-xs">
-                  No code yet — generate one to share with others.
-                </p>
-                <Button
-                  className="min-h-11 rounded-2xl! px-4 text-sm"
-                  variant="premium"
-                  disabled={busy || codeBusy}
-                  onClick={() => {
-                    void generateCode();
-                  }}
-                  type="button"
-                >
-                  <RefreshCw
+                {codeError ? null : (
+                  <Loader2
                     aria-hidden
-                    className={codeBusy ? "size-3.5 animate-spin" : "size-3.5"}
+                    className="text-muted-foreground size-5 animate-spin motion-reduce:animate-none"
                   />
-                  {codeBusy ? "Creating…" : "Generate code"}
-                </Button>
+                )}
+                <output className="text-muted-foreground text-xs">
+                  {codeError
+                    ? "Your invite code isn't ready yet."
+                    : "Creating your invite code…"}
+                </output>
               </div>
             )}
+            {codeError ? (
+              <p className="text-destructive text-xs" role="alert">
+                {codeError}
+              </p>
+            ) : null}
           </TabsContent>
         </Tabs>
 
@@ -572,11 +629,11 @@ export function DenInviteDialog({
               {linkBusy ? "Creating…" : "Generate new link"}
             </Button>
           )}
-          {tab === "code" && (
+          {tab === "code" && (shownCode.code || codeError) && (
             <Button
               className="min-h-11 rounded-2xl! px-4 text-sm"
               variant="premium"
-              disabled={busy || codeBusy}
+              disabled={busy || generatingCode}
               onClick={() => {
                 void generateCode();
               }}
@@ -584,9 +641,11 @@ export function DenInviteDialog({
             >
               <RefreshCw
                 aria-hidden
-                className={codeBusy ? "size-4 animate-spin" : "size-4"}
+                className={generatingCode ? "size-4 animate-spin" : "size-4"}
               />
-              {codeButtonLabel(codeBusy, shownCode.code)}
+              {codeError
+                ? "Try again"
+                : codeButtonLabel(generatingCode, shownCode.code)}
             </Button>
           )}
         </DialogFooter>

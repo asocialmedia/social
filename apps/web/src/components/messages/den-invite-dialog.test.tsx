@@ -106,15 +106,22 @@ describe("DenInviteDialog", () => {
     expect(html).toContain("tracking-[0.3em]");
   });
 
-  test("renders empty state in code tab when inviteShortCode is null", () => {
+  test("shows automatic creation instead of a manual first-generation button", () => {
     const html = renderDialog({
       inviteShortCode: null,
       inviteShortCodeDurationDays: null,
       inviteShortCodeExpiresAt: null,
     });
-    expect(html).toContain("No code yet — generate one to share with others.");
-    expect(html).toContain("Generate code");
+    expect(html).toContain("Creating your invite code…");
+    expect(html).not.toContain("Generate code");
     expect(html).not.toContain('id="den-invite-code"');
+  });
+
+  test("an expired code cannot be copied while it is being replaced", () => {
+    const html = renderDialog({ inviteShortCodeExpiresAt: PAST });
+    expect(html).toMatch(
+      /<button[^>]*aria-label="Copy invite code"[^>]*disabled=""/u
+    );
   });
 
   test("renders expired message for expired link and code", () => {
