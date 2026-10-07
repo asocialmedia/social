@@ -4,6 +4,7 @@ import {
   DEN_LIMITS,
   DEN_SHORT_CODE_LENGTH,
   DenError,
+  archiveCodeIsTaken,
   createDen,
   createDenInvite,
   createDenShortCode,
@@ -303,6 +304,34 @@ describe("den short codes", () => {
     expect(preview).not.toBeNull();
     expect(preview?.id).toBe(liveDenId);
     expect(preview?.expired).toBe(false);
+  });
+
+  // The failure mode the archive probe exists to close. The archive's primary
+  // key spans both code namespaces while the live columns live in two tables,
+  // so a minted short code CAN equal another den's archived code - and the
+  // archive upsert answers that collision by keeping the existing row, i.e.
+  // the other den's. Without the probe, the mint commits and the eventual
+  // rotation names the WRONG den to whoever holds the retired code. The probe
+  // itself is deterministic, so it is tested directly; the mint loops call it
+  // before every attempt and retry on a hit.
+  test("archive probe: a reserved code is taken, a fresh one is not", async () => {
+    const otherDenId = await makeDen("ArchiveProbeOther");
+
+    // A row in the archive under the OTHER den, exactly the state a prior
+    // rotation there would have left behind.
+    const reserved = "PRB123";
+    await prisma.orm.public.MessageConversationInviteCodes.create({
+      code: reserved,
+      conversationId: otherDenId,
+      retiredAt: toPrismaDateTime(new Date()),
+    });
+
+    expect(await archiveCodeIsTaken(reserved)).toBe(true);
+    // The probe is an exact match against canonical (uppercase) storage, the
+    // same contract the live-column lookups answer a code with after
+    // normalization: callers normalize, the probe compares.
+    expect(await archiveCodeIsTaken(reserved.toLowerCase())).toBe(false);
+    expect(await archiveCodeIsTaken(`z${RUN_ID}z9`.toUpperCase())).toBe(false);
   });
 
   test("manager gate refuses non-managers from minting short code", async () => {

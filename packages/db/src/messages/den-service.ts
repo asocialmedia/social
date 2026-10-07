@@ -417,17 +417,34 @@ export async function createDen(
   }
 
   for (let attempt = 1; attempt <= INVITE_CODE_ATTEMPTS; attempt += 1) {
+    // The archive spans both code namespaces, so either generated code can
+    // collide with a RETIRED code from another den, where the archive upsert
+    // would answer a collision by keeping the other den's row. Probed before
+    // the attempt so a collision costs a regeneration rather than a silent
+    // misattribution later. See `archiveCodeIsTaken`.
+    const inviteCode = generateInviteCode();
+    const inviteShortCode = generateDenShortCode();
+    // oxlint-disable-next-line no-await-in-loop -- bounded retry, each attempt must settle before the next
+    const linkTaken = await archiveCodeIsTaken(inviteCode);
+    // oxlint-disable-next-line no-await-in-loop -- bounded retry, each attempt must settle before the next
+    const shortTaken = await archiveCodeIsTaken(inviteShortCode);
+    if (linkTaken || shortTaken) {
+      continue;
+    }
     // oxlint-disable-next-line no-await-in-loop -- bounded retry, each attempt must settle before the next
     const created = await createDenAttempt({
       avatarMediaId: input.avatarMediaId ?? null,
       creatorId: input.creatorId,
       description: description || null,
-      inviteCode: generateInviteCode(),
-      inviteShortCode: generateDenShortCode(),
+      inviteCode,
+      inviteShortCode,
       memberIds,
       name,
     });
     if (!created) {
+      // A live-column collision (either code) or a retryable conflict; the
+      // archive probe already ran for this attempt's codes, so the retry
+      // regenerates both and probes again.
       continue;
     }
     // The whole roster is told, because every one of them has a conversation
@@ -1877,6 +1894,35 @@ async function pruneRetiredInviteCodes(
   }
 }
 
+// Whether an archive row already holds `code`. Probed INSIDE the mint retry
+// loop, before the claim, because the archive's primary key spans both code
+// namespaces (retired links and retired short codes share one table) while the
+// two live columns live in two different tables. That means a minted code can
+// in principle collide with an ARCHIVED code of the same length from another
+// den, and the archive upsert answers a collision by keeping the existing row -
+// silently, and for the OTHER conversation. The outgoing mint would then
+// commit, and when it is eventually rotated, the den it names would be the
+// other one: a stale code naming a stranger's room and offering to DM a
+// stranger's owner.
+//
+// For link codes (31^12) the collision is a non-event; for 6-character short
+// codes it is roughly the number of archived rows alive divided by 2.2 billion
+// per mint, which grows with adoption - so the probe is cheap insurance now
+// rather than a data fix later. A probe hit is answered the same way the live
+// unique indexes answer one: retire the attempt and try another code.
+//
+// One indexed point lookup per mint attempt, outside the claim, so it adds no
+// lock pressure to the hot path. Exported for the integration suite, which
+// pins the collision case against a live database.
+export async function archiveCodeIsTaken(code: string): Promise<boolean> {
+  const row = await prisma.orm.public.MessageConversationInviteCodes.select(
+    "code"
+  )
+    .where({ code })
+    .first();
+  return row !== null;
+}
+
 // Mints a fresh invite link, retiring the old one.
 //
 // This is the revocation step AND the "it expired, give me another" step: both
@@ -1902,6 +1948,14 @@ export async function createDenInvite(
   const inviteExpiresAt = denInviteExpiresAt(durationDays, new Date());
   for (let attempt = 1; attempt <= INVITE_CODE_ATTEMPTS; attempt += 1) {
     const inviteCode = generateInviteCode();
+    // The archive spans both code namespaces, so a freshly generated code can
+    // collide with a RETIRED code from another den - see `archiveCodeIsTaken`.
+    // Retrying is the same answer a live-column collision gets.
+    //
+    // oxlint-disable-next-line no-await-in-loop -- bounded retry, same reason as the create loop
+    if (await archiveCodeIsTaken(inviteCode)) {
+      continue;
+    }
     try {
       // oxlint-disable-next-line no-await-in-loop -- bounded retry, same reason as the create loop
       await withDenClaim(conversationId, async (tx) => {
@@ -1984,6 +2038,16 @@ export async function createDenShortCode(
   const inviteShortCodeExpiresAt = denInviteExpiresAt(durationDays, new Date());
   for (let attempt = 1; attempt <= INVITE_CODE_ATTEMPTS; attempt += 1) {
     const inviteShortCode = generateDenShortCode();
+    // The archive spans both code namespaces, so a freshly generated short
+    // code can collide with a RETIRED code from another den - and at 36^6
+    // that is a production certainty at scale rather than a curiosity. See
+    // `archiveCodeIsTaken` for the mechanism; the retry here is the same
+    // answer a live-column collision gets.
+    //
+    // oxlint-disable-next-line no-await-in-loop -- bounded retry, same reason as the create loop
+    if (await archiveCodeIsTaken(inviteShortCode)) {
+      continue;
+    }
     try {
       // oxlint-disable-next-line no-await-in-loop -- bounded retry, same reason as the create loop
       await withDenClaim(conversationId, async (tx) => {

@@ -62,6 +62,7 @@ export type { DenBan } from "./src/messages/den-bans";
 export {
   DenError,
   addDenMembers,
+  archiveCodeIsTaken,
   banDenMember,
   createDen,
   createDenInvite,
