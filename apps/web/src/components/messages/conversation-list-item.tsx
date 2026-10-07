@@ -136,9 +136,8 @@ function ConversationRowInner({
       : `${rowName}${muted ? ", muted" : ""}`;
 
   let activeStyle = "hover:bg-muted/50";
-  if (active && collapsed) {
-    activeStyle =
-      "border-border/60 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]";
+  if (collapsed) {
+    activeStyle = active ? "" : "hover:bg-muted/40";
   } else if (active) {
     activeStyle = "surface-3d";
   }
@@ -159,22 +158,31 @@ function ConversationRowInner({
           type="button"
         >
           <span className="relative flex shrink-0 items-center justify-center">
-            {isDen ? (
-              <DenAvatarCollage
-                avatarMediaId={item.conversation.avatarMediaId ?? null}
-                members={activeMembers.map((member) => ({
-                  avatarUrl: member.user.avatarUrl,
-                  displayName: member.user.displayName,
-                  id: member.userId,
-                  role: member.role ?? null,
-                  username: member.user.username,
-                }))}
-                myUserId={myUserId}
-                size={40}
-              />
-            ) : (
-              <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={40} />
-            )}
+            <span
+              className={cn(
+                "flex items-center justify-center transition-all duration-200",
+                active
+                  ? "opacity-100 brightness-110"
+                  : "opacity-65 group-hover:opacity-90"
+              )}
+            >
+              {isDen ? (
+                <DenAvatarCollage
+                  avatarMediaId={item.conversation.avatarMediaId ?? null}
+                  members={activeMembers.map((member) => ({
+                    avatarUrl: member.user.avatarUrl,
+                    displayName: member.user.displayName,
+                    id: member.userId,
+                    role: member.role ?? null,
+                    username: member.user.username,
+                  }))}
+                  myUserId={myUserId}
+                  size={40}
+                />
+              ) : (
+                <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={40} />
+              )}
+            </span>
             {/* Presence is a property of a person, so a den has none to show. The
                 bell is not: it is this member's own preference and reads the same
                 either way. */}

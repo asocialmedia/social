@@ -67,12 +67,15 @@ export default function ClientMessages() {
       const params = new URLSearchParams(searchParams.toString());
       if (id) {
         params.set("c", id);
+        // Automatically collapse the sidebar when a conversation is opened
+        setCollapsed(true);
       } else {
         params.delete("c");
+        setCollapsed(false);
       }
       router.replace(`/messages?${params.toString()}`, { scroll: false });
     },
-    [router, searchParams]
+    [router, searchParams, setCollapsed]
   );
 
   if (status === "loading") {

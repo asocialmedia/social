@@ -615,7 +615,10 @@ export function ConversationList({
             draft state, and a conditional mount would throw that away every time
             the reader closes it mid-form. */}
         <CreateDenDialog
-          onCreated={refetchList}
+          onCreated={(conversationId) => {
+            refetchList();
+            onSelect(conversationId);
+          }}
           onOpenChange={setDenDialogOpen}
           open={denDialogOpen}
         />
