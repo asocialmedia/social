@@ -262,6 +262,27 @@ function denPreview(createdAt: Date): Record<string, unknown> {
     senderId: "user2",
   };
 }
+
+// A preview row on a DM. Most list fixtures carry one because an empty DM is
+// not on the rail at all: the route hides a messageless DM, so a fixture that
+// wants its DM visible says what was said in it.
+function dmPreview(
+  conversationId: string,
+  senderId = "user2",
+  id = `m-${conversationId}`
+): Record<string, unknown> {
+  return {
+    ciphertext: "c",
+    conversationId,
+    createdAt: new Date("2026-04-01T00:00:00Z"),
+    deletedAt: null,
+    editedAt: null,
+    id,
+    iv: "i",
+    ratchetIndex: 0,
+    senderId,
+  };
+}
 const mockFindUniqueUser = mock((args: { where: { id: string } }) =>
   args.where.id === "user2" ? { id: "user2" } : null
 );
@@ -749,7 +770,11 @@ describe("GET /api/messages/conversations", () => {
   });
 
   test("hides a blocked DM from the person who blocked", async () => {
-    conversationPage = [pageConversation("dm-1", "DM", ["user1", "user2"])];
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messages: [dmPreview("dm-1")],
+      }),
+    ];
     blockedOutbound = ["user2"];
     const body = await readList();
     expect(body.items).toEqual([]);
@@ -759,17 +784,52 @@ describe("GET /api/messages/conversations", () => {
   test("hides a blocked DM from the person who was blocked", async () => {
     // The other direction, because a block is symmetric in its effect and reading
     // only one column pair would leave half the pairs on screen.
-    conversationPage = [pageConversation("dm-1", "DM", ["user1", "user2"])];
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messages: [dmPreview("dm-1")],
+      }),
+    ];
     blockedInbound = ["user2"];
     const body = await readList();
     expect(body.items).toEqual([]);
   });
 
   test("keeps an unblocked DM", async () => {
-    conversationPage = [pageConversation("dm-1", "DM", ["user1", "user2"])];
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messages: [dmPreview("dm-1")],
+      }),
+    ];
     const body = await readList();
     expect(body.items).toHaveLength(1);
     expect(body.items[0]?.conversation.id).toBe("dm-1");
+  });
+
+  test("hides an empty DM and keeps an empty den", async () => {
+    // Starting a chat creates the row immediately, and without this rule the rail
+    // filled with messageless rows for every person the reader had ever opened a
+    // thread with. A den keeps its place even when quiet: membership is the fact
+    // its row represents, and a room you belong to is worth clicking into before
+    // anybody speaks.
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], { messages: [] }),
+      pageConversation("den-1", "DEN", ["user1", "user2"], { messages: [] }),
+    ];
+    const body = await readList();
+    expect(body.items.map((item) => item.conversation.id)).toEqual(["den-1"]);
+  });
+
+  test("shows a DM again once it has a message", async () => {
+    // The row is deferred, not destroyed: the client refetches the list when a
+    // message lands, so the very first message makes the thread appear.
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messages: [dmPreview("dm-1")],
+      }),
+    ];
+    const body = await readList();
+    expect(body.items.map((item) => item.conversation.id)).toEqual(["dm-1"]);
+    expect(body.items[0]?.lastMessage?.id).toBe("m-dm-1");
   });
 
   test("keeps a den that contains a blocked person, whichever member is first", async () => {
@@ -794,7 +854,9 @@ describe("GET /api/messages/conversations", () => {
     // Both in a single response, which is the shape that matters: the filter is
     // per conversation, and the reader has to be able to see one without the other.
     conversationPage = [
-      pageConversation("dm-1", "DM", ["user1", "user2"]),
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messages: [dmPreview("dm-1")],
+      }),
       pageConversation("den-1", "DEN", ["user1", "user2", "user3"]),
     ];
     blockedOutbound = ["user2"];
@@ -874,9 +936,11 @@ describe("GET /api/messages/conversations", () => {
         messageConversationMembers: [
           memberRow("dm-1", "user1", { lastReadAt: watermark }),
         ],
+        messages: [dmPreview("dm-1")],
       }),
       pageConversation("dm-2", "DM", ["user1", "user3"], {
         messageConversationMembers: [memberRow("dm-2", "user1")],
+        messages: [dmPreview("dm-2", "user3")],
       }),
     ];
     await readList();
@@ -888,11 +952,14 @@ describe("GET /api/messages/conversations", () => {
 
   test("buckets unread rows by conversation and reports a muted thread as read", async () => {
     conversationPage = [
-      pageConversation("dm-1", "DM", ["user1", "user2"]),
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messages: [dmPreview("dm-1")],
+      }),
       pageConversation("dm-2", "DM", ["user1", "user3"], {
         messageConversationMembers: [
           memberRow("dm-2", "user1", { mutedAt: new Date() }),
         ],
+        messages: [dmPreview("dm-2", "user3")],
       }),
     ];
     unreadConversationIds = ["dm-1", "dm-1", "dm-2"];
@@ -952,6 +1019,7 @@ describe("GET /api/messages/conversations", () => {
           memberRow("dm-1", "user1", { role: "MEMBER" }),
           memberRow("dm-2", "user2"),
         ],
+        messages: [dmPreview("dm-1")],
       }),
     ];
     const body = await readList();
@@ -982,7 +1050,10 @@ describe("GET /api/messages/conversations", () => {
     // A DM carries 0 rather than nothing: its roster never moves, and an absent
     // value would be indistinguishable from a payload that predates the column.
     conversationPage = [
-      pageConversation("dm-1", "DM", ["user1", "user2"], { membershipSeq: 0 }),
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        membershipSeq: 0,
+        messages: [dmPreview("dm-1")],
+      }),
     ];
     const dm = await readList();
     expect(dm.items[0]?.conversation.membershipSeq).toBe(0);

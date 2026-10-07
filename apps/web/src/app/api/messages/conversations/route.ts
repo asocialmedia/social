@@ -385,11 +385,28 @@ export async function GET(request: Request) {
   // blocks.
   const visibleConversations = visiblePage.filter((conversation) => {
     const other = dmPeerId(conversation.members, user.id);
-    return !isHiddenByBlock(
-      conversation.type,
-      other,
-      other !== undefined && hiddenPartnerIds.has(other)
-    );
+    if (
+      isHiddenByBlock(
+        conversation.type,
+        other,
+        other !== undefined && hiddenPartnerIds.has(other)
+      )
+    ) {
+      return false;
+    }
+    // An empty DM is not a conversation yet, so it is not on the rail either.
+    // Starting a chat with somebody creates the row immediately (create-or-find),
+    // and without this filter the list showed a silent, messageless row for every
+    // person the reader had ever opened a thread with. Dens keep their place even
+    // when quiet: membership is the fact a den row represents, and a room you
+    // belong to is worth clicking into even before anybody speaks. The list
+    // re-fetches on every arriving message (the client listens for that), so the
+    // moment the DM has a message it appears - nothing is lost, only deferred
+    // until there is something to show.
+    if (conversation.type === "DM" && conversation.messages.length === 0) {
+      return false;
+    }
+    return true;
   });
 
   // One grouped query for the whole page instead of a count round-trip per
