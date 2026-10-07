@@ -27,10 +27,13 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
+  Search,
   Shield,
   Trash2,
   UserMinus,
   UserPlus,
+  UserRound,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
@@ -106,12 +109,17 @@ import { cn } from "@/lib/utils";
 
 const DEN_QUERY_PREFIX = ["message-den"];
 
-interface DenPanelProps {
+export interface DenPanelProps {
+  // Which tab to display: "all" (both), "members" (roster and management),
+  // or "settings" (about, invite, preferences, danger zone).
+  activeTab?: "all" | "members" | "settings";
   conversationId: string;
   // Called after the reader is no longer a member (leave, or a den that
   // dissolved), because the thread above has to drop the conversation rather than
   // keep rendering a room that is gone.
   onLeft?: (outcome: { dissolved: boolean }) => void;
+  // Personal preferences (Mute, Theme, Wallpaper) displayed inside Settings tab.
+  preferences?: React.ReactNode;
 }
 
 // Which den action is waiting to be confirmed, or null when none is.
@@ -127,7 +135,12 @@ type DenConfirmState =
   | { kind: "remove-member" | "transfer-ownership"; member: DenMember }
   | { kind: "unban-member"; member: DenBannedMember }
   | null;
-export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
+export function DenPanel({
+  activeTab = "members",
+  conversationId,
+  onLeft,
+  preferences,
+}: DenPanelProps) {
   const { user } = useSession();
   const { privateKey } = useMessagesIdentity();
   const queryClient = useQueryClient();
@@ -173,6 +186,72 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
     queryFn: () => fetchDenBans(conversationId),
     queryKey: [...DEN_QUERY_PREFIX, conversationId, "bans"],
   });
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const rawMembers = roster.data;
+
+  const filteredMembers = useMemo(() => {
+    const list = rawMembers ?? [];
+    if (!normalizedQuery) {
+      return list;
+    }
+    return list.filter((member) => {
+      const displayName = (member.displayName ?? "").toLowerCase();
+      const username = (member.username ?? "").toLowerCase();
+      return (
+        displayName.includes(normalizedQuery) ||
+        username.includes(normalizedQuery)
+      );
+    });
+  }, [normalizedQuery, rawMembers]);
+
+  const roleSections = useMemo(() => {
+    const owners = filteredMembers.filter((member) => member.role === "OWNER");
+    const elders = filteredMembers.filter((member) => member.role === "ADMIN");
+    const regular = filteredMembers.filter(
+      (member) => member.role === "MEMBER"
+    );
+
+    const sections: {
+      icon: React.ReactNode;
+      key: string;
+      members: DenMember[];
+      title: string;
+    }[] = [];
+
+    if (owners.length > 0) {
+      sections.push({
+        icon: <Crown aria-hidden="true" className="size-3 text-[#ff9500]" />,
+        key: "owner",
+        members: owners,
+        title: "Owner",
+      });
+    }
+    if (elders.length > 0) {
+      sections.push({
+        icon: <Shield aria-hidden="true" className="text-primary size-3" />,
+        key: "elders",
+        members: elders,
+        title: "Elders",
+      });
+    }
+    if (regular.length > 0) {
+      sections.push({
+        icon: (
+          <UserRound
+            aria-hidden="true"
+            className="text-muted-foreground size-3"
+          />
+        ),
+        key: "members",
+        members: regular,
+        title: "Members",
+      });
+    }
+
+    return sections;
+  }, [filteredMembers]);
 
   const viewer = useMemo(
     () => ({
@@ -608,17 +687,195 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
     ? new Date(den.inviteExpiresAt)
     : null;
 
-  return (
+  const membersSection = (
+    <div className="flex flex-col gap-2.5">
+      {/* Roster toolbar with counts and quick action buttons */}
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold">Members</p>
+          <span className="chip-3d text-muted-foreground inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums">
+            {searchQuery
+              ? `${filteredMembers.length} of ${den.memberCount}`
+              : den.memberCount}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {inviteCode && denWide.canCopyInvite ? (
+            <button
+              aria-label="Invite another member"
+              className="btn-3d flex h-7 items-center gap-1 rounded-lg! px-2 text-xs font-medium"
+              onClick={() => setInviteDialogOpen(true)}
+              type="button"
+            >
+              <UserPlus className="size-3.5" />
+              <span>Invite</span>
+            </button>
+          ) : null}
+          {denWide.canAddMembers && !rosterFull ? (
+            <button
+              aria-label="Add members"
+              className="btn-3d flex h-7 items-center gap-1 rounded-lg! px-2 text-xs font-medium"
+              onClick={() => {
+                setAdding(true);
+                setSelected([]);
+              }}
+              type="button"
+            >
+              <UserPlus className="size-3.5" />
+              <span>Add</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Member search input */}
+      <div className="relative flex items-center">
+        <Search className="text-muted-foreground pointer-events-none absolute left-2.5 size-3.5" />
+        <input
+          aria-label="Search members"
+          className="premium-input h-8 w-full rounded-lg pr-7 pl-8 text-xs"
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Search members..."
+          type="text"
+          value={searchQuery}
+        />
+        {searchQuery ? (
+          <button
+            aria-label="Clear member search"
+            className="text-muted-foreground hover:text-foreground absolute right-2 flex size-4 items-center justify-center rounded-full"
+            onClick={() => setSearchQuery("")}
+            type="button"
+          >
+            <X className="size-3" />
+          </button>
+        ) : null}
+      </div>
+
+      {/* Grouped roster or empty search state */}
+      {filteredMembers.length === 0 ? (
+        <div className="surface-3d rounded-2xl px-4 py-8 text-center">
+          <p className="text-sm font-medium">No members found</p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Nobody matches &ldquo;{searchQuery}&rdquo;
+          </p>
+          <button
+            className="text-primary mt-2 text-xs font-medium hover:underline"
+            onClick={() => setSearchQuery("")}
+            type="button"
+          >
+            Clear search
+          </button>
+        </div>
+      ) : (
+        <div className="surface-3d rounded-2xl p-2.5">
+          {roleSections.map((section, sectionIdx) => (
+            <div
+              className={cn(
+                sectionIdx > 0 && "border-border/60 mt-2 border-t pt-2"
+              )}
+              key={section.key}
+            >
+              <div className="flex items-center gap-1.5 px-1.5 py-1">
+                {section.icon}
+                <span className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
+                  {section.title}
+                </span>
+                <span className="text-muted-foreground text-[11px] font-medium tabular-nums">
+                  · {section.members.length}
+                </span>
+              </div>
+              <ul className="divide-border/40 divide-y">
+                {section.members.map((member) => {
+                  const isSelf = member.id === myUserId;
+                  const affordances = denAffordances({
+                    target: { isSelf, role: member.role },
+                    viewer,
+                  });
+                  const actions = denRowActions({
+                    affordances,
+                    target: { isSelf, role: member.role },
+                  });
+                  return (
+                    <li
+                      className="flex items-center gap-2.5 px-1.5 py-2 transition-colors"
+                      key={member.id}
+                    >
+                      <Link
+                        className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                        href={`/users/${member.username}`}
+                      >
+                        <UserAvatar avatarUrl={member.avatarUrl} size={32} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium group-hover:underline">
+                            {isSelf
+                              ? `${member.displayName} (you)`
+                              : member.displayName}
+                          </span>
+                          <span className="text-muted-foreground block truncate text-xs">
+                            @{member.username}
+                          </span>
+                        </span>
+                      </Link>
+                      <RoleChip role={member.role} />
+                      {actions.length > 0 ? (
+                        <MemberActionMenu
+                          actions={actions}
+                          busy={busy}
+                          member={member}
+                          onBan={() => {
+                            setBanDialog({ member });
+                          }}
+                          onRemove={() =>
+                            setConfirm({ kind: "remove-member", member })
+                          }
+                          onRole={(nextRole) =>
+                            setRole.mutate({
+                              role: nextRole,
+                              userId: member.id,
+                            })
+                          }
+                          onTransfer={() =>
+                            setConfirm({ kind: "transfer-ownership", member })
+                          }
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Collapsible banned section */}
+      {denWide.canBanMembers ? (
+        <DenBannedSection
+          bans={bans.data ?? []}
+          busyUserId={unbanningId}
+          error={bans.isError ? "Couldn't load the banned list." : null}
+          onUnban={(member) => {
+            setConfirm({ kind: "unban-member", member });
+          }}
+        />
+      ) : null}
+
+      {rosterFull && denWide.canAddMembers ? (
+        <div className="surface-3d rounded-2xl px-3.5 py-2.5">
+          <p className="text-muted-foreground text-xs">
+            This den is full at {DEN_LIMITS.membersMax} members. Remove somebody
+            before adding anyone.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const settingsSection = (
     <div className="flex flex-col gap-3">
-      {/* The den's own card is the description only: the avatar, name and count
-          all live in the header above, and repeating them here read as a second,
-          smaller header rather than as information. Editing still covers the
-          name too, because this is the panel's one rename surface. */}
+      {/* About this den card */}
       <div className="surface-3d rounded-2xl px-3.5 py-3">
         {editing ? (
-          // Name and description in one form, because the PATCH carries them
-          // together and a reader changing one almost always wants to look at
-          // the other while they are there.
           <div className="flex flex-col gap-1.5">
             <input
               aria-label="Den name"
@@ -698,10 +955,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         )}
       </div>
 
-      {/* The invite card is one job in one state: it opens the invite sheet,
-          which holds the link, its expiry and the generate action. A plain
-          member is shown none of it - the server withholds the code, so a
-          control that could only ever be disabled is not drawn. */}
+      {/* Invite link card */}
       {inviteCode && denWide.canCopyInvite ? (
         <div className="surface-3d rounded-2xl px-3.5 py-3">
           <p className="text-sm font-medium">Invite another member</p>
@@ -721,117 +975,10 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         </div>
       ) : null}
 
-      {/* The roster. Each row is a list item so the roles read as a list of
-          people rather than a wall of buttons; the actions are a menu because an
-          owner's row offers several legal moves at once and three buttons per row
-          turns a roster of a hundred into a wall of chrome. */}
-      <div className="surface-3d rounded-2xl px-3.5 py-3">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">Members</p>
-          {/* The detail route's count, not the roster page's length: the page is
-              capped, and a count that could silently be short would make the
-              "this den is full" line below disagree with the number above it. */}
-          <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-            {den.memberCount}
-          </span>
-          {denWide.canAddMembers && !rosterFull ? (
-            <button
-              aria-label="Add members"
-              className="text-muted-foreground hover:text-foreground shrink-0"
-              onClick={() => {
-                setAdding(true);
-                setSelected([]);
-              }}
-              type="button"
-            >
-              <UserPlus className="size-4" />
-            </button>
-          ) : null}
-        </div>
+      {/* Conversation preferences: Mute, Theme, Wallpaper */}
+      {preferences}
 
-        <ul className="divide-border/60 mt-1.5 divide-y">
-          {members.map((member) => {
-            const isSelf = member.id === myUserId;
-            const affordances = denAffordances({
-              target: { isSelf, role: member.role },
-              viewer,
-            });
-            const actions = denRowActions({
-              affordances,
-              target: { isSelf, role: member.role },
-            });
-            return (
-              <li className="flex items-center gap-2.5 py-2" key={member.id}>
-                {/* The identity half is the profile link; the row itself is not,
-                    so the role chip and the action menu keep their own targets. */}
-                <Link
-                  className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-                  href={`/users/${member.username}`}
-                >
-                  <UserAvatar avatarUrl={member.avatarUrl} size={32} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium group-hover:underline">
-                      {isSelf
-                        ? `${member.displayName} (you)`
-                        : member.displayName}
-                    </span>
-                    <span className="text-muted-foreground block truncate text-xs">
-                      @{member.username}
-                    </span>
-                  </span>
-                </Link>
-                <RoleChip role={member.role} />
-                {actions.length > 0 ? (
-                  <MemberActionMenu
-                    actions={actions}
-                    busy={busy}
-                    member={member}
-                    onBan={() => {
-                      setBanDialog({ member });
-                    }}
-                    onRemove={() =>
-                      setConfirm({ kind: "remove-member", member })
-                    }
-                    onRole={(nextRole) =>
-                      setRole.mutate({ role: nextRole, userId: member.id })
-                    }
-                    onTransfer={() =>
-                      setConfirm({ kind: "transfer-ownership", member })
-                    }
-                  />
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* The banned list, as the last thing in the Members card and manager only.
-            Collapsed to one row until it is opened, because it is almost always
-            empty and it is a tool rather than a part of the roster. */}
-        {denWide.canBanMembers ? (
-          <DenBannedSection
-            bans={bans.data ?? []}
-            // A refused read is not an empty list. Reachable rather than theoretical:
-            // `refresh()` invalidates the whole den prefix, so every mutation in the
-            // panel spends a ban-list read against its budget.
-            error={bans.isError ? "Couldn't load the banned list." : null}
-            busyUserId={unbanningId}
-            onUnban={(member) => {
-              setConfirm({ kind: "unban-member", member });
-            }}
-          />
-        ) : null}
-
-        {rosterFull && denWide.canAddMembers ? (
-          <p className="text-muted-foreground mt-2 text-xs">
-            This den is full at {DEN_LIMITS.membersMax} members. Remove somebody
-            before adding anyone.
-          </p>
-        ) : null}
-      </div>
-
-      {/* Leave and delete, separated because they are not the same loss and only
-          the owner ever sees the second. */}
+      {/* Danger zone: Leave and delete */}
       {denWide.canLeave ? (
         <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
           <DestructiveRow
@@ -856,9 +1003,28 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
 
-      {/* Add members. The shared picker, in a dialog, because the roster is
-          already on screen and the picker would otherwise push it off. */}
+  let content: React.ReactNode;
+  if (activeTab === "settings") {
+    content = settingsSection;
+  } else if (activeTab === "all") {
+    content = (
+      <div className="flex flex-col gap-3">
+        {settingsSection}
+        {membersSection}
+      </div>
+    );
+  } else {
+    content = membersSection;
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
+      {content}
+
+      {/* Add members dialog */}
       <Dialog
         onOpenChange={(next) => {
           if (!next) {
@@ -884,23 +1050,12 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
               value={query}
             />
             <MemberPicker
-              // Shown and greyed rather than hidden, and that is the point: a manager
-              // who types somebody's name and finds nothing has no way to tell a ban
-              // from a typo. The row says so, and says what to do about it.
-              //
-              // This prop was accepted by `MemberPicker` and had no call site, so the
-              // dead-row handling in there ran for nobody and a banned person was
-              // selectable - the refusal then arriving only on submit, from a route
-              // that checks this itself. Hence the dialog's own promise that banned
-              // candidates are greyed out was not true.
               bannedIds={bans.data?.map((ban) => ban.id)}
               excludeIds={[
                 myUserId,
                 ...members.map((member) => member.id),
                 ...selected.map((member) => member.id),
               ]}
-              // The room that is actually left in THIS den, which is why the
-              // picker stops here rather than at the protocol ceiling.
               maxSelected={denAddRoom(members.length)}
               onToggle={(member) =>
                 setSelected((current) =>
@@ -943,10 +1098,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         </DialogContent>
       </Dialog>
 
-      {/* The invite sheet. Mounted only when this panel actually holds a code,
-          so a dialog cannot exist for a den whose door the viewer cannot hold.
-          `busy` closes its buttons, and `mintInvite`'s answer is what flips the
-          input to the freshly minted link before the refetch lands. */}
+      {/* The invite sheet */}
       {inviteCode ? (
         <DenInviteDialog
           busy={busy}
@@ -960,10 +1112,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
         />
       ) : null}
 
-      {/* Not mounted at all when nobody is being banned, so the dialog cannot be handed
-          a member that is not there and cannot render a title built from nothing. The
-          dialog needs no `open={false}` path for the same reason: there is no state to
-          animate away from, because there is no component. */}
+      {/* Ban dialog */}
       {banDialog ? (
         <DenBanDialog
           ban={banDialog.member}
@@ -979,10 +1128,7 @@ export function DenPanel({ conversationId, onLeft }: DenPanelProps) {
           open
         />
       ) : null}
-
       <DenConfirmDialog
-        // Either request in flight closes the dialog's buttons, so a slow lift cannot
-        // be fired twice by an impatient second press.
         busy={busy || unbanningId !== null}
         kind={confirm?.kind ?? "leave-den"}
         memberName={denConfirmMemberName(confirm)}

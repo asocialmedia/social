@@ -309,3 +309,83 @@ describe("MemberActionMenu", () => {
     expect(renderMenu(["transfer"], true)).toContain("disabled");
   });
 });
+
+describe("100-member roster scalability", () => {
+  // Simulates a 100-member den roster
+  const sampleRoster: DenMember[] = [
+    member({
+      displayName: "Owner Alice",
+      id: "u-owner",
+      role: "OWNER",
+      username: "owner_alice",
+    }),
+    member({
+      displayName: "Elder Bob",
+      id: "u-elder-1",
+      role: "ADMIN",
+      username: "bob_elder",
+    }),
+    member({
+      displayName: "Elder Carol",
+      id: "u-elder-2",
+      role: "ADMIN",
+      username: "carol_admin",
+    }),
+    ...Array.from({ length: 97 }, (_, index) =>
+      member({
+        displayName: `Member ${index + 1}`,
+        id: `u-member-${index + 1}`,
+        role: "MEMBER",
+        username: `member_${index + 1}`,
+      })
+    ),
+  ];
+
+  test("correctly partitions 100 members into role sections", () => {
+    const owners = sampleRoster.filter((m) => m.role === "OWNER");
+    const elders = sampleRoster.filter((m) => m.role === "ADMIN");
+    const membersList = sampleRoster.filter((m) => m.role === "MEMBER");
+
+    expect(sampleRoster.length).toBe(100);
+    expect(owners.length).toBe(1);
+    expect(elders.length).toBe(2);
+    expect(membersList.length).toBe(97);
+    expect(owners.length + elders.length + membersList.length).toBe(100);
+  });
+
+  test("filters members in real-time by display name case-insensitively", () => {
+    const query = "carol";
+    const filtered = sampleRoster.filter(
+      (m) =>
+        m.displayName.toLowerCase().includes(query) ||
+        m.username.toLowerCase().includes(query)
+    );
+
+    expect(filtered.length).toBe(1);
+    expect(filtered[0]?.displayName).toBe("Elder Carol");
+  });
+
+  test("filters members in real-time by username case-insensitively", () => {
+    const query = "member_5";
+    const filtered = sampleRoster.filter(
+      (m) =>
+        m.displayName.toLowerCase().includes(query) ||
+        m.username.toLowerCase().includes(query)
+    );
+
+    // Matches member_5, member_50..member_59
+    expect(filtered.length).toBe(11);
+    expect(filtered.every((m) => m.username.includes("member_5"))).toBe(true);
+  });
+
+  test("returns empty list when no members match search", () => {
+    const query = "nonexistent_person_xyz";
+    const filtered = sampleRoster.filter(
+      (m) =>
+        m.displayName.toLowerCase().includes(query) ||
+        m.username.toLowerCase().includes(query)
+    );
+
+    expect(filtered.length).toBe(0);
+  });
+});

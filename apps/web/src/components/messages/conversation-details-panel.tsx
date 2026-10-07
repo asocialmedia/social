@@ -487,6 +487,16 @@ export function ConversationDetailsBody({
   // identical either way, because mute, theme and wallpaper belong to the member
   // rather than to the pair.
   const isDen = detail.conversation.type === "DEN";
+  const defaultTab = isDen ? "members" : "settings";
+  const [tab, setTab] = useState<string>(defaultTab);
+
+  // Sync default tab if the opened conversation changes
+  const [syncedConversationId, setSyncedConversationId] =
+    useState(conversationId);
+  if (syncedConversationId !== conversationId) {
+    setSyncedConversationId(conversationId);
+    setTab(defaultTab);
+  }
   const { user } = useSession();
   const myUserId = user?.id ?? "";
   // The viewer's own row, and the `leftAt` on it. Read here rather than fetched:
@@ -560,6 +570,56 @@ export function ConversationDetailsBody({
     return null;
   }
 
+  const activeTab = !isDen && tab === "members" ? "settings" : tab;
+  const denMemberCount =
+    denHeader?.members.length ?? detail.conversation.members.length;
+  const totalMediaCount =
+    refs.counts.media + refs.counts.post + refs.counts.link;
+
+  const denPreferences = (
+    <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
+      <div className="flex items-center gap-3 px-3.5 py-3">
+        <RowIcon
+          icon={
+            muted ? (
+              <BellOff className="size-4" />
+            ) : (
+              <Volume2 className="size-4" />
+            )
+          }
+        />
+        <label className="min-w-0 flex-1" htmlFor={muteId}>
+          <span className="block text-sm font-medium">Mute</span>
+          <span className="text-muted-foreground block truncate text-xs">
+            {prefs.mutedAt
+              ? `${mutedSinceLabel(prefs.mutedAt)} · no unread badge`
+              : "Notifications and the unread badge"}
+          </span>
+        </label>
+        <Switch
+          checked={muted}
+          id={muteId}
+          onCheckedChange={handleMuteChange}
+        />
+      </div>
+
+      <ThemeRow onChange={handleThemeChange} selectedKey={prefs.themeKey} />
+
+      <WallpaperRow
+        onDimChange={handleDimChange}
+        onDimCommit={handleDimCommit}
+        onRemove={handleWallpaperRemove}
+        onSelect={handleWallpaperChange}
+        onUpload={handleWallpaperUpload}
+        selectedDim={wallpaperDim}
+        selectedKey={prefs.wallpaperKey}
+        selectedMediaId={prefs.wallpaperMediaId}
+        uploadProgress={uploadProgress}
+        uploadStage={uploadStage}
+      />
+    </div>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <DetailsHeader
@@ -571,188 +631,214 @@ export function ConversationDetailsBody({
         presence={presence}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* `shrink-0` alone is not enough: as a flex item this block has a
-            `min-height: auto` floor, so when the sheet runs short it refuses to
-            shrink and pushes the shared-content tabs clean off the bottom. A
-            short phone plus the expanded wallpaper picker is enough to get
-            there. Capping the height and scrolling keeps every row reachable
-            and leaves the tabs a floor to sit on. */}
-        <div className="max-h-[45dvh] shrink-0 overflow-y-auto px-4 pb-3">
-          {/* The den's whole management surface, above the preferences. Its own
-              card rather than rows inside this one, because it is a different
-              shape of thing: a roster with its own read, its own gating and its
-              own confirmations, not a list of toggles. */}
-          {isDen ? (
-            <div className="mb-3">
-              <DenPanel conversationId={conversationId} onLeft={onClose} />
-            </div>
-          ) : null}
-
-          <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
-            {peer ? (
-              <Link
-                className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
-                href={`/users/${peer.username}`}
-                onClick={onClose}
-              >
-                <RowIcon icon={<UserRound className="size-4" />} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    View profile
-                  </span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    @{peer.username}
-                  </span>
-                </span>
-                <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-              </Link>
+      <Tabs
+        className="flex min-h-0 flex-1 flex-col"
+        onValueChange={setTab}
+        value={activeTab}
+      >
+        <div className="px-4 pb-2">
+          <TabsList
+            className={cn("grid w-full", isDen ? "grid-cols-3" : "grid-cols-2")}
+          >
+            {isDen ? (
+              <TabsTrigger className="gap-1.5 text-xs" value="members">
+                Members
+                <Count value={denMemberCount} />
+              </TabsTrigger>
             ) : null}
-
-            <div className="flex items-center gap-3 px-3.5 py-3">
-              <RowIcon
-                icon={
-                  muted ? (
-                    <BellOff className="size-4" />
-                  ) : (
-                    <Volume2 className="size-4" />
-                  )
-                }
-              />
-              <label className="min-w-0 flex-1" htmlFor={muteId}>
-                <span className="block text-sm font-medium">Mute</span>
-                <span className="text-muted-foreground block truncate text-xs">
-                  {prefs.mutedAt
-                    ? `${mutedSinceLabel(prefs.mutedAt)} · no unread badge`
-                    : "Notifications and the unread badge"}
-                </span>
-              </label>
-              <Switch
-                checked={muted}
-                id={muteId}
-                onCheckedChange={handleMuteChange}
-              />
-            </div>
-
-            <ThemeRow
-              onChange={handleThemeChange}
-              selectedKey={prefs.themeKey}
-            />
-
-            <WallpaperRow
-              onDimChange={handleDimChange}
-              onDimCommit={handleDimCommit}
-              // Handed over directly rather than wrapped in `() => void fn()`: the
-              // async handlers already satisfy these `(x) => void` prop types, and
-              // the wrapper form is rewritten to `() => undefined` by
-              // unicorn/no-useless-undefined, which then leaves the handler looking
-              // unused and gets it deleted on the next autofix pass.
-              onRemove={handleWallpaperRemove}
-              onSelect={handleWallpaperChange}
-              onUpload={handleWallpaperUpload}
-              selectedDim={wallpaperDim}
-              selectedKey={prefs.wallpaperKey}
-              selectedMediaId={prefs.wallpaperMediaId}
-              uploadProgress={uploadProgress}
-              uploadStage={uploadStage}
-            />
-
-            {/* Block and Report are pair-level. A den has no single other party
-                to block, and the moderation endpoint behind them takes a user,
-                not a conversation, so offering them here would be offering an
-                action with no meaning. A den is removed from by leaving. */}
-            {peer ? (
-              <>
-                <ActionRow
-                  icon={<Ban className="size-4" />}
-                  label="Block"
-                  onClick={() => notifyNotWired("Blocking")}
-                  sublabel="Stop messages both ways"
-                  tone="destructive"
-                />
-                <ActionRow
-                  icon={<Flag className="size-4" />}
-                  label="Report"
-                  onClick={() => notifyNotWired("Reporting")}
-                  sublabel="Send this chat to moderation"
-                  tone="destructive"
-                />
-              </>
+            {isDen ? null : (
+              <TabsTrigger className="gap-1.5 text-xs" value="settings">
+                Details
+              </TabsTrigger>
+            )}
+            <TabsTrigger className="gap-1.5 text-xs" value="media">
+              Media
+              <Count value={totalMediaCount} />
+            </TabsTrigger>
+            {isDen ? (
+              <TabsTrigger className="gap-1.5 text-xs" value="settings">
+                Settings
+              </TabsTrigger>
             ) : null}
-          </div>
+          </TabsList>
         </div>
 
-        {/* The `min-h-40` is a floor, not a preference: the settings block above
-            is capped and scrollable, and without a floor here the tab strip would
-            be the only thing left to give way. */}
-        <Tabs
-          className="flex min-h-40 min-w-0 flex-1 flex-col"
-          defaultValue="media"
-        >
-          <div className="px-4 pb-2">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger className="gap-1.5 text-xs" value="media">
-                Media
-                <Count value={refs.counts.media} />
-              </TabsTrigger>
-              <TabsTrigger className="gap-1.5 text-xs" value="posts">
-                Posts
-                <Count value={refs.counts.post} />
-              </TabsTrigger>
-              <TabsTrigger className="gap-1.5 text-xs" value="links">
-                Links
-                <Count value={refs.counts.link} />
-              </TabsTrigger>
-            </TabsList>
+        {isDen ? (
+          <div
+            className={cn(
+              "min-h-0 flex-1 flex-col",
+              activeTab === "media" ? "hidden" : "flex"
+            )}
+          >
+            <DenPanel
+              activeTab={activeTab === "settings" ? "settings" : "members"}
+              conversationId={conversationId}
+              onLeft={onClose}
+              preferences={denPreferences}
+            />
           </div>
+        ) : (
+          <TabsContent
+            className="mt-0 min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+            value="settings"
+          >
+            <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
+              {peer ? (
+                <Link
+                  className="pill-3d-hover flex items-center gap-3 px-3.5 py-3"
+                  href={`/users/${peer.username}`}
+                  onClick={onClose}
+                >
+                  <RowIcon icon={<UserRound className="size-4" />} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">
+                      View profile
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      @{peer.username}
+                    </span>
+                  </span>
+                  <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+                </Link>
+              ) : null}
 
-          <TabsContent
-            className="mt-0 min-h-0 flex-1 overflow-hidden"
-            value="media"
-          >
-            <ConversationSharedMediaTab
-              hasMore={
-                refs.state === "indexed" &&
-                refs.media.length < refs.counts.media
-              }
-              indexing={refs.state === "indexing"}
-              items={refs.media}
-              loadMore={refs.loadMoreMedia}
-              onOpen={handleOpenMedia}
-              opening={openingMedia}
-              readError={refs.mediaError}
-            />
+              <div className="flex items-center gap-3 px-3.5 py-3">
+                <RowIcon
+                  icon={
+                    muted ? (
+                      <BellOff className="size-4" />
+                    ) : (
+                      <Volume2 className="size-4" />
+                    )
+                  }
+                />
+                <label className="min-w-0 flex-1" htmlFor={muteId}>
+                  <span className="block text-sm font-medium">Mute</span>
+                  <span className="text-muted-foreground block truncate text-xs">
+                    {prefs.mutedAt
+                      ? `${mutedSinceLabel(prefs.mutedAt)} · no unread badge`
+                      : "Notifications and the unread badge"}
+                  </span>
+                </label>
+                <Switch
+                  checked={muted}
+                  id={muteId}
+                  onCheckedChange={handleMuteChange}
+                />
+              </div>
+
+              <ThemeRow
+                onChange={handleThemeChange}
+                selectedKey={prefs.themeKey}
+              />
+
+              <WallpaperRow
+                onDimChange={handleDimChange}
+                onDimCommit={handleDimCommit}
+                onRemove={handleWallpaperRemove}
+                onSelect={handleWallpaperChange}
+                onUpload={handleWallpaperUpload}
+                selectedDim={wallpaperDim}
+                selectedKey={prefs.wallpaperKey}
+                selectedMediaId={prefs.wallpaperMediaId}
+                uploadProgress={uploadProgress}
+                uploadStage={uploadStage}
+              />
+
+              {peer ? (
+                <>
+                  <ActionRow
+                    icon={<Ban className="size-4" />}
+                    label="Block"
+                    onClick={() => notifyNotWired("Blocking")}
+                    sublabel="Stop messages both ways"
+                    tone="destructive"
+                  />
+                  <ActionRow
+                    icon={<Flag className="size-4" />}
+                    label="Report"
+                    onClick={() => notifyNotWired("Reporting")}
+                    sublabel="Send this chat to moderation"
+                    tone="destructive"
+                  />
+                </>
+              ) : null}
+            </div>
           </TabsContent>
-          <TabsContent
-            className="mt-0 min-h-0 flex-1 overflow-hidden"
-            value="posts"
-          >
-            <ConversationSharedPostsTab
-              hasMore={
-                refs.state === "indexed" && refs.posts.length < refs.counts.post
-              }
-              indexing={refs.state === "indexing"}
-              items={refs.posts}
-              loadMore={refs.loadMorePosts}
-              readError={refs.postsError}
-            />
-          </TabsContent>
-          <TabsContent
-            className="mt-0 min-h-0 flex-1 overflow-hidden"
-            value="links"
-          >
-            <ConversationSharedLinksTab
-              hasMore={
-                refs.state === "indexed" && refs.links.length < refs.counts.link
-              }
-              indexing={refs.state === "indexing"}
-              items={refs.links}
-              loadMore={refs.loadMoreLinks}
-              readError={refs.linksError}
-            />
-          </TabsContent>
-        </Tabs>
-      </div>
+        )}
+
+        <TabsContent
+          className="mt-0 min-h-0 flex-1 overflow-hidden"
+          value="media"
+        >
+          <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="media">
+            <div className="px-4 pb-2">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger className="gap-1.5 text-xs" value="media">
+                  Media
+                  <Count value={refs.counts.media} />
+                </TabsTrigger>
+                <TabsTrigger className="gap-1.5 text-xs" value="posts">
+                  Posts
+                  <Count value={refs.counts.post} />
+                </TabsTrigger>
+                <TabsTrigger className="gap-1.5 text-xs" value="links">
+                  Links
+                  <Count value={refs.counts.link} />
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent
+              className="mt-0 min-h-0 flex-1 overflow-hidden"
+              value="media"
+            >
+              <ConversationSharedMediaTab
+                hasMore={
+                  refs.state === "indexed" &&
+                  refs.media.length < refs.counts.media
+                }
+                indexing={refs.state === "indexing"}
+                items={refs.media}
+                loadMore={refs.loadMoreMedia}
+                onOpen={handleOpenMedia}
+                opening={openingMedia}
+                readError={refs.mediaError}
+              />
+            </TabsContent>
+            <TabsContent
+              className="mt-0 min-h-0 flex-1 overflow-hidden"
+              value="posts"
+            >
+              <ConversationSharedPostsTab
+                hasMore={
+                  refs.state === "indexed" &&
+                  refs.posts.length < refs.counts.post
+                }
+                indexing={refs.state === "indexing"}
+                items={refs.posts}
+                loadMore={refs.loadMorePosts}
+                readError={refs.postsError}
+              />
+            </TabsContent>
+            <TabsContent
+              className="mt-0 min-h-0 flex-1 overflow-hidden"
+              value="links"
+            >
+              <ConversationSharedLinksTab
+                hasMore={
+                  refs.state === "indexed" &&
+                  refs.links.length < refs.counts.link
+                }
+                indexing={refs.state === "indexing"}
+                items={refs.links}
+                loadMore={refs.loadMoreLinks}
+                readError={refs.linksError}
+              />
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
