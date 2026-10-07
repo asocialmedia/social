@@ -40,6 +40,17 @@ export default function ClientMessages() {
   // conversation the user was trying to reach just works once ready.
   const pendingConversation = conversationId;
 
+  // Arriving on /messages is arriving at the list, so with no conversation open
+  // the sidebar is open by default: the collapse flag is a reading view state
+  // (set when a conversation is opened, and railed for that view), not a standing
+  // setting. The list screen carries its own flag so its collapse toggle still
+  // works, but starts from "open" on every arrival rather than from whatever the
+  // last reading session left behind.
+  const [listScreenCollapsed, setListScreenCollapsed] = useState(false);
+  const collapsedForLayout = pendingConversation
+    ? isCollapsed
+    : listScreenCollapsed;
+
   // Deep-link from a profile's Message button: ?dm=<userId> starts a
   // create-or-find conversation with that user. The ConversationList owns that
   // flow (it listens for the same event the online-friends rail uses), so it's
@@ -67,7 +78,9 @@ export default function ClientMessages() {
       const params = new URLSearchParams(searchParams.toString());
       if (id) {
         params.set("c", id);
-        // Automatically collapse the sidebar when a conversation is opened
+        // Rail the list away while reading a conversation. Not persisted as a
+        // preference: arriving on /messages must always find the list open, so
+        // the collapse is a view state for this conversation, not a setting.
         setCollapsed(true);
       } else {
         params.delete("c");
@@ -103,7 +116,7 @@ export default function ClientMessages() {
   }
 
   const listLayout = conversationListLayout({
-    collapsed: isCollapsed,
+    collapsed: collapsedForLayout,
     conversationOpen: Boolean(pendingConversation),
     desktopViewport: desktopList,
   });
@@ -128,9 +141,16 @@ export default function ClientMessages() {
           activeConversationId={pendingConversation ?? null}
           isCollapsed={listLayout === "rail"}
           layout={listLayout}
-          onExpand={() => setCollapsed(false)}
+          onExpand={() => {
+            setCollapsed(false);
+            setListScreenCollapsed(false);
+          }}
           onSelect={selectConversation}
-          onToggleCollapse={toggleCollapsed}
+          onToggleCollapse={
+            pendingConversation
+              ? toggleCollapsed
+              : () => setListScreenCollapsed((open) => !open)
+          }
         />
 
         {/* On a phone with a conversation open this is the whole screen; with none
