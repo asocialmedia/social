@@ -711,11 +711,11 @@ export function DenPanel({
 
   const membersSection = (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex w-full gap-2">
         {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
           <button
-            aria-label="Invite another member"
-            className="btn-3d-gray flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium lg:min-h-9"
+            aria-label="Invite members"
+            className="btn-3d-gray flex min-h-11 w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl! px-3 text-sm font-medium lg:min-h-9"
             onClick={() => setInviteDialogOpen(true)}
             type="button"
           >
@@ -726,7 +726,7 @@ export function DenPanel({
         {denWide.canAddMembers && !rosterFull ? (
           <button
             aria-label="Add members"
-            className="btn-3d flex min-h-11 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium lg:min-h-9"
+            className="btn-3d flex min-h-11 w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl! px-3 text-sm font-medium lg:min-h-9"
             onClick={() => {
               setAdding(true);
               setSelected([]);
