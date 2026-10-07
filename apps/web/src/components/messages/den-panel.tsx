@@ -57,6 +57,7 @@ import {
   dissolveDen,
   ensureConversationKeys,
   createDenInvite,
+  createDenShortCode,
   fetchConversationDetail,
   fetchDen,
   fetchDenBans,
@@ -329,6 +330,48 @@ export function DenPanel({
               ? error.message
               : "Couldn't create that link",
           title: "Couldn't create the link",
+          variant: "destructive",
+        });
+      }
+      setBusy(false);
+      return minted;
+    },
+    [conversationId, refresh]
+  );
+
+  const mintShortCode = useCallback(
+    async (
+      durationDays: DenInviteDurationDays | null
+    ): Promise<{
+      inviteShortCode: string;
+      inviteShortCodeExpiresAt: Date | null;
+    } | null> => {
+      setBusy(true);
+      let minted: {
+        inviteShortCode: string;
+        inviteShortCodeExpiresAt: Date | null;
+      } | null = null;
+      try {
+        const invite = await createDenShortCode(conversationId, durationDays);
+        minted = {
+          inviteShortCode: invite.inviteShortCode,
+          inviteShortCodeExpiresAt: invite.inviteShortCodeExpiresAt,
+        };
+        refresh();
+        toast({
+          description:
+            invite.inviteShortCodeExpiresAt === null
+              ? "The old code no longer works. This one never expires."
+              : `The old code no longer works. This one expires ${denInviteCountdown(invite.inviteShortCodeExpiresAt).replace("Expires in ", "in ")}.`,
+          title: "New invite code",
+        });
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't create that code",
+          title: "Couldn't create the code",
           variant: "destructive",
         });
       }
@@ -631,7 +674,7 @@ export function DenPanel({
 
   const { den } = detail.data;
   const members = roster.data ?? [];
-  const { inviteCode } = den;
+  const { inviteCode, inviteShortCode } = den;
   const myUserId = userId;
   // The detail route's count rather than the roster page's length: the page is
   // capped, so a den at exactly the ceiling and a den with unread members beyond
@@ -647,6 +690,9 @@ export function DenPanel({
   const inviteExpiresAt = den.inviteExpiresAt
     ? new Date(den.inviteExpiresAt)
     : null;
+  const inviteShortCodeExpiresAt = den.inviteShortCodeExpiresAt
+    ? new Date(den.inviteShortCodeExpiresAt)
+    : null;
 
   const membersSection = (
     <div className="flex flex-col gap-2.5">
@@ -661,7 +707,7 @@ export function DenPanel({
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          {inviteCode && denWide.canCopyInvite ? (
+          {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
             <button
               aria-label="Invite another member"
               className="btn-3d flex h-7 items-center gap-1 rounded-lg! px-2 text-xs font-medium"
@@ -835,11 +881,11 @@ export function DenPanel({
   const settingsSection = (
     <div className="flex flex-col gap-3">
       {/* Invite link card */}
-      {inviteCode && denWide.canCopyInvite ? (
+      {(inviteCode || inviteShortCode) && denWide.canCopyInvite ? (
         <div className="surface-3d rounded-2xl px-3.5 py-3">
           <p className="text-sm font-medium">Invite another member</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Share a link that joins this den.
+            Share a link or code that joins this den.
           </p>
           <button
             className="btn-3d mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg! text-xs"
@@ -978,14 +1024,18 @@ export function DenPanel({
       </Dialog>
 
       {/* The invite sheet */}
-      {inviteCode ? (
+      {inviteCode || inviteShortCode ? (
         <DenInviteDialog
           busy={busy}
           inviteCode={inviteCode}
           inviteDurationDays={den.inviteDurationDays}
           inviteExpiresAt={inviteExpiresAt}
+          inviteShortCode={inviteShortCode}
+          inviteShortCodeDurationDays={den.inviteShortCodeDurationDays}
+          inviteShortCodeExpiresAt={inviteShortCodeExpiresAt}
           now={fetchedAt}
           onGenerate={(durationDays) => mintInvite(durationDays)}
+          onGenerateCode={(durationDays) => mintShortCode(durationDays)}
           onOpenChange={setInviteDialogOpen}
           open={inviteDialogOpen}
         />

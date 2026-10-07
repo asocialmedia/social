@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
@@ -21,108 +22,160 @@ import { cn } from "@/lib/utils";
 const INVITE_DURATION_CHOICES = [1, 7, 30, null] as const;
 
 // The default when the den has never had an expiry picked: a week, which is
-// what a shared link is for. The den's own last choice wins when it has one.
+// what a shared link or code is for. The den's own last choice wins when it has one.
 const DEFAULT_DURATION_DAYS: DenInviteDurationDays = 7;
 
-// What a generation hands back: the freshly minted link, for the input to show
+// What a link generation hands back: the freshly minted link, for the input to show
 // immediately, before any refetch confirms it.
 export interface DenInviteMinted {
   inviteCode: string;
   inviteExpiresAt: Date | null;
 }
 
-// The den's invite sheet: the link, how long it lives, and the one action that
-// changes either.
+// What a code generation hands back: the freshly minted short code, for the input
+// to show immediately, before any refetch confirms it.
+export interface DenInviteShortCodeMinted {
+  inviteShortCode: string;
+  inviteShortCodeExpiresAt: Date | null;
+}
+
+// The den's invite sheet: the link and short code doors, how long each lives, and
+// the actions that change either independently.
 //
-// Its own component rather than one more block in the panel, for the same reason
-// the ban dialog is: this is the one den surface with its own working state (the
-// freshly minted link shown before the refetch lands), and a panel would have to
-// hold that state for a surface most members never open.
-//
-// The link rides in a read-only input rather than as text on the page, because
-// the input is the affordance that selects it: focus selects the whole link, and
-// the copy button beside it is where the hand already is. The expiry chips sit
-// ABOVE the link on purpose - choosing how long the next link lasts precedes
-// reading the current one - and "Generate new link" is the only writer. Nothing
-// here mints implicitly: opening the dialog shares the door, it does not replace
-// it. Generating keeps the sheet open so the manager can copy the link they just
-// made; the fresh link replaces the input's value in place.
+// Tabs split "Link" and "Code" so each door can be shared or rotated on its own
+// preset without interfering with the other. Link remains the default tab to preserve
+// the established flow.
 export function DenInviteDialog({
   busy,
   inviteCode,
   inviteDurationDays,
   inviteExpiresAt,
+  inviteShortCode = null,
+  inviteShortCodeDurationDays = null,
+  inviteShortCodeExpiresAt = null,
   now,
   onGenerate,
+  onGenerateCode,
   onOpenChange,
   open,
 }: {
   busy: boolean;
-  inviteCode: string;
-  // The preset the den last minted with, which seeds the selector. Null means
-  // the den's current link never expires - and that a previous picker said so.
+  inviteCode: string | null;
+  // The preset the den last minted the link with, which seeds the link selector.
   inviteDurationDays: number | null;
   inviteExpiresAt: Date | null;
+  inviteShortCode?: string | null;
+  // The preset the den last minted the code with, which seeds the code selector.
+  inviteShortCodeDurationDays?: number | null;
+  inviteShortCodeExpiresAt?: Date | null;
   // The moment the expiry is judged against, handed in rather than read from the
-  // wall clock so this component stays a pure function of its props between
-  // renders.
+  // wall clock so this component stays a pure function of its props between renders.
   now: Date;
   onGenerate: (
     durationDays: DenInviteDurationDays | null
   ) => Promise<DenInviteMinted | null>;
+  onGenerateCode?: (
+    durationDays: DenInviteDurationDays | null
+  ) => Promise<DenInviteShortCodeMinted | null>;
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
-  const seeded =
+  const [tab, setTab] = useState<"link" | "code">("link");
+
+  const seededLink =
     inviteDurationDays === 1 ||
     inviteDurationDays === 7 ||
     inviteDurationDays === 30
       ? inviteDurationDays
       : DEFAULT_DURATION_DAYS;
-  const [selected, setSelected] = useState<DenInviteDurationDays | null>(
-    seeded
-  );
-  // The link being shown, which diverges from `inviteCode` for one render
-  // window: between a successful mint and the refetch that confirms it. Held as
-  // state so the manager ALWAYS sees the code they are about to copy, even when
-  // the query cache has not caught up.
-  const [shown, setShown] = useState<DenInviteMinted>({
+  const [selectedLinkDuration, setSelectedLinkDuration] =
+    useState<DenInviteDurationDays | null>(seededLink);
+  const [shownLink, setShownLink] = useState<{
+    inviteCode: string | null;
+    inviteExpiresAt: Date | null;
+  }>({
     inviteCode,
     inviteExpiresAt,
   });
-  // One-shot feedback on the copy button itself, so the confirmation lives
-  // where the press happened rather than solely in a toast that fades.
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  const expired =
-    shown.inviteExpiresAt !== null && shown.inviteExpiresAt <= now;
-  const countdown = denInviteCountdown(shown.inviteExpiresAt, now);
+  const seededCode =
+    inviteShortCodeDurationDays === 1 ||
+    inviteShortCodeDurationDays === 7 ||
+    inviteShortCodeDurationDays === 30
+      ? inviteShortCodeDurationDays
+      : DEFAULT_DURATION_DAYS;
+  const [selectedCodeDuration, setSelectedCodeDuration] =
+    useState<DenInviteDurationDays | null>(seededCode);
+  const [shownCode, setShownCode] = useState<{
+    inviteShortCode: string | null;
+    inviteShortCodeExpiresAt: Date | null;
+  }>({
+    inviteShortCode: inviteShortCode ?? null,
+    inviteShortCodeExpiresAt: inviteShortCodeExpiresAt ?? null,
+  });
+  const [copiedCode, setCopiedCode] = useState(false);
 
-  const copy = async () => {
-    const link = denInviteUrl(window.location.origin, shown.inviteCode);
+  const linkExpired =
+    shownLink.inviteExpiresAt !== null && shownLink.inviteExpiresAt <= now;
+  const linkCountdown = denInviteCountdown(shownLink.inviteExpiresAt, now);
+
+  const codeExpired =
+    shownCode.inviteShortCodeExpiresAt !== null &&
+    shownCode.inviteShortCodeExpiresAt <= now;
+  const codeCountdown = denInviteCountdown(
+    shownCode.inviteShortCodeExpiresAt,
+    now
+  );
+
+  const copyLink = async () => {
+    if (!shownLink.inviteCode) {
+      return;
+    }
+    const origin = typeof window === "undefined" ? "" : window.location.origin;
+    const link = denInviteUrl(origin, shownLink.inviteCode);
     try {
       await navigator.clipboard.writeText(link);
-      setCopied(true);
+      setCopiedLink(true);
       setTimeout(() => {
-        setCopied(false);
+        setCopiedLink(false);
       }, 2000);
     } catch {
-      // The clipboard can refuse (permissions, HTTP context). Falling back to
-      // leaving the link selected in the input keeps the action honest: the
-      // manager can still copy it by hand, and nothing pretends to have worked.
-      setCopied(false);
+      setCopiedLink(false);
     }
   };
 
-  const generate = async () => {
-    const minted = await onGenerate(selected);
+  const copyCode = async () => {
+    if (!shownCode.inviteShortCode) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(shownCode.inviteShortCode);
+      setCopiedCode(true);
+      setTimeout(() => {
+        setCopiedCode(false);
+      }, 2000);
+    } catch {
+      setCopiedCode(false);
+    }
+  };
+
+  const generateLink = async () => {
+    const minted = await onGenerate(selectedLinkDuration);
     if (minted) {
-      setShown(minted);
-      // The new link's countdown is judged from the same `now` until the next
-      // refetch: a moments-old link is not measurably different from a
-      // zero-seconds-old one, and the countdown label updates on its own once
-      // the panel's payload lands.
-      setCopied(false);
+      setShownLink(minted);
+      setCopiedLink(false);
+    }
+  };
+
+  const generateCode = async () => {
+    if (!onGenerateCode) {
+      return;
+    }
+    const minted = await onGenerateCode(selectedCodeDuration);
+    if (minted) {
+      setShownCode(minted);
+      setCopiedCode(false);
     }
   };
 
@@ -132,88 +185,206 @@ export function DenInviteDialog({
         <DialogHeader>
           <DialogTitle>Invite another member</DialogTitle>
           <DialogDescription>
-            Anyone with this link can join, whether or not they follow anybody
-            in here. Banned accounts are still refused.
+            {tab === "link"
+              ? "Anyone with this link can join, whether or not they follow anybody in here. Banned accounts are still refused."
+              : "Anyone with this code can join, whether or not they follow anybody in here. Banned accounts are still refused."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-muted-foreground text-xs">Link expires</span>
-            <fieldset
-              aria-label="Link expiry"
-              className="flex flex-wrap gap-1.5 border-0 p-0"
-            >
-              {INVITE_DURATION_CHOICES.map((days) => (
+        <Tabs
+          className="w-full"
+          onValueChange={(val) => setTab(val as "link" | "code")}
+          value={tab}
+        >
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="link">Link</TabsTrigger>
+            <TabsTrigger value="code">Code</TabsTrigger>
+          </TabsList>
+
+          <TabsContent className="flex flex-col gap-4 pt-2" value="link">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-muted-foreground text-xs">
+                Link expires
+              </span>
+              <fieldset
+                aria-label="Link expiry"
+                className="flex flex-wrap gap-1.5 border-0 p-0"
+              >
+                {INVITE_DURATION_CHOICES.map((days) => (
+                  <button
+                    aria-pressed={selectedLinkDuration === days}
+                    className={cn(
+                      "chip-3d cursor-pointer rounded-full text-xs",
+                      selectedLinkDuration === days &&
+                        "border-primary/60 bg-primary/15"
+                    )}
+                    key={days === null ? "never" : days}
+                    onClick={() => {
+                      setSelectedLinkDuration(days);
+                    }}
+                    type="button"
+                  >
+                    {days === null
+                      ? "No expiry"
+                      : `${days} day${days === 1 ? "" : "s"}`}
+                  </button>
+                ))}
+              </fieldset>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label
+                className="text-muted-foreground text-xs"
+                htmlFor="den-invite-link"
+              >
+                Invite link
+              </label>
+              <div className="relative">
+                <input
+                  aria-label="Invite link"
+                  className="premium-input w-full pr-10! text-xs"
+                  id="den-invite-link"
+                  onFocus={(event) => {
+                    event.currentTarget.select();
+                  }}
+                  readOnly
+                  value={
+                    shownLink.inviteCode
+                      ? denInviteUrl(
+                          typeof window === "undefined"
+                            ? ""
+                            : window.location.origin,
+                          shownLink.inviteCode
+                        )
+                      : ""
+                  }
+                />
                 <button
-                  aria-pressed={selected === days}
-                  className={cn(
-                    "chip-3d cursor-pointer rounded-full text-xs",
-                    selected === days && "border-primary/60 bg-primary/15"
-                  )}
-                  key={days === null ? "never" : days}
+                  aria-label={copiedLink ? "Copied" : "Copy invite link"}
+                  className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
                   onClick={() => {
-                    setSelected(days);
+                    void copyLink();
+                  }}
+                  title="Copy invite link"
+                  type="button"
+                >
+                  {copiedLink ? (
+                    <Check className="text-primary size-3.5" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                </button>
+              </div>
+              <p
+                className={cn(
+                  "text-xs tabular-nums",
+                  linkExpired ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                {linkExpired
+                  ? "This link has expired. Generate a new one to keep sharing access."
+                  : linkCountdown}
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent className="flex flex-col gap-4 pt-2" value="code">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-muted-foreground text-xs">
+                Code expires
+              </span>
+              <fieldset
+                aria-label="Code expiry"
+                className="flex flex-wrap gap-1.5 border-0 p-0"
+              >
+                {INVITE_DURATION_CHOICES.map((days) => (
+                  <button
+                    aria-pressed={selectedCodeDuration === days}
+                    className={cn(
+                      "chip-3d cursor-pointer rounded-full text-xs",
+                      selectedCodeDuration === days &&
+                        "border-primary/60 bg-primary/15"
+                    )}
+                    key={days === null ? "never" : days}
+                    onClick={() => {
+                      setSelectedCodeDuration(days);
+                    }}
+                    type="button"
+                  >
+                    {days === null
+                      ? "No expiry"
+                      : `${days} day${days === 1 ? "" : "s"}`}
+                  </button>
+                ))}
+              </fieldset>
+            </div>
+
+            {shownCode.inviteShortCode ? (
+              <div className="flex flex-col gap-1.5">
+                <label
+                  className="text-muted-foreground text-xs"
+                  htmlFor="den-invite-code"
+                >
+                  Invite code
+                </label>
+                <div className="relative">
+                  <input
+                    aria-label="Invite code"
+                    className="premium-input w-full pr-10! text-center font-mono text-base font-semibold tracking-[0.3em]"
+                    id="den-invite-code"
+                    onFocus={(event) => {
+                      event.currentTarget.select();
+                    }}
+                    readOnly
+                    value={shownCode.inviteShortCode}
+                  />
+                  <button
+                    aria-label={copiedCode ? "Copied" : "Copy invite code"}
+                    className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
+                    onClick={() => {
+                      void copyCode();
+                    }}
+                    title="Copy invite code"
+                    type="button"
+                  >
+                    {copiedCode ? (
+                      <Check className="text-primary size-3.5" />
+                    ) : (
+                      <Copy className="size-3.5" />
+                    )}
+                  </button>
+                </div>
+                <p
+                  className={cn(
+                    "text-xs tabular-nums",
+                    codeExpired ? "text-destructive" : "text-muted-foreground"
+                  )}
+                >
+                  {codeExpired
+                    ? "This code has expired. Generate a new one to keep sharing access."
+                    : codeCountdown}
+                </p>
+              </div>
+            ) : (
+              <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-xl p-5 text-center">
+                <p className="text-muted-foreground text-xs">
+                  No code yet — generate one to share with others.
+                </p>
+                <button
+                  className="btn-3d inline-flex h-8 items-center justify-center gap-1.5 rounded-lg! px-3 text-xs font-medium disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => {
+                    void generateCode();
                   }}
                   type="button"
                 >
-                  {days === null
-                    ? "No expiry"
-                    : `${days} day${days === 1 ? "" : "s"}`}
+                  <RefreshCw aria-hidden className="size-3.5" />
+                  {busy ? "Creating…" : "Generate code"}
                 </button>
-              ))}
-            </fieldset>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label
-              className="text-muted-foreground text-xs"
-              htmlFor="den-invite-link"
-            >
-              Invite link
-            </label>
-            <div className="relative">
-              <input
-                aria-label="Invite link"
-                className="premium-input w-full pr-10! text-xs"
-                id="den-invite-link"
-                onFocus={(event) => {
-                  // The input is read-only, so focus is already the selection
-                  // gesture; selecting the whole link makes Ctrl-C work from
-                  // wherever the focus landed.
-                  event.currentTarget.select();
-                }}
-                readOnly
-                value={denInviteUrl(window.location.origin, shown.inviteCode)}
-              />
-              <button
-                aria-label={copied ? "Copied" : "Copy invite link"}
-                className="icon-btn-3d absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center"
-                onClick={() => {
-                  void copy();
-                }}
-                title="Copy invite link"
-                type="button"
-              >
-                {copied ? (
-                  <Check className="text-primary size-3.5" />
-                ) : (
-                  <Copy className="size-3.5" />
-                )}
-              </button>
-            </div>
-            <p
-              className={cn(
-                "text-xs tabular-nums",
-                expired ? "text-destructive" : "text-muted-foreground"
-              )}
-            >
-              {expired
-                ? "This link has expired. Generate a new one to keep sharing access."
-                : countdown}
-            </p>
-          </div>
-        </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           <button
@@ -226,17 +397,32 @@ export function DenInviteDialog({
           >
             Close
           </button>
-          <button
-            className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
-            disabled={busy}
-            onClick={() => {
-              void generate();
-            }}
-            type="button"
-          >
-            <RefreshCw aria-hidden className="size-4" />
-            {busy ? "Creating…" : "Generate new link"}
-          </button>
+          {tab === "link" && (
+            <button
+              className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+              disabled={busy}
+              onClick={() => {
+                void generateLink();
+              }}
+              type="button"
+            >
+              <RefreshCw aria-hidden className="size-4" />
+              {busy ? "Creating…" : "Generate new link"}
+            </button>
+          )}
+          {tab === "code" && shownCode.inviteShortCode && (
+            <button
+              className="btn-3d inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+              disabled={busy}
+              onClick={() => {
+                void generateCode();
+              }}
+              type="button"
+            >
+              <RefreshCw aria-hidden className="size-4" />
+              {busy ? "Creating…" : "Generate new code"}
+            </button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
