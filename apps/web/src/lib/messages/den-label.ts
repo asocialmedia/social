@@ -211,6 +211,17 @@ export function countConversationsByType(
   return tally;
 }
 
+// Server unread counts already apply membership and mute rules. Tab indicators
+// follow those counts, and disappear when a refreshed row is marked read.
+export function countUnreadConversationsByType(
+  items: readonly {
+    conversation: { type: ConversationType };
+    unreadCount: number;
+  }[]
+): Record<DenListFilter, number> {
+  return countConversationsByType(items.filter((item) => item.unreadCount > 0));
+}
+
 // How a conversation links to a den's own preview surface. The den row in the
 // list points at the thread like any other row; this is the same conversation
 // id in the shape the details panel and the header take.

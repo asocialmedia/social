@@ -150,8 +150,8 @@ function ConversationRowInner({
           className={cn(
             "group relative flex w-full cursor-pointer items-center overflow-hidden text-left transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
             collapsed
-              ? "h-12 justify-center gap-0 rounded-xl px-0"
-              : "h-16 justify-start gap-3 rounded-2xl px-2.5 py-2.5",
+              ? "h-12 justify-center gap-0 rounded-lg px-0"
+              : "h-16 justify-start gap-2.5 rounded-lg px-2.5 py-2",
             activeStyle
           )}
           onClick={() => onSelect(item.conversation.id)}

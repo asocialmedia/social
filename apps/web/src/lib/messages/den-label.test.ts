@@ -6,6 +6,7 @@ import {
   DEN_LIST_FILTERS,
   conversationDisplayName,
   countConversationsByType,
+  countUnreadConversationsByType,
   denAvatarFaces,
   denConversationPath,
   denDisplayName,
@@ -401,5 +402,45 @@ describe("countConversationsByType", () => {
 describe("denConversationPath", () => {
   test("escapes the id rather than interpolating it raw", () => {
     expect(denConversationPath("a b&c")).toBe("/messages?c=a%20b%26c");
+  });
+});
+
+describe("unread conversation tab indicators", () => {
+  test("an unread DM lights All and DMs without lighting Dens", () => {
+    expect(
+      countUnreadConversationsByType([
+        { conversation: { type: "DM" }, unreadCount: 3 },
+        { conversation: { type: "DEN" }, unreadCount: 0 },
+      ])
+    ).toEqual({ ALL: 1, DEN: 0, DM: 1 });
+  });
+  test("an unread den lights All and Dens without lighting DMs", () => {
+    expect(
+      countUnreadConversationsByType([
+        { conversation: { type: "DM" }, unreadCount: 0 },
+        { conversation: { type: "DEN" }, unreadCount: 1 },
+      ])
+    ).toEqual({ ALL: 1, DEN: 1, DM: 0 });
+  });
+  test("mixed arrivals light both types and count conversations once", () => {
+    expect(
+      countUnreadConversationsByType([
+        { conversation: { type: "DM" }, unreadCount: 5 },
+        { conversation: { type: "DEN" }, unreadCount: 2 },
+      ])
+    ).toEqual({ ALL: 2, DEN: 1, DM: 1 });
+  });
+  test("reading or muting all conversations clears every indicator", () => {
+    expect(
+      countUnreadConversationsByType([
+        { conversation: { type: "DM" }, unreadCount: 0 },
+        { conversation: { type: "DEN" }, unreadCount: 0 },
+      ])
+    ).toEqual({ ALL: 0, DEN: 0, DM: 0 });
+    expect(countUnreadConversationsByType([])).toEqual({
+      ALL: 0,
+      DEN: 0,
+      DM: 0,
+    });
   });
 });

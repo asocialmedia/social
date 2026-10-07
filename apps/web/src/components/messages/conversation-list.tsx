@@ -37,6 +37,7 @@ import type { ConversationListLayout } from "@/lib/messages/conversation-list-la
 import {
   DEN_LIST_FILTERS,
   countConversationsByType,
+  countUnreadConversationsByType,
   filterConversationsByType,
   isDenListFilter,
 } from "@/lib/messages/den-label";
@@ -121,6 +122,10 @@ export function ConversationList({
   // from rather than from a second query, so a badge on a tab and the rows under it
   // are one read.
   const counts = useMemo(() => countConversationsByType(items), [items]);
+  const unreadCounts = useMemo(
+    () => countUnreadConversationsByType(items),
+    [items]
+  );
 
   const handleFilterChange = useCallback((value: string) => {
     if (isDenListFilter(value)) {
@@ -288,7 +293,7 @@ export function ConversationList({
     }
     return results.map((result) => (
       <button
-        className="pill-3d-hover flex items-center gap-2.5 rounded-xl px-2 py-2 text-left"
+        className="pill-3d-hover flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
         disabled={creating === result.id}
         key={result.id}
         onClick={() => {
@@ -394,7 +399,7 @@ export function ConversationList({
         )}
       >
         {/* Header row: Messages title + Sidebar toggle button */}
-        <div className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-4 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]">
+        <div className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]">
           <h2
             className={cn(
               "text-base font-semibold tracking-tight whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
@@ -451,7 +456,7 @@ export function ConversationList({
 
         {/* Search & Create Den row below the title */}
         <div
-          className="relative flex h-14 shrink-0 items-center px-3.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
+          className="relative flex h-14 shrink-0 items-center px-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
           ref={searchContainerRef}
         >
           <div className="flex w-full items-center gap-2">
@@ -596,7 +601,7 @@ export function ConversationList({
 
           {/* Dropdown with search results */}
           {query.trim().length > 0 && !collapsed ? (
-            <div className="panel-3d absolute inset-x-2 top-[calc(100%+4px)] z-50 max-h-80 overflow-y-auto rounded-2xl p-2 shadow-2xl">
+            <div className="panel-3d absolute inset-x-2.5 top-[calc(100%+4px)] z-50 max-h-80 overflow-y-auto rounded-2xl! p-2">
               {renderSearchResults()}
             </div>
           ) : null}
@@ -608,7 +613,7 @@ export function ConversationList({
             "shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
             collapsed
               ? "pointer-events-none h-0 py-0 opacity-0"
-              : "px-2 py-1 opacity-100"
+              : "px-2.5 py-1 opacity-100"
           )}
         >
           <Tabs onValueChange={handleFilterChange} value={filter}>
@@ -619,16 +624,26 @@ export function ConversationList({
             >
               {DEN_LIST_FILTERS.map((option) => (
                 <TabsTrigger
+                  aria-label={`${FILTER_LABEL[option]}, ${counts[option]} conversations${unreadCounts[option] > 0 ? ", unread messages" : ""}`}
                   appearance="raised"
-                  className="min-h-11 min-w-0 rounded-xl px-1.5 text-xs sm:text-sm"
+                  className="relative min-h-11 min-w-0 gap-2 rounded-xl px-2 text-xs sm:text-sm"
                   key={option}
                   tabIndex={collapsed ? -1 : undefined}
                   value={option}
                 >
                   {FILTER_LABEL[option]}
-                  <span className="text-[10px] tabular-nums opacity-70">
+                  <span
+                    aria-hidden
+                    className="chip-3d inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums"
+                  >
                     {counts[option]}
                   </span>
+                  {unreadCounts[option] > 0 ? (
+                    <span
+                      aria-hidden
+                      className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-linear-to-b from-[#ffb45c] to-[#e65500] shadow-[0_0_6px_rgba(255,149,0,0.5)]"
+                    />
+                  ) : null}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -638,7 +653,7 @@ export function ConversationList({
         {/* Conversation list */}
         <div
           className={cn(
-            "hide-native-scrollbar flex flex-1 flex-col overflow-x-hidden overflow-y-auto p-2 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "hide-native-scrollbar flex flex-1 flex-col overflow-x-hidden overflow-y-auto p-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
             collapsed ? "gap-1.5" : "gap-0.5"
           )}
         >
