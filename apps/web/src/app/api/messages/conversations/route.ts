@@ -5,9 +5,8 @@ import {
   fromPrismaDateTime,
   getMessageConversationDataQuery,
   listDenMembershipEventsForUser,
-  or,
   prisma,
-  toPrismaDateTime,
+  unreadMessagesWhere,
   visibleToUser,
 } from "@asm/db";
 
@@ -415,40 +414,37 @@ export async function GET(request: Request) {
   // own read watermark bounds its conversation's unread set; a page-wide
   // "earliest" bound would let one never-read thread pull every message across
   // the page.
-  const readAtByConversation = new Map<string, Date>();
-  for (const conversation of visibleConversations) {
+  const unreadWatermarks = visibleConversations.map((conversation) => {
     const myMember = conversation.members.find(
       (member) => member.userId === user.id
     );
-    readAtByConversation.set(
-      conversation.id,
-      myMember?.lastReadAt ?? new Date(0)
-    );
-  }
+    return {
+      conversationId: conversation.id,
+      lastReadAt: myMember?.lastReadAt ?? null,
+      windows:
+        conversation.type === "DEN"
+          ? readerMessageWindows({
+              conversationType: "DEN",
+              events: membershipEventsByDen.get(conversation.id) ?? [],
+              membership: myMember
+                ? {
+                    createdAt: myMember.createdAt,
+                    leftAt: myMember.leftAt ?? null,
+                  }
+                : null,
+              userId: user.id,
+            })
+          : undefined,
+    };
+  });
   const unreadCounts =
     visibleConversations.length === 0
       ? []
-      : await prisma.orm.public.Messages.where((message) =>
-          and(
-            // Per-conversation bound: each OR branch carries its own
-            // watermark, so a never-read thread cannot drag in every message
-            // on the page.
-            or(
-              ...visibleConversations.map((conversation) =>
-                and(
-                  message.conversationId.eq(conversation.id),
-                  message.createdAt.gt(
-                    toPrismaDateTime(
-                      readAtByConversation.get(conversation.id) ?? new Date(0)
-                    )
-                  )
-                )
-              )
-            ),
-            message.deletedAt.isNull(),
-            message.hiddenFor.none((hidden) => hidden.userId.eq(user.id)),
-            message.senderId.notIn([user.id])
-          )
+      : await prisma.orm.public.Messages.where(
+          unreadMessagesWhere({
+            userId: user.id,
+            watermarks: unreadWatermarks,
+          })
         )
           .groupBy("conversationId")
           .aggregate((aggregate) => ({ count: aggregate.count() }));

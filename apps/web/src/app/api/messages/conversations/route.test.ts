@@ -101,6 +101,7 @@ let unreadConversationIds: string[] = [];
 // The watermark branches the grouped read was given, recorded so the mute and
 // unread rules can be asserted without inferring them from the number.
 let lastUnreadBranches: { conversationId: string; createdAfter: Date }[] = [];
+let lastUnreadWindowBounds: { kind: "after" | "before"; value: Date }[] = [];
 let _lastUnreadSenderIds: string[] | null = null;
 
 // The accessor surface the grouped unread read is driven against. Recording the
@@ -109,7 +110,11 @@ let _lastUnreadSenderIds: string[] | null = null;
 // let a never-read thread pull in every message on the page.
 interface MessagePredicate {
   conversationId: { eq: (id: string) => unknown };
-  createdAt: { gt: (value: Date) => unknown };
+  createdAt: {
+    gt: (value: Date) => unknown;
+    gte: (value: Date) => unknown;
+    lte: (value: Date) => unknown;
+  };
   deletedAt: { isNull: () => unknown };
   hiddenFor: { none: (predicate: (hidden: unknown) => unknown) => unknown };
   senderId: { notIn: (ids: string[]) => unknown };
@@ -167,6 +172,14 @@ const messageAccessors: MessagePredicate & {
         branch.createdAfter = value;
       }
       return { gt: value };
+    },
+    gte: (value) => {
+      lastUnreadWindowBounds.push({ kind: "after", value });
+      return { gte: value };
+    },
+    lte: (value) => {
+      lastUnreadWindowBounds.push({ kind: "before", value });
+      return { lte: value };
     },
   },
   deletedAt: { isNull: () => ({ isNull: true }) },
@@ -486,6 +499,7 @@ mock.module("@asm/db", () => ({
           where: (predicate: (message: MessagePredicate) => unknown) => {
             const branches: { conversationId: string; createdAfter: Date }[] =
               [];
+            lastUnreadWindowBounds = [];
             let senderIds: string[] | null = null;
             messageAccessors.branches = branches;
             messageAccessors.senderIds = (ids) => {
@@ -573,6 +587,32 @@ mock.module("@asm/db", () => ({
         },
       }),
   },
+  unreadMessagesWhere:
+    (input: {
+      userId: string;
+      watermarks: {
+        conversationId: string;
+        lastReadAt: Date | null;
+        windows?: readonly { after: Date | null; before: Date | null }[];
+      }[];
+    }) =>
+    (message: MessagePredicate) => {
+      for (const watermark of input.watermarks) {
+        message.conversationId.eq(watermark.conversationId);
+        message.createdAt.gt(watermark.lastReadAt ?? new Date(0));
+        for (const window of watermark.windows ?? []) {
+          if (window.after !== null) {
+            message.createdAt.gte(window.after);
+          }
+          if (window.before !== null) {
+            message.createdAt.lte(window.before);
+          }
+        }
+      }
+      message.deletedAt.isNull();
+      message.hiddenFor.none((hidden) => hidden.userId.eq(input.userId));
+      message.senderId.notIn([input.userId]);
+    },
 }));
 
 function postWith(recipientId?: string) {
@@ -775,6 +815,7 @@ describe("GET /api/messages/conversations", () => {
     blockedInbound = [];
     unreadConversationIds = [];
     lastUnreadBranches = [];
+    lastUnreadWindowBounds = [];
     _lastUnreadSenderIds = null;
     conversationWhereCalls.length = 0;
     createdConversation = null;
@@ -946,6 +987,53 @@ describe("GET /api/messages/conversations", () => {
     ];
     body = await readList();
     expect(body.items[0]?.lastMessage).not.toBeNull();
+  });
+
+  test("counts a rejoiner's unread messages only inside their den stints", async () => {
+    const joinedAt = new Date("2026-01-01T00:00:00Z");
+    const leftAt = new Date("2026-02-01T00:00:00Z");
+    const rejoinedAt = new Date("2026-03-01T00:00:00Z");
+    listMembershipEventsByDen = new Map([
+      [
+        "den-1",
+        [
+          {
+            action: "JOINED",
+            actorId: "user1",
+            createdAt: joinedAt,
+            targetUserId: null,
+          },
+          {
+            action: "LEFT",
+            actorId: "user1",
+            createdAt: leftAt,
+            targetUserId: null,
+          },
+          {
+            action: "JOINED",
+            actorId: "user1",
+            createdAt: rejoinedAt,
+            targetUserId: null,
+          },
+        ],
+      ],
+    ]);
+    conversationPage = [
+      pageConversation("den-1", "DEN", ["user1", "user2"], {
+        messageConversationMembers: [
+          memberRow("den-1", "user1", { createdAt: joinedAt }),
+          memberRow("den-1", "user2"),
+        ],
+      }),
+    ];
+
+    await readList();
+
+    expect(lastUnreadWindowBounds).toEqual([
+      { kind: "after", value: joinedAt },
+      { kind: "before", value: leftAt },
+      { kind: "after", value: rejoinedAt },
+    ]);
   });
 
   test("bounds each conversation by its OWN watermark", async () => {
