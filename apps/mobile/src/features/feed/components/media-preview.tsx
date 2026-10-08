@@ -469,10 +469,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                 >
                   Media · @{post.user?.username ?? "post"}
                 </Text>
-                <View
-                  className="gap-2 px-4"
-                  style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}
-                >
+                <View className="flex-row flex-wrap gap-2">
                   {/* oxlint-disable-next-line react/refs -- action descriptors contain event callbacks; their refs are read only on a press */}
                   {actions.map(({ label, action }) => (
                     <Pressable

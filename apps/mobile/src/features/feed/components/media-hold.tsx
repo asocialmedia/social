@@ -32,6 +32,7 @@ function createHoldGesture(
     .maxDistance(10)
     .shouldCancelWhenOutside(true)
     .onStart(() => {
+      "worklet";
       const bounds = measure(ref);
       if (post && bounds && bounds.width > 0 && bounds.height > 0) {
         scheduleOnRN(openPreview, post, media, {
