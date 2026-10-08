@@ -1,11 +1,11 @@
 import type { MessageData, ConversationType } from "@asm/db";
 import {
-  and,
+  commitMessageSearchMutation,
+  enqueueMessageSearchOutbox,
   fromPrismaDateTime,
   prisma,
   publishMessageDeleted,
   publishMessageEdited,
-  toPrismaDateTime,
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -55,6 +55,16 @@ function blockedFromConversation(
     },
     userId
   );
+}
+
+function enqueueSearchMutation(outboxId: string): void {
+  void (async () => {
+    try {
+      await enqueueMessageSearchOutbox(outboxId);
+    } catch {
+      console.error("Failed to enqueue DM search update");
+    }
+  })();
 }
 
 export async function DELETE(
@@ -122,11 +132,32 @@ export async function DELETE(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const deleted = await prisma.orm.public.Messages.where({ id }).update({
-    deletedAt: toPrismaDateTime(new Date()),
+  const mutation = await commitMessageSearchMutation({
+    conversationId: message.conversationId,
+    deletedAt: new Date(),
+    expectedRevision: message.revision,
+    kind: "delete",
+    messageId: id,
+    senderId: user.id,
   });
+  if (mutation.status === "not-found") {
+    return Response.json({ error: "Message not found" }, { status: 404 });
+  }
+  if (mutation.status === "revision-conflict") {
+    return Response.json(
+      { error: "This message changed before it could be deleted" },
+      { status: 409 }
+    );
+  }
+  if (mutation.status === "updated") {
+    enqueueSearchMutation(mutation.outboxId);
+  }
 
-  await publishMessageDeleted(message.conversationId, deleted);
+  await publishMessageDeleted(message.conversationId, {
+    id,
+    revision:
+      mutation.status === "updated" ? mutation.revision : message.revision,
+  });
 
   return Response.json({ ok: true });
 }
@@ -231,32 +262,39 @@ export async function PATCH(
     return Response.json({ error: "Message is too large" }, { status: 413 });
   }
 
-  // The update is unconditional on `editedAt`/`deletedAt` at the SQL level, but
-  // the checks above ran in the same request: a concurrent delete landing in
-  // between would be overwritten by this write. Scope the update to a live row
-  // (and re-assert the sender + window at the SQL level) so a racing delete or a
-  // window that lapses between the read and the write cannot slip through.
   const editedAt = new Date();
-  const updated = await prisma.orm.public.Messages.where((row) =>
-    and(
-      row.id.eq(id),
-      row.senderId.eq(user.id),
-      row.deletedAt.isNull(),
-      row.createdAt.gte(
-        toPrismaDateTime(new Date(editedAt.getTime() - MESSAGE_EDIT_WINDOW_MS))
-      )
-    )
-  ).updateAndCount({
+  const mutation = await commitMessageSearchMutation({
     ciphertext: body.ciphertext,
-    editedAt: toPrismaDateTime(editedAt),
+    conversationId: message.conversationId,
+    editWindowStart: new Date(editedAt.getTime() - MESSAGE_EDIT_WINDOW_MS),
+    editedAt,
+    expectedRevision: message.revision,
     iv: body.iv,
+    kind: "upsert",
+    messageId: id,
+    senderId: user.id,
   });
-  if (updated === 0) {
+  if (mutation.status === "not-found") {
+    return Response.json({ error: "Message not found" }, { status: 404 });
+  }
+  if (mutation.status === "edit-expired") {
     return Response.json(
-      { error: "This message was deleted" },
+      { error: "This message can no longer be edited" },
       { status: 409 }
     );
   }
+  if (mutation.status !== "updated") {
+    return Response.json(
+      {
+        error:
+          mutation.status === "already-deleted"
+            ? "This message was deleted"
+            : "This message changed before it could be edited",
+      },
+      { status: 409 }
+    );
+  }
+  enqueueSearchMutation(mutation.outboxId);
 
   const edited = await prisma.orm.public.Messages.where({ id })
     .include("sender", (sender) =>

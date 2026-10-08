@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Pool } from "pg";
 
 import { keys } from "../../keys";
@@ -65,6 +67,37 @@ export interface SearchArtifactCommitResult {
   status: "indexed" | "superseded" | "unreadable";
 }
 
+export type MessageSearchMutationResult =
+  | {
+      changeSequence: number;
+      outboxId: string;
+      revision: number;
+      status: "updated";
+    }
+  | {
+      status:
+        | "already-deleted"
+        | "edit-expired"
+        | "not-found"
+        | "revision-conflict";
+    };
+
+export type MessageSearchMutationInput = {
+  conversationId: string;
+  expectedRevision: number;
+  messageId: string;
+  senderId: string;
+} & (
+  | {
+      editWindowStart: Date;
+      kind: "upsert";
+      ciphertext: string;
+      editedAt: Date;
+      iv: string;
+    }
+  | { kind: "delete"; deletedAt: Date }
+);
+
 export interface MessageSearchBackfillPosition {
   createdAt: Date | null;
   messageId: string | null;
@@ -98,6 +131,138 @@ export interface MessageSearchBackfillArtifact {
 
 function pgTimestamp(value: Date): string {
   return value.toISOString().replace("T", " ").replace("Z", "");
+}
+
+export async function commitMessageSearchMutation(
+  input: MessageSearchMutationInput
+): Promise<MessageSearchMutationResult> {
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    const source = await client.query<{
+      deletedAt: Date | null;
+      revision: number;
+      withinEditWindow: boolean;
+    }>(
+      `SELECT "deletedAt", revision,
+              COALESCE("createdAt" >= $4::timestamp, false) AS "withinEditWindow"
+         FROM public.messages AS message
+        WHERE id = $1
+          AND "conversationId" = $2
+          AND "senderId" = $3
+          AND EXISTS (
+            SELECT 1
+              FROM public.message_conversation_members AS member
+             WHERE member."conversationId" = message."conversationId"
+               AND member."userId" = $3
+               AND member."leftAt" IS NULL
+          )
+        FOR UPDATE OF message`,
+      [
+        input.messageId,
+        input.conversationId,
+        input.senderId,
+        input.kind === "upsert" ? input.editWindowStart : null,
+      ]
+    );
+    const [message] = source.rows;
+    if (!message) {
+      await client.query("COMMIT");
+      return { status: "not-found" };
+    }
+    if (message.revision !== input.expectedRevision) {
+      await client.query("COMMIT");
+      return { status: "revision-conflict" };
+    }
+    if (message.deletedAt) {
+      await client.query("COMMIT");
+      return { status: "already-deleted" };
+    }
+    if (input.kind === "upsert" && !message.withinEditWindow) {
+      await client.query("COMMIT");
+      return { status: "edit-expired" };
+    }
+
+    const update =
+      input.kind === "delete"
+        ? await client.query<{ revision: number }>(
+            `UPDATE public.messages
+                SET "deletedAt" = $4, revision = revision + 1
+              WHERE id = $1 AND "conversationId" = $2 AND revision = $3
+              RETURNING revision`,
+            [
+              input.messageId,
+              input.conversationId,
+              input.expectedRevision,
+              input.deletedAt,
+            ]
+          )
+        : await client.query<{ revision: number }>(
+            `UPDATE public.messages
+                SET ciphertext = $4, iv = $5, "editedAt" = $6,
+                    revision = revision + 1
+              WHERE id = $1 AND "conversationId" = $2 AND revision = $3
+              RETURNING revision`,
+            [
+              input.messageId,
+              input.conversationId,
+              input.expectedRevision,
+              input.ciphertext,
+              input.iv,
+              input.editedAt,
+            ]
+          );
+    const [updatedMessage] = update.rows;
+    if (!updatedMessage) {
+      throw new Error("Message revision changed while holding its row lock");
+    }
+
+    const sequenceResult = await client.query<{ changeSeq: number }>(
+      `UPDATE public.message_conversations
+          SET "changeSeq" = "changeSeq" + 1
+        WHERE id = $1
+        RETURNING "changeSeq"`,
+      [input.conversationId]
+    );
+    const sequence = sequenceResult.rows[0]?.changeSeq;
+    if (sequence === undefined) {
+      throw new Error("Message conversation disappeared during mutation");
+    }
+    const audienceResult = await client.query<{ audienceUserIds: string[] }>(
+      `SELECT COALESCE(array_agg("userId"), ARRAY[]::text[]) AS "audienceUserIds"
+         FROM public.message_conversation_members
+        WHERE "conversationId" = $1 AND "leftAt" IS NULL`,
+      [input.conversationId]
+    );
+    const audienceUserIds = audienceResult.rows[0]?.audienceUserIds ?? [];
+    const outboxId = randomUUID();
+    await client.query(
+      `INSERT INTO public.message_search_outbox
+         (id, "conversationId", "messageId", revision, "changeSequence", kind, "audienceUserIds")
+       VALUES ($1, $2, $3, $4, $5, $6, $7::text[])`,
+      [
+        outboxId,
+        input.conversationId,
+        input.messageId,
+        updatedMessage.revision,
+        sequence,
+        input.kind,
+        audienceUserIds,
+      ]
+    );
+    await client.query("COMMIT");
+    return {
+      changeSequence: sequence,
+      outboxId,
+      revision: updatedMessage.revision,
+      status: "updated",
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function persistSearchDocument(

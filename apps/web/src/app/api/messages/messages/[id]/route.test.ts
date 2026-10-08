@@ -17,15 +17,33 @@ import { DELETE, PATCH } from "./route";
 const mockGetSession = mock(() => ({ user: { id: "user1" } }));
 const mockAreBlocked = mock(() => false);
 const mockIsWithinEditWindow = mock(() => true);
+type MutationResult =
+  | {
+      changeSequence: number;
+      outboxId: string;
+      revision: number;
+      status: "updated";
+    }
+  | {
+      status:
+        | "already-deleted"
+        | "edit-expired"
+        | "not-found"
+        | "revision-conflict";
+    };
 
-// Prisma 8: reads go through chainable orm queries, the global delete is a
-// plain update, and the edit is a conditional updateAndCount (a row count).
+// The mutation helper owns the message revision and durable search outbox transaction.
 const mockMessageFirst = mock((): unknown => null);
-const mockUpdate = mock((_args: unknown) => ({}));
-const mockUpdateAndCount = mock(() => 1);
-// The where the edit composed, captured so its guards can be asserted.
-let lastEditWhere: Record<string, unknown> = {};
-let lastEditSet: Record<string, unknown> = {};
+const mockCommitSearchMutation = mock(
+  (_input: unknown): Promise<MutationResult> =>
+    Promise.resolve({
+      changeSequence: 42,
+      outboxId: "outbox-1",
+      revision: 2,
+      status: "updated",
+    })
+);
+const mockEnqueueSearchOutbox = mock(() => Promise.resolve());
 const mockPublishEdited = mock(() => {
   limiter.service("publish-edited");
   return Promise.resolve();
@@ -49,6 +67,7 @@ const baseMessage = {
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   deletedAt: null,
   id: "msg-1",
+  revision: 1,
   senderId: "user1",
 };
 
@@ -94,8 +113,8 @@ mock.module("@/lib/messages/edit-window", () => ({
 }));
 
 mock.module("@asm/db", () => ({
-  and: (...conditions: unknown[]) =>
-    Object.assign({}, ...(conditions.filter(Boolean) as object[])),
+  commitMessageSearchMutation: mockCommitSearchMutation,
+  enqueueMessageSearchOutbox: mockEnqueueSearchOutbox,
   fromPrismaDateTime: (value: Date) => value,
   prisma: {
     orm: {
@@ -103,46 +122,15 @@ mock.module("@asm/db", () => ({
         Messages: {
           include: () => ({ first: () => mockMessageFirst() }),
           select: () => ({ where: () => ({ first: mockMessageFirst }) }),
-          where: (filter?: ((row: unknown) => unknown) | object) => {
-            if (typeof filter === "function") {
-              // The edit's conditional update: record the guards it asserted.
-              const captured: Record<string, unknown> = {};
-              const field = (name: string) => ({
-                eq: (value: unknown) => {
-                  captured[name] = value;
-                  return {};
-                },
-                gte: (value: unknown) => {
-                  captured[name] = { gte: value };
-                  return {};
-                },
-                isNull: () => {
-                  captured[name] = null;
-                  return {};
-                },
-              });
-              filter({
-                createdAt: field("createdAt"),
-                deletedAt: field("deletedAt"),
-                id: field("id"),
-                senderId: field("senderId"),
-              } as never);
-              lastEditWhere = captured;
-              return {
-                updateAndCount: (set: Record<string, unknown>) => {
-                  lastEditSet = set;
-                  return mockUpdateAndCount();
-                },
-              };
-            }
-            // The plain-object read (the delete path) includes the conversation
-            // and its members, then resolves the row.
+          where: () => {
             const withConversation = {
               first: mockMessageFirst,
               include: () => withConversation,
               where: () => withConversation,
             };
-            return { ...withConversation, update: mockUpdate };
+            return {
+              ...withConversation,
+            };
           },
         },
       },
@@ -170,8 +158,17 @@ const params = { params: Promise.resolve({ id: "msg-1" }) };
 describe("PATCH /api/messages/messages/:id", () => {
   beforeEach(() => {
     mockMessageFirst.mockReset();
-    mockUpdate.mockReset();
-    mockUpdateAndCount.mockReset();
+    mockCommitSearchMutation.mockReset();
+    mockCommitSearchMutation.mockImplementation(() =>
+      Promise.resolve({
+        changeSequence: 42,
+        outboxId: "outbox-1",
+        revision: 2,
+        status: "updated",
+      })
+    );
+    mockEnqueueSearchOutbox.mockReset();
+    mockEnqueueSearchOutbox.mockImplementation(() => Promise.resolve());
     mockPublishEdited.mockReset();
     mockPublishDeleted.mockReset();
     mockGetSession.mockReset();
@@ -180,7 +177,6 @@ describe("PATCH /api/messages/messages/:id", () => {
     mockAreBlocked.mockImplementation(() => false);
     mockIsWithinEditWindow.mockReset();
     mockIsWithinEditWindow.mockImplementation(() => true);
-    mockUpdateAndCount.mockImplementation(() => 1);
     mockPublishEdited.mockImplementation(() => {
       limiter.service("publish-edited");
       return Promise.resolve();
@@ -214,7 +210,7 @@ describe("PATCH /api/messages/messages/:id", () => {
     mockMessageFirst.mockReturnValueOnce({ ...baseMessage, senderId: "user2" });
     const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
     expect(res.status).toBe(403);
-    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
   });
 
   test("rejects a deleted message", async () => {
@@ -231,13 +227,13 @@ describe("PATCH /api/messages/messages/:id", () => {
     mockIsWithinEditWindow.mockReturnValueOnce(false);
     const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
     expect(res.status).toBe(409);
-    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
   });
 
   test("rejects an invalid payload", async () => {
     const res = await PATCH(patchRequest({ iv: "i" }), params);
     expect(res.status).toBe(400);
-    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
   });
 
   test("rejects an oversized ciphertext", async () => {
@@ -252,7 +248,7 @@ describe("PATCH /api/messages/messages/:id", () => {
     mockAreBlocked.mockReturnValueOnce(true);
     const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
     expect(res.status).toBe(403);
-    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
   });
 
   test("refuses a blocked pair in a DM, which is the only place a block bites", async () => {
@@ -263,7 +259,7 @@ describe("PATCH /api/messages/messages/:id", () => {
     mockMessageFirst.mockReturnValueOnce(baseMessage);
     const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
     expect(res.status).toBe(403);
-    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
   });
 
   test("lets a member edit their own message in a den, whoever is first in the roster", async () => {
@@ -298,7 +294,7 @@ describe("PATCH /api/messages/messages/:id", () => {
       params
     );
     expect(res.status).toBe(200);
-    expect(mockUpdateAndCount).toHaveBeenCalledTimes(1);
+    expect(mockCommitSearchMutation).toHaveBeenCalledTimes(1);
     expect(mockPublishEdited).toHaveBeenCalledTimes(1);
   });
 
@@ -312,9 +308,16 @@ describe("PATCH /api/messages/messages/:id", () => {
       [{ userId: "user1" }, { userId: "user3" }, { userId: "user2" }],
     ]) {
       mockMessageFirst.mockReset();
-      mockUpdateAndCount.mockReset();
+      mockCommitSearchMutation.mockReset();
+      mockCommitSearchMutation.mockImplementation(() =>
+        Promise.resolve({
+          changeSequence: 42,
+          outboxId: "outbox-1",
+          revision: 2,
+          status: "updated",
+        })
+      );
       mockPublishEdited.mockReset();
-      mockUpdateAndCount.mockImplementation(() => 1);
       mockAreBlocked.mockImplementation(() => true);
       mockMessageFirst.mockReturnValueOnce({
         ...baseMessage,
@@ -338,23 +341,26 @@ describe("PATCH /api/messages/messages/:id", () => {
       params
     );
     expect(res.status).toBe(200);
-    expect(mockUpdateAndCount).toHaveBeenCalledTimes(1);
-    // The update is scoped to a live row owned by the caller, so a racing delete
-    // or a lapsed window cannot slip through.
-    expect(lastEditWhere.deletedAt).toBeNull();
-    expect(lastEditWhere.id).toBe("msg-1");
-    expect(lastEditWhere.senderId).toBe("user1");
-    expect(lastEditSet.ciphertext).toBe("new-cipher");
-    expect(lastEditSet.iv).toBe("new-iv");
-    expect(lastEditSet.editedAt).toBeInstanceOf(Date);
-    // The window is re-asserted at the SQL level, derived from the write time.
-    const { gte } = lastEditWhere.createdAt as { gte: Date };
-    expect(gte.getTime()).toBe(
-      (lastEditSet.editedAt as Date).getTime() - 12 * 60 * 60 * 1000
+    expect(mockCommitSearchMutation).toHaveBeenCalledTimes(1);
+    const mutationInput = mockCommitSearchMutation.mock.calls[0]?.[0] as {
+      editWindowStart: Date;
+      editedAt: Date;
+    };
+    expect(mockCommitSearchMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ciphertext: "new-cipher",
+        conversationId: "convo-1",
+        expectedRevision: 1,
+        iv: "new-iv",
+        kind: "upsert",
+        messageId: "msg-1",
+        senderId: "user1",
+      })
     );
-    // The ratchet index is never part of the update: it is part of the derived
-    // message key, so rewriting it would desync every later message.
-    expect(lastEditSet).not.toHaveProperty("ratchetIndex");
+    expect(mutationInput.editWindowStart.getTime()).toBe(
+      mutationInput.editedAt.getTime() - 12 * 60 * 60 * 1000
+    );
+    expect(mockEnqueueSearchOutbox).toHaveBeenCalledWith("outbox-1");
     expect(mockPublishEdited).toHaveBeenCalledTimes(1);
     expect(mockPublishEdited).toHaveBeenCalledWith(
       "convo-1",
@@ -363,10 +369,30 @@ describe("PATCH /api/messages/messages/:id", () => {
   });
 
   test("409s when the row was deleted between the read and the write", async () => {
-    mockUpdateAndCount.mockReturnValueOnce(0);
+    mockCommitSearchMutation.mockResolvedValueOnce({
+      status: "revision-conflict",
+    });
     const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
     expect(res.status).toBe(409);
     expect(mockPublishEdited).not.toHaveBeenCalled();
+  });
+
+  test("does not publish an edit when the server-side edit window expires", async () => {
+    mockCommitSearchMutation.mockResolvedValueOnce({ status: "edit-expired" });
+    const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
+    expect(res.status).toBe(409);
+    expect(mockEnqueueSearchOutbox).not.toHaveBeenCalled();
+    expect(mockPublishEdited).not.toHaveBeenCalled();
+  });
+
+  test("keeps a committed edit successful when Redis enqueue fails", async () => {
+    mockEnqueueSearchOutbox.mockImplementationOnce(() =>
+      Promise.reject(new Error("redis down"))
+    );
+    const res = await PATCH(patchRequest({ ciphertext: "c", iv: "i" }), params);
+    await Bun.sleep(0);
+    expect(res.status).toBe(200);
+    expect(mockPublishEdited).toHaveBeenCalledTimes(1);
   });
 
   test("keeps the edit successful when the publish fails", async () => {
@@ -381,7 +407,17 @@ describe("PATCH /api/messages/messages/:id", () => {
 describe("DELETE /api/messages/messages/:id", () => {
   beforeEach(() => {
     mockMessageFirst.mockReset();
-    mockUpdate.mockReset();
+    mockCommitSearchMutation.mockReset();
+    mockCommitSearchMutation.mockImplementation(() =>
+      Promise.resolve({
+        changeSequence: 42,
+        outboxId: "outbox-1",
+        revision: 2,
+        status: "updated",
+      })
+    );
+    mockEnqueueSearchOutbox.mockReset();
+    mockEnqueueSearchOutbox.mockImplementation(() => Promise.resolve());
     mockPublishDeleted.mockReset();
     mockGetSession.mockReset();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
@@ -392,10 +428,18 @@ describe("DELETE /api/messages/messages/:id", () => {
 
   test("soft-deletes and publishes", async () => {
     mockMessageFirst.mockReturnValueOnce(baseMessage);
-    mockUpdate.mockReturnValueOnce({ id: "msg-1" });
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(200);
-    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockCommitSearchMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "convo-1",
+        expectedRevision: 1,
+        kind: "delete",
+        messageId: "msg-1",
+        senderId: "user1",
+      })
+    );
+    expect(mockEnqueueSearchOutbox).toHaveBeenCalledWith("outbox-1");
     expect(mockPublishDeleted).toHaveBeenCalledTimes(1);
   });
 
@@ -405,7 +449,7 @@ describe("DELETE /api/messages/messages/:id", () => {
     mockMessageFirst.mockReturnValueOnce({ ...baseMessage, senderId: "user2" });
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(403);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
     expect(mockPublishDeleted).not.toHaveBeenCalled();
   });
 
@@ -420,7 +464,7 @@ describe("DELETE /api/messages/messages/:id", () => {
     mockMessageFirst.mockReturnValueOnce(baseMessage);
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(403);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
     expect(mockPublishDeleted).not.toHaveBeenCalled();
   });
 
@@ -440,10 +484,9 @@ describe("DELETE /api/messages/messages/:id", () => {
         ],
       },
     });
-    mockUpdate.mockReturnValueOnce({ id: "msg-1" });
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(200);
-    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockCommitSearchMutation).toHaveBeenCalledTimes(1);
     expect(mockPublishDeleted).toHaveBeenCalledTimes(1);
   });
 
@@ -454,7 +497,15 @@ describe("DELETE /api/messages/messages/:id", () => {
       [{ userId: "user3" }, { userId: "user2" }, { userId: "user1" }],
     ]) {
       mockMessageFirst.mockReset();
-      mockUpdate.mockReset();
+      mockCommitSearchMutation.mockReset();
+      mockCommitSearchMutation.mockImplementation(() =>
+        Promise.resolve({
+          changeSequence: 42,
+          outboxId: "outbox-1",
+          revision: 2,
+          status: "updated",
+        })
+      );
       mockPublishDeleted.mockReset();
       mockAreBlocked.mockImplementation(() => true);
       mockMessageFirst.mockReturnValueOnce({
@@ -464,7 +515,6 @@ describe("DELETE /api/messages/messages/:id", () => {
           messageConversationMembers: roster,
         },
       });
-      mockUpdate.mockReturnValueOnce({ id: "msg-1" });
       const res = await DELETE(
         new Request(url(), { method: "DELETE" }),
         params
@@ -477,8 +527,15 @@ describe("DELETE /api/messages/messages/:id", () => {
 describe("/api/messages/messages/:id rate limit", () => {
   beforeEach(() => {
     mockMessageFirst.mockReset();
-    mockUpdate.mockReset();
-    mockUpdateAndCount.mockReset();
+    mockCommitSearchMutation.mockReset();
+    mockCommitSearchMutation.mockImplementation(() =>
+      Promise.resolve({
+        changeSequence: 42,
+        outboxId: "outbox-1",
+        revision: 2,
+        status: "updated",
+      })
+    );
     mockPublishEdited.mockReset();
     mockPublishDeleted.mockReset();
     mockGetSession.mockReset();
@@ -487,7 +544,6 @@ describe("/api/messages/messages/:id rate limit", () => {
     mockAreBlocked.mockImplementation(() => false);
     mockIsWithinEditWindow.mockReset();
     mockIsWithinEditWindow.mockImplementation(() => true);
-    mockUpdateAndCount.mockImplementation(() => 1);
     mockPublishEdited.mockImplementation(() => {
       limiter.service("publish-edited");
       return Promise.resolve();
@@ -525,7 +581,7 @@ describe("/api/messages/messages/:id rate limit", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("42");
     expect(mockMessageFirst).not.toHaveBeenCalled();
-    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
     expect(mockPublishEdited).not.toHaveBeenCalled();
   });
 
@@ -544,7 +600,6 @@ describe("/api/messages/messages/:id rate limit", () => {
 
   test("a delete spends the delete budget, not the edit budget", async () => {
     mockMessageFirst.mockReturnValueOnce(baseMessage);
-    mockUpdate.mockReturnValueOnce({ id: "msg-1" });
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(200);
     expect(limiter.chargedBuckets).toEqual([
@@ -557,7 +612,7 @@ describe("/api/messages/messages/:id rate limit", () => {
     const res = await DELETE(new Request(url(), { method: "DELETE" }), params);
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("42");
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockCommitSearchMutation).not.toHaveBeenCalled();
     expect(mockPublishDeleted).not.toHaveBeenCalled();
   });
 

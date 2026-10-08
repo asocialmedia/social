@@ -103,6 +103,7 @@ export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
 export {
   commitMessageSearchBackfillBatch,
   closeMessageSearchPool,
+  commitMessageSearchMutation,
   listRunnableMessageSearchBackfills,
   markSearchOutboxUnreadable,
   persistSearchDocument,
@@ -111,6 +112,8 @@ export {
   startMessageSearchBackfill,
 } from "./src/messages/search-index";
 export type {
+  MessageSearchMutationInput,
+  MessageSearchMutationResult,
   MessageSearchBackfillArtifact,
   MessageSearchBackfillBatch,
   MessageSearchBackfillMessage,
