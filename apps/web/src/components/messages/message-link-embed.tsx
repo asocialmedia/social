@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { EmbedCard } from "@/components/posts/embeds/embed-card";
 import { YouTubeEmbed } from "@/components/posts/embeds/youtube-embed";
-import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { extractPostUrls } from "@/lib/link-embeds/shared";
+import { fetchMessageLinkPreview } from "@/lib/messages/link-preview-loader";
 import { postIdFromUrl } from "@/lib/posts/post-url";
 
 import { PostEmbed } from "./post-embed";
@@ -39,7 +39,15 @@ export function MessageLinkEmbed({
 // `url` is "" when there is nothing to show, which is also what makes this safe
 // to render unconditionally: the query stays mounted (hooks must not be
 // conditional) and simply never runs.
-export function LinkEmbedCard({ mine, url }: { mine: boolean; url: string }) {
+export function LinkEmbedCard({
+  mine,
+  url,
+  compact = false,
+}: {
+  mine: boolean;
+  url: string;
+  compact?: boolean;
+}) {
   const internalPostId = url
     ? postIdFromUrl(
         url,
@@ -51,16 +59,7 @@ export function LinkEmbedCard({ mine, url }: { mine: boolean; url: string }) {
     // Resolve only once there is an external URL; a text-only message, or one
     // whose first link is an internal post, fires nothing here.
     enabled: Boolean(url) && !internalPostId,
-    queryFn: async () => {
-      const response = await fetch(
-        `/api/link-preview?url=${encodeURIComponent(url ?? "")}`
-      );
-      if (!response.ok) {
-        throw new Error("preview unavailable");
-      }
-      const json = (await response.json()) as { embed?: LinkEmbed | null };
-      return json.embed ?? null;
-    },
+    queryFn: ({ signal }) => fetchMessageLinkPreview(url, signal),
     queryKey: ["message-link-embed", url],
     // Matches the server cache (6h successes, 10m failures); a short client
     // stale window keeps a scrolled-away-and-back bubble from refetching.
@@ -78,8 +77,23 @@ export function LinkEmbedCard({ mine, url }: { mine: boolean; url: string }) {
 
   // No URL, or a preview that resolved to nothing: render nothing rather than
   // an empty box. The inline LinkBadge still carries the link.
-  if (!url || isError || data === null) {
+  if (!url) {
     return null;
+  }
+  if (isError || data === null) {
+    return (
+      <div className="mt-1.5 max-w-full min-w-0">
+        <EmbedCard
+          compact
+          embed={{
+            siteName: new URL(url).hostname,
+            title: url,
+            type: "link",
+            url,
+          }}
+        />
+      </div>
+    );
   }
 
   // A fixed-height skeleton while resolving, so the card landing does not grow
@@ -102,10 +116,10 @@ export function LinkEmbedCard({ mine, url }: { mine: boolean; url: string }) {
 
   return (
     <div className="mt-1.5 max-w-full min-w-0">
-      {data.type === "youtube" && data.videoId ? (
+      {!compact && data.type === "youtube" && data.videoId ? (
         <YouTubeEmbed embed={data} />
       ) : (
-        <EmbedCard embed={data} />
+        <EmbedCard compact embed={data} />
       )}
     </div>
   );

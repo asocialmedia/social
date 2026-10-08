@@ -29,7 +29,7 @@ import { LinkEmbedCard } from "./message-link-embed";
 const OVERSCAN_ROWS = 4;
 // A resolved preview is a h-24-ish card (the unfurl skeleton's own height, which
 // is deliberately fixed so a bubble never re-measures when a preview lands).
-const ESTIMATED_ROW_SIZE = 132;
+const ESTIMATED_ROW_SIZE = 114;
 
 export function ConversationSharedLinksTab({
   hasMore,
@@ -54,7 +54,6 @@ export function ConversationSharedLinksTab({
     getScrollElement,
     overscan: OVERSCAN_ROWS,
   });
-  const { measureElement } = rowVirtualizer;
   const totalSize = rowVirtualizer.getTotalSize();
   const virtualItems = rowVirtualizer.getVirtualItems();
 
@@ -96,10 +95,9 @@ export function ConversationSharedLinksTab({
             className="absolute top-0 left-0 w-full pb-3"
             data-index={row.index}
             key={row.key}
-            ref={measureElement}
             style={{ transform: `translateY(${row.start}px)` }}
           >
-            <LinkEmbedCard mine={false} url={item.url} />
+            <LinkEmbedCard compact mine={false} url={item.url} />
           </div>
         );
       }}

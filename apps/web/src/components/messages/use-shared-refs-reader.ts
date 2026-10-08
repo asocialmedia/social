@@ -130,34 +130,24 @@ export function nextPagingCursor(input: {
   return { after: input.currentAfter, done: input.currentDone };
 }
 
-// Folds a page into the rows a kind already holds.
-//
-// "more" appends. That is safe with no sort: the store returned rows strictly
-// below the cursor, so the list stays newest-first by construction.
-//
-// "refresh" PREPENDS the rows it has not seen, and this is where the seam matters.
-// The top page overlaps the rows already held as soon as a user has scrolled past
-// the first screen, so appending would duplicate them and prepending
-// unconditionally would repeat the whole overlap on every live message. The flat
-// key is the identity to dedupe on: message plus ref position, which is what the
-// store recorded and what a mounted virtualized row is anchored on.
-//
-// The order survives: new refs are newer than everything held, so they go in
-// front, and the older rows keep their relative order behind them.
-export function mergeRefs<T extends { flatKey: string }>(
+// History indexing can discover older refs after the first screen has loaded.
+// Merge by identity and timestamp, rather than assuming every refresh is newer.
+export function mergeRefs<T extends { flatKey: string; createdAt: number }>(
   current: T[],
   page: T[],
-  mode: ReadMode
+  _mode: ReadMode
 ): T[] {
-  if (mode === "more") {
-    return current.length === 0 ? page : [...current, ...page];
-  }
-  if (page.length === 0 || current.length === 0) {
-    return current.length === 0 ? page : current;
+  if (current.length === 0) {
+    return page;
   }
   const held = new Set(current.map((item) => item.flatKey));
   const fresh = page.filter((item) => !held.has(item.flatKey));
-  return fresh.length === 0 ? current : [...fresh, ...current];
+  return fresh.length === 0
+    ? current
+    : [...current, ...fresh].toSorted(
+        (a, b) =>
+          b.createdAt - a.createdAt || a.flatKey.localeCompare(b.flatKey)
+      );
 }
 
 export function useSharedRefsReader(input: {

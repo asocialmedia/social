@@ -15,12 +15,18 @@ import {
 // ugc + noopener so crawlers treat it as user content and the origin page
 // can never window-opener-attack the viewer.
 
-export function EmbedCard({ embed }: { embed: LinkEmbed }) {
+export function EmbedCard({
+  embed,
+  compact = false,
+}: {
+  embed: LinkEmbed;
+  compact?: boolean;
+}) {
   const image = useEmbedImageError(embed.imageUrl);
 
   return (
     <a
-      className="embed-panel-3d group block overflow-hidden transition-colors duration-150 hover:bg-[hsl(var(--muted))]"
+      className={`embed-panel-3d group block overflow-hidden transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${compact ? "h-24" : ""}`}
       href={embed.url}
       onClick={(event) => event.stopPropagation()}
       rel="nofollow ugc noopener noreferrer"
@@ -39,7 +45,9 @@ export function EmbedCard({ embed }: { embed: LinkEmbed }) {
             {embed.title}
           </p>
           {embed.description ? (
-            <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+            <p
+              className={`text-muted-foreground mt-0.5 text-xs ${compact ? "line-clamp-1" : "line-clamp-2"}`}
+            >
               {embed.description}
             </p>
           ) : null}
@@ -51,7 +59,7 @@ export function EmbedCard({ embed }: { embed: LinkEmbed }) {
           // eslint-disable-next-line @next/next/no-img-element -- dynamic third-party origin, optimizer rejects proxy paths
           <img
             alt=""
-            className="border-border/40 h-20 w-20 shrink-0 rounded-lg border object-cover sm:h-24 sm:w-24"
+            className={`border-border/40 h-20 w-20 shrink-0 rounded-lg border object-cover ${compact ? "" : "sm:h-24 sm:w-24"}`}
             loading="lazy"
             onError={image.handleError}
             referrerPolicy="no-referrer"

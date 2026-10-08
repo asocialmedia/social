@@ -18,12 +18,22 @@ import { describe, expect, test } from "bun:test";
 import { mergeRefs } from "./use-shared-refs-reader";
 
 interface Row {
+  createdAt: number;
   flatKey: string;
   label: string;
 }
 
 function rows(...keys: string[]): Row[] {
-  return keys.map((key) => ({ flatKey: key, label: key }));
+  return keys.map((key) => {
+    let createdAt = key.codePointAt(0) ?? 0;
+    if (key === "z") {
+      createdAt = 0;
+    }
+    if (key.startsWith("m")) {
+      createdAt = Number(key[1]);
+    }
+    return { createdAt, flatKey: key, label: key };
+  });
 }
 
 function keysOf(items: readonly Row[]): string[] {
@@ -161,4 +171,10 @@ describe("mergeRefs, refresh", () => {
       "m1:9",
     ]);
   });
+});
+
+test("older backfill discoveries stay below newer links on refresh", () => {
+  expect(
+    keysOf(mergeRefs(rows("d", "b"), rows("d", "c", "a"), "refresh"))
+  ).toEqual(["d", "c", "b", "a"]);
 });
