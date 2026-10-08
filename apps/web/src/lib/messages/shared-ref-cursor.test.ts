@@ -29,6 +29,28 @@ describe("shared reference cursors", () => {
     );
     expect(readSharedRefCursor(token, scope, "secret")).toMatchObject({
       after: { messageId: "message-1", ordinal: 2 },
+      direction: "older",
+      snapshotSequence: 80,
+    });
+  });
+
+  test("round trips a cursor that walks toward newer references", () => {
+    const token = createSharedRefCursor(
+      {
+        after: {
+          createdAt: "2026-10-08T10:00:00.000Z",
+          messageId: "message-1",
+          ordinal: 2,
+        },
+        direction: "newer",
+        ...scope,
+        snapshotSequence: 80,
+      },
+      "secret"
+    );
+    expect(readSharedRefCursor(token, scope, "secret")).toMatchObject({
+      after: { messageId: "message-1", ordinal: 2 },
+      direction: "newer",
       snapshotSequence: 80,
     });
   });

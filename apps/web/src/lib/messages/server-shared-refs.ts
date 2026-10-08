@@ -25,6 +25,18 @@ export interface ServerSharedRefPage {
   items: ServerSharedRefItem[];
   nextCursor: string | null;
   snapshotSequence: number;
+  window?: {
+    hasNewer: boolean;
+    hasOlder: boolean;
+    newerCursor: string | null;
+    olderCursor: string | null;
+  };
+}
+
+export interface ServerSharedRefAround {
+  createdAt: number;
+  messageId: string;
+  ordinal: number;
 }
 
 interface ResolveServerSharedRefPageInput {
@@ -37,6 +49,7 @@ interface ResolveServerSharedRefPageInput {
   fetcher?: typeof fetch;
   kind: SharedRefKind;
   limit?: number;
+  around?: ServerSharedRefAround;
   signal?: AbortSignal;
 }
 
@@ -61,6 +74,26 @@ function parseServerPage(
     value.items.length > 100
   ) {
     throw new Error("Shared items could not be loaded");
+  }
+  let _window: ServerSharedRefPage["window"];
+  if (value.window !== undefined) {
+    if (
+      !isRecord(value.window) ||
+      typeof value.window.hasNewer !== "boolean" ||
+      typeof value.window.hasOlder !== "boolean" ||
+      (value.window.newerCursor !== null &&
+        typeof value.window.newerCursor !== "string") ||
+      (value.window.olderCursor !== null &&
+        typeof value.window.olderCursor !== "string")
+    ) {
+      throw new Error("Shared items could not be loaded");
+    }
+    _window = {
+      hasNewer: value.window.hasNewer,
+      hasOlder: value.window.hasOlder,
+      newerCursor: value.window.newerCursor,
+      olderCursor: value.window.olderCursor,
+    };
   }
   const items: ServerSharedRefItem[] = [];
   for (const item of value.items) {
@@ -107,6 +140,7 @@ function parseServerPage(
     items,
     nextCursor: value.nextCursor,
     snapshotSequence: value.snapshotSequence,
+    ...(_window ? { window: _window } : {}),
   };
 }
 
@@ -120,6 +154,14 @@ export async function resolveServerSharedRefsPage(
   });
   if (input.cursor) {
     query.set("cursor", input.cursor);
+  }
+  if (input.around) {
+    query.set(
+      "aroundCreatedAt",
+      new Date(input.around.createdAt).toISOString()
+    );
+    query.set("aroundMessageId", input.around.messageId);
+    query.set("aroundOrdinal", String(input.around.ordinal));
   }
   const response = await fetcher(
     `/api/messages/conversations/${encodeURIComponent(input.conversationId)}/shared?${query.toString()}`,
@@ -197,5 +239,6 @@ export async function resolveServerSharedRefsPage(
     coverageComplete: page.coverageComplete,
     hasMore: page.hasMore,
     items,
+    ...(page.window ? { window: page.window } : {}),
   };
 }

@@ -217,10 +217,29 @@ describe("durable DM search counts", () => {
       userId: OWNER_ID,
     });
     expect(second).toHaveLength(1);
-    expect(second[0]).toMatchObject({
+    const [secondRow] = second;
+    if (!secondRow) {
+      throw new Error("expected a second shared reference");
+    }
+    expect(secondRow).toMatchObject({
       messageId: VISIBLE_MESSAGE_ID,
       ordinal: 1,
       requiredId: "visible-media-1",
+    });
+    const newer = await listMessageSearchReferences({
+      before: secondRow,
+      conversationId: CONVERSATION_ID,
+      kind: "media",
+      limit: 10,
+      membershipWindows: [{ after: null, before: null }],
+      snapshotSequence: 2,
+      userId: OWNER_ID,
+    });
+    expect(newer).toHaveLength(1);
+    expect(newer[0]).toMatchObject({
+      messageId: VISIBLE_MESSAGE_ID,
+      ordinal: 0,
+      requiredId: "visible-media-0",
     });
   });
 

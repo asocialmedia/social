@@ -104,6 +104,7 @@ export interface SearchReferenceCursor {
 
 export interface SearchReferenceQuery {
   after?: SearchReferenceCursor;
+  before?: SearchReferenceCursor;
   conversationId: string;
   kind: SearchReferenceArtifact["kind"];
   limit: number;
@@ -2750,6 +2751,25 @@ export async function searchMessageCandidates(
 export async function listMessageSearchReferences(
   input: SearchReferenceQuery
 ): Promise<SearchReferenceRow[]> {
+  if (input.after && input.before) {
+    throw new TypeError("A shared reference page can use only one cursor");
+  }
+  const cursor = input.before ?? input.after;
+  const newer = input.before !== undefined;
+  const cursorCondition = newer
+    ? `(
+          (reference."createdAt", reference."messageId") > ($5::timestamp, $6::text) OR
+          (reference."createdAt", reference."messageId") = ($5::timestamp, $6::text)
+            AND reference.ordinal < $7
+        )`
+    : `(
+          (reference."createdAt", reference."messageId") < ($5::timestamp, $6::text) OR
+          (reference."createdAt", reference."messageId") = ($5::timestamp, $6::text)
+            AND reference.ordinal > $7
+        )`;
+  const ordering = newer
+    ? `reference."createdAt" ASC, reference."messageId" ASC, reference.ordinal DESC`
+    : `reference."createdAt" DESC, reference."messageId" DESC, reference.ordinal ASC`;
   const windows = input.membershipWindows.map((window) => ({
     after: window.after ? pgTimestamp(window.after) : null,
     before: window.before ? pgTimestamp(window.before) : null,
@@ -2810,22 +2830,17 @@ export async function listMessageSearchReferences(
                AND (membership_window.value->>'before' IS NULL OR message."createdAt" <= (membership_window.value->>'before')::timestamp)
           )
         )
-        AND (
-          $5::timestamp IS NULL OR
-          (reference."createdAt", reference."messageId") < ($5::timestamp, $6::text) OR
-          (reference."createdAt", reference."messageId") = ($5::timestamp, $6::text)
-            AND reference.ordinal > $7
-        )
-      ORDER BY reference."createdAt" DESC, reference."messageId" DESC, reference.ordinal ASC
+        AND ($5::timestamp IS NULL OR ${cursorCondition})
+      ORDER BY ${ordering}
       LIMIT $9`,
     [
       input.conversationId,
       input.userId,
       input.kind,
       input.snapshotSequence,
-      input.after ? pgTimestamp(input.after.createdAt) : null,
-      input.after?.messageId ?? null,
-      input.after?.ordinal ?? null,
+      cursor ? pgTimestamp(cursor.createdAt) : null,
+      cursor?.messageId ?? null,
+      cursor?.ordinal ?? null,
       JSON.stringify(windows),
       Math.min(Math.max(Math.trunc(input.limit), 1), 101),
     ]

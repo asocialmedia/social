@@ -72,6 +72,12 @@ export interface SharedRefsPage {
   coverageComplete?: boolean;
   hasMore: boolean;
   items: SharedRefRecord[];
+  window?: {
+    hasNewer: boolean;
+    hasOlder: boolean;
+    newerCursor: string | null;
+    olderCursor: string | null;
+  };
 }
 
 // Per-conversation, per-kind totals, so a tab can label itself before reading a

@@ -39,6 +39,7 @@ const mockStartBackfill = mock(() =>
 );
 const mockEnqueueBackfill = mock(() => Promise.resolve());
 let referenceInput: Record<string, unknown> | undefined;
+const referenceInputs: Record<string, unknown>[] = [];
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockSession,
@@ -54,6 +55,7 @@ mock.module("@asm/db", () => ({
   listDenMembershipEvents: mockMembershipEvents,
   listMessageSearchReferences: (input: Record<string, unknown>) => {
     referenceInput = input;
+    referenceInputs.push(input);
     return mockListReferences();
   },
   prisma: {
@@ -80,6 +82,20 @@ function request(url = "?kind=media&limit=1"): Request {
   return new Request(
     `http://localhost/api/messages/conversations/conversation-1/shared${url}`
   );
+}
+
+function referenceRow(messageId: string, second: number, ordinal = 0) {
+  return {
+    createdAt: new Date(`2026-10-08T10:00:0${second}.000Z`),
+    keyEpoch: 1,
+    mediaKind: "image",
+    messageId,
+    ordinal,
+    ratchetIndex: second,
+    requiredId: `media-${messageId}`,
+    revision: 1,
+    senderId: "user-1",
+  };
 }
 
 describe("GET /api/messages/conversations/:id/shared", () => {
@@ -125,6 +141,7 @@ describe("GET /api/messages/conversations/:id/shared", () => {
     );
     mockEnqueueBackfill.mockReturnValue(Promise.resolve());
     referenceInput = undefined;
+    referenceInputs.length = 0;
   });
 
   test("returns a bounded page and a signed cursor scoped to the viewer", async () => {
@@ -171,6 +188,82 @@ describe("GET /api/messages/conversations/:id/shared", () => {
       snapshotSequence: 80,
       userId: "user-1",
     });
+  });
+
+  test("returns a bounded window around an anchor with cursors in both directions", async () => {
+    mockListReferences
+      .mockImplementationOnce(() =>
+        Promise.resolve([
+          referenceRow("older-near", 1),
+          referenceRow("older-far", 0),
+        ])
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve([
+          referenceRow("newer-near", 3),
+          referenceRow("newer-far", 4),
+          referenceRow("newer-extra", 5),
+        ])
+      );
+    const response = await GET(
+      request(
+        "?kind=media&limit=4&aroundMessageId=anchor&aroundCreatedAt=2026-10-08T10%3A00%3A02.000Z&aroundOrdinal=0"
+      ),
+      context
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      hasMore: true,
+      window: {
+        hasNewer: true,
+        hasOlder: true,
+      },
+    });
+    expect(body.window.newerCursor).toEqual(expect.any(String));
+    expect(body.window.olderCursor).toEqual(expect.any(String));
+    expect(
+      body.items.map((item: { messageId: string }) => item.messageId)
+    ).toEqual(["newer-far", "newer-near", "older-near"]);
+    expect(referenceInputs).toHaveLength(2);
+    expect(referenceInputs[0]).toMatchObject({
+      after: {
+        createdAt: new Date("2026-10-08T10:00:02.000Z"),
+        messageId: "anchor",
+        ordinal: 0,
+      },
+      limit: 2,
+    });
+    expect(referenceInputs[1]).toMatchObject({
+      before: {
+        createdAt: new Date("2026-10-08T10:00:02.000Z"),
+        messageId: "anchor",
+        ordinal: 0,
+      },
+      limit: 3,
+    });
+    const newerCursor = body.window.newerCursor as string;
+    mockListReferences.mockReturnValue(
+      Promise.resolve([
+        referenceRow("newest-1", 7),
+        referenceRow("newest-2", 6),
+      ])
+    );
+    const nextResponse = await GET(
+      request(`?kind=media&limit=4&cursor=${encodeURIComponent(newerCursor)}`),
+      context
+    );
+    const nextBody = await nextResponse.json();
+    expect(referenceInputs[2]).toMatchObject({
+      before: {
+        messageId: "newer-far",
+      },
+      snapshotSequence: 80,
+    });
+    expect(
+      nextBody.items.map((item: { messageId: string }) => item.messageId)
+    ).toEqual(["newest-2", "newest-1"]);
   });
 
   test("keeps pagination on its original snapshot when new changes arrive", async () => {

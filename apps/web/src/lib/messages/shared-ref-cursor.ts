@@ -6,6 +6,7 @@ const MAX_CURSOR_LENGTH = 2048;
 export interface SharedRefCursor {
   after: { createdAt: string; messageId: string; ordinal: number };
   conversationId: string;
+  direction?: "newer" | "older";
   kind: "link" | "media" | "post";
   membershipSequence: number;
   recoveryGeneration: number;
@@ -35,7 +36,11 @@ export function createSharedRefCursor(
   secret: string
 ): string {
   const payload = Buffer.from(
-    JSON.stringify({ version: SHARED_REF_CURSOR_VERSION, ...cursor })
+    JSON.stringify({
+      version: SHARED_REF_CURSOR_VERSION,
+      ...cursor,
+      direction: cursor.direction ?? "older",
+    })
   ).toString("base64url");
   return `${payload}.${signature(payload, secret)}`;
 }
@@ -68,6 +73,7 @@ export function readSharedRefCursor(
       return null;
     }
     const { after } = parsed;
+    const direction = parsed.direction ?? "older";
     if (
       parsed.version !== SHARED_REF_CURSOR_VERSION ||
       typeof after.createdAt !== "string" ||
@@ -75,6 +81,7 @@ export function readSharedRefCursor(
       !Number.isSafeInteger(after.ordinal) ||
       typeof after.ordinal !== "number" ||
       after.ordinal < 0 ||
+      (direction !== "older" && direction !== "newer") ||
       typeof parsed.conversationId !== "string" ||
       typeof parsed.kind !== "string" ||
       !["link", "media", "post"].includes(parsed.kind) ||
@@ -92,6 +99,7 @@ export function readSharedRefCursor(
         ordinal: after.ordinal,
       },
       conversationId: parsed.conversationId,
+      direction,
       kind: parsed.kind as SharedRefCursor["kind"],
       membershipSequence: parsed.membershipSequence,
       recoveryGeneration: parsed.recoveryGeneration,

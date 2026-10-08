@@ -103,6 +103,35 @@ export async function GET(
       { status: 400 }
     );
   }
+  const aroundMessageId = url.searchParams.get("aroundMessageId");
+  const aroundCreatedAt = url.searchParams.get("aroundCreatedAt");
+  const aroundOrdinalText = url.searchParams.get("aroundOrdinal");
+  const hasAroundParameter =
+    aroundMessageId !== null ||
+    aroundCreatedAt !== null ||
+    aroundOrdinalText !== null;
+  const aroundCreatedAtDate = aroundCreatedAt
+    ? new Date(aroundCreatedAt)
+    : null;
+  const aroundOrdinal =
+    aroundOrdinalText && /^\d{1,3}$/u.test(aroundOrdinalText)
+      ? Number(aroundOrdinalText)
+      : null;
+  if (
+    (hasAroundParameter &&
+      (!aroundMessageId ||
+        aroundMessageId.length > 128 ||
+        !aroundCreatedAtDate ||
+        !Number.isFinite(aroundCreatedAtDate.getTime()) ||
+        aroundOrdinal === null ||
+        aroundOrdinal > 999)) ||
+    (hasAroundParameter && cursorToken)
+  ) {
+    return Response.json(
+      { error: "Shared items position is invalid" },
+      { status: 400 }
+    );
+  }
 
   try {
     const [sequence, recoveryState, membershipEvents, coverage] =
@@ -174,15 +203,106 @@ export async function GET(
       userId: user.id,
     });
     const pageSize = parsePageSize(url.searchParams.get("limit"));
-    const rows = await listMessageSearchReferences({
-      ...(cursor
-        ? {
-            after: {
-              ...cursor.after,
-              createdAt: new Date(cursor.after.createdAt),
+    if (hasAroundParameter && aroundMessageId && aroundCreatedAtDate) {
+      const anchor = {
+        createdAt: aroundCreatedAtDate,
+        messageId: aroundMessageId,
+        ordinal: aroundOrdinal ?? 0,
+      };
+      const olderSize = Math.floor(Math.max(pageSize - 1, 0) / 2);
+      const newerSize = Math.max(pageSize - 1 - olderSize, 0);
+      const [olderRows, newerRows] = await Promise.all([
+        listMessageSearchReferences({
+          after: anchor,
+          conversationId,
+          kind: kindValue,
+          limit: olderSize + 1,
+          membershipWindows,
+          snapshotSequence,
+          userId: user.id,
+        }),
+        listMessageSearchReferences({
+          before: anchor,
+          conversationId,
+          kind: kindValue,
+          limit: newerSize + 1,
+          membershipWindows,
+          snapshotSequence,
+          userId: user.id,
+        }),
+      ]);
+      const hasOlder = olderRows.length > olderSize;
+      const hasNewer = newerRows.length > newerSize;
+      const olderItems = olderRows.slice(0, olderSize);
+      const newerItems = newerRows.slice(0, newerSize).toReversed();
+      const olderBoundary = olderItems.at(-1) ?? anchor;
+      const newerBoundary = newerRows.slice(0, newerSize).at(-1) ?? anchor;
+      const olderCursor = hasOlder
+        ? createSharedRefCursor(
+            {
+              after: {
+                createdAt: olderBoundary.createdAt.toISOString(),
+                messageId: olderBoundary.messageId,
+                ordinal: olderBoundary.ordinal,
+              },
+              direction: "older",
+              ...scope,
+              snapshotSequence,
             },
-          }
-        : {}),
+            keys.VIEWER_HASH_SECRET
+          )
+        : null;
+      const newerCursor = hasNewer
+        ? createSharedRefCursor(
+            {
+              after: {
+                createdAt: newerBoundary.createdAt.toISOString(),
+                messageId: newerBoundary.messageId,
+                ordinal: newerBoundary.ordinal,
+              },
+              direction: "newer",
+              ...scope,
+              snapshotSequence,
+            },
+            keys.VIEWER_HASH_SECRET
+          )
+        : null;
+      return Response.json({
+        coverageComplete,
+        hasMore: hasOlder || hasNewer,
+        items: [...newerItems, ...olderItems].map((item) => ({
+          createdAt: item.createdAt,
+          keyEpoch: item.keyEpoch,
+          kind: kindValue,
+          mediaKind: item.mediaKind,
+          messageId: item.messageId,
+          ordinal: item.ordinal,
+          ratchetIndex: item.ratchetIndex,
+          requiredId: item.requiredId,
+          revision: item.revision,
+          senderId: item.senderId,
+        })),
+        nextCursor: null,
+        snapshotSequence,
+        window: { hasNewer, hasOlder, newerCursor, olderCursor },
+      });
+    }
+    let cursorPosition: {
+      after?: { createdAt: Date; messageId: string; ordinal: number };
+      before?: { createdAt: Date; messageId: string; ordinal: number };
+    } = {};
+    if (cursor) {
+      const position = {
+        ...cursor.after,
+        createdAt: new Date(cursor.after.createdAt),
+      };
+      cursorPosition =
+        cursor.direction === "newer"
+          ? { before: position }
+          : { after: position };
+    }
+    const rows = await listMessageSearchReferences({
+      ...cursorPosition,
       conversationId,
       kind: kindValue,
       limit: pageSize + 1,
@@ -191,8 +311,12 @@ export async function GET(
       userId: user.id,
     });
     const hasMore = rows.length > pageSize;
-    const items = rows.slice(0, pageSize);
-    const last = items.at(-1);
+    const rowsInQueryOrder = rows.slice(0, pageSize);
+    const items =
+      cursor?.direction === "newer"
+        ? rowsInQueryOrder.toReversed()
+        : rowsInQueryOrder;
+    const last = rowsInQueryOrder.at(-1);
     const nextCursor =
       hasMore && last
         ? createSharedRefCursor(
@@ -202,6 +326,7 @@ export async function GET(
                 messageId: last.messageId,
                 ordinal: last.ordinal,
               },
+              direction: cursor?.direction ?? "older",
               ...scope,
               snapshotSequence,
             },
