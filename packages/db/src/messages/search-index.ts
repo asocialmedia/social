@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
+import type { PoolClient } from "pg";
 
 import { keys } from "../../keys";
 
@@ -22,6 +23,28 @@ function getSearchPool(): Pool {
     });
   }
   return searchPool;
+}
+
+async function lockMessageSearchCoverageRow(
+  client: PoolClient,
+  conversationId: string
+): Promise<void> {
+  await client.query(
+    `INSERT INTO public.message_search_coverage ("conversationId")
+     VALUES ($1)
+     ON CONFLICT ("conversationId") DO NOTHING`,
+    [conversationId]
+  );
+  const locked = await client.query(
+    `SELECT "conversationId"
+       FROM public.message_search_coverage
+      WHERE "conversationId" = $1
+      FOR UPDATE`,
+    [conversationId]
+  );
+  if (locked.rowCount !== 1) {
+    throw new Error("DM search coverage row could not be locked");
+  }
 }
 
 export interface SearchTermArtifact {
@@ -1454,6 +1477,7 @@ export async function persistSearchDocument(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockMessageSearchCoverageRow(client, artifact.conversationId);
     const source = await client.query<{
       createdAt: Date;
       deletedAt: Date | null;
@@ -1624,20 +1648,21 @@ export async function persistSearchDocument(
         coverageRow?.pendingSequence === undefined
           ? (coverageRow?.maxSequence ?? 0)
           : Math.max(0, coverageRow.pendingSequence - 1);
-      await client.query(
-        `INSERT INTO public.message_search_coverage
-           ("conversationId", "artifactsCommitted", "completedChangeSeq", "updatedAt")
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT ("conversationId") DO UPDATE
-           SET "artifactsCommitted" = public.message_search_coverage."artifactsCommitted" + $2,
-               "completedChangeSeq" = GREATEST(public.message_search_coverage."completedChangeSeq", $3),
-               "updatedAt" = now()`,
+      const updatedCoverage = await client.query(
+        `UPDATE public.message_search_coverage
+            SET "artifactsCommitted" = "artifactsCommitted" + $2,
+                "completedChangeSeq" = GREATEST("completedChangeSeq", $3),
+                "updatedAt" = now()
+          WHERE "conversationId" = $1`,
         [
           completed.conversationId,
           status === "indexed" ? 1 : 0,
           settledSequence,
         ]
       );
+      if (updatedCoverage.rowCount !== 1) {
+        throw new Error("DM search coverage row disappeared during indexing");
+      }
     }
 
     await client.query("COMMIT");
@@ -2046,6 +2071,17 @@ export async function markSearchOutboxUnreadable(input: {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const pending = await client.query(
+      `SELECT 1
+         FROM public.message_search_outbox
+        WHERE id = $1 AND revision = $2 AND "completedAt" IS NULL`,
+      [input.outboxId, input.revision]
+    );
+    if (pending.rowCount !== 1) {
+      await client.query("COMMIT");
+      return;
+    }
+    await lockMessageSearchCoverageRow(client, input.conversationId);
     const completed = await client.query<{ conversationId: string }>(
       `UPDATE public.message_search_outbox
           SET "completedAt" = now()
@@ -2070,16 +2106,17 @@ export async function markSearchOutboxUnreadable(input: {
         coverageRow?.pendingSequence === undefined
           ? (coverageRow?.maxSequence ?? 0)
           : Math.max(0, coverageRow.pendingSequence - 1);
-      await client.query(
-        `INSERT INTO public.message_search_coverage
-           ("conversationId", "unrecoverableEpochs", "completedChangeSeq", "updatedAt")
-         VALUES ($1, 1, $2, now())
-         ON CONFLICT ("conversationId") DO UPDATE
-           SET "unrecoverableEpochs" = public.message_search_coverage."unrecoverableEpochs" + 1,
-               "completedChangeSeq" = GREATEST(public.message_search_coverage."completedChangeSeq", $2),
-               "updatedAt" = now()`,
+      const updatedCoverage = await client.query(
+        `UPDATE public.message_search_coverage
+            SET "unrecoverableEpochs" = "unrecoverableEpochs" + 1,
+                "completedChangeSeq" = GREATEST("completedChangeSeq", $2),
+                "updatedAt" = now()
+          WHERE "conversationId" = $1`,
         [input.conversationId, settledSequence]
       );
+      if (updatedCoverage.rowCount !== 1) {
+        throw new Error("DM search coverage row disappeared after indexing");
+      }
     }
     await client.query("COMMIT");
   } catch (error) {

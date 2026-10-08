@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   closeMessageSearchPool,
   listMessageConversationChanges,
+  markSearchOutboxUnreadable,
   commitMessageSearchMutation,
   keys,
   prisma,
@@ -10,10 +11,15 @@ import {
 
 const RUN_ID = crypto.randomUUID();
 const CONVERSATION_ID = crypto.randomUUID();
+const UNREADABLE_CONVERSATION_ID = crypto.randomUUID();
 const OWNER_ID = `search-mutation-owner-${RUN_ID}`;
 const PEER_ID = `search-mutation-peer-${RUN_ID}`;
+const UNREADABLE_OWNER_ID = `search-mutation-unreadable-owner-${RUN_ID}`;
+const UNREADABLE_PEER_ID = `search-mutation-unreadable-peer-${RUN_ID}`;
 const MESSAGE_ID = crypto.randomUUID();
-const OUTBOX_IDS: string[] = [];
+const UNREADABLE_MESSAGE_ID = crypto.randomUUID();
+const UNREADABLE_OUTBOX_ID = crypto.randomUUID();
+const OUTBOX_IDS: string[] = [UNREADABLE_OUTBOX_ID];
 
 function assertLocalTestDatabase(): void {
   const databaseUrl = new URL(keys.DATABASE_URL);
@@ -45,24 +51,65 @@ beforeAll(async () => {
         id: PEER_ID,
         username: PEER_ID,
       },
+      {
+        displayName: UNREADABLE_OWNER_ID,
+        email: `${UNREADABLE_OWNER_ID}@example.test`,
+        id: UNREADABLE_OWNER_ID,
+        username: UNREADABLE_OWNER_ID,
+      },
+      {
+        displayName: UNREADABLE_PEER_ID,
+        email: `${UNREADABLE_PEER_ID}@example.test`,
+        id: UNREADABLE_PEER_ID,
+        username: UNREADABLE_PEER_ID,
+      },
     ]);
-    await tx.orm.public.MessageConversations.create({
-      id: CONVERSATION_ID,
-      pairKey: [OWNER_ID, PEER_ID].toSorted().join(":"),
-    });
+    await tx.orm.public.MessageConversations.createAll([
+      {
+        id: CONVERSATION_ID,
+        pairKey: [OWNER_ID, PEER_ID].toSorted().join(":"),
+      },
+      {
+        changeSeq: 1,
+        id: UNREADABLE_CONVERSATION_ID,
+        pairKey: [UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID].toSorted().join(":"),
+      },
+    ]);
     await tx.orm.public.MessageConversationMembers.createAll(
-      [OWNER_ID, PEER_ID].map((userId) => ({
-        conversationId: CONVERSATION_ID,
-        userId,
-      }))
+      [
+        [CONVERSATION_ID, OWNER_ID],
+        [CONVERSATION_ID, PEER_ID],
+        [UNREADABLE_CONVERSATION_ID, UNREADABLE_OWNER_ID],
+        [UNREADABLE_CONVERSATION_ID, UNREADABLE_PEER_ID],
+      ].map(([conversationId, userId]) => ({ conversationId, userId }))
     );
-    await tx.orm.public.Messages.create({
-      ciphertext: "test-ciphertext",
-      conversationId: CONVERSATION_ID,
-      id: MESSAGE_ID,
-      iv: "test-iv",
-      ratchetIndex: 0,
-      senderId: OWNER_ID,
+    await tx.orm.public.Messages.createAll([
+      {
+        ciphertext: "test-ciphertext",
+        conversationId: CONVERSATION_ID,
+        id: MESSAGE_ID,
+        iv: "test-iv",
+        ratchetIndex: 0,
+        senderId: OWNER_ID,
+      },
+      {
+        ciphertext: "unreadable-ciphertext",
+        conversationId: UNREADABLE_CONVERSATION_ID,
+        creationSequence: 1,
+        id: UNREADABLE_MESSAGE_ID,
+        iv: "unreadable-iv",
+        ratchetIndex: 0,
+        senderId: UNREADABLE_OWNER_ID,
+      },
+    ]);
+    await tx.orm.public.MessageSearchOutbox.create({
+      audienceUserIds: [UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID],
+      changeSequence: 1,
+      conversationId: UNREADABLE_CONVERSATION_ID,
+      id: UNREADABLE_OUTBOX_ID,
+      kind: "upsert",
+      messageId: UNREADABLE_MESSAGE_ID,
+      revision: 1,
     });
   });
 });
@@ -76,16 +123,45 @@ afterAll(async () => {
   await prisma.orm.public.MessageConversationChanges.where({
     conversationId: CONVERSATION_ID,
   }).deleteAndCount();
-  await prisma.orm.public.MessageConversations.where({
-    id: CONVERSATION_ID,
-  }).deleteAndCount();
+  await prisma.orm.public.MessageConversations.where((conversation) =>
+    conversation.id.in([CONVERSATION_ID, UNREADABLE_CONVERSATION_ID])
+  ).deleteAndCount();
   await prisma.orm.public.Users.where((user) =>
-    user.id.in([OWNER_ID, PEER_ID])
+    user.id.in([OWNER_ID, PEER_ID, UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID])
   ).deleteAndCount();
   await closeMessageSearchPool();
 });
 
 describe("commitMessageSearchMutation", () => {
+  test("settles an unreadable outbox item under the coverage lock", async () => {
+    await markSearchOutboxUnreadable({
+      changeSequence: 1,
+      conversationId: UNREADABLE_CONVERSATION_ID,
+      outboxId: UNREADABLE_OUTBOX_ID,
+      revision: 1,
+    });
+    await markSearchOutboxUnreadable({
+      changeSequence: 1,
+      conversationId: UNREADABLE_CONVERSATION_ID,
+      outboxId: crypto.randomUUID(),
+      revision: 1,
+    });
+
+    const [outbox, coverage] = await Promise.all([
+      prisma.orm.public.MessageSearchOutbox.select("completedAt")
+        .where({ id: UNREADABLE_OUTBOX_ID })
+        .first(),
+      prisma.orm.public.MessageSearchCoverage.select(
+        "completedChangeSeq",
+        "unrecoverableEpochs"
+      )
+        .where({ conversationId: UNREADABLE_CONVERSATION_ID })
+        .first(),
+    ]);
+    expect(outbox?.completedAt).toBeTruthy();
+    expect(coverage).toEqual({ completedChangeSeq: 1, unrecoverableEpochs: 1 });
+  });
+
   test("commits the revision, sequence, and outbox event as one mutation", async () => {
     const editRequests = await Promise.all(
       ["rewrite-a", "rewrite-b"].map((ciphertext) =>
@@ -156,7 +232,7 @@ describe("commitMessageSearchMutation", () => {
       "kind",
       "revision"
     )
-      .where((row) => row.id.in(OUTBOX_IDS))
+      .where({ conversationId: CONVERSATION_ID })
       .all();
     const changes = await prisma.orm.public.MessageConversationChanges.select(
       "audienceUserIds",
