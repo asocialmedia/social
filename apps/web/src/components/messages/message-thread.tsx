@@ -82,7 +82,10 @@ import {
   consumeSelfLeave,
   SELF_LEAVE_DESCRIPTION,
 } from "@/lib/messages/access-ended";
-import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
+import {
+  messageWindowIncludesLatest,
+  reconcileAnchoredWindow,
+} from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
   foldMessageIntoPages,
@@ -215,8 +218,8 @@ import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
 import type { MessageGroupMeta } from "./message-grouping";
 import {
-  pagesToDropForTranscriptHistory,
   pagesToDropForViewerHistory,
+  TRANSCRIPT_MAX_HISTORY_PAGES,
   trimOldestPages,
 } from "./viewer-history-window";
 
@@ -452,10 +455,11 @@ export function jumpTargetSource(input: {
 // race their cache writes with whichever arrived second -- which is how a
 // "go to latest" ends up not at the latest.
 export function needsTailReturn(input: {
+  hasLatestPage: boolean;
   hasNextPage: boolean;
   inFlight: boolean;
 }): boolean {
-  return input.hasNextPage && !input.inFlight;
+  return (input.hasNextPage || !input.hasLatestPage) && !input.inFlight;
 }
 
 // The transcript's loading prompt. Two strings, not one per mechanism: every
@@ -924,6 +928,7 @@ export function MessageThread({
         ? { cursor: firstPage.previousCursor, kind: "older" }
         : undefined,
     initialPageParam: NEWEST_PAGE,
+    maxPages: TRANSCRIPT_MAX_HISTORY_PAGES,
     queryFn: ({ pageParam }) =>
       fetchMessages(conversationId, pageParam, HISTORY_PAGE_SIZE),
     queryKey: ["messages", conversationId] as const,
@@ -3963,63 +3968,6 @@ export function MessageThread({
     messagesQuery,
   ]);
 
-  // Bound the transcript's own loaded history. The infinite query has no page
-  // cap, so scrolling up a long conversation retains every page ever fetched
-  // (measured ~102MB for a loaded 200k-message DM). Once the reader has moved
-  // well clear of the oldest loaded rows, those pages are dead weight and are
-  // dropped.
-  //
-  // Gated on the same conditions as the viewer's trim, for the same reason: a
-  // page dropped while the near-top auto-loader is mid-flight, or during an
-  // older walk, would be re-requested immediately and spin in a load/trim loop.
-  // Dropping pages above the viewport is absorbed by the virtualizer's scroll
-  // compensation, which is the mechanism the viewer's trim already relies on.
-  useEffect(() => {
-    if (mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
-      return;
-    }
-    const { data } = messagesQuery;
-    const [firstItem] = virtualItems;
-    if (!data || !firstItem) {
-      return;
-    }
-    const anchorMessageId = allMessages[firstItem.index]?.id ?? null;
-    const drop = pagesToDropForTranscriptHistory({
-      anchorMessageId,
-      findPageIndex: (id) =>
-        data.pages.findIndex((page) =>
-          page.messages.some((message) => message.id === id)
-        ),
-      firstVisibleIndex: firstItem.index,
-      pageCount: data.pages.length,
-    });
-    if (drop <= 0) {
-      return;
-    }
-    queryClient.setQueryData<MessagesInfiniteData>(
-      ["messages", conversationId] as const,
-      (old) => {
-        if (!old) {
-          return old;
-        }
-        const { pages, pageParams } = trimOldestPages(
-          old.pages,
-          old.pageParams,
-          drop
-        );
-        return { ...old, pageParams, pages };
-      }
-    );
-  }, [
-    allMessages,
-    conversationId,
-    isFetchingPreviousPage,
-    mediaViewerKey,
-    messagesQuery,
-    queryClient,
-    virtualItems,
-  ]);
-
   // Close the viewer and land the transcript on the image the user was viewing.
   // Trimming while open can shift message indices, so re-anchor explicitly
   // instead of trusting the old scroll offset.
@@ -4077,7 +4025,20 @@ export function MessageThread({
   // Put the transcript back on the newest messages when a jump left it anchored
   // mid-history. Resolves false when the read failed.
   const returnToTail = useCallback(async (): Promise<boolean> => {
-    if (!needsTailReturn({ hasNextPage, inFlight: tailReturnRef.current })) {
+    const current = queryClient.getQueryData<MessagesInfiniteData>([
+      "messages",
+      conversationId,
+    ]);
+    const hasLatestPage = current
+      ? messageWindowIncludesLatest(current.pages, current.pageParams)
+      : false;
+    if (
+      !needsTailReturn({
+        hasLatestPage,
+        hasNextPage,
+        inFlight: tailReturnRef.current,
+      })
+    ) {
       return true;
     }
     tailReturnRef.current = true;

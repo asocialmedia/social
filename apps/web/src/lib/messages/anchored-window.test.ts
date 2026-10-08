@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { MessageData, MessagePage } from "@/lib/messages/types";
 
-import { reconcileAnchoredWindow } from "./anchored-window";
+import {
+  messageWindowIncludesLatest,
+  reconcileAnchoredWindow,
+} from "./anchored-window";
 
 const CONVO = "c1";
 
@@ -129,5 +132,40 @@ describe("reconcileAnchoredWindow", () => {
     expect(result.anchorIndex).toBe(0);
     expect(result.nextCursor).toBe("newer-cursor");
     expect(result.previousCursor).toBe("older-cursor");
+  });
+});
+
+describe("messageWindowIncludesLatest", () => {
+  test("recognizes a fresh newest-page read", () => {
+    expect(
+      messageWindowIncludesLatest(
+        [page([message("latest", 2)])],
+        [{ kind: "older" }]
+      )
+    ).toBe(true);
+  });
+
+  test("recognizes an anchored page that has reached the conversation tail", () => {
+    expect(
+      messageWindowIncludesLatest(
+        [page([message("latest", 2)], { nextCursor: null })],
+        [{ kind: "around", messageId: "latest" }]
+      )
+    ).toBe(true);
+  });
+
+  test("detects when the newest page was evicted from a bounded window", () => {
+    expect(
+      messageWindowIncludesLatest(
+        [page([message("older", 1)])],
+        [{ cursor: "oldest", kind: "older" }]
+      )
+    ).toBe(false);
+  });
+
+  test("fails closed when cache pages and cursors are misaligned", () => {
+    expect(
+      messageWindowIncludesLatest([page([message("latest", 2)])], [])
+    ).toBe(false);
   });
 });

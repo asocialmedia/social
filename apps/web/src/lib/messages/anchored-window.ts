@@ -31,6 +31,25 @@
 
 import type { MessageData, MessagePage } from "@/lib/messages/types";
 
+export type MessageHistoryPageParam =
+  | { cursor?: string; kind: "older" }
+  | { kind: "around"; messageId: string }
+  | { cursor: string; kind: "newer" };
+
+export function messageWindowIncludesLatest(
+  pages: readonly MessagePage[],
+  pageParams: readonly MessageHistoryPageParam[]
+): boolean {
+  if (pages.length === 0 || pages.length !== pageParams.length) {
+    return false;
+  }
+  const lastParam = pageParams.at(-1);
+  return (
+    (lastParam?.kind === "older" && !lastParam.cursor) ||
+    pages.at(-1)?.nextCursor === null
+  );
+}
+
 // Newest last, matching every page the messages API returns.
 function isNewerThan(candidate: MessageData, reference: MessageData): boolean {
   const at = new Date(candidate.createdAt).getTime();
