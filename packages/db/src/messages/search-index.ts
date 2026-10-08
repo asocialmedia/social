@@ -2237,6 +2237,73 @@ const SEARCH_FRAGMENT_FREQUENCY_SQL = `WITH query_fragments AS MATERIALIZED (
                query.fragment_ordinal ASC
       LIMIT 1`;
 
+const SEARCH_MESSAGE_COUNT_SQL = `WITH query_fragments AS MATERIALIZED (
+       SELECT value, ordinality AS fragment_ordinal
+         FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
+     ),
+     matching_terms AS MATERIALIZED (
+       SELECT query.fragment_ordinal,
+              ARRAY_AGG(term.id) AS term_ids
+         FROM query_fragments AS query
+         JOIN public.message_search_terms AS term
+           ON term."conversationId" = $1
+          AND term."gramKeys" @> ARRAY(
+            SELECT jsonb_array_elements_text(query.value->'grams')
+          )
+          AND strpos(term.normalized, query.value->>'text') > 0
+        GROUP BY query.fragment_ordinal
+     )
+     SELECT COUNT(*)::text AS count
+       FROM public.message_search_documents AS d
+       JOIN public.messages AS m
+         ON m.id = d."messageId"
+        AND m."conversationId" = d."conversationId"
+        AND m.revision = d.revision
+       JOIN public.message_conversation_members AS member
+         ON member."conversationId" = d."conversationId"
+        AND member."userId" = $2
+      WHERE d."conversationId" = $1
+        AND d."termIds" && $6::int[]
+        AND (SELECT COUNT(*) FROM matching_terms) =
+            (SELECT COUNT(*) FROM query_fragments)
+        AND NOT EXISTS (
+          SELECT 1
+            FROM matching_terms AS matched_term
+           WHERE NOT d."termIds" && matched_term.term_ids
+        )
+        AND m."deletedAt" IS NULL
+        AND m."keyEpoch" IS NOT NULL
+        AND m."creationSequence" <= $4
+        AND (
+          $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+          OR NOT EXISTS (
+            SELECT 1
+              FROM public.message_search_outbox AS newer_revision
+             WHERE newer_revision."messageId" = m.id
+               AND newer_revision."changeSequence" > $4
+          )
+        )
+        AND EXISTS (
+          SELECT 1
+            FROM public.message_conversation_keys AS readable_key
+           WHERE readable_key."conversationId" = d."conversationId"
+             AND readable_key."ownerUserId" = $2
+             AND readable_key.version = m."keyEpoch"
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_hidden AS hidden
+           WHERE hidden."messageId" = m.id AND hidden."userId" = $2
+        )
+        AND (
+          $5::jsonb IS NULL OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements($5::jsonb) AS membership_window
+             WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+               AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
+          )
+        )`;
+
 const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = `WITH ordered_documents AS MATERIALIZED (
        SELECT d."conversationId",
               d."createdAt",
@@ -2934,77 +3001,61 @@ export async function countMessageSearchCandidates(input: {
   snapshotSequence: number;
   userId: string;
 }): Promise<number> {
+  if (input.fragments.length === 0) {
+    return 0;
+  }
   const windows = input.membershipWindows.map((window) => ({
     after: window.after ? pgTimestamp(window.after) : null,
     before: window.before ? pgTimestamp(window.before) : null,
   }));
   const client = await getSearchPool().connect();
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     await client.query(`SET LOCAL statement_timeout = '120s'`);
+    const frequency = await client.query<{
+      candidateCount: string;
+      fragmentOrdinal: number;
+      termIds: number[];
+    }>(SEARCH_FRAGMENT_FREQUENCY_SQL, [
+      input.conversationId,
+      JSON.stringify(input.fragments),
+    ]);
+    const [selectiveFragment] = frequency.rows;
+    if (!selectiveFragment) {
+      throw new Error("Postgres did not return a DM search count estimate");
+    }
+    if (!Number.isSafeInteger(selectiveFragment.fragmentOrdinal)) {
+      throw new TypeError(
+        "Postgres returned an invalid DM search count fragment ordinal"
+      );
+    }
+    if (!/^\d+$/u.test(selectiveFragment.candidateCount)) {
+      throw new Error("Postgres returned an invalid DM search count estimate");
+    }
+    if (
+      !Array.isArray(selectiveFragment.termIds) ||
+      selectiveFragment.termIds.some(
+        (termId) => !Number.isSafeInteger(termId) || termId < 1
+      )
+    ) {
+      throw new Error("Postgres returned invalid DM search count term IDs");
+    }
+    if (BigInt(selectiveFragment.candidateCount) === 0n) {
+      await client.query("COMMIT");
+      return 0;
+    }
+    if (selectiveFragment.termIds.length === 0) {
+      throw new Error("Postgres returned no terms for a non-empty count");
+    }
     const result = await client.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-         FROM public.message_search_documents AS d
-         JOIN public.messages AS m
-           ON m.id = d."messageId"
-          AND m."conversationId" = d."conversationId"
-          AND m.revision = d.revision
-         JOIN public.message_conversation_members AS member
-           ON member."conversationId" = d."conversationId"
-          AND member."userId" = $2
-        WHERE d."conversationId" = $1
-          AND m."deletedAt" IS NULL
-          AND m."keyEpoch" IS NOT NULL
-          AND m."creationSequence" <= $4
-          AND (
-            $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
-            OR NOT EXISTS (
-              SELECT 1
-                FROM public.message_search_outbox AS newer_revision
-               WHERE newer_revision."messageId" = m.id
-                 AND newer_revision."changeSequence" > $4
-            )
-          )
-          AND EXISTS (
-            SELECT 1
-              FROM public.message_conversation_keys AS readable_key
-             WHERE readable_key."conversationId" = d."conversationId"
-               AND readable_key."ownerUserId" = $2
-               AND readable_key.version = m."keyEpoch"
-          )
-          AND NOT EXISTS (
-            SELECT 1
-              FROM public.message_hidden AS hidden
-             WHERE hidden."messageId" = m.id AND hidden."userId" = $2
-          )
-          AND NOT EXISTS (
-            SELECT 1
-              FROM jsonb_array_elements($3::jsonb) AS fragment
-             WHERE NOT EXISTS (
-               SELECT 1
-                 FROM public.message_search_terms AS term
-                WHERE term."conversationId" = d."conversationId"
-                  AND d."termIds" @> ARRAY[term.id]
-                  AND term."gramKeys" @> ARRAY(
-                    SELECT jsonb_array_elements_text(fragment.value->'grams')
-                  )
-                  AND strpos(term.normalized, fragment.value->>'text') > 0
-             )
-          )
-          AND (
-            $5::jsonb IS NULL OR EXISTS (
-              SELECT 1
-                FROM jsonb_array_elements($5::jsonb) AS membership_window
-               WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
-                 AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
-            )
-          )`,
+      SEARCH_MESSAGE_COUNT_SQL,
       [
         input.conversationId,
         input.userId,
         JSON.stringify(input.fragments),
         input.snapshotSequence,
         JSON.stringify(windows),
+        selectiveFragment.termIds,
       ]
     );
     const count = Number(result.rows[0]?.count);

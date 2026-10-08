@@ -113,25 +113,38 @@ beforeAll(async () => {
       messageId: HIDDEN_MESSAGE_ID,
       userId: OWNER_ID,
     });
-    const term = await tx.orm.public.MessageSearchTerms.create({
-      conversationId: CONVERSATION_ID,
-      gramKeys: searchGrams("needle"),
-      normalized: "needle",
-    });
+    const [needleTerm, threadTerm] =
+      await tx.orm.public.MessageSearchTerms.createAll([
+        {
+          conversationId: CONVERSATION_ID,
+          documentFrequency: 2,
+          gramKeys: searchGrams("needle"),
+          normalized: "needle",
+        },
+        {
+          conversationId: CONVERSATION_ID,
+          documentFrequency: 1,
+          gramKeys: searchGrams("thread"),
+          normalized: "thread",
+        },
+      ]);
+    if (!needleTerm || !threadTerm) {
+      throw new Error("expected both search count fixture terms");
+    }
     await tx.orm.public.MessageSearchDocuments.createAll([
       {
         conversationId: CONVERSATION_ID,
         createdAt: toPrismaDateTime(new Date("2026-10-08T00:00:00.000Z")),
         messageId: VISIBLE_MESSAGE_ID,
         revision: 1,
-        termIds: [term.id],
+        termIds: [needleTerm.id, threadTerm.id],
       },
       {
         conversationId: CONVERSATION_ID,
         createdAt: toPrismaDateTime(new Date("2026-10-08T00:00:01.000Z")),
         messageId: HIDDEN_MESSAGE_ID,
         revision: 1,
-        termIds: [term.id],
+        termIds: [needleTerm.id],
       },
     ]);
   });
@@ -276,6 +289,18 @@ describe("durable DM search counts", () => {
       userId: claimed.userId,
     });
     expect(exactCount).toBe(1);
+    await expect(
+      countMessageSearchCandidates({
+        conversationId: CONVERSATION_ID,
+        fragments: [
+          { grams: searchGrams("needle"), text: "needle" },
+          { grams: searchGrams("thread"), text: "thread" },
+        ],
+        membershipWindows: [{ after: null, before: null }],
+        snapshotSequence: 2,
+        userId: OWNER_ID,
+      })
+    ).resolves.toBe(1);
     await completeMessageSearchCountRequest(request.id, exactCount);
     await expect(
       getMessageSearchCountRequestStatus({
