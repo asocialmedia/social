@@ -22,7 +22,7 @@ export const MESSAGES_DB_NAME = "asm-messages";
 
 // The row table went back to one record per row; existing search indexes are
 // dropped and rebuilt by walking history, while identity material is never reset.
-export const MESSAGES_DB_VERSION = 11;
+export const MESSAGES_DB_VERSION = 12;
 export const RESET_SEARCH_STORES_BELOW_VERSION = 9;
 // The last layout the text-index reset targets. Tests that need "a database from
 // before the per-row layout" seed THIS version, not MESSAGES_DB_VERSION - 1: the
@@ -57,6 +57,17 @@ export const SEARCH_ROW_IDS_STORE = "search-row-ids";
 // is still present. One record per row, so a write costs O(batch) rather than
 // O(conversation).
 export const SEARCH_ROWS_STORE = "search-rows";
+
+export const OFFLINE_SEARCH_DOCUMENTS_STORE = "offline-search-documents";
+export const OFFLINE_SEARCH_PAYLOADS_STORE = "offline-search-payloads";
+export const OFFLINE_SEARCH_STATE_STORE = "offline-search-state";
+export const OFFLINE_SEARCH_STORES = [
+  OFFLINE_SEARCH_DOCUMENTS_STORE,
+  OFFLINE_SEARCH_PAYLOADS_STORE,
+  OFFLINE_SEARCH_STATE_STORE,
+] as const;
+export const OFFLINE_SEARCH_DOCUMENTS_BY_CONVERSATION_INDEX =
+  "by-conversation-created-at";
 
 // Superseded search shapes. A sealed whole-table record and its separate
 // allocator are gone: they held the row table as one blob, so every write
@@ -132,9 +143,17 @@ export function ensureMessagesSchema(
     IDENTITY_STORE,
     ...SEARCH_STORES,
     ...SHARED_REFS_STORES,
+    ...OFFLINE_SEARCH_STORES,
   ]) {
     if (!db.objectStoreNames.contains(name)) {
-      db.createObjectStore(name);
+      const store = db.createObjectStore(name);
+      if (name === OFFLINE_SEARCH_DOCUMENTS_STORE) {
+        store.createIndex(OFFLINE_SEARCH_DOCUMENTS_BY_CONVERSATION_INDEX, [
+          "conversationId",
+          "createdAt",
+          "id",
+        ]);
+      }
     }
   }
   // Superseded shapes are dropped so they cannot be mistaken for a valid index.
