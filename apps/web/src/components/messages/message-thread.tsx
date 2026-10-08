@@ -5854,7 +5854,7 @@ function ThreadHeader({
 
       <button
         aria-label="Online friends"
-        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full lg:hidden"
+        className="icon-btn-3d hidden h-8 w-8 shrink-0 items-center justify-center rounded-full md:flex lg:hidden"
         onClick={onToggleRail}
         title="Online friends"
         type="button"
@@ -5867,7 +5867,7 @@ function ThreadHeader({
           reads as the way out of THAT pane, which is the one thing it does not do. */}
       <button
         aria-label="Close chat"
-        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full lg:hidden"
+        className="icon-btn-3d hidden h-8 w-8 shrink-0 items-center justify-center rounded-full md:flex lg:hidden"
         onClick={onBack}
         title="Close chat"
         type="button"
