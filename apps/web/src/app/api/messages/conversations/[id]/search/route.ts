@@ -25,6 +25,7 @@ import {
   messageSearchQueryHash,
   readMessageSearchCursor,
 } from "@/lib/messages/search-cursor";
+import { recordMessageSearchApiMetric } from "@/lib/messages/search-telemetry";
 import { getConversationForUser } from "@/lib/messages/server";
 
 const SEARCH_LIMIT = 20;
@@ -224,6 +225,8 @@ export async function POST(
     userId: user.id,
   });
 
+  const searchStartedAt = performance.now();
+  let searchOutcome: "success" | "unavailable" = "unavailable";
   try {
     const candidates = await searchMessageCandidates({
       before,
@@ -302,7 +305,7 @@ export async function POST(
         console.error("Failed to create a DM search count request");
       }
     }
-    return Response.json({
+    const response = Response.json({
       countToken,
       coverage: {
         artifactsCommitted: coverage?.artifactsCommitted ?? 0,
@@ -322,10 +325,18 @@ export async function POST(
       })),
       nextCursor,
     });
+    searchOutcome = "success";
+    return response;
   } catch {
     return Response.json(
       { error: "Search is temporarily unavailable. Please try again." },
       { status: 503 }
     );
+  } finally {
+    recordMessageSearchApiMetric({
+      durationMs: performance.now() - searchStartedAt,
+      outcome: searchOutcome,
+      route: "search",
+    });
   }
 }

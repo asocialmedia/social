@@ -71,7 +71,7 @@ export function createMessageSearchWorkerMetricSink(): MessageSearchWorkerMetric
       },
     };
   } catch {
-    return { record: (event) => undefined };
+    return { record: (_event) => { /* empty */ } };
   }
 }
 
