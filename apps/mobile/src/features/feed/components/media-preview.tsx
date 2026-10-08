@@ -104,6 +104,7 @@ function MediaAction({
   selected?: boolean;
   surface?: Pick<ComponentProps<typeof Gradient3D>, "colors" | "shadows">;
 }) {
+  const activePill = centered && selected ? surface : undefined;
   return (
     <Pressable
       accessibilityLabel={label}
@@ -119,37 +120,64 @@ function MediaAction({
       }}
     >
       {({ pressed }) => (
-        <View
-          className="flex-row items-center gap-3"
-          collapsable={false}
-          testID={`media-action-content-${label}`}
-          style={{
-            opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
-          }}
-        >
+        <>
+          {activePill ? (
+            <View
+              pointerEvents="none"
+              style={{
+                bottom: 0,
+                left: 4,
+                position: "absolute",
+                right: 4,
+                top: 0,
+              }}
+            >
+              <Gradient3D
+                {...activePill}
+                style={{
+                  height: "100%",
+                  opacity: busy ? 0.5 : 1,
+                  width: "100%",
+                }}
+              />
+            </View>
+          ) : null}
           <View
-            className="items-center justify-center"
-            style={{ height: 28, width: 28 }}
-          >
-            {selected && surface ? (
-              <Gradient3D {...surface} style={{ height: 28, width: 28 }}>
-                <Icon color="#ffffff" fill="#ffffff" size={16} />
-              </Gradient3D>
-            ) : (
-              <Icon color={iconColor} size={22} />
-            )}
-          </View>
-          <Text
+            className="flex-row items-center gap-3"
+            collapsable={false}
+            testID={`media-action-content-${label}`}
             style={{
-              color,
-              fontFamily: "SofiaProMed",
-              fontSize: 15,
-              lineHeight: 22,
+              opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
             }}
           >
-            {label}
-          </Text>
-        </View>
+            <View
+              className="items-center justify-center"
+              style={{ height: 28, width: 28 }}
+            >
+              {selected && surface && !centered ? (
+                <Gradient3D {...surface} style={{ height: 28, width: 28 }}>
+                  <Icon color="#ffffff" fill="#ffffff" size={16} />
+                </Gradient3D>
+              ) : (
+                <Icon
+                  color={activePill ? "#ffffff" : iconColor}
+                  fill={activePill ? "#ffffff" : "none"}
+                  size={22}
+                />
+              )}
+            </View>
+            <Text
+              style={{
+                color: activePill ? "#ffffff" : color,
+                fontFamily: "SofiaProMed",
+                fontSize: 15,
+                lineHeight: 22,
+              }}
+            >
+              {label}
+            </Text>
+          </View>
+        </>
       )}
     </Pressable>
   );
@@ -688,13 +716,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                     paddingVertical: 2,
                   }}
                 >
-                  <View
-                    className="mb-1 flex-row pb-1"
-                    style={{
-                      borderBottomColor: panel.border,
-                      borderBottomWidth: 1,
-                    }}
-                  >
+                  <View className="flex-row">
                     {/* oxlint-disable-next-line react/refs -- descriptors contain press callbacks; refs are read only on a press */}
                     {voteActions.map((item) => (
                       <MediaAction
