@@ -40,6 +40,27 @@ describe("flattenUniquePosts", () => {
 });
 
 describe("prependPosts", () => {
+  test("repeated head batches deduplicate within themselves and retain the pagination cursor", () => {
+    const cache = new FeedCache();
+    cache.applyPage("feed", [post("old")], "next-page", {}, false);
+    const first = prependPosts(cache.get("feed").pages, [
+      post("one"),
+      post("one"),
+    ]);
+    cache.patch("feed", { pages: first.pages });
+    const second = prependPosts(cache.get("feed").pages, [
+      post("two"),
+      post("one"),
+    ]);
+    cache.patch("feed", { pages: second.pages });
+    expect(cache.get("feed").pages[0]?.map((item) => item.id)).toEqual([
+      "two",
+      "one",
+      "old",
+    ]);
+    expect(cache.get("feed").cursor).toBe("next-page");
+    expect(cache.get("feed").hasMore).toBe(true);
+  });
   test("prepends unseen to page one only", () => {
     const { added, pages } = prependPosts(
       [[post("b")], [post("c")]],
@@ -330,4 +351,30 @@ describe("FeedCache batched reconciliation", () => {
     cache.invalidateAll();
     expect(seen[1]).toBe(null);
   });
+});
+
+test("next-day launch paints stale disk rows with their original age until refresh", () => {
+  feedCache.clear();
+  const fetchedAt = Date.now() - 24 * 60 * 60 * 1000;
+  const saved = {
+    cursor: null,
+    fetchedAt,
+    hasMore: false,
+    pageCursors: [null],
+    pages: [[post("yesterday")]],
+  };
+  expect(restoreFeedCache({ "latest:viewer": saved })).toBe(1);
+  const entry = feedCache.get("latest:viewer");
+  expect(entry.pages[0]?.[0]?.id).toBe("yesterday");
+  expect(entry.fetchedAt).toBe(fetchedAt);
+  expect(entry.stale).toBe(true);
+  expect(
+    restoreFeedCache({
+      expired: { ...saved, fetchedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 },
+    })
+  ).toBe(0);
+  expect(
+    restoreFeedCache({ future: { ...saved, fetchedAt: Date.now() + 60_000 } })
+  ).toBe(0);
+  feedCache.clear();
 });

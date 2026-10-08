@@ -118,6 +118,18 @@ import { MediaRouteSkeleton } from "./media-route-skeleton";
 const VIEWER_CHIP_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.28), inset 0 1px 2px rgba(255, 255, 255, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.45)";
 
+// Bottom action row sizing. Web's panel mixes h-11 (44 eddie) with h-7 (28
+// vote) and h-9 (36 share/bookmark), which reads mismatched on a phone. The
+// last pass forced everything to 36, which flipped the problem: the bare vote
+// buttons (36 + 21px glyphs in divider grey) dwarfed the eddie chip. Split
+// the difference: the eddie pill keeps a 36px height with an 18px glyph so it
+// stays the primary target, while the bare icon buttons drop to 32px visual
+// (44px touch via hitSlop) with matching 18px glyphs in white. Same glyph,
+// same white, level baseline.
+const MEDIA_EDDIE_HEIGHT = 36;
+const MEDIA_ICON_SIZE = 32;
+const MEDIA_ACTION_GLYPH = 18;
+
 // Web marks the live captions/transcript toggles with `border-orange-500/60`,
 // which on native is the chip's outer ring.
 const VIEWER_CHIP_ACTIVE_SHADOWS =
@@ -763,10 +775,18 @@ export function PostMediaScreen({
         <Pressable
           accessibilityLabel="Back to post"
           accessibilityRole="button"
+          hitSlop={6}
           onPress={handleClose}
-          style={styles.loginBtn}
+          style={({ pressed }) => [pressed && styles.circleBtnPressed]}
         >
-          <Text style={styles.loginText}>Back to post</Text>
+          <Gradient3D
+            colors={ORANGE_GRADIENT}
+            radius={9999}
+            shadows={ACCENT_CHIP_SHADOWS}
+            style={styles.loginBtn}
+          >
+            <Text style={styles.loginText}>Back to post</Text>
+          </Gradient3D>
         </Pressable>
       </View>
     );
@@ -848,7 +868,13 @@ export function PostMediaScreen({
   };
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    // Full-bleed stage: no top padding, so the media centres in the true
+    // viewport the way web's viewer does. Insetting the root by insets.top
+    // shrank the stage and pushed the image's centre down by half the inset,
+    // which is what read as "not vertically centred". The close/share buttons
+    // already offset themselves by insets.top, so they stay clear of the
+    // status bar.
+    <View style={styles.root}>
       <FlatList
         data={media}
         getItemLayout={(_, index) => ({
@@ -1043,7 +1069,7 @@ export function PostMediaScreen({
                       fill={
                         (post._count?.comments ?? 0) > 0 ? "#ffffff" : "none"
                       }
-                      size={18}
+                      size={MEDIA_ACTION_GLYPH}
                     />
                     <Text style={styles.eddiesText}>
                       {post._count?.comments ?? 0}
@@ -1053,8 +1079,11 @@ export function PostMediaScreen({
                 <VoteCluster
                   aura={post.aura ?? 0}
                   authorName={displayName}
+                  inactiveColor="#ffffff"
+                  labelColor="#ffffff"
                   onRequireLogin={requireLogin}
                   postId={post.id}
+                  size={MEDIA_ICON_SIZE}
                   userVote={getUserVote(post)}
                   viewerId={viewerId ?? null}
                 />
@@ -1063,15 +1092,18 @@ export function PostMediaScreen({
                 <Pressable
                   accessibilityLabel="Share this media"
                   accessibilityRole="button"
+                  hitSlop={6}
                   onPress={() => setShareOpen(true)}
-                  style={styles.iconHit}
+                  style={styles.mediaActionHit}
                 >
-                  <Share2 color="#ffffff" size={18} />
+                  <Share2 color="#ffffff" size={MEDIA_ACTION_GLYPH} />
                 </Pressable>
                 <BookmarkToggle
+                  inactiveColor="#ffffff"
                   initialBookmarked={isBookmarkedByUser(post, viewerId)}
                   onRequireLogin={requireLogin}
                   postId={post.id}
+                  size={MEDIA_ICON_SIZE}
                   viewerId={viewerId ?? null}
                 />
               </View>
@@ -1271,9 +1303,12 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
   },
   eddiesChip: {
+    alignItems: "center",
     flexDirection: "row",
     gap: 6,
-    height: 44,
+    height: MEDIA_EDDIE_HEIGHT,
+    justifyContent: "center",
+    minWidth: MEDIA_EDDIE_HEIGHT,
     paddingHorizontal: 14,
   },
   eddiesText: {
@@ -1282,6 +1317,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontVariant: ["tabular-nums"],
     fontWeight: "normal",
+    lineHeight: 18,
   },
   handle: {
     color: "rgba(255, 255, 255, 0.7)",
@@ -1305,11 +1341,11 @@ const styles = StyleSheet.create({
   },
   loginBtn: {
     alignItems: "center",
-    backgroundColor: "#ff9500",
-    borderRadius: 9999,
+    flexDirection: "row",
+    height: 44,
+    justifyContent: "center",
     marginTop: 8,
     paddingHorizontal: 24,
-    paddingVertical: 10,
   },
   loginText: {
     color: "#ffffff",
@@ -1320,6 +1356,12 @@ const styles = StyleSheet.create({
   media: {
     height: "100%",
     width: "100%",
+  },
+  mediaActionHit: {
+    alignItems: "center",
+    height: MEDIA_ICON_SIZE,
+    justifyContent: "center",
+    width: MEDIA_ICON_SIZE,
   },
   moderatedWrap: {
     paddingHorizontal: 24,

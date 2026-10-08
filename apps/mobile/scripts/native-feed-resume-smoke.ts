@@ -1,7 +1,12 @@
 // Run against an installed release APK with real feed posts.
 // Usage: ASM_SMOKE_FEED_TAB='For you' bun apps/mobile/scripts/native-feed-resume-smoke.ts
+// Optional: ASM_SMOKE_SCROLL_STEPS=10 and ASM_SMOKE_FAST_DUMP=1 for deep animated feeds.
 const packageName = "cc.asocialmedia.mobile";
 const feedTab = process.env.ASM_SMOKE_FEED_TAB ?? "Latest";
+const scrollSteps = Number(process.env.ASM_SMOKE_SCROLL_STEPS ?? 3);
+if (!Number.isInteger(scrollSteps) || scrollSteps < 1 || scrollSteps > 1000) {
+  throw new Error("ASM_SMOKE_SCROLL_STEPS must be an integer from 1 to 1000");
+}
 if (!["Latest", "For you", "Following", "Trending"].includes(feedTab)) {
   throw new Error("Unknown ASM_SMOKE_FEED_TAB");
 }
@@ -41,6 +46,7 @@ function readNodes(xml: string) {
         ).matchAll(/\d+/g),
       ].map(([value]) => Number(value)),
       label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
+      resourceId: node.match(/resource-id="(?<id>[^"]*)"/)?.groups?.id ?? "",
       text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
     }))
     .filter(
@@ -58,13 +64,24 @@ type UiNode = ReturnType<typeof readNodes>[number];
 async function snapshot() {
   const hierarchyPath = "/sdcard/asm-feed-resume.xml";
   await adb("shell", "rm", "-f", hierarchyPath);
-  const result = await adb(
-    "shell",
-    "uiautomator",
-    "dump",
-    "--compressed",
-    hierarchyPath
-  );
+  const result =
+    process.env.ASM_SMOKE_FAST_DUMP === "1"
+      ? await adb(
+          "shell",
+          "env",
+          "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
+          "app_process",
+          "/system/bin",
+          "AsmFastDump",
+          hierarchyPath
+        )
+      : await adb(
+          "shell",
+          "uiautomator",
+          "dump",
+          "--compressed",
+          hierarchyPath
+        );
   if (!result.includes("dumped to:")) {
     throw new Error("Android hierarchy did not settle; no stale dump was read");
   }
@@ -102,7 +119,9 @@ async function screenshot(label: string) {
 }
 
 function assertAnchor(screen: UiNode[], anchor: UiNode, description: string) {
-  const matches = screen.filter((node) => node.label === anchor.label);
+  const matches = screen.filter(
+    (node) => node.resourceId === anchor.resourceId
+  );
   if (
     !matches.some(
       (node) => Math.abs((node.bounds[1] ?? 0) - (anchor.bounds[1] ?? 0)) <= 24
@@ -117,7 +136,7 @@ function assertAnchor(screen: UiNode[], anchor: UiNode, description: string) {
 await adb("shell", "am", "start", "-W", "-n", `${packageName}/.MainActivity`);
 let home = await snapshot();
 await tap(home.find((node) => node.label === feedTab));
-for (let step = 0; step < 3; step += 1) {
+for (let step = 0; step < scrollSteps; step += 1) {
   // oxlint-disable-next-line no-await-in-loop -- sequential gestures on one device
   await adb(
     "shell",
@@ -157,6 +176,7 @@ console.log("PASS dock reveals on a short upward drag deep in the feed");
 const anchor = home.find(
   (node) =>
     node.label.startsWith("Open post by ") &&
+    node.resourceId.startsWith("post-") &&
     (node.bounds[1] ?? 0) > height * 0.15 &&
     (node.bounds[1] ?? height) < height * 0.55 &&
     (node.bounds[3] ?? 0) - (node.bounds[1] ?? 0) > 230

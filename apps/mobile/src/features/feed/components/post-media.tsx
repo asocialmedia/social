@@ -58,7 +58,8 @@ import {
 } from "@/theme";
 
 import { fetchCaptionsVtt, fetchWavePeaks } from "../lib/feed-api";
-import type { FeedMedia } from "../lib/feed-types";
+import type { FeedMedia, FeedPost } from "../lib/feed-types";
+import { isMediaActivityVisible } from "../lib/media-activity";
 import {
   formatFileName,
   isAudioMedia,
@@ -96,8 +97,10 @@ import {
   eqBarInterpolation,
   shapeWaveform,
 } from "../lib/waveform";
+import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { useVideoMuteStore } from "../state/video-mute-store";
+import { MediaHold, MediaPostContext } from "./media-hold";
 
 // Feed cards keep their complete poster/chrome while native media resources
 // follow viewport activity. Detail screens have no feed activity restriction.
@@ -109,7 +112,7 @@ const MediaActivityContext = createContext<{
   postId: string;
 } | null>(null);
 
-function useMediaActivity(fallbackPostId = "") {
+export function useMediaActivity(fallbackPostId = "") {
   const context = useContext(MediaActivityContext);
   const feedScope = useContext(FeedMediaScope);
   const postId = context?.postId ?? fallbackPostId;
@@ -120,32 +123,34 @@ function useMediaActivity(fallbackPostId = "") {
         : () => null;
       const stopVisibility = subscribePostVisibility(postId, notify);
       const stopAutoplay = subscribeAutoplayPost(postId, notify);
+      const stopPreview = useMediaPreviewStore.subscribe(notify);
       const appStateSubscription = AppState.addEventListener("change", notify);
       return () => {
         stopFeed();
         stopVisibility();
         stopAutoplay();
+        stopPreview();
         appStateSubscription.remove();
       };
     },
     [feedScope, postId]
   );
-  const getSnapshot = useCallback(
-    () =>
-      `${AppState.currentState === "active"}:${isPostVisible(postId)}:${isAutoplayPost(postId)}:${feedScope === null || isFeedMediaActive(feedScope)}`,
-    [feedScope, postId]
-  );
+  const getSnapshot = useCallback(() => {
+    const visible = isMediaActivityVisible({
+      active: context?.active,
+      feedActive:
+        (feedScope === null || isFeedMediaActive(feedScope)) &&
+        !useMediaPreviewStore.getState().request,
+      focused: context?.focused ?? true,
+      foreground: AppState.currentState === "active",
+      inViewport: isPostVisible(postId),
+      viewportRequired: feedScope !== null && Boolean(fallbackPostId),
+    });
+    return `${visible}:${visible && isAutoplayPost(postId)}`;
+  }, [context?.active, context?.focused, fallbackPostId, feedScope, postId]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  const [foreground, inViewport, owner, feedActive] = snapshot.split(":");
-  return {
-    autoplayOwner: owner === "true",
-    visible:
-      foreground === "true" &&
-      feedActive === "true" &&
-      (context?.focused ?? true) &&
-      (context?.active === undefined ||
-        (context.active && inViewport === "true")),
-  };
+  const [visible, owner] = snapshot.split(":");
+  return { autoplayOwner: owner === "true", visible: visible === "true" };
 }
 
 interface GalleryProps {
@@ -159,6 +164,7 @@ interface GalleryProps {
   // cards open post detail; the detail card opens the selected media index.
   onPressMedia?: (index: number) => void;
   postId: string;
+  post?: FeedPost;
 }
 
 function useFailedImages() {
@@ -175,8 +181,11 @@ function useFailedImages() {
   };
 }
 
-function ActivityFeedImage(props: ImageProps) {
-  const { visible } = useMediaActivity();
+export function ActivityFeedImage({
+  postId,
+  ...props
+}: ImageProps & { postId?: string }) {
+  const { visible } = useMediaActivity(postId);
   const imageRef = useRef<Image>(null);
   const animatedRef = useRef<boolean | null>(null);
   const synchronizeAnimation = useCallback(() => {
@@ -273,17 +282,23 @@ function SingleImage({
     </View>
   );
   if (!onPressMedia) {
-    return frame;
+    return <MediaHold media={media}>{frame}</MediaHold>;
   }
   return (
-    <Pressable
-      accessibilityLabel={media.altText ?? "Open post media"}
-      accessibilityRole="link"
-      onPress={() => onPressMedia(index)}
-      style={({ pressed }) => [pressed && styles.mediaTilePressed]}
-    >
-      {frame}
-    </Pressable>
+    <MediaHold media={media}>
+      <Pressable
+        accessibilityLabel={media.altText ?? "Open post media"}
+        accessibilityRole="link"
+        onPress={() => {
+          if (!useMediaPreviewStore.getState().request) {
+            onPressMedia(index);
+          }
+        }}
+        style={({ pressed }) => [pressed && styles.mediaTilePressed]}
+      >
+        {frame}
+      </Pressable>
+    </MediaHold>
   );
 }
 
@@ -326,17 +341,30 @@ function GridImage({
     </>
   );
   if (!onPressMedia) {
-    return <View style={frameStyle}>{content}</View>;
+    return (
+      <MediaHold media={media} style={frameStyle}>
+        {content}
+      </MediaHold>
+    );
   }
   return (
-    <Pressable
-      accessibilityLabel={media.altText ?? "Open post media"}
-      accessibilityRole="link"
-      onPress={() => onPressMedia(index)}
-      style={({ pressed }) => [frameStyle, pressed && styles.mediaTilePressed]}
-    >
-      {content}
-    </Pressable>
+    <MediaHold media={media} style={frameStyle}>
+      <Pressable
+        accessibilityLabel={media.altText ?? "Open post media"}
+        accessibilityRole="link"
+        onPress={() => {
+          if (!useMediaPreviewStore.getState().request) {
+            onPressMedia(index);
+          }
+        }}
+        style={({ pressed }) => [
+          frameStyle,
+          pressed && styles.mediaTilePressed,
+        ]}
+      >
+        {content}
+      </Pressable>
+    </MediaHold>
   );
 }
 
@@ -705,7 +733,7 @@ function VideoTile({
   const playbackLabel = isPlaying ? "Pause video" : "Play video";
   const previewLabel = onPressPreview ? "Open video" : playbackLabel;
   return (
-    <View style={frameStyle}>
+    <MediaHold media={media} style={frameStyle}>
       {prepareVideo ? (
         <VideoView
           contentFit="cover"
@@ -744,7 +772,11 @@ function VideoTile({
       <Pressable
         accessibilityLabel={media.altText ?? previewLabel}
         accessibilityRole={onPressPreview ? "link" : "button"}
-        onPress={onPressPreview ?? togglePlayback}
+        onPress={() => {
+          if (!useMediaPreviewStore.getState().request) {
+            (onPressPreview ?? togglePlayback)();
+          }
+        }}
         style={styles.fill}
       />
       <Animated.View
@@ -821,7 +853,7 @@ function VideoTile({
         enabled={showCaptions && (isVideoActive || isPlaying || engaged)}
         player={player}
       />
-    </View>
+    </MediaHold>
   );
 }
 
@@ -1464,6 +1496,7 @@ function GalleryBody({
   onPressMedia,
   postId,
   focused,
+  post,
 }: GalleryProps & { focused: boolean }) {
   const { failed, markFailed } = useFailedImages();
   const activity = useMemo(
@@ -1475,16 +1508,18 @@ function GalleryBody({
     return null;
   }
   return (
-    <MediaActivityContext.Provider value={activity}>
-      <SingleOrGrid
-        active={active}
-        apiBase={apiBase}
-        items={visible}
-        onFailed={markFailed}
-        onPressMedia={onPressMedia}
-        postId={postId}
-      />
-    </MediaActivityContext.Provider>
+    <MediaPostContext.Provider value={post ?? null}>
+      <MediaActivityContext.Provider value={activity}>
+        <SingleOrGrid
+          active={active}
+          apiBase={apiBase}
+          items={visible}
+          onFailed={markFailed}
+          onPressMedia={onPressMedia}
+          postId={postId}
+        />
+      </MediaActivityContext.Provider>
+    </MediaPostContext.Provider>
   );
 }
 

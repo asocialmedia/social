@@ -39,7 +39,7 @@ import {
 } from "./feed-store";
 
 // Head probe interval, mirroring web useNewContentProbe.
-const PROBE_INTERVAL_MS = 45_000;
+const PROBE_INTERVAL_MS = 20_000;
 
 export type FeedStatus =
   | "error"
@@ -63,6 +63,7 @@ export function useFeedTab({
   variant,
 }: UseFeedTabOptions): {
   clearNewItems: () => void;
+  incomingIds: ReadonlySet<string>;
   dismissPost: (postId: string) => void;
   error: string | null;
   fetchNext: () => void;
@@ -81,6 +82,9 @@ export function useFeedTab({
     () => new Set()
   );
   const [newItems, setNewItems] = useState<FeedPost[]>([]);
+  const [incomingIds, setIncomingIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const removedPostsRef = useRef(new Map<string, FeedPost>());
   // The in-flight cache key: a session upgrade mid-fetch (guest key to user
   // key) must not swallow the second fetch, so the guard is per key rather
@@ -112,10 +116,8 @@ export function useFeedTab({
     [cacheKey]
   );
 
-  // Head-only probe: new posts collect in newItems without moving the list,
-  // exactly like web. Starts from the mount fill and from fetch settles,
-  // never from an effect watching cache pages (the Compiler rejects that
-  // dep). Probes immediately and every 45s; swallows fetch errors.
+  // Load new rows above the retained feed; native anchoring preserves the reader.
+  // Only the foreground tab probes, with a cheap head-id check on chronological feeds.
   const pollerRef = useRef<ReturnType<typeof createExpoPoller> | null>(null);
   const probeKey = useRef<string | null>(null);
   const probeCancel = useRef<(() => void) | null>(null);
@@ -140,6 +142,10 @@ export function useFeedTab({
       };
       const probe = async () => {
         try {
+          const before = feedCache.get(key);
+          if (before.status !== "success" && before.status !== "error") {
+            return;
+          }
           const apiBase = getApiBaseUrl();
           const cookie = await authClient.getCookie();
           const options = { apiBase, cookie };
@@ -166,11 +172,28 @@ export function useFeedTab({
           const fresh = normalizePostsData(
             await fetchFeedHead(variant, options)
           );
+          if (cancelled || activeKeyRef.current !== key) {
+            return;
+          }
+          const current = feedCache.get(key);
+          if (current.status !== "success" && current.status !== "error") {
+            return;
+          }
+          const currentKnown = new Set(
+            flattenUniquePosts(current.pages).map((post) => post.id)
+          );
           const unseen = isRankedFeed(variant)
-            ? findUnseenRankedItems(fresh, known)
-            : findUnseenItems(fresh, known);
+            ? findUnseenRankedItems(fresh, currentKnown)
+            : findUnseenItems(fresh, currentKnown);
           if (!cancelled && unseen.length > 0) {
-            setNewItems(unseen);
+            const next = prependPosts(current.pages, unseen);
+            if (next.added) {
+              feedCache.patch(key, { pages: next.pages });
+              setIncomingIds(
+                (ids) => new Set([...ids, ...unseen.map((post) => post.id)])
+              );
+              setNewItems((pending) => flattenUniquePosts([unseen, pending]));
+            }
           }
         } catch {
           // Probe failures are silent by design (web swallows them too).
@@ -256,6 +279,8 @@ export function useFeedTab({
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- new-content rows belong to one account/feed cache key
     setNewItems([]);
+    // oxlint-disable-next-line react/set-state-in-effect -- incoming thread grouping belongs to one feed/account
+    setIncomingIds(new Set());
     // oxlint-disable-next-line react/set-state-in-effect -- dismissals are scoped to one account/feed
     setDismissedIds(new Set());
     removedPostsRef.current.clear();
@@ -319,29 +344,18 @@ export function useFeedTab({
     if (!enabled) {
       return;
     }
+    stopProbe();
+    setIncomingIds(new Set());
+    setNewItems([]);
     feedCache.invalidate(cacheKey);
     void runFetch("replace", null);
-  }, [cacheKey, enabled, runFetch]);
+  }, [cacheKey, enabled, runFetch, stopProbe]);
 
   const clearNewItems = useCallback(() => {
     setNewItems([]);
   }, []);
 
-  const showNewPosts = useCallback(() => {
-    setNewItems((current) => {
-      if (current.length > 0) {
-        const entryNow = feedCache.get(cacheKey);
-        const { added, pages: nextPages } = prependPosts(
-          entryNow.pages,
-          current
-        );
-        if (added) {
-          feedCache.patch(cacheKey, { pages: nextPages });
-        }
-      }
-      return [];
-    });
-  }, [cacheKey]);
+  const showNewPosts = clearNewItems;
 
   const dismissPost = useCallback(
     (postId: string) => {
@@ -388,6 +402,7 @@ export function useFeedTab({
     error,
     fetchNext,
     hasMore,
+    incomingIds,
     newItems,
     posts,
     refresh,

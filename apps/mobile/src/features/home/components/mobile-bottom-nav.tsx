@@ -42,6 +42,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
+import { haptic } from "@/lib/haptics";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
@@ -188,7 +189,12 @@ function DockTab({
       accessibilityState={{ disabled: disabled ?? false, selected: active }}
       disabled={disabled}
       hitSlop={2}
-      onPress={onPress}
+      onPress={() => {
+        if (!active) {
+          haptic();
+        }
+        onPress?.();
+      }}
       style={styles.tab}
     >
       {({ pressed }) => {
@@ -349,7 +355,11 @@ export function MobileBottomNav({
         label={item.label}
         onPress={() => {
           if (!isActive(item.href)) {
-            router.navigate(item.href);
+            if (item.href === "/") {
+              router.dismissTo("/");
+            } else {
+              router.navigate(item.href);
+            }
           }
         }}
       />

@@ -9,10 +9,18 @@ import type { NotificationTarget } from "@asm/notifications/shared";
 // so the header and the bottom dock update in the same tick.
 import { Image } from "expo-image";
 import { Redirect, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   Animated,
   FlatList,
+  Linking,
+  AppState,
   Pressable,
   StyleSheet,
   Text,
@@ -23,6 +31,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import errorImage from "@/assets/images/error.png";
 import noNotificationsImage from "@/assets/images/noNotifications.png";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import {
@@ -51,7 +60,13 @@ import {
   fetchNotificationsPage,
   groupFetchedNotifications,
 } from "../lib/notifications-api";
-import { getPushSetupStatus, pushSetupCopy } from "../lib/push-setup";
+import { registerForPushNotifications } from "../lib/push";
+import {
+  getPushSetupStatus,
+  pushSetupCopy,
+  readPushSetupStatus,
+  subscribePushSetupStatus,
+} from "../lib/push-setup";
 import type { PushSetupStatus } from "../lib/push-setup";
 import { NotificationRow } from "./notification-row";
 import { NotificationsSkeleton } from "./notifications-skeleton";
@@ -96,19 +111,32 @@ export function NotificationsScreen() {
   const unread = useUnreadNotificationCount(viewerId, showUser);
   const insets = useSafeAreaInsets();
   const [dockHeight, setDockHeight] = useState(56);
-  // Push diagnostics banner: names why device push is off (Expo Go, emulator,
-  // no Firebase, permission) instead of failing silently.
-  const [pushStatus, setPushStatus] = useState<PushSetupStatus | null>(null);
+  const { runWithInstallToken } = useInstall();
+  const registrationStatus = useSyncExternalStore(
+    subscribePushSetupStatus,
+    readPushSetupStatus,
+    readPushSetupStatus
+  );
+  const [devicePushStatus, setDevicePushStatus] =
+    useState<PushSetupStatus | null>(null);
+  const pushStatus = registrationStatus ?? devicePushStatus;
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
+    let active = true;
+    const update = async () => {
       const status = await getPushSetupStatus();
-      if (!cancelled && status.reason !== "ready") {
-        setPushStatus(status);
+      if (active) {
+        setDevicePushStatus(status);
       }
-    })();
+    };
+    void update();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void update();
+      }
+    });
     return () => {
-      cancelled = true;
+      active = false;
+      subscription.remove();
     };
   }, []);
 
@@ -355,6 +383,23 @@ export function NotificationsScreen() {
             <Text style={[styles.pushBody, { color: theme.dividerText }]}>
               {pushSetupCopy(pushStatus).body}
             </Text>
+            {pushSetupCopy(pushStatus).action &&
+            pushStatus.reason !== "expo-go" ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (pushStatus.reason === "permission-denied") {
+                    void Linking.openSettings();
+                  } else {
+                    void registerForPushNotifications(runWithInstallToken);
+                  }
+                }}
+              >
+                <Text style={{ color: theme.auxLink, paddingVertical: 8 }}>
+                  {pushSetupCopy(pushStatus).action}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
         <FlatList

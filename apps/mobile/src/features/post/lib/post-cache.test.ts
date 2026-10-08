@@ -75,3 +75,50 @@ describe("post detail cache", () => {
     expect(cache.read("32")).toBeDefined();
   });
 });
+
+test("cold-start detail restoration retains freshness, scope and live updates", () => {
+  let now = 1000;
+  const before = new PostDetailCache(() => now);
+  const key = postDetailKey("post", "a", "https://one");
+  before.seed(key, post);
+  const snapshot = before.snapshot();
+  now += 100;
+  const after = new PostDetailCache(() => now);
+  after.restore(snapshot);
+  expect(after.read(key)?.post).toEqual(post);
+  expect(after.read(postDetailKey("post", "b", "https://one"))).toBeUndefined();
+  expect(after.snapshot().entries[key]?.fetchedAt).toBe(1000);
+  const live = new PostDetailCache(() => now);
+  live.seed(key, { ...post, content: "Updated" });
+  live.restore(snapshot);
+  expect(live.read(key)?.post.content).toBe("Updated");
+  now += 31 * 60 * 1000;
+  expect(after.read(key)).toBeUndefined();
+  const expired = new PostDetailCache(() => now);
+  expired.restore(snapshot);
+  expect(expired.read(key)).toBeUndefined();
+});
+
+test("corrupt, future and oversized detail snapshots cannot enter the launch cache", () => {
+  const before = new PostDetailCache(() => 1000);
+  before.seed("key", post);
+  const snapshot = before.snapshot();
+  const future = new PostDetailCache(() => 500);
+  future.restore(snapshot);
+  expect(future.read("key")).toBeUndefined();
+  snapshot.entries["key"] = {
+    data: { ancestors: [], post: { ...post, id: null } as unknown as FeedPost },
+    fetchedAt: 1000,
+  };
+  const after = new PostDetailCache(() => 1000);
+  after.restore(snapshot);
+  expect(after.read("key")).toBeUndefined();
+  for (let index = 0; index < 40; index += 1) {
+    snapshot.entries[String(index)] = {
+      data: { ancestors: [], post },
+      fetchedAt: 1000,
+    };
+  }
+  after.restore(snapshot);
+  expect(Object.keys(after.snapshot().entries)).toHaveLength(32);
+});

@@ -22,14 +22,17 @@ import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { FeedVariant } from "../lib/feed-api";
 import { feedPrefetchUrls } from "../lib/feed-prefetch";
-import { groupPostsIntoThreads, orderByIndex } from "../lib/feed-types";
-import type { FeedPost, FeedThreadGroup } from "../lib/feed-types";
+import { incomingFeedRows } from "../lib/feed-rows";
+import type { FeedRow } from "../lib/feed-rows";
+import { orderByIndex } from "../lib/feed-types";
+import type { FeedPost } from "../lib/feed-types";
 import {
   HEADER_BAR_HEIGHT,
   advanceHeaderScroll,
@@ -78,8 +81,8 @@ const STABLE_VIEWABILITY = {
   minimumViewTime: 300,
   viewAreaCoveragePercentThreshold: 50,
 };
-function feedGroupKey(group: FeedThreadGroup): string {
-  return group.id;
+function feedRowKey(row: FeedRow): string {
+  return row.post.id;
 }
 
 const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
@@ -147,11 +150,12 @@ export const FeedList = memo(
     const isActive = active ?? enabled;
     const { theme } = useAppTheme();
     const { user } = useSessionContext();
-    const listRef = useRef<FlatList<FeedThreadGroup>>(null);
+    const listRef = useRef<FlatList<FeedRow>>(null);
     const scrollOffset = useSharedValue(
       scrollMemory.get(`home:${variant}:${userId ?? "guest"}`) ?? 0
     );
     const scrollActive = useSharedValue(false);
+    const userScrolling = useSharedValue(false);
     const scrollVisibility = useSharedValue({ baseline: 0, hidden: false });
 
     // Latest viewable ids are retained so the tab can publish them when it
@@ -177,6 +181,8 @@ export const FeedList = memo(
     );
     const [lastDismissed, setLastDismissed] = useState<string | null>(null);
     const {
+      clearNewItems,
+      incomingIds,
       dismissPost,
       fetchNext,
       hasMore,
@@ -349,13 +355,13 @@ export const FeedList = memo(
     );
 
     const handleViewableItemsChanged = useCallback(
-      ({ viewableItems }: { viewableItems: ViewToken<FeedThreadGroup>[] }) => {
+      ({ viewableItems }: { viewableItems: ViewToken<FeedRow>[] }) => {
         const ids = new Set<string>();
         let autoplayPostId: string | null = null;
         const ordered = orderByIndex(viewableItems);
         for (const item of ordered) {
-          const group = item.item as FeedThreadGroup | undefined;
-          for (const post of group?.posts ?? []) {
+          const post = (item.item as FeedRow | undefined)?.post;
+          if (post) {
             ids.add(post.id);
             if (!autoplayPostId && hasVideoAttachment(post)) {
               autoplayPostId = post.id;
@@ -388,11 +394,19 @@ export const FeedList = memo(
     const reportPullOffset = pull.onScrollOffset;
     const endPull = pull.onScrollEndDrag;
     const handleScroll = useAnimatedScrollHandler({
+      onBeginDrag: () => {
+        userScrolling.set(true);
+      },
       onEndDrag: (event) => {
+        userScrolling.set(false);
         scheduleOnRN(saveOffset, event.contentOffset.y);
         scheduleOnRN(endPull);
       },
+      onMomentumBegin: () => {
+        userScrolling.set(true);
+      },
       onMomentumEnd: (event) => {
+        userScrolling.set(false);
         scheduleOnRN(saveOffset, event.contentOffset.y);
       },
       onScroll: (event) => {
@@ -402,10 +416,20 @@ export const FeedList = memo(
         if (scrollActive.get()) {
           const state = scrollVisibility.get();
           const next = { ...state };
-          advanceHeaderScroll(next, offset);
+          if (userScrolling.get()) {
+            advanceHeaderScroll(next, offset);
+          } else {
+            next.baseline = Math.max(0, offset);
+          }
           scrollVisibility.set(next);
           if (next.hidden !== state.hidden) {
             scheduleOnRN(publishHidden, next.hidden);
+          }
+          if (!userScrolling.get()) {
+            scheduleOnRN(saveOffset, offset);
+          }
+          if (offset < 16 && previous >= 16) {
+            scheduleOnRN(clearNewItems);
           }
           // Ordinary scrolling stays on the UI thread. The custom refresh
           // loader only needs top crossings and iOS bounce distances on JS.
@@ -419,23 +443,28 @@ export const FeedList = memo(
     // skip re-renders. Depends only on stable callbacks + theme + variant.
     const showCommunityReason =
       variant === "trending" || variant === "personalized";
-    const renderGroup = useCallback(
-      ({ item: group }: { item: FeedThreadGroup }) => (
-        <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
-          {group.posts.map((post, index) => (
-            <PostCard
-              active
-              hasThreadChild={index < group.posts.length - 1}
-              hasThreadParent={index > 0}
-              key={post.id}
-              onMore={handleOpenMore}
-              onShare={handleShare}
-              post={post}
-              showAlt={altVisibleIds.has(post.id)}
-              showCommunityReason={showCommunityReason}
-              viewerId={userId}
-            />
-          ))}
+    const renderRow = useCallback(
+      ({ item: row }: { item: FeedRow }) => (
+        <View
+          style={[
+            styles.group,
+            {
+              borderBottomColor: theme.cardBorder,
+              borderBottomWidth: row.hasThreadChild ? 0 : 1,
+            },
+          ]}
+        >
+          <PostCard
+            active
+            hasThreadChild={row.hasThreadChild}
+            hasThreadParent={row.hasThreadParent}
+            onMore={handleOpenMore}
+            onShare={handleShare}
+            post={row.post}
+            showAlt={altVisibleIds.has(row.post.id)}
+            showCommunityReason={showCommunityReason}
+            viewerId={userId}
+          />
         </View>
       ),
       [
@@ -456,7 +485,9 @@ export const FeedList = memo(
       }
       const urls: string[] = JSON.parse(prefetchKey);
       const timer = setTimeout(() => {
-        void Promise.allSettled(urls.map((url) => Image.prefetch(url)));
+        void Promise.allSettled(
+          urls.map((url) => Image.prefetch(url, { cachePolicy: "disk" }))
+        );
       }, 600);
       return () => clearTimeout(timer);
     }, [enabled, prefetchKey]);
@@ -481,7 +512,10 @@ export const FeedList = memo(
 
     // Memoized above every early return: without this every parent render
     // handed FlatList a new data array identity, re-rendering every row.
-    const groups = useMemo(() => groupPostsIntoThreads(posts), [posts]);
+    const rows = useMemo(
+      () => incomingFeedRows(posts, incomingIds),
+      [incomingIds, posts]
+    );
 
     // Account-only tabs. For you is ranked from the viewer's own signals and
     // Following is their people, so neither means anything without an account;
@@ -640,8 +674,9 @@ export const FeedList = memo(
                   contentContainerStyle={{
                     paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
                   }}
-                  data={groups}
-                  keyExtractor={feedGroupKey}
+                  data={rows}
+                  maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+                  keyExtractor={feedRowKey}
                   {...LIST_VIRTUALIZATION_PROPS}
                   onEndReached={fetchNext}
                   onEndReachedThreshold={0.5}
@@ -655,7 +690,7 @@ export const FeedList = memo(
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
                   viewabilityConfig={STABLE_VIEWABILITY}
-                  renderItem={renderGroup}
+                  renderItem={renderRow}
                   ListFooterComponent={footer}
                   // The composer lives here, as real content. It scrolls away with
                   // the first post and returns on pull-down for free, because the
@@ -671,6 +706,7 @@ export const FeedList = memo(
                 authors={authors}
                 count={newItems.length}
                 onPress={() => {
+                  haptic();
                   showNewPosts();
                   listRef.current?.scrollToOffset({
                     animated: true,

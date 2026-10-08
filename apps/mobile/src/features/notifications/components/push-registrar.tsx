@@ -13,6 +13,7 @@ import { AppState, Platform } from "react-native";
 
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { useStartupPresented } from "@/lib/startup-context";
 import { logInfo } from "@/lib/telemetry";
 
 import {
@@ -31,10 +32,13 @@ export function PushRegistrar() {
   const { runWithInstallToken } = useInstall();
   const userId = user?.id ?? null;
   const previousUserId = useRef<string | null>(null);
+  const presented = useStartupPresented();
   const routerReady = useRef(false);
+  useEffect(() => {
+    routerReady.current = presented;
+  }, [presented]);
 
   useEffect(() => {
-    routerReady.current = true;
     const listener = subscribeToPushTaps(
       (route) => router.push(route as "/notifications"),
       () => routerReady.current
@@ -55,7 +59,7 @@ export function PushRegistrar() {
     if (Platform.OS === "web") {
       return;
     }
-    if (isPending) {
+    if (isPending || !presented) {
       return;
     }
     const previous = previousUserId.current;
@@ -74,7 +78,7 @@ export function PushRegistrar() {
     }
 
     previousUserId.current = userId;
-  }, [isPending, runWithInstallToken, userId]);
+  }, [isPending, presented, runWithInstallToken, userId]);
 
   // A token can rotate while the app is backgrounded (app restore, update),
   // so re-register on each return to foreground.

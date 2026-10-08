@@ -9,6 +9,7 @@ import { Modal, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { logWarn } from "@/lib/telemetry";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
@@ -79,6 +80,7 @@ export function ShareSheet({
     if (!post) {
       return;
     }
+    haptic();
     void (async () => {
       const url = shareUrl(post);
       try {
@@ -109,7 +111,7 @@ export function ShareSheet({
       <Pressable onPress={onClose} style={styles.backdrop}>
         <Pressable
           onPress={() => {
-            /* taps on the sheet must not bubble to the backdrop */
+            // Taps on the sheet must not bubble to the backdrop.
           }}
           style={[
             styles.sheet,

@@ -30,6 +30,7 @@ import {
 } from "@/features/feed/state/tab-store-native";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useSearchStore } from "@/features/search/state/search-store";
+import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
@@ -41,10 +42,8 @@ export default function HomeScreen() {
   const isFocused = useIsFocused();
 
   const { isPending, user } = useSessionContext();
-  // While the session is still resolving, `user` is null for everyone. Treating
-  // that as "guest" flashes the Log in pill at signed-in users, so neither the
-  // avatar nor the guest bar renders until the answer is known.
-  const showUser = !isPending && Boolean(user);
+  // A background session refresh keeps the cached account and layout visible.
+  const showUser = Boolean(user);
   const isLoggedIn = showUser;
   const memoryReady = useHomeTabMemoryReady();
   const storedHome = useTabStore((state) =>
@@ -110,6 +109,7 @@ export default function HomeScreen() {
     (index: number) => {
       const def = HOME_TAB_DEFS[index];
       if (def && def.value !== tab) {
+        haptic();
         setHomeTab(def.value, user?.id);
       }
     },

@@ -101,7 +101,13 @@ export function prependPosts(
     return { added: false, pages };
   }
   const known = new Set(pages.flat().map((post) => post.id));
-  const unseen = fresh.filter((post) => post && !known.has(post.id));
+  const unseen = fresh.filter((post) => {
+    if (!post || known.has(post.id)) {
+      return false;
+    }
+    known.add(post.id);
+    return true;
+  });
   if (unseen.length === 0) {
     return { added: false, pages };
   }
@@ -118,6 +124,7 @@ export class FeedCache {
   private listeners = new Set<(changedKeys?: FeedCacheChangeKeys) => void>();
   private now: () => number;
   private tabs = new Map<string, TabFeed>();
+  private residentAt = new Map<string, number>();
 
   constructor(now: () => number = Date.now) {
     this.now = now;
@@ -138,9 +145,13 @@ export class FeedCache {
   }
 
   private prune(): void {
-    for (const [key, feed] of this.tabs) {
-      if (this.now() - feed.fetchedAt > FEED_CACHE_RETENTION_MS) {
+    for (const key of this.tabs.keys()) {
+      if (
+        this.now() - (this.residentAt.get(key) ?? 0) >
+        FEED_CACHE_RETENTION_MS
+      ) {
         this.tabs.delete(key);
+        this.residentAt.delete(key);
       }
     }
   }
@@ -158,12 +169,14 @@ export class FeedCache {
 
   set(key: string, feed: TabFeed): void {
     this.tabs.set(key, feed);
+    this.residentAt.set(key, this.now());
     this.notify(new Set([key]));
   }
 
   patch(key: string, partial: Partial<TabFeed>): TabFeed {
     const next = { ...this.get(key), ...partial, fetchedAt: this.now() };
     this.tabs.set(key, next);
+    this.residentAt.set(key, this.now());
     this.notify(new Set([key]));
     try {
       scheduleFeedPersist();
@@ -282,6 +295,7 @@ export class FeedCache {
 
   clear(): void {
     this.tabs.clear();
+    this.residentAt.clear();
   }
 }
 
@@ -295,6 +309,9 @@ export type FeedPersistEntry = Pick<
   TabFeed,
   "cursor" | "fetchedAt" | "hasMore" | "pages" | "pageCursors"
 >;
+// Disk previews survive a normal next-day launch; their original age still
+// forces background refresh. In-memory unused tabs retain the shorter TTL.
+export const FEED_PERSIST_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const FEED_PERSIST_NAME = "feed-cache-v1";
 export const FEED_PERSIST_MAX_TABS = 8;
 export const FEED_PERSIST_MAX_PAGES = 2;
@@ -329,7 +346,7 @@ export function feedCacheToSnapshot(
     if (entry.status !== "success" || entry.pages.length === 0) {
       continue;
     }
-    if (now - entry.fetchedAt > FEED_CACHE_RETENTION_MS) {
+    if (now - entry.fetchedAt > FEED_PERSIST_RETENTION_MS) {
       continue;
     }
     out[key] = persistFeedEntry(entry);
@@ -355,7 +372,8 @@ export function restoreFeedCache(
     }
     if (
       !Number.isFinite(entry.fetchedAt) ||
-      now - entry.fetchedAt > FEED_CACHE_RETENTION_MS
+      entry.fetchedAt > now ||
+      now - entry.fetchedAt > FEED_PERSIST_RETENTION_MS
     ) {
       continue;
     }
@@ -436,4 +454,25 @@ async function readFeedCacheFromDisk(): Promise<number> {
     markPersistHydrated();
     return 0;
   }
+}
+
+// A cold-restored post can paint its account-scoped feed preview even when
+// the complete detail has not yet been saved on this device.
+export function findCachedFeedPost(
+  postId: string,
+  viewerId: string | undefined
+): FeedPost | undefined {
+  const suffix = `:${viewerId ?? "guest"}`;
+  for (const key of feedCache.keys()) {
+    if (!key.endsWith(suffix)) {
+      continue;
+    }
+    for (const page of feedCache.get(key).pages) {
+      const post = page.find((candidate) => candidate.id === postId);
+      if (post) {
+        return post;
+      }
+    }
+  }
+  return undefined;
 }

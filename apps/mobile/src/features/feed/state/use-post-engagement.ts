@@ -1,3 +1,11 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 // React binding for the engagement store. One hook backs every surface that
 // shows a post's own vote and bookmark, so a feed card, the detail screen, the
 // media viewer, the explore grid and a gust card all read and write one value.
@@ -7,17 +15,9 @@
 // result) touches the network. That is what took a feed page from ~50 requests
 // to zero.
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
-
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { logWarn } from "@/lib/telemetry";
 
 import { engagementStore, normalizeEngagement } from "../lib/engagement-store";
@@ -179,6 +179,7 @@ export function usePostEngagement({
         aura: previous.aura + (target - previous.userVote),
         userVote: target,
       };
+      haptic();
       publish(optimistic);
       try {
         const info = await submitVote(
@@ -200,6 +201,7 @@ export function usePostEngagement({
         if (generationRef.current !== generation) {
           return null;
         }
+        haptic("error");
         publish(previous);
         logWarn("engagement.vote_failed", {
           postId: key,
@@ -216,6 +218,7 @@ export function usePostEngagement({
     generationRef.current = generation;
     const previous = getSnapshot();
     const next = !previous.isBookmarkedByUser;
+    haptic();
     publish({ ...previous, isBookmarkedByUser: next });
     try {
       await submitBookmark(postId, next, await requestContext());
@@ -223,6 +226,7 @@ export function usePostEngagement({
       if (generationRef.current !== generation) {
         return;
       }
+      haptic("error");
       publish(previous);
       logWarn("engagement.bookmark_failed", {
         postId: key,

@@ -1,77 +1,71 @@
-// Resume + hydration gates for cold start.
-// ResumeGate hydrates the persisted feed cache once per launch so the home
-// feed paints cached rows instantly, then restores the last route (stale-
-// while-revalidate: cached content shows now, network refreshes behind it).
-// ResumeSaver persists every navigation for the next cold start.
-// Both are best-effort and never block rendering.
-import { usePathname, useRouter } from "expo-router";
-import { useEffect, useRef } from "react";
+import { usePathname, useRootNavigationState, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 
-import { hydrateFeedCache } from "@/features/feed/state/feed-store";
 import { loadLaunchResumeRoute, saveResumeRoute } from "@/lib/app-resume";
+import { useStartupPresented } from "@/lib/startup-context";
 
-// Hydrates disk caches once. Runs outside the splash gate so the first paint
-// can already read restored tabs.
-export function HydrateGate() {
-  const done = useRef(false);
-  useEffect(() => {
-    if (done.current) {
-      return;
-    }
-    done.current = true;
-    void hydrateFeedCache();
-  }, []);
-  return null;
-}
+import { resumeHref, startupDestination } from "./startup";
 
-// Restores the last route once, after the navigator mounts. Only replaces
-// when the stored route differs from the current one, and only once per
-// launch so deep links arriving later are never hijacked.
-export function ResumeGate() {
+// Keep Home beneath the restored destination and release startup only when
+// the navigator commits that route. Incoming deep links take precedence.
+export function ResumeGate({ onReady }: { onReady: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
-  const restored = useRef(false);
+  const navigation = useRootNavigationState();
   const currentPath = useRef(pathname);
   useEffect(() => {
     currentPath.current = pathname;
   }, [pathname]);
+  const [destination, setDestination] = useState<string | null>(null);
+
   useEffect(() => {
-    if (restored.current) {
+    if (!navigation?.key) {
       return;
     }
-    restored.current = true;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      cancelled = true;
+      onReady();
+    }, 2500);
     void (async () => {
       try {
         const resume = await loadLaunchResumeRoute();
-        if (!resume) {
+        if (cancelled) {
           return;
         }
-        if (resume.pathname === pathname || currentPath.current !== "/") {
-          return;
+        const target = startupDestination(currentPath.current, resume);
+        setDestination(target);
+        if (resume && target !== currentPath.current) {
+          router.navigate(resumeHref(resume) as "/");
         }
-        // String href keeps typed-route checking out of the way: the stored
-        // pathname is runtime data, not a literal the compiler can verify.
-        const params = resume.params ?? {};
-        const query = Object.entries(params)
-          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-          .join("&");
-        const href = query ? `${resume.pathname}?${query}` : resume.pathname;
-        // Retain home underneath so Back from a restored post reaches its feed.
-        router.navigate(href as "/");
       } catch {
-        // Resume must never break launch.
+        if (!cancelled) {
+          onReady();
+        }
       }
     })();
-  }, [pathname, router]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [navigation?.key, onReady, router]);
+
+  useEffect(() => {
+    if (destination !== null && pathname === destination) {
+      onReady();
+    }
+  }, [destination, onReady, pathname]);
   return null;
 }
 
-// Persists the current route on every navigation. Debounced by the
-// navigator itself: pathname changes at most once per navigation.
+// Never persist the temporary Home route while restoration is in progress.
 export function ResumeSaver() {
   const pathname = usePathname();
+  const presented = useStartupPresented();
   useEffect(() => {
-    void saveResumeRoute(pathname);
-  }, [pathname]);
+    if (presented) {
+      void saveResumeRoute(pathname);
+    }
+  }, [pathname, presented]);
   return null;
 }

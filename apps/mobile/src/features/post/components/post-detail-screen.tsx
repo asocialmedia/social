@@ -51,6 +51,7 @@ import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
+import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -81,6 +82,12 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   const showGuestBar = !isPending && !user;
 
   const cacheKey = postDetailKey(postId, viewerId, getApiBaseUrl());
+  if (!postDetailCache.read(cacheKey)) {
+    const preview = findCachedFeedPost(postId, viewerId);
+    if (preview) {
+      postDetailCache.seed(cacheKey, preview);
+    }
+  }
   const [status, setStatus] = useState<DetailStatus>(() =>
     postDetailCache.read(cacheKey) ? "ready" : "loading"
   );

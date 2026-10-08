@@ -1,4 +1,6 @@
 import type { FeedPost } from "@/features/feed/lib/feed-types";
+import type { PersistSnapshot } from "@/lib/persistent-cache";
+import { isFreshEntry } from "@/lib/persistent-cache";
 
 import type { PostDetail } from "./post-api";
 
@@ -14,9 +16,26 @@ export function postDetailKey(
 // paints immediately while the complete ancestor chain loads in the background.
 export class PostDetailCache {
   private entries = new Map<string, PostDetail>();
+  private fetchedAt = new Map<string, number>();
+  private invalidated = new Set<string>();
+
+  private readonly now: () => number;
+  private readonly onChange: () => void;
+  constructor(now: () => number = Date.now, onChange: () => void = () => null) {
+    this.now = now;
+    this.onChange = onChange;
+  }
+
   private inflight = new Map<string, Promise<PostDetail>>();
 
   read(key: string): PostDetail | undefined {
+    if (
+      this.now() - (this.fetchedAt.get(key) ?? 0) >
+      POST_DETAIL_RETENTION_MS
+    ) {
+      this.entries.delete(key);
+      this.fetchedAt.delete(key);
+    }
     const value = this.entries.get(key);
     if (value) {
       this.entries.delete(key);
@@ -28,17 +47,57 @@ export class PostDetailCache {
   private write(key: string, detail: PostDetail): void {
     this.entries.delete(key);
     this.entries.set(key, detail);
+    this.fetchedAt.set(key, this.now());
+    this.invalidated.delete(key);
     if (this.entries.size > 32) {
       const oldest = this.entries.keys().next().value;
       if (oldest !== undefined) {
         this.entries.delete(oldest);
+        this.fetchedAt.delete(oldest);
       }
     }
+    this.onChange();
   }
 
   seed(key: string, post: FeedPost): void {
-    if (!this.entries.has(key)) {
+    if (!this.read(key)) {
       this.write(key, { ancestors: [], post });
+    }
+  }
+
+  snapshot(): PersistSnapshot<PostDetail> {
+    const entries: PersistSnapshot<PostDetail>["entries"] = {};
+    for (const [key, detail] of this.entries) {
+      const entry = { data: detail, fetchedAt: this.fetchedAt.get(key) ?? 0 };
+      if (isFreshEntry(entry, this.now(), POST_DETAIL_RETENTION_MS)) {
+        entries[key] = entry;
+      }
+    }
+    return { entries, version: 1 };
+  }
+
+  restore(snapshot: PersistSnapshot<PostDetail>): void {
+    for (const [key, entry] of Object.entries(snapshot.entries)) {
+      if (this.entries.size >= 32) {
+        break;
+      }
+      const detail = entry?.data;
+      if (
+        this.entries.has(key) ||
+        this.invalidated.has(key) ||
+        !isFreshEntry(entry, this.now(), POST_DETAIL_RETENTION_MS) ||
+        !detail ||
+        !Array.isArray(detail.ancestors) ||
+        !validCachedPost(detail.post) ||
+        !detail.ancestors.every(validCachedPost)
+      ) {
+        continue;
+      }
+      this.entries.set(key, detail);
+      this.fetchedAt.set(key, entry.fetchedAt);
+      if (this.entries.size >= 32) {
+        break;
+      }
     }
   }
 
@@ -64,6 +123,9 @@ export class PostDetailCache {
           (error.status === 404 || error.status === 401 || error.status === 403)
         ) {
           this.entries.delete(key);
+          this.fetchedAt.delete(key);
+          this.invalidated.add(key);
+          this.onChange();
         }
         throw error;
       }
@@ -73,4 +135,48 @@ export class PostDetailCache {
   }
 }
 
-export const postDetailCache = new PostDetailCache();
+export const POST_DETAIL_RETENTION_MS = 30 * 60 * 1000;
+
+function validCachedPost(post: FeedPost | null | undefined): boolean {
+  return Boolean(
+    post &&
+    typeof post.id === "string" &&
+    typeof post.userId === "string" &&
+    typeof post.createdAt === "string"
+  );
+}
+
+export const postDetailCache = new PostDetailCache(
+  Date.now,
+  schedulePostPersist
+);
+let hydration: Promise<void> | undefined;
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+export function hydratePostDetailCache(): Promise<void> {
+  hydration ??= (async () => {
+    try {
+      const { readSnapshot } = await import("@/lib/persistent-file");
+      postDetailCache.restore(
+        await readSnapshot<PostDetail>("post-details-v1")
+      );
+    } catch {
+      // A missing cache uses the normal post loading state.
+    }
+  })();
+  return hydration;
+}
+
+function schedulePostPersist(): void {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    void (async () => {
+      try {
+        await hydratePostDetailCache();
+        const { writeSnapshot } = await import("@/lib/persistent-file");
+        await writeSnapshot("post-details-v1", postDetailCache.snapshot());
+      } catch {
+        // Storage cannot interrupt navigation.
+      }
+    })();
+  }, 150);
+}

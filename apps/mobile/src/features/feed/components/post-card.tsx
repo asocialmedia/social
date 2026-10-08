@@ -8,7 +8,6 @@
 // Card taps open the post detail screen (/posts/[postId]), mirroring web's
 // card-wide navigation. Profile identity controls explicitly stop the press
 // event before routing to /users/[username], so they never open the post.
-import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { memo, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
@@ -21,7 +20,6 @@ import { fetchPostDetail } from "@/features/post/lib/post-api";
 import { postDetailCache, postDetailKey } from "@/features/post/lib/post-cache";
 import { usePrefetchProfile } from "@/features/profile";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -63,7 +61,13 @@ import {
   ResponseParentRow,
 } from "./post-embeds";
 import { PostLinkEmbeds } from "./post-link-embeds";
-import { ExplicitGate, MediaGallery, ModeratedNotice } from "./post-media";
+import {
+  ActivityFeedImage,
+  ExplicitGate,
+  MediaGallery,
+  ModeratedNotice,
+  useMediaActivity,
+} from "./post-media";
 
 // Content past this length collapses behind Show more, mirroring web's
 // ~6-line clamp. BioContent cuts at segment boundaries so pills never split.
@@ -186,6 +190,7 @@ export const PostCard = memo(
     const prefetchProfile = usePrefetchProfile();
     const [showComments, setShowComments] = useState(false);
     const [avatarFailed, setAvatarFailed] = useState(false);
+    const { visible: chromeActive } = useMediaActivity(post.id);
 
     const apiBase = getApiBaseUrl();
     const author = post.user;
@@ -304,6 +309,7 @@ export const PostCard = memo(
         <Pressable
           accessibilityLabel={`Open post by ${username}`}
           accessibilityRole="link"
+          testID={`post-${post.id}`}
           onPress={openDetail}
           style={({ pressed }) => (pressed ? styles.cardPressed : undefined)}
         >
@@ -325,7 +331,10 @@ export const PostCard = memo(
                 hasThreadChild={hasThreadChild}
                 hasThreadParent={hasThreadParent}
               />
-              <View renderToHardwareTextureAndroid style={styles.chromeTexture}>
+              <View
+                renderToHardwareTextureAndroid={chromeActive}
+                style={styles.chromeTexture}
+              >
                 <Pressable
                   accessibilityLabel={`Open ${author?.displayName || username}'s profile`}
                   accessibilityRole="link"
@@ -334,8 +343,9 @@ export const PostCard = memo(
                   onPressIn={prefetchAuthor}
                   style={styles.avatarLink}
                 >
-                  <Image
-                    cachePolicy={imageCachePolicy(avatarUri)}
+                  <ActivityFeedImage
+                    postId={post.id}
+                    cachePolicy="memory-disk"
                     contentFit="cover"
                     recyclingKey={avatarUri ?? "avatar-placeholder"}
                     transition={150}
@@ -363,7 +373,10 @@ export const PostCard = memo(
             </View>
 
             <View style={styles.content}>
-              <View renderToHardwareTextureAndroid style={styles.chromeTexture}>
+              <View
+                renderToHardwareTextureAndroid={chromeActive}
+                style={styles.chromeTexture}
+              >
                 <View style={styles.headerRow}>
                   <View style={styles.headerLeft}>
                     <Pressable
@@ -475,6 +488,7 @@ export const PostCard = memo(
                           <View style={styles.mediaColumn}>
                             {attachments.length > 0 ? (
                               <MediaGallery
+                                post={post}
                                 active={active}
                                 apiBase={apiBase}
                                 attachments={attachments}
@@ -492,6 +506,7 @@ export const PostCard = memo(
                         <View style={styles.mediaColumn}>
                           {attachments.length > 0 ? (
                             <MediaGallery
+                              post={post}
                               active={active}
                               apiBase={apiBase}
                               attachments={attachments}
@@ -525,7 +540,10 @@ export const PostCard = memo(
                 </>
               )}
 
-              <View renderToHardwareTextureAndroid style={styles.chromeTexture}>
+              <View
+                renderToHardwareTextureAndroid={chromeActive}
+                style={styles.chromeTexture}
+              >
                 <View style={styles.actions}>
                   <VoteCluster
                     aura={post.aura ?? 0}
