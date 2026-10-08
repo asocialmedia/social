@@ -409,6 +409,18 @@ async function commitConcurrentBackfillBatch(): Promise<boolean> {
   return result.committed;
 }
 
+function requireFulfilled<T>(
+  result: PromiseSettledResult<T>,
+  operation: string
+): T {
+  if (result.status === "rejected") {
+    throw new Error(`DM search scale ${operation} failed`, {
+      cause: result.reason,
+    });
+  }
+  return result.value;
+}
+
 test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
   `searches ${CONVERSATION_COUNT} DM(s) with ${MESSAGE_COUNT} messages each under broad and concurrent query load`,
   async () => {
@@ -579,12 +591,24 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
         pendingLiveIndexWrites
       );
       const historicalBackfill = commitConcurrentBackfillBatch();
-      const [concurrentAttempts, liveIndexingResult, backfillCommitted] =
-        await Promise.all([
+      const [searchesSettled, liveIndexingSettled, backfillSettled] =
+        await Promise.allSettled([
           concurrentSearches,
           liveIndexing,
           historicalBackfill,
         ]);
+      const concurrentAttempts = requireFulfilled(
+        searchesSettled,
+        "concurrent searches"
+      );
+      const liveIndexingResult = requireFulfilled(
+        liveIndexingSettled,
+        "live indexing"
+      );
+      const backfillCommitted = requireFulfilled(
+        backfillSettled,
+        "historical backfill"
+      );
       expect(liveIndexingResult).toBeUndefined();
       expect(backfillCommitted).toBe(true);
       const durations = concurrentAttempts.map((attempt) => attempt.durationMs);
