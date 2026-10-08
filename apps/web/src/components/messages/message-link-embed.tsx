@@ -4,7 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import { EmbedCard } from "@/components/posts/embeds/embed-card";
 import { YouTubeEmbed } from "@/components/posts/embeds/youtube-embed";
-import { extractPostUrls } from "@/lib/link-embeds/shared";
+import {
+  extractPostUrls,
+  youtubeVideoIdFromUrl,
+} from "@/lib/link-embeds/shared";
 import { fetchMessageLinkPreview } from "@/lib/messages/link-preview-loader";
 import { postIdFromUrl } from "@/lib/posts/post-url";
 
@@ -75,6 +78,28 @@ export function LinkEmbedCard({
     );
   }
 
+  const videoId = youtubeVideoIdFromUrl(url);
+  if (videoId) {
+    // The video URL already identifies the player. Keep it mounted while only
+    // its metadata changes, so playback and the reserved height survive loading.
+    return (
+      <div className="mt-1.5 max-w-full min-w-0">
+        <YouTubeEmbed
+          compact={compact}
+          embed={
+            data ?? {
+              siteName: "YouTube",
+              title: url,
+              type: "youtube",
+              url,
+              videoId,
+            }
+          }
+        />
+      </div>
+    );
+  }
+
   // No URL, or a preview that resolved to nothing: render nothing rather than
   // an empty box. The inline LinkBadge still carries the link.
   if (!url) {
@@ -101,7 +126,7 @@ export function LinkEmbedCard({
   if (isLoading || !data) {
     return (
       <div
-        className="embed-panel-3d mt-1.5 flex h-24 w-full animate-pulse items-center gap-3 p-3"
+        className="embed-panel-3d mt-1.5 flex h-28 w-full animate-pulse items-center gap-3 p-3"
         data-message-link-skeleton
       >
         <div className="min-w-0 flex-1 space-y-2">

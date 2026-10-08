@@ -26,7 +26,7 @@ export function EmbedCard({
 
   return (
     <a
-      className={`embed-panel-3d group block overflow-hidden transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${compact ? "h-24" : ""}`}
+      className={`embed-panel-3d group block overflow-hidden transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${compact ? "h-28" : ""}`}
       href={embed.url}
       onClick={(event) => event.stopPropagation()}
       rel="nofollow ugc noopener noreferrer"
@@ -59,7 +59,7 @@ export function EmbedCard({
           // eslint-disable-next-line @next/next/no-img-element -- dynamic third-party origin, optimizer rejects proxy paths
           <img
             alt=""
-            className={`border-border/40 h-20 w-20 shrink-0 rounded-lg border object-cover ${compact ? "" : "sm:h-24 sm:w-24"}`}
+            className={`border-border/40 shrink-0 rounded-lg border object-cover ${compact ? "h-16 w-16" : "h-20 w-20 sm:h-24 sm:w-24"}`}
             loading="lazy"
             onError={image.handleError}
             referrerPolicy="no-referrer"

@@ -4,6 +4,7 @@ import noSearchImage from "@assets/general/nosearch.png";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useRef } from "react";
 
+import { youtubeVideoIdFromUrl } from "@/lib/link-embeds/shared";
 import type { SharedLinkItem } from "@/lib/messages/shared-refs-format";
 
 import {
@@ -27,9 +28,8 @@ import { LinkEmbedCard } from "./message-link-embed";
 // share, and the conversation's own index builder files it under Posts so the
 // two tabs never list the same share twice.
 const OVERSCAN_ROWS = 4;
-// A resolved preview is a h-24-ish card (the unfurl skeleton's own height, which
-// is deliberately fixed so a bubble never re-measures when a preview lands).
-const ESTIMATED_ROW_SIZE = 114;
+// Generic cards reserve 112px plus their top margin and row spacing.
+const ESTIMATED_ROW_SIZE = 130;
 
 export function ConversationSharedLinksTab({
   hasMore,
@@ -49,7 +49,8 @@ export function ConversationSharedLinksTab({
   // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream chat recipe, same as the transcript's); rows stay memoized on their own props
   const rowVirtualizer = useVirtualizer({
     count: items.length,
-    estimateSize: () => ESTIMATED_ROW_SIZE,
+    estimateSize: (index) =>
+      youtubeVideoIdFromUrl(items[index]?.url ?? "") ? 218 : ESTIMATED_ROW_SIZE,
     getItemKey: (index) => items[index]?.flatKey ?? index,
     getScrollElement,
     overscan: OVERSCAN_ROWS,
@@ -57,10 +58,7 @@ export function ConversationSharedLinksTab({
   const totalSize = rowVirtualizer.getTotalSize();
   const virtualItems = rowVirtualizer.getVirtualItems();
 
-  // Rows here are measured rather than fixed, so the threshold deliberately starts
-  // the read a couple of rows early: a card can be taller than its estimate while a
-  // query resolves, and reaching the bottom mid-measure is what makes a measured
-  // list stutter.
+  // Fetch older index pages shortly before reaching the last mounted row.
   useAutoLoadMore({
     hasMore,
     lastVisibleRow: virtualItems.at(-1)?.index ?? -1,
