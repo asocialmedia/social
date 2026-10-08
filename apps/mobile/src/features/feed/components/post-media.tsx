@@ -117,9 +117,7 @@ function useMediaActivity(fallbackPostId = "") {
     (notify: () => void) => {
       const stopFeed = feedScope
         ? subscribeFeedMediaActivity(feedScope, notify)
-        : () => {
-            /* empty */
-          };
+        : () => null;
       const stopVisibility = subscribePostVisibility(postId, notify);
       const stopAutoplay = subscribeAutoplayPost(postId, notify);
       const appStateSubscription = AppState.addEventListener("change", notify);
