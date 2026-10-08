@@ -3,11 +3,19 @@ import type { MediaBounds } from "../state/media-preview-store";
 export function mediaPreviewLayout(
   window: { height: number; width: number },
   media: { height?: number | null; width?: number | null },
-  topInset: number
+  topInset: number,
+  measuredBounds?: MediaBounds
 ): MediaBounds {
-  const ratio =
+  const dimensions =
     media.width && media.height && media.width > 0 && media.height > 0
-      ? media.width / media.height
+      ? media
+      : measuredBounds;
+  const ratio =
+    dimensions?.width &&
+    dimensions.height &&
+    dimensions.width > 0 &&
+    dimensions.height > 0
+      ? dimensions.width / dimensions.height
       : 4 / 3;
   const maxWidth = Math.max(1, window.width - 32);
   const maxHeight = Math.max(1, window.height * 0.53 - topInset - 24);

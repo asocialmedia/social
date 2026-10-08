@@ -42,6 +42,10 @@ import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
 import { getUserVote, isBookmarkedByUser } from "../lib/feed-types";
+import {
+  mediaDimensionsCache,
+  mediaDimensionsKey,
+} from "../lib/media-dimensions";
 import { mediaDownloadDescriptor } from "../lib/media-download";
 import { mediaPreviewLayout } from "../lib/media-preview-layout";
 import {
@@ -108,11 +112,20 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const [presented, setPresented] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const busyRef = useRef(false);
   const closing = useRef(false);
   const afterClose = useRef<(() => void) | null>(null);
   const mounted = useRef(true);
-  const target = mediaPreviewLayout(window, request.media, insets.top);
+  const knownDimensions = mediaDimensionsCache.get(
+    mediaDimensionsKey(getApiBaseUrl(), request.media.id)
+  );
+  const target = mediaPreviewLayout(
+    window,
+    knownDimensions ?? request.media,
+    insets.top,
+    request.bounds
+  );
   const { bounds, media, post } = request;
   const { engagement, toggleBookmark, vote } = usePostEngagement({
     aura: post.aura ?? 0,
@@ -253,6 +266,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
       haptic();
     }
     setBusy(label);
+    setNotice(null);
     try {
       await action();
     } catch (error) {
@@ -265,6 +279,9 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         title: "Couldn't complete the action",
         variant: "destructive",
       });
+      if (mounted.current) {
+        setNotice(error instanceof Error ? error.message : "Please try again.");
+      }
     }
     busyRef.current = false;
     if (mounted.current) {
@@ -283,6 +300,10 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     }
     const { file } = await download();
     await MediaLibrary.Asset.create(file.uri);
+    if (mounted.current) {
+      setNotice("Saved to your gallery");
+    }
+    haptic("success");
     toast({ title: "Saved to your gallery" });
   };
   const share = async () => {
@@ -515,6 +536,18 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                     <ActivityIndicator color={theme.auxLink} />
                     <Text style={{ color: theme.inputText }}>{busy}</Text>
                   </View>
+                ) : null}
+                {notice ? (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    style={{
+                      color: theme.inputText,
+                      fontFamily: "SofiaProReg",
+                      fontSize: 14,
+                    }}
+                  >
+                    {notice}
+                  </Text>
                 ) : null}
               </View>
             </MediaSheetContent>

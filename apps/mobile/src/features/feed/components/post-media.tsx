@@ -61,6 +61,11 @@ import { fetchCaptionsVtt, fetchWavePeaks } from "../lib/feed-api";
 import type { FeedMedia, FeedPost } from "../lib/feed-types";
 import { isMediaActivityVisible } from "../lib/media-activity";
 import {
+  mediaDimensionsCache,
+  mediaDimensionsKey,
+  rememberMediaDimensions,
+} from "../lib/media-dimensions";
+import {
   formatFileName,
   isAudioMedia,
   isVideoMedia,
@@ -237,7 +242,13 @@ function SingleImage({
   // Web measures the natural size when stored dims are missing; without it
   // a portrait lands in a landscape frame and `contain` centers it with
   // square corners. The measured size keeps the frame hugging the picture.
-  const [natural, setNatural] = useState<{ h: number; w: number } | null>(null);
+  const dimensionsKey = mediaDimensionsKey(apiBase, media.id);
+  const [natural, setNatural] = useState<{ h: number; w: number } | null>(
+    () => {
+      const cached = mediaDimensionsCache.get(dimensionsKey);
+      return cached ? { h: cached.height, w: cached.width } : null;
+    }
+  );
   const dims = natural ?? stored;
   const ratio = dims && dims.h > 0 ? dims.w / dims.h : 4 / 3;
   // Portraits pin left at natural proportions (web w-fit); squares count as
@@ -268,7 +279,15 @@ function SingleImage({
         onLoad={(event) => {
           const { source } = event;
           if (source?.width > 0 && source?.height > 0) {
-            setNatural({ h: source.height, w: source.width });
+            rememberMediaDimensions(dimensionsKey, {
+              height: source.height,
+              width: source.width,
+            });
+            setNatural((current) =>
+              current?.h === source.height && current.w === source.width
+                ? current
+                : { h: source.height, w: source.width }
+            );
           }
         }}
         source={{ uri: mediaImageUrl(apiBase, media) }}
@@ -282,10 +301,20 @@ function SingleImage({
     </View>
   );
   if (!onPressMedia) {
-    return <MediaHold media={media}>{frame}</MediaHold>;
+    return (
+      <MediaHold
+        media={media}
+        style={portrait ? { alignSelf: "flex-start" } : undefined}
+      >
+        {frame}
+      </MediaHold>
+    );
   }
   return (
-    <MediaHold media={media}>
+    <MediaHold
+      media={media}
+      style={portrait ? { alignSelf: "flex-start" } : undefined}
+    >
       <Pressable
         accessibilityLabel={media.altText ?? "Open post media"}
         accessibilityRole="link"
@@ -358,7 +387,7 @@ function GridImage({
           }
         }}
         style={({ pressed }) => [
-          frameStyle,
+          styles.tileFill,
           pressed && styles.mediaTilePressed,
         ]}
       >
@@ -529,6 +558,7 @@ function VideoTile({
   const manualPausedRef = useRef(false);
   const endedRef = useRef(false);
   const playbackTimeRef = useRef(0);
+  const loadedDurationRef = useRef<number | null>(null);
 
   const isFailed = posterFailed || videoStatus === "error";
   const isVideoActive = prepareVideo && firstFrame && hasPlayed;
@@ -538,6 +568,7 @@ function VideoTile({
     playbackTimeRef.current = event.currentTime;
   });
   useEventListener(player, "sourceLoad", (event) => {
+    loadedDurationRef.current = event.duration > 0 ? event.duration : null;
     if (playbackTimeRef.current > 0 && event.duration > 0) {
       // oxlint-disable-next-line react/immutability -- restore the playhead through expo-video's documented seek property
       player.currentTime = Math.min(playbackTimeRef.current, event.duration);
@@ -629,7 +660,7 @@ function VideoTile({
           setFetchedCues(
             splitTranscriptIntoTimedLines(
               media.transcript,
-              player.duration || null
+              loadedDurationRef.current
             )
           );
         }
@@ -640,14 +671,7 @@ function VideoTile({
     return () => {
       cancelled = true;
     };
-  }, [
-    apiBase,
-    fetchedCues.length,
-    media.id,
-    media.transcript,
-    player,
-    wantsCaptions,
-  ]);
+  }, [apiBase, fetchedCues.length, media.id, media.transcript, wantsCaptions]);
 
   const directCues = useMemo(
     () => cuesFromTranscript(media.transcript),

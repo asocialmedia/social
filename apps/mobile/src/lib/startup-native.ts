@@ -2,6 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 import { authClient } from "@/features/auth/lib/auth-client";
+import { hydrateMediaDimensions } from "@/features/feed/lib/media-dimensions";
 import { hydrateFeedCache } from "@/features/feed/state/feed-store";
 import { hydrateHomeTabMemory } from "@/features/feed/state/tab-store-native";
 import { hydratePopupCache } from "@/features/home/components/profile-cache";
@@ -41,6 +42,7 @@ export function prepareNativeStartup(): Promise<void> {
   preparation ??= prepareStartup([
     hydrateSession,
     hydrateFeedCache,
+    hydrateMediaDimensions,
     hydrateHomeTabMemory,
     hydratePopupCache,
     hydratePostDetailCache,

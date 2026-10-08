@@ -12,6 +12,7 @@ import {
   persistFeedEntry,
   restoreFeedCache,
   feedCache,
+  feedCacheToSnapshot,
 } from "./feed-store";
 
 function post(id: string): FeedPost {
@@ -79,6 +80,40 @@ describe("prependPosts", () => {
 });
 
 describe("FeedCache", () => {
+  test("refresh, pagination and failed requests retain the last completed pages across relaunch", () => {
+    for (const status of ["refreshing", "loading-more", "error"] as const) {
+      feedCache.clear();
+      feedCache.applyPage("saved", [post("retained")], "next-page", {}, false);
+      const fetchedAt = Date.now() - 120_000;
+      feedCache.patch("saved", { fetchedAt });
+      feedCache.patch("saved", {
+        error: status === "error" ? "Offline" : null,
+        status,
+      });
+      const snapshot = feedCacheToSnapshot();
+      expect(snapshot.saved?.pages[0]?.[0]?.id).toBe("retained");
+      expect(snapshot.saved?.fetchedAt).toBe(fetchedAt);
+      feedCache.clear();
+      restoreFeedCache(snapshot);
+      const restored = feedCache.get("saved");
+      expect(restored.status).toBe("success");
+      expect(restored.error).toBeNull();
+      expect(restored.cursor).toBe("next-page");
+      expect(restored.stale).toBe(true);
+      expect(restored.pages[0]?.[0]?.id).toBe("retained");
+    }
+    feedCache.clear();
+  });
+  test("an interrupted refresh revalidates even when its completed pages are recent", () => {
+    feedCache.clear();
+    feedCache.applyPage("recent", [post("cached")], null, {}, false);
+    feedCache.patch("recent", { status: "refreshing" });
+    const snapshot = feedCacheToSnapshot();
+    feedCache.clear();
+    restoreFeedCache(snapshot);
+    expect(feedCache.get("recent").stale).toBe(true);
+    feedCache.clear();
+  });
   test("disk truncation resumes at the saved page boundary without skipping posts", () => {
     const cache = new FeedCache();
     cache.applyPage("k", [post("a")], "page2", {}, false);

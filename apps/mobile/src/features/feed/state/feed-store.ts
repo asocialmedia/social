@@ -174,7 +174,13 @@ export class FeedCache {
   }
 
   patch(key: string, partial: Partial<TabFeed>): TabFeed {
-    const next = { ...this.get(key), ...partial, fetchedAt: this.now() };
+    const current = this.get(key);
+    const next = {
+      ...current,
+      ...partial,
+      fetchedAt:
+        partial.fetchedAt ?? (partial.pages ? this.now() : current.fetchedAt),
+    };
     this.tabs.set(key, next);
     this.residentAt.set(key, this.now());
     this.notify(new Set([key]));
@@ -302,13 +308,13 @@ export class FeedCache {
 // Process-wide feed cache used by the hooks.
 export const feedCache = new FeedCache();
 
-// Persistent snapshot shape for disk. Only success entries with pages are
-// stored, capped to the first two pages per tab so the file stays small and
-// hydration is instant. Loading states are never persisted.
+// Persist completed pages even during refresh, pagination or a network failure.
+// Only the data and its freshness survive; transient loading/error UI does not.
 export type FeedPersistEntry = Pick<
   TabFeed,
   "cursor" | "fetchedAt" | "hasMore" | "pages" | "pageCursors"
->;
+> &
+  Partial<Pick<TabFeed, "stale">>;
 // Disk previews survive a normal next-day launch; their original age still
 // forces background refresh. In-memory unused tabs retain the shorter TTL.
 export const FEED_PERSIST_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -332,6 +338,7 @@ export function persistFeedEntry(entry: TabFeed): FeedPersistEntry {
     hasMore: truncated || entry.hasMore,
     pageCursors,
     pages,
+    stale: entry.stale || entry.status !== "success",
   };
 }
 export function feedCacheToSnapshot(
@@ -343,7 +350,7 @@ export function feedCacheToSnapshot(
   // The cache below exposes keys() for this purpose.
   for (const key of feedCache.keys()) {
     const entry = feedCache.get(key);
-    if (entry.status !== "success" || entry.pages.length === 0) {
+    if (entry.pages.length === 0) {
       continue;
     }
     if (now - entry.fetchedAt > FEED_PERSIST_RETENTION_MS) {
@@ -383,7 +390,9 @@ export function restoreFeedCache(
     }
     // Old snapshots may contain a cursor beyond their saved pages.
     const backgroundRefresh =
-      !entry.pageCursors || now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
+      entry.stale === true ||
+      !entry.pageCursors ||
+      now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
     feedCache.set(key, {
       cursor: typeof entry.cursor === "string" ? entry.cursor : null,
       error: null,

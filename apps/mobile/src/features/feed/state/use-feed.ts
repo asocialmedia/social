@@ -153,6 +153,15 @@ export function useFeedTab({
             flattenUniquePosts(feedCache.get(key).pages).map((post) => post.id)
           );
           if (known.size === 0) {
+            const current = feedCache.get(key);
+            const page = await fetchFeedPage(variant, null, options);
+            if (
+              !cancelled &&
+              activeKeyRef.current === key &&
+              feedCache.get(key) === current
+            ) {
+              feedCache.applyPage(key, page.posts, page.nextCursor, {}, false);
+            }
             return;
           }
           // Cheap first, and only where it is sound: one row answers "did
@@ -270,6 +279,10 @@ export function useFeedTab({
         // is written out on both paths (same reason as update-gate.ts).
         if (inflightKey.current === cacheKey) {
           inflightKey.current = null;
+        }
+        // Empty feeds that failed offline still need a foreground/network recovery path.
+        if (active && activeKeyRef.current === cacheKey) {
+          startProbe(cacheKey);
         }
       }
     },

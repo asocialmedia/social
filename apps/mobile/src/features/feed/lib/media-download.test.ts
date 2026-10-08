@@ -50,4 +50,15 @@ describe("original media actions", () => {
     expect(layout.height).toBeGreaterThan(0);
     expect(layout.width / layout.height).toBeCloseTo(4 / 3);
   });
+  test("a decoded image without metadata lifts at its measured aspect ratio", () => {
+    const measured = { height: 216, width: 384, x: 16, y: 180 };
+    const layout = mediaPreviewLayout(
+      { height: 950, width: 420 },
+      {},
+      40,
+      measured
+    );
+    expect(layout.width / layout.height).toBeCloseTo(16 / 9);
+    expect(layout.width).toBeLessThanOrEqual(388);
+  });
 });
