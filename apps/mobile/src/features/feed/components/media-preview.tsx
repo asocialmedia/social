@@ -97,24 +97,30 @@ function MediaAction({
       accessibilityState={{ disabled: busy, selected }}
       disabled={busy}
       onPress={action}
-      className="min-h-11 flex-row items-center gap-3 px-3 py-2"
-      style={({ pressed }) => ({
-        flex: centered ? 1 : undefined,
-        justifyContent: centered ? "center" : "flex-start",
-        opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
-      })}
+      className="justify-center px-3 py-2"
+      style={{ minHeight: 44, width: centered ? "50%" : undefined }}
     >
-      <Icon color={color} size={22} strokeWidth={1.8} />
-      <Text
-        style={{
-          color,
-          fontFamily: "SofiaProMed",
-          fontSize: 15,
-          lineHeight: 22,
-        }}
-      >
-        {label}
-      </Text>
+      {({ pressed }) => (
+        <View
+          className="flex-row items-center gap-3"
+          style={{
+            alignSelf: centered ? "center" : "stretch",
+            opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
+          }}
+        >
+          <Icon color={color} size={22} strokeWidth={1.8} />
+          <Text
+            style={{
+              color,
+              fontFamily: "SofiaProMed",
+              fontSize: 15,
+              lineHeight: 22,
+            }}
+          >
+            {label}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
