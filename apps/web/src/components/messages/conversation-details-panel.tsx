@@ -1,12 +1,7 @@
 "use client";
 
 import type { DenRole } from "@asm/db/messages/dens";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@asm/ui/shadui/sheet";
+import { DrawerDescription, DrawerTitle } from "@asm/ui/shadui/drawer";
 import { Slider } from "@asm/ui/shadui/slider";
 import { Switch } from "@asm/ui/shadui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
@@ -23,7 +18,6 @@ import {
   Upload,
   UserRound,
   Volume2,
-  X,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -41,6 +35,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { ConversationDetailsDrawer } from "@/components/messages/conversation-details-drawer";
 import { toast } from "@/lib/gooey-toast";
 import {
   rejectionCopy,
@@ -899,49 +894,16 @@ export function ConversationDetailsBody({
   );
 }
 
-// The details surface as a DIALOG, and from below `lg` that means a BOTTOM sheet:
-// full width, most of the height, arriving from the edge the thumb is nearest.
-//
-// It used to slide in from the right at every width. On a desktop panel a sideways
-// arrival is right -- it is a pane, and panes live at the side. On a phone it read as
-// a page pushed in from off-screen, and the content inside is a profile rather than
-// a page: the idiom for "a thing about what you are looking at" on a touch screen is
-// up from the bottom. Same mount below `lg`, different edge.
-//
-// The dismissal is explicit rather than implied. The primitive's close is a 16px
-// icon in the extreme corner, and on a full-width sheet it was the ONLY way out:
-// there is no dark overlay to tap when the sheet covers the screen, and a phone has
-// no Escape key. That is not a small target, it is a missing control, so this
-// renders its own at a touch size over the banner and turns the primitive's off.
-//
-// A dialog and a rail differ in more than geometry: the sheet traps focus, closes on
-// Escape and on an outside press, and has to name itself for a screen reader. All of
-// that is Radix's, and all of it belongs to the wrapper rather than to the content,
-// which is why the body below knows nothing about being modal.
+// Mobile details open partially, then snap to full height when dragged upward.
+// The drawer owns gestures and dismissal; the body also serves the desktop rail.
 export function ConversationDetailsPanel({
   onClose,
   ...props
 }: ConversationDetailsBodyProps & { onClose: () => void }) {
   return (
-    <Sheet onOpenChange={(open) => !open && onClose()} open>
-      <SheetContent
-        // `overflow-hidden` so the banner is clipped by the rounded top corners
-        // rather than squaring them off.
-        className="flex h-[100dvh] max-h-[100dvh] flex-col gap-0 overflow-hidden rounded-t-2xl border-t p-0 pb-[env(safe-area-inset-bottom)] sm:h-[92dvh] sm:max-h-[92dvh]"
-        showCloseButton={false}
-        side="bottom"
-      >
-        <button
-          aria-label="Close chat details"
-          className="bg-background/70 text-foreground border-border/60 hover:bg-background/90 absolute top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-10 flex size-11 items-center justify-center rounded-full border backdrop-blur-md transition-colors"
-          onClick={onClose}
-          type="button"
-        >
-          <X className="size-4" />
-        </button>
-        <ConversationDetailsBody asDialog onClose={onClose} {...props} />
-      </SheetContent>
-    </Sheet>
+    <ConversationDetailsDrawer onClose={onClose}>
+      <ConversationDetailsBody asDialog onClose={onClose} {...props} />
+    </ConversationDetailsDrawer>
   );
 }
 
@@ -1132,18 +1094,18 @@ function DetailsHeader({
           )}
           <div className="min-w-0 flex-1">
             {asDialog ? (
-              <SheetTitle className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
+              <DrawerTitle className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
                 {name}
-              </SheetTitle>
+              </DrawerTitle>
             ) : (
               <h2 className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
                 {name}
               </h2>
             )}
             {asDialog ? (
-              <SheetDescription className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
+              <DrawerDescription className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
                 {description}
-              </SheetDescription>
+              </DrawerDescription>
             ) : (
               <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
                 {description}
