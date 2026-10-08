@@ -326,6 +326,16 @@ export const DEN_KEY_EPOCH_RATE_LIMIT: DenRateLimitRule = {
   windowSeconds: 3600,
 };
 
+// Refreshing a legacy identity backup rewrites an encrypted recovery row. The
+// compare-and-swap makes competing devices safe, while this per-account budget
+// bounds repeated refresh requests that lose or intentionally retry the race.
+export const DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT: DenRateLimitRule = {
+  bucket: "message-identity-refresh",
+  limit: 10,
+  window: "sliding",
+  windowSeconds: 3600,
+};
+
 // Typing indicators. The cheapest thing to spam in the product: no write at all,
 // one publish, and one conversation+members read to prove the caller is in the
 // room. Nothing accumulates, so a loop is invisible except as load - which is

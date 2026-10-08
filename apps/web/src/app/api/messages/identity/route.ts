@@ -2,6 +2,10 @@ import { fromPrismaDateTime, prisma, toPrismaDateTime } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
+  consumeDenRateLimit,
+  DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import {
   isUniqueConstraintViolation,
   parseJsonBody,
 } from "@/lib/messages/server";
@@ -175,6 +179,13 @@ export async function PATCH(request: Request) {
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const rateLimit = await consumeDenRateLimit(
+    DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT,
+    user.id
+  );
+  if (rateLimit) {
+    return rateLimit;
   }
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
