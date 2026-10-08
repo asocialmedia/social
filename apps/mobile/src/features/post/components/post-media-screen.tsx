@@ -86,6 +86,7 @@ import {
   splitTranscriptIntoTimedLines,
 } from "@/features/feed/lib/transcript-cues";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
+import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { useVideoMuteStore } from "@/features/feed/state/video-mute-store";
 import { GustEddiesSheet } from "@/features/gusts/components/gust-eddies-sheet";
 import { TranscriptDrawer } from "@/features/gusts/components/transcript-drawer";
@@ -99,6 +100,8 @@ import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import { fetchPostDetail } from "../lib/post-api";
+import { postDetailCache, postDetailKey } from "../lib/post-cache";
+import { resolvePostMediaIndex } from "../lib/post-path";
 import { MediaRouteSkeleton } from "./media-route-skeleton";
 
 // Every chrome surface below is web's dark slate `MOBILE_CHIP_3D`, imported from
@@ -580,9 +583,26 @@ export function PostMediaScreen({
   const viewerId = user?.id;
   const { width } = useWindowDimensions();
 
-  const [status, setStatus] = useState<MediaStatus>("loading");
-  const [post, setPost] = useState<FeedPost | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const cacheKey = postDetailKey(postId, viewerId, getApiBaseUrl());
+  if (!postDetailCache.read(cacheKey)) {
+    const preview = findCachedFeedPost(postId, viewerId);
+    if (preview) {
+      postDetailCache.seed(cacheKey, preview);
+    }
+  }
+  const cachedPost = postDetailCache.read(cacheKey)?.post;
+  const cachedIndex = resolvePostMediaIndex(
+    cachedPost?.attachments,
+    initialIndex,
+    params.mediaId
+  );
+  const [status, setStatus] = useState<MediaStatus>(() =>
+    cachedIndex === null ? "loading" : "ready"
+  );
+  const [post, setPost] = useState<FeedPost | null>(() => cachedPost ?? null);
+  const [currentIndex, setCurrentIndex] = useState(
+    () => cachedIndex ?? initialIndex
+  );
   const [uiVisible, setUiVisible] = useState(true);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -625,35 +645,42 @@ export function PostMediaScreen({
 
   useEffect(() => {
     let cancelled = false;
-    // oxlint-disable-next-line react/set-state-in-effect -- media reload enters loading here; steady state is fetch-driven
-    setStatus("loading");
+    const cached = postDetailCache.read(cacheKey)?.post;
+    const index = resolvePostMediaIndex(
+      cached?.attachments,
+      initialIndex,
+      params.mediaId
+    );
+    // oxlint-disable-next-line react/set-state-in-effect -- a route/account change restores that viewer's cached media
+    setPost(cached ?? null);
+    // oxlint-disable-next-line react/set-state-in-effect -- restore the selected attachment when the route changes
+    setCurrentIndex(index ?? initialIndex);
+    // oxlint-disable-next-line react/set-state-in-effect -- a cache hit paints immediately while revalidation runs
+    setStatus(index === null ? "loading" : "ready");
     void (async () => {
       try {
         const apiBase = getApiBaseUrl();
         const cookie = await authClient.getCookie();
-        const detail = await fetchPostDetail(postId, { apiBase, cookie });
+        const detail = await postDetailCache.load(cacheKey, () =>
+          fetchPostDetail(postId, { apiBase, cookie })
+        );
         if (cancelled) {
           return;
         }
         // ?mediaId= (profile-gallery deep link) wins over the URL segment,
         // like web's resolveCanonicalMedia.
-        let resolved = initialIndex;
-        const mediaIdParam = params.mediaId;
-        if (typeof mediaIdParam === "string" && mediaIdParam) {
-          const found = detail.post.attachments?.findIndex(
-            (entry) => entry.id === mediaIdParam
-          );
-          if (found !== undefined && found >= 0) {
-            resolved = found;
-          }
-        }
-        const count = detail.post.attachments?.length ?? 0;
-        if (count === 0) {
+        const resolved = resolvePostMediaIndex(
+          detail.post.attachments,
+          initialIndex,
+          params.mediaId
+        );
+        if (resolved === null) {
+          setPost(null);
           setStatus("not-found");
           return;
         }
         setPost(detail.post);
-        setCurrentIndex(Math.min(resolved, count - 1));
+        setCurrentIndex(resolved);
         setStatus("ready");
       } catch (error) {
         if (cancelled) {
@@ -663,10 +690,11 @@ export function PostMediaScreen({
           error && typeof error === "object" && "status" in error
             ? Number((error as { status: unknown }).status)
             : 0;
-        if (code === 404) {
+        if (code === 404 || code === 401 || code === 403) {
+          setPost(null);
           setStatus("not-found");
         } else {
-          setStatus("error");
+          setStatus(index === null ? "error" : "ready");
         }
         logWarn("post.media_failed", {
           reason: error instanceof Error ? error.message : String(error),
@@ -677,8 +705,7 @@ export function PostMediaScreen({
       cancelled = true;
     };
     // Initial load only; index changes stay local (no remount, like web).
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional media load keyed by post
-  }, [postId, params.mediaId, initialIndex]);
+  }, [cacheKey, postId, params.mediaId, initialIndex]);
 
   const apiBase = getApiBaseUrl();
   const media = useMemo(
