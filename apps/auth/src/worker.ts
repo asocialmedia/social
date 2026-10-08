@@ -47,6 +47,7 @@ if (import.meta.main) {
     processBadgeSweep,
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
+  const { healCredentialAccounts } = await import("./worker/account-heal");
 
   const workers: QueueWorkerType[] = [];
   let viewLoopPromise: Promise<void> | undefined;
@@ -57,6 +58,18 @@ if (import.meta.main) {
   const start = async () => {
     await ensureStreamGroups();
     await registerMaintenanceSchedulers();
+
+    // Heal legacy credential-account shapes once per boot so accounts broken by
+    // the old divergent reset writer are repaired on deploy rather than after
+    // the first hourly sweep. Backgrounded and best-effort: a failure here must
+    // never block the workers from starting.
+    void (async () => {
+      try {
+        await healCredentialAccounts(logger);
+      } catch (error: unknown) {
+        logger.error({ error }, "boot credential-account heal failed");
+      }
+    })();
 
     // Heartbeat written to Redis so the web /api/health endpoint can report
     // whether the worker process is alive.
@@ -202,6 +215,9 @@ if (import.meta.main) {
           }
           case "badge-sweep": {
             return processBadgeSweep(logger);
+          }
+          case "heal-credential-accounts": {
+            return healCredentialAccounts(logger);
           }
           case "trending-scores": {
             const startedAtMs = Date.now();

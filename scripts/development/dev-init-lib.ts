@@ -147,21 +147,38 @@ export function shouldInstallExtensions(
 // `prisma skills sync` copies the agent instruction files out of the installed
 // Prisma packages. Those packages only change on a dependency bump, so this is
 // gated on the installed ORM version rather than run unconditionally.
+//
+// Compare against the managed copy that `prisma skills sync` actually writes
+// (packages/db/.claude/skills/... when run from packages/db). The repo-root
+// .claude/skills copy is orphaned and stays stale, so gating on it re-runs the
+// sync on every start even though the CLI reports "already current".
+export function normalizeSkillVersion(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^[v^~>=<\s]+/, "")
+    .trim();
+}
+
 export function shouldSyncSkills(
   installedOrmVersion: string,
   syncedLibraryVersion: string | null
 ): StepDecision {
-  if (syncedLibraryVersion === installedOrmVersion) {
+  const installed = normalizeSkillVersion(installedOrmVersion);
+  const synced =
+    syncedLibraryVersion === null
+      ? null
+      : normalizeSkillVersion(syncedLibraryVersion);
+  if (synced === installed) {
     return {
-      reason: `skills already match ${installedOrmVersion}`,
+      reason: `skills already match ${installed}`,
       run: false,
     };
   }
   return {
     reason:
-      syncedLibraryVersion === null
+      synced === null
         ? "no synced skill recorded"
-        : `skills at ${syncedLibraryVersion}, package at ${installedOrmVersion}`,
+        : `skills at ${synced}, package at ${installed}`,
     run: true,
   };
 }
@@ -208,6 +225,21 @@ export function shouldUpdateDatabase(input: {
   if (facts.verifyExitCode === null) {
     return { reason: "could not verify the database, updating", run: true };
   }
+  // Prisma exit codes are load-bearing: 0 = matches, 4 = ran and found drift,
+  // 2 = could not run at all (unreachable DB, missing contract, bad flags).
+  // Lumping 2 in with "findings" hides the real cause, so name it.
+  if (facts.verifyExitCode === 2) {
+    return {
+      reason: "db verify could not run (exit 2), updating",
+      run: true,
+    };
+  }
+  if (facts.verifyExitCode === 4) {
+    return {
+      reason: "db verify reported drift or a marker finding (exit 4)",
+      run: true,
+    };
+  }
   if (facts.verifyExitCode !== 0) {
     return {
       reason: `db verify reported findings (exit ${facts.verifyExitCode})`,
@@ -239,4 +271,162 @@ export function summariseDecisions(decisions: readonly StepDecision[]): string {
   return decisions
     .map((decision) => `${decision.run ? "run" : "skip"} (${decision.reason})`)
     .join("; ");
+}
+
+// Prisma prints JSON-lines even in human mode. The last {"kind":"result"}
+// line carries the structured envelope; surfacing its code/summary/why is
+// what turns `error: "prisma" exited with code 2` into an actionable message.
+export interface PrismaFailureSummary {
+  code: string | null;
+  conflicts: string[];
+  diagnostics: string[];
+  summary: string | null;
+  why: string | null;
+}
+
+export function parsePrismaFailure(stdout: string): PrismaFailureSummary {
+  const empty: PrismaFailureSummary = {
+    code: null,
+    conflicts: [],
+    diagnostics: [],
+    summary: null,
+    why: null,
+  };
+  const lines = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!line.startsWith("{")) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+      continue;
+    }
+    const record = parsed as {
+      envelope?: {
+        diagnostics?: { code?: unknown; summary?: unknown }[];
+        error?: {
+          code?: unknown;
+          meta?: { conflicts?: { summary?: unknown }[] };
+          summary?: unknown;
+          why?: unknown;
+        };
+      };
+      kind?: unknown;
+    };
+    if (record.kind !== "result" || !record.envelope) {
+      continue;
+    }
+    const error = record.envelope.error;
+    const conflicts = Array.isArray(error?.meta?.conflicts)
+      ? error.meta.conflicts
+          .map((conflict) =>
+            typeof conflict.summary === "string" ? conflict.summary : ""
+          )
+          .filter((value) => value.length > 0)
+      : [];
+    const diagnostics = Array.isArray(record.envelope.diagnostics)
+      ? record.envelope.diagnostics
+          .map((diagnostic) => {
+            const code =
+              typeof diagnostic.code === "string" ? diagnostic.code : "";
+            const summary =
+              typeof diagnostic.summary === "string" ? diagnostic.summary : "";
+            return [code, summary].filter(Boolean).join(": ") || "";
+          })
+          .filter((value) => value.length > 0)
+      : [];
+    return {
+      code: typeof error?.code === "string" ? error.code : null,
+      conflicts,
+      diagnostics,
+      summary: typeof error?.summary === "string" ? error.summary : null,
+      why: typeof error?.why === "string" ? error.why : null,
+    };
+  }
+  return empty;
+}
+
+// `db migrate --show` prints JSON-lines; the result envelope lists the
+// pending migrations in order. An empty list means there is nothing formal to
+// apply and the quick `db update` path is the right one.
+export function parsePendingMigrations(stdout: string): string[] {
+  const lines = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!line.startsWith("{")) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+      continue;
+    }
+    const record = parsed as {
+      envelope?: { result?: { migrations?: { dirName?: unknown }[] } };
+      kind?: unknown;
+    };
+    if (record.kind !== "result" || !record.envelope?.result) {
+      continue;
+    }
+    const migrations = record.envelope.result.migrations;
+    if (!Array.isArray(migrations)) {
+      return [];
+    }
+    return migrations
+      .map((migration) =>
+        typeof migration.dirName === "string" ? migration.dirName : ""
+      )
+      .filter((name) => name.length > 0);
+  }
+  return [];
+}
+
+export function formatPrismaFailure(
+  stdout: string,
+  stderr: string,
+  exitCode: number
+): string {
+  const parsed = parsePrismaFailure(stdout);
+  const sections: string[] = [];
+  if (parsed.code || parsed.summary) {
+    sections.push([parsed.code, parsed.summary].filter(Boolean).join(": "));
+  }
+  if (parsed.why) {
+    sections.push(parsed.why);
+  }
+  for (const conflict of parsed.conflicts.slice(0, 5)) {
+    sections.push(`- ${conflict}`);
+  }
+  if (parsed.conflicts.length > 5) {
+    sections.push(`- ... and ${parsed.conflicts.length - 5} more`);
+  }
+  for (const diagnostic of parsed.diagnostics.slice(0, 5)) {
+    sections.push(`- ${diagnostic}`);
+  }
+  const detail = sections.join("\n");
+  const tail = [stdout, stderr]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join("\n")
+    .split("\n")
+    .slice(-8)
+    .join("\n");
+  const body = detail || tail || "no output captured";
+  return `(exit ${exitCode})\n${body}`;
 }

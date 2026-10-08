@@ -348,7 +348,9 @@ export function MobileBottomNav({
         key={item.label}
         label={item.label}
         onPress={() => {
-          router.push(item.href);
+          if (!isActive(item.href)) {
+            router.navigate(item.href);
+          }
         }}
       />
     );

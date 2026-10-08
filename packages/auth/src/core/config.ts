@@ -283,67 +283,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
     adapterOptions: Parameters<typeof basePrismaAdapterFactory>[0]
   ) => {
     const adapter = basePrismaAdapterFactory(adapterOptions);
-    const originalFindOne = adapter.findOne.bind(adapter);
     const originalCreate = adapter.create.bind(adapter);
 
-    adapter.findOne = async <T>(
-      args: Parameters<typeof originalFindOne>[0]
-    ): Promise<T | null> => {
-      const result = await originalFindOne<T>(args);
-      if (result) {
-        return result;
-      }
-
-      // If querying account by issuer & accountId and no row matched, check for legacy issuer ("" or providerId)
-      if (args.model === "account" && Array.isArray(args.where)) {
-        const issuerIndex = args.where.findIndex(
-          (w) => "field" in w && w.field === "issuer"
-        );
-        const accountIdIndex = args.where.findIndex(
-          (w) => "field" in w && w.field === "accountId"
-        );
-
-        if (issuerIndex !== -1 && accountIdIndex !== -1) {
-          const issuerClause = args.where[issuerIndex];
-          const currentIssuer =
-            typeof issuerClause.value === "string" ? issuerClause.value : "";
-          const fallbackIssuers = ["", "google", "reddit"].filter(
-            (issuer) => issuer !== currentIssuer
-          );
-
-          const fallbackPromises = fallbackIssuers.map((fallbackIssuer) => {
-            const fallbackWhere = args.where.map((w, index) =>
-              index === issuerIndex ? { ...w, value: fallbackIssuer } : w
-            );
-            return originalFindOne<T>({
-              ...args,
-              where: fallbackWhere,
-            });
-          });
-
-          const fallbackResults = await Promise.all(fallbackPromises);
-          const fallbackResult = fallbackResults.find(Boolean);
-
-          if (fallbackResult) {
-            // Self-heal: update issuer in the database to canonical issuer value
-            const accountId = (fallbackResult as { id?: string }).id;
-            if (typeof accountId === "string" && currentIssuer) {
-              try {
-                await prisma.orm.public.Accounts.where({
-                  id: accountId,
-                }).update({ issuer: currentIssuer });
-              } catch {
-                // Non-blocking self-healing attempt
-              }
-            }
-            return fallbackResult as T;
-          }
-        }
-      }
-
-      return result;
-    };
-
+    // NOTE: there used to be a findOne override here that retried account
+    // lookups across legacy `issuer` values ("" / "google" / "reddit"). It was
+    // dead: better-auth 1.7 resolves accounts by (providerId, accountId) and
+    // never queries the `issuer` column. Credential resolution and any legacy
+    // issuer repair are handled by account-heal.ts instead.
     adapter.create = async <T extends Record<string, unknown>, R = T>(args: {
       model: string;
       data: Omit<T, "id">;

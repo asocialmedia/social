@@ -9,6 +9,9 @@ import {
   prependPosts,
   requestFeedTop,
   subscribeFeedTopRequests,
+  persistFeedEntry,
+  restoreFeedCache,
+  feedCache,
 } from "./feed-store";
 
 function post(id: string): FeedPost {
@@ -55,6 +58,60 @@ describe("prependPosts", () => {
 });
 
 describe("FeedCache", () => {
+  test("disk truncation resumes at the saved page boundary without skipping posts", () => {
+    const cache = new FeedCache();
+    cache.applyPage("k", [post("a")], "page2", {}, false);
+    cache.applyPage("k", [post("b")], "page3", {}, true);
+    const final = cache.applyPage("k", [post("c")], null, {}, true);
+    const saved = persistFeedEntry(final);
+    expect(saved.pages).toHaveLength(2);
+    expect(saved.cursor).toBe("page3");
+    expect(saved.hasMore).toBe(true);
+    feedCache.clear();
+    restoreFeedCache({ k: saved });
+    expect(feedCache.get("k").cursor).toBe("page3");
+    expect(
+      feedCache
+        .get("k")
+        .pages.flat()
+        .map((entry) => entry.id)
+    ).toEqual(["a", "b"]);
+    feedCache.clear();
+  });
+
+  test("hydration preserves the original age and cannot overwrite a live request", () => {
+    feedCache.clear();
+    const fetchedAt = Date.now() - 120_000;
+    const saved = {
+      cursor: null,
+      fetchedAt,
+      hasMore: false,
+      pageCursors: [null],
+      pages: [[post("saved")]],
+    };
+    restoreFeedCache({ k: saved });
+    expect(feedCache.get("k").fetchedAt).toBe(fetchedAt);
+    expect(feedCache.get("k").stale).toBe(true);
+    feedCache.patch("live", { status: "loading" });
+    restoreFeedCache({ live: saved });
+    expect(feedCache.get("live").status).toBe("loading");
+    expect(feedCache.get("live").pages).toEqual([]);
+    feedCache.clear();
+  });
+
+  test("legacy snapshots revalidate instead of trusting mismatched cursors", () => {
+    feedCache.clear();
+    restoreFeedCache({
+      legacy: {
+        cursor: "distant",
+        fetchedAt: Date.now(),
+        hasMore: true,
+        pages: [[post("a")]],
+      },
+    });
+    expect(feedCache.get("legacy").stale).toBe(true);
+    feedCache.clear();
+  });
   test("applies pages with dedupe-ready shape", () => {
     const cache = new FeedCache();
     const feed = cache.applyPage("k", [post("a")], "c1", {}, false);

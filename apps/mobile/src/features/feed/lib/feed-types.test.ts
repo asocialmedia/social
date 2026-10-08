@@ -35,6 +35,27 @@ function post(id: string, extra: Partial<FeedPost> = {}): FeedPost {
 }
 
 describe("insertionOrder", () => {
+  test("long feeds use bounded comparisons and preserve input order on ties", () => {
+    const input = Array.from({ length: 4096 }, (_, id) => ({
+      id,
+      rank: id % 8,
+    }));
+    let comparisons = 0;
+    const ordered = insertionOrder(input, (left, right) => {
+      comparisons += 1;
+      return left.rank - right.rank;
+    });
+    expect(comparisons).toBeLessThan(4096 * 12);
+    expect(
+      ordered.filter((item) => item.rank === 0).map((item) => item.id)
+    ).toEqual(input.filter((item) => item.rank === 0).map((item) => item.id));
+    expect(input[0]?.id).toBe(0);
+    for (let index = 1; index < ordered.length; index += 1) {
+      expect(ordered[index]?.rank).toBeGreaterThanOrEqual(
+        ordered[index - 1]?.rank ?? 0
+      );
+    }
+  });
   test("orders without Array.sort", () => {
     expect(insertionOrder([3, 1, 2], (a, b) => a - b)).toEqual([1, 2, 3]);
     expect(insertionOrder([1, 2, 3], (a, b) => a - b)).toEqual([1, 2, 3]);

@@ -149,6 +149,8 @@ export async function saveResumeRoute(
   if (!isResumablePath(pathname)) {
     return;
   }
+  // Snapshot the previous launch before the initial home effect writes over it.
+  await loadLaunchResumeRoute();
   const body = serializeResumeState(pathname, params, Date.now());
   memoryResume = body;
   try {
@@ -174,6 +176,18 @@ export async function loadResumeRoute(): Promise<ResumeState | null> {
     return isFreshResume(parsed, now) ? parsed : null;
   }
 }
+
+export function createLaunchResumeReader(
+  load: () => Promise<ResumeState | null>
+): () => Promise<ResumeState | null> {
+  let initialRead: Promise<ResumeState | null> | null = null;
+  return () => {
+    initialRead ??= load();
+    return initialRead;
+  };
+}
+
+export const loadLaunchResumeRoute = createLaunchResumeReader(loadResumeRoute);
 
 // Test-only reset.
 export function clearMemoryResume(): void {

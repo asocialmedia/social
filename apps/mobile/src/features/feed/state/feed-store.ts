@@ -15,6 +15,7 @@ export interface TabFeed {
   fetchedAt: number;
   hasMore: boolean;
   pages: FeedPost[][];
+  pageCursors?: (string | null)[];
   stale: boolean;
   status:
     | "error"
@@ -156,7 +157,8 @@ export class FeedCache {
   }
 
   set(key: string, feed: TabFeed): void {
-    this.tabs.set(key, { ...feed, fetchedAt: this.now() });
+    this.tabs.set(key, feed);
+    this.notify(new Set([key]));
   }
 
   patch(key: string, partial: Partial<TabFeed>): TabFeed {
@@ -182,10 +184,14 @@ export class FeedCache {
     const current = this.get(key);
     const clean = filterFeedPosts(normalizePostsData(posts), filter);
     const pages = append ? [...current.pages, clean] : [clean];
+    const pageCursors = append
+      ? [...(current.pageCursors ?? current.pages.map(() => null)), cursor]
+      : [cursor];
     return this.patch(key, {
       cursor,
       error: null,
       hasMore: cursor !== null,
+      pageCursors,
       pages,
       stale: false,
       status: "success",
@@ -287,11 +293,30 @@ export const feedCache = new FeedCache();
 // hydration is instant. Loading states are never persisted.
 export type FeedPersistEntry = Pick<
   TabFeed,
-  "cursor" | "fetchedAt" | "hasMore" | "pages"
+  "cursor" | "fetchedAt" | "hasMore" | "pages" | "pageCursors"
 >;
 export const FEED_PERSIST_NAME = "feed-cache-v1";
 export const FEED_PERSIST_MAX_TABS = 8;
 export const FEED_PERSIST_MAX_PAGES = 2;
+export function persistFeedEntry(entry: TabFeed): FeedPersistEntry {
+  // Legacy entries have no page boundaries. Keep their complete pages rather
+  // than pairing a truncated head with a later cursor and skipping content.
+  const pages = entry.pageCursors
+    ? entry.pages.slice(0, FEED_PERSIST_MAX_PAGES)
+    : entry.pages;
+  const pageCursors = entry.pageCursors?.slice(0, pages.length);
+  const cursor = pageCursors
+    ? (pageCursors[pages.length - 1] ?? null)
+    : entry.cursor;
+  const truncated = pages.length < entry.pages.length;
+  return {
+    cursor,
+    fetchedAt: entry.fetchedAt,
+    hasMore: truncated || entry.hasMore,
+    pageCursors,
+    pages,
+  };
+}
 export function feedCacheToSnapshot(
   now: number = Date.now()
 ): Record<string, FeedPersistEntry> {
@@ -307,12 +332,7 @@ export function feedCacheToSnapshot(
     if (now - entry.fetchedAt > FEED_CACHE_RETENTION_MS) {
       continue;
     }
-    out[key] = {
-      cursor: entry.cursor,
-      fetchedAt: entry.fetchedAt,
-      hasMore: entry.hasMore,
-      pages: entry.pages.slice(0, FEED_PERSIST_MAX_PAGES),
-    };
+    out[key] = persistFeedEntry(entry);
     if (Object.keys(out).length >= FEED_PERSIST_MAX_TABS) {
       break;
     }
@@ -339,12 +359,19 @@ export function restoreFeedCache(
     ) {
       continue;
     }
-    const backgroundRefresh = now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
+    const current = feedCache.get(key);
+    if (current.pages.length > 0 || current.status !== "idle") {
+      continue;
+    }
+    // Old snapshots may contain a cursor beyond their saved pages.
+    const backgroundRefresh =
+      !entry.pageCursors || now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
     feedCache.set(key, {
       cursor: typeof entry.cursor === "string" ? entry.cursor : null,
       error: null,
       fetchedAt: entry.fetchedAt,
       hasMore: entry.hasMore !== false,
+      pageCursors: entry.pageCursors,
       pages: entry.pages,
       stale: backgroundRefresh,
       status: "success",
@@ -389,7 +416,13 @@ export function scheduleFeedPersist(): void {
 // Hydrates the in-memory cache from disk once per launch. Returns restored
 // tab count. Stale-while-revalidate: callers render cached rows instantly and
 // still refetch in the background when stale.
-export async function hydrateFeedCache(): Promise<number> {
+let hydrationRequest: Promise<number> | null = null;
+export function hydrateFeedCache(): Promise<number> {
+  hydrationRequest ??= readFeedCacheFromDisk();
+  return hydrationRequest;
+}
+
+async function readFeedCacheFromDisk(): Promise<number> {
   try {
     const { readSnapshot } = await import("@/lib/persistent-file");
     const snap =

@@ -11,16 +11,14 @@
 // Worklet rule: gesture callbacks never capture JS refs. Everything the UI
 // thread touches is a shared value; the two scheduleOnRN hops (drag flag,
 // index publish) run on the RN thread through stable callbacks.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
@@ -31,13 +29,8 @@ import {
   settleIndex,
 } from "../lib/pager-navigation";
 
-// Tap-driven index change animation. Fast ease-out, same feel as the tab
-// indicator (220ms).
-const TAP_DURATION = 220;
-// Finger-driven settle uses a spring so velocity carries through.
-const SETTLE_SPRING = { dampingRatio: 0.8, duration: 400 } as const;
-// Strong ease-out for tap animations.
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+// Finger-driven settle keeps velocity and honours reduced motion by default.
+const SETTLE_SPRING = { dampingRatio: 1, duration: 400 } as const;
 
 interface FeedPagerProps {
   activeIndex: number;
@@ -64,8 +57,6 @@ export function FeedPager({
   const translateX = useSharedValue(
     -clampedIndex * Dimensions.get("window").width
   );
-  // The first index set is the mount, not a tap: place without animating.
-  const firstSettled = useRef(true);
   const widthSv = useSharedValue(Dimensions.get("window").width);
   const countSv = useSharedValue(pageCount);
   const originSv = useSharedValue(clampedIndex);
@@ -105,17 +96,8 @@ export function FeedPager({
     if (draggingSv.get()) {
       return;
     }
-    if (firstSettled.current) {
-      firstSettled.current = false;
-      translateX.set(-clampedIndex * pageWidth);
-    } else {
-      translateX.set(
-        withTiming(-clampedIndex * pageWidth, {
-          duration: TAP_DURATION,
-          easing: EASE_OUT,
-        })
-      );
-    }
+    // A tapped tab is immediate; horizontal swipes retain their native gesture.
+    translateX.set(-clampedIndex * pageWidth);
     originSv.set(clampedIndex);
     baseSv.set(-clampedIndex * pageWidth);
     handedSv.set(clampedIndex);

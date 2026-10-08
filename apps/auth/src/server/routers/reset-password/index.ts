@@ -210,15 +210,18 @@ export const resetPasswordRouter = router({
             passwordHash: hashedPassword,
           });
 
-          // Sign-in verifies Accounts.password, not Users.passwordHash. The
-          // old code updated only the user row, so a reset "completed" but
-          // the next login still checked the stale credential hash. Update
-          // both atomically; create the credential row for OAuth-only
-          // accounts setting their first password via reset.
+          // Sign-in verifies Accounts.password on the canonical credential row
+          // (providerId "credential", accountId = userId), NOT Users.passwordHash.
+          // Selecting by (providerId, userId) alone could match a legacy
+          // credential row whose accountId is the email, so the reset wrote the
+          // new hash to one row while sign-in read another - reset returned 200
+          // but login still 401'd. Match better-auth's own selector exactly:
+          // (userId, providerId="credential", accountId=userId).
           const credential = await tx.orm.public.Accounts.select("id")
             .where((account) =>
               and(
                 account.providerId.eq("credential"),
+                account.accountId.eq(userId),
                 account.userId.eq(userId)
               )
             )
@@ -226,7 +229,10 @@ export const resetPasswordRouter = router({
           await (credential
             ? tx.orm.public.Accounts.where({
                 id: credential.id,
-              }).update({ password: hashedPassword })
+              }).update({
+                issuer: LOCAL_CREDENTIAL_ISSUER,
+                password: hashedPassword,
+              })
             : tx.orm.public.Accounts.create({
                 accountId: userId,
                 issuer: LOCAL_CREDENTIAL_ISSUER,

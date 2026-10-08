@@ -82,6 +82,8 @@ import {
   updateVideoClockTime,
 } from "../lib/video-clock";
 import {
+  isFeedMediaActive,
+  subscribeFeedMediaActivity,
   isAutoplayPost,
   isPostVisible,
   subscribeAutoplayPost,
@@ -99,6 +101,8 @@ import { useVideoMuteStore } from "../state/video-mute-store";
 
 // Feed cards keep their complete poster/chrome while native media resources
 // follow viewport activity. Detail screens have no feed activity restriction.
+export const FeedMediaScope = createContext<string | null>(null);
+
 const MediaActivityContext = createContext<{
   active: boolean | undefined;
   focused: boolean;
@@ -107,31 +111,39 @@ const MediaActivityContext = createContext<{
 
 function useMediaActivity(fallbackPostId = "") {
   const context = useContext(MediaActivityContext);
+  const feedScope = useContext(FeedMediaScope);
   const postId = context?.postId ?? fallbackPostId;
   const subscribe = useCallback(
     (notify: () => void) => {
+      const stopFeed = feedScope
+        ? subscribeFeedMediaActivity(feedScope, notify)
+        : () => {
+            /* empty */
+          };
       const stopVisibility = subscribePostVisibility(postId, notify);
       const stopAutoplay = subscribeAutoplayPost(postId, notify);
       const appStateSubscription = AppState.addEventListener("change", notify);
       return () => {
+        stopFeed();
         stopVisibility();
         stopAutoplay();
         appStateSubscription.remove();
       };
     },
-    [postId]
+    [feedScope, postId]
   );
   const getSnapshot = useCallback(
     () =>
-      `${AppState.currentState === "active"}:${isPostVisible(postId)}:${isAutoplayPost(postId)}`,
-    [postId]
+      `${AppState.currentState === "active"}:${isPostVisible(postId)}:${isAutoplayPost(postId)}:${feedScope === null || isFeedMediaActive(feedScope)}`,
+    [feedScope, postId]
   );
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  const [foreground, inViewport, owner] = snapshot.split(":");
+  const [foreground, inViewport, owner, feedActive] = snapshot.split(":");
   return {
     autoplayOwner: owner === "true",
     visible:
       foreground === "true" &&
+      feedActive === "true" &&
       (context?.focused ?? true) &&
       (context?.active === undefined ||
         (context.active && inViewport === "true")),
@@ -165,12 +177,13 @@ function useFailedImages() {
   };
 }
 
-function AnimatedFeedImage(props: ImageProps) {
+function ActivityFeedImage(props: ImageProps) {
   const { visible } = useMediaActivity();
   const imageRef = useRef<Image>(null);
+  const animatedRef = useRef<boolean | null>(null);
   const synchronizeAnimation = useCallback(() => {
     const image = imageRef.current;
-    if (!image) {
+    if (!image || animatedRef.current === false) {
       return;
     }
     // autoplay controls initial loading; the native methods also pause an
@@ -188,6 +201,8 @@ function AnimatedFeedImage(props: ImageProps) {
       autoplay={visible}
       ref={imageRef}
       onLoad={(event) => {
+        // Native decoding detects GIF/APNG/WebP even when feed MIME is absent.
+        animatedRef.current = event.source.isAnimated ?? null;
         props.onLoad?.(event);
         synchronizeAnimation();
       }}
@@ -208,7 +223,6 @@ function SingleImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
-  const MediaImage = isGifMedia(media) ? AnimatedFeedImage : Image;
   const stored =
     media.width && media.height && media.height > 0
       ? { h: media.height, w: media.width }
@@ -232,7 +246,7 @@ function SingleImage({
         portrait && styles.singleLeft,
       ]}
     >
-      <MediaImage
+      <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
         cachePolicy={imageCachePolicy(
           mediaImageUrl(apiBase, media),
@@ -288,7 +302,6 @@ function GridImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
-  const MediaImage = isGifMedia(media) ? AnimatedFeedImage : Image;
   const { isDark } = useAppTheme();
   const frameStyle = [
     styles.gridTileWrap,
@@ -296,7 +309,7 @@ function GridImage({
   ];
   const content = (
     <>
-      <MediaImage
+      <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
         cachePolicy={imageCachePolicy(
           mediaGridImageUrl(apiBase, media),
@@ -1430,15 +1443,31 @@ export function ExplicitGate({
   );
 }
 
-export function MediaGallery({
+export function MediaGallery(props: GalleryProps) {
+  const feedScope = useContext(FeedMediaScope);
+  // Feed focus is published once by its list; only media leaves subscribe.
+  // Other surfaces still follow their own native navigation focus.
+  return feedScope === null ? (
+    <FocusedMediaGallery {...props} />
+  ) : (
+    <GalleryBody {...props} focused />
+  );
+}
+
+function FocusedMediaGallery(props: GalleryProps) {
+  const focused = useIsFocused();
+  return <GalleryBody {...props} focused={focused} />;
+}
+
+function GalleryBody({
   active,
   apiBase,
   attachments,
   onPressMedia,
   postId,
-}: GalleryProps) {
+  focused,
+}: GalleryProps & { focused: boolean }) {
   const { failed, markFailed } = useFailedImages();
-  const focused = useIsFocused();
   const activity = useMemo(
     () => ({ active, focused, postId }),
     [active, focused, postId]

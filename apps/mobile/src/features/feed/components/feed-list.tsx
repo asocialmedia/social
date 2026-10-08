@@ -3,18 +3,16 @@
 // when switching tabs, like web's useFeedScrollMemory), the new-content
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import {
-  Animated,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import type { ViewToken } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import type { ViewToken, FlatList } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
 import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
@@ -34,12 +32,17 @@ import { groupPostsIntoThreads, orderByIndex } from "../lib/feed-types";
 import type { FeedPost, FeedThreadGroup } from "../lib/feed-types";
 import {
   HEADER_BAR_HEIGHT,
-  reportFeedScroll,
+  advanceHeaderScroll,
+  setHeaderHidden,
   resetHeaderScroll,
 } from "../lib/header-visibility";
 import { hasVideoAttachment } from "../lib/media-kind";
 import { viewBatcher } from "../lib/view-batcher";
-import { setAutoplayPostId, setVisiblePostIds } from "../lib/visible-posts";
+import {
+  setAutoplayPostId,
+  setVisiblePostIds,
+  setFeedMediaActive,
+} from "../lib/visible-posts";
 import { consumeFeedTop, feedCache } from "../state/feed-store";
 import { useFeedTab } from "../state/use-feed";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
@@ -49,6 +52,7 @@ import type { MenuAnchor, MoreAction } from "./more-menu";
 import { NewContentPill } from "./new-content-pill";
 import type { PillAuthor } from "./new-content-pill";
 import { PostCard } from "./post-card";
+import { FeedMediaScope } from "./post-media";
 import { ShareSheet } from "./share-sheet";
 import { usePostOverflow } from "./use-post-overflow";
 
@@ -123,539 +127,613 @@ interface FeedListProps {
   // times over and remount on every switch. Typed as an element rather than a
   // bare ReactNode because that is all ListHeaderComponent accepts.
   header?: ReactElement | null;
+  headerHeight?: number;
+  onHeaderHeight?: (height: number) => void;
   userId: string | undefined;
   variant: FeedVariant;
 }
 
-export function FeedList({
-  active,
-  bottomInset = 0,
-  enabled,
-  header,
-  userId,
-  variant,
-}: FeedListProps) {
-  const isActive = active ?? enabled;
-  const { theme } = useAppTheme();
-  const { user } = useSessionContext();
-  const listRef = useRef<FlatList<FeedThreadGroup>>(null);
+export const FeedList = memo(
+  ({
+    active,
+    bottomInset = 0,
+    enabled,
+    header,
+    headerHeight = 0,
+    onHeaderHeight,
+    userId,
+    variant,
+  }: FeedListProps) => {
+    const isActive = active ?? enabled;
+    const { theme } = useAppTheme();
+    const { user } = useSessionContext();
+    const listRef = useRef<FlatList<FeedThreadGroup>>(null);
+    const scrollOffset = useSharedValue(
+      scrollMemory.get(`home:${variant}:${userId ?? "guest"}`) ?? 0
+    );
+    const scrollActive = useSharedValue(false);
+    const scrollVisibility = useSharedValue({ baseline: 0, hidden: false });
 
-  // Latest viewable ids are retained so the tab can publish them when it
-  // becomes active; the FlatList retains the first closure, so activity is
-  // read through a ref.
-  const enabledRef = useRef(isActive);
-  const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
-  // The autoplay owner the last viewability pass nominated, retained for the
-  // same reason as the ids: switching back to this tab restores playback
-  // without waiting for a scroll event that may never come.
-  const latestAutoplayRef = useRef<string | null>(null);
-  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
-  const [moreTarget, setMoreTarget] = useState<{
-    anchor: MenuAnchor;
-    post: FeedPost;
-  } | null>(null);
-  const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
-  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
-  const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
-    () => new Set()
-  );
-  const [lastDismissed, setLastDismissed] = useState<string | null>(null);
-  const {
-    dismissPost,
-    fetchNext,
-    hasMore,
-    newItems,
-    posts,
-    refresh,
-    showNewPosts,
-    status,
-    undoDismiss,
-  } = useFeedTab({ enabled, userId, variant });
+    // Latest viewable ids are retained so the tab can publish them when it
+    // becomes active; the FlatList retains the first closure, so activity is
+    // read through a ref.
+    const enabledRef = useRef(isActive);
+    const latestVisibleRef = useRef<ReadonlySet<string>>(new Set());
+    // The autoplay owner the last viewability pass nominated, retained for the
+    // same reason as the ids: switching back to this tab restores playback
+    // without waiting for a scroll event that may never come.
+    const latestAutoplayRef = useRef<string | null>(null);
+    const [sharePost, setSharePost] = useState<FeedPost | null>(null);
+    const [moreTarget, setMoreTarget] = useState<{
+      anchor: MenuAnchor;
+      post: FeedPost;
+    } | null>(null);
+    const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
+    const toggleCaptions = useVideoCaptionsStore(
+      (state) => state.toggleCaptions
+    );
+    const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
+      () => new Set()
+    );
+    const [lastDismissed, setLastDismissed] = useState<string | null>(null);
+    const {
+      dismissPost,
+      fetchNext,
+      hasMore,
+      newItems,
+      posts,
+      refresh,
+      showNewPosts,
+      status,
+      undoDismiss,
+    } = useFeedTab({ active: isActive, enabled, userId, variant });
 
-  const overflow = usePostOverflow({
-    onDeleted: (postId) => {
-      // A deleted post leaves the feed the same way a hidden one does, but
-      // with no undo: there is nothing left to bring back.
-      dismissPost(postId);
-    },
-    onHide: (post) => {
-      dismissPost(post.id);
-      setLastDismissed(post.id);
-    },
-    onModerated: (postId, next) => {
-      feedCache.updatePostEverywhere(postId, next);
-    },
-    onTagsSaved: (postId, tags) => {
-      feedCache.updatePostEverywhere(postId, {
-        tags: tags.map((name) => ({ id: name, name })),
-      });
-    },
-    onToggleAlt: (post) => {
-      setAltVisibleIds((current) => {
-        const next = new Set(current);
-        if (next.has(post.id)) {
-          next.delete(post.id);
-        } else {
-          next.add(post.id);
+    const overflow = usePostOverflow({
+      onDeleted: (postId) => {
+        // A deleted post leaves the feed the same way a hidden one does, but
+        // with no undo: there is nothing left to bring back.
+        dismissPost(postId);
+      },
+      onHide: (post) => {
+        dismissPost(post.id);
+        setLastDismissed(post.id);
+      },
+      onModerated: (postId, next) => {
+        feedCache.updatePostEverywhere(postId, next);
+      },
+      onTagsSaved: (postId, tags) => {
+        feedCache.updatePostEverywhere(postId, {
+          tags: tags.map((name) => ({ id: name, name })),
+        });
+      },
+      onToggleAlt: (post) => {
+        setAltVisibleIds((current) => {
+          const next = new Set(current);
+          if (next.has(post.id)) {
+            next.delete(post.id);
+          } else {
+            next.add(post.id);
+          }
+          return next;
+        });
+      },
+      onToggleCaptions: () => {
+        toggleCaptions();
+      },
+      viewerId: user?.id ?? null,
+    });
+
+    const handleMoreAction = useCallback(
+      (action: MoreAction) => {
+        const morePost = moreTarget?.post;
+        if (!morePost) {
+          return;
         }
-        return next;
-      });
-    },
-    onToggleCaptions: () => {
-      toggleCaptions();
-    },
-    viewerId: user?.id ?? null,
-  });
+        overflow.onAction(action, morePost);
+      },
+      [moreTarget, overflow]
+    );
+    // Stable row callbacks so memoized PostCards do not re-render on every list
+    // tick. Inline closures here used to defeat the memo on every scroll frame.
+    const handleOpenMore = useCallback(
+      (target: FeedPost, anchor: MenuAnchor) => {
+        setMoreTarget({ anchor, post: target });
+      },
+      []
+    );
+    const handleShare = useCallback((post: FeedPost) => {
+      setSharePost(post);
+    }, []);
+    const handleCloseShare = useCallback(() => {
+      setSharePost(null);
+    }, []);
+    const handleCloseMore = useCallback(() => {
+      setMoreTarget(null);
+    }, []);
 
-  const handleMoreAction = useCallback(
-    (action: MoreAction) => {
-      const morePost = moreTarget?.post;
-      if (!morePost) {
+    // Restore this tab's scroll position when it (re)mounts with content.
+    const memoryKey = `home:${variant}:${userId ?? "guest"}`;
+    // A tab the reader was just sent to (their own post landing at the head of
+    // Latest) must land at the top, not at the offset they left it at. The
+    // request is one-shot and claimed here, so the memory restore below is
+    // skipped for that visit instead of the two fighting over the offset.
+    const jumpedToTop = useRef(false);
+    const restoredScroll = useRef(false);
+    useEffect(() => {
+      if (!isActive || !consumeFeedTop(variant)) {
         return;
       }
-      overflow.onAction(action, morePost);
-    },
-    [moreTarget, overflow]
-  );
-  // Stable row callbacks so memoized PostCards do not re-render on every list
-  // tick. Inline closures here used to defeat the memo on every scroll frame.
-  const handleOpenMore = useCallback((target: FeedPost, anchor: MenuAnchor) => {
-    setMoreTarget({ anchor, post: target });
-  }, []);
-  const handleShare = useCallback((post: FeedPost) => {
-    setSharePost(post);
-  }, []);
-  const handleCloseShare = useCallback(() => {
-    setSharePost(null);
-  }, []);
-  const handleCloseMore = useCallback(() => {
-    setMoreTarget(null);
-  }, []);
+      jumpedToTop.current = true;
+      scrollMemory.delete(memoryKey);
+      listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+    }, [isActive, memoryKey, variant]);
 
-  // Restore this tab's scroll position when it (re)mounts with content.
-  const memoryKey = `home:${variant}`;
-  // A tab the reader was just sent to (their own post landing at the head of
-  // Latest) must land at the top, not at the offset they left it at. The
-  // request is one-shot and claimed here, so the memory restore below is
-  // skipped for that visit instead of the two fighting over the offset.
-  const jumpedToTop = useRef(false);
-  const restoredScroll = useRef(false);
-  useEffect(() => {
-    if (!isActive || !consumeFeedTop(variant)) {
-      return;
-    }
-    jumpedToTop.current = true;
-    scrollMemory.delete(memoryKey);
-    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
-  }, [isActive, memoryKey, variant]);
+    useEffect(() => {
+      if (status !== "success" || posts.length === 0) {
+        return;
+      }
+      if (jumpedToTop.current || restoredScroll.current) {
+        return;
+      }
+      const offset = scrollMemory.get(memoryKey) ?? 0;
+      if (offset > 0) {
+        const timer = setTimeout(() => {
+          restoredScroll.current = true;
+          scrollOffset.set(offset);
+          scrollVisibility.set({ baseline: offset, hidden: false });
+          listRef.current?.scrollToOffset({ animated: false, offset });
+        }, 60);
+        return () => clearTimeout(timer);
+      }
+      restoredScroll.current = true;
+      // Restore once after content arrives, never on pagination or refresh.
+      // oxlint-disable-next-line react/exhaustive-effect-dependencies -- one-shot restore on content arrival, not a subscription
+    }, [memoryKey, posts.length, status, scrollVisibility, scrollOffset]);
 
-  useEffect(() => {
-    if (status !== "success" || posts.length === 0) {
-      return;
-    }
-    if (jumpedToTop.current || restoredScroll.current) {
-      return;
-    }
-    const offset = scrollMemory.get(memoryKey) ?? 0;
-    if (offset > 0) {
+    // The undo banner auto-dismisses like web's toast.
+    useEffect(() => {
+      if (lastDismissed) {
+        const timer = setTimeout(() => setLastDismissed(null), 6000);
+        return () => clearTimeout(timer);
+      }
+    }, [lastDismissed]);
+
+    // A freshly shown tab starts with the header visible; its own scroll
+    // takes over hiding from there. Becoming active always publishes the
+    // retained viewable ids (even when empty) so stale ids from the previous
+    // tab cannot keep an off-screen video playing.
+    useEffect(() => {
+      enabledRef.current = isActive;
+      setFeedMediaActive(memoryKey, isActive);
+      if (isActive) {
+        const offset = Math.max(0, scrollOffset.get());
+        scrollVisibility.set({ baseline: offset, hidden: false });
+        scrollActive.set(true);
+        resetHeaderScroll(offset);
+        const stored = latestVisibleRef.current;
+        setVisiblePostIds(stored);
+        setAutoplayPostId(latestAutoplayRef.current);
+        return () => {
+          enabledRef.current = false;
+          setFeedMediaActive(memoryKey, false);
+          scrollActive.set(false);
+          scrollMemory.set(memoryKey, Math.max(0, scrollOffset.get()));
+          setVisiblePostIds(new Set());
+          setAutoplayPostId(null);
+        };
+      }
+    }, [isActive, memoryKey, scrollActive, scrollOffset, scrollVisibility]);
+
+    const publishVisibleIds = useCallback(
+      (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
+        latestVisibleRef.current = ids;
+        latestAutoplayRef.current = autoplayPostId;
+        if (!enabledRef.current) {
+          return;
+        }
+        // Enqueue synchronously; read fresh credentials once when the batch
+        // flushes, rather than storing an expiring cookie for this list's lifetime.
+        if (ids.size > 0) {
+          for (const id of ids) {
+            viewBatcher.mark(id, {
+              apiBase: getApiBaseUrl(),
+              getCookie: () => authClient.getCookie(),
+            });
+          }
+        }
+        setVisiblePostIds(new Set(ids));
+        // Exactly one tile autoplays, the topmost visible video of this tab.
+        setAutoplayPostId(autoplayPostId);
+      },
+      []
+    );
+
+    const handleViewableItemsChanged = useCallback(
+      ({ viewableItems }: { viewableItems: ViewToken<FeedThreadGroup>[] }) => {
+        const ids = new Set<string>();
+        let autoplayPostId: string | null = null;
+        const ordered = orderByIndex(viewableItems);
+        for (const item of ordered) {
+          const group = item.item as FeedThreadGroup | undefined;
+          for (const post of group?.posts ?? []) {
+            ids.add(post.id);
+            if (!autoplayPostId && hasVideoAttachment(post)) {
+              autoplayPostId = post.id;
+            }
+          }
+        }
+        publishVisibleIds(ids, autoplayPostId);
+      },
+      [publishVisibleIds]
+    );
+
+    // Above every early return below: a hook called after one is conditional.
+    const refreshing = status === "refreshing";
+    const pull = usePullToRefresh({
+      failed: status === "error",
+      onRefresh: refresh,
+      refreshing,
+    });
+    const saveOffset = useCallback(
+      (offset: number) => {
+        scrollMemory.set(memoryKey, Math.max(0, offset));
+      },
+      [memoryKey]
+    );
+    const publishHidden = useCallback((hidden: boolean) => {
+      if (enabledRef.current) {
+        setHeaderHidden(hidden);
+      }
+    }, []);
+    const reportPullOffset = pull.onScrollOffset;
+    const endPull = pull.onScrollEndDrag;
+    const handleScroll = useAnimatedScrollHandler({
+      onEndDrag: (event) => {
+        scheduleOnRN(saveOffset, event.contentOffset.y);
+        scheduleOnRN(endPull);
+      },
+      onMomentumEnd: (event) => {
+        scheduleOnRN(saveOffset, event.contentOffset.y);
+      },
+      onScroll: (event) => {
+        const offset = event.contentOffset.y;
+        const previous = scrollOffset.get();
+        scrollOffset.set(offset);
+        if (scrollActive.get()) {
+          const state = scrollVisibility.get();
+          const next = { ...state };
+          advanceHeaderScroll(next, offset);
+          scrollVisibility.set(next);
+          if (next.hidden !== state.hidden) {
+            scheduleOnRN(publishHidden, next.hidden);
+          }
+          // Ordinary scrolling stays on the UI thread. The custom refresh
+          // loader only needs top crossings and iOS bounce distances on JS.
+          if (offset <= 0 || previous <= 0) {
+            scheduleOnRN(reportPullOffset, offset);
+          }
+        }
+      },
+    });
+    // Stable row renderer: same identity across scroll ticks so memoized cards
+    // skip re-renders. Depends only on stable callbacks + theme + variant.
+    const showCommunityReason =
+      variant === "trending" || variant === "personalized";
+    const renderGroup = useCallback(
+      ({ item: group }: { item: FeedThreadGroup }) => (
+        <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
+          {group.posts.map((post, index) => (
+            <PostCard
+              active
+              hasThreadChild={index < group.posts.length - 1}
+              hasThreadParent={index > 0}
+              key={post.id}
+              onMore={handleOpenMore}
+              onShare={handleShare}
+              post={post}
+              showAlt={altVisibleIds.has(post.id)}
+              showCommunityReason={showCommunityReason}
+              viewerId={userId}
+            />
+          ))}
+        </View>
+      ),
+      [
+        altVisibleIds,
+        handleOpenMore,
+        handleShare,
+        showCommunityReason,
+        theme.cardBorder,
+        userId,
+      ]
+    );
+    const prefetchKey = JSON.stringify(
+      feedPrefetchUrls(posts, getApiBaseUrl())
+    );
+    useEffect(() => {
+      if (!enabled || prefetchKey === "[]") {
+        return;
+      }
+      const urls: string[] = JSON.parse(prefetchKey);
       const timer = setTimeout(() => {
-        restoredScroll.current = true;
-        listRef.current?.scrollToOffset({ animated: false, offset });
-      }, 60);
+        void Promise.allSettled(urls.map((url) => Image.prefetch(url)));
+      }, 600);
       return () => clearTimeout(timer);
-    }
-    restoredScroll.current = true;
-    // Restore once after content arrives, never on pagination or refresh.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- one-shot restore on content arrival, not a subscription
-  }, [memoryKey, posts.length, status]);
+    }, [enabled, prefetchKey]);
 
-  // The undo banner auto-dismisses like web's toast.
-  useEffect(() => {
-    if (lastDismissed) {
-      const timer = setTimeout(() => setLastDismissed(null), 6000);
-      return () => clearTimeout(timer);
-    }
-  }, [lastDismissed]);
-
-  // A freshly shown tab starts with the header visible; its own scroll
-  // takes over hiding from there. Becoming active always publishes the
-  // retained viewable ids (even when empty) so stale ids from the previous
-  // tab cannot keep an off-screen video playing.
-  useEffect(() => {
-    enabledRef.current = isActive;
-    if (isActive) {
-      resetHeaderScroll();
-      const stored = latestVisibleRef.current;
-      setVisiblePostIds(stored);
-      setAutoplayPostId(latestAutoplayRef.current);
-      return () => {
-        enabledRef.current = false;
-        setVisiblePostIds(new Set());
-        setAutoplayPostId(null);
-      };
-    }
-  }, [isActive]);
-
-  const publishVisibleIds = useCallback(
-    (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
-      latestVisibleRef.current = ids;
-      latestAutoplayRef.current = autoplayPostId;
-      if (!enabledRef.current) {
-        return;
-      }
-      // Enqueue synchronously; read fresh credentials once when the batch
-      // flushes, rather than storing an expiring cookie for this list's lifetime.
-      if (ids.size > 0) {
-        for (const id of ids) {
-          viewBatcher.mark(id, {
-            apiBase: getApiBaseUrl(),
-            getCookie: () => authClient.getCookie(),
-          });
-        }
-      }
-      setVisiblePostIds(new Set(ids));
-      // Exactly one tile autoplays, the topmost visible video of this tab.
-      setAutoplayPostId(autoplayPostId);
-    },
-    []
-  );
-
-  const handleViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken<FeedThreadGroup>[] }) => {
-      const ids = new Set<string>();
-      let autoplayPostId: string | null = null;
-      const ordered = orderByIndex(viewableItems);
-      for (const item of ordered) {
-        const group = item.item as FeedThreadGroup | undefined;
-        for (const post of group?.posts ?? []) {
-          ids.add(post.id);
-          if (!autoplayPostId && hasVideoAttachment(post)) {
-            autoplayPostId = post.id;
+    const listHeader = useMemo(
+      () => (
+        <View
+          style={{ minHeight: headerHeight }}
+          onLayout={
+            header
+              ? (event) => {
+                  onHeaderHeight?.(event.nativeEvent.layout.height);
+                }
+              : undefined
           }
-        }
-      }
-      publishVisibleIds(ids, autoplayPostId);
-    },
-    [publishVisibleIds]
-  );
-
-  // Above every early return below: a hook called after one is conditional.
-  const refreshing = status === "refreshing";
-  const pull = usePullToRefresh({
-    failed: status === "error",
-    onRefresh: refresh,
-    refreshing,
-  });
-  // Stable row renderer: same identity across scroll ticks so memoized cards
-  // skip re-renders. Depends only on stable callbacks + theme + variant.
-  const showCommunityReason =
-    variant === "trending" || variant === "personalized";
-  const renderGroup = useCallback(
-    ({ item: group }: { item: FeedThreadGroup }) => (
-      <View style={[styles.group, { borderBottomColor: theme.cardBorder }]}>
-        {group.posts.map((post, index) => (
-          <PostCard
-            active={isActive}
-            hasThreadChild={index < group.posts.length - 1}
-            hasThreadParent={index > 0}
-            key={post.id}
-            onMore={handleOpenMore}
-            onShare={handleShare}
-            post={post}
-            showAlt={altVisibleIds.has(post.id)}
-            showCommunityReason={showCommunityReason}
-            viewerId={userId}
-          />
-        ))}
-      </View>
-    ),
-    [
-      altVisibleIds,
-      isActive,
-      handleOpenMore,
-      handleShare,
-      showCommunityReason,
-      theme.cardBorder,
-      userId,
-    ]
-  );
-  const prefetchKey = JSON.stringify(feedPrefetchUrls(posts, getApiBaseUrl()));
-  useEffect(() => {
-    if (!enabled || prefetchKey === "[]") {
-      return;
-    }
-    const urls: string[] = JSON.parse(prefetchKey);
-    const timer = setTimeout(() => {
-      void Promise.allSettled(urls.map((url) => Image.prefetch(url)));
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [enabled, prefetchKey]);
-
-  // Memoized above every early return: without this every parent render
-  // handed FlatList a new data array identity, re-rendering every row.
-  const groups = useMemo(() => groupPostsIntoThreads(posts), [posts]);
-
-  // Account-only tabs. For you is ranked from the viewer's own signals and
-  // Following is their people, so neither means anything without an account;
-  // the tab stays tappable (a guest discovers the feature) but the feed is
-  // replaced by a sign-in prompt, matching web's AuthPromptCard.
-  if ((variant === "following" || variant === "personalized") && !user) {
-    const copy = EMPTY_COPY[variant];
-    return (
-      <View
-        style={[
-          styles.centerWrap,
-          { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
-        ]}
-      >
-        <AuthPromptCard
-          description={copy.description}
-          imageSize={128}
-          title={
-            variant === "personalized"
-              ? "Log in for a feed made for you"
-              : "Log in to see your feed"
-          }
-        />
-      </View>
+        >
+          {header}
+        </View>
+      ),
+      [header, headerHeight, onHeaderHeight]
     );
-  }
 
-  // Web's inline composer is rendered above the pager, not inside a list, so
-  // the tabs carry no header of their own and every one of them reaches the
-  // top of its own content.
-  if (status === "loading" || (status === "idle" && enabled)) {
-    return (
-      <FeedState>
-        <FeedSkeleton />
-      </FeedState>
-    );
-  }
+    // Memoized above every early return: without this every parent render
+    // handed FlatList a new data array identity, re-rendering every row.
+    const groups = useMemo(() => groupPostsIntoThreads(posts), [posts]);
 
-  if (status === "error" && posts.length === 0) {
-    return (
-      <FeedState>
+    // Account-only tabs. For you is ranked from the viewer's own signals and
+    // Following is their people, so neither means anything without an account;
+    // the tab stays tappable (a guest discovers the feature) but the feed is
+    // replaced by a sign-in prompt, matching web's AuthPromptCard.
+    if ((variant === "following" || variant === "personalized") && !user) {
+      const copy = EMPTY_COPY[variant];
+      return (
         <View
           style={[
             styles.centerWrap,
             { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
           ]}
         >
-          <View style={styles.errorWrap}>
-            <Image
-              contentFit="contain"
-              source={errorImage}
-              style={styles.errorArt}
-            />
-            <Text
-              selectable
-              style={[styles.errorTitle, { color: theme.errorBannerText }]}
-            >
-              An error occurred while loading posts.
-            </Text>
-            <Text
-              selectable
-              style={[styles.errorBody, { color: theme.dividerText }]}
-            >
-              Please try refreshing the page.
-            </Text>
-          </View>
-        </View>
-      </FeedState>
-    );
-  }
-
-  if (status === "success" && posts.length === 0 && !hasMore) {
-    const copy = EMPTY_COPY[variant];
-    return (
-      <FeedState>
-        <View
-          style={[
-            styles.centerWrap,
-            { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
-          ]}
-        >
-          <Image
-            contentFit="contain"
-            source={noFeedImage}
-            style={styles.emptyArt}
+          <AuthPromptCard
+            description={copy.description}
+            imageSize={128}
+            title={
+              variant === "personalized"
+                ? "Log in for a feed made for you"
+                : "Log in to see your feed"
+            }
           />
-          <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
-            {copy.title}
-          </Text>
-          <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-            {copy.description}
-          </Text>
         </View>
-      </FeedState>
-    );
-  }
+      );
+    }
 
-  const authors: PillAuthor[] = [
-    ...new Map(
-      newItems.map((post) => [
-        post.userId,
-        {
-          avatarUrl: post.user?.avatarUrl,
-          id: post.userId,
-          username: post.user?.username,
-        },
-      ])
-    ).values(),
-  ];
+    // Web's inline composer is rendered above the pager, not inside a list, so
+    // the tabs carry no header of their own and every one of them reaches the
+    // top of its own content.
+    if (status === "loading" || (status === "idle" && enabled)) {
+      return (
+        <FeedState>
+          <FeedSkeleton />
+        </FeedState>
+      );
+    }
 
-  const showLoader = status === "loading-more";
-  const showEnd = status === "success" && !hasMore && posts.length > 0;
-  let footer: ReactNode = null;
-  if (showLoader) {
-    // Post skeletons while paginating, like web's LoadMoreSkeleton (two
-    // cards), instead of a bare spinner.
-    footer = (
-      <View>
-        {[0, 1].map((index) => (
+    if (status === "error" && posts.length === 0) {
+      return (
+        <FeedState>
           <View
-            key={index}
-            style={[styles.group, { borderBottomColor: theme.cardBorder }]}
+            style={[
+              styles.centerWrap,
+              { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
+            ]}
           >
-            <FeedSkeletonCard />
-          </View>
-        ))}
-      </View>
-    );
-  } else if (showEnd) {
-    footer = (
-      <View style={styles.endWrap}>
-        <Image
-          contentFit="contain"
-          source={notFoundImage}
-          style={styles.endArt}
-        />
-        <Text style={[styles.endText, { color: theme.dividerText }]}>
-          You&apos;re all caught up!
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <GestureDetector gesture={pull.gesture}>
-      <View style={styles.listWrap}>
-        <Animated.View
-          style={[
-            styles.listShift,
-            { transform: [{ translateY: pull.pullShift }] },
-          ]}
-        >
-          <GestureDetector gesture={pull.nativeScrollGesture}>
-            <FlatList
-              contentContainerStyle={{
-                paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
-              }}
-              data={groups}
-              keyExtractor={feedGroupKey}
-              {...LIST_VIRTUALIZATION_PROPS}
-              onEndReached={fetchNext}
-              onEndReachedThreshold={0.5}
-              onMomentumScrollEnd={(event) => {
-                scrollMemory.set(
-                  memoryKey,
-                  Math.max(0, event.nativeEvent.contentOffset.y)
-                );
-              }}
-              onScroll={(event) => {
-                const offsetY = event.nativeEvent.contentOffset.y;
-                if (offsetY >= 0) {
-                  scrollMemory.set(memoryKey, offsetY);
-                }
-                if (enabledRef.current) {
-                  reportFeedScroll(offsetY);
-                }
-                // The pull reads the same bounce offset and keeps its progress
-                // in the loader, so none of this re-renders the list.
-                pull.onScroll(event);
-              }}
-              onScrollEndDrag={() => pull.onScrollEndDrag()}
-              onViewableItemsChanged={handleViewableItemsChanged}
-              // Android detaches list children that scroll out of the
-              // viewport, which cuts a row's thread rail off where it bleeds
-              // past the card's own bounds.
-              removeClippedSubviews={false}
-              ref={listRef}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-              viewabilityConfig={STABLE_VIEWABILITY}
-              renderItem={renderGroup}
-              ListFooterComponent={footer}
-              // The composer lives here, as real content. It scrolls away with
-              // the first post and returns on pull-down for free, because the
-              // list's own scroll already moves it - no overlay, no clipped
-              // layer over the scroll view, and no per-frame work of our own.
-              ListHeaderComponent={header}
-            />
-          </GestureDetector>
-        </Animated.View>
-        {pull.loader}
-        {newItems.length > 0 ? (
-          <NewContentPill
-            authors={authors}
-            count={newItems.length}
-            onPress={() => {
-              showNewPosts();
-              listRef.current?.scrollToOffset({ animated: true, offset: 0 });
-            }}
-          />
-        ) : null}
-        {lastDismissed ? (
-          <View style={[styles.undoWrap, { pointerEvents: "box-none" }]}>
-            <View
-              style={[
-                styles.undoBar,
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: theme.cardBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.undoText, { color: theme.dividerText }]}>
-                Post hidden
-              </Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => {
-                  if (lastDismissed) {
-                    undoDismiss(lastDismissed);
-                  }
-                  setLastDismissed(null);
-                }}
+            <View style={styles.errorWrap}>
+              <Image
+                contentFit="contain"
+                source={errorImage}
+                style={styles.errorArt}
+              />
+              <Text
+                selectable
+                style={[styles.errorTitle, { color: theme.errorBannerText }]}
               >
-                <Text style={[styles.undoAction, { color: theme.auxLink }]}>
-                  Undo
-                </Text>
-              </Pressable>
+                An error occurred while loading posts.
+              </Text>
+              <Text
+                selectable
+                style={[styles.errorBody, { color: theme.dividerText }]}
+              >
+                Please try refreshing the page.
+              </Text>
             </View>
           </View>
-        ) : null}
-        <ShareSheet onClose={handleCloseShare} post={sharePost} />
-        <MoreMenu
-          anchor={moreTarget?.anchor ?? null}
-          entries={
-            moreTarget
-              ? buildMoreEntries({
-                  post: moreTarget.post,
-                  showCaptions,
-                  showingAlt: altVisibleIds.has(moreTarget.post.id),
-                  viewerId: user?.id,
-                })
-              : []
-          }
-          onAction={handleMoreAction}
-          onClose={handleCloseMore}
-        />
-        {overflow.dialogs}
-      </View>
-    </GestureDetector>
-  );
-}
+        </FeedState>
+      );
+    }
+
+    if (status === "success" && posts.length === 0 && !hasMore) {
+      const copy = EMPTY_COPY[variant];
+      return (
+        <FeedState>
+          <View
+            style={[
+              styles.centerWrap,
+              { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
+            ]}
+          >
+            <Image
+              contentFit="contain"
+              source={noFeedImage}
+              style={styles.emptyArt}
+            />
+            <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
+              {copy.title}
+            </Text>
+            <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
+              {copy.description}
+            </Text>
+          </View>
+        </FeedState>
+      );
+    }
+
+    const authors: PillAuthor[] = [
+      ...new Map(
+        newItems.map((post) => [
+          post.userId,
+          {
+            avatarUrl: post.user?.avatarUrl,
+            id: post.userId,
+            username: post.user?.username,
+          },
+        ])
+      ).values(),
+    ];
+
+    const showLoader = status === "loading-more";
+    const showEnd = status === "success" && !hasMore && posts.length > 0;
+    let footer: ReactNode = null;
+    if (showLoader) {
+      // Post skeletons while paginating, like web's LoadMoreSkeleton (two
+      // cards), instead of a bare spinner.
+      footer = (
+        <View>
+          {[0, 1].map((index) => (
+            <View
+              key={index}
+              style={[styles.group, { borderBottomColor: theme.cardBorder }]}
+            >
+              <FeedSkeletonCard />
+            </View>
+          ))}
+        </View>
+      );
+    } else if (showEnd) {
+      footer = (
+        <View style={styles.endWrap}>
+          <Image
+            contentFit="contain"
+            source={notFoundImage}
+            style={styles.endArt}
+          />
+          <Text style={[styles.endText, { color: theme.dividerText }]}>
+            You&apos;re all caught up!
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <FeedMediaScope.Provider value={memoryKey}>
+        <GestureDetector gesture={pull.gesture}>
+          <View style={styles.listWrap}>
+            <Animated.View
+              style={[
+                styles.listShift,
+                { transform: [{ translateY: pull.pullShift }] },
+              ]}
+            >
+              <GestureDetector gesture={pull.nativeScrollGesture}>
+                <Reanimated.FlatList
+                  contentContainerStyle={{
+                    paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
+                  }}
+                  data={groups}
+                  keyExtractor={feedGroupKey}
+                  {...LIST_VIRTUALIZATION_PROPS}
+                  onEndReached={fetchNext}
+                  onEndReachedThreshold={0.5}
+                  onScroll={handleScroll}
+                  onViewableItemsChanged={handleViewableItemsChanged}
+                  // Android detaches list children that scroll out of the
+                  // viewport, which cuts a row's thread rail off where it bleeds
+                  // past the card's own bounds.
+                  removeClippedSubviews={false}
+                  ref={listRef}
+                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                  viewabilityConfig={STABLE_VIEWABILITY}
+                  renderItem={renderGroup}
+                  ListFooterComponent={footer}
+                  // The composer lives here, as real content. It scrolls away with
+                  // the first post and returns on pull-down for free, because the
+                  // list's own scroll already moves it - no overlay, no clipped
+                  // layer over the scroll view, and no per-frame work of our own.
+                  ListHeaderComponent={listHeader}
+                />
+              </GestureDetector>
+            </Animated.View>
+            {pull.loader}
+            {newItems.length > 0 ? (
+              <NewContentPill
+                authors={authors}
+                count={newItems.length}
+                onPress={() => {
+                  showNewPosts();
+                  listRef.current?.scrollToOffset({
+                    animated: true,
+                    offset: 0,
+                  });
+                }}
+              />
+            ) : null}
+            {lastDismissed ? (
+              <View style={[styles.undoWrap, { pointerEvents: "box-none" }]}>
+                <View
+                  style={[
+                    styles.undoBar,
+                    {
+                      backgroundColor: theme.cardBg,
+                      borderColor: theme.cardBorder,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.undoText, { color: theme.dividerText }]}>
+                    Post hidden
+                  </Text>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => {
+                      if (lastDismissed) {
+                        undoDismiss(lastDismissed);
+                      }
+                      setLastDismissed(null);
+                    }}
+                  >
+                    <Text style={[styles.undoAction, { color: theme.auxLink }]}>
+                      Undo
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+            <ShareSheet onClose={handleCloseShare} post={sharePost} />
+            <MoreMenu
+              anchor={moreTarget?.anchor ?? null}
+              entries={
+                moreTarget
+                  ? buildMoreEntries({
+                      post: moreTarget.post,
+                      showCaptions,
+                      showingAlt: altVisibleIds.has(moreTarget.post.id),
+                      viewerId: user?.id,
+                    })
+                  : []
+              }
+              onAction={handleMoreAction}
+              onClose={handleCloseMore}
+            />
+            {overflow.dialogs}
+          </View>
+        </GestureDetector>
+      </FeedMediaScope.Provider>
+    );
+  }
+);
+
+FeedList.displayName = "FeedList";
 
 export function clearFeedScrollMemory(): void {
   scrollMemory.clear();

@@ -8,7 +8,7 @@ import { usePathname, useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 
 import { hydrateFeedCache } from "@/features/feed/state/feed-store";
-import { loadResumeRoute, saveResumeRoute } from "@/lib/app-resume";
+import { loadLaunchResumeRoute, saveResumeRoute } from "@/lib/app-resume";
 
 // Hydrates disk caches once. Runs outside the splash gate so the first paint
 // can already read restored tabs.
@@ -31,6 +31,10 @@ export function ResumeGate() {
   const router = useRouter();
   const pathname = usePathname();
   const restored = useRef(false);
+  const currentPath = useRef(pathname);
+  useEffect(() => {
+    currentPath.current = pathname;
+  }, [pathname]);
   useEffect(() => {
     if (restored.current) {
       return;
@@ -38,11 +42,11 @@ export function ResumeGate() {
     restored.current = true;
     void (async () => {
       try {
-        const resume = await loadResumeRoute();
+        const resume = await loadLaunchResumeRoute();
         if (!resume) {
           return;
         }
-        if (resume.pathname === pathname) {
+        if (resume.pathname === pathname || currentPath.current !== "/") {
           return;
         }
         // String href keeps typed-route checking out of the way: the stored
@@ -52,7 +56,8 @@ export function ResumeGate() {
           .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
           .join("&");
         const href = query ? `${resume.pathname}?${query}` : resume.pathname;
-        router.replace(href as "/");
+        // Retain home underneath so Back from a restored post reaches its feed.
+        router.navigate(href as "/");
       } catch {
         // Resume must never break launch.
       }

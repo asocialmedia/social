@@ -65,7 +65,27 @@ const PUBLIC_MEDIA_READ_PREFIXES = [
   "/api/link-preview/image",
 ];
 
-function isSameOriginExemptRequest(pathname: string, method: string): boolean {
+function isSameOriginExemptRequest(
+  pathname: string,
+  method: string,
+  referer: string | null
+): boolean {
+  // Android Custom Tabs enter from an android-app referrer. This GET only
+  // sets OAuth state and redirects; the provider callback validates the flow.
+  if (method === "GET" && pathname === "/api/auth/expo-authorization-proxy") {
+    try {
+      const referrer = new URL(referer ?? "");
+      if (
+        referrer.protocol === "android-app:" &&
+        (referrer.hostname === "cc.asocialmedia.mobile" ||
+          referrer.hostname === "host.exp.exponent")
+      ) {
+        return true;
+      }
+    } catch {
+      // No app referrer: use the usual same-origin check below.
+    }
+  }
   const isStaticExempt = SAME_ORIGIN_EXEMPT_PATHS.some(
     (exempt) =>
       pathname === exempt ||
@@ -340,7 +360,11 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith(API_PATH_PREFIX) &&
     !isLoopback &&
     request.method !== "OPTIONS" &&
-    !isSameOriginExemptRequest(request.nextUrl.pathname, request.method) &&
+    !isSameOriginExemptRequest(
+      request.nextUrl.pathname,
+      request.method,
+      request.headers.get("referer")
+    ) &&
     isCrossSiteRequest(request)
   ) {
     return withSecurityHeaders(

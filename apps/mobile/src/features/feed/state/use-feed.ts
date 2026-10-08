@@ -31,7 +31,12 @@ import {
   normalizePostsData,
   sortPostsNewest,
 } from "../lib/feed-types";
-import { feedCache, flattenUniquePosts, prependPosts } from "./feed-store";
+import {
+  feedCache,
+  flattenUniquePosts,
+  prependPosts,
+  hydrateFeedCache,
+} from "./feed-store";
 
 // Head probe interval, mirroring web useNewContentProbe.
 const PROBE_INTERVAL_MS = 45_000;
@@ -45,12 +50,18 @@ export type FeedStatus =
   | "success";
 
 interface UseFeedTabOptions {
+  active?: boolean;
   enabled: boolean;
   userId: string | undefined;
   variant: FeedVariant;
 }
 
-export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
+export function useFeedTab({
+  active: activeOverride,
+  enabled,
+  userId,
+  variant,
+}: UseFeedTabOptions): {
   clearNewItems: () => void;
   dismissPost: (postId: string) => void;
   error: string | null;
@@ -63,6 +74,7 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   status: FeedStatus;
   undoDismiss: (postId: string) => void;
 } {
+  const active = activeOverride ?? enabled;
   const cacheKey = `${variant}:${userId ?? "guest"}`;
   const [, setTick] = useState(0);
   const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
@@ -210,7 +222,7 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         // the first page on cold start). Only when this replace still owns
         // the active key; a stale guest fetch settling after a re-key must
         // not hijack the live probe.
-        if (mode === "replace" && activeKeyRef.current === cacheKey) {
+        if (active && mode === "replace" && activeKeyRef.current === cacheKey) {
           startProbe(cacheKey);
         }
         if (inflightKey.current === cacheKey) {
@@ -238,8 +250,17 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         }
       }
     },
-    [cacheKey, startProbe, variant]
+    [active, cacheKey, startProbe, variant]
   );
+
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- new-content rows belong to one account/feed cache key
+    setNewItems([]);
+    // oxlint-disable-next-line react/set-state-in-effect -- dismissals are scoped to one account/feed
+    setDismissedIds(new Set());
+    removedPostsRef.current.clear();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- these local rows belong to the cache key, not focus/enabled state
+  }, [cacheKey]);
 
   // First page: cached entries render as-is (staleTime Infinity); missing or
   // invalidated entries fetch. refetchOnMount picks up invalidations. Tabs
@@ -251,26 +272,24 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
       stopProbe();
       return;
     }
-    activeKeyRef.current = cacheKey;
-    // Key-specific local state must not leak across a guest-to-user re-key:
-    // stale newItems would insert the old feed into the new cache.
-    // oxlint-disable-next-line react/set-state-in-effect -- re-key resets the banner; steady state is cache-driven
-    setNewItems([]);
-    const current = feedCache.get(cacheKey);
-    if (current.status === "idle" || current.stale) {
-      // Cached rows stay on screen while the background refresh runs: patch
-      // to refreshing (not loading) when pages exist so the list never
-      // flashes its skeleton on a stale-while-revalidate mount. Only truly
-      // empty tabs enter loading.
-      const opening = current.pages.length > 0 ? "refreshing" : "loading";
-      // oxlint-disable-next-line react/set-state-in-effect -- mount-fill: idle/invalidated tabs enter loading here; the fetch below settles it
-      feedCache.patch(cacheKey, { error: null, status: opening });
-      // oxlint-disable-next-line react/set-state-in-effect -- mount-fill must kick off the first fetch here; steady state is cache-driven
-      void runFetch("replace", null);
-    } else if (current.pages.length > 0) {
-      startProbe(cacheKey);
-    }
+    activeKeyRef.current = active ? cacheKey : null;
+    let cancelled = false;
+    void (async () => {
+      // Disk hydration owns the first cache fill. Starting the network first
+      // meant it set loading and prevented the saved rows from ever restoring.
+      await hydrateFeedCache();
+      if (cancelled) {
+        return;
+      }
+      const current = feedCache.get(cacheKey);
+      if (current.status === "idle" || current.stale) {
+        void runFetch("replace", null);
+      } else if (active && current.pages.length > 0) {
+        startProbe(cacheKey);
+      }
+    })();
     return () => {
+      cancelled = true;
       if (activeKeyRef.current === cacheKey) {
         activeKeyRef.current = null;
       }
@@ -278,11 +297,15 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     };
     // Runs on mount/tab-switch/enable; runFetch is stable per cacheKey.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional mount-fill keyed by cacheKey via runFetch identity
-  }, [cacheKey, enabled, runFetch, stopProbe, startProbe]);
+  }, [active, cacheKey, enabled, runFetch, stopProbe, startProbe]);
 
   const fetchNext = useCallback(() => {
     const current = feedCache.get(cacheKey);
-    if (!enabled || current.status === "loading-more" || !current.hasMore) {
+    if (
+      !enabled ||
+      (current.status !== "success" && current.status !== "error") ||
+      !current.hasMore
+    ) {
       return;
     }
     if (current.pages.length === 0) {

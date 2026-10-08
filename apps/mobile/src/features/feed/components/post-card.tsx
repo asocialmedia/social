@@ -15,7 +15,10 @@ import type { GestureResponderEvent } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { fetchPostDetail } from "@/features/post/lib/post-api";
+import { postDetailCache, postDetailKey } from "@/features/post/lib/post-cache";
 import { usePrefetchProfile } from "@/features/profile";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
@@ -208,7 +211,20 @@ export const PostCard = memo(
       }
       // Full id: the backend only resolves an 8-char prefix when it matches
       // exactly one post, so truncating turns colliding prefixes into 404s.
+      void warmDetail();
       router.push({ params: { postId: post.id }, pathname: "/posts/[postId]" });
+    };
+    const warmDetail = async () => {
+      const key = postDetailKey(post.id, viewerId, apiBase);
+      postDetailCache.seed(key, post);
+      try {
+        await postDetailCache.load(key, async () => {
+          const cookie = await authClient.getCookie();
+          return fetchPostDetail(post.id, { apiBase, cookie });
+        });
+      } catch {
+        // The detail screen handles request failures; the feed remains usable.
+      }
     };
     const openAuthor = (event: GestureResponderEvent) => {
       event.stopPropagation();
@@ -309,89 +325,93 @@ export const PostCard = memo(
                 hasThreadChild={hasThreadChild}
                 hasThreadParent={hasThreadParent}
               />
-              <Pressable
-                accessibilityLabel={`Open ${author?.displayName || username}'s profile`}
-                accessibilityRole="link"
-                disabled={!author?.username}
-                onPress={openAuthor}
-                onPressIn={prefetchAuthor}
-                style={styles.avatarLink}
-              >
-                <Image
-                  cachePolicy={imageCachePolicy(avatarUri)}
-                  contentFit="cover"
-                  recyclingKey={avatarUri ?? "avatar-placeholder"}
-                  transition={150}
-                  onError={() => setAvatarFailed(true)}
-                  source={
-                    avatarUri && !avatarFailed
-                      ? { uri: avatarUri }
-                      : avatarPlaceholder
-                  }
-                  style={[styles.avatar, { backgroundColor: theme.cardBg }]}
-                />
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.avatarRing,
-                    {
-                      boxShadow: isDark
-                        ? AVATAR_RING_SHADOWS_DARK
-                        : AVATAR_RING_SHADOWS,
-                    },
-                  ]}
-                />
-              </Pressable>
+              <View renderToHardwareTextureAndroid style={styles.chromeTexture}>
+                <Pressable
+                  accessibilityLabel={`Open ${author?.displayName || username}'s profile`}
+                  accessibilityRole="link"
+                  disabled={!author?.username}
+                  onPress={openAuthor}
+                  onPressIn={prefetchAuthor}
+                  style={styles.avatarLink}
+                >
+                  <Image
+                    cachePolicy={imageCachePolicy(avatarUri)}
+                    contentFit="cover"
+                    recyclingKey={avatarUri ?? "avatar-placeholder"}
+                    transition={150}
+                    onError={() => setAvatarFailed(true)}
+                    source={
+                      avatarUri && !avatarFailed
+                        ? { uri: avatarUri }
+                        : avatarPlaceholder
+                    }
+                    style={[styles.avatar, { backgroundColor: theme.cardBg }]}
+                  />
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.avatarRing,
+                      {
+                        boxShadow: isDark
+                          ? AVATAR_RING_SHADOWS_DARK
+                          : AVATAR_RING_SHADOWS,
+                      },
+                    ]}
+                  />
+                </Pressable>
+              </View>
             </View>
 
             <View style={styles.content}>
-              <View style={styles.headerRow}>
-                <View style={styles.headerLeft}>
-                  <Pressable
-                    accessibilityLabel={`Open ${displayName}'s profile`}
-                    accessibilityRole="link"
-                    disabled={!author?.username}
-                    onPress={openAuthor}
-                    onPressIn={prefetchAuthor}
-                    style={styles.authorIdentity}
-                  >
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.name, { color: theme.inputText }]}
+              <View renderToHardwareTextureAndroid style={styles.chromeTexture}>
+                <View style={styles.headerRow}>
+                  <View style={styles.headerLeft}>
+                    <Pressable
+                      accessibilityLabel={`Open ${displayName}'s profile`}
+                      accessibilityRole="link"
+                      disabled={!author?.username}
+                      onPress={openAuthor}
+                      onPressIn={prefetchAuthor}
+                      style={styles.authorIdentity}
                     >
-                      {displayName}
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.name, { color: theme.inputText }]}
+                      >
+                        {displayName}
+                      </Text>
+                      <UserBadge
+                        badge={author?.badge}
+                        badges={author?.badges}
+                        communityRoles={author?.communityMemberships}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.handle, { color: theme.dividerText }]}
+                      >
+                        @{username}
+                      </Text>
+                    </Pressable>
+                    <Text style={[styles.dot, { color: theme.dividerText }]}>
+                      ·
                     </Text>
-                    <UserBadge
-                      badge={author?.badge}
-                      badges={author?.badges}
-                      communityRoles={author?.communityMemberships}
-                    />
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.handle, { color: theme.dividerText }]}
-                    >
-                      @{username}
+                    <Text style={[styles.date, { color: theme.dividerText }]}>
+                      {formatRelativeDate(post.createdAt)}
                     </Text>
-                  </Pressable>
-                  <Text style={[styles.dot, { color: theme.dividerText }]}>
-                    ·
-                  </Text>
-                  <Text style={[styles.date, { color: theme.dividerText }]}>
-                    {formatRelativeDate(post.createdAt)}
-                  </Text>
-                </View>
-                {/* Web's header buttons carry -my-1 so the text row sets the row
+                  </View>
+                  {/* Web's header buttons carry -my-1 so the text row sets the row
                 height and the name stays top-aligned with the avatar. */}
-                <View style={styles.moreFix}>
-                  {hasOverflow ? (
-                    <MoreButton onPress={(anchor) => onMore(post, anchor)} />
-                  ) : (
-                    <View
-                      accessibilityElementsHidden
-                      importantForAccessibility="no-hide-descendants"
-                      style={styles.morePlaceholder}
-                    />
-                  )}
+                  <View style={styles.moreFix}>
+                    {hasOverflow ? (
+                      <MoreButton onPress={(anchor) => onMore(post, anchor)} />
+                    ) : (
+                      <View
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                        style={styles.morePlaceholder}
+                      />
+                    )}
+                  </View>
                 </View>
               </View>
 
@@ -505,29 +525,31 @@ export const PostCard = memo(
                 </>
               )}
 
-              <View style={styles.actions}>
-                <VoteCluster
-                  aura={post.aura ?? 0}
-                  authorName={displayName}
-                  onRequireLogin={requireLogin}
-                  postId={post.id}
-                  userVote={getUserVote(post)}
-                  viewerId={viewerId ?? null}
-                />
-                <CommentButton
-                  count={commentCount}
-                  onPress={() => setShowComments((value) => !value)}
-                />
-                <RespondButton count={responseCount} post={post} />
-                <ViewsBadge count={post.viewCount ?? 0} />
-                <View style={styles.actionCluster}>
-                  <ShareButton onPress={() => onShare(post)} />
-                  <BookmarkToggle
-                    initialBookmarked={isBookmarkedByUser(post, viewerId)}
+              <View renderToHardwareTextureAndroid style={styles.chromeTexture}>
+                <View style={styles.actions}>
+                  <VoteCluster
+                    aura={post.aura ?? 0}
+                    authorName={displayName}
                     onRequireLogin={requireLogin}
                     postId={post.id}
+                    userVote={getUserVote(post)}
                     viewerId={viewerId ?? null}
                   />
+                  <CommentButton
+                    count={commentCount}
+                    onPress={() => setShowComments((value) => !value)}
+                  />
+                  <RespondButton count={responseCount} post={post} />
+                  <ViewsBadge count={post.viewCount ?? 0} />
+                  <View style={styles.actionCluster}>
+                    <ShareButton onPress={() => onShare(post)} />
+                    <BookmarkToggle
+                      initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                      onRequireLogin={requireLogin}
+                      postId={post.id}
+                      viewerId={viewerId ?? null}
+                    />
+                  </View>
                 </View>
               </View>
             </View>
@@ -621,6 +643,12 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.94,
+  },
+  // Cache only small static chrome, with room for the unchanged shadow bleed.
+  // FlatList bounds their lifetime; images, text bodies and players stay live.
+  chromeTexture: {
+    margin: -4,
+    padding: 4,
   },
   content: {
     flex: 1,

@@ -58,10 +58,14 @@ async function handleLink(request: NextRequest, provider: string) {
     prisma.orm.public.Users.select("email", "emailVerified")
       .where({ id: session.user.id })
       .first(),
+    // Canonical credential selector (accountId=userId), matching sign-in and
+    // the password writers. A (providerId, userId)-only match could report the
+    // user has a password based on a legacy email-keyed row.
     prisma.orm.public.Accounts.select("password")
       .where((account) =>
         and(
           account.providerId.eq("credential"),
+          account.accountId.eq(session.user.id),
           account.userId.eq(session.user.id)
         )
       )

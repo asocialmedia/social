@@ -63,6 +63,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [dockHeight, setDockHeight] = useState(56);
   const [dockHidden, setDockHidden] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(0);
   const [bannerHeight, setBannerHeight] = useState(90);
   const showGuestBar = !isPending && !user;
   const dockLift = dockHeight + insets.bottom + 20;
@@ -208,7 +209,9 @@ export default function HomeScreen() {
               // Only the visible tab carries the composer, so exactly one is
               // ever mounted.
               header={index === activeIndex ? composerHeader : undefined}
-              key={def.value}
+              headerHeight={isLoggedIn ? composerHeight : 0}
+              onHeaderHeight={setComposerHeight}
+              key={`${def.value}:${user?.id ?? "guest"}`}
               userId={user?.id}
               variant={def.value}
             />
