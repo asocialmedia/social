@@ -483,28 +483,49 @@ mock.module("@asm/db", () => ({
           }),
         },
         Messages: {
-          select: () => ({
-            where: (predicate: (message: MessagePredicate) => unknown) => {
-              const branches: { conversationId: string; createdAfter: Date }[] =
-                [];
-              let senderIds: string[] | null = null;
-              messageAccessors.branches = branches;
-              messageAccessors.senderIds = (ids) => {
-                senderIds = ids;
-                return { notIn: ids };
-              };
-              lastUnreadBranches = branches;
-              _lastUnreadSenderIds = senderIds;
-              return {
-                all: () => {
+          where: (predicate: (message: MessagePredicate) => unknown) => {
+            const branches: { conversationId: string; createdAfter: Date }[] =
+              [];
+            let senderIds: string[] | null = null;
+            messageAccessors.branches = branches;
+            messageAccessors.senderIds = (ids) => {
+              senderIds = ids;
+              return { notIn: ids };
+            };
+            lastUnreadBranches = branches;
+            return {
+              groupBy: (field: string) => ({
+                aggregate: (
+                  project: (aggregate: { count: () => number }) => {
+                    count: number;
+                  }
+                ) => {
                   predicate(messageAccessors);
-                  return unreadConversationIds.map((conversationId) => ({
-                    conversationId,
-                  }));
+                  _lastUnreadSenderIds = senderIds;
+                  if (field !== "conversationId") {
+                    throw new Error("Unread counts must group by conversation");
+                  }
+                  const requested = project({ count: () => 1 });
+                  if (requested.count !== 1) {
+                    throw new Error("Unread counts must use a database count");
+                  }
+                  const counts = new Map<string, number>();
+                  for (const conversationId of unreadConversationIds) {
+                    counts.set(
+                      conversationId,
+                      (counts.get(conversationId) ?? 0) + 1
+                    );
+                  }
+                  return Promise.resolve(
+                    [...counts].map(([conversationId, count]) => ({
+                      conversationId,
+                      count,
+                    }))
+                  );
                 },
-              };
-            },
-          }),
+              }),
+            };
+          },
         },
         PostMedia: {
           where: () => ({
@@ -950,7 +971,7 @@ describe("GET /api/messages/conversations", () => {
     ]);
   });
 
-  test("buckets unread rows by conversation and reports a muted thread as read", async () => {
+  test("uses grouped database counts and reports a muted thread as read", async () => {
     conversationPage = [
       pageConversation("dm-1", "DM", ["user1", "user2"], {
         messages: [dmPreview("dm-1")],

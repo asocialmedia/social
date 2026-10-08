@@ -410,10 +410,11 @@ export async function GET(request: Request) {
   });
 
   // One grouped query for the whole page instead of a count round-trip per
-  // conversation. Each member's own read watermark bounds its conversation's
-  // unread set, so the query fetches only genuinely-unread rows rather than
-  // every message since epoch 0 (a page-wide "earliest" bound would let one
-  // never-read thread pull all messages across the page).
+  // conversation. PostgreSQL does the grouping, so this route never transfers
+  // every unread message row just to count them in JavaScript. Each member's
+  // own read watermark bounds its conversation's unread set; a page-wide
+  // "earliest" bound would let one never-read thread pull every message across
+  // the page.
   const readAtByConversation = new Map<string, Date>();
   for (const conversation of visibleConversations) {
     const myMember = conversation.members.find(
@@ -424,43 +425,37 @@ export async function GET(request: Request) {
       myMember?.lastReadAt ?? new Date(0)
     );
   }
-  const unreadRows =
+  const unreadCounts =
     visibleConversations.length === 0
       ? []
-      : await prisma.orm.public.Messages.select("conversationId")
-          .where((message) =>
-            and(
-              // Per-conversation bound: each OR branch carries its own
-              // watermark, so a never-read thread cannot drag in every message
-              // on the page.
-              or(
-                ...visibleConversations.map((conversation) =>
-                  and(
-                    message.conversationId.eq(conversation.id),
-                    message.createdAt.gt(
-                      toPrismaDateTime(
-                        readAtByConversation.get(conversation.id) ?? new Date(0)
-                      )
+      : await prisma.orm.public.Messages.where((message) =>
+          and(
+            // Per-conversation bound: each OR branch carries its own
+            // watermark, so a never-read thread cannot drag in every message
+            // on the page.
+            or(
+              ...visibleConversations.map((conversation) =>
+                and(
+                  message.conversationId.eq(conversation.id),
+                  message.createdAt.gt(
+                    toPrismaDateTime(
+                      readAtByConversation.get(conversation.id) ?? new Date(0)
                     )
                   )
                 )
-              ),
-              message.deletedAt.isNull(),
-              message.hiddenFor.none((hidden) => hidden.userId.eq(user.id)),
-              message.senderId.notIn([user.id])
-            )
+              )
+            ),
+            message.deletedAt.isNull(),
+            message.hiddenFor.none((hidden) => hidden.userId.eq(user.id)),
+            message.senderId.notIn([user.id])
           )
-          .all();
+        )
+          .groupBy("conversationId")
+          .aggregate((aggregate) => ({ count: aggregate.count() }));
 
-  // Bucket the (already watermark-filtered) unread rows in one pass. No further
-  // per-row compare is needed: every row cleared its own conversation's bound.
-  const unreadCountByConversation = new Map<string, number>();
-  for (const row of unreadRows) {
-    unreadCountByConversation.set(
-      row.conversationId,
-      (unreadCountByConversation.get(row.conversationId) ?? 0) + 1
-    );
-  }
+  const unreadCountByConversation = new Map(
+    unreadCounts.map((row) => [row.conversationId, row.count])
+  );
 
   const items: ConversationListItem[] = visibleConversations.map(
     (conversation) => {
