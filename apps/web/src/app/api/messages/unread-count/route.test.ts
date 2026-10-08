@@ -46,6 +46,7 @@ let inboundBlocks: string[] = [];
 // returned, because the route filters the type in SQL.
 let candidateDms: { id: string; memberIds: string[] }[] = [];
 let unreadRows: string[] = [];
+let unreadAggregateFailure: Error | null = null;
 
 // The predicate the grouped read was given, flattened into something assertable.
 let lastUnreadWhere: {
@@ -190,27 +191,34 @@ mock.module("@asm/db", () => ({
           }),
         },
         Messages: {
-          select: () => ({
-            where: (predicate: (message: unknown) => unknown) => ({
-              all: () => {
-                dbCalls.push("Messages");
-                // The predicate is driven with the same accessors the shared
-                // predicate closes over, which is what records the watermarks.
-                predicate(messageAccessors);
-                return unreadRows.map((conversationId) => ({ conversationId }));
-              },
-            }),
-          }),
-          // The removed per-membership shape. Still present so a regression that
-          // brings the N+1 back gets a hard failure rather than a silent pass.
-          where: () => ({
-            aggregate: (
-              aggregate: (value: { count: () => number }) => unknown
-            ) => {
-              dbCalls.push("Messages:aggregate");
-              return aggregate({ count: () => unreadRows.length });
-            },
-          }),
+          where: (predicate: (message: typeof messageAccessors) => unknown) => {
+            predicate(messageAccessors);
+            return {
+              groupBy: (field: string) => ({
+                aggregate: (
+                  aggregate: (value: { count: () => number }) => {
+                    count: number;
+                  }
+                ) => {
+                  dbCalls.push(`Messages:groupBy:${field}`);
+                  if (unreadAggregateFailure) {
+                    throw unreadAggregateFailure;
+                  }
+                  const grouped = new Map<string, number>();
+                  for (const conversationId of unreadRows) {
+                    grouped.set(
+                      conversationId,
+                      (grouped.get(conversationId) ?? 0) + 1
+                    );
+                  }
+                  return [...grouped].map(([conversationId, count]) => ({
+                    conversationId,
+                    count: aggregate({ count: () => count }).count,
+                  }));
+                },
+              }),
+            };
+          },
         },
       },
     },
@@ -293,6 +301,7 @@ describe("GET /api/messages/unread-count", () => {
     candidateDms = [];
     membershipEventsByDen = new Map();
     unreadRows = [];
+    unreadAggregateFailure = null;
     lastUnreadWhere = null;
     lastSenderIds = null;
   });
@@ -389,7 +398,7 @@ describe("GET /api/messages/unread-count", () => {
     expect(dbCalls.filter((call) => call.startsWith("Messages")).length).toBe(
       1
     );
-    expect(dbCalls).not.toContain("Messages:aggregate");
+    expect(dbCalls).toContain("Messages:groupBy:conversationId");
     expect(lastUnreadWhere?.watermarks).toHaveLength(100);
     expect(
       lastUnreadWhere?.watermarks.map((row) => row.conversationId)
@@ -413,6 +422,28 @@ describe("GET /api/messages/unread-count", () => {
     expect(await readsFor(1)).toBe(1);
     expect(await readsFor(50)).toBe(1);
     expect(await readsFor(200)).toBe(1);
+  });
+
+  test("sums database-grouped unread totals without loading individual rows", async () => {
+    unreadRows = ["convo-1", "convo-1", "convo-1", "convo-2"];
+    const res = await GET();
+    const body = (await res.json()) as { unreadCount: number };
+
+    expect(body.unreadCount).toBe(4);
+    expect(mockCacheIncrement).toHaveBeenCalledWith("user1", 4);
+    expect(dbCalls).toContain("Messages:groupBy:conversationId");
+    expect(dbCalls).not.toContain("Messages");
+  });
+
+  test("returns a retryable error when the grouped database read fails", async () => {
+    unreadAggregateFailure = new Error("database unavailable");
+
+    const res = await GET();
+    const body = (await res.json()) as { error: string };
+
+    expect(res.status).toBe(503);
+    expect(body.error).toBe("Unread message count is temporarily unavailable");
+    expect(mockCacheIncrement).not.toHaveBeenCalled();
   });
 
   // FIX E. The shared-predicate branch, for both conversation types.

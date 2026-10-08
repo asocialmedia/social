@@ -183,8 +183,9 @@ export async function GET() {
     // range scan and Postgres folds N of them into a single BitmapOr. The N moved
     // from N round trips in this process to N index probes inside one, which is
     // where it belonged - the loop spent its time on the network, not on the scan.
-    const unreadRows = await prisma.orm.public.Messages.select("conversationId")
-      .where(
+    let unreadCounts: { count: number }[];
+    try {
+      unreadCounts = await prisma.orm.public.Messages.where(
         unreadMessagesWhere({
           userId: user.id,
           watermarks: visibleMemberships.map((membership) => {
@@ -206,8 +207,21 @@ export async function GET() {
           }),
         })
       )
-      .all();
-    unreadCount = unreadRows.length;
+        .groupBy("conversationId")
+        .aggregate((aggregate) => ({ count: aggregate.count() }));
+    } catch {
+      return Response.json(
+        { error: "Unread message count is temporarily unavailable" },
+        { status: 503 }
+      );
+    }
+    unreadCount = unreadCounts.reduce((total, row) => total + row.count, 0);
+    if (!Number.isSafeInteger(unreadCount) || unreadCount < 0) {
+      return Response.json(
+        { error: "Unread message count is temporarily unavailable" },
+        { status: 503 }
+      );
+    }
   }
 
   if (unreadCount > 0) {
