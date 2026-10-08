@@ -47,47 +47,73 @@ export function unreadMessagesWhere(params: {
   watermarks: readonly {
     conversationId: string;
     lastReadAt: Date | null;
+    lastReadSequence?: number | null;
     windows?: readonly { after: Date | null; before: Date | null }[];
   }[];
 }): (message: MessageAccessor) => AnyExpression {
-  return (message) =>
-    and(
-      or(
-        ...params.watermarks.map((watermark) => {
-          const branch = and(
-            message.conversationId.eq(watermark.conversationId),
-            message.createdAt.gt(
-              toPrismaDateTime(watermark.lastReadAt ?? new Date(0))
-            )
-          );
-          const ranges = (watermark.windows ?? [])
-            .map((window) => {
-              const bounds = [];
-              if (window.after !== null) {
-                bounds.push(
-                  message.createdAt.gte(toPrismaDateTime(window.after))
-                );
-              }
-              if (window.before !== null) {
-                bounds.push(
-                  message.createdAt.lte(toPrismaDateTime(window.before))
-                );
-              }
-              return bounds.length === 0 ? null : and(...bounds);
-            })
-            .filter((range) => range !== null);
-          // A window with neither bound admits the whole transcript, so no range
-          // is applied at all unless every window is bounded.
-          if (ranges.length === (watermark.windows ?? []).length) {
-            return and(branch, or(...ranges));
+  return (message) => {
+    const branches = params.watermarks.map((watermark) => {
+      const afterReadAt = message.createdAt.gt(
+        toPrismaDateTime(watermark.lastReadAt ?? new Date(0))
+      );
+      const afterRead =
+        watermark.lastReadSequence === null ||
+        watermark.lastReadSequence === undefined
+          ? afterReadAt
+          : or(
+              message.creationSequence.gt(watermark.lastReadSequence),
+              and(message.creationSequence.eq(0), afterReadAt)
+            );
+      const branch = and(
+        message.conversationId.eq(watermark.conversationId),
+        afterRead
+      );
+      const windows = watermark.windows ?? [];
+      const ranges = windows
+        .map((window) => {
+          const bounds = [];
+          if (window.after !== null) {
+            bounds.push(message.createdAt.gte(toPrismaDateTime(window.after)));
           }
-          return branch;
+          if (window.before !== null) {
+            bounds.push(message.createdAt.lte(toPrismaDateTime(window.before)));
+          }
+          return bounds.length === 0 ? null : and(...bounds);
         })
-      ),
+        .filter((range) => range !== null);
+      // A window with neither bound admits the whole transcript, so no range
+      // is applied at all unless every window is bounded.
+      if (windows.length > 0 && ranges.length === windows.length) {
+        if (ranges.length === 1) {
+          const [onlyRange] = ranges;
+          if (onlyRange === undefined) {
+            throw new Error("Unread membership window unexpectedly missing");
+          }
+          return and(branch, onlyRange);
+        }
+        return and(branch, or(...ranges));
+      }
+      return branch;
+    });
+    let watermarkFilter: AnyExpression;
+    if (branches.length === 0) {
+      watermarkFilter = message.id.in([]);
+    } else if (branches.length === 1) {
+      const [onlyBranch] = branches;
+      if (onlyBranch === undefined) {
+        throw new Error("Unread conversation branch unexpectedly missing");
+      }
+      watermarkFilter = onlyBranch;
+    } else {
+      watermarkFilter = or(...branches);
+    }
+    return and(
+      watermarkFilter,
       message.deletedAt.isNull(),
       message.hiddenFor.none((hidden) => hidden.userId.eq(params.userId)),
       message.senderId.notIn([params.userId])
     );
+  };
 }
 
 // The single-conversation form, expressed AS the multi-conversation form with one
@@ -96,6 +122,7 @@ export function unreadMessagesWhere(params: {
 export function unreadMessageWhere(params: {
   conversationId: string;
   lastReadAt: Date | null;
+  lastReadSequence?: number | null;
   userId: string;
 }): (message: MessageAccessor) => AnyExpression {
   return unreadMessagesWhere({
@@ -104,6 +131,7 @@ export function unreadMessageWhere(params: {
       {
         conversationId: params.conversationId,
         lastReadAt: params.lastReadAt,
+        lastReadSequence: params.lastReadSequence,
       },
     ],
   });

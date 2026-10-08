@@ -25,6 +25,7 @@ interface MembershipRow {
   conversationId: string;
   createdAt?: Date;
   lastReadAt: Date | null;
+  lastReadSequence?: number | null;
 }
 
 let memberships: MembershipRow[] = [];
@@ -52,6 +53,7 @@ let lastUnreadWhere: {
   watermarks: {
     conversationId: string;
     lastReadAt: Date;
+    lastReadSequence?: number;
     windows?: readonly { after: Date | null; before: Date | null }[];
   }[];
 } | null = null;
@@ -67,6 +69,10 @@ const messageAccessors = {
     gt: (value: unknown) => ({ gt: value }),
     gte: (value: unknown) => ({ gte: value }),
     lte: (value: unknown) => ({ lte: value }),
+  },
+  creationSequence: {
+    eq: (sequence: number) => ({ eq: sequence }),
+    gt: (sequence: number) => ({ gt: sequence }),
   },
   deletedAt: { isNull: () => ({ isNull: true }) },
   hiddenFor: {
@@ -218,12 +224,14 @@ mock.module("@asm/db", () => ({
     watermarks: readonly {
       conversationId: string;
       lastReadAt: Date | null;
+      lastReadSequence?: number | null;
       windows?: readonly { after: Date | null; before: Date | null }[];
     }[];
   }) => {
     const watermarks: {
       conversationId: string;
       lastReadAt: Date;
+      lastReadSequence?: number;
       windows?: readonly { after: Date | null; before: Date | null }[];
     }[] = [];
     let senderIds: string[] | null = null;
@@ -231,6 +239,13 @@ mock.module("@asm/db", () => ({
       for (const watermark of params.watermarks) {
         message.conversationId.eq(watermark.conversationId);
         message.createdAt.gt(watermark.lastReadAt ?? new Date(0));
+        if (
+          watermark.lastReadSequence !== null &&
+          watermark.lastReadSequence !== undefined
+        ) {
+          messageAccessors.creationSequence.gt(watermark.lastReadSequence);
+          messageAccessors.creationSequence.eq(0);
+        }
         for (const window of watermark.windows ?? []) {
           if (window.after !== null) {
             message.createdAt.gte(window.after);
@@ -242,6 +257,10 @@ mock.module("@asm/db", () => ({
         watermarks.push({
           conversationId: watermark.conversationId,
           lastReadAt: watermark.lastReadAt ?? new Date(0),
+          ...(watermark.lastReadSequence === null ||
+          watermark.lastReadSequence === undefined
+            ? {}
+            : { lastReadSequence: watermark.lastReadSequence }),
           windows: watermark.windows,
         });
       }
@@ -323,6 +342,24 @@ describe("GET /api/messages/unread-count", () => {
     await GET();
     expect(lastUnreadWhere?.watermarks).toEqual([
       { conversationId: "convo-1", lastReadAt: new Date(0) },
+    ]);
+  });
+
+  test("includes the durable sequence cursor when one has been recorded", async () => {
+    memberships = [
+      {
+        conversationId: "convo-1",
+        lastReadAt: new Date("2026-01-01T00:00:00Z"),
+        lastReadSequence: 27,
+      },
+    ];
+    await GET();
+    expect(lastUnreadWhere?.watermarks).toEqual([
+      {
+        conversationId: "convo-1",
+        lastReadAt: new Date("2026-01-01T00:00:00Z"),
+        lastReadSequence: 27,
+      },
     ]);
   });
 

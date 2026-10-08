@@ -176,6 +176,12 @@ export type MessageHideCommitResult =
       status: "committed";
     };
 
+export type MessageReadCommitResult =
+  | { status: "conversation-not-found" }
+  | { status: "membership-not-found" }
+  | { status: "membership-ended" }
+  | { readAt: Date; readSequence: number; unreadCount: number; status: "read" };
+
 export interface MessageSearchBackfillPosition {
   createdAt: Date | null;
   messageId: string | null;
@@ -771,9 +777,141 @@ export async function commitMessageSearchMutation(
   }
 }
 
+export async function commitMessageConversationRead(input: {
+  conversationId: string;
+  membershipWindows: readonly SearchMessageWindow[];
+  userId: string;
+}): Promise<MessageReadCommitResult> {
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    // This lock serializes the read boundary with changeSeq writers while remaining compatible with message foreign-key KEY SHARE locks.
+    const conversationResult = await client.query<{ changeSeq: number }>(
+      `SELECT "changeSeq"
+         FROM public.message_conversations
+        WHERE id = $1
+        FOR NO KEY UPDATE`,
+      [input.conversationId]
+    );
+    const [conversation] = conversationResult.rows;
+    if (!conversation) {
+      await client.query("COMMIT");
+      return { status: "conversation-not-found" };
+    }
+
+    const membershipResult = await client.query<{
+      lastReadAt: Date | null;
+      lastReadSequence: number | null;
+      leftAt: Date | null;
+      mutedAt: Date | null;
+    }>(
+      `SELECT "lastReadAt", "lastReadSequence", "leftAt", "mutedAt"
+         FROM public.message_conversation_members
+        WHERE "conversationId" = $1 AND "userId" = $2
+        FOR UPDATE`,
+      [input.conversationId, input.userId]
+    );
+    const [member] = membershipResult.rows;
+    if (!member) {
+      await client.query("COMMIT");
+      return { status: "membership-not-found" };
+    }
+    if (member.leftAt !== null) {
+      await client.query("COMMIT");
+      return { status: "membership-ended" };
+    }
+
+    const values: unknown[] = [
+      input.conversationId,
+      input.userId,
+      member.lastReadAt ?? new Date(0),
+    ];
+    let readPredicate = `message."createdAt" > $3`;
+    if (member.lastReadSequence !== null) {
+      values.push(member.lastReadSequence);
+      const sequenceParameter = `$${values.length}`;
+      readPredicate = `(message."creationSequence" > ${sequenceParameter}
+        OR (message."creationSequence" = 0 AND message."createdAt" > $3))`;
+    }
+
+    const { membershipWindows } = input;
+    const hasOpenMembershipWindow = membershipWindows.some(
+      (window) => window.after === null && window.before === null
+    );
+    let membershipPredicate = "";
+    if (membershipWindows.length > 0 && !hasOpenMembershipWindow) {
+      const ranges = membershipWindows.map((window) => {
+        const bounds: string[] = [];
+        if (window.after !== null) {
+          values.push(window.after);
+          bounds.push(`message."createdAt" >= $${values.length}`);
+        }
+        if (window.before !== null) {
+          values.push(window.before);
+          bounds.push(`message."createdAt" <= $${values.length}`);
+        }
+        return bounds.length === 0 ? "TRUE" : `(${bounds.join(" AND ")})`;
+      });
+      if (!ranges.includes("TRUE")) {
+        membershipPredicate = `AND (${ranges.join(" OR ")})`;
+      }
+    }
+
+    const unreadResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM public.messages AS message
+        WHERE message."conversationId" = $1
+          AND message."senderId" <> $2
+          AND message."deletedAt" IS NULL
+          AND ${readPredicate}
+          AND NOT EXISTS (
+            SELECT 1
+              FROM public.message_hidden AS hidden
+             WHERE hidden."messageId" = message.id
+               AND hidden."userId" = $2
+          )
+          ${membershipPredicate}`,
+      values
+    );
+    const countedUnread = Number(unreadResult.rows[0]?.count ?? "0");
+    if (!Number.isSafeInteger(countedUnread) || countedUnread < 0) {
+      throw new Error("Unread message count is outside the supported range");
+    }
+
+    const readSequence = conversation.changeSeq;
+    const updatedMembership = await client.query<{ lastReadAt: Date }>(
+      `UPDATE public.message_conversation_members
+          SET "lastReadAt" = statement_timestamp(),
+              "lastDeliveredAt" = statement_timestamp(),
+              "lastReadSequence" = $3
+        WHERE "conversationId" = $1 AND "userId" = $2
+        RETURNING "lastReadAt"`,
+      [input.conversationId, input.userId, readSequence]
+    );
+    const readAt = updatedMembership.rows[0]?.lastReadAt;
+    if (!readAt) {
+      throw new Error("Conversation membership disappeared while marking read");
+    }
+
+    await client.query("COMMIT");
+    return {
+      readAt,
+      readSequence,
+      status: "read",
+      unreadCount: member.mutedAt === null ? countedUnread : 0,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function commitMessageHides(input: {
   conversationId: string;
   messageIds: readonly string[];
+  membershipWindows?: readonly SearchMessageWindow[];
   userId: string;
 }): Promise<MessageHideCommitResult> {
   const messageIds = [...new Set(input.messageIds)].toSorted();
@@ -807,9 +945,11 @@ export async function commitMessageHides(input: {
     }
     const membership = await client.query<{
       lastReadAt: Date | null;
+      lastReadSequence: number | null;
       leftAt: Date | null;
+      mutedAt: Date | null;
     }>(
-      `SELECT "lastReadAt", "leftAt"
+      `SELECT "lastReadAt", "lastReadSequence", "leftAt", "mutedAt"
          FROM public.message_conversation_members
         WHERE "conversationId" = $1 AND "userId" = $2
         FOR UPDATE`,
@@ -822,13 +962,14 @@ export async function commitMessageHides(input: {
     }
 
     const source = await client.query<{
+      creationSequence: number;
       createdAt: Date;
       deletedAt: Date | null;
       id: string;
       revision: number;
       senderId: string;
     }>(
-      `SELECT id, "senderId", "createdAt", "deletedAt", revision
+      `SELECT id, "senderId", "createdAt", "creationSequence", "deletedAt", revision
          FROM public.messages
         WHERE "conversationId" = $1 AND id = ANY($2::text[])
         ORDER BY id`,
@@ -918,13 +1059,35 @@ export async function commitMessageHides(input: {
     );
 
     const readAt = member.lastReadAt?.getTime() ?? 0;
-    const unreadDecrement = source.rows.filter(
-      (row) =>
-        insertedIds.includes(row.id) &&
+    const visibleWindows = input.membershipWindows ?? [];
+    const hasOpenMembershipWindow = visibleWindows.some(
+      (window) => window.after === null && window.before === null
+    );
+    const insertedIdSet = new Set(insertedIds);
+    const unreadDecrement = source.rows.filter((row) => {
+      const messageAt = row.createdAt.getTime();
+      const withinMembership =
+        visibleWindows.length === 0 ||
+        hasOpenMembershipWindow ||
+        visibleWindows.some(
+          (window) =>
+            (window.after === null || messageAt >= window.after.getTime()) &&
+            (window.before === null || messageAt <= window.before.getTime())
+        );
+      const unread =
+        member.lastReadSequence === null
+          ? messageAt > readAt
+          : row.creationSequence > member.lastReadSequence ||
+            (row.creationSequence === 0 && messageAt > readAt);
+      return (
+        insertedIdSet.has(row.id) &&
         row.senderId !== input.userId &&
         row.deletedAt === null &&
-        row.createdAt.getTime() > readAt
-    ).length;
+        member.mutedAt === null &&
+        unread &&
+        withinMembership
+      );
+    }).length;
     await client.query("COMMIT");
     return {
       changes,

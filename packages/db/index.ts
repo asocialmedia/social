@@ -103,6 +103,7 @@ export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
 export {
   commitMessageSearchBackfillBatch,
   commitMessageHides,
+  commitMessageConversationRead,
   closeMessageSearchPool,
   commitMessageSearchMutation,
   claimMessageSearchCountRequest,
@@ -125,6 +126,7 @@ export {
 export type {
   MessageConversationChange,
   MessageHideCommitResult,
+  MessageReadCommitResult,
 } from "./src/messages/search-index";
 export type {
   MessageSearchCountRequest,

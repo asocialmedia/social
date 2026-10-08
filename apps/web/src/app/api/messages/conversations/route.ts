@@ -348,6 +348,13 @@ export async function GET(request: Request) {
     }
   }
   const conversationRows = await conversationQuery.all();
+  const readSequenceByConversation = new Map(
+    conversationRows.map((row) => [
+      row.id,
+      row.messageConversationMembers.find((member) => member.userId === user.id)
+        ?.lastReadSequence ?? null,
+    ])
+  );
   // The viewer's own stint boundaries for every den on the page, in one read.
   // A rejoin leaves the membership row unable to say which stretch of the
   // transcript the viewer was away for, and the preview below must not offer a
@@ -418,9 +425,13 @@ export async function GET(request: Request) {
     const myMember = conversation.members.find(
       (member) => member.userId === user.id
     );
+    const lastReadSequence = readSequenceByConversation.get(conversation.id);
     return {
       conversationId: conversation.id,
       lastReadAt: myMember?.lastReadAt ?? null,
+      ...(lastReadSequence === null || lastReadSequence === undefined
+        ? {}
+        : { lastReadSequence }),
       windows:
         conversation.type === "DEN"
           ? readerMessageWindows({

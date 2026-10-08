@@ -1,0 +1,36 @@
+[
+  {
+    "id": "column.public.message_conversation_members.lastReadSequence",
+    "label": "Add column \"lastReadSequence\" to \"message_conversation_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "lastReadSequence",
+        "table": "message_conversation_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"lastReadSequence\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "lastReadSequence"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"lastReadSequence\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_members\" ADD COLUMN \"lastReadSequence\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"lastReadSequence\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversation_members", "lastReadSequence"]
+      }
+    ]
+  }
+]

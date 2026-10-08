@@ -54,7 +54,8 @@ export async function GET() {
     prisma.orm.public.MessageConversationMembers.select(
       "conversationId",
       "createdAt",
-      "lastReadAt"
+      "lastReadAt",
+      "lastReadSequence"
     )
       // The conversation's type rides the same read: the windows below apply to
       // dens only, and asking the type separately would be a second round trip
@@ -186,17 +187,23 @@ export async function GET() {
       .where(
         unreadMessagesWhere({
           userId: user.id,
-          watermarks: visibleMemberships.map((membership) => ({
-            conversationId: membership.conversationId,
-            lastReadAt: membership.lastReadAt
-              ? fromPrismaDateTime(membership.lastReadAt)
-              : null,
-            // Undefined for a DM: no windows, no range, the branch stays exactly
-            // what it was. For a den the windows are the reader's stints, so a
-            // stretch they were away for cannot inflate a badge they will spend
-            // against a thread that hides it.
-            windows: windowsByDen.get(membership.conversationId),
-          })),
+          watermarks: visibleMemberships.map((membership) => {
+            const { lastReadSequence } = membership;
+            return {
+              conversationId: membership.conversationId,
+              lastReadAt: membership.lastReadAt
+                ? fromPrismaDateTime(membership.lastReadAt)
+                : null,
+              ...(lastReadSequence === null || lastReadSequence === undefined
+                ? {}
+                : { lastReadSequence }),
+              // Undefined for a DM: no windows, no range, the branch stays exactly
+              // what it was. For a den the windows are the reader's stints, so a
+              // stretch they were away for cannot inflate a badge they will spend
+              // against a thread that hides it.
+              windows: windowsByDen.get(membership.conversationId),
+            };
+          }),
         })
       )
       .all();

@@ -894,6 +894,8 @@ namespace public {
     // for DMs and none of the DM gates need to know this column exists.
     leftAt          Timestamp(3)?
     lastReadAt      Timestamp(3)?
+    // Null until the member marks the thread read after sequence cursors are deployed.
+    lastReadSequence Int?
     lastDeliveredAt Timestamp(3)?
     mutedAt         Timestamp(3)?
     themeKey        String?

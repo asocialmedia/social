@@ -8,7 +8,12 @@ import { POST } from "./route";
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockCommitHides = mock(
-  (_input: { conversationId: string; messageIds: string[]; userId: string }) =>
+  (_input: {
+    conversationId: string;
+    membershipWindows: readonly { after: Date | null; before: Date | null }[];
+    messageIds: string[];
+    userId: string;
+  }) =>
     Promise.resolve({
       changes: [],
       hidden: 0,
@@ -28,7 +33,17 @@ mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
     conversationId === "convo-1" && userId === "user1"
-      ? { id: "convo-1", members: [{ userId: "user1" }] }
+      ? {
+          id: "convo-1",
+          members: [
+            {
+              createdAt: new Date("2026-01-01T00:00:00Z"),
+              leftAt: null,
+              userId: "user1",
+            },
+          ],
+          type: "DM",
+        }
       : null,
   hasLeftConversation: () => false,
   leftConversationResponse: () =>
@@ -47,6 +62,8 @@ mock.module("@/lib/messages/server", () => ({
 
 mock.module("@asm/db", () => ({
   commitMessageHides: mockCommitHides,
+  fromPrismaDateTime: (value: Date) => value,
+  listDenMembershipEvents: () => Promise.resolve([]),
   unreadMessageCache: { decrement: mockDecrement },
 }));
 
@@ -136,6 +153,7 @@ describe("POST /api/messages/conversations/:id/hide", () => {
     expect(await response.json()).toEqual({ hidden: 1 });
     expect(mockCommitHides).toHaveBeenCalledWith({
       conversationId: "convo-1",
+      membershipWindows: [{ after: null, before: null }],
       messageIds: ["m1", "foreign"],
       userId: "user1",
     });

@@ -1,4 +1,9 @@
-import { commitMessageHides, unreadMessageCache } from "@asm/db";
+import {
+  commitMessageHides,
+  fromPrismaDateTime,
+  listDenMembershipEvents,
+  unreadMessageCache,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
@@ -6,6 +11,7 @@ import {
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import { MAX_HIDE_BATCH } from "@/lib/messages/message-delete";
+import { readerMessageWindows } from "@/lib/messages/reader-window";
 import {
   getConversationForUser,
   hasLeftConversation,
@@ -57,6 +63,12 @@ export async function POST(
   if (hasLeftConversation(conversation, user.id)) {
     return leftConversationResponse();
   }
+  const myMember = conversation.members.find(
+    (member) => member.userId === user.id
+  );
+  if (!myMember) {
+    return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
 
   const messageIds = readMessageIds(await parseJsonBody(request));
   if (!messageIds) {
@@ -74,8 +86,22 @@ export async function POST(
 
   let result: Awaited<ReturnType<typeof commitMessageHides>>;
   try {
+    const events =
+      conversation.type === "DEN"
+        ? await listDenMembershipEvents(id, myMember.leftAt ?? null)
+        : [];
+    const membershipWindows = readerMessageWindows({
+      conversationType: conversation.type,
+      events,
+      membership: {
+        createdAt: fromPrismaDateTime(myMember.createdAt),
+        leftAt: myMember.leftAt ?? null,
+      },
+      userId: user.id,
+    });
     result = await commitMessageHides({
       conversationId: id,
+      membershipWindows,
       messageIds,
       userId: user.id,
     });

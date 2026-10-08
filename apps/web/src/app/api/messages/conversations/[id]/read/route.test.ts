@@ -7,146 +7,58 @@ import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 import { POST } from "./route";
 
 type Session = { user: { id: string } } | null;
+interface Conversation {
+  id: string;
+  members: {
+    createdAt: Date;
+    lastReadAt: Date | null;
+    leftAt: Date | null;
+    mutedAt: Date | null;
+    userId: string;
+  }[];
+  type: "DEN" | "DM";
+}
+
+const READ_AT = new Date("2026-01-02T00:00:00Z");
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
-const mockCount = mock(() => 4);
-const mockDecrement = mock(() => 0);
-const mockUpdate = mock((_value: unknown) => ({}));
+const mockCommitRead = mock(() =>
+  Promise.resolve({
+    readAt: READ_AT,
+    readSequence: 8,
+    status: "read" as const,
+    unreadCount: 4,
+  })
+);
+const mockListMembershipEvents = mock(() => Promise.resolve([]));
+const mockDecrement = mock(() => Promise.resolve(0));
 const mockPublishRead = mock(
   (_conversationId: string, _userId: string, _readAt: string) => {
     limiter.service("publish");
     return Promise.resolve();
   }
 );
-let lastCountWhere: {
-  conversationId: string;
-  createdAfter: Date;
-  senderIds: string[];
-} | null = null;
-let lastMemberWhere: { conversationId: string; userId: string } | null = null;
+let conversation: Conversation;
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
-// The limiter this route charges. Mocked explicitly because bun's
-// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
-// and an unmocked limiter spends real Redis budget from the test suite.
 const limiter = messageRouteLimiter();
 mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
-    conversationId === "convo-1" && userId === "user1"
-      ? {
-          id: "convo-1",
-          members: [
-            { lastReadAt: new Date("2026-01-01T00:00:00Z"), userId: "user1" },
-            { lastReadAt: null, userId: "user2" },
-          ],
-        }
+    conversationId === conversation.id && userId === "user1"
+      ? conversation
       : null,
 }));
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
-  prisma: {
-    orm: {
-      public: {
-        MessageConversationMembers: {
-          where: (
-            predicate: (member: {
-              conversationId: { eq: (id: string) => unknown };
-              userId: { eq: (id: string) => unknown };
-            }) => unknown
-          ) => {
-            let conversationId = "";
-            let userId = "";
-            predicate({
-              conversationId: {
-                eq: (id) => {
-                  conversationId = id;
-                  return {};
-                },
-              },
-              userId: {
-                eq: (id) => {
-                  userId = id;
-                  return {};
-                },
-              },
-            });
-            lastMemberWhere = { conversationId, userId };
-            return { update: mockUpdate };
-          },
-        },
-        Messages: {
-          where: (
-            predicate: (message: {
-              conversationId: { eq: (id: string) => unknown };
-              createdAt: { gt: (value: Date) => unknown };
-              deletedAt: { isNull: () => unknown };
-              senderId: { notIn: (ids: string[]) => unknown };
-            }) => unknown
-          ) => {
-            let conversationId = "";
-            let createdAfter = new Date(0);
-            let senderIds: string[] = [];
-            predicate({
-              conversationId: {
-                eq: (id) => {
-                  conversationId = id;
-                  return {};
-                },
-              },
-              createdAt: {
-                gt: (value) => {
-                  createdAfter = value;
-                  return {};
-                },
-              },
-              deletedAt: { isNull: () => ({}) },
-              senderId: {
-                notIn: (ids) => {
-                  senderIds = ids;
-                  return {};
-                },
-              },
-            });
-            return {
-              aggregate: (
-                aggregate: (value: { count: () => number }) => unknown
-              ) => {
-                lastCountWhere = { conversationId, createdAfter, senderIds };
-                return aggregate({ count: mockCount });
-              },
-            };
-          },
-        },
-      },
-    },
-  },
+  commitMessageConversationRead: mockCommitRead,
+  listDenMembershipEvents: mockListMembershipEvents,
   publishConversationRead: mockPublishRead,
   unreadMessageCache: { decrement: mockDecrement },
-  // The shared predicate: an unread message is one the user received (not
-  // sent), not deleted, hidden with "delete for me", and newer than the
-  // conversation's read watermark.
-  unreadMessageWhere:
-    (params: {
-      conversationId: string;
-      lastReadAt: Date | null;
-      userId: string;
-    }) =>
-    (message: {
-      conversationId: { eq: (id: string) => unknown };
-      createdAt: { gt: (value: Date) => unknown };
-      deletedAt: { isNull: () => unknown };
-      senderId: { notIn: (ids: string[]) => unknown };
-    }) => ({
-      conversationId: message.conversationId.eq(params.conversationId),
-      createdAt: message.createdAt.gt(params.lastReadAt ?? new Date(0)),
-      deletedAt: message.deletedAt.isNull(),
-      senderId: message.senderId.notIn([params.userId]),
-    }),
 }));
 
 function read() {
@@ -157,65 +69,154 @@ function read() {
 
 describe("POST /api/messages/conversations/:id/read", () => {
   beforeEach(() => {
-    mockCount.mockClear();
+    conversation = {
+      id: "convo-1",
+      members: [
+        {
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          lastReadAt: new Date("2026-01-01T00:00:00Z"),
+          leftAt: null,
+          mutedAt: null,
+          userId: "user1",
+        },
+        {
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          lastReadAt: null,
+          leftAt: null,
+          mutedAt: null,
+          userId: "user2",
+        },
+      ],
+      type: "DM",
+    };
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockCommitRead.mockReset();
+    mockCommitRead.mockImplementation(() =>
+      Promise.resolve({
+        readAt: READ_AT,
+        readSequence: 8,
+        status: "read",
+        unreadCount: 4,
+      })
+    );
+    mockListMembershipEvents.mockReset();
+    mockListMembershipEvents.mockImplementation(() => Promise.resolve([]));
     mockDecrement.mockClear();
-    mockUpdate.mockClear();
     mockPublishRead.mockClear();
-    mockGetSession.mockClear();
-    lastCountWhere = null;
-    lastMemberWhere = null;
     limiter.reset();
   });
 
   test("requires auth", async () => {
     mockGetSession.mockReturnValueOnce(null);
-    const res = await POST(
-      new Request("http://localhost:3000/read", { method: "POST" }),
-      { params: Promise.resolve({ id: "convo-1" }) }
-    );
+    const res = await read();
     expect(res.status).toBe(401);
+    expect(mockCommitRead).not.toHaveBeenCalled();
   });
 
-  test("decrements the badge by exactly the unread count and stamps lastReadAt", async () => {
-    const res = await POST(
-      new Request("http://localhost:3000/read", { method: "POST" }),
-      { params: Promise.resolve({ id: "convo-1" }) }
-    );
+  test("commits a bounded read and decrements exactly its unread badge count", async () => {
+    const res = await read();
     expect(res.status).toBe(200);
-    expect(mockCount).toHaveBeenCalledTimes(1);
-    expect(lastCountWhere).toEqual({
+    expect(mockCommitRead).toHaveBeenCalledWith({
       conversationId: "convo-1",
-      createdAfter: new Date("2026-01-01T00:00:00Z"),
-      senderIds: ["user1"],
-    });
-    expect(mockDecrement).toHaveBeenCalledWith("user1", 4);
-    expect(lastMemberWhere).toEqual({
-      conversationId: "convo-1",
+      membershipWindows: [{ after: null, before: null }],
       userId: "user1",
     });
-    const updateValue = mockUpdate.mock.calls[0]?.[0] as {
-      lastDeliveredAt: Date;
-      lastReadAt: Date;
-    };
-    expect(updateValue.lastReadAt).toBeInstanceOf(Date);
-    // Reading implies delivery, so both watermarks advance in one write.
-    expect(updateValue.lastDeliveredAt).toBeInstanceOf(Date);
-    // The read event carries the read timestamp so senders can patch their
-    // watermark without refetching the conversation detail.
-    expect(mockPublishRead).toHaveBeenCalledTimes(1);
+    expect(mockDecrement).toHaveBeenCalledWith("user1", 4);
     expect(mockPublishRead).toHaveBeenCalledWith(
       "convo-1",
       "user1",
-      expect.any(String)
+      READ_AT.toISOString()
     );
   });
 
-  test("skips the decrement when there is nothing unread", async () => {
-    mockCount.mockReturnValueOnce(0);
-    await POST(new Request("http://localhost:3000/read", { method: "POST" }), {
-      params: Promise.resolve({ id: "convo-1" }),
-    });
+  test("passes den membership stints to the atomic read transaction", async () => {
+    conversation.type = "DEN";
+    const joinedAt = new Date("2026-01-01T00:00:00Z");
+    const leftAt = new Date("2026-01-02T00:00:00Z");
+    const rejoinedAt = new Date("2026-01-03T00:00:00Z");
+    mockListMembershipEvents.mockResolvedValueOnce([
+      {
+        action: "CREATED",
+        actorId: "user1",
+        createdAt: joinedAt,
+        targetUserId: null,
+      },
+      {
+        action: "LEFT",
+        actorId: "user1",
+        createdAt: leftAt,
+        targetUserId: null,
+      },
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: rejoinedAt,
+        targetUserId: null,
+      },
+    ]);
+
+    const res = await read();
+    expect(res.status).toBe(200);
+    expect(mockCommitRead.mock.calls[0]?.[0].membershipWindows).toEqual([
+      { after: joinedAt, before: leftAt },
+      { after: rejoinedAt, before: null },
+    ]);
+  });
+
+  test("does not decrement the global badge for a muted conversation", async () => {
+    const [member] = conversation.members;
+    if (!member) {
+      throw new Error("expected current member fixture");
+    }
+    member.mutedAt = new Date("2026-01-01T12:00:00Z");
+    mockCommitRead.mockImplementationOnce(() =>
+      Promise.resolve({
+        readAt: READ_AT,
+        readSequence: 8,
+        status: "read",
+        unreadCount: 0,
+      })
+    );
+    await read();
     expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  test("returns a retryable failure without publishing when persistence fails", async () => {
+    mockCommitRead.mockRejectedValueOnce(new Error("database unavailable"));
+    const res = await read();
+    expect(res.status).toBe(503);
+    expect(mockDecrement).not.toHaveBeenCalled();
+    expect(mockPublishRead).not.toHaveBeenCalled();
+  });
+
+  test("skips the decrement when there is nothing unread", async () => {
+    mockCommitRead.mockImplementationOnce(() =>
+      Promise.resolve({
+        readAt: READ_AT,
+        readSequence: 8,
+        status: "read",
+        unreadCount: 0,
+      })
+    );
+    await read();
+    expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  test("keeps the successful read when the cache decrement fails", async () => {
+    mockDecrement.mockRejectedValueOnce(new Error("cache unavailable"));
+    const res = await read();
+    expect(res.status).toBe(200);
+    expect(mockPublishRead).toHaveBeenCalled();
+  });
+
+  test("keeps the successful read when realtime publication fails", async () => {
+    mockPublishRead.mockImplementationOnce(() =>
+      Promise.reject(new Error("event service unavailable"))
+    );
+    const res = await read();
+    expect(res.status).toBe(200);
+    expect(mockCommitRead).toHaveBeenCalled();
   });
 });
 
@@ -223,12 +224,9 @@ describe("POST /api/messages/conversations/:id/read rate limit", () => {
   beforeEach(() => {
     mockGetSession.mockReset();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
-    mockCount.mockClear();
+    mockCommitRead.mockClear();
     mockDecrement.mockClear();
-    mockUpdate.mockClear();
     mockPublishRead.mockClear();
-    lastCountWhere = null;
-    lastMemberWhere = null;
     limiter.reset();
   });
 
@@ -241,29 +239,16 @@ describe("POST /api/messages/conversations/:id/read rate limit", () => {
     expect(limiter.chargedIdentifiers).toEqual(["user1"]);
   });
 
-  test("429s with a retry-after and moves no watermark when over budget", async () => {
-    // A read receipt is a COUNT over the unread range plus a locked member-row
-    // update. If the limiter ran after either, the refusal would be a message to
-    // the client that the work had already been done.
+  test("429s before moving the read cursor when over budget", async () => {
     limiter.setDenied(true);
     const res = await read();
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("42");
-    expect(mockCount).not.toHaveBeenCalled();
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockCommitRead).not.toHaveBeenCalled();
     expect(mockPublishRead).not.toHaveBeenCalled();
   });
 
-  test("charges the limiter before it reads the roster", async () => {
-    const res = await read();
-    expect(res.status).toBe(200);
-    expect(limiter.order).toEqual([
-      `consume:${DEN_READ_RECEIPT_RATE_LIMIT.bucket}`,
-      "service:publish",
-    ]);
-  });
-
-  test("two accounts do not share one budget", async () => {
+  test("charges separate budgets for separate accounts", async () => {
     await read();
     mockGetSession.mockImplementation(() => ({ user: { id: "user2" } }));
     await read();

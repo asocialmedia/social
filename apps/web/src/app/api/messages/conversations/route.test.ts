@@ -100,7 +100,11 @@ let blockedInbound: string[] = [];
 let unreadConversationIds: string[] = [];
 // The watermark branches the grouped read was given, recorded so the mute and
 // unread rules can be asserted without inferring them from the number.
-let lastUnreadBranches: { conversationId: string; createdAfter: Date }[] = [];
+let lastUnreadBranches: {
+  conversationId: string;
+  createdAfter: Date;
+  createdAfterSequence?: number;
+}[] = [];
 let lastUnreadWindowBounds: { kind: "after" | "before"; value: Date }[] = [];
 let _lastUnreadSenderIds: string[] | null = null;
 
@@ -110,6 +114,10 @@ let _lastUnreadSenderIds: string[] | null = null;
 // let a never-read thread pull in every message on the page.
 interface MessagePredicate {
   conversationId: { eq: (id: string) => unknown };
+  creationSequence: {
+    eq: (sequence: number) => unknown;
+    gt: (sequence: number) => unknown;
+  };
   createdAt: {
     gt: (value: Date) => unknown;
     gte: (value: Date) => unknown;
@@ -152,7 +160,11 @@ async function readList(query = "") {
 }
 
 const messageAccessors: MessagePredicate & {
-  branches: { conversationId: string; createdAfter: Date }[];
+  branches: {
+    conversationId: string;
+    createdAfter: Date;
+    createdAfterSequence?: number;
+  }[];
   senderIds: (ids: string[]) => unknown;
 } = {
   branches: [],
@@ -182,6 +194,16 @@ const messageAccessors: MessagePredicate & {
       return { lte: value };
     },
   },
+  creationSequence: {
+    eq: () => ({ eq: 0 }),
+    gt: (sequence) => {
+      const branch = messageAccessors.branches.at(-1);
+      if (branch) {
+        branch.createdAfterSequence = sequence;
+      }
+      return { gt: sequence };
+    },
+  },
   deletedAt: { isNull: () => ({ isNull: true }) },
   hiddenFor: {
     none: (relationFilter) => {
@@ -201,6 +223,7 @@ function memberRow(
     conversationId,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     lastReadAt: null,
+    lastReadSequence: null,
     mutedAt: null,
     role: "MEMBER",
     user: {
@@ -497,8 +520,11 @@ mock.module("@asm/db", () => ({
         },
         Messages: {
           where: (predicate: (message: MessagePredicate) => unknown) => {
-            const branches: { conversationId: string; createdAfter: Date }[] =
-              [];
+            const branches: {
+              conversationId: string;
+              createdAfter: Date;
+              createdAfterSequence?: number;
+            }[] = [];
             lastUnreadWindowBounds = [];
             let senderIds: string[] | null = null;
             messageAccessors.branches = branches;
@@ -593,6 +619,7 @@ mock.module("@asm/db", () => ({
       watermarks: {
         conversationId: string;
         lastReadAt: Date | null;
+        lastReadSequence?: number | null;
         windows?: readonly { after: Date | null; before: Date | null }[];
       }[];
     }) =>
@@ -600,6 +627,13 @@ mock.module("@asm/db", () => ({
       for (const watermark of input.watermarks) {
         message.conversationId.eq(watermark.conversationId);
         message.createdAt.gt(watermark.lastReadAt ?? new Date(0));
+        if (
+          watermark.lastReadSequence !== null &&
+          watermark.lastReadSequence !== undefined
+        ) {
+          message.creationSequence.gt(watermark.lastReadSequence);
+          message.creationSequence.eq(0);
+        }
         for (const window of watermark.windows ?? []) {
           if (window.after !== null) {
             message.createdAt.gte(window.after);
@@ -1056,6 +1090,29 @@ describe("GET /api/messages/conversations", () => {
     expect(lastUnreadBranches).toEqual([
       { conversationId: "dm-1", createdAfter: watermark },
       { conversationId: "dm-2", createdAfter: new Date(0) },
+    ]);
+  });
+
+  test("uses the durable read sequence for messages with stale transaction timestamps", async () => {
+    conversationPage = [
+      pageConversation("dm-1", "DM", ["user1", "user2"], {
+        messageConversationMembers: [
+          memberRow("dm-1", "user1", {
+            lastReadAt: new Date("2026-02-01T00:00:00Z"),
+            lastReadSequence: 19,
+          }),
+          memberRow("dm-1", "user2"),
+        ],
+        messages: [dmPreview("dm-1")],
+      }),
+    ];
+    await readList();
+    expect(lastUnreadBranches).toEqual([
+      {
+        conversationId: "dm-1",
+        createdAfter: new Date("2026-02-01T00:00:00Z"),
+        createdAfterSequence: 19,
+      },
     ]);
   });
 
