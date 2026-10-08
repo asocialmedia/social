@@ -11,9 +11,15 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { MIN_SEARCH_QUERY_LENGTH } from "@/lib/messages/message-search";
+import { MESSAGE_SEARCH_CLIENT_METRIC_DURATION_LIMIT_MS } from "@/lib/messages/search-client-metric-contract";
+import {
+  flushMessageSearchClientTelemetry,
+  recordMessageSearchClientMetric,
+  startMessageSearchLongTaskTelemetry,
+} from "@/lib/messages/search-client-telemetry";
 
 import {
   searchChatStatus,
@@ -139,13 +145,9 @@ export function MessageSearchBar({
   onRetrySearch,
   offlineSearch = false,
 }: MessageSearchBarProps) {
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [inputRef]);
-
+  const queryChangedAtRef = useRef<number | null>(null);
+  const sawSearchStartRef = useRef(false);
+  const paintFrameIdsRef = useRef<number[]>([]);
   const listView = view === "list";
   const queryReady = query.trim().length >= MIN_SEARCH_QUERY_LENGTH;
   const queryTooLong = isMessageSearchQueryTooLong(query);
@@ -154,6 +156,66 @@ export function MessageSearchBar({
     indexedCount,
     indexingOlder,
   });
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [inputRef]);
+
+  useEffect(() => {
+    const stopObserving = startMessageSearchLongTaskTelemetry();
+    return () => {
+      stopObserving();
+      void flushMessageSearchClientTelemetry();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (searching) {
+      sawSearchStartRef.current = true;
+      return;
+    }
+    if (!sawSearchStartRef.current) {
+      return;
+    }
+    sawSearchStartRef.current = false;
+    const startedAt = queryChangedAtRef.current;
+    queryChangedAtRef.current = null;
+    if (startedAt === null || !queryReady) {
+      return;
+    }
+    const durationMs = performance.now() - startedAt;
+    if (durationMs > MESSAGE_SEARCH_CLIENT_METRIC_DURATION_LIMIT_MS) {
+      return;
+    }
+    let outcome: "empty" | "error" | "hits" | "offline";
+    if (searchError) {
+      outcome = "error";
+    } else if (offlineSearch) {
+      outcome = "offline";
+    } else if (totalResults > 0) {
+      outcome = "hits";
+    } else {
+      outcome = "empty";
+    }
+    recordMessageSearchClientMetric({
+      durationMs,
+      event: "result-ready",
+      outcome,
+    });
+  }, [offlineSearch, queryReady, searchError, searching, totalResults]);
+
+  useEffect(
+    () => () => {
+      for (const frameId of paintFrameIdsRef.current) {
+        cancelAnimationFrame(frameId);
+      }
+    },
+    []
+  );
+
   // A failed jump replaces the counter: the miss must read as a miss, not as a
   // hang, and the next attempt (which clears it) is the retry.
   let statusText: string;
@@ -217,7 +279,31 @@ export function MessageSearchBar({
       <Input
         aria-label="Search messages in this conversation"
         className="border-0 bg-transparent shadow-none"
-        onChange={(event) => onQueryChange(event.target.value)}
+        onChange={(event) => {
+          const startedAt = performance.now();
+          queryChangedAtRef.current = startedAt;
+          for (const frameId of paintFrameIdsRef.current) {
+            cancelAnimationFrame(frameId);
+          }
+          paintFrameIdsRef.current = [];
+          const firstFrame = requestAnimationFrame(() => {
+            const secondFrame = requestAnimationFrame(() => {
+              paintFrameIdsRef.current = [];
+              const durationMs = performance.now() - startedAt;
+              if (
+                durationMs <= MESSAGE_SEARCH_CLIENT_METRIC_DURATION_LIMIT_MS
+              ) {
+                recordMessageSearchClientMetric({
+                  durationMs,
+                  event: "input-paint",
+                });
+              }
+            });
+            paintFrameIdsRef.current.push(secondFrame);
+          });
+          paintFrameIdsRef.current.push(firstFrame);
+          onQueryChange(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
