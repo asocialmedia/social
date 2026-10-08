@@ -461,16 +461,59 @@ export async function getMessageSearchCountRequestStatus(input: {
   userId: string;
   conversationId: string;
 }): Promise<MessageSearchCountRequestStatus | null> {
-  const result = await getSearchPool().query<MessageSearchCountRequestStatus>(
-    `SELECT id, state, "exactCount", "expiresAt", "userId", "conversationId",
-            "queryHash", "normalizationVersion", "snapshotSequence",
-            "membershipSequence", "recoveryGeneration"
-       FROM public.message_search_count_requests
-      WHERE id = $1 AND "userId" = $2 AND "conversationId" = $3
-      LIMIT 1`,
-    [input.id, input.userId, input.conversationId]
-  );
-  return result.rows[0] ?? null;
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    await client.query(
+      `UPDATE public.message_search_count_requests AS request
+          SET state = 'unavailable', "exactCount" = NULL, fragments = NULL,
+              "membershipWindows" = NULL, "leaseUntil" = NULL,
+              "completedAt" = now(), "updatedAt" = now()
+        WHERE request.id = $1 AND request."userId" = $2
+          AND request."conversationId" = $3
+          AND request.state IN ('pending', 'running', 'exact')
+          AND (
+            request."expiresAt" <= now()
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.message_conversations AS conversation
+               WHERE conversation.id = request."conversationId"
+                 AND conversation."changeSeq" = request."snapshotSequence"
+                 AND conversation."membershipSeq" = request."membershipSequence"
+            )
+            OR COALESCE((
+              SELECT account."recoveryGeneration"
+                FROM public.message_search_account_state AS account
+               WHERE account."userId" = request."userId"
+            ), 0) <> request."recoveryGeneration"
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.message_search_coverage AS coverage
+               WHERE coverage."conversationId" = request."conversationId"
+                 AND coverage."backfillCompletedAt" IS NOT NULL
+                 AND coverage."completedChangeSeq" >= request."snapshotSequence"
+                 AND coverage."unrecoverableEpochs" = 0
+            )
+          )`,
+      [input.id, input.userId, input.conversationId]
+    );
+    const result = await client.query<MessageSearchCountRequestStatus>(
+      `SELECT id, state, "exactCount", "expiresAt", "userId", "conversationId",
+              "queryHash", "normalizationVersion", "snapshotSequence",
+              "membershipSequence", "recoveryGeneration"
+         FROM public.message_search_count_requests
+        WHERE id = $1 AND "userId" = $2 AND "conversationId" = $3
+        LIMIT 1`,
+      [input.id, input.userId, input.conversationId]
+    );
+    await client.query("COMMIT");
+    return result.rows[0] ?? null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listRunnableMessageSearchCounts(
@@ -646,11 +689,32 @@ export async function completeMessageSearchCountRequest(
     throw new Error("Search count result is outside the supported range");
   }
   await getSearchPool().query(
-    `UPDATE public.message_search_count_requests
-        SET state = 'exact', "exactCount" = $2, fragments = NULL,
-            "membershipWindows" = NULL, "leaseUntil" = NULL,
-            "completedAt" = now(), "updatedAt" = now()
-      WHERE id = $1 AND state = 'running' AND "expiresAt" > now()`,
+    `WITH current_scope AS MATERIALIZED (
+       SELECT request.id,
+              request."expiresAt" > now()
+                AND conversation.id IS NOT NULL
+                AND conversation."changeSeq" = request."snapshotSequence"
+                AND conversation."membershipSeq" = request."membershipSequence"
+                AND COALESCE(account."recoveryGeneration", 0) = request."recoveryGeneration"
+                AND coverage."backfillCompletedAt" IS NOT NULL
+                AND coverage."completedChangeSeq" >= request."snapshotSequence"
+                AND coverage."unrecoverableEpochs" = 0 AS valid
+         FROM public.message_search_count_requests AS request
+         LEFT JOIN public.message_conversations AS conversation
+           ON conversation.id = request."conversationId"
+         LEFT JOIN public.message_search_account_state AS account
+           ON account."userId" = request."userId"
+         LEFT JOIN public.message_search_coverage AS coverage
+           ON coverage."conversationId" = request."conversationId"
+        WHERE request.id = $1 AND request.state = 'running'
+     )
+     UPDATE public.message_search_count_requests AS request
+        SET state = CASE WHEN current_scope.valid THEN 'exact' ELSE 'unavailable' END,
+            "exactCount" = CASE WHEN current_scope.valid THEN $2::int4 ELSE NULL END,
+            fragments = NULL, "membershipWindows" = NULL,
+            "leaseUntil" = NULL, "completedAt" = now(), "updatedAt" = now()
+       FROM current_scope
+      WHERE request.id = current_scope.id AND request.state = 'running'`,
     [id, exactCount]
   );
 }

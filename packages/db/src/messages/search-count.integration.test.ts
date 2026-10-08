@@ -297,6 +297,13 @@ describe("durable DM search counts", () => {
       terms: [{ gramKeys: searchGrams("needle"), normalized: "needle" }],
     });
     await expect(
+      getMessageSearchCountRequestStatus({
+        conversationId: CONVERSATION_ID,
+        id: request.id,
+        userId: OWNER_ID,
+      })
+    ).resolves.toMatchObject({ exactCount: null, state: "unavailable" });
+    await expect(
       persistSearchDocument({
         conversationId: CONVERSATION_ID,
         keyEpoch: 1,
@@ -389,5 +396,57 @@ describe("durable DM search counts", () => {
         userId: OWNER_ID,
       })
     ).resolves.toMatchObject({ state: "pending" });
+  });
+
+  test("does not commit an exact count after its source snapshot changes", async () => {
+    const conversation = await prisma.orm.public.MessageConversations.select(
+      "changeSeq",
+      "membershipSeq"
+    )
+      .where({ id: CONVERSATION_ID })
+      .first();
+    if (!conversation) {
+      throw new Error("expected the count fixture conversation to exist");
+    }
+    const request = await requestMessageSearchCount({
+      conversationId: CONVERSATION_ID,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      fragments: [{ grams: searchGrams("needle"), text: "needle" }],
+      membershipSequence: conversation.membershipSeq,
+      membershipWindows: [{ after: null, before: null }],
+      normalizationVersion: 1,
+      queryHash: "count-source-race-query",
+      recoveryGeneration: 0,
+      snapshotSequence: conversation.changeSeq,
+      userId: OWNER_ID,
+    });
+    COUNT_REQUEST_IDS.push(request.id);
+    const claimed = await claimMessageSearchCountRequest(request.id);
+    expect(claimed?.id).toBe(request.id);
+
+    const edited = await commitMessageSearchMutation({
+      ciphertext: "count-source-race-edit",
+      conversationId: CONVERSATION_ID,
+      editWindowStart: new Date(Date.now() - 60 * 60 * 1000),
+      editedAt: new Date(),
+      expectedRevision: 2,
+      iv: "count-source-race-iv",
+      kind: "upsert",
+      messageId: VISIBLE_MESSAGE_ID,
+      senderId: OWNER_ID,
+    });
+    if (edited.status !== "updated") {
+      throw new Error("expected the count source edit to commit");
+    }
+    OUTBOX_IDS.push(edited.outboxId);
+
+    await completeMessageSearchCountRequest(request.id, 1);
+    await expect(
+      getMessageSearchCountRequestStatus({
+        conversationId: CONVERSATION_ID,
+        id: request.id,
+        userId: OWNER_ID,
+      })
+    ).resolves.toMatchObject({ exactCount: null, state: "unavailable" });
   });
 });

@@ -5,6 +5,7 @@ import { createMessageSearchCountToken } from "@/lib/messages/search-count-token
 import { POST } from "./route";
 
 const secret = "count-route-test-secret";
+const COUNT_TOKEN_EXPIRES_AT = new Date("2099-01-01T00:00:00.000Z");
 const mockGetSession = mock(() => ({ user: { id: "user-1" } }));
 const mockGetConversation = mock(() => ({
   members: [{ leftAt: null, userId: "user-1" }],
@@ -30,7 +31,7 @@ const mockGetCount = mock(() =>
   Promise.resolve({
     conversationId: "conversation-1",
     exactCount: null,
-    expiresAt: new Date(Date.now() + 60_000),
+    expiresAt: COUNT_TOKEN_EXPIRES_AT,
     id: "request-1",
     membershipSequence: 4,
     normalizationVersion: 1,
@@ -73,7 +74,7 @@ function createToken(): string {
   return createMessageSearchCountToken(
     {
       conversationId: "conversation-1",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: COUNT_TOKEN_EXPIRES_AT.toISOString(),
       membershipSequence: 4,
       normalizationVersion: 1,
       queryHash: "query-hash",
@@ -126,7 +127,7 @@ describe("POST /api/messages/conversations/:id/search/count", () => {
       Promise.resolve({
         conversationId: "conversation-1",
         exactCount: null,
-        expiresAt: new Date(Date.now() + 60_000),
+        expiresAt: COUNT_TOKEN_EXPIRES_AT,
         id: "request-1",
         membershipSequence: 4,
         normalizationVersion: 1,
@@ -156,7 +157,7 @@ describe("POST /api/messages/conversations/:id/search/count", () => {
       Promise.resolve({
         conversationId: "conversation-1",
         exactCount: 321,
-        expiresAt: new Date(Date.now() + 60_000),
+        expiresAt: COUNT_TOKEN_EXPIRES_AT,
         id: "request-1",
         membershipSequence: 4,
         normalizationVersion: 1,
