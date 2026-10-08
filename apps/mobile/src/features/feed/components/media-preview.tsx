@@ -111,16 +111,17 @@ function MediaAction({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      collapsable={false}
       accessibilityState={{ disabled: busy, selected }}
       disabled={busy}
       onPress={action}
       className={
-        centered ? "justify-center px-3 py-1" : "justify-center px-3 py-2"
+        centered ? "justify-center px-3 py-0" : "justify-center px-3 py-2"
       }
       style={{
         alignItems: centered ? "center" : "stretch",
         minHeight: 44,
-        width: centered ? "50%" : undefined,
+        width: centered ? "50%" : "100%",
       }}
     >
       {({ pressed }) => (
@@ -133,9 +134,9 @@ function MediaAction({
           collapsable={false}
           testID={`media-action-content-${label}`}
           style={{
-            minHeight: centered ? 34 : undefined,
+            minHeight: centered ? 38 : undefined,
             opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
-            width: centered ? "84%" : undefined,
+            width: centered ? "90%" : undefined,
           }}
         >
           {activePill ? (
@@ -151,13 +152,13 @@ function MediaAction({
             >
               <Gradient3D
                 {...activePill}
-                radius={17}
+                radius={19}
                 style={{ height: "100%", width: "100%" }}
               />
               <View
                 style={{
                   borderColor: edgeColor,
-                  borderRadius: 17,
+                  borderRadius: 19,
                   borderWidth: 1,
                   bottom: 0,
                   left: 0,
@@ -169,7 +170,7 @@ function MediaAction({
               <View
                 style={{
                   borderColor: "rgba(255,255,255,0.55)",
-                  borderRadius: 16,
+                  borderRadius: 18,
                   borderWidth: 1,
                   bottom: 1,
                   left: 1,
@@ -182,7 +183,7 @@ function MediaAction({
           ) : null}
           <View
             className="items-center justify-center"
-            style={{ height: centered ? 20 : 28, width: centered ? 20 : 28 }}
+            style={{ height: centered ? 22 : 28, width: centered ? 22 : 28 }}
           >
             {selected && surface && !centered ? (
               <Gradient3D {...surface} style={{ height: 28, width: 28 }}>
@@ -192,7 +193,7 @@ function MediaAction({
               <Icon
                 color={activePill ? "#ffffff" : iconColor}
                 fill={activePill ? "#ffffff" : "none"}
-                size={centered ? 20 : 22}
+                size={22}
               />
             )}
           </View>
@@ -201,8 +202,8 @@ function MediaAction({
               color: activePill ? "#ffffff" : color,
               flexShrink: centered ? 1 : undefined,
               fontFamily: "SofiaProMed",
-              fontSize: centered ? 14 : 15,
-              lineHeight: centered ? 20 : 22,
+              fontSize: 15,
+              lineHeight: 22,
             }}
           >
             {label}
