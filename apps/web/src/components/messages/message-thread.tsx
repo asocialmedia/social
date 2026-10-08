@@ -2608,12 +2608,20 @@ export function MessageThread({
   const serverReadRefsPage = useCallback(
     (input: {
       after?: string;
+      around?: {
+        createdAt: number;
+        messageId: string;
+        ordinal: number;
+      };
+      cursor?: string;
       kind: "link" | "media" | "post";
+      limit?: number;
       signal: AbortSignal;
     }) =>
       resolveServerSharedRefsPage({
+        around: input.around,
         conversationId,
-        cursor: input.after,
+        cursor: input.cursor ?? input.after,
         decrypt: async (messages, signal) => {
           if (signal?.aborted) {
             return new Map();
@@ -2638,6 +2646,7 @@ export function MessageThread({
           return payloads;
         },
         kind: input.kind,
+        limit: input.limit,
         signal: input.signal,
       }),
     [conversationId, getBaseKeys, toDecryptItem]
@@ -5669,6 +5678,7 @@ export function MessageThread({
 
           {mediaViewerKey ? (
             <ConversationMediaViewer
+              key={mediaViewerKey}
               anchorKey={mediaViewerKey}
               hasOlder={hasPreviousPage}
               hasNewer={hasNextPage ?? false}
@@ -5679,6 +5689,9 @@ export function MessageThread({
               onClose={closeViewer}
               onLoadOlder={loadOlderMedia}
               onLoadNewer={loadNewerMedia}
+              onReadServerPage={
+                SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+              }
               onPosition={handleViewerPosition}
             />
           ) : null}

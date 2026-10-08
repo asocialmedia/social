@@ -1,6 +1,10 @@
 import { getMediaImages } from "@/lib/messages/crypto";
 import type { DecryptEntry } from "@/lib/messages/decryptor";
-import type { SharedMediaItem } from "@/lib/messages/shared-refs-format";
+import { sharedRefToMediaItem } from "@/lib/messages/shared-refs-format";
+import type {
+  SharedMediaItem,
+  SharedRefRecord,
+} from "@/lib/messages/shared-refs-format";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
 // Flattens every decrypted media attachment across a conversation into one
@@ -60,6 +64,67 @@ export interface ConversationMediaWindow extends ConversationMediaIndex {
 }
 
 export const CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT = 100;
+
+export type ConversationMediaPageDirection = "initial" | "newer" | "older";
+
+function compareConversationMediaItems(
+  left: ConversationMediaItem,
+  right: ConversationMediaItem
+): number {
+  return (
+    left.createdAt - right.createdAt ||
+    left.messageId.localeCompare(right.messageId) ||
+    left.imageIndex - right.imageIndex
+  );
+}
+
+export function mediaItemsFromSharedRefs(
+  records: readonly SharedRefRecord[]
+): ConversationMediaItem[] {
+  return records.flatMap((record) => {
+    if (!record.url) {
+      return [];
+    }
+    return [sharedRefToMediaItem(record)];
+  });
+}
+
+export function mergeConversationMediaPage(input: {
+  anchorKey?: string;
+  current: readonly ConversationMediaItem[];
+  direction: ConversationMediaPageDirection;
+  incoming: readonly ConversationMediaItem[];
+  limit?: number;
+}): ConversationMediaItem[] {
+  const limit = Math.min(
+    CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT,
+    Math.max(
+      1,
+      Math.trunc(input.limit ?? CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT)
+    )
+  );
+  const byKey = new Map<string, ConversationMediaItem>();
+  for (const item of [...input.incoming, ...input.current]) {
+    byKey.set(item.flatKey, item);
+  }
+  const sorted = [...byKey.values()].toSorted(compareConversationMediaItems);
+  if (sorted.length <= limit) {
+    return sorted;
+  }
+  if (input.direction === "older") {
+    return sorted.slice(0, limit);
+  }
+  if (input.direction === "newer") {
+    return sorted.slice(-limit);
+  }
+  const anchor = sorted.find((item) => item.flatKey === input.anchorKey);
+  const centeredIndex = anchor ? sorted.indexOf(anchor) : sorted.length - 1;
+  const startIndex = Math.max(
+    0,
+    Math.min(centeredIndex - Math.floor(limit / 2), sorted.length - limit)
+  );
+  return sorted.slice(startIndex, startIndex + limit);
+}
 
 export function mediaFlatKey(messageId: string, imageIndex: number): string {
   return `${messageId}:${imageIndex}`;
