@@ -136,6 +136,12 @@ import {
   denDisplayName,
   denMemberCountLabel,
 } from "@/lib/messages/den-label";
+import {
+  readMessageChangeCursor,
+  replayDurableMessageChanges,
+  writeMessageChangeCursor,
+} from "@/lib/messages/durable-change-replay";
+import type { DurableMessageChangeStorage } from "@/lib/messages/durable-change-replay";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
 import { createHistoryReadCoordinator } from "@/lib/messages/history-read-coordinator";
 import type { HistoryReadToken } from "@/lib/messages/history-read-coordinator";
@@ -254,6 +260,17 @@ const VIEWER_DECRYPT_RADIUS = 40;
 const HISTORY_PAGE_SIZE = 100;
 const SERVER_MESSAGE_SEARCH_ENABLED =
   process.env.NEXT_PUBLIC_MESSAGE_SEARCH_SERVER === "1";
+
+function getMessageChangeStorage(): DurableMessageChangeStorage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 // Which way a transcript page was fetched. The transcript is an infinite query
 // in both directions: it normally loads older history going down, and once a
@@ -589,6 +606,7 @@ export function MessageThread({
   const [searchView, setSearchView] = useState<SearchView>("chat");
   const [searchPage, setSearchPage] = useState(0);
   const [searchListIndex, setSearchListIndex] = useState(0);
+  const [serverSearchRefreshToken, setServerSearchRefreshToken] = useState(0);
   // The local search index backend, resolved once per conversation. Null until
   // it resolves, and permanently null when IndexedDB is unavailable, in which
   // case search falls back to the rows loaded in this session.
@@ -3589,6 +3607,7 @@ export function MessageThread({
     listPage: searchView === "list" ? searchPage : 0,
     requestDecryptBatch,
     serverMode: SERVER_MESSAGE_SEARCH_ENABLED,
+    serverRefreshToken: serverSearchRefreshToken,
   });
   const handleRetrySearch = search.retry;
   const { matchIds } = search;
@@ -4437,6 +4456,159 @@ export function MessageThread({
     }
   }, [conversationId, leftDen]);
 
+  const durableChangeReplayRef = useRef<AbortController | null>(null);
+  const durableChangeCursorRef = useRef<{
+    cursor: string;
+    scope: string;
+  } | null>(null);
+  const replayConversationChanges = useCallback(
+    async (isInitialConnection = false): Promise<boolean> => {
+      if (!user?.id) {
+        return false;
+      }
+      if (durableChangeReplayRef.current) {
+        return false;
+      }
+
+      const storage = getMessageChangeStorage();
+      const scope = `${user.id}\u0000${conversationId}`;
+      const previousCursor =
+        (storage
+          ? readMessageChangeCursor(storage, user.id, conversationId)
+          : undefined) ??
+        (durableChangeCursorRef.current?.scope === scope
+          ? durableChangeCursorRef.current.cursor
+          : undefined);
+      const controller = new AbortController();
+      durableChangeReplayRef.current = controller;
+      try {
+        const replay = await replayDurableMessageChanges({
+          cursor: previousCursor,
+          fetchPage: async (cursor, signal) => {
+            const suffix = cursor
+              ? `?cursor=${encodeURIComponent(cursor)}`
+              : "";
+            const response = await fetch(
+              `/api/messages/conversations/${encodeURIComponent(conversationId)}/changes${suffix}`,
+              { credentials: "same-origin", signal }
+            );
+            if (!response.ok) {
+              throw new Error("Conversation changes could not be loaded");
+            }
+            const payload: unknown = await response.json();
+            return payload;
+          },
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          return true;
+        }
+        if (storage) {
+          writeMessageChangeCursor(
+            storage,
+            user.id,
+            conversationId,
+            replay.cursor
+          );
+        }
+        durableChangeCursorRef.current = { cursor: replay.cursor, scope };
+
+        const refreshBoundedWindow =
+          replay.changes.length > 0 ||
+          (replay.resetRequired &&
+            (previousCursor !== undefined || !isInitialConnection));
+        if (!refreshBoundedWindow) {
+          return true;
+        }
+
+        if (replay.resetRequired) {
+          searchWriterRef.current?.remove(
+            (
+              queryClient.getQueryData<MessagesInfiniteData>([
+                "messages",
+                conversationId,
+              ])?.pages ?? []
+            ).flatMap((page) => page.messages.map((message) => message.id))
+          );
+          try {
+            await searchIndexStore?.clearConversation(conversationId);
+          } catch {
+            // A failed local purge does not block the authorized server refresh.
+          }
+          setPersistedCovered(false);
+          setPersistedChainVerified(false);
+          setPersistedRefsCovered(false);
+          setWalkEpoch((epoch) => epoch + 1);
+        } else {
+          const unavailableIds = replay.changes
+            .filter(
+              (change) =>
+                change.messageId &&
+                (change.globallyDeleted ||
+                  change.hiddenForViewer ||
+                  !change.sourceAvailable)
+            )
+            .map((change) => change.messageId)
+            .filter((messageId): messageId is string => messageId !== null);
+          searchWriterRef.current?.remove(unavailableIds);
+        }
+
+        await queryClient.invalidateQueries({
+          exact: true,
+          queryKey: ["messages", conversationId],
+          refetchType: "active",
+        });
+        if (replay.resetRequired) {
+          await Promise.all([
+            queryClient.invalidateQueries({
+              exact: true,
+              queryKey: ["message-conversation", conversationId],
+              refetchType: "active",
+            }),
+            queryClient.invalidateQueries({
+              exact: true,
+              queryKey: ["den-events", conversationId],
+              refetchType: "active",
+            }),
+          ]);
+        }
+        bumpSearchIndex();
+        setServerSearchRefreshToken((token) => token + 1);
+        return true;
+      } catch {
+        return controller.signal.aborted;
+      } finally {
+        if (durableChangeReplayRef.current === controller) {
+          durableChangeReplayRef.current = null;
+        }
+      }
+    },
+    [bumpSearchIndex, conversationId, queryClient, searchIndexStore, user?.id]
+  );
+
+  useEffect(
+    () => () => {
+      const controller = durableChangeReplayRef.current;
+      controller?.abort();
+      durableChangeReplayRef.current = null;
+    },
+    [conversationId, user?.id]
+  );
+
+  useEffect(() => {
+    const replayWhenVisible = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        void replayConversationChanges();
+      }
+    };
+    window.addEventListener("online", replayWhenVisible);
+    document.addEventListener("visibilitychange", replayWhenVisible);
+    return () => {
+      window.removeEventListener("online", replayWhenVisible);
+      document.removeEventListener("visibilitychange", replayWhenVisible);
+    };
+  }, [replayConversationChanges]);
+
   useMessagesRealtime(
     conversationId,
     handleEvent,
@@ -4459,19 +4631,29 @@ export function MessageThread({
     // that reconnected mid-removal keeps a roster naming somebody who is out,
     // and the send path has only the watermark to notice.
     useCallback(
-      (isReconnect: boolean) => {
+      async (isReconnect: boolean) => {
+        const replayed = await replayConversationChanges(!isReconnect);
+        if (!isReconnect) {
+          return;
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversationId],
+        });
+        if (replayed) {
+          return;
+        }
         const state = queryClient.getQueryState(["messages", conversationId]);
         for (const queryKey of catchUpKeys({
           conversationId,
           dataUpdatedAt: state?.dataUpdatedAt ?? 0,
           isFetching: state?.fetchStatus === "fetching",
-          isReconnect,
+          isReconnect: true,
           now: Date.now(),
         })) {
           void queryClient.invalidateQueries({ queryKey });
         }
       },
-      [conversationId, queryClient]
+      [conversationId, queryClient, replayConversationChanges]
     ),
     // The server found this member is no longer inside and closed the stream.
     // Reported once per conversation: a remount re-arms it, which is correct,

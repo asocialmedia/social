@@ -54,6 +54,7 @@ export interface ConversationSearchInput {
   // Batch decrypt request for rows outside the thread's visible window.
   requestDecryptBatch: (messages: MessageData[]) => void;
   serverMode?: boolean;
+  serverRefreshToken?: number;
   // The persistent per-conversation index, when one could be opened. Absent
   // means IndexedDB is unavailable and search falls back to loaded rows only.
   indexStore?: SearchIndexStore | null;
@@ -270,6 +271,7 @@ export function useConversationSearch(
     listPage = 0,
     requestDecryptBatch,
     serverMode = false,
+    serverRefreshToken = 0,
   } = input;
   // A definite generation. The input treats it as optional so a caller with no
   // index wiring still compiles; for an on-demand page read it is load-bearing,
@@ -349,12 +351,12 @@ export function useConversationSearch(
     return () => clearTimeout(timer);
   }, [enabled, query]);
 
-  const serverSearchKey = `${conversationId}\u0000${debouncedQuery.trim()}`;
+  const serverSearchKey = `${conversationId}\u0000${debouncedQuery.trim()}\u0000${serverRefreshToken}`;
   useEffect(() => {
     if (!serverMode) {
       return;
     }
-    const requestKey = `${conversationId}\u0000${debouncedQuery.trim()}`;
+    const requestKey = `${conversationId}\u0000${debouncedQuery.trim()}\u0000${serverRefreshToken}`;
     const normalized = normalizeMessageSearchQuery(debouncedQuery);
     if (!enabled || !normalized.valid) {
       return;
@@ -476,6 +478,7 @@ export function useConversationSearch(
     enabled,
     listPage,
     serverPageState,
+    serverRefreshToken,
     serverMode,
   ]);
 
