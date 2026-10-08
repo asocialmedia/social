@@ -4,6 +4,7 @@ import {
   keys,
   prisma,
 } from "@asm/db";
+import { readMessageSearchFeatureFlags } from "@asm/messages/search";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { readMessageSearchCountToken } from "@/lib/messages/search-count-token";
@@ -49,6 +50,15 @@ export async function POST(
         { error: "Conversation not found" },
         { status: 404 }
       );
+    }
+    const features = readMessageSearchFeatureFlags({
+      MESSAGE_SEARCH_BACKFILL_ENABLED:
+        process.env.MESSAGE_SEARCH_BACKFILL_ENABLED,
+      MESSAGE_SEARCH_COUNT_ENABLED: process.env.MESSAGE_SEARCH_COUNT_ENABLED,
+      MESSAGE_SEARCH_SERVER_ENABLED: process.env.MESSAGE_SEARCH_SERVER_ENABLED,
+    });
+    if (!features.serverSearch || !features.counts) {
+      return Response.json({ state: "unavailable" });
     }
 
     const contentLength = Number(request.headers.get("content-length") ?? 0);

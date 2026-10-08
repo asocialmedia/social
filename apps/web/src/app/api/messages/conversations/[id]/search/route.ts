@@ -14,6 +14,7 @@ import {
   MESSAGE_SEARCH_NORMALIZATION_VERSION,
   messageSearchGramKeys,
   normalizeMessageSearchQuery,
+  readMessageSearchFeatureFlags,
 } from "@asm/messages/search";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -61,6 +62,22 @@ export async function POST(
         headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
         status: 429,
       }
+    );
+  }
+
+  const features = readMessageSearchFeatureFlags({
+    MESSAGE_SEARCH_BACKFILL_ENABLED:
+      process.env.MESSAGE_SEARCH_BACKFILL_ENABLED,
+    MESSAGE_SEARCH_COUNT_ENABLED: process.env.MESSAGE_SEARCH_COUNT_ENABLED,
+    MESSAGE_SEARCH_SERVER_ENABLED: process.env.MESSAGE_SEARCH_SERVER_ENABLED,
+  });
+  if (!features.serverSearch) {
+    return Response.json(
+      {
+        code: "MESSAGE_SEARCH_UNAVAILABLE",
+        error: "Search is temporarily unavailable. Please try again.",
+      },
+      { headers: { "Retry-After": "60" }, status: 503 }
     );
   }
 
@@ -125,19 +142,21 @@ export async function POST(
   const member = conversation.members.find(
     (candidate) => candidate.userId === user.id
   );
-  try {
-    const started = await startMessageSearchBackfill(conversationId);
-    if (started && !started.completedAt) {
-      await enqueueMessageSearchBackfill(
-        conversationId,
-        started.expectedPosition.messageId
-      ).catch(() => {
-        // The durable coverage row lets the worker sweeper retry after Redis recovers.
-        console.error("Failed to enqueue DM search history backfill");
-      });
+  if (features.backfill) {
+    try {
+      const started = await startMessageSearchBackfill(conversationId);
+      if (started && !started.completedAt) {
+        await enqueueMessageSearchBackfill(
+          conversationId,
+          started.expectedPosition.messageId
+        ).catch(() => {
+          // The durable coverage row lets the worker sweeper retry after Redis recovers.
+          console.error("Failed to enqueue DM search history backfill");
+        });
+      }
+    } catch {
+      console.error("Failed to start DM search history coverage");
     }
-  } catch {
-    console.error("Failed to start DM search history coverage");
   }
 
   const searchState = await Promise.all([
@@ -242,7 +261,7 @@ export async function POST(
       completedChangeSequence >= effectiveSnapshotSequence &&
       coverage.unrecoverableEpochs === 0;
     let countToken: string | null = null;
-    if (!rawBody.cursor && hasMore && coverageComplete) {
+    if (!rawBody.cursor && hasMore && coverageComplete && features.counts) {
       try {
         const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
         const countRequest = await requestMessageSearchCount({

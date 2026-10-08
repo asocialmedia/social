@@ -3,6 +3,10 @@
 // and the compiled binary evaluates the bundle graph before the entry body.
 import "reflect-metadata";
 import { loadRootEnv } from "./env";
+import {
+  readMessageSearchWorkerFeatures,
+  sweepMessageSearchWork,
+} from "./worker/message-search-sweep";
 
 function readWorkerInteger(
   name: string,
@@ -18,6 +22,11 @@ function readWorkerInteger(
 
 if (import.meta.main) {
   loadRootEnv();
+  const messageSearchFeatures = readMessageSearchWorkerFeatures({
+    MESSAGE_SEARCH_BACKFILL_ENABLED:
+      process.env.MESSAGE_SEARCH_BACKFILL_ENABLED,
+    MESSAGE_SEARCH_COUNT_ENABLED: process.env.MESSAGE_SEARCH_COUNT_ENABLED,
+  });
 
   const { initTelemetry, createLogger } = await import("@asm/logger");
   const telemetry = initTelemetry({ serviceName: "worker", version: "1.0.0" });
@@ -147,35 +156,28 @@ if (import.meta.main) {
         return;
       }
       try {
-        const pending = await prisma.orm.public.MessageSearchOutbox.select(
-          "id",
-          "kind"
-        )
-          .where({ completedAt: null })
-          .orderBy((row) => row.createdAt.asc())
-          .limit(100)
-          .all();
-        await Promise.all(
-          pending.map((item) =>
-            item.kind === "backfill"
-              ? enqueueMessageSearchBackfillOutbox(item.id)
-              : enqueueMessageSearchOutbox(item.id)
-          )
-        );
-        const backfills = await listRunnableMessageSearchBackfills(20);
-        await Promise.all(
-          backfills.map((item) =>
-            enqueueMessageSearchBackfill(
-              item.conversationId,
-              item.cursorMessageId
-            )
-          )
-        );
-        await expireStaleMessageSearchCounts();
-        const countRequests = await listRunnableMessageSearchCounts(20);
-        await Promise.all(
-          countRequests.map((requestId) => enqueueMessageSearchCount(requestId))
-        );
+        await sweepMessageSearchWork(messageSearchFeatures, {
+          enqueueBackfill: enqueueMessageSearchBackfill,
+          enqueueBackfillOutbox: enqueueMessageSearchBackfillOutbox,
+          enqueueCount: enqueueMessageSearchCount,
+          enqueueLiveOutbox: enqueueMessageSearchOutbox,
+          expireStaleCounts: expireStaleMessageSearchCounts,
+          listPendingOutbox: async (limit, includeBackfill) => {
+            const baseQuery = prisma.orm.public.MessageSearchOutbox.select(
+              "id",
+              "kind"
+            ).where({ completedAt: null });
+            const pendingQuery = includeBackfill
+              ? baseQuery
+              : baseQuery.where((row) => row.kind.notIn(["backfill"]));
+            return await pendingQuery
+              .orderBy((row) => row.createdAt.asc())
+              .limit(limit)
+              .all();
+          },
+          listRunnableBackfills: listRunnableMessageSearchBackfills,
+          listRunnableCounts: listRunnableMessageSearchCounts,
+        });
       } catch (error) {
         logger.error({ error }, "message search outbox sweep failed");
       }
@@ -186,27 +188,31 @@ if (import.meta.main) {
       (job) => processMessageSearchOutbox(job.data.outboxId, logger),
       { concurrency: 2, connection }
     );
-    const messageSearchBackfillWorker = new QueueWorker(
-      "message-search-backfill",
-      async (job) => {
-        const result = await processMessageSearchBackfill(
-          job.data.conversationId,
-          logger
-        );
-        if (result.nextCursorMessageId) {
-          await enqueueMessageSearchBackfill(
-            job.data.conversationId,
-            result.nextCursorMessageId
-          );
-        }
-      },
-      { concurrency: 1, connection }
-    );
-    const messageSearchCountWorker = new QueueWorker(
-      "message-search-count",
-      (job) => processMessageSearchCount(job.data.requestId, logger),
-      { concurrency: 1, connection }
-    );
+    const messageSearchBackfillWorker = messageSearchFeatures.backfill
+      ? new QueueWorker(
+          "message-search-backfill",
+          async (job) => {
+            const result = await processMessageSearchBackfill(
+              job.data.conversationId,
+              logger
+            );
+            if (result.nextCursorMessageId) {
+              await enqueueMessageSearchBackfill(
+                job.data.conversationId,
+                result.nextCursorMessageId
+              );
+            }
+          },
+          { concurrency: 1, connection }
+        )
+      : undefined;
+    const messageSearchCountWorker = messageSearchFeatures.counts
+      ? new QueueWorker(
+          "message-search-count",
+          (job) => processMessageSearchCount(job.data.requestId, logger),
+          { concurrency: 1, connection }
+        )
+      : undefined;
     await sweepMessageSearchOutbox();
     messageSearchSweepTimer = setInterval(() => {
       void sweepMessageSearchOutbox();
@@ -310,8 +316,8 @@ if (import.meta.main) {
       notificationWorker,
       maintenanceWorker,
       messageSearchLiveWorker,
-      messageSearchBackfillWorker,
-      messageSearchCountWorker
+      ...(messageSearchBackfillWorker ? [messageSearchBackfillWorker] : []),
+      ...(messageSearchCountWorker ? [messageSearchCountWorker] : [])
     );
 
     notificationWorker.on("completed", (job) => {
@@ -345,6 +351,13 @@ if (import.meta.main) {
       });
     }
 
+    logger.info(
+      {
+        backfillEnabled: messageSearchFeatures.backfill,
+        countsEnabled: messageSearchFeatures.counts,
+      },
+      "message search workers configured"
+    );
     logger.info("worker started");
   };
 

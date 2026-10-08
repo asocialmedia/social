@@ -4,6 +4,48 @@ export const MESSAGE_SEARCH_TERM_CHUNK_SIZE = 512;
 export const MESSAGE_SEARCH_TERM_CHUNK_OVERLAP = 255;
 export const MESSAGE_SEARCH_NORMALIZATION_VERSION = 1;
 
+export interface MessageSearchFeatureFlagEnvironment {
+  MESSAGE_SEARCH_BACKFILL_ENABLED?: string;
+  MESSAGE_SEARCH_COUNT_ENABLED?: string;
+  MESSAGE_SEARCH_SERVER_ENABLED?: string;
+}
+
+export interface MessageSearchFeatureFlags {
+  backfill: boolean;
+  counts: boolean;
+  serverSearch: boolean;
+}
+
+function isMessageSearchFeatureEnabled(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "off" ||
+    normalized === "no" ||
+    normalized === "disabled"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function readMessageSearchFeatureFlags(
+  environment: MessageSearchFeatureFlagEnvironment
+): MessageSearchFeatureFlags {
+  return {
+    backfill: isMessageSearchFeatureEnabled(
+      environment.MESSAGE_SEARCH_BACKFILL_ENABLED
+    ),
+    counts: isMessageSearchFeatureEnabled(
+      environment.MESSAGE_SEARCH_COUNT_ENABLED
+    ),
+    serverSearch: isMessageSearchFeatureEnabled(
+      environment.MESSAGE_SEARCH_SERVER_ENABLED
+    ),
+  };
+}
+
 export interface MessageSearchablePayload {
   content?: string;
   images?: number | readonly unknown[];

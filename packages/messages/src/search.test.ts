@@ -7,11 +7,48 @@ import {
   messageSearchTermsMatch,
   normalizeMessageSearchQuery,
   normalizeMessageSearchText,
+  readMessageSearchFeatureFlags,
   searchableTextFromPayload,
   splitMessageSearchTerm,
 } from "./search";
 
 describe("message search shared contract", () => {
+  test("keeps independent server search switches enabled by default", () => {
+    expect(readMessageSearchFeatureFlags({})).toEqual({
+      backfill: true,
+      counts: true,
+      serverSearch: true,
+    });
+  });
+
+  test("disables only the explicitly selected search features", () => {
+    expect(
+      readMessageSearchFeatureFlags({
+        MESSAGE_SEARCH_BACKFILL_ENABLED: " OFF ",
+        MESSAGE_SEARCH_COUNT_ENABLED: "false",
+        MESSAGE_SEARCH_SERVER_ENABLED: "1",
+      })
+    ).toEqual({
+      backfill: false,
+      counts: false,
+      serverSearch: true,
+    });
+  });
+
+  test("treats malformed values as enabled to avoid accidental outages", () => {
+    expect(
+      readMessageSearchFeatureFlags({
+        MESSAGE_SEARCH_BACKFILL_ENABLED: "not-a-boolean",
+        MESSAGE_SEARCH_COUNT_ENABLED: "0",
+        MESSAGE_SEARCH_SERVER_ENABLED: "yes",
+      })
+    ).toEqual({
+      backfill: true,
+      counts: false,
+      serverSearch: true,
+    });
+  });
+
   test("normalizes case and combining diacritics consistently", () => {
     expect(normalizeMessageSearchText("RÉSUMÉ CAFÉ")).toBe("resume cafe");
   });

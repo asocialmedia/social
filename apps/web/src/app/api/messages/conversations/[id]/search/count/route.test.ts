@@ -101,9 +101,10 @@ function request(token: string, user = true): Request {
 }
 
 const context = { params: Promise.resolve({ id: "conversation-1" }) };
-
 describe("POST /api/messages/conversations/:id/search/count", () => {
   beforeEach(() => {
+    process.env.MESSAGE_SEARCH_COUNT_ENABLED = "1";
+    process.env.MESSAGE_SEARCH_SERVER_ENABLED = "1";
     mockGetSession.mockReset();
     mockGetSession.mockReturnValue({ user: { id: "user-1" } });
     mockGetConversation.mockReset();
