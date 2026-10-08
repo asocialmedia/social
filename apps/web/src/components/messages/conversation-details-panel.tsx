@@ -659,10 +659,10 @@ export function ConversationDetailsBody({
         <div className="px-2.5 pb-2">
           <TabsList
             aria-label={isDen ? "Den details" : "Conversation details"}
-            appearance={isDen ? "raised" : "default"}
+            appearance="raised"
             className={cn(
-              "grid h-auto min-h-11 w-full",
-              isDen ? "grid-cols-3 rounded-2xl!" : "grid-cols-2"
+              "grid h-auto min-h-11 w-full rounded-2xl!",
+              isDen ? "grid-cols-3" : "grid-cols-2"
             )}
           >
             {isDen ? (
@@ -676,18 +676,16 @@ export function ConversationDetailsBody({
             ) : null}
             {isDen ? null : (
               <TabsTrigger
-                className="min-h-11 gap-1.5 px-2 text-xs"
+                appearance="raised"
+                className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
                 value="settings"
               >
                 Details
               </TabsTrigger>
             )}
             <TabsTrigger
-              appearance={isDen ? "raised" : "default"}
-              className={cn(
-                "min-h-11 min-w-0 gap-1.5 px-2",
-                isDen ? "rounded-xl text-sm" : "text-xs"
-              )}
+              appearance="raised"
+              className="min-h-11 min-w-0 gap-1.5 rounded-xl px-2 text-sm"
               value="media"
             >
               Media
@@ -722,7 +720,7 @@ export function ConversationDetailsBody({
           </div>
         ) : (
           <TabsContent
-            className="mt-0 min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+            className="mt-0 min-h-0 flex-1 overflow-y-auto px-2.5 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
             value="settings"
           >
             <div className="surface-3d divide-border/60 divide-y overflow-hidden rounded-2xl">
@@ -1110,72 +1108,50 @@ function DetailsHeader({
         <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background))] to-transparent" />
       </div>
 
-      {den ? (
-        <div className="relative -mt-12 px-2.5 pb-3">
-          <div className="flex min-w-0 items-center gap-3">
+      <div className="relative -mt-12 px-2.5 pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {den ? (
             <DenAvatarCollage
               avatarMediaId={den.avatarMediaId}
               members={den.members}
               myUserId={den.myUserId}
               size={72}
             />
-            <div className="min-w-0 flex-1">
-              {asDialog ? (
-                <SheetTitle className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
-                  {name}
-                </SheetTitle>
-              ) : (
-                <h2 className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
-                  {name}
-                </h2>
-              )}
-              {asDialog ? (
-                <SheetDescription className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
-                  {description}
-                </SheetDescription>
-              ) : (
-                <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
-                  {description}
-                </p>
-              )}
+          ) : (
+            <div className="relative shrink-0">
+              <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={72} />
+              {presence ? (
+                <span
+                  className={cn(
+                    "absolute right-0.5 bottom-0.5 size-4 rounded-full border-4 ring-[hsl(var(--background))]",
+                    presence === "online" ? "bg-green-500" : "bg-amber-500"
+                  )}
+                />
+              ) : null}
             </div>
+          )}
+          <div className="min-w-0 flex-1">
+            {asDialog ? (
+              <SheetTitle className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
+                {name}
+              </SheetTitle>
+            ) : (
+              <h2 className="flex max-w-full min-w-0 items-center gap-1.5 text-left text-lg font-semibold tracking-tight">
+                {name}
+              </h2>
+            )}
+            {asDialog ? (
+              <SheetDescription className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
+                {description}
+              </SheetDescription>
+            ) : (
+              <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-left text-xs">
+                {description}
+              </p>
+            )}
           </div>
         </div>
-      ) : (
-        <div className="relative -mt-12 flex flex-col items-center px-6 pb-5 text-center">
-          <div className="relative flex items-center justify-center">
-            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={96} />
-            {presence ? (
-              <span
-                className={cn(
-                  "absolute right-1 bottom-1 size-5 rounded-full border-4 ring-[hsl(var(--background))]",
-                  presence === "online" ? "bg-green-500" : "bg-amber-500"
-                )}
-              />
-            ) : null}
-          </div>
-
-          {asDialog ? (
-            <SheetTitle className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
-              {name}
-            </SheetTitle>
-          ) : (
-            <h2 className="mt-3 flex max-w-full items-center gap-1.5 text-lg font-semibold tracking-tight">
-              {name}
-            </h2>
-          )}
-
-          {asDialog ? (
-            <SheetDescription className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-              {description}
-            </SheetDescription>
-          ) : (
-            <p className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-              {description}
-            </p>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
