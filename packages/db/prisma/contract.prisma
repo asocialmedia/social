@@ -987,6 +987,7 @@ namespace public {
 
     @@index([conversationId, changeSequence], map: "message_search_outbox_conversation_sequence_idx")
     @@index([completedAt, createdAt], map: "message_search_outbox_pending_created_idx")
+    @@index([messageId, changeSequence], map: "message_search_outbox_message_sequence_idx")
     @@map("message_search_outbox")
   }
 
@@ -1010,9 +1011,11 @@ namespace public {
     conversationId   String
     normalized       String
     gramKeys         String[]
+    documentFrequency Int       @default(0)
 
     @@unique([conversationId, normalized], map: "message_search_terms_conversation_normalized_key")
     @@index([conversationId, id], map: "message_search_terms_conversation_id_idx")
+    @@index([conversationId], where: "(\"documentFrequency\" = 0)", name: "message_search_terms_orphaned")
     @@index([gramKeys], map: "message_search_terms_gram_keys_idx", type: "gin")
     @@map("message_search_terms")
   }

@@ -5,6 +5,8 @@ import type { PrebuildQueryClient } from "./prebuild-indexes";
 
 const MESSAGES_INDEX = "messages_conversationId_id_idx";
 const KEYS_INDEX = "message_conversation_keys_conversationId_ownerUserId_idx";
+const SEARCH_TERMS_INDEX = "message_search_terms_orphaned_f61e9e26";
+const SEARCH_OUTBOX_INDEX = "message_search_outbox_message_sequence_idx";
 const SHORT_CODE_INDEX = "message_conversations_inviteShortCode_key";
 
 // Stands in for pg's Client, answering the existence probe from a set of index
@@ -72,10 +74,16 @@ describe("prebuildDmIndexes", () => {
       createClient: () => client,
     });
     expect(result).toEqual({
-      built: [MESSAGES_INDEX, KEYS_INDEX, SHORT_CODE_INDEX],
+      built: [
+        MESSAGES_INDEX,
+        SEARCH_TERMS_INDEX,
+        SEARCH_OUTBOX_INDEX,
+        KEYS_INDEX,
+        SHORT_CODE_INDEX,
+      ],
       present: [],
     });
-    expect(executed).toHaveLength(3);
+    expect(executed).toHaveLength(5);
   });
 
   test("always uses CREATE INDEX CONCURRENTLY, never a blocking build", async () => {
@@ -83,7 +91,7 @@ describe("prebuildDmIndexes", () => {
     await prebuildDmIndexes("postgres://unused", {
       createClient: () => client,
     });
-    expect(executed).toHaveLength(3);
+    expect(executed).toHaveLength(5);
     for (const statement of executed) {
       // UNIQUE indexes match too: the invariant is CONCURRENTLY, which a
       // unique build satisfies exactly as a plain one does.
@@ -99,7 +107,12 @@ describe("prebuildDmIndexes", () => {
     const result = await prebuildDmIndexes("postgres://unused", {
       createClient: () => client,
     });
-    expect(result.built).toEqual([KEYS_INDEX, SHORT_CODE_INDEX]);
+    expect(result.built).toEqual([
+      SEARCH_TERMS_INDEX,
+      SEARCH_OUTBOX_INDEX,
+      KEYS_INDEX,
+      SHORT_CODE_INDEX,
+    ]);
     expect(result.present).toEqual([MESSAGES_INDEX]);
     expect(
       executed.some((statement) => statement.includes(MESSAGES_INDEX))
@@ -116,9 +129,15 @@ describe("prebuildDmIndexes", () => {
     });
     expect(second).toEqual({
       built: [],
-      present: [MESSAGES_INDEX, KEYS_INDEX, SHORT_CODE_INDEX],
+      present: [
+        MESSAGES_INDEX,
+        SEARCH_TERMS_INDEX,
+        SEARCH_OUTBOX_INDEX,
+        KEYS_INDEX,
+        SHORT_CODE_INDEX,
+      ],
     });
-    expect(executed).toHaveLength(3);
+    expect(executed).toHaveLength(5);
   });
 
   test("the short-code index builds UNIQUE: the live column enforces the door's identity", async () => {

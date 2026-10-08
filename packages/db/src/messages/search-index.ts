@@ -17,7 +17,7 @@ function getSearchPool(): Pool {
       connectionString: keys.DATABASE_URL,
       connectionTimeoutMillis: 5000,
       idleTimeoutMillis: 30_000,
-      max: 4,
+      max: 12,
     });
   }
   return searchPool;
@@ -1510,6 +1510,13 @@ export async function persistSearchDocument(
           WHERE "messageId" = $1 AND revision <= $2`,
         [artifact.messageId, artifact.revision]
       );
+      if (!row || row.deletedAt) {
+        await client.query(
+          `DELETE FROM public.message_search_terms
+            WHERE "conversationId" = $1 AND "documentFrequency" = 0`,
+          [artifact.conversationId]
+        );
+      }
     }
 
     const outbox = await client.query<{
@@ -2006,16 +2013,23 @@ export async function markSearchOutboxUnreadable(input: {
   }
 }
 
-export async function searchMessageCandidates(
-  input: SearchCandidateQuery
-): Promise<SearchCandidateRow[]> {
-  const windows = input.membershipWindows.map((window) => ({
-    after: window.after ? pgTimestamp(window.after) : null,
-    before: window.before ? pgTimestamp(window.before) : null,
-  }));
-  const pool = getSearchPool();
-  const result = await pool.query<SearchCandidateRow>(
-    `SELECT m.id,
+const SEARCH_MESSAGE_CANDIDATES_SQL = `WITH query_fragments AS MATERIALIZED (
+       SELECT value, ordinality AS fragment_ordinal
+         FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
+     ),
+     matching_terms AS MATERIALIZED (
+       SELECT query.fragment_ordinal,
+              ARRAY_AGG(term.id) AS term_ids
+         FROM query_fragments AS query
+         JOIN public.message_search_terms AS term
+           ON term."conversationId" = $1
+          AND term."gramKeys" @> ARRAY(
+            SELECT jsonb_array_elements_text(query.value->'grams')
+          )
+          AND strpos(term.normalized, query.value->>'text') > 0
+        GROUP BY query.fragment_ordinal
+     )
+     SELECT m.id,
             m."ciphertext",
             m.iv,
             m."ratchetIndex",
@@ -2035,11 +2049,14 @@ export async function searchMessageCandidates(
         AND m."deletedAt" IS NULL
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
-        AND NOT EXISTS (
-          SELECT 1
-            FROM public.message_search_outbox AS newer_revision
-           WHERE newer_revision."messageId" = m.id
-             AND newer_revision."changeSequence" > $4
+        AND (
+          $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+          OR NOT EXISTS (
+            SELECT 1
+              FROM public.message_search_outbox AS newer_revision
+             WHERE newer_revision."messageId" = m.id
+               AND newer_revision."changeSequence" > $4
+          )
         )
         AND EXISTS (
           SELECT 1
@@ -2053,19 +2070,12 @@ export async function searchMessageCandidates(
             FROM public.message_hidden AS hidden
            WHERE hidden."messageId" = m.id AND hidden."userId" = $2
         )
+        AND (SELECT COUNT(*) FROM matching_terms) =
+            (SELECT COUNT(*) FROM query_fragments)
         AND NOT EXISTS (
           SELECT 1
-             FROM jsonb_array_elements($3::jsonb) AS fragment
-           WHERE NOT EXISTS (
-             SELECT 1
-               FROM public.message_search_terms AS term
-              WHERE term."conversationId" = d."conversationId"
-                AND d."termIds" @> ARRAY[term.id]
-                AND term."gramKeys" @> ARRAY(
-                  SELECT jsonb_array_elements_text(fragment.value->'grams')
-                )
-                AND strpos(term.normalized, fragment.value->>'text') > 0
-           )
+            FROM matching_terms AS matched_term
+           WHERE NOT d."termIds" && matched_term.term_ids
         )
         AND (
           $7::jsonb IS NULL OR EXISTS (
@@ -2080,19 +2090,300 @@ export async function searchMessageCandidates(
           (d."createdAt", d."messageId") < ($5::timestamp, $6::text)
         )
       ORDER BY d."createdAt" DESC, d."messageId" DESC
-      LIMIT $8`,
-    [
-      input.conversationId,
-      input.userId,
-      JSON.stringify(input.fragments),
-      input.snapshotSequence,
-      input.before ? pgTimestamp(input.before.createdAt) : null,
-      input.before?.messageId ?? null,
-      JSON.stringify(windows),
-      Math.min(Math.max(Math.trunc(input.limit), 1), 21),
-    ]
+      LIMIT $8`;
+
+const SEARCH_FRAGMENT_FREQUENCY_SQL = `WITH query_fragments AS MATERIALIZED (
+       SELECT value, ordinality AS fragment_ordinal
+         FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
+     ),
+     fragment_terms AS (
+       SELECT query.fragment_ordinal,
+              term.id,
+              term."documentFrequency"
+         FROM query_fragments AS query
+         LEFT JOIN public.message_search_terms AS term
+           ON term."conversationId" = $1
+          AND term."gramKeys" @> ARRAY(
+            SELECT jsonb_array_elements_text(query.value->'grams')
+          )
+          AND strpos(term.normalized, query.value->>'text') > 0
+     )
+     SELECT query.fragment_ordinal::int AS "fragmentOrdinal",
+            COALESCE(SUM(fragment_terms."documentFrequency"), 0)::text AS "candidateCount",
+            COALESCE(
+              ARRAY_AGG(fragment_terms.id) FILTER (WHERE fragment_terms.id IS NOT NULL),
+              ARRAY[]::int[]
+            ) AS "termIds"
+       FROM query_fragments AS query
+       LEFT JOIN fragment_terms
+         ON fragment_terms.fragment_ordinal = query.fragment_ordinal
+      GROUP BY query.fragment_ordinal
+      ORDER BY COALESCE(SUM(fragment_terms."documentFrequency"), 0) ASC,
+               query.fragment_ordinal ASC
+      LIMIT 1`;
+
+const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIALIZED (
+       SELECT value, ordinality AS fragment_ordinal
+         FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
+     ),
+     matching_terms AS MATERIALIZED (
+       SELECT query.fragment_ordinal,
+              ARRAY_AGG(term.id) AS term_ids
+         FROM query_fragments AS query
+         JOIN public.message_search_terms AS term
+           ON term."conversationId" = $1
+          AND term."gramKeys" @> ARRAY(
+            SELECT jsonb_array_elements_text(query.value->'grams')
+          )
+          AND strpos(term.normalized, query.value->>'text') > 0
+        GROUP BY query.fragment_ordinal
+     ),
+     candidate_documents AS MATERIALIZED (
+       SELECT d."conversationId",
+              d."messageId",
+              d.revision,
+              d."createdAt"
+         FROM public.message_search_documents AS d
+        WHERE d."conversationId" = $1
+          AND d."termIds" && $9::int[]
+          AND (
+            $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.message_search_outbox AS newer_revision
+               WHERE newer_revision."messageId" = d."messageId"
+                 AND newer_revision."changeSequence" > $4
+            )
+          )
+          AND (SELECT COUNT(*) FROM matching_terms) =
+              (SELECT COUNT(*) FROM query_fragments)
+          AND NOT EXISTS (
+            SELECT 1
+              FROM matching_terms AS matched_term
+             WHERE NOT d."termIds" && matched_term.term_ids
+          )
+          AND (
+            $5::timestamp IS NULL OR
+            (d."createdAt", d."messageId") < ($5::timestamp, $6::text)
+          )
+     )
+     SELECT m.id,
+            m."ciphertext",
+            m.iv,
+            m."ratchetIndex",
+            m."senderId",
+            m."createdAt",
+            m.revision,
+            m."keyEpoch"
+       FROM candidate_documents AS d
+       JOIN public.messages AS m
+         ON m.id = d."messageId"
+        AND m."conversationId" = d."conversationId"
+        AND m.revision = d.revision
+       JOIN public.message_conversation_members AS member
+         ON member."conversationId" = d."conversationId"
+        AND member."userId" = $2
+      WHERE m."deletedAt" IS NULL
+        AND m."keyEpoch" IS NOT NULL
+        AND m."creationSequence" <= $4
+        AND EXISTS (
+          SELECT 1
+            FROM public.message_conversation_keys AS readable_key
+           WHERE readable_key."conversationId" = d."conversationId"
+             AND readable_key."ownerUserId" = $2
+             AND readable_key.version = m."keyEpoch"
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_hidden AS hidden
+           WHERE hidden."messageId" = m.id AND hidden."userId" = $2
+        )
+        AND (
+          $7::jsonb IS NULL OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements($7::jsonb) AS membership_window
+             WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+               AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
+          )
+        )
+      ORDER BY d."createdAt" DESC, d."messageId" DESC
+      LIMIT $8`;
+
+const SEARCH_SELECTIVE_CANDIDATE_THRESHOLD = 1000;
+
+interface SearchCandidatePlanNode {
+  "Actual Loops"?: number;
+  "Actual Rows"?: number;
+  "Actual Total Time"?: number;
+  "Index Name"?: string;
+  "Node Type": string;
+  "Relation Name"?: string;
+  "Rows Removed by Filter"?: number;
+  "Shared Hit Blocks"?: number;
+  "Shared Read Blocks"?: number;
+  Plans?: SearchCandidatePlanNode[];
+}
+
+interface SearchCandidateExplainRow {
+  "QUERY PLAN": {
+    "Execution Time": number;
+    "Planning Time": number;
+    Plan: SearchCandidatePlanNode;
+  }[];
+}
+
+function searchCandidateQueryParameters(input: SearchCandidateQuery) {
+  const windows = input.membershipWindows.map((window) => ({
+    after: window.after ? pgTimestamp(window.after) : null,
+    before: window.before ? pgTimestamp(window.before) : null,
+  }));
+  return [
+    input.conversationId,
+    input.userId,
+    JSON.stringify(input.fragments),
+    input.snapshotSequence,
+    input.before ? pgTimestamp(input.before.createdAt) : null,
+    input.before?.messageId ?? null,
+    JSON.stringify(windows),
+    Math.min(Math.max(Math.trunc(input.limit), 1), 21),
+  ];
+}
+
+function searchCandidatePlanNodes(
+  node: SearchCandidatePlanNode
+): SearchCandidatePlanNode[] {
+  return [node, ...(node.Plans ?? []).flatMap(searchCandidatePlanNodes)];
+}
+
+// Kept off the package barrel so integration benchmarks can inspect the exact production query plan.
+export async function explainSearchMessageCandidatesForDiagnostics(
+  input: SearchCandidateQuery & { indexedTermIds?: readonly number[] }
+): Promise<{
+  executionTimeMs: number;
+  indexNames: string[];
+  planNodes: {
+    actualLoops?: number;
+    actualRows?: number;
+    actualTotalTimeMs?: number;
+    indexName?: string;
+    nodeType: string;
+    relationName?: string;
+    rowsRemovedByFilter?: number;
+    sharedHitBlocks?: number;
+    sharedReadBlocks?: number;
+  }[];
+  nodeTypes: string[];
+  planningTimeMs: number;
+  sharedHitBlocks: number;
+  sharedReadBlocks: number;
+} | null> {
+  const queryParameters = searchCandidateQueryParameters(input);
+  const { indexedTermIds } = input;
+  const sql =
+    indexedTermIds === undefined
+      ? SEARCH_MESSAGE_CANDIDATES_SQL
+      : SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL;
+  if (
+    indexedTermIds !== undefined &&
+    (indexedTermIds.length === 0 ||
+      indexedTermIds.some(
+        (termId) => !Number.isSafeInteger(termId) || termId < 1
+      ))
+  ) {
+    throw new TypeError("The indexed search terms are invalid");
+  }
+  const result = await getSearchPool().query<SearchCandidateExplainRow>(
+    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`,
+    indexedTermIds === undefined
+      ? queryParameters
+      : [...queryParameters, indexedTermIds]
   );
-  return result.rows;
+  const plan = result.rows[0]?.["QUERY PLAN"][0];
+  if (!plan) {
+    return null;
+  }
+  const nodes = searchCandidatePlanNodes(plan.Plan);
+  return {
+    executionTimeMs: plan["Execution Time"],
+    indexNames: nodes.flatMap((node) =>
+      node["Index Name"] ? [node["Index Name"]] : []
+    ),
+    nodeTypes: nodes.map((node) => node["Node Type"]),
+    planNodes: nodes.map((node) => ({
+      actualLoops: node["Actual Loops"],
+      actualRows: node["Actual Rows"],
+      actualTotalTimeMs: node["Actual Total Time"],
+      indexName: node["Index Name"],
+      nodeType: node["Node Type"],
+      relationName: node["Relation Name"],
+      rowsRemovedByFilter: node["Rows Removed by Filter"],
+      sharedHitBlocks: node["Shared Hit Blocks"],
+      sharedReadBlocks: node["Shared Read Blocks"],
+    })),
+    planningTimeMs: plan["Planning Time"],
+    sharedHitBlocks: plan.Plan["Shared Hit Blocks"] ?? 0,
+    sharedReadBlocks: plan.Plan["Shared Read Blocks"] ?? 0,
+  };
+}
+
+export async function searchMessageCandidates(
+  input: SearchCandidateQuery
+): Promise<SearchCandidateRow[]> {
+  const pool = getSearchPool();
+  const queryParameters = searchCandidateQueryParameters(input);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const frequency = await client.query<{
+      candidateCount: string;
+      fragmentOrdinal: number;
+      termIds: number[];
+    }>(SEARCH_FRAGMENT_FREQUENCY_SQL, [queryParameters[0], queryParameters[2]]);
+    const [selectiveFragment] = frequency.rows;
+    if (!selectiveFragment) {
+      throw new Error("Postgres did not return a DM search fragment estimate");
+    }
+    if (!Number.isSafeInteger(selectiveFragment.fragmentOrdinal)) {
+      throw new TypeError(
+        "Postgres returned an invalid DM search fragment ordinal"
+      );
+    }
+    if (!/^\d+$/u.test(selectiveFragment.candidateCount)) {
+      throw new Error(
+        "Postgres returned an invalid DM search candidate estimate"
+      );
+    }
+    if (
+      !Array.isArray(selectiveFragment.termIds) ||
+      selectiveFragment.termIds.some(
+        (termId) => !Number.isSafeInteger(termId) || termId < 1
+      )
+    ) {
+      throw new Error("Postgres returned invalid DM search term identifiers");
+    }
+    const candidateCount = BigInt(selectiveFragment.candidateCount);
+    if (candidateCount === 0n) {
+      await client.query("COMMIT");
+      return [];
+    }
+    const useSelectiveQuery =
+      candidateCount <= BigInt(SEARCH_SELECTIVE_CANDIDATE_THRESHOLD);
+    const result = await client.query<SearchCandidateRow>(
+      useSelectiveQuery
+        ? SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL
+        : SEARCH_MESSAGE_CANDIDATES_SQL,
+      useSelectiveQuery
+        ? [...queryParameters, selectiveFragment.termIds]
+        : queryParameters
+    );
+    await client.query("COMMIT");
+    return result.rows;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listMessageSearchReferences(
@@ -2129,11 +2420,14 @@ export async function listMessageSearchReferences(
         AND message."deletedAt" IS NULL
         AND message."keyEpoch" IS NOT NULL
         AND message."creationSequence" <= $4
-        AND NOT EXISTS (
-          SELECT 1
-            FROM public.message_search_outbox AS newer_revision
-           WHERE newer_revision."messageId" = message.id
-             AND newer_revision."changeSequence" > $4
+        AND (
+          $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+          OR NOT EXISTS (
+            SELECT 1
+              FROM public.message_search_outbox AS newer_revision
+             WHERE newer_revision."messageId" = message.id
+               AND newer_revision."changeSequence" > $4
+          )
         )
         AND EXISTS (
           SELECT 1
@@ -2286,11 +2580,14 @@ export async function countMessageSearchCandidates(input: {
           AND m."deletedAt" IS NULL
           AND m."keyEpoch" IS NOT NULL
           AND m."creationSequence" <= $4
-          AND NOT EXISTS (
-            SELECT 1
-              FROM public.message_search_outbox AS newer_revision
-             WHERE newer_revision."messageId" = m.id
-               AND newer_revision."changeSequence" > $4
+          AND (
+            $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.message_search_outbox AS newer_revision
+               WHERE newer_revision."messageId" = m.id
+                 AND newer_revision."changeSequence" > $4
+            )
           )
           AND EXISTS (
             SELECT 1

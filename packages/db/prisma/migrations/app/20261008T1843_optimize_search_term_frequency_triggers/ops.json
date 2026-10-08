@@ -1,0 +1,100 @@
+[
+  {
+    "id": "index.message_search_terms.message_search_terms_orphaned_f61e9e26",
+    "label": "Create index \"message_search_terms_orphaned_f61e9e26\" on \"message_search_terms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_terms_orphaned_f61e9e26",
+        "table": "message_search_terms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_terms_orphaned_f61e9e26\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_terms_orphaned_f61e9e26\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_terms_orphaned_f61e9e26\"",
+        "sql": "CREATE INDEX \"message_search_terms_orphaned_f61e9e26\" ON \"public\".\"message_search_terms\" (\"conversationId\") WHERE ((\"documentFrequency\" = 0))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_terms_orphaned_f61e9e26\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_terms_orphaned_f61e9e26\""]
+      }
+    ]
+  },
+  {
+    "id": "replace-row-frequency-trigger-with-set-based-triggers",
+    "label": "Aggregate search term document frequency changes by statement",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "dependency",
+        "name": "message_search_term_document_frequency_triggers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure the statement-level frequency triggers are incomplete",
+        "sql": "SELECT NOT (\n              NOT EXISTS (\n                SELECT 1\n                  FROM pg_catalog.pg_trigger\n                 WHERE tgname = 'message_search_term_document_frequency_trigger'\n                   AND tgrelid = 'public.message_search_documents'::regclass\n                   AND NOT tgisinternal\n              )\n              AND\n              (SELECT COUNT(*) FROM pg_catalog.pg_trigger\n                WHERE tgname IN (\n                  'message_search_terms_frequency_after_insert',\n                  'message_search_terms_frequency_after_update',\n                  'message_search_terms_frequency_after_delete'\n                )\n                  AND tgrelid = 'public.message_search_documents'::regclass\n                  AND NOT tgisinternal) = 3\n            ) AS result"
+      }
+    ],
+    "execute": [
+      {
+        "description": "reconcile normalized term document frequencies",
+        "sql": "WITH document_frequencies AS (\n              SELECT term_id, COUNT(*)::int AS frequency\n                FROM public.message_search_documents AS document\n                CROSS JOIN LATERAL unnest(document.\"termIds\") AS term_id\n               GROUP BY term_id\n            )\n            UPDATE public.message_search_terms AS term\n               SET \"documentFrequency\" = document_frequencies.frequency\n              FROM document_frequencies\n             WHERE term.id = document_frequencies.term_id"
+      },
+      {
+        "description": "remove the row-level frequency trigger",
+        "sql": "DROP TRIGGER IF EXISTS message_search_term_document_frequency_trigger\n              ON public.message_search_documents"
+      },
+      {
+        "description": "remove a partially installed insert frequency trigger",
+        "sql": "DROP TRIGGER IF EXISTS message_search_terms_frequency_after_insert\n              ON public.message_search_documents"
+      },
+      {
+        "description": "remove a partially installed update frequency trigger",
+        "sql": "DROP TRIGGER IF EXISTS message_search_terms_frequency_after_update\n              ON public.message_search_documents"
+      },
+      {
+        "description": "remove a partially installed delete frequency trigger",
+        "sql": "DROP TRIGGER IF EXISTS message_search_terms_frequency_after_delete\n              ON public.message_search_documents"
+      },
+      {
+        "description": "install the set-based document frequency trigger function",
+        "sql": "CREATE OR REPLACE FUNCTION public.update_message_search_term_document_frequency()\n              RETURNS trigger\n              LANGUAGE plpgsql\n              AS $$\n              BEGIN\n                IF TG_OP = 'INSERT' THEN\n                  WITH term_deltas AS (\n                    SELECT term_id, COUNT(*)::int AS delta\n                      FROM (\n                        SELECT DISTINCT document.\"messageId\", terms.term_id\n                          FROM new_documents AS document\n                          CROSS JOIN LATERAL unnest(document.\"termIds\") AS terms(term_id)\n                      ) AS unique_terms\n                     GROUP BY term_id\n                  )\n                  UPDATE public.message_search_terms AS term\n                     SET \"documentFrequency\" = term.\"documentFrequency\" + term_deltas.delta\n                    FROM term_deltas\n                   WHERE term.id = term_deltas.term_id;\n                  RETURN NULL;\n                END IF;\n                IF TG_OP = 'DELETE' THEN\n                  WITH term_deltas AS (\n                    SELECT term_id, -COUNT(*)::int AS delta\n                      FROM (\n                        SELECT DISTINCT document.\"messageId\", terms.term_id\n                          FROM old_documents AS document\n                          CROSS JOIN LATERAL unnest(document.\"termIds\") AS terms(term_id)\n                      ) AS unique_terms\n                     GROUP BY term_id\n                  )\n                  UPDATE public.message_search_terms AS term\n                     SET \"documentFrequency\" = term.\"documentFrequency\" + term_deltas.delta\n                    FROM term_deltas\n                   WHERE term.id = term_deltas.term_id;\n                  RETURN NULL;\n                END IF;\n                WITH old_terms AS (\n                  SELECT DISTINCT document.\"messageId\", terms.term_id\n                    FROM old_documents AS document\n                    CROSS JOIN LATERAL unnest(document.\"termIds\") AS terms(term_id)\n                ),\n                new_terms AS (\n                  SELECT DISTINCT document.\"messageId\", terms.term_id\n                    FROM new_documents AS document\n                    CROSS JOIN LATERAL unnest(document.\"termIds\") AS terms(term_id)\n                ),\n                changed_terms AS (\n                  SELECT old_term.term_id, -1::int AS delta\n                    FROM old_terms AS old_term\n                   WHERE NOT EXISTS (\n                     SELECT 1 FROM new_terms AS new_term\n                      WHERE new_term.\"messageId\" = old_term.\"messageId\"\n                        AND new_term.term_id = old_term.term_id\n                   )\n                  UNION ALL\n                  SELECT new_term.term_id, 1::int AS delta\n                    FROM new_terms AS new_term\n                   WHERE NOT EXISTS (\n                     SELECT 1 FROM old_terms AS old_term\n                      WHERE old_term.\"messageId\" = new_term.\"messageId\"\n                        AND old_term.term_id = new_term.term_id\n                   )\n                ),\n                term_deltas AS (\n                  SELECT term_id, SUM(delta)::int AS delta\n                    FROM changed_terms\n                   GROUP BY term_id\n                  HAVING SUM(delta) <> 0\n                )\n                UPDATE public.message_search_terms AS term\n                   SET \"documentFrequency\" = term.\"documentFrequency\" + term_deltas.delta\n                  FROM term_deltas\n                 WHERE term.id = term_deltas.term_id;\n                RETURN NULL;\n              END;\n              $$"
+      },
+      {
+        "description": "create the statement-level insert frequency trigger",
+        "sql": "CREATE TRIGGER message_search_terms_frequency_after_insert\n              AFTER INSERT ON public.message_search_documents\n              REFERENCING NEW TABLE AS new_documents\n              FOR EACH STATEMENT\n              EXECUTE FUNCTION public.update_message_search_term_document_frequency()"
+      },
+      {
+        "description": "create the statement-level update frequency trigger",
+        "sql": "CREATE TRIGGER message_search_terms_frequency_after_update\n              AFTER UPDATE ON public.message_search_documents\n              REFERENCING OLD TABLE AS old_documents NEW TABLE AS new_documents\n              FOR EACH STATEMENT\n              EXECUTE FUNCTION public.update_message_search_term_document_frequency()"
+      },
+      {
+        "description": "create the statement-level delete frequency trigger",
+        "sql": "CREATE TRIGGER message_search_terms_frequency_after_delete\n              AFTER DELETE ON public.message_search_documents\n              REFERENCING OLD TABLE AS old_documents\n              FOR EACH STATEMENT\n              EXECUTE FUNCTION public.update_message_search_term_document_frequency()"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify statement-level triggers and exact search term frequencies",
+        "sql": "SELECT NOT EXISTS (\n              SELECT 1\n                FROM pg_catalog.pg_trigger\n               WHERE tgname = 'message_search_term_document_frequency_trigger'\n                 AND tgrelid = 'public.message_search_documents'::regclass\n                 AND NOT tgisinternal\n            ) AND (\n              SELECT COUNT(*) = 3\n                FROM pg_catalog.pg_trigger\n               WHERE tgname IN (\n                 'message_search_terms_frequency_after_insert',\n                 'message_search_terms_frequency_after_update',\n                 'message_search_terms_frequency_after_delete'\n               )\n                 AND tgrelid = 'public.message_search_documents'::regclass\n                 AND NOT tgisinternal\n            ) AND NOT EXISTS (\n              WITH document_frequencies AS (\n                SELECT term_id, COUNT(*)::int AS frequency\n                  FROM public.message_search_documents AS document\n                  CROSS JOIN LATERAL unnest(document.\"termIds\") AS term_id\n                 GROUP BY term_id\n              )\n              SELECT 1\n                FROM public.message_search_terms AS term\n                LEFT JOIN document_frequencies\n                  ON document_frequencies.term_id = term.id\n               WHERE term.\"documentFrequency\" <> COALESCE(document_frequencies.frequency, 0)\n            ) AS result"
+      }
+    ]
+  }
+]

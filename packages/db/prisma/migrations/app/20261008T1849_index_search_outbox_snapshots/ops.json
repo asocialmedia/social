@@ -1,0 +1,37 @@
+[
+  {
+    "id": "index.message_search_outbox.message_search_outbox_message_sequence_idx",
+    "label": "Create index \"message_search_outbox_message_sequence_idx\" on \"message_search_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_outbox_message_sequence_idx",
+        "table": "message_search_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_outbox_message_sequence_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_outbox_message_sequence_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_outbox_message_sequence_idx\"",
+        "sql": "CREATE INDEX \"message_search_outbox_message_sequence_idx\" ON \"public\".\"message_search_outbox\" (\"messageId\", \"changeSequence\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_outbox_message_sequence_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_outbox_message_sequence_idx\""]
+      }
+    ]
+  }
+]

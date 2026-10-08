@@ -8,6 +8,9 @@ import {
   searchMessageCandidates,
   toPrismaDateTime,
 } from "@asm/db";
+import { Pool } from "pg";
+
+import { explainSearchMessageCandidatesForDiagnostics } from "./search-index";
 
 const MESSAGE_COUNT = 200_000;
 const MESSAGE_BATCH_SIZE = 100;
@@ -161,7 +164,7 @@ async function seedConversation(): Promise<void> {
           messageId: message.id,
           revision: 1,
           termIds:
-            message.creationSequence === MESSAGE_COUNT
+            message.creationSequence === 1
               ? [commonTermId, rareTermId]
               : [commonTermId],
         }));
@@ -171,6 +174,15 @@ async function seedConversation(): Promise<void> {
     });
   }
   // oxlint-enable no-await-in-loop
+  const statisticsPool = new Pool({
+    connectionString: keys.DATABASE_URL,
+    max: 1,
+  });
+  try {
+    await statisticsPool.query("ANALYZE public.message_search_documents");
+  } finally {
+    await statisticsPool.end();
+  }
 }
 
 test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
@@ -179,15 +191,73 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
     assertLocalTestDatabase();
     try {
       await seedConversation();
+      const indexedTerms = await prisma.orm.public.MessageSearchTerms.select(
+        "documentFrequency",
+        "id",
+        "normalized"
+      )
+        .where({ conversationId: CONVERSATION_ID })
+        .all();
+      const commonTerm = indexedTerms.find(
+        (term) => term.normalized === COMMON_TERM
+      );
+      const rareTerm = indexedTerms.find(
+        (term) => term.normalized === RARE_TERM
+      );
+      if (!rareTerm) {
+        throw new Error("DM search scale fixture rare term was not created");
+      }
+      expect(commonTerm?.documentFrequency).toBe(MESSAGE_COUNT);
+      expect(rareTerm.documentFrequency).toBe(1);
 
       const newestId = messageId(MESSAGE_COUNT);
       const rareHits = await search(RARE_TERM);
-      expect(rareHits.map((row) => row.id)).toEqual([newestId]);
+      expect(rareHits.map((row) => row.id)).toEqual([messageId(1)]);
+      const rareQueryPlan = await explainSearchMessageCandidatesForDiagnostics({
+        conversationId: CONVERSATION_ID,
+        fragments: [{ grams: gramKeys(RARE_TERM), text: RARE_TERM }],
+        indexedTermIds: [rareTerm.id],
+        limit: 20,
+        membershipWindows: [{ after: null, before: null }],
+        snapshotSequence: MESSAGE_COUNT,
+        userId: OWNER_ID,
+      });
+      if (!rareQueryPlan) {
+        throw new Error("Postgres returned no DM search query plan");
+      }
+      expect(rareQueryPlan.indexNames).toContain(
+        "message_search_documents_term_ids_idx"
+      );
+      const selectiveDocumentScan = rareQueryPlan.planNodes.find(
+        (node) => node.relationName === "message_search_documents"
+      );
+      expect(selectiveDocumentScan).toBeDefined();
+      expect(selectiveDocumentScan?.actualRows).toBeLessThan(1000);
 
       const broadHits = await search(COMMON_TERM);
       expect(broadHits).toHaveLength(20);
       expect(broadHits[0]?.id).toBe(newestId);
       expect(broadHits[19]?.id).toBe(messageId(MESSAGE_COUNT - 19));
+      const broadQueryPlan = await explainSearchMessageCandidatesForDiagnostics(
+        {
+          conversationId: CONVERSATION_ID,
+          fragments: [{ grams: gramKeys(COMMON_TERM), text: COMMON_TERM }],
+          limit: 20,
+          membershipWindows: [{ after: null, before: null }],
+          snapshotSequence: MESSAGE_COUNT,
+          userId: OWNER_ID,
+        }
+      );
+      if (!broadQueryPlan) {
+        throw new Error("Postgres returned no broad DM search query plan");
+      }
+      expect(
+        broadQueryPlan.planNodes.some(
+          (node) =>
+            node.relationName === "message_search_documents" &&
+            node.nodeType === "Seq Scan"
+        )
+      ).toBe(false);
 
       const countStartedAt = performance.now();
       const broadCount = await countMessageSearchCandidates({
@@ -212,19 +282,24 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       const sortedDurations = durations.toSorted((left, right) => left - right);
       const p95DurationMs =
         sortedDurations[Math.ceil(sortedDurations.length * 0.95) - 1];
+      const rareDocumentScan = rareQueryPlan.planNodes.find(
+        (node) => node.relationName === "message_search_documents"
+      );
       console.info(
         JSON.stringify({
           concurrentSearches: CONCURRENT_SEARCHES,
-          exactCountMs: exactCountDurationMs,
+          exactCountMs: Math.round(exactCountDurationMs),
           messages: MESSAGE_COUNT,
-          p95BroadSearchMs: p95DurationMs,
+          p95BroadSearchMs: Math.round(p95DurationMs),
+          rareCandidateRows: rareDocumentScan?.actualRows,
+          rareQueryExecutionMs: Math.round(rareQueryPlan.executionTimeMs),
           test: "dm-search-scale",
         })
       );
       expect(concurrentPages).toHaveLength(CONCURRENT_SEARCHES);
       expect(concurrentPages.every((page) => page.length === 20)).toBe(true);
       expect(p95DurationMs).toBeDefined();
-      expect(p95DurationMs).toBeLessThan(5000);
+      expect(p95DurationMs).toBeLessThan(500);
     } finally {
       await prisma.orm.public.MessageSearchDocuments.where({
         conversationId: CONVERSATION_ID,
