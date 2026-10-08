@@ -24,6 +24,7 @@ import {
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import { MAX_MESSAGE_CIPHERTEXT_LENGTH } from "@/lib/messages/edit-window";
+import { createBoundedMessagePageResponse } from "@/lib/messages/history-page";
 import { readerMessageWindows } from "@/lib/messages/reader-window";
 import {
   areBlocked,
@@ -47,14 +48,6 @@ const PAGE_SIZE = 30;
 // costs tens of round trips instead of hundreds; the cap keeps any single
 // response bounded.
 const MAX_PAGE_SIZE = 100;
-// A declared history walk may ask for much larger pages. Covering a conversation
-// is latency-bound, not compute-bound: measured at 200k messages, 100 rows/page
-// takes 11.1 minutes of which 4.9 seconds is actual work, and 500 rows/page cuts
-// it to 2.3 minutes. The walk is paced per REQUEST, so a bigger page is strictly
-// less load on the server for the same politeness, not more. Ordinary transcript
-// reads stay at MAX_PAGE_SIZE so a scroll can never pull a large page.
-const MAX_HISTORY_WALK_PAGE_SIZE = 500;
-
 // History-walk budgets.
 //
 // Two separate limits, because they defend against different things:
@@ -266,11 +259,8 @@ export async function GET(
   // of silently becoming 10.
   const requestedLimit =
     limitParam.length > 0 ? Math.trunc(Number(limitParam)) : Number.NaN;
-  const maxPageSize = isHistoryWalk
-    ? MAX_HISTORY_WALK_PAGE_SIZE
-    : MAX_PAGE_SIZE;
   const pageSize = Number.isInteger(requestedLimit)
-    ? Math.min(Math.max(requestedLimit, 1), maxPageSize)
+    ? Math.min(Math.max(requestedLimit, 1), MAX_PAGE_SIZE)
     : PAGE_SIZE;
 
   // The three paging axes are mutually exclusive. Rejecting the ambiguous call
@@ -439,7 +429,7 @@ export async function GET(
       // oldest message actually returned.
       previousCursor: hasOlder && oldest ? oldest.id : null,
     };
-    return Response.json(response);
+    return createBoundedMessagePageResponse(response, "around");
   }
 
   // Newer paging. Only reachable after an anchored read, when the transcript
@@ -475,7 +465,7 @@ export async function GET(
       nextCursor: hasMore && newest ? newest.id : null,
       previousCursor: oldest ? oldest.id : null,
     };
-    return Response.json(response);
+    return createBoundedMessagePageResponse(response, "newer");
   }
 
   // Newest first from the cursor, then reversed so the client gets oldest-first.
@@ -530,7 +520,7 @@ export async function GET(
     previousCursor,
   };
 
-  return Response.json(response);
+  return createBoundedMessagePageResponse(response, "older");
 }
 
 export async function POST(

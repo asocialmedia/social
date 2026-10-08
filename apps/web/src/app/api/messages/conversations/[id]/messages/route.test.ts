@@ -1225,6 +1225,28 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     expect(mockFindMany).toHaveBeenCalledTimes(1);
   });
 
+  test("caps history responses at one MiB and keeps the truncated cursor valid", async () => {
+    const rows = Array.from({ length: 31 }, (_, index) => ({
+      ciphertext: "x".repeat(100_000),
+      id: `m-${String(30 - index).padStart(3, "0")}`,
+    }));
+    mockFindMany.mockReturnValueOnce(rows);
+    const res = await GET(new Request(convoUrl("messages")), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    const body = await res.text();
+    const page = JSON.parse(body) as {
+      messages: { id: string }[];
+      previousCursor: string | null;
+    };
+
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(
+      1_048_576
+    );
+    expect(page.messages.length).toBeLessThan(30);
+    expect(page.previousCursor).toBe(page.messages[0]?.id);
+  });
+
   test("orders chronologically, so a random id cannot shuffle the transcript", async () => {
     // The regression this file exists for. `messages.id` is a random UUID, so an
     // id-ordered page returns messages in an order unrelated to when they were
@@ -1257,6 +1279,16 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     const req = new Request(convoUrl("messages?limit=10000"), {
       method: "GET",
     });
+    await GET(req, { params: Promise.resolve({ id: "convo-1" }) });
+    expect(recorded.limit).toBe(101);
+  });
+
+  test("caps declared history-walk pages at 100 messages", async () => {
+    mockFindMany.mockReturnValueOnce([{ id: "m-001" }]);
+    const req = new Request(
+      convoUrl("messages?limit=500&cursor=m-002&walk=1"),
+      { method: "GET" }
+    );
     await GET(req, { params: Promise.resolve({ id: "convo-1" }) });
     expect(recorded.limit).toBe(101);
   });
