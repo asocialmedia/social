@@ -1,5 +1,6 @@
 "use client";
 
+import { canManageDen } from "@asm/db/messages/dens";
 import type { DenRole } from "@asm/db/messages/dens";
 import { DrawerDescription, DrawerTitle } from "@asm/ui/shadui/drawer";
 import { Slider } from "@asm/ui/shadui/slider";
@@ -626,7 +627,7 @@ export function ConversationDetailsBody({
       <WallpaperRow
         readOnly={
           isDen &&
-          !["OWNER", "ADMIN"].includes(
+          !canManageDen(
             detail.conversation.members.find(
               (member) => member.userId === myUserId
             )?.role ?? "MEMBER"

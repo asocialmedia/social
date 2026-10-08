@@ -1,5 +1,6 @@
 import {
   and,
+  canManageDen,
   prisma,
   publishMessageEvent,
   scheduleMediaCleanup,
@@ -28,7 +29,7 @@ export function canManageDenWallpaper(
       (member) =>
         member.userId === userId &&
         !member.leftAt &&
-        (member.role === "OWNER" || member.role === "ADMIN")
+        canManageDen(member.role ?? "")
     )
   );
 }
