@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import { and, or } from "@prisma/orm-postgres/orm-client";
 
-import { enqueueNotificationCreated } from "../../queue";
+import { enqueueNotificationCreated, unreadMessageCache } from "../../queue";
 import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
 import type { PrismaTransaction } from "../prisma";
 import { publishDenMembershipChanged } from "../redis";
@@ -346,6 +346,7 @@ async function createDenAttempt(params: {
       await tx.orm.public.MessageConversationMembers.create({
         conversationId: den.id,
         role: "OWNER",
+        unreadCount: 0,
         userId: params.creatorId,
       });
       // Sequential on purpose. These are dependent writes to the same
@@ -361,6 +362,7 @@ async function createDenAttempt(params: {
           conversationId: den.id,
           invitedById: params.creatorId,
           role: "MEMBER",
+          unreadCount: 0,
           userId,
         });
       }
@@ -957,7 +959,7 @@ export async function addDenMembers(
   // Authorization first, before the claim: a plain member must not be able to
   // take the den's row lock at all, let alone write to it.
   await requireDenManager(conversationId, actorId);
-  return await withDenMembershipChange(
+  const added = await withDenMembershipChange(
     conversationId,
     actorId,
     async (tx, claimed) => {
@@ -1049,6 +1051,7 @@ export async function addDenMembers(
             invitedById: actorId,
             leftAt: null,
             role: "MEMBER",
+            unreadCount: null,
           });
           continue;
         }
@@ -1057,6 +1060,7 @@ export async function addDenMembers(
           conversationId,
           invitedById: actorId,
           role: "MEMBER",
+          unreadCount: 0,
           userId,
         });
       }
@@ -1102,6 +1106,8 @@ export async function addDenMembers(
       };
     }
   );
+  await unreadMessageCache.resetMany(added);
+  return added;
 }
 
 export async function removeDenMember(
@@ -1160,6 +1166,7 @@ export async function removeDenMember(
       ).updateAndCount({
         leftAt: toPrismaDateTime(new Date()),
         role: "MEMBER",
+        unreadCount: 0,
       });
       // "Ada removed Bob". The actor is named from a snapshot too: the manager may
       // leave later, and the line should still say who did this.
@@ -1197,6 +1204,7 @@ export async function removeDenMember(
       };
     }
   );
+  await unreadMessageCache.reset(targetUserId);
 }
 
 function roleRank(role: DenRole): number {
@@ -1364,6 +1372,7 @@ export async function banDenMember(
       ).updateAndCount({
         leftAt: toPrismaDateTime(new Date()),
         role: "MEMBER",
+        unreadCount: 0,
       });
       const names = await denEventNames(tx, [actorId, targetUserId]);
       await recordDenMembershipEvent(tx, {
@@ -1395,6 +1404,7 @@ export async function banDenMember(
       };
     }
   );
+  await unreadMessageCache.reset(targetUserId);
 }
 
 // Lifts a ban, restoring ELIGIBILITY and nothing else.
@@ -1450,7 +1460,7 @@ export async function leaveDen(
   // narrower shape and every later branch is a type error, which is a pressure
   // that ends as `as LeaveDenResult` on each one - four casts hiding that the
   // function's contract is `LeaveDenResult` and could simply have said so.
-  return await withDenMembershipChange<LeaveDenResult>(
+  const result = await withDenMembershipChange<LeaveDenResult>(
     conversationId,
     userId,
     async (tx, claimed) => {
@@ -1488,6 +1498,7 @@ export async function leaveDen(
       ).updateAndCount({
         leftAt: toPrismaDateTime(new Date()),
         role: "MEMBER",
+        unreadCount: 0,
       });
       // "Ada left the den". Recorded before the ownership branch so the leaver's
       // own line exists whether or not they were the owner; the handover, when
@@ -1606,6 +1617,8 @@ export async function leaveDen(
       };
     }
   );
+  await unreadMessageCache.reset(userId);
+  return result;
 }
 
 // Only ADMIN and MEMBER are assignable. OWNER is refused on purpose: assigning
@@ -2563,8 +2576,13 @@ export async function joinDenByInviteCode(
         and(member.conversationId.eq(den.id), member.userId.eq(userId))
       ).upsert({
         conflictOn: { conversationId: den.id, userId },
-        create: { conversationId: den.id, role: "MEMBER", userId },
-        update: { leftAt: null, role: "MEMBER" },
+        create: {
+          conversationId: den.id,
+          role: "MEMBER",
+          unreadCount: 0,
+          userId,
+        },
+        update: { leftAt: null, role: "MEMBER", unreadCount: null },
       });
       // A join through a link has no single author, so actor and subject are the
       // same person. The line reads "Ada joined the den", which is what happened.
@@ -2591,6 +2609,9 @@ export async function joinDenByInviteCode(
       };
     }
   );
+  if (outcome) {
+    await unreadMessageCache.reset(userId);
+  }
   return { alreadyMember: !outcome, id: den.id };
 }
 

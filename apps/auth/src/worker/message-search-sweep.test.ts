@@ -11,6 +11,7 @@ function createDependencies() {
     enqueueBackfillOutbox: mock(() => Promise.resolve()),
     enqueueCount: mock(() => Promise.resolve()),
     enqueueLiveOutbox: mock(() => Promise.resolve()),
+    enqueueUnreadCounter: mock(() => Promise.resolve()),
     expireStaleCounts: mock(() => Promise.resolve()),
     listPendingOutbox: mock(() =>
       Promise.resolve([
@@ -24,6 +25,9 @@ function createDependencies() {
       ])
     ),
     listRunnableCounts: mock(() => Promise.resolve(["count-1"])),
+    listRunnableUnreadCounters: mock(() =>
+      Promise.resolve([{ conversationId: "conversation-1", userId: "user-1" }])
+    ),
   };
 }
 
@@ -56,6 +60,11 @@ describe("message-search worker sweep", () => {
     expect(dependencies.expireStaleCounts).toHaveBeenCalledTimes(1);
     expect(dependencies.listRunnableCounts).not.toHaveBeenCalled();
     expect(dependencies.enqueueCount).not.toHaveBeenCalled();
+    expect(dependencies.listRunnableUnreadCounters).toHaveBeenCalledWith(100);
+    expect(dependencies.enqueueUnreadCounter).toHaveBeenCalledWith({
+      conversationId: "conversation-1",
+      userId: "user-1",
+    });
   });
 
   test("schedules live, historical, and count work when each switch is enabled", async () => {
@@ -77,6 +86,11 @@ describe("message-search worker sweep", () => {
     );
     expect(dependencies.listRunnableCounts).toHaveBeenCalledWith(20);
     expect(dependencies.enqueueCount).toHaveBeenCalledWith("count-1");
+    expect(dependencies.listRunnableUnreadCounters).toHaveBeenCalledWith(100);
+    expect(dependencies.enqueueUnreadCounter).toHaveBeenCalledWith({
+      conversationId: "conversation-1",
+      userId: "user-1",
+    });
   });
 
   test("propagates queue failures so the worker can report and retry on its next sweep", async () => {

@@ -67,6 +67,10 @@ const mockConversationUpdate = mock(() => ({
   changeSeq: 0,
   membershipSeq: 0,
 }));
+const mockMemberUpdate = mock((args: Record<string, unknown>) => args);
+const mockListUnreadMembers = mock(() => [] as Record<string, unknown>[]);
+let activeConversationId = "convo-1";
+let memberUnreadCounts = new Map<string, number | null>();
 const mockMessageUpdate = mock(() => ({}));
 const mockCreateSearchOutbox = mock((args: Record<string, unknown>) => ({
   id: "search-outbox-1",
@@ -307,6 +311,14 @@ const txClient = {
           return { updateAndCount: mockKeyUpdateAndCount };
         },
       },
+      MessageConversationMembers: {
+        select: () => ({
+          where: () => ({
+            orderBy: () => ({ all: mockListUnreadMembers }),
+          }),
+        }),
+        where: () => ({ update: mockMemberUpdate }),
+      },
       MessageConversations: {
         where: () => ({ update: mockConversationUpdate }),
       },
@@ -330,6 +342,7 @@ mock.module("@/lib/messages/server", () => ({
       return null;
     }
     if (conversationId === "den-1") {
+      activeConversationId = conversationId;
       return {
         id: "den-1",
         members: [
@@ -346,6 +359,7 @@ mock.module("@/lib/messages/server", () => ({
         type: "DEN",
       };
     }
+    activeConversationId = conversationId;
     return conversationId === "convo-1"
       ? {
           id: "convo-1",
@@ -402,9 +416,6 @@ mock.module("@asm/db", () => ({
         MessageConversationKeys: {
           select: () => ({ where: () => ({ first: mockKeyFirst }) }),
           where: () => ({ updateAndCount: mockKeyUpdateAndCount }),
-        },
-        MessageConversations: {
-          where: () => ({ update: mockConversationUpdate }),
         },
         MessageSearchOutbox: { create: mockCreateSearchOutbox },
         Messages: {
@@ -478,6 +489,31 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       { mutedAt: null, userId: "user3" },
     ];
     mockConversationUpdate.mockClear();
+    mockMemberUpdate.mockClear();
+    mockListUnreadMembers.mockClear();
+    mockListUnreadMembers.mockImplementation(() => {
+      if (activeConversationId === "den-1") {
+        return [
+          { leftAt: null, mutedAt: null, unreadCount: null, userId: "user1" },
+          ...denMembers.map((member) => ({
+            leftAt: null,
+            mutedAt: member.mutedAt,
+            unreadCount: memberUnreadCounts.get(member.userId) ?? null,
+            userId: member.userId,
+          })),
+        ];
+      }
+      return [
+        { leftAt: null, mutedAt: null, unreadCount: null, userId: "user1" },
+        {
+          leftAt: null,
+          mutedAt: peerMutedAt,
+          unreadCount: memberUnreadCounts.get("user2") ?? null,
+          userId: "user2",
+        },
+      ];
+    });
+    memberUnreadCounts = new Map();
     mockConversationUpdate.mockImplementation(() => ({
       changeSeq: 0,
       membershipSeq: 0,
@@ -533,6 +569,17 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     // The peer, and not the sender: a member reads their own messages, and the
     // read route's decrement counts only peer-authored rows, so the two halves
     // have to agree about who that is.
+    expect(unreadRecipients()).toEqual(["user2"]);
+  });
+
+  test("increments an initialized member counter inside the send transaction", async () => {
+    memberUnreadCounts.set("user2", 4);
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockMemberUpdate).toHaveBeenCalledWith({ unreadCount: 5 });
     expect(unreadRecipients()).toEqual(["user2"]);
   });
 

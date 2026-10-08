@@ -72,6 +72,7 @@ export const NOTIFICATIONS_QUEUE = "notifications";
 export const MESSAGE_SEARCH_LIVE_QUEUE = "message-search-live";
 export const MESSAGE_SEARCH_BACKFILL_QUEUE = "message-search-backfill";
 export const MESSAGE_SEARCH_COUNT_QUEUE = "message-search-count";
+export const MESSAGE_UNREAD_COUNTER_QUEUE = "message-unread-counter";
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -254,6 +255,22 @@ export const unreadMessageCache = {
       await redis.del(`${UNREAD_MESSAGE_PREFIX}${userId}`);
     } catch (error) {
       console.error("Error resetting unread message count:", error);
+    }
+  },
+
+  async resetMany(userIds: readonly string[]): Promise<void> {
+    const recipients = [...new Set(userIds)];
+    if (recipients.length === 0) {
+      return;
+    }
+    try {
+      const pipeline = redis.pipeline();
+      for (const userId of recipients) {
+        pipeline.del(`${UNREAD_MESSAGE_PREFIX}${userId}`);
+      }
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error resetting unread message counts:", error);
     }
   },
 };
@@ -485,6 +502,24 @@ export async function enqueueMessageSearchCount(
       attempts: 8,
       backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
       priority: 20,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function enqueueMessageUnreadCounter(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_UNREAD_COUNTER_QUEUE),
+    "reconcile-message-unread-counter",
+    `dm-unread-${conversationId}-${userId}`,
+    { conversationId, userId },
+    {
+      attempts: 8,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
       removeOnComplete: 1000,
       removeOnFail: 5000,
     }

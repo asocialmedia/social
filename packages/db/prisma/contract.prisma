@@ -896,6 +896,9 @@ namespace public {
     lastReadAt      Timestamp(3)?
     // Null until the member marks the thread read after sequence cursors are deployed.
     lastReadSequence Int?
+    // Null until the durable backfill worker has reconciled this member's unread
+    // state. A null counter always falls back to the indexed unread aggregate.
+    unreadCount     Int?
     lastDeliveredAt Timestamp(3)?
     mutedAt         Timestamp(3)?
     themeKey        String?
@@ -913,6 +916,7 @@ namespace public {
     @@id([conversationId, userId], map: "message_conversation_members_pkey")
     @@index([userId], map: "message_conversation_members_userId_idx")
     @@index([userId, mutedAt], map: "message_conversation_members_userId_mutedAt_idx")
+    @@index([unreadCount], map: "message_conversation_members_unread_count_idx")
     @@index([invitedById], map: "message_conversation_members_invitedById_idx")
     @@index([conversationId, role], map: "message_conversation_members_conversationId_role_idx")
     @@unique([wallpaperMediaId], map: "message_conversation_members_wallpaperMediaId_key")

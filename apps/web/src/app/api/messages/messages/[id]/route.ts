@@ -6,6 +6,7 @@ import {
   prisma,
   publishMessageDeleted,
   publishMessageEdited,
+  unreadMessageCache,
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -151,6 +152,19 @@ export async function DELETE(
   }
   if (mutation.status === "updated") {
     enqueueSearchMutation(mutation.outboxId);
+    const recipients = message.conversation.messageConversationMembers
+      .filter((member) => !member.leftAt)
+      .map((member) => member.userId);
+    try {
+      await Promise.all(
+        recipients.map((recipientId) => unreadMessageCache.reset(recipientId))
+      );
+    } catch (error) {
+      console.error(
+        "Failed to invalidate unread message counts after delete",
+        error
+      );
+    }
   }
 
   await publishMessageDeleted(message.conversationId, {

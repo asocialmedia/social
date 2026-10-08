@@ -38,12 +38,15 @@ if (import.meta.main) {
     enqueueMessageSearchBackfill,
     enqueueMessageSearchBackfillOutbox,
     enqueueMessageSearchOutbox,
+    enqueueMessageUnreadCounter,
     expireStaleMessageSearchCounts,
     listRunnableMessageSearchCounts,
     listRunnableMessageSearchBackfills,
+    listRunnableMessageUnreadCounters,
     registerMaintenanceSchedulers,
     createBullConnection,
     NOTIFICATIONS_QUEUE,
+    MESSAGE_UNREAD_COUNTER_QUEUE,
   } = await import("@asm/db");
   const { Worker: QueueWorker } = await import("bullmq");
   type QueueWorkerType = InstanceType<typeof QueueWorker>;
@@ -67,7 +70,7 @@ if (import.meta.main) {
     await import("./worker/message-search-index");
   const { processMessageSearchCount } =
     await import("./worker/message-search-count");
-  const { prisma } = await import("@asm/db");
+  const { prisma, reconcileMessageUnreadCounter } = await import("@asm/db");
 
   const workers: QueueWorkerType[] = [];
   let viewLoopPromise: Promise<void> | undefined;
@@ -161,6 +164,8 @@ if (import.meta.main) {
           enqueueBackfillOutbox: enqueueMessageSearchBackfillOutbox,
           enqueueCount: enqueueMessageSearchCount,
           enqueueLiveOutbox: enqueueMessageSearchOutbox,
+          enqueueUnreadCounter: (task) =>
+            enqueueMessageUnreadCounter(task.conversationId, task.userId),
           expireStaleCounts: expireStaleMessageSearchCounts,
           listPendingOutbox: async (limit, includeBackfill) => {
             const baseQuery = prisma.orm.public.MessageSearchOutbox.select(
@@ -177,6 +182,7 @@ if (import.meta.main) {
           },
           listRunnableBackfills: listRunnableMessageSearchBackfills,
           listRunnableCounts: listRunnableMessageSearchCounts,
+          listRunnableUnreadCounters: listRunnableMessageUnreadCounters,
         });
       } catch (error) {
         logger.error({ error }, "message search outbox sweep failed");
@@ -213,6 +219,23 @@ if (import.meta.main) {
           { concurrency: 1, connection }
         )
       : undefined;
+    const messageUnreadCounterWorker = new QueueWorker(
+      MESSAGE_UNREAD_COUNTER_QUEUE,
+      async (job) => {
+        const conversationId = job.data?.conversationId;
+        const userId = job.data?.userId;
+        if (
+          typeof conversationId !== "string" ||
+          conversationId.length === 0 ||
+          typeof userId !== "string" ||
+          userId.length === 0
+        ) {
+          throw new Error("Invalid message unread counter job");
+        }
+        await reconcileMessageUnreadCounter({ conversationId, userId });
+      },
+      { concurrency: 1, connection }
+    );
     await sweepMessageSearchOutbox();
     messageSearchSweepTimer = setInterval(() => {
       void sweepMessageSearchOutbox();
@@ -317,7 +340,8 @@ if (import.meta.main) {
       maintenanceWorker,
       messageSearchLiveWorker,
       ...(messageSearchBackfillWorker ? [messageSearchBackfillWorker] : []),
-      ...(messageSearchCountWorker ? [messageSearchCountWorker] : [])
+      ...(messageSearchCountWorker ? [messageSearchCountWorker] : []),
+      messageUnreadCounterWorker
     );
 
     notificationWorker.on("completed", (job) => {

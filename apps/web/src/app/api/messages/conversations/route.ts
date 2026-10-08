@@ -355,6 +355,13 @@ export async function GET(request: Request) {
         ?.lastReadSequence ?? null,
     ])
   );
+  const unreadCounterByConversation = new Map(
+    conversationRows.map((row) => [
+      row.id,
+      row.messageConversationMembers.find((member) => member.userId === user.id)
+        ?.unreadCount ?? null,
+    ])
+  );
   // The viewer's own stint boundaries for every den on the page, in one read.
   // A rejoin leaves the membership row unable to say which stretch of the
   // transcript the viewer was away for, and the preview below must not offer a
@@ -415,41 +422,44 @@ export async function GET(request: Request) {
     return true;
   });
 
-  // One grouped query for the whole page instead of a count round-trip per
-  // conversation. PostgreSQL does the grouping, so this route never transfers
-  // every unread message row just to count them in JavaScript. Each member's
-  // own read watermark bounds its conversation's unread set; a page-wide
-  // "earliest" bound would let one never-read thread pull every message across
-  // the page.
-  const unreadWatermarks = visibleConversations.map((conversation) => {
+  // Ready counters answer each conversation directly. One grouped query handles
+  // only members awaiting durable backfill; PostgreSQL still groups that fallback
+  // set instead of sending unread message rows to JavaScript. Each pending
+  // member's own read watermark bounds its conversation's unread set.
+  const unreadWatermarks = visibleConversations.flatMap((conversation) => {
+    if (unreadCounterByConversation.get(conversation.id) !== null) {
+      return [];
+    }
     const myMember = conversation.members.find(
       (member) => member.userId === user.id
     );
     const lastReadSequence = readSequenceByConversation.get(conversation.id);
-    return {
-      conversationId: conversation.id,
-      lastReadAt: myMember?.lastReadAt ?? null,
-      ...(lastReadSequence === null || lastReadSequence === undefined
-        ? {}
-        : { lastReadSequence }),
-      windows:
-        conversation.type === "DEN"
-          ? readerMessageWindows({
-              conversationType: "DEN",
-              events: membershipEventsByDen.get(conversation.id) ?? [],
-              membership: myMember
-                ? {
-                    createdAt: myMember.createdAt,
-                    leftAt: myMember.leftAt ?? null,
-                  }
-                : null,
-              userId: user.id,
-            })
-          : undefined,
-    };
+    return [
+      {
+        conversationId: conversation.id,
+        lastReadAt: myMember?.lastReadAt ?? null,
+        ...(lastReadSequence === null || lastReadSequence === undefined
+          ? {}
+          : { lastReadSequence }),
+        windows:
+          conversation.type === "DEN"
+            ? readerMessageWindows({
+                conversationType: "DEN",
+                events: membershipEventsByDen.get(conversation.id) ?? [],
+                membership: myMember
+                  ? {
+                      createdAt: myMember.createdAt,
+                      leftAt: myMember.leftAt ?? null,
+                    }
+                  : null,
+                userId: user.id,
+              })
+            : undefined,
+      },
+    ];
   });
   const unreadCounts =
-    visibleConversations.length === 0
+    unreadWatermarks.length === 0
       ? []
       : await prisma.orm.public.Messages.where(
           unreadMessagesWhere({
@@ -470,7 +480,10 @@ export async function GET(request: Request) {
       const myMember = conversation.members.find(
         (member) => member.userId === user.id
       );
-      const unreadCount = unreadCountByConversation.get(conversation.id) ?? 0;
+      const unreadCount =
+        unreadCounterByConversation.get(conversation.id) ??
+        unreadCountByConversation.get(conversation.id) ??
+        0;
       // A muted chat keeps its messages but loses its badge: mute is this
       // member's own preference, so it is applied here rather than by filtering
       // the query (which would also drop the thread from the rail).
@@ -631,10 +644,12 @@ export async function POST(request: Request) {
       });
       await tx.orm.public.MessageConversationMembers.create({
         conversationId: created.id,
+        unreadCount: 0,
         userId: recipientId,
       });
       await tx.orm.public.MessageConversationMembers.create({
         conversationId: created.id,
+        unreadCount: 0,
         userId: user.id,
       });
       const row = await getMessageConversationDataQuery(tx.orm)

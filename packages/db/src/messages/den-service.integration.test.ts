@@ -29,6 +29,7 @@ import {
   setDenMemberRole,
   subscribeToChannel,
   transferDenOwnership,
+  unreadMessageCache,
   updateDenDetails,
 } from "@asm/db";
 import { and, or } from "@prisma/orm-postgres/orm-client";
@@ -836,6 +837,25 @@ describe("a den somebody left", () => {
     expect(await messageCount(denId)).toBe(1);
     // They are no longer in the room.
     expect(await memberCount(denId)).toBe(2);
+  });
+
+  test("membership changes invalidate each affected account's unread cache", async () => {
+    const denId = await makeDen([ADMIN_ID]);
+    await unreadMessageCache.increment(OUTSIDER_ID, 7);
+
+    await addDenMembers(denId, OWNER_ID, [OUTSIDER_ID]);
+
+    expect(await unreadMessageCache.get(OUTSIDER_ID)).toBeNull();
+
+    await unreadMessageCache.increment(OUTSIDER_ID, 7);
+    await removeDenMember(denId, OWNER_ID, OUTSIDER_ID);
+
+    expect(await unreadMessageCache.get(OUTSIDER_ID)).toBeNull();
+
+    await unreadMessageCache.increment(ADMIN_ID, 7);
+    await leaveDen(denId, ADMIN_ID);
+
+    expect(await unreadMessageCache.get(ADMIN_ID)).toBeNull();
   });
 
   test("removal stamps the row the same way, and clears the rank it held", async () => {

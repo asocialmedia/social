@@ -98,6 +98,11 @@ export interface SearchReferenceRow extends SearchReferenceCursor {
   senderId: string;
 }
 
+export interface MessageUnreadCounterMember {
+  conversationId: string;
+  userId: string;
+}
+
 export interface MessageSearchCountRequestInput {
   conversationId: string;
   expiresAt: Date;
@@ -666,12 +671,161 @@ export async function releaseMessageSearchCountRequest(
   );
 }
 
+export async function listRunnableMessageUnreadCounters(
+  limit = 100
+): Promise<MessageUnreadCounterMember[]> {
+  const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
+  const result = await getSearchPool().query<MessageUnreadCounterMember>(
+    `SELECT "conversationId", "userId"
+       FROM public.message_conversation_members
+      WHERE "unreadCount" IS NULL
+      LIMIT $1`,
+    [boundedLimit]
+  );
+  return result.rows;
+}
+
+export async function reconcileMessageUnreadCounter(
+  input: MessageUnreadCounterMember
+): Promise<number | null> {
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    const conversationResult = await client.query<{ type: string }>(
+      `SELECT "type"
+         FROM public.message_conversations
+        WHERE id = $1
+        FOR NO KEY UPDATE`,
+      [input.conversationId]
+    );
+    const [conversation] = conversationResult.rows;
+    if (!conversation) {
+      await client.query("COMMIT");
+      return null;
+    }
+
+    const memberResult = await client.query<{
+      createdAt: Date;
+      lastReadAt: Date | null;
+      lastReadSequence: number | null;
+      leftAt: Date | null;
+      mutedAt: Date | null;
+      unreadCount: number | null;
+    }>(
+      `SELECT "createdAt", "lastReadAt", "lastReadSequence", "leftAt",
+              "mutedAt", "unreadCount"
+         FROM public.message_conversation_members
+        WHERE "conversationId" = $1 AND "userId" = $2
+        FOR UPDATE`,
+      [input.conversationId, input.userId]
+    );
+    const [member] = memberResult.rows;
+    if (!member) {
+      await client.query("COMMIT");
+      return null;
+    }
+    if (member.unreadCount !== null) {
+      await client.query("COMMIT");
+      return member.unreadCount;
+    }
+    if (member.leftAt !== null || member.mutedAt !== null) {
+      await client.query(
+        `UPDATE public.message_conversation_members
+            SET "unreadCount" = 0
+          WHERE "conversationId" = $1 AND "userId" = $2
+            AND "unreadCount" IS NULL`,
+        [input.conversationId, input.userId]
+      );
+      await client.query("COMMIT");
+      return 0;
+    }
+
+    let membershipStart: Date | null = null;
+    if (conversation.type === "DEN") {
+      const joinedResult = await client.query<{ joinedAt: Date | null }>(
+        `SELECT MAX("createdAt") AS "joinedAt"
+           FROM public.message_conversation_membership_events
+          WHERE "conversationId" = $1
+            AND "targetUserId" = $2
+            AND action = 'JOINED'`,
+        [input.conversationId, input.userId]
+      );
+      const joinedAt = joinedResult.rows[0]?.joinedAt ?? null;
+      membershipStart =
+        joinedAt && joinedAt > member.createdAt ? joinedAt : member.createdAt;
+    }
+
+    const countResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM public.messages AS message
+        WHERE message."conversationId" = $1
+          AND message."senderId" <> $2
+          AND message."deletedAt" IS NULL
+          AND (
+            ($4::integer IS NULL AND message."createdAt" > $3)
+            OR ($4::integer IS NOT NULL AND (
+              message."creationSequence" > $4
+              OR (message."creationSequence" = 0 AND message."createdAt" > $3)
+            ))
+          )
+          AND ($5::timestamp IS NULL OR message."createdAt" >= $5)
+          AND NOT EXISTS (
+            SELECT 1
+              FROM public.message_hidden AS hidden
+             WHERE hidden."messageId" = message.id
+               AND hidden."userId" = $2
+          )`,
+      [
+        input.conversationId,
+        input.userId,
+        member.lastReadAt ?? new Date(0),
+        member.lastReadSequence,
+        membershipStart,
+      ]
+    );
+    const unreadCount = Number(countResult.rows[0]?.count ?? "0");
+    if (
+      !Number.isSafeInteger(unreadCount) ||
+      unreadCount < 0 ||
+      unreadCount > 2_147_483_647
+    ) {
+      throw new Error("Unread message count is outside the supported range");
+    }
+
+    const updated = await client.query(
+      `UPDATE public.message_conversation_members
+          SET "unreadCount" = $3
+        WHERE "conversationId" = $1 AND "userId" = $2
+          AND "unreadCount" IS NULL`,
+      [input.conversationId, input.userId, unreadCount]
+    );
+    await client.query("COMMIT");
+    return updated.rowCount === 1 ? unreadCount : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function commitMessageSearchMutation(
   input: MessageSearchMutationInput
 ): Promise<MessageSearchMutationResult> {
   const client = await getSearchPool().connect();
   try {
     await client.query("BEGIN");
+    const conversationLock = await client.query(
+      `SELECT id
+         FROM public.message_conversations
+        WHERE id = $1
+        FOR UPDATE`,
+      [input.conversationId]
+    );
+    if (conversationLock.rowCount !== 1) {
+      await client.query("COMMIT");
+      return { status: "not-found" };
+    }
     const source = await client.query<{
       deletedAt: Date | null;
       revision: number;
@@ -748,6 +902,17 @@ export async function commitMessageSearchMutation(
     const [updatedMessage] = update.rows;
     if (!updatedMessage) {
       throw new Error("Message revision changed while holding its row lock");
+    }
+
+    if (input.kind === "delete") {
+      await client.query(
+        `UPDATE public.message_conversation_members
+            SET "unreadCount" = NULL
+          WHERE "conversationId" = $1
+            AND "leftAt" IS NULL
+            AND "mutedAt" IS NULL`,
+        [input.conversationId]
+      );
     }
 
     const sequenceResult = await client.query<{ changeSeq: number }>(
@@ -918,7 +1083,8 @@ export async function commitMessageConversationRead(input: {
       `UPDATE public.message_conversation_members
           SET "lastReadAt" = statement_timestamp(),
               "lastDeliveredAt" = statement_timestamp(),
-              "lastReadSequence" = $3
+              "lastReadSequence" = $3,
+              "unreadCount" = 0
         WHERE "conversationId" = $1 AND "userId" = $2
         RETURNING "lastReadAt"`,
       [input.conversationId, input.userId, readSequence]
@@ -1123,6 +1289,12 @@ export async function commitMessageHides(input: {
         withinMembership
       );
     }).length;
+    await client.query(
+      `UPDATE public.message_conversation_members
+          SET "unreadCount" = NULL
+        WHERE "conversationId" = $1 AND "userId" = $2`,
+      [input.conversationId, input.userId]
+    );
     await client.query("COMMIT");
     return {
       changes,

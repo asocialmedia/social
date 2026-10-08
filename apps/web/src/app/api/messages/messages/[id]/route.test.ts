@@ -52,6 +52,7 @@ const mockPublishDeleted = mock(() => {
   limiter.service("publish-deleted");
   return Promise.resolve();
 });
+const mockResetUnreadMessageCache = mock(() => Promise.resolve());
 
 // A DM, which is the shape every pre-existing case in this file used. `_type` is
 // the field the route never selected before: without it a den and a DM are
@@ -139,6 +140,7 @@ mock.module("@asm/db", () => ({
   publishMessageDeleted: mockPublishDeleted,
   publishMessageEdited: mockPublishEdited,
   toPrismaDateTime: (value: Date) => value,
+  unreadMessageCache: { reset: mockResetUnreadMessageCache },
 }));
 
 function url() {
@@ -419,6 +421,8 @@ describe("DELETE /api/messages/messages/:id", () => {
     mockEnqueueSearchOutbox.mockReset();
     mockEnqueueSearchOutbox.mockImplementation(() => Promise.resolve());
     mockPublishDeleted.mockReset();
+    mockResetUnreadMessageCache.mockReset();
+    mockResetUnreadMessageCache.mockImplementation(() => Promise.resolve());
     mockGetSession.mockReset();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockAreBlocked.mockReset();
@@ -441,6 +445,9 @@ describe("DELETE /api/messages/messages/:id", () => {
     );
     expect(mockEnqueueSearchOutbox).toHaveBeenCalledWith("outbox-1");
     expect(mockPublishDeleted).toHaveBeenCalledTimes(1);
+    expect(
+      mockResetUnreadMessageCache.mock.calls.map(([userId]) => userId)
+    ).toEqual(["user1", "user2"]);
   });
 
   test("refuses to delete someone else's message for everyone", async () => {

@@ -134,8 +134,9 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
       "wallpaperKey",
       "wallpaperMediaId",
     ]);
-    expect(Object.keys(updateValue)).toEqual(["mutedAt"]);
+    expect(Object.keys(updateValue)).toEqual(["mutedAt", "unreadCount"]);
     expect(updateValue.mutedAt).toBeInstanceOf(Date);
+    expect(updateValue.unreadCount).toBeNull();
   });
 
   test("unmutes by clearing the timestamp", async () => {

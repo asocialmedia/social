@@ -26,6 +26,7 @@ interface MembershipRow {
   createdAt?: Date;
   lastReadAt: Date | null;
   lastReadSequence?: number | null;
+  unreadCount?: number | null;
 }
 
 let memberships: MembershipRow[] = [];
@@ -344,6 +345,46 @@ describe("GET /api/messages/unread-count", () => {
         lastReadAt: new Date("2026-01-01T00:00:00Z"),
       },
     ]);
+  });
+
+  test("uses initialized member counters without scanning message history", async () => {
+    memberships = [
+      {
+        conversationId: "convo-ready",
+        lastReadAt: new Date(0),
+        unreadCount: 4,
+      },
+    ];
+    const res = await GET();
+    const body = (await res.json()) as { unreadCount: number };
+
+    expect(body.unreadCount).toBe(4);
+    expect(mockCacheIncrement).toHaveBeenCalledWith("user1", 4);
+    expect(dbCalls).not.toContain("Messages");
+  });
+
+  test("combines ready counters with aggregate fallback for pending memberships", async () => {
+    memberships = [
+      {
+        conversationId: "convo-ready",
+        lastReadAt: new Date(0),
+        unreadCount: 3,
+      },
+      {
+        conversationId: "convo-pending",
+        lastReadAt: new Date(0),
+        unreadCount: null,
+      },
+    ];
+    unreadRows = ["convo-pending", "convo-pending"];
+    const res = await GET();
+    const body = (await res.json()) as { unreadCount: number };
+
+    expect(body.unreadCount).toBe(5);
+    expect(mockCacheIncrement).toHaveBeenCalledWith("user1", 5);
+    expect(
+      lastUnreadWhere?.watermarks.map((row) => row.conversationId)
+    ).toEqual(["convo-pending"]);
   });
 
   test("a never-read conversation counts from the epoch, not from null", async () => {

@@ -1141,6 +1141,50 @@ describe("GET /api/messages/conversations", () => {
     ).toBe(0);
   });
 
+  test("uses a ready unread counter without scanning that conversation's messages", async () => {
+    conversationPage = [
+      pageConversation("dm-ready", "DM", ["user1", "user2"], {
+        messageConversationMembers: [
+          memberRow("dm-ready", "user1", { unreadCount: 4 }),
+          memberRow("dm-ready", "user2"),
+        ],
+        messages: [dmPreview("dm-ready")],
+      }),
+    ];
+
+    const body = await readList();
+
+    expect(body.items[0]?.unreadCount).toBe(4);
+    expect(lastUnreadBranches).toEqual([]);
+  });
+
+  test("aggregates only pending counters while ready values serve the rest", async () => {
+    conversationPage = [
+      pageConversation("dm-ready", "DM", ["user1", "user2"], {
+        messageConversationMembers: [
+          memberRow("dm-ready", "user1", { unreadCount: 3 }),
+          memberRow("dm-ready", "user2"),
+        ],
+        messages: [dmPreview("dm-ready")],
+      }),
+      pageConversation("dm-pending", "DM", ["user1", "user3"], {
+        messageConversationMembers: [
+          memberRow("dm-pending", "user1", { unreadCount: null }),
+          memberRow("dm-pending", "user3"),
+        ],
+        messages: [dmPreview("dm-pending", "user3")],
+      }),
+    ];
+    unreadConversationIds = ["dm-pending", "dm-pending"];
+
+    const body = await readList();
+
+    expect(body.items.map((item) => item.unreadCount)).toEqual([3, 2]);
+    expect(lastUnreadBranches.map((row) => row.conversationId)).toEqual([
+      "dm-pending",
+    ]);
+  });
+
   // FIX C. The invite code is the ability to add strangers, and the detail route
   // withholds it from anybody who cannot manage. The list route returned the whole
   // conversation object, so every plain member received it anyway - through the

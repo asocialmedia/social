@@ -130,7 +130,8 @@ describe("commitMessageConversationRead", () => {
       unreadCount: 1,
     });
     const member = await prisma.orm.public.MessageConversationMembers.select(
-      "lastReadSequence"
+      "lastReadSequence",
+      "unreadCount"
     )
       .where((row) =>
         and(
@@ -140,6 +141,7 @@ describe("commitMessageConversationRead", () => {
       )
       .first();
     expect(member?.lastReadSequence).toBe(12);
+    expect(member?.unreadCount).toBe(0);
   });
 
   test("keeps empty and unbounded membership windows safe in shared unread queries", async () => {
@@ -202,7 +204,28 @@ describe("commitMessageConversationRead", () => {
           WHERE id = $1`,
         [RACE_MESSAGE_ID, creationSequence]
       );
+      await sender.query(
+        `UPDATE public.message_conversation_members
+            SET "unreadCount" = "unreadCount" + 1
+          WHERE "conversationId" = $1
+            AND "userId" = $2
+            AND "leftAt" IS NULL
+            AND "mutedAt" IS NULL
+            AND "unreadCount" IS NOT NULL`,
+        [RACE_CONVERSATION_ID, OWNER_ID]
+      );
       await sender.query("COMMIT");
+
+      const sentCounter =
+        await prisma.orm.public.MessageConversationMembers.select("unreadCount")
+          .where((member) =>
+            and(
+              member.conversationId.eq(RACE_CONVERSATION_ID),
+              member.userId.eq(OWNER_ID)
+            )
+          )
+          .first();
+      expect(sentCounter?.unreadCount).toBe(1);
 
       const sentMessage = await prisma.orm.public.Messages.select(
         "createdAt",
@@ -250,6 +273,16 @@ describe("commitMessageConversationRead", () => {
         status: "read",
         unreadCount: 1,
       });
+      const readCounter =
+        await prisma.orm.public.MessageConversationMembers.select("unreadCount")
+          .where((member) =>
+            and(
+              member.conversationId.eq(RACE_CONVERSATION_ID),
+              member.userId.eq(OWNER_ID)
+            )
+          )
+          .first();
+      expect(readCounter?.unreadCount).toBe(0);
     } catch (error) {
       await sender.query("ROLLBACK").catch(() => null);
       throw error;

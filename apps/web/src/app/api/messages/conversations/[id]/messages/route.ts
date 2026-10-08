@@ -618,36 +618,7 @@ export async function POST(
     );
   }
 
-  // Everyone who accrues an unread badge for this message, decided from the
-  // roster already in hand. Two exclusions, and they are the same two the
-  // counters are reconciled against:
-  //
-  //   - the sender, who reads their own message; and
-  //   - a member who muted the conversation. The mute exists so the badge stays
-  //     off, and the unread seed excludes muted memberships, so incrementing one
-  //     would grow a counter the seed would never justify.
-  //
-  // This has to name EVERY reader, not one of them. A DM has exactly one other
-  // member, so the old single-recipient answer was right there and wrong
-  // everywhere else: in a den it picked one member out of up to ninety-nine, so
-  // ninety-eight people got no badge and which one did was whatever order the
-  // roster came back in.
-  //
-  // From the snapshot the gate loaded, which is a moment before the write rather
-  // than the same transaction as it. A member added in that window misses one
-  // badge, and one removed in it gets one they should not have. Both are
-  // reconciled by the next seed, and re-reading the roster here to close the
-  // window would mean a second query on the hottest path in the app to fix an
-  // error that self-heals.
-  // `leftAt` is excluded for the same reason mute is, and one more: a departed
-  // member is not a recipient at all. The message is written under the current
-  // roster's epoch, which they hold no wrap for, so a badge here would count
-  // something they can never open.
-  const unreadRecipientIds = conversation.members
-    .filter(
-      (member) => member.userId !== user.id && !member.mutedAt && !member.leftAt
-    )
-    .map((member) => member.userId);
+  const unreadRecipientIds: string[] = [];
 
   // The ratchet index is authoritative on the server: it must equal the
   // sender's atomic per-conversation counter. If the client's count is stale
@@ -716,6 +687,44 @@ export async function POST(
         creationSequence: changeSequence,
         keyEpoch,
       });
+
+      // The conversation row lock serializes this roster snapshot with reads,
+      // counter reconciliation, and den membership changes. Updating members in
+      // user-id order keeps the row-lock order consistent across den fan-out.
+      const unreadMembers =
+        await tx.orm.public.MessageConversationMembers.select(
+          "leftAt",
+          "mutedAt",
+          "unreadCount",
+          "userId"
+        )
+          .where({ conversationId: id })
+          .orderBy((member) => member.userId.asc())
+          .all();
+      for (const member of unreadMembers) {
+        if (
+          member.userId === user.id ||
+          member.leftAt !== null ||
+          member.mutedAt !== null
+        ) {
+          continue;
+        }
+        unreadRecipientIds.push(member.userId);
+        if (member.unreadCount !== null) {
+          if (member.unreadCount >= 2_147_483_647) {
+            throw new Error(
+              "Unread message count is outside the supported range"
+            );
+          }
+          // oxlint-disable-next-line no-await-in-loop -- ordered member updates share the conversation lock.
+          await tx.orm.public.MessageConversationMembers.where((candidate) =>
+            and(
+              candidate.conversationId.eq(id),
+              candidate.userId.eq(member.userId)
+            )
+          ).update({ unreadCount: member.unreadCount + 1 });
+        }
+      }
       const outbox = await tx.orm.public.MessageSearchOutbox.create({
         audienceUserIds: conversation.members
           .filter((member) => !member.leftAt)

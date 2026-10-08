@@ -203,9 +203,10 @@ export async function PATCH(
     conversation.type === "DEN"
       ? {
           ...(hasMuted ? { mutedAt: data.mutedAt } : {}),
+          ...(hasMuted ? { unreadCount: null } : {}),
           ...(hasTheme ? { themeKey: data.themeKey } : {}),
         }
-      : data;
+      : { ...data, ...(hasMuted ? { unreadCount: null } : {}) };
   const memberQuery = prisma.orm.public.MessageConversationMembers.where(
     (row) => and(row.conversationId.eq(id), row.userId.eq(user.id))
   ).select(

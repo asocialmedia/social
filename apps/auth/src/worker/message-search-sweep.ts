@@ -32,6 +32,11 @@ export interface MessageSearchSweepBackfill {
   cursorMessageId: string | null;
 }
 
+export interface MessageUnreadCounterTask {
+  conversationId: string;
+  userId: string;
+}
+
 export interface MessageSearchSweepDependencies {
   enqueueBackfill: (
     conversationId: string,
@@ -40,6 +45,7 @@ export interface MessageSearchSweepDependencies {
   enqueueBackfillOutbox: (outboxId: string) => Promise<void>;
   enqueueCount: (requestId: string) => Promise<void>;
   enqueueLiveOutbox: (outboxId: string) => Promise<void>;
+  enqueueUnreadCounter: (task: MessageUnreadCounterTask) => Promise<void>;
   expireStaleCounts: () => Promise<void>;
   listPendingOutbox: (
     limit: number,
@@ -49,6 +55,9 @@ export interface MessageSearchSweepDependencies {
     limit: number
   ) => Promise<readonly MessageSearchSweepBackfill[]>;
   listRunnableCounts: (limit: number) => Promise<readonly string[]>;
+  listRunnableUnreadCounters: (
+    limit: number
+  ) => Promise<readonly MessageUnreadCounterTask[]>;
 }
 
 export async function sweepMessageSearchWork(
@@ -83,4 +92,9 @@ export async function sweepMessageSearchWork(
       countRequests.map((requestId) => dependencies.enqueueCount(requestId))
     );
   }
+
+  const unreadCounters = await dependencies.listRunnableUnreadCounters(100);
+  await Promise.all(
+    unreadCounters.map((task) => dependencies.enqueueUnreadCounter(task))
+  );
 }

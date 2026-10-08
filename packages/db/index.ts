@@ -111,6 +111,8 @@ export {
   countMessageSearchCandidates,
   hydrateSearchMessageCandidates,
   listMessageSearchReferences,
+  listRunnableMessageUnreadCounters,
+  reconcileMessageUnreadCounter,
   expireStaleMessageSearchCounts,
   getMessageSearchCountRequestStatus,
   listRunnableMessageSearchCounts,
@@ -150,6 +152,7 @@ export type {
   SearchReferenceArtifact,
   SearchMessageWindow,
   SearchTermArtifact,
+  MessageUnreadCounterMember,
 } from "./src/messages/search-index";
 export { keys } from "./keys";
 export { createDenMessageNotifications } from "./src/messages/den-notifications";

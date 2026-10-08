@@ -17,14 +17,10 @@ import { readerMessageWindows } from "@/lib/messages/reader-window";
 // account. Two things follow, and they are the two things this route is careful
 // about.
 //
-// SHAPE. One grouped read over every visible membership, not one count per
-// membership. The per-conversation watermark is preserved exactly, so this
-// answers the same question as the loop it replaced, minus N-1 round trips - and
-// it is the same predicate the conversation list already uses, so the badge and
-// the rail cannot disagree about what is unread. `unreadMessagesWhere` is the
-// shared form of that predicate; the single-conversation `unreadMessageWhere` is
-// literally this function with one entry, so the three message-level rules
-// (own sends, soft-deletes, "delete for me") exist once.
+// SHAPE. Ready per-member counters answer the common case without scanning message
+// history. One grouped read handles only rows awaiting backfill, not one count per
+// membership. `unreadMessagesWhere` remains the shared fallback predicate, so a
+// partial rollout cannot disagree with the conversation list about unread rows.
 //
 // QUESTION. Only a DM can be hidden by a block, and a den is a room that admits
 // regardless of blocks, so the candidate query is filtered to DMs in SQL and a
@@ -55,7 +51,8 @@ export async function GET() {
       "conversationId",
       "createdAt",
       "lastReadAt",
-      "lastReadSequence"
+      "lastReadSequence",
+      "unreadCount"
     )
       // The conversation's type rides the same read: the windows below apply to
       // dens only, and asking the type separately would be a second round trip
@@ -167,8 +164,16 @@ export async function GET() {
     }
   }
 
-  let unreadCount = 0;
-  if (visibleMemberships.length > 0) {
+  const readyUnreadCount = visibleMemberships.reduce(
+    (total, membership) => total + (membership.unreadCount ?? 0),
+    0
+  );
+  const pendingMemberships = visibleMemberships.filter(
+    (membership) =>
+      membership.unreadCount === null || membership.unreadCount === undefined
+  );
+  let unreadCount = readyUnreadCount;
+  if (pendingMemberships.length > 0) {
     // ONE read for the whole inbox.
     //
     // The conversation list buckets these rows by `conversationId` because it has
@@ -188,7 +193,7 @@ export async function GET() {
       unreadCounts = await prisma.orm.public.Messages.where(
         unreadMessagesWhere({
           userId: user.id,
-          watermarks: visibleMemberships.map((membership) => {
+          watermarks: pendingMemberships.map((membership) => {
             const { lastReadSequence } = membership;
             return {
               conversationId: membership.conversationId,
@@ -215,7 +220,7 @@ export async function GET() {
         { status: 503 }
       );
     }
-    unreadCount = unreadCounts.reduce((total, row) => total + row.count, 0);
+    unreadCount += unreadCounts.reduce((total, row) => total + row.count, 0);
     if (!Number.isSafeInteger(unreadCount) || unreadCount < 0) {
       return Response.json(
         { error: "Unread message count is temporarily unavailable" },
