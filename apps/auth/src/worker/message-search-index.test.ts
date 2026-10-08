@@ -103,7 +103,7 @@ mock.module("@asm/db", () => ({
   startMessageSearchBackfill: mockStartBackfill,
 }));
 
-mock.module("@asm/messages", () => ({
+mock.module("@asm/messages/crypto", () => ({
   decryptMessage: mock(
     (
       _rootKey: unknown,
@@ -116,13 +116,25 @@ mock.module("@asm/messages", () => ({
     Promise.resolve('{"kty":"EC","crv":"P-256"}')
   ),
   deriveMasterKey: mock(() => Promise.resolve("master-key")),
+  extractMessageReferences: mock(() => [
+    {
+      kind: "media",
+      mediaKind: "image",
+      ordinal: 0,
+      requiredId: "media_1",
+      url: "/api/media/media_1",
+    },
+  ]),
   importPrivateKeyJwk: mock(() => Promise.resolve({ kind: "private-key" })),
   importPublicKeyJwk: mock(() => Promise.resolve({ kind: "public-key" })),
+  publicKeyBase64ToJwk: mock((value: string) => ({ key: value, kty: "EC" })),
+  unwrapRootKey: mock(() => Promise.resolve("root-key")),
+}));
+
+mock.module("@asm/messages/search", () => ({
   messageSearchGramKeys: mock((value: string) => [`gram:${value}`]),
   messageSearchTerms: mock((value: string) => [value.toLocaleLowerCase()]),
-  publicKeyBase64ToJwk: mock((value: string) => ({ key: value, kty: "EC" })),
   searchableTextFromPayload: mock(() => "Needle in a message"),
-  unwrapRootKey: mock(() => Promise.resolve("root-key")),
 }));
 
 describe("message search indexing worker", () => {
@@ -217,6 +229,14 @@ describe("message search indexing worker", () => {
       keyEpoch: 1,
       messageId: "message-1",
       outboxId: "outbox-1",
+      references: [
+        {
+          kind: "media",
+          mediaKind: "image",
+          ordinal: 0,
+          requiredId: "media_1",
+        },
+      ],
       revision: 3,
       terms: [
         {
@@ -241,6 +261,7 @@ describe("message search indexing worker", () => {
       keyEpoch: 1,
       messageId: "message-1",
       outboxId: "outbox-1",
+      references: [],
       revision: 3,
       terms: [],
     });
@@ -252,6 +273,7 @@ describe("message search indexing worker", () => {
       keyEpoch: 1,
       messageId: "message-1",
       outboxId: "outbox-1",
+      references: [],
       revision: 3,
       terms: [],
     });

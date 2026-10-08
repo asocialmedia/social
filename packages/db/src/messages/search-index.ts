@@ -28,11 +28,19 @@ export interface SearchTermArtifact {
   normalized: string;
 }
 
+export interface SearchReferenceArtifact {
+  kind: "link" | "media" | "post";
+  mediaKind?: "gif" | "image";
+  ordinal: number;
+  requiredId?: string;
+}
+
 export interface SearchDocumentArtifact {
   conversationId: string;
   keyEpoch: number;
   messageId: string;
   outboxId: string;
+  references: readonly SearchReferenceArtifact[];
   revision: number;
   terms: readonly SearchTermArtifact[];
 }
@@ -62,6 +70,32 @@ export interface SearchHydrationQuery {
   messages: readonly SearchHydrationRequest[];
   membershipWindows: readonly SearchMessageWindow[];
   userId: string;
+}
+
+export interface SearchReferenceCursor {
+  createdAt: Date;
+  messageId: string;
+  ordinal: number;
+}
+
+export interface SearchReferenceQuery {
+  after?: SearchReferenceCursor;
+  conversationId: string;
+  kind: SearchReferenceArtifact["kind"];
+  limit: number;
+  membershipWindows: readonly SearchMessageWindow[];
+  snapshotSequence: number;
+  userId: string;
+}
+
+export interface SearchReferenceRow extends SearchReferenceCursor {
+  createdAt: Date;
+  keyEpoch: number;
+  mediaKind: "gif" | "image" | null;
+  requiredId: string | null;
+  ratchetIndex: number;
+  revision: number;
+  senderId: string;
 }
 
 export interface MessageSearchCountRequestInput {
@@ -209,6 +243,7 @@ export interface MessageSearchBackfillArtifact {
   createdAt: Date;
   keyEpoch: number;
   messageId: string;
+  references: readonly SearchReferenceArtifact[];
   revision: number;
   terms: readonly SearchTermArtifact[];
 }
@@ -1251,6 +1286,41 @@ export async function persistSearchDocument(
         ]
       );
       await client.query(
+        `DELETE FROM public.message_search_references
+          WHERE "messageId" = $1 AND revision <= $2`,
+        [artifact.messageId, artifact.revision]
+      );
+      if (artifact.references.length > 0) {
+        const values: unknown[] = [];
+        const tuples = artifact.references.map((reference, index) => {
+          const base = index * 8;
+          values.push(
+            artifact.messageId,
+            artifact.conversationId,
+            reference.kind,
+            reference.ordinal,
+            row.createdAt,
+            artifact.revision,
+            reference.mediaKind ?? null,
+            reference.requiredId ?? null
+          );
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+        });
+        await client.query(
+          `INSERT INTO public.message_search_references
+             ("messageId", "conversationId", kind, ordinal, "createdAt", revision, "mediaKind", "requiredId")
+           VALUES ${tuples.join(",")}
+           ON CONFLICT ("messageId", kind, ordinal) DO UPDATE
+             SET "conversationId" = EXCLUDED."conversationId",
+                 "createdAt" = EXCLUDED."createdAt",
+                 revision = EXCLUDED.revision,
+                 "mediaKind" = EXCLUDED."mediaKind",
+                 "requiredId" = EXCLUDED."requiredId"
+           WHERE public.message_search_references.revision <= EXCLUDED.revision`,
+          values
+        );
+      }
+      await client.query(
         `UPDATE public.messages
             SET "keyEpoch" = $2
           WHERE id = $1 AND revision = $3 AND "keyEpoch" IS NULL`,
@@ -1260,6 +1330,11 @@ export async function persistSearchDocument(
     } else {
       await client.query(
         `DELETE FROM public.message_search_documents
+          WHERE "messageId" = $1 AND revision <= $2`,
+        [artifact.messageId, artifact.revision]
+      );
+      await client.query(
+        `DELETE FROM public.message_search_references
           WHERE "messageId" = $1 AND revision <= $2`,
         [artifact.messageId, artifact.revision]
       );
@@ -1602,6 +1677,51 @@ export async function commitMessageSearchBackfillBatch(input: {
          WHERE public.message_search_documents.revision <= EXCLUDED.revision`,
         documentValues
       );
+      const references = currentArtifacts.flatMap((artifact) =>
+        artifact.references.map((reference) => ({ artifact, reference }))
+      );
+      const currentMessageIds = currentArtifacts.map(
+        (artifact) => artifact.messageId
+      );
+      if (currentMessageIds.length > 0) {
+        await client.query(
+          `DELETE FROM public.message_search_references
+            WHERE "conversationId" = $1 AND "messageId" = ANY($2::text[])`,
+          [input.conversationId, currentMessageIds]
+        );
+      }
+      if (references.length > 0) {
+        const referenceValues: unknown[] = [];
+        const referenceTuples = references.map(
+          ({ artifact, reference }, index) => {
+            const base = index * 8;
+            referenceValues.push(
+              artifact.messageId,
+              input.conversationId,
+              reference.kind,
+              reference.ordinal,
+              artifact.createdAt,
+              artifact.revision,
+              reference.mediaKind ?? null,
+              reference.requiredId ?? null
+            );
+            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+          }
+        );
+        await client.query(
+          `INSERT INTO public.message_search_references
+             ("messageId", "conversationId", kind, ordinal, "createdAt", revision, "mediaKind", "requiredId")
+           VALUES ${referenceTuples.join(",")}
+           ON CONFLICT ("messageId", kind, ordinal) DO UPDATE
+             SET "conversationId" = EXCLUDED."conversationId",
+                 "createdAt" = EXCLUDED."createdAt",
+                 revision = EXCLUDED.revision,
+                 "mediaKind" = EXCLUDED."mediaKind",
+                 "requiredId" = EXCLUDED."requiredId"
+           WHERE public.message_search_references.revision <= EXCLUDED.revision`,
+          referenceValues
+        );
+      }
       const epochValues: unknown[] = [];
       const epochTuples = currentArtifacts.map((artifact, index) => {
         const base = index * 3;
@@ -1798,6 +1918,89 @@ export async function searchMessageCandidates(
       input.before?.messageId ?? null,
       JSON.stringify(windows),
       Math.min(Math.max(Math.trunc(input.limit), 1), 21),
+    ]
+  );
+  return result.rows;
+}
+
+export async function listMessageSearchReferences(
+  input: SearchReferenceQuery
+): Promise<SearchReferenceRow[]> {
+  const windows = input.membershipWindows.map((window) => ({
+    after: window.after ? pgTimestamp(window.after) : null,
+    before: window.before ? pgTimestamp(window.before) : null,
+  }));
+  const result = await getSearchPool().query<SearchReferenceRow>(
+    `SELECT reference."createdAt",
+            reference."messageId",
+            reference.ordinal,
+            reference.revision,
+            reference."mediaKind",
+            reference."requiredId",
+            message."keyEpoch",
+            message."ratchetIndex",
+            message."senderId"
+       FROM public.message_search_references AS reference
+       JOIN public.messages AS message
+         ON message.id = reference."messageId"
+        AND message."conversationId" = reference."conversationId"
+        AND message.revision = reference.revision
+       JOIN public.message_search_documents AS document
+         ON document."messageId" = message.id
+        AND document."conversationId" = message."conversationId"
+        AND document.revision = message.revision
+       JOIN public.message_conversation_members AS member
+         ON member."conversationId" = message."conversationId"
+        AND member."userId" = $2
+      WHERE reference."conversationId" = $1
+        AND reference.kind = $3
+        AND message."deletedAt" IS NULL
+        AND message."keyEpoch" IS NOT NULL
+        AND message."creationSequence" <= $4
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_search_outbox AS newer_revision
+           WHERE newer_revision."messageId" = message.id
+             AND newer_revision."changeSequence" > $4
+        )
+        AND EXISTS (
+          SELECT 1
+            FROM public.message_conversation_keys AS readable_key
+           WHERE readable_key."conversationId" = message."conversationId"
+             AND readable_key."ownerUserId" = $2
+             AND readable_key.version = message."keyEpoch"
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_hidden AS hidden
+           WHERE hidden."messageId" = message.id AND hidden."userId" = $2
+        )
+        AND (
+          $8::jsonb IS NULL OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements($8::jsonb) AS membership_window
+             WHERE (membership_window.value->>'after' IS NULL OR message."createdAt" >= (membership_window.value->>'after')::timestamp)
+               AND (membership_window.value->>'before' IS NULL OR message."createdAt" <= (membership_window.value->>'before')::timestamp)
+          )
+        )
+        AND (
+          $5::timestamp IS NULL OR
+          (reference."createdAt", reference."messageId") < ($5::timestamp, $6::text) OR
+          (reference."createdAt", reference."messageId") = ($5::timestamp, $6::text)
+            AND reference.ordinal > $7
+        )
+      ORDER BY reference."createdAt" DESC, reference."messageId" DESC, reference.ordinal ASC
+      LIMIT $9`,
+    [
+      input.conversationId,
+      input.userId,
+      input.kind,
+      input.snapshotSequence,
+      input.after ? pgTimestamp(input.after.createdAt) : null,
+      input.after?.messageId ?? null,
+      input.after?.ordinal ?? null,
+      JSON.stringify(windows),
+      Math.min(Math.max(Math.trunc(input.limit), 1), 101),
     ]
   );
   return result.rows;

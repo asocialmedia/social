@@ -8,6 +8,7 @@ import {
   countMessageSearchCandidates,
   getMessageSearchCountRequestStatus,
   keys,
+  listMessageSearchReferences,
   listRunnableMessageSearchCounts,
   prisma,
   persistSearchDocument,
@@ -144,6 +145,15 @@ beforeAll(async () => {
        VALUES ($1, 2, 2, 0, 2, now())`,
       [CONVERSATION_ID]
     );
+    await client.query(
+      `INSERT INTO public.message_search_references
+         ("messageId", "conversationId", kind, ordinal, "createdAt", revision, "mediaKind", "requiredId")
+       VALUES
+         ($1, $2, 'media', 0, '2026-10-08 00:00:00', 1, 'image', 'visible-media-0'),
+         ($1, $2, 'media', 1, '2026-10-08 00:00:00', 1, 'image', 'visible-media-1'),
+         ($3, $2, 'media', 0, '2026-10-08 00:00:01', 1, 'image', 'hidden-media')`,
+      [VISIBLE_MESSAGE_ID, CONVERSATION_ID, HIDDEN_MESSAGE_ID]
+    );
   } finally {
     await client.end();
   }
@@ -160,6 +170,9 @@ afterAll(async () => {
       row.id.in(COUNT_REQUEST_IDS)
     ).deleteAndCount();
   }
+  await prisma.orm.public.MessageSearchReferences.where({
+    conversationId: CONVERSATION_ID,
+  }).deleteAndCount();
   await prisma.orm.public.MessageSearchDocuments.where({
     conversationId: CONVERSATION_ID,
   }).deleteAndCount();
@@ -179,6 +192,38 @@ afterAll(async () => {
 });
 
 describe("durable DM search counts", () => {
+  test("pages current shared references after applying hide and key visibility", async () => {
+    const first = await listMessageSearchReferences({
+      conversationId: CONVERSATION_ID,
+      kind: "media",
+      limit: 1,
+      membershipWindows: [{ after: null, before: null }],
+      snapshotSequence: 2,
+      userId: OWNER_ID,
+    });
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({
+      messageId: VISIBLE_MESSAGE_ID,
+      ordinal: 0,
+      requiredId: "visible-media-0",
+    });
+    const second = await listMessageSearchReferences({
+      after: first[0],
+      conversationId: CONVERSATION_ID,
+      kind: "media",
+      limit: 10,
+      membershipWindows: [{ after: null, before: null }],
+      snapshotSequence: 2,
+      userId: OWNER_ID,
+    });
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({
+      messageId: VISIBLE_MESSAGE_ID,
+      ordinal: 1,
+      requiredId: "visible-media-1",
+    });
+  });
+
   test("counts exact authorized results and drops query material after completion", async () => {
     const fragments = [{ grams: searchGrams("needle"), text: "needle" }];
     const request = await requestMessageSearchCount({
@@ -247,9 +292,38 @@ describe("durable DM search counts", () => {
       keyEpoch: 1,
       messageId: VISIBLE_MESSAGE_ID,
       outboxId: edited.outboxId,
+      references: [],
       revision: edited.revision,
       terms: [{ gramKeys: searchGrams("needle"), normalized: "needle" }],
     });
+    await expect(
+      persistSearchDocument({
+        conversationId: CONVERSATION_ID,
+        keyEpoch: 1,
+        messageId: VISIBLE_MESSAGE_ID,
+        outboxId: edited.outboxId,
+        references: [
+          {
+            kind: "media",
+            mediaKind: "image",
+            ordinal: 0,
+            requiredId: "stale-media",
+          },
+        ],
+        revision: 1,
+        terms: [{ gramKeys: searchGrams("needle"), normalized: "needle" }],
+      })
+    ).resolves.toEqual({ status: "superseded" });
+    await expect(
+      listMessageSearchReferences({
+        conversationId: CONVERSATION_ID,
+        kind: "media",
+        limit: 10,
+        membershipWindows: [{ after: null, before: null }],
+        snapshotSequence: 3,
+        userId: OWNER_ID,
+      })
+    ).resolves.toEqual([]);
     expect(
       await countMessageSearchCandidates({
         conversationId: CONVERSATION_ID,

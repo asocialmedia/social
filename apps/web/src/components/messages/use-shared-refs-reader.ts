@@ -13,7 +13,9 @@ import type {
   SharedMediaItem,
   SharedPostItem,
   SharedRefKind,
+  SharedRefsPage,
 } from "@/lib/messages/shared-refs-format";
+import { readSharedRefsPage } from "@/lib/messages/shared-refs-page-source";
 import { postIdFromUrl } from "@/lib/posts/post-url";
 
 import type { SharedContentMessage } from "./conversation-shared-content";
@@ -75,6 +77,8 @@ interface PagingState {
   after: Record<SharedRefKind, string | undefined>;
   done: Record<SharedRefKind, boolean>;
   inFlight: Record<SharedRefKind, boolean>;
+  controllers: Record<SharedRefKind, AbortController | null>;
+  source: Record<SharedRefKind, "local" | "server" | null>;
   // Whether this kind has ever held a row, which is what decides whether a read
   // has just established its cursor or has moved it. Not derivable from `after`:
   // a top-of-list read returns a page and legitimately leaves the cursor alone
@@ -90,8 +94,10 @@ interface PagingState {
 function newPagingState(token: number): PagingState {
   return {
     after: { link: undefined, media: undefined, post: undefined },
+    controllers: { link: null, media: null, post: null },
     done: { link: false, media: false, post: false },
     inFlight: { link: false, media: false, post: false },
+    source: { link: null, media: null, post: null },
     started: { link: false, media: false, post: false },
     token,
   };
@@ -162,8 +168,20 @@ export function useSharedRefsReader(input: {
   // A run in progress, so the tabs can say "indexing" instead of implying the
   // list is complete.
   indexing: boolean;
+  serverReadPage?: (input: {
+    after?: string;
+    kind: SharedRefKind;
+    signal: AbortSignal;
+  }) => Promise<SharedRefsPage>;
 }): SharedRefsReader {
-  const { conversationId, indexing, messages, refreshToken, store } = input;
+  const {
+    conversationId,
+    indexing,
+    messages,
+    refreshToken,
+    serverReadPage,
+    store,
+  } = input;
   const [counts, setCounts] = useState(EMPTY_COUNTS);
   const [media, setMedia] = useState<SharedMediaItem[]>([]);
   const [posts, setPosts] = useState<SharedPostItem[]>([]);
@@ -174,6 +192,8 @@ export function useSharedRefsReader(input: {
     posts: false,
   });
   const [indexedUsable, setIndexedUsable] = useState(false);
+  const [serverCoverageIncomplete, setServerCoverageIncomplete] =
+    useState(false);
   const paging = useRef<PagingState>(newPagingState(refreshToken));
 
   // The decrypted-window fallbacks. Both are computed unconditionally: they are
@@ -194,7 +214,7 @@ export function useSharedRefsReader(input: {
   const readPage = useCallback(
     async (kind: SharedRefKind, mode: ReadMode) => {
       const state = paging.current;
-      if (!store || state.inFlight[kind]) {
+      if ((!store && !serverReadPage) || state.inFlight[kind]) {
         return;
       }
       if (mode === "more" && state.done[kind]) {
@@ -202,15 +222,26 @@ export function useSharedRefsReader(input: {
       }
       const { token } = state;
       state.inFlight[kind] = true;
+      const controller = new AbortController();
+      state.controllers[kind] = controller;
       // A nested function so the in-flight flag clears on ONE tail statement
       // rather than a `finally`, which the React compiler cannot lower and which
       // would opt this whole callback out of compilation.
       const read = async (): Promise<void> => {
         try {
-          const page = await store.readSharedRefs(conversationId, kind, {
-            after: mode === "more" ? state.after[kind] : undefined,
+          const result = await readSharedRefsPage({
+            ...(mode === "more" && state.after[kind]
+              ? { after: state.after[kind] }
+              : {}),
+            conversationId,
+            kind,
             limit: SHARED_REFS_PAGE_SIZE,
+            serverReadPage:
+              state.source[kind] === "local" ? undefined : serverReadPage,
+            signal: controller.signal,
+            store,
           });
+          const { page } = result;
           if (paging.current !== state || state.token !== token) {
             // A newer read for this conversation replaced this one, or the index
             // committed a page above our cursor while this one was in flight.
@@ -229,6 +260,10 @@ export function useSharedRefsReader(input: {
           state.after[kind] = cursor.after;
           state.done[kind] = cursor.done;
           state.started[kind] = true;
+          state.source[kind] = result.source;
+          setServerCoverageIncomplete(
+            result.source === "server" && page.coverageComplete === false
+          );
           if (kind === "media") {
             setMedia((current) =>
               mergeRefs(current, page.items.map(sharedRefToMediaItem), mode)
@@ -245,6 +280,13 @@ export function useSharedRefsReader(input: {
           setIndexedUsable(true);
           setErrors((current) => ({ ...current, [kind]: false }));
         } catch {
+          if (
+            controller.signal.aborted ||
+            paging.current !== state ||
+            state.token !== token
+          ) {
+            return;
+          }
           // A read failure is "no index for this tab", not a crash: the tab falls
           // back to the decrypted window, and the next open tries again.
           setErrors((current) => ({ ...current, [kind]: true }));
@@ -255,24 +297,34 @@ export function useSharedRefsReader(input: {
       // Cleared on every path. The flag lives on the paging state, so a stale
       // `true` here cannot block a retry of the current conversation.
       state.inFlight[kind] = false;
+      state.controllers[kind] = null;
     },
-    [conversationId, store]
+    [conversationId, serverReadPage, store]
   );
 
   // First page per kind, and the labels. Re-runs when the store resolves, when
   // the thread commits an index write, and on a conversation change.
   useEffect(() => {
-    if (!store) {
+    if (!store && !serverReadPage) {
       return;
     }
     let cancelled = false;
+    const { controllers } = paging.current;
     // A committed write re-reads the top of each kind and merges, which is how a
     // live message's media appears while the tab is open. The rows already held
     // and the "more" cursors are left alone, so paged-in history survives.
+    const previousToken = paging.current.token;
+    if (previousToken !== refreshToken) {
+      for (const controller of Object.values(paging.current.controllers)) {
+        controller?.abort();
+      }
+    }
     paging.current.token = refreshToken;
     void (async () => {
       try {
-        const stored = await store.readSharedRefsCounts(conversationId);
+        const stored = store
+          ? await store.readSharedRefsCounts(conversationId)
+          : null;
         if (cancelled) {
           return;
         }
@@ -294,8 +346,11 @@ export function useSharedRefsReader(input: {
     })();
     return () => {
       cancelled = true;
+      for (const controller of Object.values(controllers)) {
+        controller?.abort();
+      }
     };
-  }, [conversationId, readPage, refreshToken, store]);
+  }, [conversationId, readPage, refreshToken, serverReadPage, store]);
 
   // Awaitable on purpose: the footer's button shows a spinner and refuses further
   // taps while a page is in, and it can only stop doing that if it can see when the
@@ -321,7 +376,7 @@ export function useSharedRefsReader(input: {
   // the reader is on the live fallback the counts ARE the window, and telling the
   // user it is "indexing" would promise a backfill this device may not be running.
   let state: SharedRefsReadState = "indexed";
-  if (indexing) {
+  if (indexing || serverCoverageIncomplete) {
     state = "indexing";
   }
   if (useWindow) {

@@ -194,6 +194,7 @@ import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
 import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
 import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
 import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
+import { resolveServerSharedRefsPage } from "@/lib/messages/server-shared-refs";
 import type {
   DenMembershipEvent,
   MessageData,
@@ -2597,6 +2598,44 @@ export function MessageThread({
       }
     },
     [detail, drainDecryptBatch, rootKeyStore, userId]
+  );
+
+  const serverReadRefsPage = useCallback(
+    (input: {
+      after?: string;
+      kind: "link" | "media" | "post";
+      signal: AbortSignal;
+    }) =>
+      resolveServerSharedRefsPage({
+        conversationId,
+        cursor: input.after,
+        decrypt: async (messages, signal) => {
+          if (signal?.aborted) {
+            return new Map();
+          }
+          const messageRows = [...messages];
+          messageDecryptor.requestUrgent(messageRows.map(toDecryptItem), {
+            getBaseKeys,
+          });
+          await waitForDecrypts(messageRows, {
+            lookup: (id) => messageDecryptor.get(id),
+            signal,
+            subscribe: messageDecryptor.subscribe,
+            timeoutMs: 10_000,
+          });
+          const payloads = new Map<string, MessagePayload>();
+          for (const message of messageRows) {
+            const entry = messageDecryptor.get(message.id);
+            if (typeof entry === "object" && entry !== null) {
+              payloads.set(message.id, entry);
+            }
+          }
+          return payloads;
+        },
+        kind: input.kind,
+        signal: input.signal,
+      }),
+    [conversationId, getBaseKeys, toDecryptItem]
   );
 
   // Serialized older-page loader shared by in-conversation search (which walks
@@ -5411,6 +5450,9 @@ export function MessageThread({
               // subscription that would re-read on a different schedule.
               refsRefreshToken={searchIndex?.refreshToken ?? 0}
               searchIndexStore={searchIndexStore}
+              serverReadRefsPage={
+                SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+              }
               selectedTab={selectedDetailsTab}
             />
           ) : null}
@@ -5440,6 +5482,9 @@ export function MessageThread({
             presence={peerPresence}
             refsRefreshToken={searchIndex?.refreshToken ?? 0}
             searchIndexStore={searchIndexStore}
+            serverReadRefsPage={
+              SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+            }
             selectedTab={selectedDetailsTab}
           />
         ) : null}

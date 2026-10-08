@@ -8,20 +8,24 @@ import {
 } from "@asm/db";
 import type {
   MessageSearchBackfillArtifact,
+  SearchReferenceArtifact,
   SearchTermArtifact,
 } from "@asm/db";
 import {
   decryptMessage,
   decryptWithMasterKey,
   deriveMasterKey,
+  extractMessageReferences,
   importPrivateKeyJwk,
   importPublicKeyJwk,
+  publicKeyBase64ToJwk,
+  unwrapRootKey,
+} from "@asm/messages/crypto";
+import {
   messageSearchGramKeys,
   messageSearchTerms,
-  publicKeyBase64ToJwk,
   searchableTextFromPayload,
-  unwrapRootKey,
-} from "@asm/messages";
+} from "@asm/messages/search";
 
 import { mapConcurrent } from "./map-concurrent";
 
@@ -179,7 +183,11 @@ async function decryptSearchableMessage(
     senderId: string;
   },
   context: ConversationSearchContext
-): Promise<{ keyEpoch: number; terms: SearchTermArtifact[] } | null> {
+): Promise<{
+  keyEpoch: number;
+  references: SearchReferenceArtifact[];
+  terms: SearchTermArtifact[];
+} | null> {
   const epochCandidates = context.wraps.filter(
     (wrap) => message.keyEpoch === null || wrap.version === message.keyEpoch
   );
@@ -225,7 +233,20 @@ async function decryptSearchableMessage(
           normalized,
         })
       );
-      return { keyEpoch: wrap.version, terms };
+      const references = extractMessageReferences(payload).map(
+        ({
+          kind,
+          mediaKind,
+          ordinal,
+          requiredId,
+        }): SearchReferenceArtifact => ({
+          kind,
+          ordinal,
+          ...(mediaKind ? { mediaKind } : {}),
+          ...(requiredId ? { requiredId } : {}),
+        })
+      );
+      return { keyEpoch: wrap.version, references, terms };
     } catch {
       // Another wrap may be the authenticated epoch for this message.
     }
@@ -256,6 +277,7 @@ export async function processMessageSearchOutbox(
       keyEpoch: message?.keyEpoch ?? 0,
       messageId: outbox.messageId,
       outboxId,
+      references: [],
       revision: outbox.revision,
       terms: [],
     });
@@ -273,6 +295,7 @@ export async function processMessageSearchOutbox(
       keyEpoch: result.keyEpoch,
       messageId: message.id,
       outboxId,
+      references: result.references,
       revision: message.revision,
       terms: result.terms,
     });
@@ -339,6 +362,7 @@ export async function processMessageSearchBackfill(
           createdAt: message.createdAt,
           keyEpoch: result.keyEpoch,
           messageId: message.id,
+          references: result.references,
           revision: message.revision,
           terms: result.terms,
         } satisfies MessageSearchBackfillArtifact,

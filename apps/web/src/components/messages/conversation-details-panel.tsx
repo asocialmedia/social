@@ -78,6 +78,10 @@ import { denRoleLabel } from "@/lib/messages/den-permissions";
 import { hasDeparted, ownMembership } from "@/lib/messages/membership";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
 import type {
+  SharedRefKind,
+  SharedRefsPage,
+} from "@/lib/messages/shared-refs-format";
+import type {
   MessageConversationData,
   MessageData,
 } from "@/lib/messages/types";
@@ -133,6 +137,11 @@ export interface ConversationDetailsBodyProps {
   // Bumped by the thread whenever the index commits, so the tabs re-read what a
   // walk or a live message just wrote.
   refsRefreshToken: number;
+  serverReadRefsPage?: (input: {
+    after?: string;
+    kind: SharedRefKind;
+    signal: AbortSignal;
+  }) => Promise<SharedRefsPage>;
 }
 
 // The conversation's contact card: who you are talking to, what you want to do
@@ -162,6 +171,7 @@ export function ConversationDetailsBody({
   refsRefreshToken,
   selectedTab,
   searchIndexStore,
+  serverReadRefsPage,
 }: ConversationDetailsBodyProps) {
   const conversationId = detail.conversation.id;
   const queryClient = useQueryClient();
@@ -191,6 +201,7 @@ export function ConversationDetailsBody({
     indexing: indexingRefs,
     messages,
     refreshToken: refsRefreshToken,
+    serverReadPage: serverReadRefsPage,
     store: searchIndexStore,
   });
 

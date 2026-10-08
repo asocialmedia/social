@@ -477,6 +477,8 @@ export function getMediaImages(
   return [{ height: content.height, url: content.url, width: content.width }];
 }
 
+export { extractMessageReferences } from "./references";
+
 // Returns a copy of a payload with its text rewritten. An edit only ever
 // changes the human-visible body (the text of a text message, the caption of a
 // media album or post share); every structural field — type, images, postId,

@@ -1,0 +1,76 @@
+[
+  {
+    "id": "table.message_search_references",
+    "label": "Create table \"message_search_references\"",
+    "summary": "Creates table \"message_search_references\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_references"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_references\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_references\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_references\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_references\" (\n  \"conversationId\" text NOT NULL,\n  \"createdAt\" timestamp(3) NOT NULL,\n  \"kind\" text NOT NULL,\n  \"mediaKind\" text,\n  \"messageId\" text NOT NULL,\n  \"ordinal\" int4 NOT NULL,\n  \"requiredId\" text,\n  \"revision\" int4 NOT NULL,\n  CONSTRAINT \"message_search_references_pkey\" PRIMARY KEY (\"messageId\", \"kind\", \"ordinal\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_references\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_references\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_references.message_search_references_conversation_kind_created_idx",
+    "label": "Create index \"message_search_references_conversation_kind_created_idx\" on \"message_search_references\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_references_conversation_kind_created_idx",
+        "table": "message_search_references"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_references_conversation_kind_created_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_references_conversation_kind_created_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_references_conversation_kind_created_idx\"",
+        "sql": "CREATE INDEX \"message_search_references_conversation_kind_created_idx\" ON \"public\".\"message_search_references\" (\"conversationId\", \"kind\", \"createdAt\", \"messageId\", \"ordinal\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_references_conversation_kind_created_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_references_conversation_kind_created_idx\""
+        ]
+      }
+    ]
+  }
+]

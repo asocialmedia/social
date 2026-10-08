@@ -1025,6 +1025,21 @@ namespace public {
     @@map("message_search_documents")
   }
 
+  model MessageSearchReferences {
+    messageId      String
+    conversationId String
+    kind           String
+    ordinal        Int
+    createdAt      Timestamp(3)
+    revision       Int
+    mediaKind      String?
+    requiredId     String?
+
+    @@id([messageId, kind, ordinal], map: "message_search_references_pkey")
+    @@index([conversationId, kind, createdAt, messageId, ordinal], map: "message_search_references_conversation_kind_created_idx")
+    @@map("message_search_references")
+  }
+
   model MessageSearchCoverage {
     conversationId          String       @id(map: "message_search_coverage_pkey")
     rowsTraversed           Int          @default(0)
