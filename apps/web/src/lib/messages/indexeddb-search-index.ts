@@ -66,13 +66,12 @@ import {
 } from "./message-db";
 import {
   expandPrefixTerm,
-  intersectPostingLists,
+  intersectPostingListsWindow,
   rowListAdd,
   rowListRemoveMany,
   rowListToArrays,
   searchIndexRowListFrom,
   SEARCH_INDEX_FORMAT_VERSION,
-  selectNewestFirstWindow,
   unionPostingLists,
 } from "./search-index-format";
 import type {
@@ -1462,17 +1461,11 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
               lists.push(unionPostingLists(expansionLists));
             }
             // oxlint-enable no-await-in-loop
-            // Intersect first, then cut the window. Both run inside this one
-            // transaction, so the window and the total it is reported beside come
-            // from the same snapshot of the dictionary and the posting lists: a
-            // dictionary that moved between them would adopt another word's list
-            // and inflate the count.
-            const { matches, totalMatched } = intersectPostingLists(lists);
-            const { hasMore, window } = selectNewestFirstWindow(
-              matches,
-              limit,
-              options?.afterMatch
-            );
+            // Intersect and choose only the requested newest window. Both the
+            // exact total and the bounded result page come from this one
+            // transaction snapshot, without allocating or sorting every match.
+            const { hasMore, totalMatched, window } =
+              intersectPostingListsWindow(lists, limit, options?.afterMatch);
             return {
               hasMore,
               totalMatched,

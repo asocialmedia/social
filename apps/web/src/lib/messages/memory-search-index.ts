@@ -10,11 +10,10 @@ import {
   emptySearchIndexRowTable,
   expandPrefixTerm,
   internRows,
-  intersectPostingLists,
+  intersectPostingListsWindow,
   rowListAdd,
   rowListRemove,
   rowListToArrays,
-  selectNewestFirstWindow,
   unionPostingLists,
 } from "./search-index-format";
 import type {
@@ -342,9 +341,8 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
           )
         );
       }
-      const { matches, totalMatched } = intersectPostingLists(lists);
-      const { hasMore, window } = selectNewestFirstWindow(
-        matches,
+      const { hasMore, totalMatched, window } = intersectPostingListsWindow(
+        lists,
         limit,
         options?.afterMatch
       );

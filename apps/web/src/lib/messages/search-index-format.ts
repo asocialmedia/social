@@ -723,6 +723,165 @@ function compareNewestFirst(
   return left.row - right.row;
 }
 
+function pushWorstFirst(
+  heap: SearchIndexPostingMatch[],
+  match: SearchIndexPostingMatch
+): void {
+  heap.push(match);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    const parentMatch = heap[parent];
+    const currentMatch = heap[index];
+    if (
+      !parentMatch ||
+      !currentMatch ||
+      compareNewestFirst(parentMatch, currentMatch) >= 0
+    ) {
+      break;
+    }
+    heap[parent] = currentMatch;
+    heap[index] = parentMatch;
+    index = parent;
+  }
+}
+
+function replaceWorstFirstRoot(
+  heap: SearchIndexPostingMatch[],
+  match: SearchIndexPostingMatch
+): void {
+  const [root] = heap;
+  if (!root || compareNewestFirst(match, root) >= 0) {
+    return;
+  }
+  heap[0] = match;
+  let index = 0;
+  while (true) {
+    const currentMatch = heap[index];
+    if (!currentMatch) {
+      return;
+    }
+    const left = index * 2 + 1;
+    const right = left + 1;
+    const leftMatch = heap[left];
+    const rightMatch = heap[right];
+    let worseChild = index;
+    const worseMatch = heap[worseChild];
+    if (
+      leftMatch &&
+      worseMatch &&
+      compareNewestFirst(leftMatch, worseMatch) > 0
+    ) {
+      worseChild = left;
+    }
+    const currentWorseMatch = heap[worseChild];
+    if (
+      rightMatch &&
+      currentWorseMatch &&
+      compareNewestFirst(rightMatch, currentWorseMatch) > 0
+    ) {
+      worseChild = right;
+    }
+    if (worseChild === index) {
+      return;
+    }
+    const childMatch = heap[worseChild];
+    if (!childMatch) {
+      return;
+    }
+    heap[index] = childMatch;
+    heap[worseChild] = currentMatch;
+    index = worseChild;
+  }
+}
+
+// Intersects row-sorted posting lists and returns only the requested newest
+// window. It counts the full intersection but never materializes or sorts the
+// full match set: the merge cursors scan the lists once and a fixed-size max
+// heap keeps only the page. This keeps broad local queries at O(limit) result
+// memory, even when a term matches every message in a very large conversation.
+export function intersectPostingListsWindow(
+  lists: readonly SearchIndexPostingList[],
+  limit: number,
+  afterMatch?: SearchIndexCursor
+): {
+  hasMore: boolean;
+  totalMatched: number;
+  window: SearchIndexPostingMatch[];
+} {
+  const windowLimit = Math.trunc(limit);
+  if (
+    lists.length === 0 ||
+    !Number.isSafeInteger(windowLimit) ||
+    windowLimit <= 0 ||
+    lists.some((list) => list.rows.length === 0)
+  ) {
+    return { hasMore: false, totalMatched: 0, window: [] };
+  }
+
+  // Both writers store postings in ascending allocated-row order. Starting at
+  // the rarest list minimizes candidate probes; monotonic cursors then walk
+  // every other list only once, without building a Map or Set for its rows.
+  const [smallest, ...larger] = [...lists].toSorted(
+    (left, right) => left.rows.length - right.rows.length
+  );
+  if (!smallest) {
+    return { hasMore: false, totalMatched: 0, window: [] };
+  }
+  const cursors = larger.map(() => 0);
+  const heap: SearchIndexPostingMatch[] = [];
+  let totalMatched = 0;
+  let eligibleMatched = 0;
+  let previousRow = -1;
+
+  for (let index = 0; index < smallest.rows.length; index += 1) {
+    const row = smallest.rows[index] ?? 0;
+    if (row === previousRow) {
+      continue;
+    }
+    previousRow = row;
+    let includedInAll = true;
+    for (let listIndex = 0; listIndex < larger.length; listIndex += 1) {
+      const list = larger[listIndex];
+      if (!list) {
+        includedInAll = false;
+        break;
+      }
+      let cursor = cursors[listIndex] ?? 0;
+      while (cursor < list.rows.length && (list.rows[cursor] ?? 0) < row) {
+        cursor += 1;
+      }
+      cursors[listIndex] = cursor;
+      if ((list.rows[cursor] ?? -1) !== row) {
+        includedInAll = false;
+        break;
+      }
+    }
+    if (!includedInAll) {
+      continue;
+    }
+
+    const match = { createdAt: smallest.times[index] ?? 0, row };
+    totalMatched += 1;
+    if (afterMatch && compareNewestFirst(match, afterMatch) <= 0) {
+      continue;
+    }
+    eligibleMatched += 1;
+    if (heap.length < windowLimit) {
+      pushWorstFirst(heap, match);
+    } else {
+      replaceWorstFirstRoot(heap, match);
+    }
+  }
+
+  const window = heap.toSorted(compareNewestFirst);
+  return {
+    hasMore: eligibleMatched > window.length,
+    totalMatched,
+    window,
+  };
+}
+
 // One page of matches, and whether the conversation has any past it. `hasMore`
 // lets a pager stop without a speculative extra read -- inferring "no more
 // pages" from an empty page cost a wasted round trip and a visible loading
