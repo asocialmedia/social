@@ -25,6 +25,8 @@ if (import.meta.main) {
 
   const {
     ensureStreamGroups,
+    enqueueMessageSearchBackfillOutbox,
+    enqueueMessageSearchOutbox,
     registerMaintenanceSchedulers,
     createBullConnection,
     NOTIFICATIONS_QUEUE,
@@ -47,11 +49,15 @@ if (import.meta.main) {
     processBadgeSweep,
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
+  const { processMessageSearchOutbox } =
+    await import("./worker/message-search-index");
+  const { prisma } = await import("@asm/db");
 
   const workers: QueueWorkerType[] = [];
   let viewLoopPromise: Promise<void> | undefined;
   let shareLoopPromise: Promise<void> | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let messageSearchSweepTimer: ReturnType<typeof setInterval> | undefined;
   let running = true;
 
   const start = async () => {
@@ -128,6 +134,46 @@ if (import.meta.main) {
     shareLoopPromise = runShareLoopWithRecovery();
 
     const connection = createBullConnection();
+
+    const sweepMessageSearchOutbox = async () => {
+      if (!running) {
+        return;
+      }
+      try {
+        const pending = await prisma.orm.public.MessageSearchOutbox.select(
+          "id",
+          "kind"
+        )
+          .where({ completedAt: null })
+          .orderBy((row) => row.createdAt.asc())
+          .limit(100)
+          .all();
+        await Promise.all(
+          pending.map((item) =>
+            item.kind === "backfill"
+              ? enqueueMessageSearchBackfillOutbox(item.id)
+              : enqueueMessageSearchOutbox(item.id)
+          )
+        );
+      } catch (error) {
+        logger.error({ error }, "message search outbox sweep failed");
+      }
+    };
+
+    const messageSearchLiveWorker = new QueueWorker(
+      "message-search-live",
+      (job) => processMessageSearchOutbox(job.data.outboxId, logger),
+      { concurrency: 2, connection }
+    );
+    const messageSearchBackfillWorker = new QueueWorker(
+      "message-search-backfill",
+      (job) => processMessageSearchOutbox(job.data.outboxId, logger),
+      { concurrency: 1, connection }
+    );
+    await sweepMessageSearchOutbox();
+    messageSearchSweepTimer = setInterval(() => {
+      void sweepMessageSearchOutbox();
+    }, 10_000);
 
     const contentWorker = new QueueWorker(
       "content-events",
@@ -222,7 +268,13 @@ if (import.meta.main) {
       { connection }
     );
 
-    workers.push(contentWorker, notificationWorker, maintenanceWorker);
+    workers.push(
+      contentWorker,
+      notificationWorker,
+      maintenanceWorker,
+      messageSearchLiveWorker,
+      messageSearchBackfillWorker
+    );
 
     notificationWorker.on("completed", (job) => {
       logger.info(
@@ -263,6 +315,9 @@ if (import.meta.main) {
     running = false;
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
+    }
+    if (messageSearchSweepTimer) {
+      clearInterval(messageSearchSweepTimer);
     }
     await Promise.all([
       ...workers.map((worker) => worker.close()),

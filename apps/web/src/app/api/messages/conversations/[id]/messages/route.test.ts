@@ -23,6 +23,7 @@ const mockCreate = mock((args: Record<string, unknown>) => {
       : args;
   const message = {
     id: "msg-1",
+    revision: 1,
     sender: { id: "user1" },
     ...data,
   };
@@ -62,7 +63,16 @@ const mockKeyUpdateAndCount = mock(() => 1);
 // The columns the ratchet CAS matched on, recorded so a MISSING one is visible.
 // Asserting the counter value cannot see a column that was never matched on.
 let casWhere: Record<string, unknown> = {};
-const mockConversationUpdate = mock(() => ({}));
+const mockConversationUpdate = mock(() => ({
+  changeSeq: 0,
+  membershipSeq: 0,
+}));
+const mockMessageUpdate = mock(() => ({}));
+const mockCreateSearchOutbox = mock((args: Record<string, unknown>) => ({
+  id: "search-outbox-1",
+  ...args,
+}));
+const mockEnqueueMessageSearchOutbox = mock(() => Promise.resolve());
 // The queue. Every created notification is enqueued by its own id, so the
 // calls are the fan-out's report to the worker.
 const mockEnqueueNotificationCreated = mock(() => Promise.resolve());
@@ -295,7 +305,11 @@ const txClient = {
       MessageConversations: {
         where: () => ({ update: mockConversationUpdate }),
       },
-      Messages: { create: mockCreate },
+      MessageSearchOutbox: { create: mockCreateSearchOutbox },
+      Messages: {
+        create: mockCreate,
+        where: () => ({ update: mockMessageUpdate }),
+      },
     },
   },
 };
@@ -363,6 +377,7 @@ mock.module("@asm/db", () => ({
   },
   consumeRateLimit: mockConsumeRateLimit,
   createDenMessageNotifications: mockCreateDenMessageNotifications,
+  enqueueMessageSearchOutbox: mockEnqueueMessageSearchOutbox,
   enqueueNotificationCreated: mockEnqueueNotificationCreated,
   enqueueNotificationDeleted: mock(() => Promise.resolve()),
   fromPrismaDateTime: (value: Date) => value,
@@ -385,9 +400,11 @@ mock.module("@asm/db", () => ({
         MessageConversations: {
           where: () => ({ update: mockConversationUpdate }),
         },
+        MessageSearchOutbox: { create: mockCreateSearchOutbox },
         Messages: {
           create: mockCreate,
           select: () => ({ where: () => ({ first: mockAnchorFirst }) }),
+          where: () => ({ update: mockMessageUpdate }),
         },
       },
     },
@@ -455,6 +472,13 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       { mutedAt: null, userId: "user3" },
     ];
     mockConversationUpdate.mockClear();
+    mockConversationUpdate.mockImplementation(() => ({
+      changeSeq: 0,
+      membershipSeq: 0,
+    }));
+    mockMessageUpdate.mockClear();
+    mockCreateSearchOutbox.mockClear();
+    mockEnqueueMessageSearchOutbox.mockClear();
     mockTransaction.mockReset();
     mockGetSession.mockClear();
     mockConsumeRateLimit.mockClear();
@@ -607,6 +631,22 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     expect(mockConversationUpdate).toHaveBeenCalledWith({
       updatedAt: expect.any(Date),
     });
+    expect(mockConversationUpdate).toHaveBeenCalledWith({ changeSeq: 1 });
+    expect(mockMessageUpdate).toHaveBeenCalledWith({
+      creationSequence: 1,
+      keyEpoch: 3,
+    });
+    expect(mockCreateSearchOutbox).toHaveBeenCalledWith({
+      audienceUserIds: ["user1", "user2"],
+      changeSequence: 1,
+      conversationId: "convo-1",
+      kind: "upsert",
+      messageId: "msg-1",
+      revision: 1,
+    });
+    expect(mockEnqueueMessageSearchOutbox).toHaveBeenCalledWith(
+      "search-outbox-1"
+    );
     // The peer accrues unread; the sender does not.
     expect(unreadRecipients()).toEqual(["user2"]);
     expect(mockPublishCreated).toHaveBeenCalledTimes(1);
@@ -619,6 +659,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     // the transaction that bumped the row, so it cannot be stale by the time the
     // response is written.
     mockConversationUpdate.mockImplementationOnce(() => ({
+      changeSeq: 0,
       membershipSeq: 7,
     }));
     const res = await POST(validPostRequest(), {

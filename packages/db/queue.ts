@@ -69,6 +69,9 @@ export const MEDIA_SCAN_QUEUE = "media-scan";
 export const MEDIA_PROCESS_QUEUE = "media-process";
 const CONTENT_EVENTS_QUEUE = "content-events";
 export const NOTIFICATIONS_QUEUE = "notifications";
+export const MESSAGE_SEARCH_LIVE_QUEUE = "message-search-live";
+export const MESSAGE_SEARCH_BACKFILL_QUEUE = "message-search-backfill";
+export const MESSAGE_SEARCH_COUNT_QUEUE = "message-search-count";
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -416,6 +419,40 @@ async function addWithFreshId(
     }
   }
   await queue.add(name, data, options);
+}
+
+export async function enqueueMessageSearchOutbox(
+  outboxId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_LIVE_QUEUE),
+    "index-message-outbox",
+    `dm-search-${outboxId}`,
+    { outboxId },
+    {
+      attempts: 8,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function enqueueMessageSearchBackfillOutbox(
+  outboxId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_BACKFILL_QUEUE),
+    "index-message-outbox",
+    `dm-search-backfill-${outboxId}`,
+    { outboxId },
+    {
+      attempts: 8,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
 }
 
 export async function enqueueMediaScan(

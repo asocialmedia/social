@@ -249,6 +249,8 @@ const VIEWER_DECRYPT_RADIUS = 40;
 // of hundreds; small enough that one page stays a few tens of kilobytes of
 // ciphertext. Decrypt and render stay windowed regardless of page size.
 const HISTORY_PAGE_SIZE = 100;
+const SERVER_MESSAGE_SEARCH_ENABLED =
+  process.env.NEXT_PUBLIC_MESSAGE_SEARCH_SERVER === "1";
 
 // Which way a transcript page was fetched. The transcript is an infinite query
 // in both directions: it normally loads older history going down, and once a
@@ -3028,6 +3030,13 @@ export function MessageThread({
   // fatal: `resolveSearchIndexStore` already falls back to an in-memory store,
   // and the caller treats null as "no index, loaded rows only".
   useEffect(() => {
+    if (SERVER_MESSAGE_SEARCH_ENABLED) {
+      setSearchIndex(null);
+      setPersistedCovered(false);
+      setPersistedChainVerified(false);
+      setPersistedRefsCovered(false);
+      return;
+    }
     let cancelled = false;
     setPersistedCovered(null);
     setPersistedChainVerified(null);
@@ -3574,7 +3583,9 @@ export function MessageThread({
     indexStore: searchIndexStore,
     listPage: searchView === "list" ? searchPage : 0,
     requestDecryptBatch,
+    serverMode: SERVER_MESSAGE_SEARCH_ENABLED,
   });
+  const handleRetrySearch = search.retry;
   const { matchIds } = search;
 
   // A jump outlives the session that asked for it unless the session ends here.
@@ -3620,17 +3631,24 @@ export function MessageThread({
   // conversation whose TEXT is covered but whose refs are not is not covered as
   // far as anything on screen can tell, and reporting it as covered is what put
   // "no media" on a chat full of it.
-  const fullyCovered =
-    (coverage?.reachedStart === true && coverage.refsReachedStart === true) ||
-    (persistedCovered === true &&
-      persistedChainVerified === true &&
-      persistedRefsCovered === true) ||
-    (hasPreviousPage === false && allMessages.length > 0);
-  const indexingOlder = coverage?.state === "running";
+  const fullyCovered = SERVER_MESSAGE_SEARCH_ENABLED
+    ? search.serverCoverageIncomplete === false &&
+      search.debouncedQuery.trim().length > 0
+    : (coverage?.reachedStart === true && coverage.refsReachedStart === true) ||
+      (persistedCovered === true &&
+        persistedChainVerified === true &&
+        persistedRefsCovered === true) ||
+      (hasPreviousPage === false && allMessages.length > 0);
+  const indexingOlder = SERVER_MESSAGE_SEARCH_ENABLED
+    ? search.serverCoverageIncomplete && !search.searching
+    : coverage?.state === "running";
   // Offered only when there is genuinely older history this device has not
   // indexed, and only with a store to index it into.
   const canIndexOlder =
-    Boolean(searchIndexStore) && (hasPreviousPage ?? false) && !fullyCovered;
+    !SERVER_MESSAGE_SEARCH_ENABLED &&
+    Boolean(searchIndexStore) &&
+    (hasPreviousPage ?? false) &&
+    !fullyCovered;
 
   // The list's page and its active row.
   //
@@ -4657,6 +4675,11 @@ export function MessageThread({
           {searchOpen ? (
             <MessageSearchBar
               activePosition={searchActivePosition}
+              serverManaged={SERVER_MESSAGE_SEARCH_ENABLED}
+              searching={search.searching}
+              searchError={search.searchError}
+              searchHasMore={search.serverHasMore}
+              onRetrySearch={handleRetrySearch}
               // Jump in flight counts as work: the anchored read and the walk
               // behind it are the slowest requests this bar can be waiting on.
               indexing={transcriptFetching || jumpLoading}
@@ -5008,7 +5031,7 @@ export function MessageThread({
               <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
                 <MessageSearchResults
                   activeIndex={Math.max(searchListIndexClamped, 0)}
-                  allMessages={allMessages}
+                  allMessages={search.resultMessages}
                   indexing={transcriptFetching}
                   indexingOlder={indexingOlder}
                   listPageError={search.listPageError}

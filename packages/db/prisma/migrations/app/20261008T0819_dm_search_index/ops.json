@@ -16,9 +16,7 @@
       {
         "description": "ensure table \"message_search_account_state\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_account_state\""
-        ]
+        "params": ["\"public\".\"message_search_account_state\""]
       }
     ],
     "execute": [
@@ -32,9 +30,7 @@
       {
         "description": "verify table \"message_search_account_state\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_account_state\""
-        ]
+        "params": ["\"public\".\"message_search_account_state\""]
       }
     ]
   },
@@ -55,9 +51,7 @@
       {
         "description": "ensure table \"message_search_coverage\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_coverage\""
-        ]
+        "params": ["\"public\".\"message_search_coverage\""]
       }
     ],
     "execute": [
@@ -71,9 +65,7 @@
       {
         "description": "verify table \"message_search_coverage\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_coverage\""
-        ]
+        "params": ["\"public\".\"message_search_coverage\""]
       }
     ]
   },
@@ -94,9 +86,7 @@
       {
         "description": "ensure table \"message_search_documents\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_documents\""
-        ]
+        "params": ["\"public\".\"message_search_documents\""]
       }
     ],
     "execute": [
@@ -110,9 +100,7 @@
       {
         "description": "verify table \"message_search_documents\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_documents\""
-        ]
+        "params": ["\"public\".\"message_search_documents\""]
       }
     ]
   },
@@ -133,9 +121,7 @@
       {
         "description": "ensure table \"message_search_outbox\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_outbox\""
-        ]
+        "params": ["\"public\".\"message_search_outbox\""]
       }
     ],
     "execute": [
@@ -149,9 +135,7 @@
       {
         "description": "verify table \"message_search_outbox\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_outbox\""
-        ]
+        "params": ["\"public\".\"message_search_outbox\""]
       }
     ]
   },
@@ -172,9 +156,7 @@
       {
         "description": "ensure table \"message_search_terms\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_terms\""
-        ]
+        "params": ["\"public\".\"message_search_terms\""]
       }
     ],
     "execute": [
@@ -188,9 +170,7 @@
       {
         "description": "verify table \"message_search_terms\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_terms\""
-        ]
+        "params": ["\"public\".\"message_search_terms\""]
       }
     ]
   },
@@ -211,11 +191,7 @@
       {
         "description": "ensure column \"changeSeq\" is missing",
         "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "message_conversations",
-          "changeSeq"
-        ]
+        "params": ["public", "message_conversations", "changeSeq"]
       }
     ],
     "execute": [
@@ -228,11 +204,7 @@
       {
         "description": "verify column \"changeSeq\" exists",
         "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "message_conversations",
-          "changeSeq"
-        ]
+        "params": ["public", "message_conversations", "changeSeq"]
       }
     ]
   },
@@ -253,11 +225,7 @@
       {
         "description": "ensure column \"creationSequence\" is missing",
         "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "messages",
-          "creationSequence"
-        ]
+        "params": ["public", "messages", "creationSequence"]
       }
     ],
     "execute": [
@@ -270,11 +238,7 @@
       {
         "description": "verify column \"creationSequence\" exists",
         "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "messages",
-          "creationSequence"
-        ]
+        "params": ["public", "messages", "creationSequence"]
       }
     ]
   },
@@ -295,11 +259,7 @@
       {
         "description": "ensure column \"keyEpoch\" is missing",
         "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "messages",
-          "keyEpoch"
-        ]
+        "params": ["public", "messages", "keyEpoch"]
       }
     ],
     "execute": [
@@ -312,11 +272,7 @@
       {
         "description": "verify column \"keyEpoch\" exists",
         "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "messages",
-          "keyEpoch"
-        ]
+        "params": ["public", "messages", "keyEpoch"]
       }
     ]
   },
@@ -337,11 +293,7 @@
       {
         "description": "ensure column \"revision\" is missing",
         "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "messages",
-          "revision"
-        ]
+        "params": ["public", "messages", "revision"]
       }
     ],
     "execute": [
@@ -354,11 +306,7 @@
       {
         "description": "verify column \"revision\" exists",
         "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
-        "params": [
-          "public",
-          "messages",
-          "revision"
-        ]
+        "params": ["public", "messages", "revision"]
       }
     ]
   },
@@ -460,9 +408,7 @@
       {
         "description": "ensure index \"message_search_documents_term_ids_idx\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_documents_term_ids_idx\""
-        ]
+        "params": ["\"public\".\"message_search_documents_term_ids_idx\""]
       }
     ],
     "execute": [
@@ -476,9 +422,7 @@
       {
         "description": "verify index \"message_search_documents_term_ids_idx\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_documents_term_ids_idx\""
-        ]
+        "params": ["\"public\".\"message_search_documents_term_ids_idx\""]
       }
     ]
   },
@@ -538,9 +482,7 @@
       {
         "description": "ensure index \"message_search_outbox_pending_created_idx\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_outbox_pending_created_idx\""
-        ]
+        "params": ["\"public\".\"message_search_outbox_pending_created_idx\""]
       }
     ],
     "execute": [
@@ -554,9 +496,7 @@
       {
         "description": "verify index \"message_search_outbox_pending_created_idx\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_outbox_pending_created_idx\""
-        ]
+        "params": ["\"public\".\"message_search_outbox_pending_created_idx\""]
       }
     ]
   },
@@ -577,9 +517,7 @@
       {
         "description": "ensure index \"message_search_terms_conversation_id_idx\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_terms_conversation_id_idx\""
-        ]
+        "params": ["\"public\".\"message_search_terms_conversation_id_idx\""]
       }
     ],
     "execute": [
@@ -593,9 +531,7 @@
       {
         "description": "verify index \"message_search_terms_conversation_id_idx\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_terms_conversation_id_idx\""
-        ]
+        "params": ["\"public\".\"message_search_terms_conversation_id_idx\""]
       }
     ]
   },
@@ -616,9 +552,7 @@
       {
         "description": "ensure index \"message_search_terms_gram_keys_idx\" does not exist",
         "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_terms_gram_keys_idx\""
-        ]
+        "params": ["\"public\".\"message_search_terms_gram_keys_idx\""]
       }
     ],
     "execute": [
@@ -632,9 +566,7 @@
       {
         "description": "verify index \"message_search_terms_gram_keys_idx\" exists",
         "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
-        "params": [
-          "\"public\".\"message_search_terms_gram_keys_idx\""
-        ]
+        "params": ["\"public\".\"message_search_terms_gram_keys_idx\""]
       }
     ]
   }

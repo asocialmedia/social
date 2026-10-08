@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeMessageSearchQuery } from "@asm/messages/search";
 import {
   useCallback,
   useEffect,
@@ -14,6 +15,7 @@ import type { MessageData } from "@/lib/messages/types";
 import { messageDecryptor } from "./decryptor";
 import {
   buildPagedResults,
+  buildRankedResults,
   extractSearchableText,
   MAX_SEARCH_INDEX_MESSAGES,
   MAX_SEARCH_RESULTS,
@@ -49,6 +51,7 @@ export interface ConversationSearchInput {
   hasPreviousPage: boolean;
   // Batch decrypt request for rows outside the thread's visible window.
   requestDecryptBatch: (messages: MessageData[]) => void;
+  serverMode?: boolean;
   // The persistent per-conversation index, when one could be opened. Absent
   // means IndexedDB is unavailable and search falls back to loaded rows only.
   indexStore?: SearchIndexStore | null;
@@ -96,6 +99,12 @@ export interface ConversationSearch {
   // SEARCH_INDEX_QUERY_LIMIT messages. The bar's "n of N" counter uses this.
   totalMatches: number;
   truncated: boolean;
+  resultMessages: MessageData[];
+  searching: boolean;
+  searchError: string | null;
+  serverCoverageIncomplete: boolean;
+  serverHasMore: boolean;
+  retry: () => void;
 }
 
 const EMPTY_CORPUS: SearchCandidate[] = [];
@@ -106,6 +115,66 @@ const PAGE_REFRESH_MIN_INTERVAL_MS = 400;
 // Shared empty result for a closed search, so the common case allocates nothing
 // and the inline bar's `matchIds` identity stays stable while idle.
 const EMPTY_MATCH_IDS: string[] = [];
+
+interface ServerSearchPage {
+  coverageComplete: boolean;
+  hits: MessageData[];
+  nextCursor: string | null;
+}
+
+interface ServerSearchPageState {
+  key: string;
+  pages: ServerSearchPage[];
+}
+
+interface SearchApiHit {
+  ciphertext: string;
+  createdAt: string;
+  id: string;
+  iv: string;
+  keyEpoch: number;
+  ratchetIndex: number;
+  revision: number;
+  senderId: string;
+}
+
+function isSearchApiHit(value: unknown): value is SearchApiHit {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.ciphertext === "string" &&
+    typeof row.createdAt === "string" &&
+    typeof row.id === "string" &&
+    typeof row.iv === "string" &&
+    typeof row.keyEpoch === "number" &&
+    Number.isInteger(row.keyEpoch) &&
+    typeof row.ratchetIndex === "number" &&
+    Number.isInteger(row.ratchetIndex) &&
+    typeof row.revision === "number" &&
+    Number.isInteger(row.revision) &&
+    typeof row.senderId === "string"
+  );
+}
+
+function mapSearchApiHit(
+  hit: SearchApiHit,
+  conversationId: string
+): MessageData {
+  return {
+    ciphertext: hit.ciphertext,
+    conversationId,
+    createdAt: new Date(hit.createdAt),
+    deletedAt: null,
+    editedAt: null,
+    id: hit.id,
+    iv: hit.iv,
+    ratchetIndex: hit.ratchetIndex,
+    sender: null,
+    senderId: hit.senderId,
+  };
+}
 
 // The only two predecessor states the page-turn decision distinguishes. "loaded"
 // folds into undefined, and so does a page that was never read: a page that
@@ -226,6 +295,7 @@ export function useConversationSearch(
     indexStore,
     listPage = 0,
     requestDecryptBatch,
+    serverMode = false,
   } = input;
   // A definite generation. The input treats it as optional so a caller with no
   // index wiring still compiles; for an on-demand page read it is load-bearing,
@@ -237,6 +307,17 @@ export function useConversationSearch(
   const [indexMatches, setIndexMatches] = useState<IndexQueryMatches | null>(
     null
   );
+  const [serverPageState, setServerPageState] = useState<ServerSearchPageState>(
+    {
+      key: "",
+      pages: [],
+    }
+  );
+  const [serverRequest, setServerRequest] = useState<{
+    error: string | null;
+    key: string;
+    loading: boolean;
+  }>({ error: null, key: "", loading: false });
   const [pageWindow, setPageWindow] = useState<PageWindow | null>(null);
   const [pageWindowLoading, setPageWindowLoading] = useState(false);
   const [pageWindowError, setPageWindowError] = useState<string | null>(null);
@@ -294,6 +375,141 @@ export function useConversationSearch(
     return () => clearTimeout(timer);
   }, [enabled, query]);
 
+  const serverSearchKey = `${conversationId}\u0000${debouncedQuery.trim()}`;
+  useEffect(() => {
+    if (!serverMode) {
+      return;
+    }
+    const requestKey = `${conversationId}\u0000${debouncedQuery.trim()}`;
+    const normalized = normalizeMessageSearchQuery(debouncedQuery);
+    if (!enabled || !normalized.valid) {
+      return;
+    }
+    const currentPages =
+      serverPageState.key === requestKey ? serverPageState.pages : [];
+    if (currentPages.length > listPage) {
+      return;
+    }
+    const pageIndex = currentPages.length;
+    const cursor =
+      pageIndex === 0 ? undefined : currentPages.at(-1)?.nextCursor;
+    if (pageIndex > 0 && !cursor) {
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const loadNextPage = async () => {
+      setServerRequest({ error: null, key: requestKey, loading: true });
+      try {
+        const response = await fetch(
+          `/api/messages/conversations/${encodeURIComponent(conversationId)}/search`,
+          {
+            body: JSON.stringify({ cursor, query: debouncedQuery }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+            signal: controller.signal,
+          }
+        );
+        if (!response.ok) {
+          if (!cancelled) {
+            setServerRequest({
+              error: "Search could not load. Try again.",
+              key: requestKey,
+              loading: false,
+            });
+          }
+          return;
+        }
+        const payload: unknown = await response.json();
+        if (typeof payload !== "object" || payload === null) {
+          if (!cancelled) {
+            setServerRequest({
+              error: "Search could not load. Try again.",
+              key: requestKey,
+              loading: false,
+            });
+          }
+          return;
+        }
+        const body = payload as Record<string, unknown>;
+        const rawHits = body.hits;
+        if (!Array.isArray(rawHits)) {
+          if (!cancelled) {
+            setServerRequest({
+              error: "Search could not load. Try again.",
+              key: requestKey,
+              loading: false,
+            });
+          }
+          return;
+        }
+        const hits = rawHits
+          .filter(isSearchApiHit)
+          .map((hit) => mapSearchApiHit(hit, conversationId));
+        const { coverage } = body;
+        const coverageComplete =
+          typeof coverage === "object" &&
+          coverage !== null &&
+          (coverage as Record<string, unknown>).complete === true;
+        const nextCursor =
+          typeof body.nextCursor === "string" ? body.nextCursor : null;
+        if (!cancelled) {
+          setServerPageState((current) => {
+            const pages = current.key === requestKey ? current.pages : [];
+            return {
+              key: requestKey,
+              pages: [...pages, { coverageComplete, hits, nextCursor }],
+            };
+          });
+          setServerRequest({ error: null, key: requestKey, loading: false });
+        }
+      } catch {
+        if (!cancelled && !controller.signal.aborted) {
+          setServerRequest({
+            error: "Search could not load. Try again.",
+            key: requestKey,
+            loading: false,
+          });
+        }
+      }
+    };
+    void loadNextPage();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    conversationId,
+    debouncedQuery,
+    enabled,
+    listPage,
+    serverPageState,
+    serverMode,
+  ]);
+
+  const serverPages = useMemo(
+    () =>
+      serverMode && serverPageState.key === serverSearchKey
+        ? serverPageState.pages
+        : [],
+    [serverMode, serverPageState, serverSearchKey]
+  );
+  const serverMessages = useMemo(
+    () => serverPages.flatMap((page) => page.hits),
+    [serverPages]
+  );
+  const searchMessages = useMemo(
+    () => (serverMode ? serverMessages : allMessages),
+    [allMessages, serverMessages, serverMode]
+  );
+
+  const retry = useCallback(() => {
+    setServerPageState((current) => ({
+      key: current.key,
+      pages: [...current.pages],
+    }));
+  }, []);
+
   // One point read for the coverage count, so the bar can say how much of the
   // conversation this device has covered. This replaced a read of the whole row
   // table, which is what used to cost 76MB of memory on a 200k-message
@@ -301,8 +517,9 @@ export function useConversationSearch(
   //
   // Not gated on the refresh token. Coverage is the one number that must track
   // indexing, and the read is a point read of the allocator, not a decrypt.
+  // oxlint-disable react/exhaustive-effect-dependencies -- index commits are deliberate effect triggers
   useEffect(() => {
-    if (!enabled || !indexStore) {
+    if (!enabled || !indexStore || serverMode) {
       return;
     }
     let cancelled = false;
@@ -324,12 +541,7 @@ export function useConversationSearch(
     return () => {
       cancelled = true;
     };
-    // indexRefreshToken is a deliberate dependency. Every index commit bumps it,
-    // and a coverage count that does not move when the index does is simply
-    // wrong. The linter's heuristic assumes a dependency is read in the body,
-    // which is not true of a re-read trigger.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-read on every commit
-  }, [conversationId, enabled, indexGeneration, indexStore]);
+  }, [conversationId, enabled, indexGeneration, indexStore, serverMode]);
 
   // Read this query's posting lists. One point read per typed word, which is
   // cheap enough to redo after every debounce; a whole-index load is not.
@@ -347,7 +559,7 @@ export function useConversationSearch(
   // committed page is both correct and affordable now.
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
-    if (!enabled || !indexStore || trimmed.length === 0) {
+    if (!enabled || !indexStore || serverMode || trimmed.length === 0) {
       // Left as-is rather than cleared: the merge below ignores a stale set
       // whenever the query is empty, and a few posting lists are not worth a
       // render to release.
@@ -390,30 +602,35 @@ export function useConversationSearch(
     return () => {
       cancelled = true;
     };
-    // Deliberate, for the same reason as the coverage read above: results must
-    // track the index, and a superseded load is already prevented by `cancelled`.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- re-query on every commit
-  }, [conversationId, debouncedQuery, enabled, indexGeneration, indexStore]);
+  }, [
+    conversationId,
+    debouncedQuery,
+    enabled,
+    indexGeneration,
+    indexStore,
+    serverMode,
+  ]);
+  // oxlint-enable react/exhaustive-effect-dependencies
 
   // Ask for decrypts of loaded rows the visible-window prefetcher never
   // reached. Requests are idempotent in the decryptor, and rows that resolve
   // join the corpus through the version-bumped snapshot below.
   useEffect(() => {
-    if (!enabled || allMessages.length === 0) {
+    if (!enabled || searchMessages.length === 0) {
       return;
     }
-    const missing = allMessages.filter(
+    const missing = searchMessages.filter(
       (message) =>
         !message.deletedAt && messageDecryptor.get(message.id) === undefined
     );
     if (missing.length > 0) {
       requestDecryptBatch(missing);
     }
-  }, [allMessages, enabled, requestDecryptBatch]);
+  }, [enabled, requestDecryptBatch, searchMessages]);
 
   const getSnapshot = useCallback(
-    () => (enabled ? getCorpusSnapshot(allMessages) : EMPTY_CORPUS),
-    [allMessages, enabled]
+    () => (enabled ? getCorpusSnapshot(searchMessages) : EMPTY_CORPUS),
+    [enabled, searchMessages]
   );
   const corpus = useSyncExternalStore(
     messageDecryptor.subscribe,
@@ -458,10 +675,10 @@ export function useConversationSearch(
     () =>
       mergeSearchSnapshot({
         corpus,
-        index: indexMatches,
+        index: serverMode ? null : indexMatches,
         query: debouncedQuery,
       }),
-    [corpus, debouncedQuery, indexMatches]
+    [corpus, debouncedQuery, indexMatches, serverMode]
   );
   // Sticky navigation ids and counter for the current query: ids never drop
   // and the total never drops while the query stands, so arrows never yank
@@ -509,7 +726,7 @@ export function useConversationSearch(
         snapshot: mergeSearchSnapshot(
           {
             corpus: latest.corpus,
-            index: latest.indexMatches,
+            index: serverMode ? null : latest.indexMatches,
             query: latest.query,
           },
           prev && prev.query === latest.query ? prev.snapshot : null
@@ -526,7 +743,7 @@ export function useConversationSearch(
         snapshot: mergeSearchSnapshot(
           {
             corpus: latest.corpus,
-            index: latest.indexMatches,
+            index: serverMode ? null : latest.indexMatches,
             query: latest.query,
           },
           prev && prev.query === latest.query ? prev.snapshot : null
@@ -544,7 +761,7 @@ export function useConversationSearch(
           snapshot: mergeSearchSnapshot(
             {
               corpus: latest.corpus,
-              index: latest.indexMatches,
+              index: serverMode ? null : latest.indexMatches,
               query: latest.query,
             },
             prev && prev.query === latest.query ? prev.snapshot : null
@@ -552,7 +769,7 @@ export function useConversationSearch(
         }));
       }, MERGE_THROTTLE_MS);
     }
-  }, [corpus, debouncedQuery, indexMatches]);
+  }, [corpus, debouncedQuery, indexMatches, serverMode]);
   useEffect(
     () => () => {
       if (foldTimerRef.current !== null) {
@@ -874,6 +1091,48 @@ export function useConversationSearch(
     });
   }, [corpusById, extraLoadedRows, pageWindow]);
 
+  const serverPage = serverPages[listPage] ?? null;
+  const serverPageResults = useMemo(() => {
+    if (!serverMode || !serverPage) {
+      return [];
+    }
+    const candidates = serverPage.hits.flatMap((message) => {
+      const candidate = corpusById.get(message.id);
+      return candidate ? [candidate] : [];
+    });
+    const rankedById = new Map(
+      buildRankedResults(
+        scoreSearchCandidates(candidates, debouncedQuery),
+        debouncedQuery
+      ).map((result) => [result.id, result])
+    );
+    return serverPage.hits.flatMap((message) => {
+      const result = rankedById.get(message.id);
+      return result ? [result] : [];
+    });
+  }, [corpusById, debouncedQuery, serverMode, serverPage]);
+  const serverKnownHitCount = serverPages.reduce(
+    (count, page) => count + page.hits.length,
+    0
+  );
+  const lastServerPage = serverPages.at(-1);
+  const serverHasMore =
+    lastServerPage !== undefined && lastServerPage.nextCursor !== null;
+  const serverTotalMatches = serverMode
+    ? serverKnownHitCount + (serverHasMore ? 1 : 0)
+    : 0;
+  const serverRequestCurrent = serverRequest.key === serverSearchKey;
+  const serverSearchError = serverRequestCurrent ? serverRequest.error : null;
+  const serverSearchLoading = serverRequestCurrent && serverRequest.loading;
+  const serverDecryptLoading = serverMessages.some(
+    (message) => messageDecryptor.get(message.id) === "pending"
+  );
+  const serverCoverageIncomplete =
+    serverMode &&
+    enabled &&
+    normalizeMessageSearchQuery(debouncedQuery).valid &&
+    (serverPages.length === 0 || serverPages.at(-1)?.coverageComplete !== true);
+
   // Which rows the list view renders. Page 0 is the merged head; deeper pages are
   // the on-demand window, and only once it belongs to this query -- a window from
   // the previous query would show results for a query the user has left.
@@ -884,22 +1143,33 @@ export function useConversationSearch(
   // showing "no results" would contradict the counter. The loading and error
   // states below are what distinguish "not yet" from "nothing".
   let listResults = ranked;
-  if (!enabled || (listPage > 0 && !windowIsCurrent)) {
+  if (serverMode) {
+    listResults = enabled ? serverPageResults : [];
+  } else if (!enabled || (listPage > 0 && !windowIsCurrent)) {
     listResults = [];
   } else if (listPage > 0 && pageWindowResults) {
     listResults = pageWindowResults;
   }
   // A page turn past the head that has not resolved yet renders nothing rather
   // than the head's rows relabelled as page N.
-  const listPageLoading =
-    enabled && listPage > 0 && !windowIsCurrent && pageWindowLoading;
-  const listPageError =
-    enabled && listPage > 0 && !windowIsCurrent ? pageWindowError : null;
-  const listPageStale =
-    enabled &&
-    listPage > 0 &&
-    windowIsCurrent &&
-    (pageWindow?.indexToken ?? indexGeneration) < indexGeneration;
+  const listPageLoading = serverMode
+    ? enabled &&
+      (serverSearchLoading ||
+        (Boolean(serverPage) && serverDecryptLoading) ||
+        (listPage > 0 && !serverPage && !serverSearchError))
+    : enabled && listPage > 0 && !windowIsCurrent && pageWindowLoading;
+  let listPageError: string | null = null;
+  if (serverMode) {
+    listPageError = serverSearchError;
+  } else if (enabled && listPage > 0 && !windowIsCurrent) {
+    listPageError = pageWindowError;
+  }
+  const listPageStale = serverMode
+    ? serverCoverageIncomplete
+    : enabled &&
+      listPage > 0 &&
+      windowIsCurrent &&
+      (pageWindow?.indexToken ?? indexGeneration) < indexGeneration;
 
   // Deliberately NO history loading here.
   //
@@ -915,26 +1185,42 @@ export function useConversationSearch(
   // history loads through the transcript's own scroll loader. Search reads what
   // exists, it does not go and get it. The bar already reports how much has been
   // covered, so a partial answer is an explicit one rather than a silent one.
-  const loadedCount = allMessages.length;
+  const loadedCount = serverMode ? serverMessages.length : allMessages.length;
   const indexing =
-    enabled && hasPreviousPage && loadedCount < MAX_SEARCH_INDEX_MESSAGES;
+    !serverMode &&
+    enabled &&
+    hasPreviousPage &&
+    loadedCount < MAX_SEARCH_INDEX_MESSAGES;
   const truncated =
-    enabled && hasPreviousPage && loadedCount >= MAX_SEARCH_INDEX_MESSAGES;
+    !serverMode &&
+    enabled &&
+    hasPreviousPage &&
+    loadedCount >= MAX_SEARCH_INDEX_MESSAGES;
+
+  const totalResultCount = serverMode ? serverTotalMatches : totalMatches;
 
   return {
     debouncedQuery,
-    indexedCount: enabled ? corpus.length : 0,
-    indexedTotal,
-    indexing,
+    indexedCount: enabled && !serverMode ? corpus.length : 0,
+    indexedTotal: enabled && !serverMode ? indexedTotal : 0,
+    indexing: serverMode
+      ? serverSearchLoading || serverDecryptLoading
+      : indexing,
     listPageError,
     listPageLoading,
     listPageStale,
     matchIds: enabled ? matchIds : EMPTY_MATCH_IDS,
     query,
+    resultMessages: serverMode ? serverMessages : allMessages,
     results: listResults,
+    retry,
+    searchError: serverSearchError,
+    searching: serverSearchLoading || serverDecryptLoading,
+    serverCoverageIncomplete,
+    serverHasMore,
     setQuery,
     totalLoaded: enabled ? loadedCount : 0,
-    totalMatches: enabled ? totalMatches : 0,
+    totalMatches: enabled ? totalResultCount : 0,
     truncated,
   };
 }

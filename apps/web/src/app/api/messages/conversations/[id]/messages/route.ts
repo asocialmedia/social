@@ -2,6 +2,7 @@ import {
   and,
   consumeRateLimit,
   createDenMessageNotifications,
+  enqueueMessageSearchOutbox,
   fromPrismaDateTime,
   getMessageDataQuery,
   listDenMembershipEvents,
@@ -88,7 +89,7 @@ async function updateMessageRatchetWithCas(
   conversationId: string,
   ownerUserId: string,
   attemptsRemaining = MAX_CAS_ATTEMPTS
-): Promise<void> {
+): Promise<number | null> {
   // Only the newest root-key epoch drives the counter; older wraps belong to
   // epochs the conversation has already rotated past.
   const key = await tx.orm.public.MessageConversationKeys.select(
@@ -104,7 +105,7 @@ async function updateMessageRatchetWithCas(
     .orderBy((candidate) => candidate.version.desc())
     .first();
   if (!key) {
-    return;
+    return null;
   }
   // `version` is part of the predicate, and it has to be.
   //
@@ -132,7 +133,7 @@ async function updateMessageRatchetWithCas(
       )
   ).updateAndCount({ ratchetCounter: key.ratchetCounter + 1 });
   if (updated === 1) {
-    return;
+    return key.version;
   }
   if (attemptsRemaining <= 1) {
     throw new Error("Could not update message ratchet");
@@ -678,6 +679,7 @@ export async function POST(
   // the conversation's current roster-change count, not a value about this
   // message. Null only if the update somehow returned no row.
   let membershipSeq: number | null = null;
+  let searchOutboxId: string | null = null;
   // Collected inside the transaction, flushed after it resolves. The rows are
   // written under the message's own transaction so a rollback takes them with
   // it; the enqueue has to wait for the commit, because a worker that ran
@@ -697,7 +699,7 @@ export async function POST(
       });
       createdMessageId = created.id;
 
-      await updateMessageRatchetWithCas(tx, id, user.id);
+      const keyEpoch = await updateMessageRatchetWithCas(tx, id, user.id);
 
       // The conversation bump comes before the fan-out on purpose: it takes the
       // den's row lock, so two sends into one den serialize here and the second
@@ -711,6 +713,28 @@ export async function POST(
         id,
       }).update({ updatedAt: toPrismaDateTime(new Date()) });
       membershipSeq = bumped?.membershipSeq ?? null;
+
+      const changeSequence = (bumped?.changeSeq ?? 0) + 1;
+      if (bumped) {
+        await tx.orm.public.MessageConversations.where({ id }).update({
+          changeSeq: changeSequence,
+        });
+      }
+      await tx.orm.public.Messages.where({ id: created.id }).update({
+        creationSequence: changeSequence,
+        keyEpoch,
+      });
+      const outbox = await tx.orm.public.MessageSearchOutbox.create({
+        audienceUserIds: conversation.members
+          .filter((member) => !member.leftAt)
+          .map((member) => member.userId),
+        changeSequence,
+        conversationId: id,
+        kind: "upsert",
+        messageId: created.id,
+        revision: created.revision,
+      });
+      searchOutboxId = outbox.id;
 
       // A DM has no notification for a new message, so nothing fans out there.
       // A den does: one row per member, minus the sender, minus anyone who has
@@ -745,6 +769,16 @@ export async function POST(
   // real. Fire-and-forget: a queue hiccup costs a badge and a push, never the
   // send the caller already succeeded at.
   flushNotificationEvents(notificationEvents, "den message");
+
+  if (searchOutboxId) {
+    void (async () => {
+      try {
+        await enqueueMessageSearchOutbox(searchOutboxId);
+      } catch {
+        console.error("Failed to enqueue DM search update");
+      }
+    })();
+  }
 
   if (!createdMessageId) {
     throw new Error("Message was not created");

@@ -100,6 +100,20 @@ export {
   unreadMessageWhere,
 } from "./src/messages/visibility";
 export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
+export {
+  closeMessageSearchPool,
+  markSearchOutboxUnreadable,
+  persistSearchDocument,
+  searchMessageCandidates,
+} from "./src/messages/search-index";
+export type {
+  SearchCandidateQuery,
+  SearchCandidateRow,
+  SearchDocumentArtifact,
+  SearchMessageWindow,
+  SearchTermArtifact,
+} from "./src/messages/search-index";
+export { keys } from "./keys";
 export { createDenMessageNotifications } from "./src/messages/den-notifications";
 export type { DenMessageNotification } from "./src/messages/den-notifications";
 export { createDenMembershipEndedNotifications } from "./src/messages/den-membership-notifications";

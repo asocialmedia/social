@@ -91,6 +91,11 @@ export interface MessageSearchBarProps {
   rangeStart: number;
   totalResults: number;
   view: SearchView;
+  serverManaged?: boolean;
+  searching?: boolean;
+  searchError?: string | null;
+  searchHasMore?: boolean;
+  onRetrySearch?: () => void;
 }
 
 export function MessageSearchBar({
@@ -124,6 +129,11 @@ export function MessageSearchBar({
   listPageStale,
   totalResults,
   view,
+  serverManaged = false,
+  searching = false,
+  searchError = null,
+  searchHasMore = false,
+  onRetrySearch,
 }: MessageSearchBarProps) {
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -141,31 +151,51 @@ export function MessageSearchBar({
   });
   // A failed jump replaces the counter: the miss must read as a miss, not as a
   // hang, and the next attempt (which clears it) is the retry.
-  const statusText =
-    jumpError ??
-    listPageError ??
-    (searchStorageStatus({
-      evictedCount: storageEvictedCount,
-      storageFull,
-    }) ||
-      (listView
-        ? searchListStatus({
-            fullyCovered,
-            indexingOlder,
-            listPageStale,
-            queryReady,
-            rangeEnd,
-            rangeStart,
-            resultCount,
-            totalResults,
-          })
-        : searchChatStatus({
-            activePosition,
-            fullyCovered,
-            indexingOlder,
-            matchCount,
-            queryReady,
-          })));
+  let statusText: string;
+  if (serverManaged) {
+    if (searchError) {
+      statusText = "Search failed";
+    } else if (searching) {
+      statusText = "Searching…";
+    } else if (!queryReady) {
+      statusText = "";
+    } else if (listView && totalResults > 0) {
+      statusText = `${rangeStart}–${rangeEnd}${searchHasMore ? "+" : ""} results`;
+    } else if (!listView && matchCount > 0) {
+      const position = activePosition > 0 ? activePosition : 1;
+      statusText = `${position} of ${matchCount}${searchHasMore ? "+" : ""}`;
+    } else if (fullyCovered) {
+      statusText = "No matching messages";
+    } else {
+      statusText = "Searching older messages…";
+    }
+  } else {
+    statusText =
+      jumpError ??
+      listPageError ??
+      (searchStorageStatus({
+        evictedCount: storageEvictedCount,
+        storageFull,
+      }) ||
+        (listView
+          ? searchListStatus({
+              fullyCovered,
+              indexingOlder,
+              listPageStale,
+              queryReady,
+              rangeEnd,
+              rangeStart,
+              resultCount,
+              totalResults,
+            })
+          : searchChatStatus({
+              activePosition,
+              fullyCovered,
+              indexingOlder,
+              matchCount,
+              queryReady,
+            })));
+  }
 
   return (
     <div className="border-border/60 flex h-12 shrink-0 items-center gap-2 border-b px-3 md:px-4">
@@ -201,7 +231,7 @@ export function MessageSearchBar({
           whole conversation, matches are found over everything regardless of
           how much history happens to be loaded, so a loader here would imply
           search is still working when it is done. */}
-      {indexing && !fullyCovered ? (
+      {(serverManaged ? searching : indexing && !fullyCovered) ? (
         <Loader2
           aria-label="Loading older messages"
           className="text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin"
@@ -214,6 +244,15 @@ export function MessageSearchBar({
       >
         {statusText}
       </span>
+      {serverManaged && searchError && onRetrySearch ? (
+        <button
+          className="text-xs font-medium text-[hsl(var(--primary))]"
+          onClick={onRetrySearch}
+          type="button"
+        >
+          Retry
+        </button>
+      ) : null}
 
       {listView ? (
         <button
@@ -274,7 +313,7 @@ export function MessageSearchBar({
           live indexed count -- in the row the user is already looking at
           rather than in a toast. Indexing starts and stops itself, so the
           indicator takes no clicks. */}
-      {indexingOlder ? (
+      {!serverManaged && indexingOlder ? (
         <span
           aria-label={coverageLabel}
           className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
@@ -283,7 +322,7 @@ export function MessageSearchBar({
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         </span>
       ) : null}
-      {!indexingOlder && canIndexOlder ? (
+      {!serverManaged && !indexingOlder && canIndexOlder ? (
         <button
           aria-label={coverageLabel}
           className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:pointer-events-none disabled:opacity-60"

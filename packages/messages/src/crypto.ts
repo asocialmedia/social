@@ -27,6 +27,7 @@
 // root key is ever compromised.
 
 import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+
 export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
 export const ACCOUNT_SECRET_LENGTH = 64;

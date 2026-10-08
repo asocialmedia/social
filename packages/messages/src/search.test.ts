@@ -32,10 +32,11 @@ describe("message search shared contract", () => {
     expect(messageSearchTermsMatch(terms, "deploy absent")).toBe(false);
   });
 
-  test("requires two UTF-16 code units and bounds normalized query points", () => {
+  test("requires two Unicode code points and bounds normalized query points", () => {
     expect(normalizeMessageSearchQuery("a").valid).toBe(false);
     expect(normalizeMessageSearchQuery("a b").valid).toBe(true);
-    expect(normalizeMessageSearchQuery("🙂").valid).toBe(true);
+    expect(normalizeMessageSearchQuery("🙂").valid).toBe(false);
+    expect(normalizeMessageSearchQuery("😀a").valid).toBe(true);
     expect(normalizeMessageSearchQuery("x".repeat(257)).valid).toBe(false);
   });
 

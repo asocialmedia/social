@@ -12,10 +12,7 @@ export interface MessageSearchablePayload {
 }
 
 export function normalizeMessageSearchText(value: string): string {
-  return value
-    .normalize("NFD")
-    .replaceAll(/[\u0300-\u036F]/g, "")
-    .toLowerCase();
+  return value.normalize("NFD").replaceAll(/\p{M}/gu, "").toLowerCase();
 }
 
 export function searchableTextFromPayload(
@@ -57,7 +54,7 @@ export function normalizeMessageSearchQuery(query: string): {
     normalizedQuery,
     tokens,
     valid:
-      normalizedQuery.length >= MESSAGE_SEARCH_MINIMUM_QUERY_LENGTH &&
+      codePointLength >= MESSAGE_SEARCH_MINIMUM_QUERY_LENGTH &&
       codePointLength <= MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS,
   };
 }
