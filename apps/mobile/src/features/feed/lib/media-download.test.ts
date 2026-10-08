@@ -35,9 +35,9 @@ describe("original media actions", () => {
       expect(layout.width / layout.height).toBeCloseTo(
         media.width / media.height
       );
-      expect(layout.x).toBeGreaterThanOrEqual(16);
+      expect(layout.x).toBeGreaterThanOrEqual(8);
       expect(layout.y).toBeGreaterThanOrEqual(40);
-      expect(layout.y + layout.height).toBeLessThan(950 * 0.53);
+      expect(layout.y + layout.height).toBeLessThan(950 * 0.6);
     }
   });
   test("missing dimensions use a finite fallback on small screens", () => {
@@ -59,6 +59,43 @@ describe("original media actions", () => {
       measured
     );
     expect(layout.width / layout.height).toBeCloseTo(16 / 9);
-    expect(layout.width).toBeLessThanOrEqual(388);
+    expect(layout.width).toBeLessThanOrEqual(404);
+  });
+  test("portraits use all available height above the actual drawer", () => {
+    const layout = mediaPreviewLayout(
+      { height: 950, width: 420 },
+      { height: 1200, width: 400 },
+      40,
+      undefined,
+      650
+    );
+    expect(layout.y).toBe(48);
+    expect(layout.y + layout.height).toBe(638);
+    expect(layout.height).toBeGreaterThan(950 * 0.53);
+    expect(layout.width / layout.height).toBeCloseTo(1 / 3);
+  });
+  test("landscapes use the full width and center within the measured free space", () => {
+    const layout = mediaPreviewLayout(
+      { height: 950, width: 420 },
+      { height: 900, width: 1600 },
+      40,
+      undefined,
+      480
+    );
+    expect(layout.width).toBe(404);
+    expect(layout.x).toBe(8);
+    expect(layout.y + layout.height / 2).toBeCloseTo((48 + 468) / 2);
+  });
+  test("short screens and tall drawers keep the preview separate from the actions", () => {
+    const layout = mediaPreviewLayout(
+      { height: 400, width: 740 },
+      { height: 1920, width: 1080 },
+      24,
+      undefined,
+      180
+    );
+    expect(layout.height).toBe(136);
+    expect(layout.y + layout.height).toBe(168);
+    expect(layout.width / layout.height).toBeCloseTo(1080 / 1920);
   });
 });

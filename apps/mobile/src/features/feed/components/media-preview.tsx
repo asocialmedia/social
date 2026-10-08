@@ -5,6 +5,17 @@ import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useVideoPlayer, VideoView } from "expo-video";
+import {
+  ArrowBigDown,
+  ArrowBigUp,
+  Bookmark,
+  BookmarkCheck,
+  CornerDownRight,
+  Download,
+  Maximize2,
+  MessageSquare,
+  Share2,
+} from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,6 +23,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   Share,
   Text,
   View,
@@ -30,6 +42,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
 
 import { toast } from "@/components/feedback/toast";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import { btnGray } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
@@ -117,6 +131,17 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const closing = useRef(false);
   const afterClose = useRef<(() => void) | null>(null);
   const mounted = useRef(true);
+  const sheetRef = useRef<View>(null);
+  const measureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bottomPadding = Math.max(insets.bottom, 12);
+  const menuHeight = Math.min(
+    (window.height - insets.bottom) * 0.48,
+    8 * 44 + 7 * 4 + 32 + bottomPadding + 4
+  );
+  const [sheetTop, setSheetTop] = useState(
+    () => window.height - menuHeight - insets.bottom
+  );
+  const gray = btnGray(isDark);
   const knownDimensions = mediaDimensionsCache.get(
     mediaDimensionsKey(getApiBaseUrl(), request.media.id)
   );
@@ -124,8 +149,31 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     window,
     knownDimensions ?? request.media,
     insets.top,
-    request.bounds
+    request.bounds,
+    sheetTop
   );
+  const stage = mediaPreviewLayout(
+    window,
+    knownDimensions ?? request.media,
+    insets.top,
+    request.bounds,
+    window.height
+  );
+  const previewTarget = useSharedValue(target);
+  const {
+    height: targetHeight,
+    width: targetWidth,
+    x: targetX,
+    y: targetY,
+  } = target;
+  useEffect(() => {
+    previewTarget.set(
+      withTiming(
+        { height: targetHeight, width: targetWidth, x: targetX, y: targetY },
+        { duration: 180, reduceMotion: ReduceMotion.System }
+      )
+    );
+  }, [previewTarget, targetHeight, targetWidth, targetX, targetY]);
   const { bounds, media, post } = request;
   const { engagement, toggleBookmark, vote } = usePostEngagement({
     aura: post.aura ?? 0,
@@ -181,36 +229,36 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     );
     return () => {
       mounted.current = false;
+      if (measureTimer.current) {
+        clearTimeout(measureTimer.current);
+      }
     };
   }, [progress]);
   const previewStyle = useAnimatedStyle(() => {
     const value = progress.get();
+    const destination = previewTarget.get();
+    const position = reducedMotion ? 1 : value;
+    const width = bounds.width + (destination.width - bounds.width) * position;
+    const height =
+      bounds.height + (destination.height - bounds.height) * position;
+    const centerX =
+      bounds.x +
+      bounds.width / 2 +
+      (destination.x + destination.width / 2 - bounds.x - bounds.width / 2) *
+        position;
+    const centerY =
+      bounds.y +
+      bounds.height / 2 +
+      (destination.y + destination.height / 2 - bounds.y - bounds.height / 2) *
+        position;
     return {
       opacity: reducedMotion ? value : 1,
-      transform: reducedMotion
-        ? []
-        : [
-            {
-              translateX:
-                (1 - value) *
-                (bounds.x + bounds.width / 2 - target.x - target.width / 2),
-            },
-            {
-              translateY:
-                (1 - value) *
-                (bounds.y + bounds.height / 2 - target.y - target.height / 2),
-            },
-            {
-              scaleX:
-                bounds.width / target.width +
-                value * (1 - bounds.width / target.width),
-            },
-            {
-              scaleY:
-                bounds.height / target.height +
-                value * (1 - bounds.height / target.height),
-            },
-          ],
+      transform: [
+        { translateX: centerX - stage.width / 2 },
+        { translateY: centerY - stage.height / 2 },
+        { scaleX: width / stage.width },
+        { scaleY: height / stage.height },
+      ],
     };
   });
   const backdropStyle = useAnimatedStyle(() => ({
@@ -324,12 +372,14 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
       action: () => {
         void run("Saving…", save);
       },
+      icon: Download,
       label: "Save media",
     },
     {
       action: () => {
         void run("Preparing share…", share);
       },
+      icon: Share2,
       label: "Share media",
     },
     {
@@ -339,6 +389,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
             useComposerStore.getState().open("post", replyTargetFromPost(post))
           )
         ),
+      icon: CornerDownRight,
       label: "Respond",
     },
     {
@@ -352,6 +403,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
             })
           );
         }),
+      icon: MessageSquare,
       label: "Eddie",
     },
     {
@@ -359,6 +411,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         requireUser(() => {
           void run("Bookmarking…", toggleBookmark, false);
         }),
+      icon: engagement.isBookmarkedByUser ? BookmarkCheck : Bookmark,
       label: engagement.isBookmarkedByUser ? "Bookmarked" : "Bookmark",
     },
     {
@@ -381,6 +434,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
           })
         );
       },
+      icon: Maximize2,
       label: "Open full screen",
     },
     {
@@ -388,6 +442,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         requireUser(() => {
           void run("Amplifying…", () => vote(1), false);
         }),
+      icon: ArrowBigUp,
       label: engagement.userVote === 1 ? "Amplified" : "Amplify",
     },
     {
@@ -395,6 +450,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         requireUser(() => {
           void run("Muting…", () => vote(-1), false);
         }),
+      icon: ArrowBigDown,
       label: engagement.userVote === -1 ? "Muted" : "Mute post",
     },
   ];
@@ -435,12 +491,12 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
               borderColor: "rgba(255,255,255,0.22)",
               borderRadius: 18,
               borderWidth: 1,
-              height: target.height,
-              left: target.x,
+              height: stage.height,
+              left: 0,
               overflow: "hidden",
               position: "absolute",
-              top: target.y,
-              width: target.width,
+              top: 0,
+              width: stage.width,
             },
             previewStyle,
           ]}
@@ -467,88 +523,133 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
             isPresented={presented}
             onDismiss={() => close()}
             contentPadding={0}
+            showDragIndicator={false}
             containerColor={theme.cardBg}
             scrimColor="transparent"
             testID="media-actions-sheet"
           >
             <MediaSheetContent>
               <View
+                ref={sheetRef}
+                collapsable={false}
+                onLayout={() => {
+                  setSheetTop(window.height - menuHeight - insets.bottom);
+                  if (measureTimer.current) {
+                    clearTimeout(measureTimer.current);
+                  }
+                  // Native presentation translates the sheet after the React layout callback.
+                  measureTimer.current = setTimeout(() => {
+                    sheetRef.current?.measureInWindow((_x, y) => {
+                      if (
+                        mounted.current &&
+                        !closing.current &&
+                        y > insets.top + 24 &&
+                        y < window.height
+                      ) {
+                        setSheetTop(y);
+                      }
+                    });
+                  }, 350);
+                }}
                 style={{
-                  gap: 8,
-                  paddingBottom: Math.max(insets.bottom, 12),
-                  paddingHorizontal: 16,
+                  height: menuHeight,
+                  paddingBottom: bottomPadding,
                   width: window.width,
                 }}
               >
-                <Text
-                  numberOfLines={1}
+                <View
+                  pointerEvents="none"
                   style={{
-                    color: theme.inputText,
-                    fontFamily: "SofiaProMed",
-                    fontSize: 15,
+                    alignItems: "center",
+                    height: 32,
+                    justifyContent: "center",
                   }}
                 >
-                  Media · @{post.user?.username ?? "post"}
-                </Text>
-                <View className="flex-row flex-wrap gap-2">
+                  <View
+                    style={{
+                      backgroundColor: theme.dividerText,
+                      borderRadius: 2,
+                      height: 4,
+                      width: 36,
+                    }}
+                  />
+                </View>
+                {busy || notice ? (
+                  <View className="flex-row items-center gap-2 px-4 pb-2">
+                    {busy ? <ActivityIndicator color={theme.auxLink} /> : null}
+                    <Text
+                      accessibilityLiveRegion="polite"
+                      style={{
+                        color: theme.inputText,
+                        flex: 1,
+                        fontFamily: "SofiaProReg",
+                        fontSize: 14,
+                      }}
+                    >
+                      {busy ?? notice}
+                    </Text>
+                  </View>
+                ) : null}
+                <ScrollView
+                  style={{ flex: 1 }}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{
+                    gap: 4,
+                    paddingHorizontal: 16,
+                    paddingVertical: 2,
+                  }}
+                >
                   {/* oxlint-disable-next-line react/refs -- action descriptors contain event callbacks; their refs are read only on a press */}
-                  {actions.map(({ label, action }) => (
+                  {actions.map(({ label, action, icon: Icon }) => (
                     <Pressable
                       key={label}
                       disabled={Boolean(busy)}
+                      accessibilityLabel={label}
                       accessibilityRole="button"
                       accessibilityState={{ disabled: Boolean(busy) }}
                       onPress={action}
-                      style={({ pressed }) => ({
-                        backgroundColor: pressed
-                          ? theme.containerBg
-                          : theme.cardBg,
-                        borderColor: theme.cardBorder,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        boxShadow: "inset 0 1px 1px rgba(255,255,255,0.12)",
-                        minHeight: 44,
-                        opacity: busy ? 0.5 : 1,
-                        padding: 12,
-                        width: (window.width - 40) / 2,
-                      })}
+                      hitSlop={2}
+                      style={{ opacity: busy ? 0.5 : 1 }}
                     >
-                      <Text
-                        style={{
-                          color: theme.inputText,
-                          fontFamily: "SofiaProMed",
-                          fontSize: 14,
-                        }}
-                      >
-                        {label}
-                      </Text>
+                      {({ pressed }) => {
+                        const surface = pressed ? gray.pressed : gray.resting;
+                        return (
+                          <Gradient3D
+                            colors={surface.colors}
+                            shadows={surface.shadows}
+                            radius={12}
+                            style={{
+                              flexDirection: "row",
+                              gap: 12,
+                              justifyContent: "flex-start",
+                              minHeight: 44,
+                              paddingHorizontal: 14,
+                              paddingVertical: 10,
+                            }}
+                          >
+                            <Icon
+                              color={surface.text}
+                              size={22}
+                              strokeWidth={1.8}
+                            />
+                            <Text
+                              style={{
+                                color: surface.text,
+                                flex: 1,
+                                fontFamily: "SofiaProMed",
+                                fontSize: 15,
+                                lineHeight: 22,
+                              }}
+                            >
+                              {label}
+                            </Text>
+                          </Gradient3D>
+                        );
+                      }}
                     </Pressable>
                   ))}
-                </View>
-                {busy ? (
-                  <View
-                    style={{
-                      alignItems: "center",
-                      flexDirection: "row",
-                      gap: 8,
-                    }}
-                  >
-                    <ActivityIndicator color={theme.auxLink} />
-                    <Text style={{ color: theme.inputText }}>{busy}</Text>
-                  </View>
-                ) : null}
-                {notice ? (
-                  <Text
-                    accessibilityLiveRegion="polite"
-                    style={{
-                      color: theme.inputText,
-                      fontFamily: "SofiaProReg",
-                      fontSize: 14,
-                    }}
-                  >
-                    {notice}
-                  </Text>
-                ) : null}
+                </ScrollView>
               </View>
             </MediaSheetContent>
           </BottomSheet>
