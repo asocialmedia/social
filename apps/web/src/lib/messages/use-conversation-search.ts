@@ -63,6 +63,7 @@ export interface ConversationSearchInput {
   // Batch decrypt request for rows outside the thread's visible window.
   requestDecryptBatch: (messages: MessageData[]) => void;
   offlineSearchScope?: OfflineSearchCacheScope | null;
+  offlineCacheRefreshToken?: number;
   serverMode?: boolean;
   serverRefreshToken?: number;
   // The persistent per-conversation index, when one could be opened. Absent
@@ -282,6 +283,7 @@ export function useConversationSearch(
     hasPreviousPage,
     indexStore,
     listPage = 0,
+    offlineCacheRefreshToken = 0,
     offlineSearchScope = null,
     requestDecryptBatch,
     serverMode = false,
@@ -301,6 +303,7 @@ export function useConversationSearch(
     : "";
   const offlineScopeKeyRef = useRef("");
   const offlineIndexedRef = useRef(new Map<string, number>());
+  const offlineCacheRefreshTokenRef = useRef<number | null>(null);
   const offlinePendingRef = useRef(new Set<string>());
   const offlineActivationRef = useRef<{
     key: string;
@@ -401,6 +404,10 @@ export function useConversationSearch(
     if (!activation || activation.key !== offlineScopeKey) {
       return;
     }
+    if (offlineCacheRefreshTokenRef.current !== offlineCacheRefreshToken) {
+      offlineCacheRefreshTokenRef.current = offlineCacheRefreshToken;
+      offlineIndexedRef.current.clear();
+    }
     const cacheRows = async () => {
       const messages: OfflineSearchWorkerMessage[] = [];
       try {
@@ -411,9 +418,16 @@ export function useConversationSearch(
           return;
         }
         const removals: string[] = [];
+        const removalRules = [];
         for (const message of allMessages) {
           if (message.deletedAt) {
             removals.push(message.id);
+            removalRules.push({
+              id: message.id,
+              revisionFloor: message.revision ?? null,
+              sequence: null,
+              unavailable: true,
+            });
             continue;
           }
           const entry = messageDecryptor.get(message.id);
@@ -448,7 +462,8 @@ export function useConversationSearch(
           await offlineSearchWorkerClient.remove(
             offlineSearchScope,
             conversationId,
-            removals
+            removals,
+            removalRules
           );
         }
         if (messages.length === 0) {
@@ -479,6 +494,7 @@ export function useConversationSearch(
     allMessages,
     conversationId,
     decryptorVersion,
+    offlineCacheRefreshToken,
     offlineScopeKey,
     offlineSearchScope,
     serverMode,

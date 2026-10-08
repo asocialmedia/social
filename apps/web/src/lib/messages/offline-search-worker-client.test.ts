@@ -158,6 +158,31 @@ describe("offline search worker client", () => {
     client.dispose();
   });
 
+  test("forwards revision-aware removals as one scoped worker request", async () => {
+    const worker = new TestWorker();
+    const client = clientWithWorker(worker);
+    const removals = [
+      {
+        id: "message-1",
+        revisionFloor: 7,
+        sequence: 19,
+        unavailable: false,
+      },
+    ];
+
+    expect(
+      await client.remove(scope, "conversation-1", ["message-1"], removals)
+    ).toBe(true);
+    expect(worker.posted.at(-1)).toMatchObject({
+      conversationId: "conversation-1",
+      messageIds: ["message-1"],
+      removals,
+      scope,
+      type: "remove",
+    });
+    client.dispose();
+  });
+
   test("worker errors settle all pending requests and allow disposal", async () => {
     const worker = new TestWorker();
     const client = clientWithWorker(worker);

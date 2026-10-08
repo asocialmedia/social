@@ -3,6 +3,8 @@ import {
   OFFLINE_SEARCH_DOCUMENTS_STORE,
   OFFLINE_SEARCH_PAYLOADS_STORE,
   OFFLINE_SEARCH_STATE_STORE,
+  OFFLINE_SEARCH_TOMBSTONES_BY_CONVERSATION_INDEX,
+  OFFLINE_SEARCH_TOMBSTONES_STORE,
   MESSAGES_DB_NAME,
   MESSAGES_DB_VERSION,
   ensureMessagesSchema,
@@ -74,6 +76,17 @@ interface OfflineSearchConversationState {
   messageCount: number;
 }
 
+export interface OfflineSearchCacheRemoval {
+  id: string;
+  revisionFloor: number | null;
+  sequence: number | null;
+  unavailable: boolean;
+}
+
+interface OfflineSearchTombstone extends OfflineSearchCacheRemoval {
+  conversationId: string;
+}
+
 export interface IndexedDbOfflineSearchCacheStore {
   activateScope: (scope: OfflineSearchCacheScope) => Promise<boolean>;
   clearConversation: (
@@ -94,7 +107,8 @@ export interface IndexedDbOfflineSearchCacheStore {
   removeMessages: (
     scope: OfflineSearchCacheScope,
     conversationId: string,
-    messageIds: readonly string[]
+    messageIds: readonly string[],
+    removals?: readonly OfflineSearchCacheRemoval[]
   ) => Promise<boolean>;
   search: (input: {
     before?: OfflineSearchCursor;
@@ -140,6 +154,10 @@ function conversationStateKey(conversationId: string): string {
 }
 
 function messageKey(conversationId: string, id: string): string {
+  return JSON.stringify([conversationId, id]);
+}
+
+function tombstoneKey(conversationId: string, id: string): string {
   return JSON.stringify([conversationId, id]);
 }
 
@@ -369,6 +387,17 @@ async function documentsForConversation(
   )) as OfflineSearchDocument[];
 }
 
+async function tombstonesForConversation(
+  store: IDBObjectStore,
+  conversationId: string
+): Promise<OfflineSearchTombstone[]> {
+  return (await requestAsPromise(
+    store
+      .index(OFFLINE_SEARCH_TOMBSTONES_BY_CONVERSATION_INDEX)
+      .getAll(IDBKeyRange.only(conversationId))
+  )) as OfflineSearchTombstone[];
+}
+
 function asConversationState(
   value: unknown
 ): OfflineSearchConversationState | null {
@@ -443,6 +472,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           OFFLINE_SEARCH_DOCUMENTS_STORE,
           OFFLINE_SEARCH_PAYLOADS_STORE,
           OFFLINE_SEARCH_STATE_STORE,
+          OFFLINE_SEARCH_TOMBSTONES_STORE,
         ],
         "readwrite",
         async (transaction) => {
@@ -453,6 +483,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           }
           transaction.objectStore(OFFLINE_SEARCH_DOCUMENTS_STORE).clear();
           transaction.objectStore(OFFLINE_SEARCH_PAYLOADS_STORE).clear();
+          transaction.objectStore(OFFLINE_SEARCH_TOMBSTONES_STORE).clear();
           state.clear();
           state.put(
             { id: SCOPE_KEY, ...scope } satisfies OfflineSearchScopeState,
@@ -498,6 +529,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           OFFLINE_SEARCH_DOCUMENTS_STORE,
           OFFLINE_SEARCH_PAYLOADS_STORE,
           OFFLINE_SEARCH_STATE_STORE,
+          OFFLINE_SEARCH_TOMBSTONES_STORE,
         ],
         "readwrite",
         async (transaction) => {
@@ -509,6 +541,9 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           );
           const stateStore = transaction.objectStore(
             OFFLINE_SEARCH_STATE_STORE
+          );
+          const tombstoneStore = transaction.objectStore(
+            OFFLINE_SEARCH_TOMBSTONES_STORE
           );
           const state = await requestAsPromise(stateStore.get(SCOPE_KEY));
           if (!scopeMatches(state, input.scope)) {
@@ -523,15 +558,46 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
               incomingByKey.set(key, record);
             }
           }
+          const tombstoneValues = await Promise.all(
+            [...incomingByKey.values()].map((record) =>
+              requestAsPromise(
+                tombstoneStore.get(
+                  tombstoneKey(record.conversationId, record.id)
+                )
+              )
+            )
+          );
+          const eligibleByKey = new Map<string, OfflineSearchCacheRecord>();
+          let tombstoneIndex = 0;
+          for (const [key, record] of incomingByKey) {
+            const tombstone = tombstoneValues[tombstoneIndex] as
+              | OfflineSearchTombstone
+              | undefined;
+            tombstoneIndex += 1;
+            if (!tombstone) {
+              eligibleByKey.set(key, record);
+              continue;
+            }
+            if (
+              tombstone.unavailable ||
+              (tombstone.revisionFloor !== null &&
+                record.revision < tombstone.revisionFloor)
+            ) {
+              continue;
+            }
+            eligibleByKey.set(key, record);
+          }
           const touchedConversationIds = [
-            ...new Set(input.records.map((record) => record.conversationId)),
+            ...new Set(
+              [...eligibleByKey.values()].map((record) => record.conversationId)
+            ),
           ];
           const existingByConversation = new Map<
             string,
             OfflineSearchDocument[]
           >();
           const oldDocuments = await Promise.all(
-            [...incomingByKey.values()].map((record) =>
+            [...eligibleByKey.values()].map((record) =>
               requestAsPromise(
                 documentStore.get(messageKey(record.conversationId, record.id))
               )
@@ -539,7 +605,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           );
           const oldDocumentByKey = new Map<string, OfflineSearchDocument>();
           let oldIndex = 0;
-          for (const record of incomingByKey.values()) {
+          for (const record of eligibleByKey.values()) {
             const old = oldDocuments[oldIndex] as
               | OfflineSearchDocument
               | undefined;
@@ -560,7 +626,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
             })
           );
 
-          const incomingAccepted = [...incomingByKey.values()].filter(
+          const incomingAccepted = [...eligibleByKey.values()].filter(
             (record) => {
               const old = oldDocumentByKey.get(
                 messageKey(record.conversationId, record.id)
@@ -775,6 +841,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           OFFLINE_SEARCH_DOCUMENTS_STORE,
           OFFLINE_SEARCH_PAYLOADS_STORE,
           OFFLINE_SEARCH_STATE_STORE,
+          OFFLINE_SEARCH_TOMBSTONES_STORE,
         ],
         "readwrite",
         async (transaction) => {
@@ -904,7 +971,8 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
   async function removeMessages(
     scope: OfflineSearchCacheScope,
     conversationId: string,
-    messageIds: readonly string[]
+    messageIds: readonly string[],
+    removals: readonly OfflineSearchCacheRemoval[] = []
   ): Promise<boolean> {
     if (!validScope(scope)) {
       return false;
@@ -915,6 +983,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           OFFLINE_SEARCH_DOCUMENTS_STORE,
           OFFLINE_SEARCH_PAYLOADS_STORE,
           OFFLINE_SEARCH_STATE_STORE,
+          OFFLINE_SEARCH_TOMBSTONES_STORE,
         ],
         "readwrite",
         async (transaction) => {
@@ -927,26 +996,71 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           const stateStore = transaction.objectStore(
             OFFLINE_SEARCH_STATE_STORE
           );
+          const tombstoneStore = transaction.objectStore(
+            OFFLINE_SEARCH_TOMBSTONES_STORE
+          );
           const state = await requestAsPromise(stateStore.get(SCOPE_KEY));
           if (!scopeMatches(state, scope)) {
             return false;
           }
-          const documents = await Promise.all(
+          const removalById = new Map(
+            removals.map((removal) => [removal.id, removal])
+          );
+          const tombstones = await Promise.all(
             messageIds.map((id) =>
               requestAsPromise(
-                documentStore.get(messageKey(conversationId, id))
+                tombstoneStore.get(tombstoneKey(conversationId, id))
               )
             )
           );
-          for (const document of documents) {
-            if (document) {
-              const key = messageKey(
-                conversationId,
-                (document as OfflineSearchDocument).id
-              );
-              documentStore.delete(key);
-              payloadStore.delete(key);
+          for (let index = 0; index < messageIds.length; index += 1) {
+            const id = messageIds[index];
+            if (!id) {
+              continue;
             }
+            const proposedRemoval = removalById.get(id) ?? {
+              id,
+              revisionFloor: null,
+              sequence: null,
+              unavailable: true,
+            };
+            const removal =
+              (proposedRemoval.revisionFloor === null ||
+                (Number.isSafeInteger(proposedRemoval.revisionFloor) &&
+                  proposedRemoval.revisionFloor >= 0)) &&
+              (proposedRemoval.sequence === null ||
+                (Number.isSafeInteger(proposedRemoval.sequence) &&
+                  proposedRemoval.sequence >= 0)) &&
+              (proposedRemoval.unavailable ||
+                proposedRemoval.revisionFloor !== null)
+                ? proposedRemoval
+                : {
+                    id,
+                    revisionFloor: null,
+                    sequence: null,
+                    unavailable: true,
+                  };
+            const prior = tombstones[index] as
+              | OfflineSearchTombstone
+              | undefined;
+            if (
+              prior?.sequence !== null &&
+              prior?.sequence !== undefined &&
+              (removal.sequence === null || removal.sequence < prior.sequence)
+            ) {
+              continue;
+            }
+            const key = messageKey(conversationId, id);
+            documentStore.delete(key);
+            payloadStore.delete(key);
+            const tombstone: OfflineSearchTombstone = {
+              conversationId,
+              id,
+              revisionFloor: removal.revisionFloor,
+              sequence: removal.sequence,
+              unavailable: removal.unavailable,
+            };
+            tombstoneStore.put(tombstone, tombstoneKey(conversationId, id));
           }
           const remaining = await documentsForConversation(
             documentStore,
@@ -979,6 +1093,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           OFFLINE_SEARCH_DOCUMENTS_STORE,
           OFFLINE_SEARCH_PAYLOADS_STORE,
           OFFLINE_SEARCH_STATE_STORE,
+          OFFLINE_SEARCH_TOMBSTONES_STORE,
         ],
         "readwrite",
         async (transaction) => {
@@ -999,10 +1114,20 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
             documentStore,
             conversationId
           );
+          const tombstones = await tombstonesForConversation(
+            transaction.objectStore(OFFLINE_SEARCH_TOMBSTONES_STORE),
+            conversationId
+          );
           for (const document of documents) {
             const key = messageKey(conversationId, document.id);
             documentStore.delete(key);
             payloadStore.delete(key);
+          }
+          const tombstoneStore = transaction.objectStore(
+            OFFLINE_SEARCH_TOMBSTONES_STORE
+          );
+          for (const tombstone of tombstones) {
+            tombstoneStore.delete(tombstoneKey(conversationId, tombstone.id));
           }
           stateStore.delete(conversationStateKey(conversationId));
           return true;
@@ -1023,6 +1148,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           OFFLINE_SEARCH_DOCUMENTS_STORE,
           OFFLINE_SEARCH_PAYLOADS_STORE,
           OFFLINE_SEARCH_STATE_STORE,
+          OFFLINE_SEARCH_TOMBSTONES_STORE,
         ],
         "readwrite",
         async (transaction) => {
@@ -1033,6 +1159,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
           }
           transaction.objectStore(OFFLINE_SEARCH_DOCUMENTS_STORE).clear();
           transaction.objectStore(OFFLINE_SEARCH_PAYLOADS_STORE).clear();
+          transaction.objectStore(OFFLINE_SEARCH_TOMBSTONES_STORE).clear();
           state.clear();
           return true;
         }

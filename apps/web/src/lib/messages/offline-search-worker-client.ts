@@ -1,8 +1,9 @@
 import type { MessagePayload } from "@asm/messages/crypto";
 
 import type {
-  OfflineSearchCacheScope,
   IndexedDbOfflineSearchCacheStore,
+  OfflineSearchCacheRemoval,
+  OfflineSearchCacheScope,
 } from "./indexeddb-offline-search-cache";
 import {
   OFFLINE_SEARCH_MAX_WRITE_BATCH_BYTES,
@@ -67,7 +68,8 @@ export interface OfflineSearchWorkerClient {
   remove: (
     scope: OfflineSearchCacheScope,
     conversationId: string,
-    messageIds: readonly string[]
+    messageIds: readonly string[],
+    removals?: readonly OfflineSearchCacheRemoval[]
   ) => Promise<boolean>;
   search: (input: {
     before?: OfflineSearchCursor;
@@ -304,10 +306,11 @@ export function createOfflineSearchWorkerClient(input?: {
       settlePending(null);
     },
     index,
-    async remove(scope, conversationId, messageIds) {
+    async remove(scope, conversationId, messageIds, removals) {
       const response = await send({
         conversationId,
         messageIds,
+        ...(removals ? { removals } : {}),
         scope,
         type: "remove",
       });

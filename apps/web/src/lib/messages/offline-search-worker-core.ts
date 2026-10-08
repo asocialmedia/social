@@ -3,6 +3,7 @@ import type { MessagePayload } from "@asm/messages/crypto";
 
 import type {
   IndexedDbOfflineSearchCacheStore,
+  OfflineSearchCacheRemoval,
   OfflineSearchCacheScope,
 } from "./indexeddb-offline-search-cache";
 import {
@@ -57,6 +58,7 @@ export type OfflineSearchWorkerRequest =
   | {
       conversationId: string;
       messageIds: readonly string[];
+      removals?: readonly OfflineSearchCacheRemoval[];
       requestId: number;
       scope: OfflineSearchCacheScope;
       type: "remove";
@@ -300,7 +302,8 @@ export function createOfflineSearchWorkerProcessor(input: {
           success = await input.cache.removeMessages(
             request.scope,
             request.conversationId,
-            request.messageIds
+            request.messageIds,
+            request.removals
           );
         } else if (request.type === "clear-conversation") {
           success = await input.cache.clearConversation(

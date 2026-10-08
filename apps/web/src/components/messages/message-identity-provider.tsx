@@ -90,6 +90,7 @@ interface MessageIdentityContextValue {
   identity: MessageIdentityPayload | null;
   privateKey: CryptoKey | null;
   recoveryGeneration: number | null;
+  refreshRecoveryGeneration: () => Promise<number | null>;
   status: IdentityStatus;
   // Destroys this account's server identity + own key wraps and provisions a
   // fresh one. The recovery path when a row cannot be read here. The caller
@@ -385,6 +386,28 @@ export function MessageIdentityProvider({
     await bootstrap();
   }, [bootstrap, user]);
 
+  const refreshRecoveryGeneration = useCallback(async (): Promise<
+    number | null
+  > => {
+    if (!user) {
+      return null;
+    }
+    try {
+      const data = await fetchIdentity();
+      if (activeUserIdRef.current !== user.id) {
+        return null;
+      }
+      setRecoveryScope({
+        recoveryGeneration: data.recoveryGeneration,
+        userId: user.id,
+      });
+      storeRecoveryGeneration(user.id, data.recoveryGeneration);
+      return data.recoveryGeneration;
+    } catch {
+      return null;
+    }
+  }, [user]);
+
   const value = useMemo(
     () => ({
       error: identityError,
@@ -394,10 +417,20 @@ export function MessageIdentityProvider({
         user && recoveryScope?.userId === user.id
           ? recoveryScope.recoveryGeneration
           : null,
+      refreshRecoveryGeneration,
       reset,
       status,
     }),
-    [identity, identityError, privateKey, recoveryScope, reset, status, user]
+    [
+      identity,
+      identityError,
+      privateKey,
+      recoveryScope,
+      refreshRecoveryGeneration,
+      reset,
+      status,
+      user,
+    ]
   );
 
   return (

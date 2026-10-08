@@ -181,6 +181,8 @@ import {
   SEARCH_PAGE_SIZE,
 } from "@/lib/messages/message-search";
 import { messagesTrustNote } from "@/lib/messages/messages-trust";
+import { planOfflineSearchChangeEffects } from "@/lib/messages/offline-search-change-policy";
+import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -529,7 +531,8 @@ export function MessageThread({
   onToggleRail,
 }: MessageThreadProps) {
   const { user } = useSession();
-  const { privateKey, recoveryGeneration } = useMessagesIdentity();
+  const { privateKey, recoveryGeneration, refreshRecoveryGeneration } =
+    useMessagesIdentity();
   const offlineSearchScope = useMemo(
     () =>
       user && recoveryGeneration !== null
@@ -617,6 +620,11 @@ export function MessageThread({
   const [searchPage, setSearchPage] = useState(0);
   const [searchListIndex, setSearchListIndex] = useState(0);
   const [serverSearchRefreshToken, setServerSearchRefreshToken] = useState(0);
+  const [offlineCacheDisabledFor, setOfflineCacheDisabledFor] = useState<
+    string | null
+  >(null);
+  const activeOfflineSearchScope =
+    offlineCacheDisabledFor === conversationId ? null : offlineSearchScope;
   // The local search index backend, resolved once per conversation. Null until
   // it resolves, and permanently null when IndexedDB is unavailable, in which
   // case search falls back to the rows loaded in this session.
@@ -3664,7 +3672,8 @@ export function MessageThread({
     indexRefreshToken: searchIndexToken,
     indexStore: searchIndexStore,
     listPage: searchView === "list" ? searchPage : 0,
-    offlineSearchScope,
+    offlineCacheRefreshToken: serverSearchRefreshToken,
+    offlineSearchScope: activeOfflineSearchScope,
     requestDecryptBatch,
     serverMode: SERVER_MESSAGE_SEARCH_ENABLED,
     serverRefreshToken: serverSearchRefreshToken,
@@ -4600,6 +4609,9 @@ export function MessageThread({
           return true;
         }
 
+        const offlineChangePlan = planOfflineSearchChangeEffects(
+          replay.changes
+        );
         if (replay.resetRequired) {
           searchWriterRef.current?.remove(
             (
@@ -4614,22 +4626,48 @@ export function MessageThread({
           } catch {
             // A failed local purge does not block the authorized server refresh.
           }
+          if (offlineSearchScope) {
+            const cleared = await offlineSearchWorkerClient.clearConversation(
+              offlineSearchScope,
+              conversationId
+            );
+            if (cleared) {
+              setOfflineCacheDisabledFor((current) =>
+                current === conversationId ? null : current
+              );
+            } else {
+              setOfflineCacheDisabledFor(conversationId);
+            }
+          }
+          await refreshRecoveryGeneration();
           setPersistedCovered(false);
           setPersistedChainVerified(false);
           setPersistedRefsCovered(false);
           setWalkEpoch((epoch) => epoch + 1);
         } else {
-          const unavailableIds = replay.changes
-            .filter(
-              (change) =>
-                change.messageId &&
-                (change.globallyDeleted ||
-                  change.hiddenForViewer ||
-                  !change.sourceAvailable)
-            )
-            .map((change) => change.messageId)
-            .filter((messageId): messageId is string => messageId !== null);
-          searchWriterRef.current?.remove(unavailableIds);
+          searchWriterRef.current?.remove(offlineChangePlan.messageIds);
+          for (const messageId of offlineChangePlan.invalidateDecryptIds) {
+            messageDecryptor.invalidate(messageId);
+          }
+          if (offlineSearchScope && offlineChangePlan.messageIds.length > 0) {
+            const removed = await offlineSearchWorkerClient.remove(
+              offlineSearchScope,
+              conversationId,
+              offlineChangePlan.messageIds,
+              offlineChangePlan.removals
+            );
+            if (removed) {
+              setOfflineCacheDisabledFor((current) =>
+                current === conversationId ? null : current
+              );
+            } else {
+              const cleared = await offlineSearchWorkerClient.clearConversation(
+                offlineSearchScope,
+                conversationId
+              );
+              setOfflineCacheDisabledFor(cleared ? null : conversationId);
+            }
+          }
         }
 
         await queryClient.invalidateQueries({
@@ -4662,7 +4700,15 @@ export function MessageThread({
         }
       }
     },
-    [bumpSearchIndex, conversationId, queryClient, searchIndexStore, user?.id]
+    [
+      bumpSearchIndex,
+      conversationId,
+      offlineSearchScope,
+      queryClient,
+      refreshRecoveryGeneration,
+      searchIndexStore,
+      user?.id,
+    ]
   );
 
   useEffect(

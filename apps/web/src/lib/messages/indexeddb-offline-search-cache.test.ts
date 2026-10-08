@@ -154,6 +154,148 @@ describe("IndexedDB offline search cache", () => {
     expect(payload).toMatchObject({ ciphertext: "cipher-message-1" });
   });
 
+  test("tombstones reject stale writes and open only at the current revision", async () => {
+    const store = createIndexedDbOfflineSearchCacheStore();
+    expect(await store.activateScope(scope)).toBe(true);
+    await store.putBatch({
+      activeConversationId: "conversation-a",
+      records: [record({ id: "message-1", revision: 1 })],
+      scope,
+    });
+
+    expect(
+      await store.removeMessages(
+        scope,
+        "conversation-a",
+        ["message-1"],
+        [
+          {
+            id: "message-1",
+            revisionFloor: 3,
+            sequence: 10,
+            unavailable: false,
+          },
+        ]
+      )
+    ).toBe(true);
+    await store.putBatch({
+      activeConversationId: "conversation-a",
+      records: [record({ id: "message-1", revision: 2 })],
+      scope,
+    });
+    await store.removeMessages(
+      scope,
+      "conversation-a",
+      ["message-1"],
+      [
+        {
+          id: "message-1",
+          revisionFloor: 2,
+          sequence: 9,
+          unavailable: false,
+        },
+      ]
+    );
+    await store.putBatch({
+      activeConversationId: "conversation-a",
+      records: [record({ id: "message-1", revision: 2 })],
+      scope,
+    });
+    const staleSearch = await store.search({
+      conversationId: "conversation-a",
+      query: "needle",
+      scope,
+    });
+    expect(staleSearch?.hits).toEqual([]);
+
+    await store.putBatch({
+      activeConversationId: "conversation-a",
+      records: [record({ id: "message-1", revision: 3, text: "new needle" })],
+      scope,
+    });
+    const refreshedSearch = await store.search({
+      conversationId: "conversation-a",
+      query: "new",
+      scope,
+    });
+    expect(refreshedSearch?.hits.map(({ revision }) => revision)).toEqual([3]);
+    await store.removeMessages(
+      scope,
+      "conversation-a",
+      ["message-1"],
+      [
+        {
+          id: "message-1",
+          revisionFloor: null,
+          sequence: 9,
+          unavailable: true,
+        },
+      ]
+    );
+    const afterOlderRemoval = await store.search({
+      conversationId: "conversation-a",
+      query: "new",
+      scope,
+    });
+    expect(afterOlderRemoval?.hits.map(({ revision }) => revision)).toEqual([
+      3,
+    ]);
+  });
+
+  test("unavailable tombstones stay closed until a newer available change", async () => {
+    const store = createIndexedDbOfflineSearchCacheStore();
+    expect(await store.activateScope(scope)).toBe(true);
+    await store.removeMessages(
+      scope,
+      "conversation-a",
+      ["message-1"],
+      [
+        {
+          id: "message-1",
+          revisionFloor: null,
+          sequence: 3,
+          unavailable: true,
+        },
+      ]
+    );
+    await store.putBatch({
+      activeConversationId: "conversation-a",
+      records: [record({ id: "message-1", revision: 9 })],
+      scope,
+    });
+    const hiddenSearch = await store.search({
+      conversationId: "conversation-a",
+      query: "needle",
+      scope,
+    });
+    expect(hiddenSearch?.hits).toEqual([]);
+
+    await store.removeMessages(
+      scope,
+      "conversation-a",
+      ["message-1"],
+      [
+        {
+          id: "message-1",
+          revisionFloor: 10,
+          sequence: 4,
+          unavailable: false,
+        },
+      ]
+    );
+    await store.putBatch({
+      activeConversationId: "conversation-a",
+      records: [record({ id: "message-1", revision: 10 })],
+      scope,
+    });
+    const visibleAgainSearch = await store.search({
+      conversationId: "conversation-a",
+      query: "needle",
+      scope,
+    });
+    expect(visibleAgainSearch?.hits.map(({ id }) => id)).toEqual(["message-1"]);
+  });
+
   test("clears derived cache on account or recovery generation changes and preserves identity", async () => {
     const store = createIndexedDbOfflineSearchCacheStore();
     expect(await store.activateScope(scope)).toBe(true);
