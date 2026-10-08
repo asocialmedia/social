@@ -7,6 +7,7 @@ import { keys } from "../../keys";
 const MAX_SEARCH_TERM_INSERT_BATCH = 100;
 export const MESSAGE_SEARCH_BACKFILL_BATCH_MESSAGES = 100;
 export const MESSAGE_SEARCH_BACKFILL_BATCH_BYTES = 1024 * 1024;
+type SearchSqlParameter = number | string | null | number[] | string[];
 
 let searchPool: Pool | undefined;
 
@@ -154,6 +155,14 @@ export interface SearchCandidateRow {
   ratchetIndex: number;
   revision: number;
   senderId: string;
+}
+
+interface OrderedSearchDocumentRow {
+  createdAt: Date | null;
+  messageId: string | null;
+  scannedCount: number;
+  scannedThroughCreatedAt: Date | null;
+  scannedThroughMessageId: string | null;
 }
 
 export interface SearchArtifactCommitResult {
@@ -2186,6 +2195,167 @@ const SEARCH_FRAGMENT_FREQUENCY_SQL = `WITH query_fragments AS MATERIALIZED (
                query.fragment_ordinal ASC
       LIMIT 1`;
 
+const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = `WITH ordered_documents AS MATERIALIZED (
+       SELECT d."conversationId",
+              d."createdAt",
+              d."messageId",
+              d.revision
+         FROM public.message_search_documents AS d
+        WHERE d."conversationId" = $1
+          AND (
+            $2::timestamp IS NULL OR
+            (d."createdAt", d."messageId") < ($2::timestamp, $3::text)
+          )
+        ORDER BY d."createdAt" DESC, d."messageId" DESC
+        LIMIT $4
+     ),
+     scan_state AS (
+       SELECT COUNT(*)::int AS "scannedCount",
+              (ARRAY_AGG("createdAt" ORDER BY "createdAt" ASC, "messageId" ASC))[1] AS "scannedThroughCreatedAt",
+              (ARRAY_AGG("messageId" ORDER BY "createdAt" ASC, "messageId" ASC))[1] AS "scannedThroughMessageId"
+         FROM ordered_documents
+     ),
+     authorized_documents AS (
+       SELECT d."createdAt",
+              d."messageId"
+         FROM ordered_documents AS d
+         JOIN public.messages AS m
+           ON m.id = d."messageId"
+          AND m."conversationId" = d."conversationId"
+          AND m.revision = d.revision
+         JOIN public.message_conversation_members AS member
+           ON member."conversationId" = d."conversationId"
+          AND member."userId" = $5
+        WHERE m."deletedAt" IS NULL
+          AND m."keyEpoch" IS NOT NULL
+          AND m."creationSequence" <= $6
+          AND (
+            $6 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.message_search_outbox AS newer_revision
+               WHERE newer_revision."messageId" = m.id
+                 AND newer_revision."changeSequence" > $6
+            )
+          )
+          AND EXISTS (
+            SELECT 1
+              FROM public.message_conversation_keys AS readable_key
+             WHERE readable_key."conversationId" = d."conversationId"
+               AND readable_key."ownerUserId" = $5
+               AND readable_key.version = m."keyEpoch"
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM public.message_hidden AS hidden
+             WHERE hidden."messageId" = m.id AND hidden."userId" = $5
+          )
+          AND (
+            $7::jsonb IS NULL OR EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements($7::jsonb) AS membership_window
+               WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+                 AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
+            )
+          )
+     )
+     SELECT authorized."createdAt",
+            authorized."messageId",
+            scan_state."scannedCount",
+            scan_state."scannedThroughCreatedAt",
+            scan_state."scannedThroughMessageId"
+       FROM scan_state
+       LEFT JOIN authorized_documents AS authorized ON true
+      WHERE scan_state."scannedCount" > 0
+      ORDER BY authorized."createdAt" DESC, authorized."messageId" DESC`;
+
+const SEARCH_ORDERED_CANDIDATE_HITS_SQL = `WITH query_fragments AS MATERIALIZED (
+       SELECT value, ordinality AS fragment_ordinal
+         FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
+     ),
+     matching_terms AS MATERIALIZED (
+       SELECT query.fragment_ordinal,
+              ARRAY_AGG(term.id) AS term_ids
+         FROM query_fragments AS query
+         JOIN public.message_search_terms AS term
+           ON term."conversationId" = $1
+          AND term."gramKeys" @> ARRAY(
+            SELECT jsonb_array_elements_text(query.value->'grams')
+          )
+          AND strpos(term.normalized, query.value->>'text') > 0
+        GROUP BY query.fragment_ordinal
+     ),
+     candidate_documents AS MATERIALIZED (
+       SELECT d."conversationId",
+              d."messageId",
+              d.revision,
+              d."createdAt"
+         FROM public.message_search_documents AS d
+        WHERE d."conversationId" = $1
+          AND d."messageId" = ANY($9::text[])
+          AND (
+            $4 >= (SELECT "changeSeq" FROM public.message_conversations WHERE id = $1)
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.message_search_outbox AS newer_revision
+               WHERE newer_revision."messageId" = d."messageId"
+                 AND newer_revision."changeSequence" > $4
+            )
+          )
+          AND (SELECT COUNT(*) FROM matching_terms) =
+              (SELECT COUNT(*) FROM query_fragments)
+          AND NOT EXISTS (
+            SELECT 1
+              FROM matching_terms AS matched_term
+             WHERE NOT d."termIds" && matched_term.term_ids
+          )
+          AND (
+            $5::timestamp IS NULL OR
+            (d."createdAt", d."messageId") < ($5::timestamp, $6::text)
+          )
+     )
+     SELECT m.id,
+            m."ciphertext",
+            m.iv,
+            m."ratchetIndex",
+            m."senderId",
+            m."createdAt",
+            m.revision,
+            m."keyEpoch"
+       FROM candidate_documents AS d
+       JOIN public.messages AS m
+         ON m.id = d."messageId"
+        AND m."conversationId" = d."conversationId"
+        AND m.revision = d.revision
+       JOIN public.message_conversation_members AS member
+         ON member."conversationId" = d."conversationId"
+        AND member."userId" = $2
+      WHERE m."deletedAt" IS NULL
+        AND m."keyEpoch" IS NOT NULL
+        AND m."creationSequence" <= $4
+        AND EXISTS (
+          SELECT 1
+            FROM public.message_conversation_keys AS readable_key
+           WHERE readable_key."conversationId" = d."conversationId"
+             AND readable_key."ownerUserId" = $2
+             AND readable_key.version = m."keyEpoch"
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_hidden AS hidden
+           WHERE hidden."messageId" = m.id AND hidden."userId" = $2
+        )
+        AND (
+          $7::jsonb IS NULL OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements($7::jsonb) AS membership_window
+             WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+               AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
+          )
+        )
+      ORDER BY d."createdAt" DESC, d."messageId" DESC
+      LIMIT $8`;
+
 const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIALIZED (
        SELECT value, ordinality AS fragment_ordinal
          FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
@@ -2274,6 +2444,7 @@ const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIA
       LIMIT $8`;
 
 const SEARCH_SELECTIVE_CANDIDATE_THRESHOLD = 1000;
+const ORDERED_SEARCH_SCAN_BATCH_SIZE = 100;
 
 interface SearchCandidatePlanNode {
   "Actual Loops"?: number;
@@ -2321,7 +2492,11 @@ function searchCandidatePlanNodes(
 
 // Kept off the package barrel so integration benchmarks can inspect the exact production query plan.
 export async function explainSearchMessageCandidatesForDiagnostics(
-  input: SearchCandidateQuery & { indexedTermIds?: readonly number[] }
+  input: SearchCandidateQuery & {
+    candidateMessageIds?: readonly string[];
+    indexedTermIds?: readonly number[];
+    strategy?: "ordered" | "orderedHits" | "selective";
+  }
 ): Promise<{
   executionTimeMs: number;
   indexNames: string[];
@@ -2342,11 +2517,36 @@ export async function explainSearchMessageCandidatesForDiagnostics(
   sharedReadBlocks: number;
 } | null> {
   const queryParameters = searchCandidateQueryParameters(input);
-  const { indexedTermIds } = input;
-  const sql =
-    indexedTermIds === undefined
-      ? SEARCH_MESSAGE_CANDIDATES_SQL
-      : SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL;
+  const { candidateMessageIds, indexedTermIds, strategy } = input;
+  let sql = SEARCH_MESSAGE_CANDIDATES_SQL;
+  const parameters: SearchSqlParameter[] = [...queryParameters];
+  if (strategy === "ordered") {
+    sql = SEARCH_ORDERED_DOCUMENT_PAGE_SQL;
+    parameters.splice(
+      0,
+      parameters.length,
+      input.conversationId,
+      input.before ? pgTimestamp(input.before.createdAt) : null,
+      input.before?.messageId ?? null,
+      ORDERED_SEARCH_SCAN_BATCH_SIZE,
+      input.userId,
+      input.snapshotSequence,
+      queryParameters[6]
+    );
+  } else if (strategy === "orderedHits") {
+    if (
+      !candidateMessageIds ||
+      candidateMessageIds.length === 0 ||
+      candidateMessageIds.length > ORDERED_SEARCH_SCAN_BATCH_SIZE
+    ) {
+      throw new TypeError("The ordered search candidate IDs are invalid");
+    }
+    sql = SEARCH_ORDERED_CANDIDATE_HITS_SQL;
+    parameters.push([...candidateMessageIds]);
+  } else if (indexedTermIds !== undefined) {
+    sql = SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL;
+    parameters.push([...indexedTermIds]);
+  }
   if (
     indexedTermIds !== undefined &&
     (indexedTermIds.length === 0 ||
@@ -2358,9 +2558,7 @@ export async function explainSearchMessageCandidatesForDiagnostics(
   }
   const result = await getSearchPool().query<SearchCandidateExplainRow>(
     `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`,
-    indexedTermIds === undefined
-      ? queryParameters
-      : [...queryParameters, indexedTermIds]
+    parameters
   );
   const plan = result.rows[0]?.["QUERY PLAN"][0];
   if (!plan) {
@@ -2432,6 +2630,64 @@ export async function searchMessageCandidates(
     }
     const useSelectiveQuery =
       candidateCount <= BigInt(SEARCH_SELECTIVE_CANDIDATE_THRESHOLD);
+    const useOrderedQuery =
+      input.fragments.length === 1 && candidateCount >= 10_000n;
+    if (useOrderedQuery) {
+      const resultLimit = Math.min(Math.max(Math.trunc(input.limit), 1), 21);
+      const results: SearchCandidateRow[] = [];
+      let scanBefore = input.before;
+      // oxlint-disable no-await-in-loop -- Continue from each document batch until the authorized hit page is full.
+      while (results.length < resultLimit) {
+        const scannedDocuments = await client.query<OrderedSearchDocumentRow>(
+          SEARCH_ORDERED_DOCUMENT_PAGE_SQL,
+          [
+            input.conversationId,
+            scanBefore ? pgTimestamp(scanBefore.createdAt) : null,
+            scanBefore?.messageId ?? null,
+            ORDERED_SEARCH_SCAN_BATCH_SIZE,
+            input.userId,
+            input.snapshotSequence,
+            queryParameters[6],
+          ]
+        );
+        const [scanState] = scannedDocuments.rows;
+        if (
+          !scanState ||
+          scanState.scannedCount < 1 ||
+          !scanState.scannedThroughCreatedAt ||
+          !scanState.scannedThroughMessageId
+        ) {
+          break;
+        }
+
+        const candidateMessageIds = scannedDocuments.rows.flatMap((row) =>
+          row.messageId ? [row.messageId] : []
+        );
+        if (candidateMessageIds.length > 0) {
+          const remaining = resultLimit - results.length;
+          const candidateParameters: SearchSqlParameter[] = [
+            ...queryParameters,
+          ];
+          candidateParameters[7] = remaining;
+          candidateParameters.push(candidateMessageIds);
+          const candidates = await client.query<SearchCandidateRow>(
+            SEARCH_ORDERED_CANDIDATE_HITS_SQL,
+            candidateParameters
+          );
+          results.push(...candidates.rows);
+        }
+        scanBefore = {
+          createdAt: scanState.scannedThroughCreatedAt,
+          messageId: scanState.scannedThroughMessageId,
+        };
+        if (scanState.scannedCount < ORDERED_SEARCH_SCAN_BATCH_SIZE) {
+          break;
+        }
+      }
+      // oxlint-enable no-await-in-loop
+      await client.query("COMMIT");
+      return results;
+    }
     const result = await client.query<SearchCandidateRow>(
       useSelectiveQuery
         ? SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL

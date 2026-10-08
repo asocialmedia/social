@@ -12,14 +12,36 @@ import { Pool } from "pg";
 
 import { explainSearchMessageCandidatesForDiagnostics } from "./search-index";
 
-const MESSAGE_COUNT = 200_000;
+const SCALE_PROFILES = {
+  "1m": { conversations: 1, messagesPerConversation: 1_000_000 },
+  "200k": { conversations: 1, messagesPerConversation: 200_000 },
+  "20x100k": { conversations: 20, messagesPerConversation: 100_000 },
+  "20x200k": { conversations: 20, messagesPerConversation: 200_000 },
+} as const;
+const SCALE_PROFILE =
+  process.env.MESSAGE_SEARCH_SCALE_PROFILE === "1m" ||
+  process.env.MESSAGE_SEARCH_SCALE_PROFILE === "20x100k" ||
+  process.env.MESSAGE_SEARCH_SCALE_PROFILE === "20x200k"
+    ? process.env.MESSAGE_SEARCH_SCALE_PROFILE
+    : "200k";
+const {
+  conversations: CONVERSATION_COUNT,
+  messagesPerConversation: MESSAGE_COUNT,
+} = SCALE_PROFILES[SCALE_PROFILE];
 const MESSAGE_BATCH_SIZE = 100;
 const TRANSACTION_BATCH_SIZE = 10_000;
 const CONCURRENT_SEARCHES = 50;
+const HIDDEN_NEWEST_MESSAGE_COUNT = 10;
 const RUN_ID = crypto.randomUUID();
-const CONVERSATION_ID = crypto.randomUUID();
+const CONVERSATION_IDS = Array.from({ length: CONVERSATION_COUNT }, () =>
+  crypto.randomUUID()
+);
 const OWNER_ID = `search-scale-owner-${RUN_ID}`;
-const PEER_ID = `search-scale-peer-${RUN_ID}`;
+const PEER_IDS = CONVERSATION_IDS.map(
+  (_, index) => `search-scale-peer-${RUN_ID}-${index}`
+);
+const [CONVERSATION_ID] = CONVERSATION_IDS;
+
 const BASE_TIME = new Date("2026-01-01T00:00:00.000Z");
 const COMMON_TERM = "common";
 const RARE_TERM = "rare";
@@ -38,8 +60,8 @@ function assertLocalTestDatabase(): void {
   }
 }
 
-function messageId(sequence: number): string {
-  return `dm-search-scale-${RUN_ID}-${String(sequence).padStart(6, "0")}`;
+function messageId(conversationIndex: number, sequence: number): string {
+  return `dm-search-scale-${RUN_ID}-${String(conversationIndex).padStart(2, "0")}-${String(sequence).padStart(7, "0")}`;
 }
 
 function gramKeys(value: string): string[] {
@@ -55,9 +77,14 @@ function gramKeys(value: string): string[] {
   return [...grams];
 }
 
-async function search(query: string) {
+async function search(
+  query: string,
+  conversationId = CONVERSATION_ID,
+  before?: { createdAt: Date; messageId: string }
+) {
   return await searchMessageCandidates({
-    conversationId: CONVERSATION_ID,
+    ...(before ? { before } : {}),
+    conversationId,
     fragments: [{ grams: gramKeys(query), text: query }],
     limit: 20,
     membershipWindows: [{ after: null, before: null }],
@@ -69,109 +96,130 @@ async function search(query: string) {
 async function seedConversation(): Promise<void> {
   await prisma.transaction(async (tx) => {
     await tx.orm.public.Users.createAll(
-      [OWNER_ID, PEER_ID].map((id) => ({
+      [OWNER_ID, ...PEER_IDS].map((id) => ({
         displayName: id,
         email: `${id}@example.test`,
         id,
         username: id,
       }))
     );
-    await tx.orm.public.MessageConversations.create({
-      _type: "DM",
-      changeSeq: MESSAGE_COUNT,
-      id: CONVERSATION_ID,
-      pairKey: [OWNER_ID, PEER_ID].toSorted().join(":"),
-    });
-    await tx.orm.public.MessageConversationMembers.createAll(
-      [OWNER_ID, PEER_ID].map((userId) => ({
-        conversationId: CONVERSATION_ID,
-        userId,
+    await tx.orm.public.MessageConversations.createAll(
+      CONVERSATION_IDS.map((id, index) => ({
+        _type: "DM" as const,
+        changeSeq: MESSAGE_COUNT,
+        id,
+        pairKey: [OWNER_ID, PEER_IDS[index]].toSorted().join(":"),
       }))
     );
-    await tx.orm.public.MessageConversationKeys.create({
-      conversationId: CONVERSATION_ID,
-      encryptedKey: "scale-test-wrap",
-      iv: "scale-test-iv",
-      ownerUserId: OWNER_ID,
-      version: 1,
-    });
-    await tx.orm.public.MessageSearchTerms.createAll(
-      [COMMON_TERM, RARE_TERM].map((normalized) => ({
-        conversationId: CONVERSATION_ID,
-        gramKeys: gramKeys(normalized),
-        normalized,
+    await tx.orm.public.MessageConversationMembers.createAll(
+      CONVERSATION_IDS.flatMap((conversationId, index) =>
+        [OWNER_ID, PEER_IDS[index]].map((userId) => ({
+          conversationId,
+          userId,
+        }))
+      )
+    );
+    await tx.orm.public.MessageConversationKeys.createAll(
+      CONVERSATION_IDS.map((conversationId) => ({
+        conversationId,
+        encryptedKey: "scale-test-wrap",
+        iv: "scale-test-iv",
+        ownerUserId: OWNER_ID,
+        version: 1,
       }))
+    );
+    await tx.orm.public.MessageSearchTerms.createAll(
+      CONVERSATION_IDS.flatMap((conversationId) =>
+        [COMMON_TERM, RARE_TERM].map((normalized) => ({
+          conversationId,
+          gramKeys: gramKeys(normalized),
+          normalized,
+        }))
+      )
     );
   });
 
-  const terms = await prisma.orm.public.MessageSearchTerms.select(
-    "id",
-    "normalized"
-  )
-    .where({ conversationId: CONVERSATION_ID })
-    .all();
-  const termIds = new Map(terms.map((term) => [term.normalized, term.id]));
-  const commonTermId = termIds.get(COMMON_TERM);
-  const rareTermId = termIds.get(RARE_TERM);
-  if (commonTermId === undefined || rareTermId === undefined) {
-    throw new Error("DM search scale fixture terms were not created");
-  }
-
-  // Sequential bounded transactions avoid turning fixture setup into a write burst.
-  // oxlint-disable no-await-in-loop -- Preserve the fixture's database batch and transaction bounds.
+  // oxlint-disable no-await-in-loop -- Keep large fixture conversations sequential to bound write pressure.
   for (
-    let transactionStart = 1;
-    transactionStart <= MESSAGE_COUNT;
-    transactionStart += TRANSACTION_BATCH_SIZE
+    let conversationIndex = 0;
+    conversationIndex < CONVERSATION_COUNT;
+    conversationIndex += 1
   ) {
-    const transactionEnd = Math.min(
-      transactionStart + TRANSACTION_BATCH_SIZE,
-      MESSAGE_COUNT + 1
-    );
-    await prisma.transaction(async (tx) => {
-      for (
-        let batchStart = transactionStart;
-        batchStart < transactionEnd;
-        batchStart += MESSAGE_BATCH_SIZE
-      ) {
-        const batchEnd = Math.min(
-          batchStart + MESSAGE_BATCH_SIZE,
-          transactionEnd
-        );
-        const messages = Array.from(
-          { length: batchEnd - batchStart },
-          (_, offset) => {
-            const sequence = batchStart + offset;
-            return {
-              ciphertext: "synthetic-encrypted-payload",
-              conversationId: CONVERSATION_ID,
-              createdAt: toPrismaDateTime(
-                new Date(BASE_TIME.getTime() + sequence)
-              ),
-              creationSequence: sequence,
-              id: messageId(sequence),
-              iv: "synthetic-iv",
-              keyEpoch: 1,
-              ratchetIndex: sequence,
-              revision: 1,
-              senderId: PEER_ID,
-            };
-          }
-        );
-        const documents = messages.map((message) => ({
-          conversationId: CONVERSATION_ID,
-          createdAt: message.createdAt,
-          messageId: message.id,
-          revision: 1,
-          termIds:
-            message.creationSequence === 1
-              ? [commonTermId, rareTermId]
-              : [commonTermId],
-        }));
-        await tx.orm.public.Messages.createAll(messages);
-        await tx.orm.public.MessageSearchDocuments.createAll(documents);
-      }
-    });
+    const conversationId = CONVERSATION_IDS[conversationIndex];
+    const peerId = PEER_IDS[conversationIndex];
+    if (!conversationId || !peerId) {
+      throw new Error("DM search scale fixture conversation was not created");
+    }
+    const terms = await prisma.orm.public.MessageSearchTerms.select(
+      "id",
+      "normalized"
+    )
+      .where({ conversationId })
+      .all();
+    const termIds = new Map(terms.map((term) => [term.normalized, term.id]));
+    const commonTermId = termIds.get(COMMON_TERM);
+    const rareTermId = termIds.get(RARE_TERM);
+    if (commonTermId === undefined || rareTermId === undefined) {
+      throw new Error("DM search scale fixture terms were not created");
+    }
+
+    // Sequential bounded transactions avoid turning fixture setup into a write burst.
+    // oxlint-disable no-await-in-loop -- Preserve the fixture's database batch and transaction bounds.
+    for (
+      let transactionStart = 1;
+      transactionStart <= MESSAGE_COUNT;
+      transactionStart += TRANSACTION_BATCH_SIZE
+    ) {
+      const transactionEnd = Math.min(
+        transactionStart + TRANSACTION_BATCH_SIZE,
+        MESSAGE_COUNT + 1
+      );
+      await prisma.transaction(async (tx) => {
+        for (
+          let batchStart = transactionStart;
+          batchStart < transactionEnd;
+          batchStart += MESSAGE_BATCH_SIZE
+        ) {
+          const batchEnd = Math.min(
+            batchStart + MESSAGE_BATCH_SIZE,
+            transactionEnd
+          );
+          const messages = Array.from(
+            { length: batchEnd - batchStart },
+            (_, offset) => {
+              const sequence = batchStart + offset;
+              return {
+                ciphertext: "synthetic-encrypted-payload",
+                conversationId,
+                createdAt: toPrismaDateTime(
+                  new Date(BASE_TIME.getTime() + sequence)
+                ),
+                creationSequence: sequence,
+                id: messageId(conversationIndex, sequence),
+                iv: "synthetic-iv",
+                keyEpoch: 1,
+                ratchetIndex: sequence,
+                revision: 1,
+                senderId: peerId,
+              };
+            }
+          );
+          const documents = messages.map((message) => ({
+            conversationId,
+            createdAt: message.createdAt,
+            messageId: message.id,
+            revision: 1,
+            termIds:
+              message.creationSequence === 1
+                ? [commonTermId, rareTermId]
+                : [commonTermId],
+          }));
+          await tx.orm.public.Messages.createAll(messages);
+          await tx.orm.public.MessageSearchDocuments.createAll(documents);
+        }
+      });
+    }
+    // oxlint-enable no-await-in-loop
   }
   // oxlint-enable no-await-in-loop
   const statisticsPool = new Pool({
@@ -186,11 +234,25 @@ async function seedConversation(): Promise<void> {
 }
 
 test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
-  "searches a 200k-message DM under broad and concurrent query load",
+  `searches ${CONVERSATION_COUNT} DM(s) with ${MESSAGE_COUNT} messages each under broad and concurrent query load`,
   async () => {
     assertLocalTestDatabase();
     try {
       await seedConversation();
+      await prisma.orm.public.MessageHiddens.createAll(
+        Array.from({ length: HIDDEN_NEWEST_MESSAGE_COUNT }, (_, index) => ({
+          messageId: messageId(0, MESSAGE_COUNT - index),
+          userId: OWNER_ID,
+        }))
+      );
+      console.info(
+        JSON.stringify({
+          conversations: CONVERSATION_COUNT,
+          messagesPerConversation: MESSAGE_COUNT,
+          stage: "seeded",
+          test: "dm-search-scale",
+        })
+      );
       const indexedTerms = await prisma.orm.public.MessageSearchTerms.select(
         "documentFrequency",
         "id",
@@ -210,9 +272,8 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       expect(commonTerm?.documentFrequency).toBe(MESSAGE_COUNT);
       expect(rareTerm.documentFrequency).toBe(1);
 
-      const newestId = messageId(MESSAGE_COUNT);
       const rareHits = await search(RARE_TERM);
-      expect(rareHits.map((row) => row.id)).toEqual([messageId(1)]);
+      expect(rareHits.map((row) => row.id)).toEqual([messageId(0, 1)]);
       const rareQueryPlan = await explainSearchMessageCandidatesForDiagnostics({
         conversationId: CONVERSATION_ID,
         fragments: [{ grams: gramKeys(RARE_TERM), text: RARE_TERM }],
@@ -236,8 +297,29 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
 
       const broadHits = await search(COMMON_TERM);
       expect(broadHits).toHaveLength(20);
-      expect(broadHits[0]?.id).toBe(newestId);
-      expect(broadHits[19]?.id).toBe(messageId(MESSAGE_COUNT - 19));
+      expect(broadHits[0]?.id).toBe(
+        messageId(0, MESSAGE_COUNT - HIDDEN_NEWEST_MESSAGE_COUNT)
+      );
+      expect(broadHits[19]?.id).toBe(
+        messageId(0, MESSAGE_COUNT - HIDDEN_NEWEST_MESSAGE_COUNT - 19)
+      );
+      const lastBroadHit = broadHits.at(-1);
+      if (!lastBroadHit) {
+        throw new Error("DM search scale fixture returned no broad-query hit");
+      }
+      const nextBroadHits = await search(COMMON_TERM, CONVERSATION_ID, {
+        createdAt: lastBroadHit.createdAt,
+        messageId: lastBroadHit.id,
+      });
+      expect(nextBroadHits).toHaveLength(20);
+      expect(nextBroadHits[0]?.id).toBe(
+        messageId(0, MESSAGE_COUNT - HIDDEN_NEWEST_MESSAGE_COUNT - 20)
+      );
+      expect(
+        nextBroadHits.every(
+          (hit) => !broadHits.some((previousHit) => previousHit.id === hit.id)
+        )
+      ).toBe(true);
       const broadQueryPlan = await explainSearchMessageCandidatesForDiagnostics(
         {
           conversationId: CONVERSATION_ID,
@@ -245,12 +327,16 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
           limit: 20,
           membershipWindows: [{ after: null, before: null }],
           snapshotSequence: MESSAGE_COUNT,
+          strategy: "ordered",
           userId: OWNER_ID,
         }
       );
       if (!broadQueryPlan) {
         throw new Error("Postgres returned no broad DM search query plan");
       }
+      expect(broadQueryPlan.indexNames).toContain(
+        "message_search_documents_conversation_created_message_idx"
+      );
       expect(
         broadQueryPlan.planNodes.some(
           (node) =>
@@ -258,6 +344,25 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
             node.nodeType === "Seq Scan"
         )
       ).toBe(false);
+      const broadCandidateHitPlan =
+        await explainSearchMessageCandidatesForDiagnostics({
+          candidateMessageIds: Array.from({ length: 100 }, (_, index) =>
+            messageId(0, MESSAGE_COUNT - HIDDEN_NEWEST_MESSAGE_COUNT - index)
+          ),
+          conversationId: CONVERSATION_ID,
+          fragments: [{ grams: gramKeys(COMMON_TERM), text: COMMON_TERM }],
+          limit: 20,
+          membershipWindows: [{ after: null, before: null }],
+          snapshotSequence: MESSAGE_COUNT,
+          strategy: "orderedHits",
+          userId: OWNER_ID,
+        });
+      if (!broadCandidateHitPlan) {
+        throw new Error("Postgres returned no ordered search hit plan");
+      }
+      expect(broadCandidateHitPlan.indexNames).toContain(
+        "message_search_documents_pkey"
+      );
 
       const countStartedAt = performance.now();
       const broadCount = await countMessageSearchCandidates({
@@ -268,18 +373,50 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
         userId: OWNER_ID,
       });
       const exactCountDurationMs = performance.now() - countStartedAt;
-      expect(broadCount).toBe(MESSAGE_COUNT);
+      expect(broadCount).toBe(MESSAGE_COUNT - HIDDEN_NEWEST_MESSAGE_COUNT);
 
-      const durations: number[] = [];
-      const concurrentPages = await Promise.all(
-        Array.from({ length: CONCURRENT_SEARCHES }, async () => {
+      const concurrentAttempts = await Promise.all(
+        Array.from({ length: CONCURRENT_SEARCHES }, async (_, index) => {
+          const conversationIndex = index % CONVERSATION_COUNT;
+          const conversationId =
+            CONVERSATION_IDS[conversationIndex] ?? CONVERSATION_ID;
           const startedAt = performance.now();
-          const rows = await search(COMMON_TERM);
-          durations.push(performance.now() - startedAt);
-          return rows;
+          try {
+            const rows = await search(COMMON_TERM, conversationId);
+            return {
+              conversationIndex,
+              durationMs: performance.now() - startedAt,
+              rows,
+            };
+          } catch (error) {
+            return {
+              conversationIndex,
+              durationMs: performance.now() - startedAt,
+              errorMessage:
+                error instanceof Error ? error.message : "Unknown search error",
+            };
+          }
         })
       );
+      const durations = concurrentAttempts.map((attempt) => attempt.durationMs);
+      const concurrentPages = concurrentAttempts.flatMap((attempt) =>
+        "rows" in attempt && attempt.rows !== undefined ? [attempt.rows] : []
+      );
+      const failureMessages = [
+        ...new Set(
+          concurrentAttempts.flatMap((attempt) =>
+            "errorMessage" in attempt ? [attempt.errorMessage] : []
+          )
+        ),
+      ];
+      const failuresByConversation = Object.groupBy(
+        concurrentAttempts.filter((attempt) => "errorMessage" in attempt),
+        (attempt) => attempt.conversationIndex
+      );
       const sortedDurations = durations.toSorted((left, right) => left - right);
+      const broadDocumentScan = broadQueryPlan.planNodes.find(
+        (node) => node.relationName === "message_search_documents"
+      );
       const p95DurationMs =
         sortedDurations[Math.ceil(sortedDurations.length * 0.95) - 1];
       const rareDocumentScan = rareQueryPlan.planNodes.find(
@@ -287,9 +424,32 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       );
       console.info(
         JSON.stringify({
+          broadCandidateHitExecutionMs: Math.round(
+            broadCandidateHitPlan.executionTimeMs
+          ),
+          broadDocumentScan: broadDocumentScan
+            ? {
+                actualRows: broadDocumentScan.actualRows,
+                indexName: broadDocumentScan.indexName,
+                nodeType: broadDocumentScan.nodeType,
+                rowsRemovedByFilter: broadDocumentScan.rowsRemovedByFilter,
+                sharedHitBlocks: broadDocumentScan.sharedHitBlocks,
+                sharedReadBlocks: broadDocumentScan.sharedReadBlocks,
+              }
+            : null,
+          broadQueryExecutionMs: Math.round(broadQueryPlan.executionTimeMs),
           concurrentSearches: CONCURRENT_SEARCHES,
+          conversations: CONVERSATION_COUNT,
           exactCountMs: Math.round(exactCountDurationMs),
-          messages: MESSAGE_COUNT,
+          failedSearches: CONCURRENT_SEARCHES - concurrentPages.length,
+          failureMessages,
+          failuresByConversation: Object.fromEntries(
+            Object.entries(failuresByConversation).map(([index, attempts]) => [
+              index,
+              attempts?.length ?? 0,
+            ])
+          ),
+          messagesPerConversation: MESSAGE_COUNT,
           p95BroadSearchMs: Math.round(p95DurationMs),
           rareCandidateRows: rareDocumentScan?.actualRows,
           rareQueryExecutionMs: Math.round(rareQueryPlan.executionTimeMs),
@@ -301,20 +461,20 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       expect(p95DurationMs).toBeDefined();
       expect(p95DurationMs).toBeLessThan(500);
     } finally {
-      await prisma.orm.public.MessageSearchDocuments.where({
-        conversationId: CONVERSATION_ID,
-      }).deleteAndCount();
-      await prisma.orm.public.MessageSearchTerms.where({
-        conversationId: CONVERSATION_ID,
-      }).deleteAndCount();
-      await prisma.orm.public.MessageConversations.where({
-        id: CONVERSATION_ID,
-      }).deleteAndCount();
+      await prisma.orm.public.MessageSearchDocuments.where((document) =>
+        document.conversationId.in(CONVERSATION_IDS)
+      ).deleteAndCount();
+      await prisma.orm.public.MessageSearchTerms.where((term) =>
+        term.conversationId.in(CONVERSATION_IDS)
+      ).deleteAndCount();
+      await prisma.orm.public.MessageConversations.where((conversation) =>
+        conversation.id.in(CONVERSATION_IDS)
+      ).deleteAndCount();
       await prisma.orm.public.Users.where((user) =>
-        user.id.in([OWNER_ID, PEER_ID])
+        user.id.in([OWNER_ID, ...PEER_IDS])
       ).deleteAndCount();
       await closeMessageSearchPool();
     }
   },
-  600_000
+  900_000
 );
