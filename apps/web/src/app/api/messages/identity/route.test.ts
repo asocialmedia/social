@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT } from "@/lib/messages/den-rate-limit";
-import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { DELETE, GET, PATCH, POST } from "./route";
@@ -36,7 +35,25 @@ let identityWhere: Record<string, unknown> | null = null;
 let keysWhere: Record<string, unknown> | null = null;
 let searchStateWhere: Record<string, unknown> | null = null;
 let searchStateUpsertInput: Record<string, unknown> | null = null;
-const limiter = messageRouteLimiter();
+let denyIdentityRefreshLimit = false;
+const mockConsumeRateLimit = mock(
+  (options: {
+    bucket: string;
+    identifier: string;
+    limit: number;
+    windowSeconds: number;
+  }) => {
+    const allowed =
+      !denyIdentityRefreshLimit ||
+      options.bucket !== DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket;
+    return Promise.resolve({
+      allowed,
+      remaining: allowed ? options.limit - 1 : 0,
+      resetAt: Date.now() + options.windowSeconds * 1000,
+      retryAfterSeconds: 42,
+    });
+  }
+);
 const mockTransaction = mock((fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     orm: {
@@ -74,10 +91,10 @@ mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
-mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
-
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
+  consumeRateLimit: mockConsumeRateLimit,
+  consumeRateLimitSliding: mockConsumeRateLimit,
   prisma: {
     orm: {
       public: {
@@ -311,7 +328,8 @@ describe("PATCH /api/messages/identity", () => {
   };
 
   beforeEach(() => {
-    limiter.reset();
+    denyIdentityRefreshLimit = false;
+    mockConsumeRateLimit.mockClear();
     mockGetSession.mockReset();
     mockGetSession.mockReturnValue({ user: { id: "user1" } });
     mockIdentityUpdate.mockReset();
@@ -331,11 +349,11 @@ describe("PATCH /api/messages/identity", () => {
     );
     expect(response.status).toBe(401);
     expect(mockIdentityUpdate).not.toHaveBeenCalled();
-    expect(limiter.chargedBuckets).toEqual([]);
+    expect(mockConsumeRateLimit).not.toHaveBeenCalled();
   });
 
   test("charges the account refresh budget and honors a retryable refusal", async () => {
-    limiter.setDenied(true);
+    denyIdentityRefreshLimit = true;
     const response = await PATCH(
       new Request("http://localhost:3000/api/messages/identity", {
         body: JSON.stringify(validBody),
@@ -346,10 +364,12 @@ describe("PATCH /api/messages/identity", () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("42");
-    expect(limiter.chargedBuckets).toEqual([
-      DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
-    ]);
-    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+    expect(mockConsumeRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
+        identifier: "user1",
+      })
+    );
     expect(mockIdentityUpdate).not.toHaveBeenCalled();
   });
 
@@ -363,9 +383,12 @@ describe("PATCH /api/messages/identity", () => {
     );
     expect(response.status).toBe(400);
     expect(mockIdentityUpdate).not.toHaveBeenCalled();
-    expect(limiter.chargedBuckets).toEqual([
-      DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
-    ]);
+    expect(mockConsumeRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
+        identifier: "user1",
+      })
+    );
   });
 
   test("rejects oversized request bodies before updating the identity", async () => {
@@ -392,9 +415,12 @@ describe("PATCH /api/messages/identity", () => {
       })
     );
     expect(response.status).toBe(200);
-    expect(limiter.chargedBuckets).toEqual([
-      DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
-    ]);
+    expect(mockConsumeRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
+        identifier: "user1",
+      })
+    );
     expect(identityUpdateWhere).toEqual({
       publicKey: "pub-key",
       updatedAt: new Date(expectedUpdatedAt),
