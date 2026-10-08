@@ -122,6 +122,9 @@ export interface MessageIndexWriter {
   dispose: () => Promise<MessageIndexFlushResult>;
   // Deleted, globally, or hidden for this user: drop them from the index.
   remove: (messageIds: readonly string[]) => void;
+  removeAndWait: (messageIds: readonly string[]) => Promise<boolean>;
+  // Clear the durable conversation index and forget every cached write signature.
+  clearConversation: () => Promise<boolean>;
   // Hold coalesced writes for the caller that is about to flush itself, so a
   // long walk does not compete with parallel transcript commits. See `deferring`.
   setDeferring: (defer: boolean) => void;
@@ -230,6 +233,7 @@ export function createMessageIndexWriter(
   // committer, so the cost is one commit per page. Rows are not lost: they sit
   // in `pending` and the walk's `flush()` writes them with its batch.
   let deferring = false;
+  let resetting = false;
   let disposed = false;
   let unsubscribeFromPayloads: (() => void) | null = null;
 
@@ -354,12 +358,15 @@ export function createMessageIndexWriter(
     // removal per row inside this loop would mean one IndexedDB transaction per
     // deleted message: the write amplification this module exists to avoid.
     const toRemove: string[] = [];
+    const messagesToRemove = new Map<string, IndexableMessage>();
+    let removalFailed = false;
 
     for (const [id, message] of pending) {
       if (message.deletedAt) {
         pending.delete(id);
         pendingToRemove.add(id);
         toRemove.push(id);
+        messagesToRemove.set(id, message);
         continue;
       }
       const payload = getPayload(id);
@@ -393,6 +400,7 @@ export function createMessageIndexWriter(
         pendingToRemove.add(id);
         settledEmpty.push(id);
         toRemove.push(id);
+        messagesToRemove.set(id, message);
         continue;
       }
       // Skipped only when BOTH halves already match what is stored, so the
@@ -431,7 +439,18 @@ export function createMessageIndexWriter(
     }
 
     if (toRemove.length > 0) {
-      await removeEntries(toRemove);
+      const removed = await removeEntries(toRemove);
+      if (!removed) {
+        removalFailed = true;
+        for (const id of toRemove) {
+          const message = messagesToRemove.get(id);
+          if (message) {
+            pending.set(id, message);
+          }
+          pendingToAdd.add(id);
+          pendingToRemove.delete(id);
+        }
+      }
     }
 
     if (batch.size > 0) {
@@ -567,14 +586,15 @@ export function createMessageIndexWriter(
     }
     lastResult = {
       committed,
-      failed: !persisted,
+      failed: removalFailed || !persisted,
       settledEmpty,
       stillPending: [...pendingToAdd],
     };
     return lastResult;
   }
 
-  async function removeEntries(ids: string[]): Promise<void> {
+  async function removeEntries(ids: string[]): Promise<boolean> {
+    let removed = true;
     for (const id of ids) {
       written.delete(id);
       pending.delete(id);
@@ -582,6 +602,7 @@ export function createMessageIndexWriter(
     try {
       await store.removeEntries(conversationId, ids);
     } catch (error) {
+      removed = false;
       // Same posture as the write: a stale entry that outlives its row is better
       // than a rejected delete, and the row is gone from the transcript so it
       // cannot be clicked. Re-indexing the conversation repairs it.
@@ -596,15 +617,17 @@ export function createMessageIndexWriter(
     try {
       await store.removeSharedRefs(conversationId, ids);
     } catch {
+      removed = false;
       // A rejected refs delete is repaired by the next re-index of the message, and
       // the row is already gone from the transcript either way. Never surfaced:
       // the text delete above is the one the search bar reports on, and a failure
       // here must not turn a successful delete into a visible error.
     }
+    return removed;
   }
 
   function schedule(): void {
-    if (deferring || disposed) {
+    if (deferring || resetting || disposed) {
       return;
     }
     if (timer !== null) {
@@ -683,6 +706,46 @@ export function createMessageIndexWriter(
     return lastResult;
   }
 
+  async function removeAndWait(
+    messageIds: readonly string[]
+  ): Promise<boolean> {
+    if (disposed) {
+      return false;
+    }
+    const ids = [...new Set(messageIds)];
+    if (ids.length === 0) {
+      return true;
+    }
+    for (const id of ids) {
+      pending.delete(id);
+    }
+    let removed = false;
+    try {
+      await enqueueOperation(async () => {
+        removed = await removeEntries(ids);
+        try {
+          pendingCount = await store.updatePending(conversationId, {
+            remove: ids,
+          });
+          pendingCountMutated = true;
+          for (const id of ids) {
+            unpersistedPending.delete(id);
+          }
+        } catch {
+          removed = false;
+        }
+        if (pendingCount !== lastNotifiedPending) {
+          lastNotifiedPending = pendingCount;
+          notifyCoverage();
+        }
+      });
+    } catch {
+      removed = false;
+    }
+    notifyCoverage();
+    return removed;
+  }
+
   // Pending rows are retried when their payload finally lands, not only when the
   // next batch happens to include them. Without this a row that missed its window
   // waited for unrelated activity, and a quiet conversation never caught up.
@@ -714,6 +777,57 @@ export function createMessageIndexWriter(
   })();
 
   return {
+    async clearConversation() {
+      if (disposed || resetting) {
+        return false;
+      }
+      resetting = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      written.clear();
+      pending.clear();
+      unpersistedPending.clear();
+      batchEpoch += 1;
+      let cleared = false;
+      try {
+        await enqueueOperation(async () => {
+          try {
+            await store.clearConversation(conversationId);
+            written.clear();
+            pendingCount = 0;
+            lastNotifiedPending = 0;
+            pendingCountMutated = true;
+            lastResult = {
+              committed: [],
+              failed: false,
+              settledEmpty: [],
+              stillPending: [],
+            };
+            cleared = true;
+          } catch {
+            cleared = false;
+            try {
+              pendingCount = await store.countPending(conversationId);
+              pendingCountMutated = true;
+            } catch {
+              // Keep the last known count; the durable cursor will retry this reset.
+            }
+          }
+        });
+      } catch {
+        cleared = false;
+      } finally {
+        resetting = false;
+        notifyCoverage();
+        if (pending.size > 0) {
+          schedule();
+        }
+      }
+      return cleared;
+    },
+
     consider(messages) {
       if (disposed) {
         return;
@@ -772,34 +886,10 @@ export function createMessageIndexWriter(
     flush,
 
     remove(messageIds) {
-      if (disposed || messageIds.length === 0) {
-        return;
-      }
-      for (const id of messageIds) {
-        pending.delete(id);
-        unpersistedPending.delete(id);
-      }
-      const ids = [...new Set(messageIds)];
-      void enqueueOperation(async () => {
-        await removeEntries(ids);
-        try {
-          pendingCount = await store.updatePending(conversationId, {
-            remove: ids,
-          });
-          pendingCountMutated = true;
-          for (const id of ids) {
-            unpersistedPending.delete(id);
-          }
-          if (pendingCount !== lastNotifiedPending) {
-            lastNotifiedPending = pendingCount;
-            notifyCoverage();
-          }
-        } catch {
-          // A stale pending id is harmless; the next queue pass or page walk heals it.
-        }
-      });
-      notifyCoverage();
+      void removeAndWait(messageIds);
     },
+
+    removeAndWait,
 
     setDeferring(next) {
       if (disposed || deferring === next) {

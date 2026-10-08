@@ -376,6 +376,86 @@ describe("message index writer", () => {
     expect(harness.writer.coverage().indexedCount).toBe(0);
   });
 
+  test("a conversation reset clears durable rows and cached signatures", async () => {
+    const current = message("m1");
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([current]);
+    await harness.writer.flush();
+
+    expect(await idsFor(harness.store, "deploy")).toEqual(["m1"]);
+    expect(await harness.writer.clearConversation()).toBe(true);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+    expect(harness.writer.coverage().indexedCount).toBe(0);
+
+    harness.writer.consider([current]);
+    await harness.writer.flush();
+    expect(await idsFor(harness.store, "deploy")).toEqual(["m1"]);
+  });
+
+  test("a failed conversation reset is reported and can be retried", async () => {
+    const clear = harness.store.clearConversation;
+    let failNext = true;
+    harness.store.clearConversation = (conversationId) => {
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("storage unavailable"));
+      }
+      return clear(conversationId);
+    };
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    expect(await harness.writer.clearConversation()).toBe(false);
+    expect(await harness.writer.clearConversation()).toBe(true);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+  });
+
+  test("waitable removals report storage failures and retry cleanly", async () => {
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const { removeEntries } = harness.store;
+    let failNext = true;
+    harness.store.removeEntries = (conversationId, messageIds) => {
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("storage unavailable"));
+      }
+      return removeEntries(conversationId, messageIds);
+    };
+
+    expect(await harness.writer.removeAndWait(["m1"])).toBe(false);
+    expect(await harness.writer.removeAndWait(["m1"])).toBe(true);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+  });
+
+  test("an empty edit removal failure stays pending until the stale row is gone", async () => {
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const { removeEntries } = harness.store;
+    let failNext = true;
+    harness.store.removeEntries = (conversationId, messageIds) => {
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("storage unavailable"));
+      }
+      return removeEntries(conversationId, messageIds);
+    };
+    harness.payloads.set("m1", { content: "", type: "text" });
+    harness.writer.consider([message("m1")]);
+
+    const first = await harness.writer.flush();
+    expect(first.failed).toBe(true);
+    expect(first.stillPending).toEqual(["m1"]);
+    expect(await idsFor(harness.store, "deploy")).toEqual(["m1"]);
+
+    const second = await harness.writer.flush();
+    expect(second.failed).toBe(false);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+  });
+
   test("a row already marked deleted is never indexed", async () => {
     harness.payloads.set("m1", { content: "gone", type: "text" });
     harness.writer.consider([message("m1", { deletedAt: new Date() })]);

@@ -4636,6 +4636,44 @@ export function MessageThread({
       );
       const resetConversation = replay.resetRequired || accessChanged;
       let cacheSynchronized = true;
+      const clearLegacySearchIndex = async (): Promise<boolean> => {
+        const writer = searchWriterRef.current;
+        if (writer) {
+          return writer.clearConversation();
+        }
+        if (!searchIndexStore) {
+          return true;
+        }
+        try {
+          await searchIndexStore.clearConversation(conversationId);
+          return true;
+        } catch {
+          setSearchIndex(null);
+          return false;
+        }
+      };
+      const removeLegacySearchEntries = async (
+        messageIds: readonly string[]
+      ): Promise<boolean> => {
+        if (messageIds.length === 0) {
+          return true;
+        }
+        const writer = searchWriterRef.current;
+        if (writer) {
+          return writer.removeAndWait(messageIds);
+        }
+        if (!searchIndexStore) {
+          return true;
+        }
+        const ids = [...messageIds];
+        try {
+          await searchIndexStore.removeEntries(conversationId, ids);
+          await searchIndexStore.removeSharedRefs(conversationId, ids);
+          return true;
+        } catch {
+          return false;
+        }
+      };
       const committed = await applyChangesBeforeCursorCommit({
         apply: async () => {
           const refreshBoundedWindow =
@@ -4644,17 +4682,8 @@ export function MessageThread({
             return true;
           }
           if (resetConversation) {
-            searchWriterRef.current?.remove(
-              (
-                queryClient.getQueryData<MessagesInfiniteData>([
-                  "messages",
-                  conversationId,
-                ])?.pages ?? []
-              ).flatMap((page) => page.messages.map((message) => message.id))
-            );
-            try {
-              await searchIndexStore?.clearConversation(conversationId);
-            } catch {
+            const legacyIndexCleared = await clearLegacySearchIndex();
+            if (!legacyIndexCleared) {
               cacheSynchronized = false;
               setSearchIndex(null);
             }
@@ -4678,7 +4707,20 @@ export function MessageThread({
             setPersistedRefsCovered(false);
             setWalkEpoch((epoch) => epoch + 1);
           } else {
-            searchWriterRef.current?.remove(offlineChangePlan.messageIds);
+            const legacyIndexUpdated = await removeLegacySearchEntries(
+              offlineChangePlan.messageIds
+            );
+            if (!legacyIndexUpdated) {
+              const legacyIndexCleared = await clearLegacySearchIndex();
+              if (!legacyIndexCleared) {
+                cacheSynchronized = false;
+                setSearchIndex(null);
+              }
+              setPersistedCovered(false);
+              setPersistedChainVerified(false);
+              setPersistedRefsCovered(false);
+              setWalkEpoch((epoch) => epoch + 1);
+            }
             for (const messageId of offlineChangePlan.messageIds) {
               messageDecryptor.invalidate(messageId);
             }
@@ -4700,7 +4742,7 @@ export function MessageThread({
                     conversationId
                   );
                 setOfflineCacheDisabledFor(cleared ? null : conversationId);
-                cacheSynchronized = cleared;
+                cacheSynchronized &&= cleared;
               }
             }
           }
@@ -4782,7 +4824,6 @@ export function MessageThread({
           const currentIds = pages.flatMap((page) =>
             page.messages.map((message) => message.id)
           );
-          searchWriterRef.current?.remove(currentIds);
           for (const messageId of currentIds) {
             messageDecryptor.invalidate(messageId);
           }
@@ -4798,10 +4839,17 @@ export function MessageThread({
           void (async () => {
             try {
               let derivedCacheCleared = true;
-              try {
-                await searchIndexStore?.clearConversation(conversationId);
-              } catch {
-                derivedCacheCleared = false;
+              const writer = searchWriterRef.current;
+              if (writer) {
+                derivedCacheCleared = await writer.clearConversation();
+              } else if (searchIndexStore) {
+                try {
+                  await searchIndexStore.clearConversation(conversationId);
+                } catch {
+                  derivedCacheCleared = false;
+                }
+              }
+              if (!derivedCacheCleared) {
                 setSearchIndex(null);
               }
               if (offlineSearchScope) {
@@ -4845,7 +4893,30 @@ export function MessageThread({
             }
           })();
         } else {
-          searchWriterRef.current?.remove(notice.messageIds);
+          const writer = searchWriterRef.current;
+          if (writer) {
+            void (async () => {
+              try {
+                const removed = await writer.removeAndWait(notice.messageIds);
+                if (removed) {
+                  return;
+                }
+                const cleared = await writer.clearConversation();
+                if (!cleared) {
+                  setSearchIndex(null);
+                }
+                setPersistedCovered(false);
+                setPersistedChainVerified(false);
+                setPersistedRefsCovered(false);
+                setWalkEpoch((epoch) => epoch + 1);
+              } catch {
+                setSearchIndex(null);
+                setPersistedCovered(false);
+                setPersistedChainVerified(false);
+                setPersistedRefsCovered(false);
+              }
+            })();
+          }
           for (const messageId of notice.messageIds) {
             messageDecryptor.invalidate(messageId);
           }
