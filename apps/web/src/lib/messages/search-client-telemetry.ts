@@ -91,7 +91,7 @@ export async function flushMessageSearchClientTelemetry(): Promise<void> {
 
 export function startMessageSearchLongTaskTelemetry(): () => void {
   if (!shouldCollect() || typeof PerformanceObserver === "undefined") {
-    return () => { /* empty */ };
+    return () => Promise.resolve();
   }
   let observer: PerformanceObserver;
   try {
@@ -107,7 +107,7 @@ export function startMessageSearchLongTaskTelemetry(): () => void {
     });
     observer.observe({ buffered: false, type: "longtask" });
   } catch {
-    return () => { /* empty */ };
+    return () => Promise.resolve();
   }
   return () => observer.disconnect();
 }
