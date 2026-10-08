@@ -136,7 +136,7 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
   // Per store instance: two stores in one process must not share meta, or a test
   // would see another store's conversation state.
   const metaByConversation = new Map<string, SearchIndexMeta>();
-  const pendingByConversation = new Map<string, string[]>();
+  const pendingByConversation = new Map<string, Set<string>>();
   const refsByConversation = new Map<string, ConversationRefs>();
   // Refs for one conversation. Kept per KIND as well as per message: a page read
   // is a slice of one tab's list, so it must not walk the other two.
@@ -189,6 +189,12 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return [...byConversation.keys()];
     },
 
+    countPending(conversationId) {
+      return Promise.resolve(
+        pendingByConversation.get(conversationId)?.size ?? 0
+      );
+    },
+
     hasIndexedMessages(conversationId, messageIds) {
       const { table } = indexFor(conversationId);
       const out = new Set<string>();
@@ -200,6 +206,13 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
         }
       }
       return Promise.resolve(out);
+    },
+
+    hasPendingMessages(conversationId, messageIds) {
+      const pending = pendingByConversation.get(conversationId) ?? new Set();
+      return Promise.resolve(
+        new Set(messageIds.filter((messageId) => pending.has(messageId)))
+      );
     },
 
     listConversations() {
@@ -367,11 +380,14 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return Promise.resolve(metaByConversation.get(conversationId) ?? null);
     },
 
-    readPending(conversationId) {
-      // A copy, so a caller cannot mutate what the store will later hand back.
-      return Promise.resolve([
-        ...(pendingByConversation.get(conversationId) ?? []),
-      ]);
+    readPendingPage(conversationId, options) {
+      const pending = [...(pendingByConversation.get(conversationId) ?? [])]
+        .filter((messageId) => !options.after || messageId > options.after)
+        .toSorted();
+      const limit = Number.isFinite(options.limit)
+        ? Math.max(1, Math.min(1000, Math.trunc(options.limit)))
+        : 256;
+      return Promise.resolve(pending.slice(0, limit));
     },
 
     // A test affordance, not part of the store contract: the query path goes
@@ -501,6 +517,25 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
       return indexFor(conversationId).posting.size;
     },
 
+    updatePending(conversationId, changes) {
+      const pending = pendingByConversation.get(conversationId) ?? new Set();
+      const removed = new Set(changes.remove);
+      for (const messageId of removed) {
+        pending.delete(messageId);
+      }
+      for (const messageId of changes.add ?? []) {
+        if (!removed.has(messageId)) {
+          pending.add(messageId);
+        }
+      }
+      if (pending.size === 0) {
+        pendingByConversation.delete(conversationId);
+      } else {
+        pendingByConversation.set(conversationId, pending);
+      }
+      return Promise.resolve(pending.size);
+    },
+
     writeMeta(meta) {
       // Copied, including the array: a caller that keeps mutating the object it
       // passed must not reach into what the store hands back.
@@ -508,14 +543,6 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
         ...meta,
         pendingIds: [...meta.pendingIds],
       });
-      return Promise.resolve();
-    },
-    writePending(conversationId, messageIds) {
-      if (messageIds.length === 0) {
-        pendingByConversation.delete(conversationId);
-        return Promise.resolve();
-      }
-      pendingByConversation.set(conversationId, [...messageIds]);
       return Promise.resolve();
     },
   };

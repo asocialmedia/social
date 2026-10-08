@@ -3094,15 +3094,19 @@ export function MessageThread({
                   conversationId,
                   topIds
                 );
-                let queued: string[] = [];
+                let queued = new Set<string>();
                 try {
-                  queued = await resolved.store.readPending(conversationId);
+                  queued = new Set(
+                    await resolved.store.hasPendingMessages(
+                      conversationId,
+                      topIds
+                    )
+                  );
                 } catch {
                   // Unreadable queue: covered means indexed, below.
                 }
-                const queuedSet = new Set(queued);
                 covered = topIds.every(
-                  (id) => indexedTop.has(id) || queuedSet.has(id)
+                  (id) => indexedTop.has(id) || queued.has(id)
                 );
               }
             } catch {
@@ -3582,7 +3586,7 @@ export function MessageThread({
     const recover = async () => {
       let queued: string[];
       try {
-        queued = await writer.durablePending();
+        queued = await writer.durablePending(allMessages.map((row) => row.id));
       } catch {
         return;
       }

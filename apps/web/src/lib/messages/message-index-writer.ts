@@ -72,9 +72,9 @@ export interface MessageIndexCoverage {
   pendingCount: number;
 }
 
-// Ceiling on how many ids are remembered as pending. A pathological case (every
-// row failing to decrypt) would otherwise grow this without bound. Rows trimmed
-// from the in-session retry set move to the durable set rather than being lost.
+// Ceiling on how many ids are remembered in-session. A pathological case (every
+// row failing to decrypt) would otherwise grow this without bound; the durable
+// queue retains the full backlog while the tab retries only recent rows.
 const MAX_TRACKED_PENDING = 5000;
 // Signatures only avoid repeat work for messages the writer has recently seen.
 // Keeping one for every row in a long backfill grows the tab's heap with history.
@@ -117,7 +117,7 @@ export interface MessageIndexWriter {
   flush: () => Promise<MessageIndexFlushResult>;
   // Rows persisted as not-yet-searchable from an earlier session. The caller
   // re-fetches and re-considers them; the writer only owns the bookkeeping.
-  durablePending: () => Promise<string[]>;
+  durablePending: (messageIds: readonly string[]) => Promise<string[]>;
   // Flushes any queued work and releases the decryptor subscription and timer.
   dispose: () => Promise<MessageIndexFlushResult>;
   // Deleted, globally, or hidden for this user: drop them from the index.
@@ -205,6 +205,7 @@ export function createMessageIndexWriter(
   // failed to write is retried instead of being mistaken for current.
   const written = new Map<string, WrittenState>();
   const pending = new Map<string, IndexableMessage>();
+  const unpersistedPending = new Set<string>();
   // Handle for the pending coalescing window, so a timer that has not fired yet
   // is still "already scheduled" and cannot be stacked by a later `consider`.
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -264,20 +265,17 @@ export function createMessageIndexWriter(
     }
     onCoverage?.({
       indexedCount: written.size,
-      // The durable count, not the in-memory one: a row dropped from the retry
-      // set is still a gap in coverage, and the bar has to keep saying so.
-      pendingCount: durable.size,
+      pendingCount: totalPendingCount(),
     });
   }
 
-  // Ids known to be unsearchable, mirrored into the store so a reload does not
-  // forget them. The writer is the only writer, so a whole-set write is safe
-  // where an incremental one would only add a boundary to get wrong.
-  const durable = new Set<string>();
-  // Durable size at the last coverage notification, so a flush that changed
-  // nothing stays silent instead of re-rendering every subscriber into another
-  // empty flush.
-  let lastNotifiedDurable = 0;
+  function totalPendingCount(): number {
+    return pendingCount + unpersistedPending.size;
+  }
+
+  let pendingCount = 0;
+  let lastNotifiedPending = 0;
+  let pendingCountMutated = false;
   // Outcome of the most recent batch, so flush reports what actually ran rather
   // than running a second pass to obtain a value -- a second pass would retry a
   // refused write inside the same flush, which is how a test asserting "the
@@ -289,10 +287,22 @@ export function createMessageIndexWriter(
     stillPending: [],
   };
 
-  async function persistPending(): Promise<boolean> {
-    const ids = [...durable];
+  async function updatePending(
+    add: ReadonlySet<string>,
+    remove: ReadonlySet<string>
+  ): Promise<boolean> {
     try {
-      await store.writePending(conversationId, ids);
+      pendingCount = await store.updatePending(conversationId, {
+        add: [...add],
+        remove: [...remove],
+      });
+      pendingCountMutated = true;
+      for (const id of add) {
+        unpersistedPending.delete(id);
+      }
+      for (const id of remove) {
+        unpersistedPending.delete(id);
+      }
       return true;
     } catch {
       // The queue could not be persisted, so these rows are recoverable from
@@ -304,15 +314,20 @@ export function createMessageIndexWriter(
   async function writeBatch(): Promise<MessageIndexFlushResult> {
     const committed: string[] = [];
     const settledEmpty: string[] = [];
+    const pendingToAdd = new Set<string>();
+    const pendingToRemove = new Set<string>();
     if (pending.size === 0) {
-      // Still flush an emptied durable queue, so a conversation that has caught up
-      // does not leave a stale record claiming otherwise.
-      const persisted = await persistPending();
+      let failed = false;
+      try {
+        pendingCount = await store.countPending(conversationId);
+      } catch {
+        failed = true;
+      }
       lastResult = {
         committed,
-        failed: !persisted,
+        failed,
         settledEmpty,
-        stillPending: [...durable],
+        stillPending: [],
       };
       return lastResult;
     }
@@ -343,7 +358,7 @@ export function createMessageIndexWriter(
     for (const [id, message] of pending) {
       if (message.deletedAt) {
         pending.delete(id);
-        durable.delete(id);
+        pendingToRemove.add(id);
         toRemove.push(id);
         continue;
       }
@@ -357,7 +372,7 @@ export function createMessageIndexWriter(
         // LRU) and "error" means key healing has not run yet; both are retried
         // rather than dropped, and both are persisted so the queue outlives
         // this session.
-        durable.add(id);
+        pendingToAdd.add(id);
         continue;
       }
       const built = buildSearchIndexEntry({
@@ -375,7 +390,7 @@ export function createMessageIndexWriter(
         // be busy work. Any previous entry goes, so an edit to empty cannot leave
         // a stale hit behind.
         pending.delete(id);
-        durable.delete(id);
+        pendingToRemove.add(id);
         settledEmpty.push(id);
         toRemove.push(id);
         continue;
@@ -389,7 +404,7 @@ export function createMessageIndexWriter(
       const state = getWrittenState(id);
       if (state && state.text === nextText && state.refs === nextRefs) {
         pending.delete(id);
-        durable.delete(id);
+        pendingToRemove.add(id);
         continue;
       }
       if (built && state?.text !== nextText) {
@@ -441,7 +456,7 @@ export function createMessageIndexWriter(
         // like a conversation with no matches, and the user cannot tell the
         // difference.
         for (const id of batch.keys()) {
-          durable.add(id);
+          pendingToAdd.add(id);
         }
         if (isStorageExhausted(error)) {
           reportStorageFull();
@@ -479,7 +494,7 @@ export function createMessageIndexWriter(
         // a hole in the panel's list, and the hole closes on the next write rather
         // than needing a re-walk.
         for (const id of refsBatch.keys()) {
-          durable.add(id);
+          pendingToAdd.add(id);
         }
         if (isStorageExhausted(error)) {
           reportStorageFull();
@@ -514,10 +529,8 @@ export function createMessageIndexWriter(
         if (dropped >= excess) {
           break;
         }
-        // Dropped from the in-session RETRY set only; the id stays durable, so
-        // it is recovered next session rather than silently lost.
+        // The durable queue was updated before this bounded map gave up on it.
         pending.delete(id);
-        durable.add(id);
         dropped += 1;
       }
     }
@@ -529,16 +542,15 @@ export function createMessageIndexWriter(
       const state = getWrittenState(id);
       if (state?.text === expected.text && state.refs === expected.refs) {
         pending.delete(id);
-        durable.delete(id);
+        pendingToAdd.delete(id);
+        pendingToRemove.add(id);
       } else {
-        durable.add(id);
+        pendingToRemove.delete(id);
+        pendingToAdd.add(id);
       }
     }
 
-    // Persisted after the trim, so what survives to disk is the durable set
-    // rather than the in-memory one. Do not truncate this set: losing even one
-    // queued id makes a completed cursor look truthful while stranding history.
-    const persisted = await persistPending();
+    const persisted = await updatePending(pendingToAdd, pendingToRemove);
     // Notify only on change. An unconditional notify re-renders every
     // subscriber on every flush, and one subscriber -- the transcript's writer
     // feed -- re-considers on every notification, scheduling another flush: a
@@ -548,16 +560,16 @@ export function createMessageIndexWriter(
       committed.length > 0 ||
       settledEmpty.length > 0 ||
       toRemove.length > 0 ||
-      durable.size !== lastNotifiedDurable
+      totalPendingCount() !== lastNotifiedPending
     ) {
-      lastNotifiedDurable = durable.size;
+      lastNotifiedPending = totalPendingCount();
       notifyCoverage();
     }
     lastResult = {
       committed,
       failed: !persisted,
       settledEmpty,
-      stillPending: [...durable],
+      stillPending: [...pendingToAdd],
     };
     return lastResult;
   }
@@ -566,7 +578,6 @@ export function createMessageIndexWriter(
     for (const id of ids) {
       written.delete(id);
       pending.delete(id);
-      durable.delete(id);
     }
     try {
       await store.removeEntries(conversationId, ids);
@@ -687,23 +698,18 @@ export function createMessageIndexWriter(
     }
   }
 
-  // Loaded once, so a row that was unsearchable last session is retried as soon
-  // as the caller re-fetches and re-considers it.
   void (async () => {
     try {
-      for (const id of await store.readPending(conversationId)) {
-        if (disposed) {
-          return;
+      const count = await store.countPending(conversationId);
+      if (!disposed && !pendingCountMutated) {
+        pendingCount = count;
+        if (pendingCount !== lastNotifiedPending) {
+          lastNotifiedPending = pendingCount;
+          notifyCoverage();
         }
-        durable.add(id);
-      }
-      if (!disposed && durable.size !== lastNotifiedDurable) {
-        lastNotifiedDurable = durable.size;
-        notifyCoverage();
       }
     } catch {
-      // Unreadable queue: the conversation behaves as fully indexed, which the
-      // walk repairs by re-fetching from its cursor.
+      // The walk rechecks each bounded history page if the queue cannot be read.
     }
   })();
 
@@ -724,13 +730,17 @@ export function createMessageIndexWriter(
           }
         }
         pending.set(message.id, message);
+        unpersistedPending.add(message.id);
         batchEpoch += 1;
         schedule();
       }
     },
 
     coverage() {
-      return { indexedCount: written.size, pendingCount: pending.size };
+      return {
+        indexedCount: written.size,
+        pendingCount: totalPendingCount(),
+      };
     },
 
     dispose() {
@@ -751,8 +761,12 @@ export function createMessageIndexWriter(
       return flush();
     },
 
-    durablePending() {
-      return store.readPending(conversationId);
+    async durablePending(messageIds) {
+      const pendingIds = await store.hasPendingMessages(
+        conversationId,
+        messageIds
+      );
+      return [...pendingIds];
     },
 
     flush,
@@ -763,12 +777,25 @@ export function createMessageIndexWriter(
       }
       for (const id of messageIds) {
         pending.delete(id);
+        unpersistedPending.delete(id);
       }
       const ids = [...new Set(messageIds)];
       void enqueueOperation(async () => {
         await removeEntries(ids);
-        if (!(await persistPending())) {
-          schedule();
+        try {
+          pendingCount = await store.updatePending(conversationId, {
+            remove: ids,
+          });
+          pendingCountMutated = true;
+          for (const id of ids) {
+            unpersistedPending.delete(id);
+          }
+          if (pendingCount !== lastNotifiedPending) {
+            lastNotifiedPending = pendingCount;
+            notifyCoverage();
+          }
+        } catch {
+          // A stale pending id is harmless; the next queue pass or page walk heals it.
         }
       });
       notifyCoverage();

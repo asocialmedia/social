@@ -284,14 +284,20 @@ export interface SearchIndexStore {
   // in memory only: the cursor moved past it and the queue died with the tab,
   // leaving a permanent silent hole in search.
   //
-  // Whole-set rather than incremental: the writer is the single owner, so there
-  // is nothing to race, and incremental add/remove would only create a second
-  // consistency boundary to get wrong.
-  readPending: (conversationId: string) => Promise<string[]>;
-  writePending: (
+  // Reads are bounded so a large retry backlog never needs to be materialized.
+  readPendingPage: (
+    conversationId: string,
+    options: { after?: string; limit: number }
+  ) => Promise<string[]>;
+  hasPendingMessages: (
     conversationId: string,
     messageIds: readonly string[]
-  ) => Promise<void>;
+  ) => Promise<ReadonlySet<string>>;
+  countPending: (conversationId: string) => Promise<number>;
+  updatePending: (
+    conversationId: string,
+    changes: { add?: readonly string[]; remove?: readonly string[] }
+  ) => Promise<number>;
   // Every conversation with an index on this device, oldest access first. Backs
   // LRU eviction; the meta store holds one small record per conversation, so
   // this is cheap even where a row scan would not be.

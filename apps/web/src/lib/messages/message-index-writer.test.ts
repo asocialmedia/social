@@ -47,6 +47,27 @@ function makeHarness() {
   return { coverage, payloads, store, writer };
 }
 
+async function pendingIdsFor(
+  store: SearchIndexStore,
+  conversationId: string
+): Promise<string[]> {
+  const messageIds: string[] = [];
+  let after: string | undefined;
+  // oxlint-disable no-await-in-loop -- each page cursor depends on the previous page
+  while (true) {
+    const page = await store.readPendingPage(conversationId, {
+      after,
+      limit: 256,
+    });
+    messageIds.push(...page);
+    if (page.length < 256) {
+      return messageIds;
+    }
+    after = page.at(-1);
+  }
+  // oxlint-enable no-await-in-loop
+}
+
 // Reads one token's posting list and maps the interned rows back to message ids,
 // which is the read path the search hook uses.
 async function idsFor(
@@ -225,7 +246,7 @@ describe("message index writer", () => {
     await firstFlush;
     await writer.flush();
     expect(await idsFor(store, "remove")).toEqual([]);
-    expect(await store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
   });
 
   // An empty flush must stay silent. It used to notify on every pass, and one
@@ -519,7 +540,7 @@ describe("message index writer", () => {
     expect(result.stillPending).toEqual(["m1"]);
     expect(result.committed).toEqual([]);
     // And it is on disk, not only in this process.
-    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual(["m1"]);
   });
 
   test("a refused write is persisted so the row is not lost with the tab", async () => {
@@ -538,7 +559,7 @@ describe("message index writer", () => {
     const result = await writer.flush();
     expect(result.failed).toBe(false);
     expect(result.stillPending).toEqual(["m1"]);
-    expect(await store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual(["m1"]);
 
     // A later session's writer loads the queue and can pick the row back up.
     const recovered = createMessageIndexWriter({
@@ -546,7 +567,7 @@ describe("message index writer", () => {
       getPayload: (id) => payloads.get(id),
       store,
     });
-    expect(await recovered.durablePending()).toEqual(["m1"]);
+    expect(await recovered.durablePending(["m1"])).toEqual(["m1"]);
     store.putEntries = original;
   });
 
@@ -564,12 +585,12 @@ describe("message index writer", () => {
     const result = await writer.flush();
     expect(result.failed).toBe(false);
     expect(result.stillPending).toHaveLength(5001);
-    expect(await store.readPending(CONVO)).toHaveLength(5001);
+    expect(await pendingIdsFor(store, CONVO)).toHaveLength(5001);
   });
 
   test("a queue that cannot be persisted reports failure, so the cursor stays put", async () => {
     const store = createMemorySearchIndexStore();
-    store.writePending = () => Promise.reject(new Error("quota"));
+    store.updatePending = () => Promise.reject(new Error("quota"));
     const payloads = new Map<string, IndexablePayload>([
       ["m1", { content: "text", type: "text" }],
     ]);
@@ -590,24 +611,24 @@ describe("message index writer", () => {
     harness.payloads.set("m1", "pending");
     harness.writer.consider([message("m1")]);
     await harness.writer.flush();
-    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual(["m1"]);
 
     harness.payloads.set("m1", { content: "finally here", type: "text" });
     harness.writer.consider([message("m1")]);
     const result = await harness.writer.flush();
     expect(result.committed).toEqual(["m1"]);
-    expect(await harness.store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual([]);
   });
 
   test("a deleted row leaves the durable queue", async () => {
     harness.payloads.set("m1", "pending");
     harness.writer.consider([message("m1")]);
     await harness.writer.flush();
-    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual(["m1"]);
 
     harness.writer.remove(["m1"]);
     await harness.writer.flush();
-    expect(await harness.store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual([]);
   });
 
   test("pending rows are retried when their payload arrives", async () => {
@@ -637,7 +658,7 @@ describe("message index writer", () => {
     await writer.flush();
     const found = await idsFor(store, "arrived");
     expect(found).toEqual(["m1"]);
-    expect(await store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
   });
 
   test("a payload notification with nothing pending does not write", async () => {

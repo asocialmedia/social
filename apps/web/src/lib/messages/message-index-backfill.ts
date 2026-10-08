@@ -402,18 +402,8 @@ export function createMessageIndexBackfill(
       cursor = undefined;
       chainVerified = true;
     }
-    // Rows already queued as unsearchable, read once per run. A page holding
-    // only these needs no decrypt or commit -- the queue outlives the run and
-    // the writer retries it -- but the cursor still advances past it.
-    let durableSnapshot = new Set<string>();
-    try {
-      durableSnapshot = new Set(await store.readPending(conversationId));
-    } catch {
-      // Unreadable queue: pages fall back to decrypting and deciding per row.
-    }
-    // Rows this run queued but could not index yet. Together with the snapshot
-    // above, the set of ids the run knows are covered without re-reading.
-    const pendingThisRun = new Set<string>();
+    // Rows this run queued but could not index yet. Persisted queue membership
+    // is checked per bounded page instead of loading the conversation backlog.
     if (cursor !== undefined) {
       // Trust-but-verify the resume hint. The walk only ever descends, so a
       // cursor pointing below uncovered history -- new arrivals above it, a
@@ -430,15 +420,12 @@ export function createMessageIndexBackfill(
         const top = await fetchPage();
         const topIds = top.messages.map((row) => row.id);
         if (topIds.length > 0) {
-          const indexedTop = await store.hasIndexedMessages(
-            conversationId,
-            topIds
-          );
+          const [indexedTop, pendingTop] = await Promise.all([
+            store.hasIndexedMessages(conversationId, topIds),
+            store.hasPendingMessages(conversationId, topIds),
+          ]);
           const topCovered = topIds.every(
-            (id) =>
-              indexedTop.has(id) ||
-              durableSnapshot.has(id) ||
-              pendingThisRun.has(id)
+            (id) => indexedTop.has(id) || pendingTop.has(id)
           );
           if (!topCovered || !chainVerified) {
             cursor = undefined;
@@ -569,15 +556,12 @@ export function createMessageIndexBackfill(
         // for it -- while still verifying every page, so a gap can never hide
         // behind a trusted cursor again.
         const pageIds = messages.map((row) => row.id);
-        const indexedPage = await store.hasIndexedMessages(
-          conversationId,
-          pageIds
-        );
+        const [indexedPage, pendingPage] = await Promise.all([
+          store.hasIndexedMessages(conversationId, pageIds),
+          store.hasPendingMessages(conversationId, pageIds),
+        ]);
         const uncovered = messages.filter(
-          (row) =>
-            !indexedPage.has(row.id) &&
-            !durableSnapshot.has(row.id) &&
-            !pendingThisRun.has(row.id)
+          (row) => !indexedPage.has(row.id) && !pendingPage.has(row.id)
         );
         if (uncovered.length === 0) {
           // Nothing to do: counts and cursor advance through the shared tail
@@ -595,9 +579,6 @@ export function createMessageIndexBackfill(
         const result = await writer.flush();
         indexed += messages.length;
         pending = result.stillPending.length;
-        for (const id of result.stillPending) {
-          pendingThisRun.add(id);
-        }
         if (result.failed) {
           // The rows committed or were queued, but the QUEUE could not be
           // persisted, so any row that did not commit is recoverable from

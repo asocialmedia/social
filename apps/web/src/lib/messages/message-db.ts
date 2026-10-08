@@ -22,7 +22,7 @@ export const MESSAGES_DB_NAME = "asm-messages";
 
 // The row table went back to one record per row; existing search indexes are
 // dropped and rebuilt by walking history, while identity material is never reset.
-export const MESSAGES_DB_VERSION = 10;
+export const MESSAGES_DB_VERSION = 11;
 export const RESET_SEARCH_STORES_BELOW_VERSION = 9;
 // The last layout the text-index reset targets. Tests that need "a database from
 // before the per-row layout" seed THIS version, not MESSAGES_DB_VERSION - 1: the
@@ -45,6 +45,9 @@ export const SEARCH_META_STORE = "search-meta";
 // meta on every page and sharing one object reintroduces the read-modify-write
 // race that forced the row allocator to be split out.
 export const SEARCH_PENDING_STORE = "search-pending";
+// Pending rows are keyed individually so retry state stays paginated and does
+// not require materializing a conversation's full backlog in JavaScript.
+export const SEARCH_PENDING_QUEUE_STORE = "search-pending-queue";
 export const SEARCH_POSTINGS_STORE = "search-postings";
 // [conversationId, messageId] -> row id. The forward index from an incoming
 // message to the row it already occupies, so a write resolves each entry with a
@@ -72,6 +75,7 @@ export const SEARCH_STORES = [
   SEARCH_ROWS_STORE,
   SEARCH_META_STORE,
   SEARCH_PENDING_STORE,
+  SEARCH_PENDING_QUEUE_STORE,
 ] as const;
 
 // The shared-content refs index (the details panel's Media/Posts/Links tabs),

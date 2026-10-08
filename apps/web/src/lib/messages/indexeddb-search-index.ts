@@ -55,6 +55,7 @@ import {
   MESSAGES_DB_VERSION,
   SEARCH_HEADER_STORE,
   SEARCH_META_STORE,
+  SEARCH_PENDING_QUEUE_STORE,
   SEARCH_PENDING_STORE,
   SEARCH_POSTINGS_STORE,
   SEARCH_ROW_IDS_STORE,
@@ -107,6 +108,7 @@ import type {
 const HEADER_STORE = SEARCH_HEADER_STORE;
 const META_STORE = SEARCH_META_STORE;
 const PENDING_STORE = SEARCH_PENDING_STORE;
+const PENDING_QUEUE_STORE = SEARCH_PENDING_QUEUE_STORE;
 const POSTINGS_STORE = SEARCH_POSTINGS_STORE;
 const ROW_IDS_STORE = SEARCH_ROW_IDS_STORE;
 const ROWS_STORE = SEARCH_ROWS_STORE;
@@ -117,6 +119,7 @@ const SEARCH_STORES = [
   HEADER_STORE,
   META_STORE,
   PENDING_STORE,
+  PENDING_QUEUE_STORE,
   POSTINGS_STORE,
   ROW_IDS_STORE,
   ROWS_STORE,
@@ -671,6 +674,89 @@ function conversationKeyRange(conversationId: string): IDBKeyRange {
   return IDBKeyRange.bound([conversationId, ""], [conversationId, "￿"]);
 }
 
+function pendingQueueRange(conversationId: string): IDBKeyRange {
+  return conversationKeyRange(conversationId);
+}
+
+async function migrateLegacyPendingQueue(
+  tx: IDBTransaction,
+  conversationId: string
+): Promise<void> {
+  const legacyStore = tx.objectStore(PENDING_STORE);
+  const legacyKey = await requestAsPromise<IDBValidKey | undefined>(
+    legacyStore.getKey(conversationId)
+  );
+  if (legacyKey === undefined) {
+    return;
+  }
+  await requestAsPromise(legacyStore.delete(conversationId));
+  const metaStore = tx.objectStore(META_STORE);
+  const storedMeta = await requestAsPromise<unknown>(
+    metaStore.get(conversationId)
+  );
+  if (
+    isStoredMeta(storedMeta) &&
+    storedMeta.conversationId === conversationId
+  ) {
+    // The legacy value is one unbounded array. Rewriting it as thousands of
+    // point records in a single open would block low-memory devices. Drop this
+    // derived retry snapshot and rewind only its coverage cursor; the normal
+    // paced history walk rediscovers missing rows in bounded pages.
+    await requestAsPromise(
+      metaStore.put(
+        {
+          ...storedMeta,
+          cursorVerified: false,
+          indexedThroughId: null,
+          reachedStart: false,
+          refsReachedStart: false,
+          updatedAt: Date.now(),
+        },
+        conversationId
+      )
+    );
+  }
+}
+
+async function readPendingQueuePage(
+  tx: IDBTransaction,
+  conversationId: string,
+  options: { after?: string; limit: number }
+): Promise<string[]> {
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(1, Math.min(1000, Math.trunc(options.limit)))
+    : 256;
+  const range = options.after
+    ? IDBKeyRange.bound(
+        [conversationId, options.after],
+        [conversationId, "￿"],
+        true,
+        false
+      )
+    : pendingQueueRange(conversationId);
+  const messageIds: string[] = [];
+  // oxlint-disable-next-line promise/avoid-new -- IndexedDB cursor is event-based
+  await new Promise<void>((resolve, reject) => {
+    const request = tx.objectStore(PENDING_QUEUE_STORE).openCursor(range);
+    request.addEventListener("success", () => {
+      const cursor = request.result;
+      if (!cursor || messageIds.length >= limit) {
+        resolve();
+        return;
+      }
+      const messageId = Array.isArray(cursor.key) ? cursor.key[1] : undefined;
+      if (typeof messageId === "string") {
+        messageIds.push(messageId);
+      }
+      cursor.continue();
+    });
+    request.addEventListener("error", () => {
+      reject(request.error ?? new Error("idb pending cursor"));
+    });
+  });
+  return messageIds;
+}
+
 // The same idea for the refs store's [conversationId, kind, timeKey] keys.
 //
 // It needs its own bound and cannot borrow the two-part one above: IndexedDB keys
@@ -1065,6 +1151,24 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       });
     },
 
+    countPending(conversationId) {
+      if (storageUnavailable()) {
+        return Promise.resolve(0);
+      }
+      return runTransaction(
+        [META_STORE, PENDING_STORE, PENDING_QUEUE_STORE],
+        "readwrite",
+        async (tx) => {
+          await migrateLegacyPendingQueue(tx, conversationId);
+          return requestAsPromise(
+            tx
+              .objectStore(PENDING_QUEUE_STORE)
+              .count(pendingQueueRange(conversationId))
+          );
+        }
+      );
+    },
+
     hasIndexedMessages(conversationId, messageIds) {
       if (storageUnavailable() || messageIds.length === 0) {
         return Promise.resolve(new Set<string>());
@@ -1099,6 +1203,32 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
           }
           // oxlint-enable no-await-in-loop
           return out;
+        }
+      );
+    },
+
+    hasPendingMessages(conversationId, messageIds) {
+      if (storageUnavailable() || messageIds.length === 0) {
+        return Promise.resolve(new Set<string>());
+      }
+      return runTransaction(
+        [META_STORE, PENDING_STORE, PENDING_QUEUE_STORE],
+        "readwrite",
+        async (tx) => {
+          await migrateLegacyPendingQueue(tx, conversationId);
+          const store = tx.objectStore(PENDING_QUEUE_STORE);
+          const pending = new Set<string>();
+          // oxlint-disable no-await-in-loop -- page-limited point reads share one transaction
+          for (const messageId of new Set(messageIds)) {
+            const value = await requestAsPromise<unknown>(
+              store.get([conversationId, messageId])
+            );
+            if (value === messageId) {
+              pending.add(messageId);
+            }
+          }
+          // oxlint-enable no-await-in-loop
+          return pending;
         }
       );
     },
@@ -1414,32 +1544,39 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       if (storageUnavailable()) {
         return Promise.resolve(null);
       }
-      return runTransaction([META_STORE], "readonly", async (tx) => {
-        const value = await requestAsPromise<unknown>(
-          tx.objectStore(META_STORE).get(conversationId)
-        );
-        if (
-          !isStoredMeta(value) ||
-          value.conversationId !== conversationId ||
-          !Array.isArray(value.pendingIds)
-        ) {
-          return null;
+      return runTransaction(
+        [META_STORE, PENDING_STORE, PENDING_QUEUE_STORE],
+        "readwrite",
+        async (tx) => {
+          await migrateLegacyPendingQueue(tx, conversationId);
+          const value = await requestAsPromise<unknown>(
+            tx.objectStore(META_STORE).get(conversationId)
+          );
+          if (
+            !isStoredMeta(value) ||
+            value.conversationId !== conversationId ||
+            !Array.isArray(value.pendingIds)
+          ) {
+            return null;
+          }
+          // A copy, so a caller mutating the result cannot corrupt what is stored.
+          return { ...value, pendingIds: [...value.pendingIds] };
         }
-        // A copy, so a caller mutating the result cannot corrupt what is stored.
-        return { ...value, pendingIds: [...value.pendingIds] };
-      });
+      );
     },
 
-    readPending(conversationId) {
+    readPendingPage(conversationId, options) {
       if (storageUnavailable()) {
         return Promise.resolve([]);
       }
-      return runTransaction([PENDING_STORE], "readonly", async (tx) => {
-        const value = await requestAsPromise<string[] | undefined>(
-          tx.objectStore(PENDING_STORE).get(conversationId)
-        );
-        return value ?? [];
-      });
+      return runTransaction(
+        [META_STORE, PENDING_STORE, PENDING_QUEUE_STORE],
+        "readwrite",
+        async (tx) => {
+          await migrateLegacyPendingQueue(tx, conversationId);
+          return readPendingQueuePage(tx, conversationId, options);
+        }
+      );
     },
 
     readRows(conversationId, rowIds) {
@@ -1650,6 +1787,75 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
         }
       );
     },
+
+    async updatePending(conversationId, changes) {
+      if (storageUnavailable()) {
+        return 0;
+      }
+      const removedIds = [...new Set(changes.remove)];
+      const removed = new Set(removedIds);
+      const addedIds = [...new Set(changes.add)].filter(
+        (messageId) => !removed.has(messageId)
+      );
+      const operations: { kind: "add" | "remove"; messageId: string }[] = [
+        ...removedIds.map((messageId) => ({
+          kind: "remove" as const,
+          messageId,
+        })),
+        ...addedIds.map((messageId) => ({ kind: "add" as const, messageId })),
+      ];
+      if (operations.length === 0) {
+        return runTransaction(
+          [META_STORE, PENDING_STORE, PENDING_QUEUE_STORE],
+          "readwrite",
+          async (tx) => {
+            await migrateLegacyPendingQueue(tx, conversationId);
+            return requestAsPromise(
+              tx
+                .objectStore(PENDING_QUEUE_STORE)
+                .count(pendingQueueRange(conversationId))
+            );
+          }
+        );
+      }
+      let count = 0;
+      // Transactions stay short so a large retry update cannot block search reads.
+      // oxlint-disable no-await-in-loop
+      for (let offset = 0; offset < operations.length; offset += 128) {
+        const batch = operations.slice(offset, offset + 128);
+        count = await runTransaction(
+          [META_STORE, PENDING_STORE, PENDING_QUEUE_STORE],
+          "readwrite",
+          async (tx) => {
+            await migrateLegacyPendingQueue(tx, conversationId);
+            const store = tx.objectStore(PENDING_QUEUE_STORE);
+            for (const operation of batch) {
+              if (operation.kind === "remove") {
+                // oxlint-disable-next-line no-await-in-loop
+                await requestAsPromise<undefined>(
+                  store.delete([conversationId, operation.messageId])
+                );
+              }
+              if (operation.kind === "add") {
+                // oxlint-disable-next-line no-await-in-loop
+                await requestAsPromise<IDBValidKey>(
+                  store.put(operation.messageId, [
+                    conversationId,
+                    operation.messageId,
+                  ])
+                );
+              }
+            }
+            return requestAsPromise(
+              store.count(pendingQueueRange(conversationId))
+            );
+          }
+        );
+      }
+      // oxlint-enable no-await-in-loop
+      return count;
+    },
+
     writeMeta(meta) {
       if (storageUnavailable()) {
         return Promise.resolve();
@@ -1665,22 +1871,6 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
             meta.conversationId
           )
         );
-      });
-    },
-
-    writePending(conversationId, messageIds) {
-      if (storageUnavailable()) {
-        return Promise.resolve();
-      }
-      return runTransaction([PENDING_STORE], "readwrite", async (tx) => {
-        const store = tx.objectStore(PENDING_STORE);
-        // An empty set is a delete rather than an empty record, so a conversation
-        // that has caught up leaves nothing behind.
-        if (messageIds.length === 0) {
-          await requestAsPromise(store.delete(conversationId));
-          return;
-        }
-        await requestAsPromise(store.put([...messageIds], conversationId));
       });
     },
 

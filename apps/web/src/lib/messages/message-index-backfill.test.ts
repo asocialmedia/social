@@ -18,6 +18,27 @@ import type { SearchIndexStore } from "./search-index-format";
 
 const CONVO = "c1";
 
+async function pendingIdsFor(
+  store: SearchIndexStore,
+  conversationId: string
+): Promise<string[]> {
+  const messageIds: string[] = [];
+  let after: string | undefined;
+  // oxlint-disable no-await-in-loop -- each page cursor depends on the previous page
+  while (true) {
+    const page = await store.readPendingPage(conversationId, {
+      after,
+      limit: 256,
+    });
+    messageIds.push(...page);
+    if (page.length < 256) {
+      return messageIds;
+    }
+    after = page.at(-1);
+  }
+  // oxlint-enable no-await-in-loop
+}
+
 // A promise the test opens by hand. Used where the property under test is that
 // nothing proceeds until something ELSE decides it may.
 function gate() {
@@ -959,7 +980,7 @@ describe("message index backfill", () => {
     expect(result.reachedStart).toBe(true);
     expect(result.state).toBe("done");
     expect(result.pendingCount).toBeGreaterThan(0);
-    const queued = await store.readPending(CONVO);
+    const queued = await pendingIdsFor(store, CONVO);
     expect(queued.length).toBeGreaterThan(0);
     // Nothing was indexed, and nothing pretends otherwise.
     expect(await idsFor(store, "deploy")).toEqual([]);
@@ -968,7 +989,7 @@ describe("message index backfill", () => {
 
   test("the cursor stays put when the queue itself cannot be persisted", async () => {
     const store = createMemorySearchIndexStore();
-    store.writePending = () => Promise.reject(new Error("quota"));
+    store.updatePending = () => Promise.reject(new Error("quota"));
     const payloads = new Map<string, IndexablePayload>();
     const writer = createMessageIndexWriter({
       conversationId: CONVO,
@@ -988,7 +1009,7 @@ describe("message index backfill", () => {
     // No cursor at all: those rows are committed or recoverable from nowhere, and
     // moving the cursor would strand them permanently.
     expect(await store.readMeta(CONVO)).toBeNull();
-    expect(await store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
   });
 
   test("a page that fully commits advances the cursor as before", async () => {
@@ -998,7 +1019,7 @@ describe("message index backfill", () => {
     const meta = await harness.store.readMeta(CONVO);
     expect(meta?.indexedThroughId).toBe("m0000");
     // Nothing left over once every row committed.
-    expect(await harness.store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual([]);
   });
 
   test("keeps the pending set when persisting the cursor", async () => {
