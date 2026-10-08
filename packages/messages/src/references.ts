@@ -1,4 +1,4 @@
-import type { MessagePayload } from "./crypto";
+import type { MessagePayload } from "./payload";
 
 export interface MessageReferenceArtifact {
   kind: "link" | "media" | "post";

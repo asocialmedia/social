@@ -131,9 +131,12 @@ mock.module("@asm/messages/crypto", () => ({
   unwrapRootKey: mock(() => Promise.resolve("root-key")),
 }));
 
-mock.module("@asm/messages/search", () => ({
+mock.module("@asm/messages/normalization", () => ({
   messageSearchGramKeys: mock((value: string) => [`gram:${value}`]),
   messageSearchTerms: mock((value: string) => [value.toLocaleLowerCase()]),
+}));
+
+mock.module("@asm/messages/search-contracts", () => ({
   searchableTextFromPayload: mock(() => "Needle in a message"),
 }));
 

@@ -24,8 +24,8 @@ import {
 import {
   messageSearchGramKeys,
   messageSearchTerms,
-  searchableTextFromPayload,
-} from "@asm/messages/search";
+} from "@asm/messages/normalization";
+import { searchableTextFromPayload } from "@asm/messages/search-contracts";
 
 import { mapConcurrent } from "./map-concurrent";
 

@@ -26,7 +26,10 @@
 // uses HKDF(root, "asm:ratchet:" + S + ":" + i), giving backward secrecy if a
 // root key is ever compromised.
 
-import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+import { parseMessagePayload } from "./payload";
+import type { MediaImageRef, MessagePayload } from "./payload";
+
+export type { MediaImageRef, MessagePayload } from "./payload";
 
 export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
@@ -419,53 +422,6 @@ export async function deriveMessageKey(
   );
 }
 
-// One image inside a grouped media message. Dimensions are captured at upload
-// so the receiver can reserve the tile box before the bytes arrive.
-export interface MediaImageRef {
-  height?: number;
-  url: string;
-  width?: number;
-}
-
-export type MessagePayload =
-  | {
-      type: "text";
-      content: string;
-      replyToId?: string;
-      replyToSenderId?: string;
-    }
-  | {
-      type: "post";
-      content?: string;
-      postId: string;
-      replyToId?: string;
-      replyToSenderId?: string;
-    }
-  | {
-      // Grouped album form, used by every new sender. One message carries up to
-      // MAX_MESSAGE_ATTACHMENTS images so a multi-image send lands as a single
-      // transcript row instead of N separate bubbles.
-      type: "media";
-      kind: "gif" | "image";
-      images: MediaImageRef[];
-      // Optional caption typed alongside the attachments.
-      content?: string;
-      replyToId?: string;
-      replyToSenderId?: string;
-    }
-  | {
-      // Legacy single-image form, still produced by older clients. Kept
-      // readable so existing history never becomes undecryptable.
-      type: "media";
-      kind: "gif" | "image";
-      url: string;
-      content?: string;
-      width?: number;
-      height?: number;
-      replyToId?: string;
-      replyToSenderId?: string;
-    };
-
 // Normalizes both media shapes into one list so renderers, reply labels, and
 // lightboxes never branch on the payload version.
 export function getMediaImages(
@@ -556,157 +512,6 @@ export async function decryptMessageWithBaseKey(
     base64ToBytes(message.ciphertext)
   );
   return parseMessagePayload(DEC.decode(plaintext));
-}
-
-// Parses and validates a decrypted payload. Shared by both decrypt entry
-// points so the trust boundary (peer-controlled JSON) is identical.
-function parseMessagePayload(plaintext: string): MessagePayload {
-  const payload = JSON.parse(plaintext) as Partial<MessagePayload>;
-  if (
-    payload.type !== "text" &&
-    payload.type !== "post" &&
-    payload.type !== "media"
-  ) {
-    throw new Error("Invalid message payload");
-  }
-  if (payload.type === "text" && typeof payload.content !== "string") {
-    throw new Error("Invalid text payload");
-  }
-  if (payload.type === "post" && typeof payload.postId !== "string") {
-    throw new Error("Invalid post payload");
-  }
-  if (payload.type === "media") {
-    if (!isValidMediaPayload(payload)) {
-      throw new Error("Invalid media payload");
-    }
-    if (payload.content !== undefined && typeof payload.content !== "string") {
-      throw new Error("Invalid media caption");
-    }
-  }
-  return payload as MessagePayload;
-}
-
-// A media payload must carry a supported kind and a URL that resolves to an
-// external scheme. Only https is accepted in production; http is tolerated for
-// localhost/loopback so local development against a local object store works.
-// Same-origin app proxy paths (/api/media/<id>) are also accepted: that is how
-// message attachments are stored (see uploadMessageMedia), and they resolve
-// against the recipient's own origin, so no cross-origin leak is possible.
-// Anything else (protocol-relative, javascript:, data:, path traversal) is
-// rejected because the URL comes from the peer's encrypted payload.
-// Relative paths are matched with a strict character class instead of the URL
-// constructor so `new URL` is never handed a scheme-relative input. Both the
-// original proxy path and the pipeline derivative path (/v/<name>) are
-// accepted, since senders may embed either.
-const RELATIVE_MEDIA_PATH_RE =
-  /^\/api\/media\/[A-Za-z0-9_-]+(?:\/v\/[A-Za-z0-9.-]+)?(?:\?[A-Za-z0-9_=&%.-]+)?$/;
-
-// Shape-tolerant view of a media payload so both the grouped-album and legacy
-// single-URL forms validate through one path. Every field is `unknown` because
-// the value arrives from parsed, peer-controlled JSON.
-interface RawMediaPayload {
-  height?: unknown;
-  images?: unknown;
-  kind?: unknown;
-  url?: unknown;
-  width?: unknown;
-}
-
-function isValidMediaPayload(
-  payload: Partial<Extract<MessagePayload, { type: "media" }>>
-): boolean {
-  const raw = payload as RawMediaPayload;
-  if (raw.kind !== "gif" && raw.kind !== "image") {
-    return false;
-  }
-  // The grouped form is detected by key presence, not array truthiness: a
-  // present-but-malformed `images` (null, a non-array) must be rejected rather
-  // than silently falling through to the legacy URL check.
-  if ("images" in raw) {
-    return isValidMediaImageList(raw.images);
-  }
-  return isValidMediaImage(raw);
-}
-
-function isValidMediaImageList(images: unknown): boolean {
-  if (
-    !Array.isArray(images) ||
-    images.length === 0 ||
-    images.length > MAX_MESSAGE_ATTACHMENTS
-  ) {
-    return false;
-  }
-  return images.every((image) => {
-    if (typeof image !== "object" || image === null) {
-      return false;
-    }
-    return isValidMediaImage(image as RawMediaPayload);
-  });
-}
-
-function isValidMediaImage(image: RawMediaPayload): boolean {
-  if (typeof image.url !== "string") {
-    return false;
-  }
-  // Dimensions are attacker-controlled (they ride in the peer's payload) and
-  // flow into CSS aspect-ratio, so accept only sane positive integers.
-  if (
-    !isValidMediaDimension(image.width) ||
-    !isValidMediaDimension(image.height)
-  ) {
-    return false;
-  }
-  return isAllowedMediaUrl(image.url);
-}
-
-// A media URL must resolve to a same-origin proxy path or an external scheme.
-// Only https is accepted in production; http is tolerated for localhost/loopback
-// so local development against a local object store works. Same-origin app
-// proxy paths (/api/media/<id>) are also accepted: that is how message
-// attachments are stored (see uploadMessageMedia), and they resolve against the
-// recipient's own origin, so no cross-origin leak is possible. Anything else
-// (protocol-relative, javascript:, data:, path traversal) is rejected because
-// the URL comes from the peer's encrypted payload. Relative paths are matched
-// with a strict character class instead of the URL constructor so `new URL` is
-// never handed a scheme-relative input. Both the original proxy path and the
-// pipeline derivative path (/v/<name>) are accepted, since senders may embed
-// either.
-function isAllowedMediaUrl(url: string): boolean {
-  if (RELATIVE_MEDIA_PATH_RE.test(url)) {
-    return true;
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol === "https:") {
-    return true;
-  }
-  // Plain http is a local-development affordance only: loopback in dev. It is
-  // never accepted in production, where a peer could otherwise force the
-  // recipient's browser to make insecure/plaintext requests.
-  if (parsed.protocol === "http:") {
-    const isLoopback =
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1";
-    return process.env.NODE_ENV !== "production" && isLoopback;
-  }
-  return false;
-}
-
-const MAX_MEDIA_DIMENSION = 16_384;
-
-function isValidMediaDimension(value: unknown): boolean {
-  return (
-    value === undefined ||
-    (typeof value === "number" &&
-      Number.isInteger(value) &&
-      value > 0 &&
-      value <= MAX_MEDIA_DIMENSION)
-  );
 }
 
 // ---- fingerprints ------------------------------------------------------------

@@ -8,10 +8,8 @@
 // partial the wording says so, and only a fully indexed conversation gets a
 // plain "No results".
 
-import {
-  MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS,
-  normalizeMessageSearchQuery,
-} from "@asm/messages/search";
+import { normalizeMessageSearchQuery } from "@asm/messages/normalization";
+import { MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS } from "@asm/messages/search-contracts";
 
 export interface SearchStatusInput {
   // A backfill walk is paging through older history right now.
