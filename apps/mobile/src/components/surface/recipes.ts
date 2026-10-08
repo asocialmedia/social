@@ -17,6 +17,11 @@ export const APPLE_PANEL_TOKENS = {
   },
 } as const;
 
+// `.panel-3d`: floating surfaces share the same hairline and inset lip.
+export function panel3d(isDark: boolean) {
+  return isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
+}
+
 // `.premium-input` (+ :focus) light + dark.
 export function premiumInput(isDark: boolean, focused: boolean) {
   if (isDark) {

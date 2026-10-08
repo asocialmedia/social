@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Share2,
 } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -42,8 +43,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
 
 import { toast } from "@/components/feedback/toast";
-import { Gradient3D } from "@/components/surface/gradient-3d";
-import { btnGray } from "@/components/surface/recipes";
+import { panel3d } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
@@ -72,6 +72,52 @@ import { useMediaPreviewStore } from "../state/media-preview-store";
 import type { MediaPreviewRequest } from "../state/media-preview-store";
 import { usePostEngagement } from "../state/use-post-engagement";
 import { MediaSheetContent } from "./media-sheet-content";
+
+function MediaAction({
+  action,
+  busy,
+  centered = false,
+  color,
+  icon: Icon,
+  label,
+  selected,
+}: {
+  action: () => void;
+  busy: boolean;
+  centered?: boolean;
+  color: string;
+  icon: LucideIcon;
+  label: string;
+  selected?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: busy, selected }}
+      disabled={busy}
+      onPress={action}
+      className="min-h-11 flex-row items-center gap-3 px-3 py-2"
+      style={({ pressed }) => ({
+        flex: centered ? 1 : undefined,
+        justifyContent: centered ? "center" : "flex-start",
+        opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
+      })}
+    >
+      <Icon color={color} size={22} strokeWidth={1.8} />
+      <Text
+        style={{
+          color,
+          fontFamily: "SofiaProMed",
+          fontSize: 15,
+          lineHeight: 22,
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 function PreviewVideo({ request }: { request: MediaPreviewRequest }) {
   const [ready, setReady] = useState(false);
@@ -136,12 +182,12 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const bottomPadding = Math.max(insets.bottom, 12);
   const menuHeight = Math.min(
     (window.height - insets.bottom) * 0.48,
-    8 * 44 + 7 * 4 + 32 + bottomPadding + 4
+    7 * 44 + 6 * 4 + 32 + bottomPadding + 16
   );
   const [sheetTop, setSheetTop] = useState(
     () => window.height - menuHeight - insets.bottom
   );
-  const gray = btnGray(isDark);
+  const panel = panel3d(isDark);
   const knownDimensions = mediaDimensionsCache.get(
     mediaDimensionsKey(getApiBaseUrl(), request.media.id)
   );
@@ -437,21 +483,27 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
       icon: Maximize2,
       label: "Open full screen",
     },
+  ];
+  const voteActions = [
     {
       action: () =>
         requireUser(() => {
           void run("Amplifying…", () => vote(1), false);
         }),
+      color: engagement.userVote === 1 ? theme.auxLink : theme.inputText,
       icon: ArrowBigUp,
       label: engagement.userVote === 1 ? "Amplified" : "Amplify",
+      selected: engagement.userVote === 1,
     },
     {
       action: () =>
         requireUser(() => {
           void run("Muting…", () => vote(-1), false);
         }),
+      color: engagement.userVote === -1 ? "#7c5cff" : theme.inputText,
       icon: ArrowBigDown,
-      label: engagement.userVote === -1 ? "Muted" : "Mute post",
+      label: engagement.userVote === -1 ? "Muted" : "Mute",
+      selected: engagement.userVote === -1,
     },
   ];
   return (
@@ -552,6 +604,12 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                   }, 350);
                 }}
                 style={{
+                  backgroundColor: theme.cardBg,
+                  borderColor: panel.border,
+                  borderTopLeftRadius: 28,
+                  borderTopRightRadius: 28,
+                  borderWidth: 1,
+                  boxShadow: panel.shadows,
                   height: menuHeight,
                   paddingBottom: bottomPadding,
                   width: window.width,
@@ -600,54 +658,31 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                     paddingVertical: 2,
                   }}
                 >
-                  {/* oxlint-disable-next-line react/refs -- action descriptors contain event callbacks; their refs are read only on a press */}
-                  {actions.map(({ label, action, icon: Icon }) => (
-                    <Pressable
-                      key={label}
-                      disabled={Boolean(busy)}
-                      accessibilityLabel={label}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: Boolean(busy) }}
-                      onPress={action}
-                      hitSlop={2}
-                      style={{ opacity: busy ? 0.5 : 1 }}
-                    >
-                      {({ pressed }) => {
-                        const surface = pressed ? gray.pressed : gray.resting;
-                        return (
-                          <Gradient3D
-                            colors={surface.colors}
-                            shadows={surface.shadows}
-                            radius={12}
-                            style={{
-                              flexDirection: "row",
-                              gap: 12,
-                              justifyContent: "flex-start",
-                              minHeight: 44,
-                              paddingHorizontal: 14,
-                              paddingVertical: 10,
-                            }}
-                          >
-                            <Icon
-                              color={surface.text}
-                              size={22}
-                              strokeWidth={1.8}
-                            />
-                            <Text
-                              style={{
-                                color: surface.text,
-                                flex: 1,
-                                fontFamily: "SofiaProMed",
-                                fontSize: 15,
-                                lineHeight: 22,
-                              }}
-                            >
-                              {label}
-                            </Text>
-                          </Gradient3D>
-                        );
-                      }}
-                    </Pressable>
+                  <View
+                    className="mb-1 flex-row pb-1"
+                    style={{
+                      borderBottomColor: panel.border,
+                      borderBottomWidth: 1,
+                    }}
+                  >
+                    {/* oxlint-disable-next-line react/refs -- descriptors contain press callbacks; refs are read only on a press */}
+                    {voteActions.map((item) => (
+                      <MediaAction
+                        key={item.label}
+                        {...item}
+                        busy={Boolean(busy)}
+                        centered
+                      />
+                    ))}
+                  </View>
+                  {/* oxlint-disable-next-line react/refs -- descriptors contain press callbacks; refs are read only on a press */}
+                  {actions.map((item) => (
+                    <MediaAction
+                      key={item.label}
+                      {...item}
+                      busy={Boolean(busy)}
+                      color={theme.inputText}
+                    />
                   ))}
                 </ScrollView>
               </View>
