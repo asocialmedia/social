@@ -7,7 +7,11 @@ import {
   importRatchetBaseKey,
 } from "./crypto";
 import type { DecryptItem } from "./decryptor";
-import { createDecryptor } from "./decryptor";
+import {
+  createDecryptor,
+  MESSAGE_DECRYPTOR_QUEUE_CAP,
+  MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP,
+} from "./decryptor";
 
 const CONVO_ID = "convo-1";
 
@@ -735,5 +739,97 @@ describe("decryptor urgent lane", () => {
     decryptor.configureScope("other-user");
     expect(decryptor.get("bg")).toBeUndefined();
     expect(decryptor.get("wanted")).toBeUndefined();
+  });
+});
+
+describe("bounded decrypt queues", () => {
+  test("caps background work and leaves overflow retryable", async () => {
+    const started: string[] = [];
+    const gates = new Map<
+      string,
+      ReturnType<typeof deferred<MessagePayload>>
+    >();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        const { id } = decryptItem.message;
+        started.push(id);
+        const gate = deferred<MessagePayload>();
+        gates.set(id, gate);
+        return gate.promise;
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    const background = Array.from(
+      { length: MESSAGE_DECRYPTOR_QUEUE_CAP + 2 },
+      (_, index) => item(`background-${index}`)
+    );
+
+    const rejected = decryptor.request(background, keys);
+    expect(rejected.map((row) => row.message.id)).toEqual([
+      `background-${MESSAGE_DECRYPTOR_QUEUE_CAP}`,
+      `background-${MESSAGE_DECRYPTOR_QUEUE_CAP + 1}`,
+    ]);
+    await waitFor(() => started.length === 1);
+    expect(decryptor.get("background-0")).toBe("pending");
+    expect(decryptor.get(`background-${MESSAGE_DECRYPTOR_QUEUE_CAP - 1}`)).toBe(
+      "pending"
+    );
+    expect(decryptor.get(`background-${MESSAGE_DECRYPTOR_QUEUE_CAP}`)).toBe(
+      undefined
+    );
+    expect(
+      decryptor.get(`background-${MESSAGE_DECRYPTOR_QUEUE_CAP + 1}`)
+    ).toBeUndefined();
+
+    decryptor.requestUrgent([item("jump")], keys);
+    gates.get("background-0")?.resolve(TEXT);
+    await waitFor(() => started.includes("jump"));
+    gates.get("jump")?.resolve(TEXT);
+    await waitFor(() => started.includes("background-1"));
+
+    const overflow = `background-${MESSAGE_DECRYPTOR_QUEUE_CAP}`;
+    decryptor.request([item(overflow)], keys);
+    expect(decryptor.get(overflow)).toBe("pending");
+    expect(started).toEqual(["background-0", "jump", "background-1"]);
+  });
+
+  test("bounds urgent work and lets a new visible target evict stale prefetch", async () => {
+    const started: string[] = [];
+    const gates = new Map<
+      string,
+      ReturnType<typeof deferred<MessagePayload>>
+    >();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        const { id } = decryptItem.message;
+        started.push(id);
+        const gate = deferred<MessagePayload>();
+        gates.set(id, gate);
+        return gate.promise;
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("blocker")], keys);
+    await waitFor(() => started.includes("blocker"));
+    decryptor.requestUrgent(
+      Array.from({ length: MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP }, (_, index) =>
+        item(`prefetch-${index}`)
+      ),
+      keys
+    );
+    expect(
+      decryptor.get(`prefetch-${MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP - 1}`)
+    ).toBe("pending");
+
+    decryptor.requestUrgent([item("visible-target")], keys);
+    expect(decryptor.get("visible-target")).toBe("pending");
+    expect(
+      decryptor.get(`prefetch-${MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP - 1}`)
+    ).toBeUndefined();
+    gates.get("blocker")?.resolve(TEXT);
+    await waitFor(() => started.includes("visible-target"));
+    expect(started).toEqual(["blocker", "visible-target"]);
   });
 });

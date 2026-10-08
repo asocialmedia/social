@@ -84,7 +84,10 @@ export interface MessageIndexBackfillOptions {
   conversationId: string;
   // Resolves when the page's payloads are decrypted, or when the wait is given up
   // on. Injected so this module stays free of crypto and WebCrypto.
-  awaitDecrypts: (messages: MessageData[]) => Promise<void>;
+  awaitDecrypts: (
+    messages: MessageData[],
+    signal?: AbortSignal
+  ) => Promise<void>;
   // Resolves before the walk is allowed to ask for a page.
   //
   // The walk and the transcript share one rate-limit budget, and on a fresh
@@ -295,7 +298,7 @@ export function createMessageIndexBackfill(
     // walk on a wait error would strand coverage behind one bad page.
     const ready = (async (): Promise<true> => {
       try {
-        await awaitDecrypts(messages);
+        await awaitDecrypts(messages, signal);
       } catch {
         // Settles as waited-out: see above.
       }

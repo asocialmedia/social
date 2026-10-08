@@ -55,6 +55,8 @@ export interface DecryptorOptions {
 
 const DEFAULT_CONCURRENCY = 6;
 const DEFAULT_CACHE_CAP = 2000;
+export const MESSAGE_DECRYPTOR_QUEUE_CAP = 128;
+export const MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP = 128;
 
 // How many decrypted payloads the cache holds before evicting. Exported because
 // it is also the ceiling on what any consumer can usefully ask to decrypt: a
@@ -104,7 +106,10 @@ export interface MessageDecryptor {
   // retry(), an in-flight run is left alone — a second concurrent decrypt of
   // the same id would only race the first's write.
   invalidate: (id: string) => void;
-  request: (items: DecryptItem[], keys: DecryptorKeySource) => void;
+  // Returns items refused by the bounded background queue. They remain
+  // unrequested, so a caller can apply backpressure and retry them safely.
+  request: (items: DecryptItem[], keys: DecryptorKeySource) => DecryptItem[];
+  getBackgroundQueueLength: () => number;
   // Same as `request`, but the batch is served before everything already queued.
   //
   // The queue is otherwise strictly first-in-first-out, and the biggest producer
@@ -290,11 +295,24 @@ export function createDecryptor(
   // Claims a batch as pending and enqueues it in the background lane. Returns
   // whether anything was newly claimed, so a caller knows whether a notification
   // is owed.
-  function enqueue(items: DecryptItem[]): boolean {
+  function enqueue(items: DecryptItem[]): {
+    changed: boolean;
+    rejected: DecryptItem[];
+  } {
     let marked = false;
+    const rejected: DecryptItem[] = [];
+    const seen = new Set<string>();
     for (const item of items) {
       const { id } = item.message;
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
       if (entries.has(id) || queued.has(id) || inFlight.has(id)) {
+        continue;
+      }
+      if (queue.length >= MESSAGE_DECRYPTOR_QUEUE_CAP) {
+        rejected.push(item);
         continue;
       }
       entries.set(id, "pending");
@@ -302,7 +320,7 @@ export function createDecryptor(
       queue.push(item);
       marked = true;
     }
-    return marked;
+    return { changed: marked, rejected };
   }
 
   async function run(item: DecryptItem, runGeneration: number): Promise<void> {
@@ -452,6 +470,10 @@ export function createDecryptor(
       return entries.get(id);
     },
 
+    getBackgroundQueueLength(): number {
+      return queue.length;
+    },
+
     getErroredIds(conversationId: string): ReadonlySet<string> {
       return erroredByConversation.get(conversationId) ?? EMPTY_ID_SET;
     },
@@ -477,12 +499,14 @@ export function createDecryptor(
       }
     },
 
-    request(items: DecryptItem[], keys: DecryptorKeySource): void {
+    request(items: DecryptItem[], keys: DecryptorKeySource): DecryptItem[] {
       lastKeys = keys;
-      if (enqueue(items)) {
+      const result = enqueue(items);
+      if (result.changed) {
         notify();
       }
       pump();
+      return result.rejected;
     },
 
     requestUrgent(items: DecryptItem[], keys: DecryptorKeySource): void {
@@ -491,6 +515,9 @@ export function createDecryptor(
       // urgent request keeps the order it was asked in.
       const promoted: DecryptItem[] = [];
       for (const item of items) {
+        if (promoted.length >= MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP) {
+          break;
+        }
         const { id } = item.message;
         // Already decrypting: nothing to move, and a second run would race the
         // first's write.
@@ -498,11 +525,8 @@ export function createDecryptor(
           continue;
         }
         if (queued.has(id)) {
-          // Waiting in the background lane. The splice is linear and runs once
-          // per row a user is actually waiting on, against a queue bounded by a
-          // backfill page rather than by the conversation. The alternative -- a
-          // lazily-compacted queue -- would make every pump iteration scan it,
-          // which is quadratic in the decrypts.
+          // Waiting in the background lane. The splice is linear over a bounded
+          // queue; a lazy tombstone would make every pump iteration scan it.
           const at = queue.findIndex((waiting) => waiting.message.id === id);
           if (at === -1) {
             // Defensive: `queued` and the array disagreeing would otherwise drop
@@ -526,6 +550,17 @@ export function createDecryptor(
       }
       if (promoted.length > 0) {
         urgentQueue.unshift(...promoted);
+        while (urgentQueue.length > MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP) {
+          const dropped = urgentQueue.pop();
+          if (!dropped) {
+            break;
+          }
+          const droppedId = dropped.message.id;
+          queued.delete(droppedId);
+          if (entries.get(droppedId) === "pending") {
+            entries.delete(droppedId);
+          }
+        }
         notify();
       }
       pump();

@@ -866,8 +866,12 @@ describe("message index backfill", () => {
     // Models a decrypt that only finishes on abort.
     const decrypting = gate();
     const controller = new AbortController();
+    let decryptSignal: AbortSignal | undefined;
     const hanging = createMessageIndexBackfill({
-      awaitDecrypts: () => decrypting.promise,
+      awaitDecrypts: (_messages, signal) => {
+        decryptSignal = signal;
+        return decrypting.promise;
+      },
       conversationId: CONVO,
       fetchPage: harness.fetchPage,
       signal: controller.signal,
@@ -885,6 +889,7 @@ describe("message index backfill", () => {
       });
     }
     // oxlint-enable no-await-in-loop
+    expect(decryptSignal).toBe(controller.signal);
     const started = performance.now();
     hanging.stop();
     controller.abort();

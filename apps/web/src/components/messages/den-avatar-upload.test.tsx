@@ -16,6 +16,7 @@ const uploadMediaFile = mock(() =>
 );
 
 mock.module("@/lib/media/media-upload-client", () => ({
+  rejectionCopy: () => "Upload rejected",
   uploadMediaFile,
 }));
 

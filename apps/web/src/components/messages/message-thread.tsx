@@ -126,6 +126,7 @@ import type { MessagePayload } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import {
   MESSAGE_DECRYPTOR_CACHE_CAP,
+  MESSAGE_DECRYPTOR_QUEUE_CAP,
   messageDecryptor,
 } from "@/lib/messages/decryptor";
 import {
@@ -216,6 +217,7 @@ import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
 import {
   isDecryptSettled,
+  requestDecryptsWithBackpressure as drainDecryptRequests,
   waitForDecrypts,
 } from "@/lib/messages/wait-for-decrypts";
 import { cn } from "@/lib/utils";
@@ -773,6 +775,7 @@ export function MessageThread({
   // is showing, so its three indexes cost nothing when the user is just reading
   // the thread.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsDecryptAbortRef = useRef<AbortController | null>(null);
   const [detailsTabState, setDetailsTabState] = useState<{
     conversationId: string;
     tab: string;
@@ -1088,6 +1091,13 @@ export function MessageThread({
     : null;
 
   const userId = user?.id;
+  useEffect(
+    () => () => {
+      detailsDecryptAbortRef.current?.abort();
+      detailsDecryptAbortRef.current = null;
+    },
+    [conversationId, userId]
+  );
 
   // Whether this viewer has lost the ability to act here. Declared as early as its
   // inputs allow, because three separate places need it: the delivery ack, the
@@ -1927,9 +1937,9 @@ export function MessageThread({
     for (let index = last + 1; index <= end; index += 1) {
       push(allMessages[index]);
     }
-    messageDecryptor.request(items, { getBaseKeys });
-    // virtualRangeKey re-runs this on scroll; request() itself is a cheap skip
-    // for cached, queued, and in-flight ids.
+    messageDecryptor.requestUrgent(items, { getBaseKeys });
+    // The viewport owns the urgent lane; superseded prefetch rows can be
+    // evicted from that bounded lane as the reader scrolls.
   }, [
     allMessages,
     conversationId,
@@ -1956,49 +1966,7 @@ export function MessageThread({
       if (!message || !detail || !rootKeyStore || !userId) {
         return;
       }
-      messageDecryptor.request([toDecryptItem(message)], { getBaseKeys });
-    },
-    [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
-  );
-
-  // Bulk request behind the details panel. Its three tabs are built from
-  // decrypted payloads, and the decryptor's LRU drops rows the transcript
-  // scrolled past, so a panel opened after a long scroll would list only what
-  // happened to still be cached and its counts would shrink as the reader
-  // scrolled. Asking for the loaded window up front makes the panel a view of the
-  // loaded transcript rather than of the LRU's luck.
-  //
-  // Bounded, and bounded deliberately. The request asks for no more than the
-  // decryptor's cache holds, newest first: a 200k-message conversation with
-  // thousands of pages loaded would otherwise spend real CPU decrypting rows the
-  // cache evicts before the next read, and the panel could never show them. What
-  // the user gets is the newest N shared items, which is also what they are
-  // looking at; older history is reachable by scrolling the thread, which loads
-  // and decrypts it a page at a time. request() skips anything cached, queued, in
-  // flight, or permanently failed, so a repeat call tops the window up for free.
-  const requestLoadedDecrypts = useCallback(
-    (messages: readonly MessageData[]) => {
-      if (!detail || !rootKeyStore || !userId) {
-        return;
-      }
-      const items: DecryptItem[] = [];
-      // Walk newest to oldest and stop at the cap, so a mostly-decrypted window
-      // spends its budget on rows that are actually missing.
-      for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (items.length >= MESSAGE_DECRYPTOR_CACHE_CAP) {
-          break;
-        }
-        const message = messages[index];
-        if (!message || message.deletedAt) {
-          continue;
-        }
-        if (messageDecryptor.get(message.id) === undefined) {
-          items.push(toDecryptItem(message));
-        }
-      }
-      if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKeys });
-      }
+      messageDecryptor.requestUrgent([toDecryptItem(message)], { getBaseKeys });
     },
     [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
   );
@@ -2032,7 +2000,7 @@ export function MessageThread({
         }
       }
       if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKeys });
+        messageDecryptor.requestUrgent(items, { getBaseKeys });
       }
     },
     [
@@ -2196,10 +2164,13 @@ export function MessageThread({
       }
       for (const id of pendingScanRef.current) {
         const entry = messageDecryptor.get(id);
-        if (entry === undefined || entry === "pending") {
+        if (entry === "pending") {
           continue;
         }
         pendingScanRef.current.delete(id);
+        if (entry === undefined) {
+          continue;
+        }
         if (entry !== "error" && entry.type !== "media") {
           viewerScanCache.mark(id);
         }
@@ -2529,7 +2500,7 @@ export function MessageThread({
   const requestDecryptBatch = useCallback(
     (messages: MessageData[], options?: { urgent?: boolean }) => {
       if (!detail || !rootKeyStore || !userId) {
-        return;
+        return null;
       }
       const items = messages.flatMap((message) =>
         message.deletedAt ? [] : [toDecryptItem(message)]
@@ -2537,12 +2508,80 @@ export function MessageThread({
       if (items.length > 0) {
         if (options?.urgent) {
           messageDecryptor.requestUrgent(items, { getBaseKeys });
-          return;
+          return [] as string[];
         }
-        messageDecryptor.request(items, { getBaseKeys });
+        return messageDecryptor
+          .request(items, { getBaseKeys })
+          .map((item) => item.message.id);
       }
+      return [] as string[];
     },
     [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
+  );
+
+  const drainDecryptBatch = useCallback(
+    (messages: MessageData[], signal?: AbortSignal) =>
+      drainDecryptRequests(
+        messages.filter((message) => !message.deletedAt),
+        {
+          getId: (message) => message.id,
+          hasSpace: () =>
+            messageDecryptor.getBackgroundQueueLength() <
+            MESSAGE_DECRYPTOR_QUEUE_CAP,
+          lookup: (id) => messageDecryptor.get(id),
+          request: (batch) => {
+            const rejectedIds = requestDecryptBatch(batch);
+            if (rejectedIds === null) {
+              return null;
+            }
+            const rejected = new Set(rejectedIds);
+            return batch.filter((message) => rejected.has(message.id));
+          },
+          signal,
+          subscribe: messageDecryptor.subscribe,
+        }
+      ),
+    [requestDecryptBatch]
+  );
+
+  // The details tabs can ask for the whole bounded transcript window. Drain it
+  // through backpressure so a full queue does not silently omit older items.
+  const requestLoadedDecrypts = useCallback(
+    (messages: readonly MessageData[]) => {
+      if (!detail || !rootKeyStore || !userId) {
+        return;
+      }
+      const selected: MessageData[] = [];
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (selected.length >= MESSAGE_DECRYPTOR_CACHE_CAP) {
+          break;
+        }
+        const message = messages[index];
+        if (
+          message &&
+          !message.deletedAt &&
+          messageDecryptor.get(message.id) === undefined
+        ) {
+          selected.push(message);
+        }
+      }
+      if (selected.length > 0) {
+        detailsDecryptAbortRef.current?.abort();
+        const controller = new AbortController();
+        detailsDecryptAbortRef.current = controller;
+        const run = async () => {
+          try {
+            await drainDecryptBatch(selected, controller.signal);
+          } finally {
+            if (detailsDecryptAbortRef.current === controller) {
+              detailsDecryptAbortRef.current = null;
+            }
+          }
+        };
+        void run();
+      }
+    },
+    [detail, drainDecryptBatch, rootKeyStore, userId]
   );
 
   // Serialized older-page loader shared by in-conversation search (which walks
@@ -3330,16 +3369,9 @@ export function MessageThread({
   const backfillAbortRef = useRef<AbortController | null>(null);
 
   const awaitBackfillDecrypts = useCallback(
-    async (messages: MessageData[]) => {
-      requestDecryptBatch(messages);
-      // The writer can only index a row whose payload it can read, so the walk
-      // waits for the decrypts rather than queueing rows it cannot use.
-      await waitForDecrypts(messages, {
-        lookup: (id) => messageDecryptor.get(id),
-        subscribe: messageDecryptor.subscribe,
-      });
-    },
-    [requestDecryptBatch]
+    (messages: MessageData[], signal?: AbortSignal) =>
+      drainDecryptBatch(messages, signal),
+    [drainDecryptBatch]
   );
 
   const startIndexingOlder = useCallback(() => {
