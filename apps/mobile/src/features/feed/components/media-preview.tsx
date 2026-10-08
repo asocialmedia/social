@@ -88,6 +88,7 @@ function MediaAction({
   busy,
   centered = false,
   color,
+  edgeColor,
   icon: Icon,
   iconColor,
   label,
@@ -98,6 +99,7 @@ function MediaAction({
   busy: boolean;
   centered?: boolean;
   color: string;
+  edgeColor?: string;
   icon: LucideIcon;
   iconColor: string;
   label: string;
@@ -112,7 +114,9 @@ function MediaAction({
       accessibilityState={{ disabled: busy, selected }}
       disabled={busy}
       onPress={action}
-      className="justify-center px-3 py-2"
+      className={
+        centered ? "justify-center px-3 py-1" : "justify-center px-3 py-2"
+      }
       style={{
         alignItems: centered ? "center" : "stretch",
         minHeight: 44,
@@ -120,64 +124,90 @@ function MediaAction({
       }}
     >
       {({ pressed }) => (
-        <>
+        <View
+          className={
+            centered
+              ? "flex-row items-center justify-center gap-2"
+              : "flex-row items-center gap-3"
+          }
+          collapsable={false}
+          testID={`media-action-content-${label}`}
+          style={{
+            minHeight: centered ? 34 : undefined,
+            opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
+            width: centered ? "84%" : undefined,
+          }}
+        >
           {activePill ? (
             <View
               pointerEvents="none"
               style={{
                 bottom: 0,
-                left: 4,
+                left: 0,
                 position: "absolute",
-                right: 4,
+                right: 0,
                 top: 0,
               }}
             >
               <Gradient3D
                 {...activePill}
+                radius={17}
+                style={{ height: "100%", width: "100%" }}
+              />
+              <View
                 style={{
-                  height: "100%",
-                  opacity: busy ? 0.5 : 1,
-                  width: "100%",
+                  borderColor: edgeColor,
+                  borderRadius: 17,
+                  borderWidth: 1,
+                  bottom: 0,
+                  left: 0,
+                  position: "absolute",
+                  right: 0,
+                  top: 0,
+                }}
+              />
+              <View
+                style={{
+                  borderColor: "rgba(255,255,255,0.55)",
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  bottom: 1,
+                  left: 1,
+                  position: "absolute",
+                  right: 1,
+                  top: 1,
                 }}
               />
             </View>
           ) : null}
           <View
-            className="flex-row items-center gap-3"
-            collapsable={false}
-            testID={`media-action-content-${label}`}
+            className="items-center justify-center"
+            style={{ height: centered ? 20 : 28, width: centered ? 20 : 28 }}
+          >
+            {selected && surface && !centered ? (
+              <Gradient3D {...surface} style={{ height: 28, width: 28 }}>
+                <Icon color="#ffffff" fill="#ffffff" size={16} />
+              </Gradient3D>
+            ) : (
+              <Icon
+                color={activePill ? "#ffffff" : iconColor}
+                fill={activePill ? "#ffffff" : "none"}
+                size={centered ? 20 : 22}
+              />
+            )}
+          </View>
+          <Text
             style={{
-              opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
+              color: activePill ? "#ffffff" : color,
+              flexShrink: centered ? 1 : undefined,
+              fontFamily: "SofiaProMed",
+              fontSize: centered ? 14 : 15,
+              lineHeight: centered ? 20 : 22,
             }}
           >
-            <View
-              className="items-center justify-center"
-              style={{ height: 28, width: 28 }}
-            >
-              {selected && surface && !centered ? (
-                <Gradient3D {...surface} style={{ height: 28, width: 28 }}>
-                  <Icon color="#ffffff" fill="#ffffff" size={16} />
-                </Gradient3D>
-              ) : (
-                <Icon
-                  color={activePill ? "#ffffff" : iconColor}
-                  fill={activePill ? "#ffffff" : "none"}
-                  size={22}
-                />
-              )}
-            </View>
-            <Text
-              style={{
-                color: activePill ? "#ffffff" : color,
-                fontFamily: "SofiaProMed",
-                fontSize: 15,
-                lineHeight: 22,
-              }}
-            >
-              {label}
-            </Text>
-          </View>
-        </>
+            {label}
+          </Text>
+        </View>
       )}
     </Pressable>
   );
