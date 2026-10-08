@@ -1,3 +1,4 @@
+import type { MessagePayload } from "@asm/messages/crypto";
 import {
   messageSearchTerms,
   messageSearchTermsMatch,
@@ -7,9 +8,6 @@ import {
 
 import { extractPostUrls } from "@/lib/link-embeds/shared";
 import { getMessageMediaId } from "@/lib/utils/image-url";
-
-import { getMediaImages } from "./crypto";
-import type { MessagePayload } from "./crypto";
 
 export const OFFLINE_SEARCH_MAX_MESSAGES_PER_CONVERSATION = 1000;
 export const OFFLINE_SEARCH_MAX_ACCOUNT_BYTES = 32 * 1024 * 1024;
@@ -92,7 +90,7 @@ function referencesForPayload(
     references.push({ id: payload.postId, index: 0, kind: "post" });
   }
   if (payload.type === "media") {
-    const images = getMediaImages(payload);
+    const images = "images" in payload ? payload.images : [payload];
     for (const [index, image] of images.entries()) {
       const id = getMessageMediaId(image.url);
       references.push({

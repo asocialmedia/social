@@ -25,6 +25,7 @@ const mockCreate = mock(() => ({}));
 const mockIdentityDelete = mock(() => ({}));
 const mockKeysDeleteAndCount = mock(() => 2);
 const mockSearchStateFind = mock(() => ({ recoveryGeneration: 5 }));
+const mockSearchStateRead = mock(() => ({ recoveryGeneration: 5 }));
 const mockSearchStateUpsert = mock(() => ({}));
 let identityWhere: Record<string, unknown> | null = null;
 let keysWhere: Record<string, unknown> | null = null;
@@ -77,6 +78,11 @@ mock.module("@asm/db", () => ({
           select: () => ({ where: () => ({ first: mockFindUnique }) }),
           where: () => ({ first: mockFindUnique }),
         },
+        MessageSearchAccountState: {
+          select: () => ({
+            where: () => ({ first: mockSearchStateRead }),
+          }),
+        },
       },
     },
     transaction: mockTransaction,
@@ -86,6 +92,8 @@ mock.module("@asm/db", () => ({
 describe("GET /api/messages/identity", () => {
   beforeEach(() => {
     mockFindUnique.mockClear();
+    mockSearchStateRead.mockReset();
+    mockSearchStateRead.mockReturnValue({ recoveryGeneration: 5 });
     mockCreate.mockClear();
     mockGetSession.mockClear();
   });
@@ -94,8 +102,10 @@ describe("GET /api/messages/identity", () => {
     const res = await GET();
     const body = (await res.json()) as {
       identity: null;
+      recoveryGeneration: number;
     };
     expect(body.identity).toBeNull();
+    expect(body.recoveryGeneration).toBe(5);
   });
 
   test("treats a legacy identity without a backup-secret hash as absent", async () => {
@@ -110,8 +120,12 @@ describe("GET /api/messages/identity", () => {
       userId: "user1",
     });
     const res = await GET();
-    const body = (await res.json()) as { identity: null };
+    const body = (await res.json()) as {
+      identity: null;
+      recoveryGeneration: number;
+    };
     expect(body.identity).toBeNull();
+    expect(body.recoveryGeneration).toBe(5);
   });
 
   test("returns the stored identity", async () => {
@@ -133,11 +147,13 @@ describe("GET /api/messages/identity", () => {
         publicKey: string;
         updatedAt: string;
       };
+      recoveryGeneration: number;
     };
     expect(body.identity.publicKey).toBe("pub");
     expect(body.identity.kdfIterations).toBe(600_000);
     expect(body.identity.masterKeyHash).toBe("hash");
     expect(body.identity.updatedAt).toBe("2026-01-02T00:00:00.000Z");
+    expect(body.recoveryGeneration).toBe(5);
   });
 
   test("requires auth", async () => {

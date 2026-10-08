@@ -23,11 +23,15 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const identity = await prisma.orm.public.MessageIdentities.where({
-    userId: user.id,
-  }).first();
+  const [identity, searchState] = await Promise.all([
+    prisma.orm.public.MessageIdentities.where({ userId: user.id }).first(),
+    prisma.orm.public.MessageSearchAccountState.select("recoveryGeneration")
+      .where({ userId: user.id })
+      .first(),
+  ]);
+  const recoveryGeneration = searchState?.recoveryGeneration ?? 0;
   if (!identity || !identity.masterKeyHash) {
-    return Response.json({ identity: null });
+    return Response.json({ identity: null, recoveryGeneration });
   }
 
   const payload: MessageIdentityPayload = {
@@ -39,7 +43,7 @@ export async function GET() {
     salt: identity.salt,
     updatedAt: fromPrismaDateTime(identity.updatedAt).toISOString(),
   };
-  return Response.json({ identity: payload });
+  return Response.json({ identity: payload, recoveryGeneration });
 }
 
 export async function POST(request: Request) {

@@ -272,6 +272,7 @@ async function parseDenError(response: Response): Promise<MessagesApiError> {
 
 export async function fetchIdentity(): Promise<{
   identity: MessageIdentityPayload | null;
+  recoveryGeneration: number;
 }> {
   const response = await fetch("/api/messages/identity", {
     credentials: "same-origin",
@@ -279,8 +280,18 @@ export async function fetchIdentity(): Promise<{
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as {
+  const body = (await response.json()) as {
     identity: MessageIdentityPayload | null;
+    recoveryGeneration?: unknown;
+  };
+  return {
+    identity: body.identity,
+    recoveryGeneration:
+      typeof body.recoveryGeneration === "number" &&
+      Number.isSafeInteger(body.recoveryGeneration) &&
+      body.recoveryGeneration >= 0
+        ? body.recoveryGeneration
+        : 0,
   };
 }
 

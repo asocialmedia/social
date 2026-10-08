@@ -96,6 +96,7 @@ export interface MessageSearchBarProps {
   searchError?: string | null;
   searchHasMore?: boolean;
   onRetrySearch?: () => void;
+  offlineSearch?: boolean;
 }
 
 export function MessageSearchBar({
@@ -134,6 +135,7 @@ export function MessageSearchBar({
   searchError = null,
   searchHasMore = false,
   onRetrySearch,
+  offlineSearch = false,
 }: MessageSearchBarProps) {
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -159,6 +161,10 @@ export function MessageSearchBar({
       statusText = "Searching…";
     } else if (!queryReady) {
       statusText = "";
+    } else if (offlineSearch && totalResults === 0) {
+      statusText = "No matching messages";
+    } else if (offlineSearch) {
+      statusText = "Offline — searching saved messages";
     } else if (listView && totalResults > 0) {
       statusText = `${rangeStart}–${rangeEnd}${searchHasMore ? "+" : ""} results`;
     } else if (!listView && matchCount > 0) {

@@ -35,6 +35,8 @@ import {
   publicKeyJwkToBase64,
   setStoredPrivateKey,
 } from "@/lib/messages/crypto";
+import type { OfflineSearchCacheScope } from "@/lib/messages/indexeddb-offline-search-cache";
+import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 
 export type IdentityStatus = "loading" | "ready" | "error" | "locked";
 
@@ -47,10 +49,47 @@ export class MessageIdentityLockedError extends Error {
   override name = "MessageIdentityLockedError";
 }
 
+const SEARCH_RECOVERY_GENERATION_PREFIX = "asm_msg_search_recovery_gen_";
+
+function getStoredRecoveryGeneration(userId: string): number | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(
+      `${SEARCH_RECOVERY_GENERATION_PREFIX}${userId}`
+    );
+    if (raw === null) {
+      return null;
+    }
+    const value = Number(raw);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeRecoveryGeneration(userId: string, generation: number): void {
+  try {
+    window.localStorage.setItem(
+      `${SEARCH_RECOVERY_GENERATION_PREFIX}${userId}`,
+      String(generation)
+    );
+  } catch {
+    // Offline search remains unavailable for this session if storage is blocked.
+  }
+}
+
+interface SearchRecoveryScope {
+  recoveryGeneration: number;
+  userId: string;
+}
+
 interface MessageIdentityContextValue {
   error: string | null;
   identity: MessageIdentityPayload | null;
   privateKey: CryptoKey | null;
+  recoveryGeneration: number | null;
   status: IdentityStatus;
   // Destroys this account's server identity + own key wraps and provisions a
   // fresh one. The recovery path when a row cannot be read here. The caller
@@ -71,12 +110,44 @@ export function MessageIdentityProvider({
   const [status, setStatus] = useState<IdentityStatus>("loading");
   const [identity, setIdentity] = useState<MessageIdentityPayload | null>(null);
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
+  const [recoveryScope, setRecoveryScope] =
+    useState<SearchRecoveryScope | null>(() => {
+      if (!user) {
+        return null;
+      }
+      const recoveryGeneration = getStoredRecoveryGeneration(user.id);
+      return recoveryGeneration === null
+        ? null
+        : { recoveryGeneration, userId: user.id };
+    });
   const [identityError, setIdentityError] = useState<string | null>(null);
   // Serializes bootstrap: `bootstrap` is recreated when the session user
   // changes, and a re-render can otherwise start a second pass that races the
   // first (two concurrent provisions mint different keypairs, and the loser
   // then cannot unlock the winner's row). One pass at a time.
   const bootstrappingRef = useRef(false);
+  const activeUserIdRef = useRef<string | null>(user?.id ?? null);
+  const activeSearchScopeRef = useRef<OfflineSearchCacheScope | null>(null);
+  const activeUserId = user?.id ?? null;
+
+  useEffect(() => {
+    activeUserIdRef.current = activeUserId;
+  }, [activeUserId]);
+
+  useEffect(() => {
+    const activeScope = activeSearchScopeRef.current;
+    if (activeScope && activeScope.userId !== activeUserId) {
+      activeSearchScopeRef.current = null;
+      void offlineSearchWorkerClient.clearScope(activeScope);
+      return;
+    }
+    if (activeUserId && recoveryScope?.userId === activeUserId) {
+      activeSearchScopeRef.current = {
+        recoveryGeneration: recoveryScope.recoveryGeneration,
+        userId: recoveryScope.userId,
+      };
+    }
+  }, [activeUserId, recoveryScope]);
 
   // Decrypts the backup with `masterKey`, imports the private key, and caches
   // it on this device. Shared by both unlock derivations.
@@ -209,6 +280,13 @@ export function MessageIdentityProvider({
       setStatus("ready");
       return;
     }
+    const storedGeneration = getStoredRecoveryGeneration(user.id);
+    if (storedGeneration !== null) {
+      setRecoveryScope({
+        recoveryGeneration: storedGeneration,
+        userId: user.id,
+      });
+    }
     // A device that already unlocked keeps the private key in storage so the
     // browser does not have to re-decrypt the backup every session.
     const stored = await getStoredPrivateKey(user.id);
@@ -216,10 +294,33 @@ export function MessageIdentityProvider({
       const key = await importPrivateKeyJwk(stored);
       setPrivateKey(key);
       setStatus("ready");
+      const refreshRecoveryGeneration = async () => {
+        try {
+          const data = await fetchIdentity();
+          if (activeUserIdRef.current !== user.id) {
+            return;
+          }
+          setRecoveryScope({
+            recoveryGeneration: data.recoveryGeneration,
+            userId: user.id,
+          });
+          storeRecoveryGeneration(user.id, data.recoveryGeneration);
+        } catch {
+          // Keep the last locally verified recovery generation for offline use.
+        }
+      };
+      void refreshRecoveryGeneration();
       return;
     }
 
     const data = await fetchIdentity();
+    if (activeUserIdRef.current === user.id) {
+      setRecoveryScope({
+        recoveryGeneration: data.recoveryGeneration,
+        userId: user.id,
+      });
+      storeRecoveryGeneration(user.id, data.recoveryGeneration);
+    }
     if (!data.identity) {
       // No usable identity: provision one automatically.
       await enableIdentity();
@@ -277,6 +378,7 @@ export function MessageIdentityProvider({
     await clearStoredPrivateKey(user.id);
     setPrivateKey(null);
     setIdentity(null);
+    setRecoveryScope(null);
     setIdentityError(null);
     // Provision the replacement. bootstrap sees no local key and no server
     // identity, so it mints a fresh keypair.
@@ -288,10 +390,14 @@ export function MessageIdentityProvider({
       error: identityError,
       identity,
       privateKey,
+      recoveryGeneration:
+        user && recoveryScope?.userId === user.id
+          ? recoveryScope.recoveryGeneration
+          : null,
       reset,
       status,
     }),
-    [identity, identityError, privateKey, reset, status]
+    [identity, identityError, privateKey, recoveryScope, reset, status, user]
   );
 
   return (

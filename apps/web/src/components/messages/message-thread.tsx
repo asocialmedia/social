@@ -529,7 +529,14 @@ export function MessageThread({
   onToggleRail,
 }: MessageThreadProps) {
   const { user } = useSession();
-  const { privateKey } = useMessagesIdentity();
+  const { privateKey, recoveryGeneration } = useMessagesIdentity();
+  const offlineSearchScope = useMemo(
+    () =>
+      user && recoveryGeneration !== null
+        ? { recoveryGeneration, userId: user.id }
+        : null,
+    [recoveryGeneration, user]
+  );
   const queryClient = useQueryClient();
   const rootKeyStore = useRootKeyStore();
   const onlineUsers = usePresence(true);
@@ -3657,6 +3664,7 @@ export function MessageThread({
     indexRefreshToken: searchIndexToken,
     indexStore: searchIndexStore,
     listPage: searchView === "list" ? searchPage : 0,
+    offlineSearchScope,
     requestDecryptBatch,
     serverMode: SERVER_MESSAGE_SEARCH_ENABLED,
     serverRefreshToken: serverSearchRefreshToken,
@@ -4890,6 +4898,7 @@ export function MessageThread({
             <MessageSearchBar
               activePosition={searchActivePosition}
               serverManaged={SERVER_MESSAGE_SEARCH_ENABLED}
+              offlineSearch={search.offlineSearch}
               searching={search.searching}
               searchError={search.searchError}
               searchHasMore={search.serverHasMore}

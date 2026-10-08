@@ -9,6 +9,8 @@ import {
 import type { DecryptItem } from "./decryptor";
 import {
   createDecryptor,
+  MESSAGE_DECRYPTOR_CACHE_BYTES_CAP,
+  MESSAGE_DECRYPTOR_CACHE_CAP,
   MESSAGE_DECRYPTOR_QUEUE_CAP,
   MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP,
 } from "./decryptor";
@@ -319,6 +321,25 @@ describe("message decryptor", () => {
     expect(decryptor.get("b")).toEqual(TEXT);
     expect(decryptor.get("c")).toEqual(TEXT);
     expect(decryptor.get("d")).toEqual(TEXT);
+  });
+
+  test("bounds payload memory by both message count and estimated bytes", async () => {
+    const decryptor = createDecryptor({
+      cacheBytesCap: 200,
+      cacheCap: 10,
+      decrypt: () => Promise.resolve({ content: "x".repeat(10), type: "text" }),
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a"), item("b")], keys);
+    await settle();
+
+    expect(decryptor.get("a")).toBeUndefined();
+    expect(decryptor.get("b")).toEqual({
+      content: "x".repeat(10),
+      type: "text",
+    });
+    expect(MESSAGE_DECRYPTOR_CACHE_CAP).toBe(512);
+    expect(MESSAGE_DECRYPTOR_CACHE_BYTES_CAP).toBe(8 * 1024 * 1024);
   });
 
   const MEDIA: MessagePayload = {

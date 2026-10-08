@@ -1186,14 +1186,14 @@ describe("GET /api/messages/conversations/:id/messages", () => {
   test("returns the page and a cursor for older messages", async () => {
     mockFindMany.mockReturnValueOnce([
       { id: "newer" },
-      { id: "older" },
+      { id: "older", keyEpoch: 4, revision: 7 },
       { id: "oldest" },
     ]);
     const res = await GET(new Request(convoUrl("messages")), {
       params: Promise.resolve({ id: "convo-1" }),
     });
     const body = (await res.json()) as {
-      messages: { id: string }[];
+      messages: { id: string; keyEpoch?: number | null; revision?: number }[];
       previousCursor: string | null;
     };
     // Newest-first on the wire, oldest-first in the payload.
@@ -1202,6 +1202,7 @@ describe("GET /api/messages/conversations/:id/messages", () => {
       "older",
       "newer",
     ]);
+    expect(body.messages[1]).toMatchObject({ keyEpoch: 4, revision: 7 });
     expect(body.previousCursor).toBeNull();
   });
 

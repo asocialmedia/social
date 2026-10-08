@@ -155,7 +155,9 @@ export interface MessageData {
   editedAt: Date | null;
   id: string;
   iv: string;
+  keyEpoch?: number | null;
   ratchetIndex: number;
+  revision?: number;
   sender?: MessageSender | null;
   senderId: string;
 }

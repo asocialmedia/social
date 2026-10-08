@@ -131,7 +131,9 @@ export async function hydrateSearchHits(input: {
         editedAt: null,
         id: hydrated.id,
         iv: hydrated.iv,
+        keyEpoch: hydrated.keyEpoch,
         ratchetIndex: hydrated.ratchetIndex,
+        revision: hydrated.revision,
         sender: null,
         senderId: hydrated.senderId,
       });

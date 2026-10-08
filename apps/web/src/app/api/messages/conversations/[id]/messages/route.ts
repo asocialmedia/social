@@ -163,7 +163,9 @@ function mapMessage(message: MessageQueryData): MessageData {
     editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
     id: message.id ?? "",
     iv: message.iv ?? "",
+    keyEpoch: message.keyEpoch ?? null,
     ratchetIndex: message.ratchetIndex ?? 0,
+    revision: message.revision ?? 1,
     sender: message.sender
       ? {
           avatarUrl: message.sender.avatarUrl,

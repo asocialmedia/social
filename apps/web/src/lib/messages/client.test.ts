@@ -7,6 +7,7 @@ import {
   createRootKeyStore,
   ensureConversationKeys,
   fetchConversationDetail,
+  fetchIdentity,
   isConversationSnapshotStale,
   markMessagesDeletedInPages,
   reencryptMessageForEdit,
@@ -30,6 +31,36 @@ import {
 import type { EncryptedBlob } from "./crypto";
 import { applyMembershipSeq } from "./membership-seq";
 import type { MessageConversationData, MessageConversationKey } from "./types";
+
+describe("fetchIdentity recovery generation", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("returns a validated generation from the identity endpoint", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(Response.json({ identity: null, recoveryGeneration: 8 }))
+    ) as unknown as typeof fetch;
+
+    await expect(fetchIdentity()).resolves.toEqual({
+      identity: null,
+      recoveryGeneration: 8,
+    });
+  });
+
+  test("defaults older or malformed responses to generation zero", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(Response.json({ identity: null, recoveryGeneration: -1 }))
+    ) as unknown as typeof fetch;
+
+    await expect(fetchIdentity()).resolves.toEqual({
+      identity: null,
+      recoveryGeneration: 0,
+    });
+  });
+});
 
 async function makeIdentity() {
   const pair = await generateIdentityKeyPair();
