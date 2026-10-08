@@ -147,6 +147,7 @@ import {
   messageDeleteCopy,
 } from "@/lib/messages/message-delete";
 import type { MessageDeleteScope } from "@/lib/messages/message-delete";
+import { findMessageGestureRow } from "@/lib/messages/message-gesture-target";
 import {
   applySelectionRange,
   dragSelectionMode,
@@ -1266,16 +1267,17 @@ export function MessageThread({
     [userId]
   );
 
-  // Resolves the transcript row under an event target. Every row wrapper carries
-  // `data-message-id`, so this is one closest() walk — no per-row listeners.
+  // Resolve delegated gestures without per-row listeners. Mobile taps must
+  // originate inside a bubble; desktop drag selection keeps its wider row target.
   const resolveMessageFromEvent = useCallback(
     (
-      target: EventTarget | null
+      target: EventTarget | null,
+      bubbleOnly = false
     ): { message: MessageData; row: HTMLElement } | null => {
       if (!(target instanceof Element)) {
         return null;
       }
-      const row = target.closest<HTMLElement>("[data-message-id]");
+      const row = findMessageGestureRow(target, bubbleOnly);
       const id = row?.dataset.messageId;
       if (!row || !id) {
         return null;
@@ -1464,13 +1466,16 @@ export function MessageThread({
         suppressClickRef.current = false;
         return;
       }
-      const hit = resolveMessageFromEvent(event.target);
-      if (!hit) {
-        return;
-      }
       const onOptionsTrigger =
         event.target instanceof Element &&
         event.target.closest("[data-open-options]") !== null;
+      const hit = resolveMessageFromEvent(
+        event.target,
+        !finePointerRef.current && !onOptionsTrigger
+      );
+      if (!hit) {
+        return;
+      }
       if (onOptionsTrigger) {
         openOptionsFor(hit.message, hit.row);
         return;
@@ -1532,7 +1537,10 @@ export function MessageThread({
       if (event.button !== 0) {
         return;
       }
-      const hit = resolveMessageFromEvent(event.target);
+      const hit = resolveMessageFromEvent(
+        event.target,
+        event.pointerType === "touch" || !finePointerRef.current
+      );
       if (!hit || isInteractiveTarget(event.target)) {
         return;
       }
@@ -5411,6 +5419,7 @@ function VirtualRowInner({
         >
           {peerAvatar}
           <div
+            data-message-bubble=""
             className={cn(
               "text-muted-foreground/60 border-border/40 my-0.5 max-w-[85%] min-w-0 border border-dashed px-3.5 py-2 text-xs italic sm:max-w-[75%]",
               rounding
@@ -5458,6 +5467,7 @@ function VirtualRowInner({
         >
           {peerAvatarSkeleton}
           <div
+            data-message-bubble=""
             className={cn(
               "h-9 w-48",
               mine ? "bg-current opacity-10" : "bg-muted/40",
@@ -5485,6 +5495,7 @@ function VirtualRowInner({
           )}
         >
           <div
+            data-message-bubble=""
             className={cn(
               "bubble-received flex max-w-[85%] items-center gap-2 px-3.5 py-2 text-xs sm:max-w-[75%]",
               rounding
