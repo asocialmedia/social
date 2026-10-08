@@ -1,0 +1,641 @@
+[
+  {
+    "id": "table.message_search_account_state",
+    "label": "Create table \"message_search_account_state\"",
+    "summary": "Creates table \"message_search_account_state\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_account_state"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_account_state\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_account_state\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_account_state\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_account_state\" (\n  \"recoveryGeneration\" int4 DEFAULT 0 NOT NULL,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_search_account_state_pkey\" PRIMARY KEY (\"userId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_account_state\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_account_state\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.message_search_coverage",
+    "label": "Create table \"message_search_coverage\"",
+    "summary": "Creates table \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_coverage\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_coverage\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_coverage\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_coverage\" (\n  \"artifactsCommitted\" int4 DEFAULT 0 NOT NULL,\n  \"completedChangeSeq\" int4 DEFAULT 0 NOT NULL,\n  \"conversationId\" text NOT NULL,\n  \"recoveryGeneration\" int4 DEFAULT 0 NOT NULL,\n  \"rowsTraversed\" int4 DEFAULT 0 NOT NULL,\n  \"unrecoverableEpochs\" int4 DEFAULT 0 NOT NULL,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  CONSTRAINT \"message_search_coverage_pkey\" PRIMARY KEY (\"conversationId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_coverage\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_coverage\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.message_search_documents",
+    "label": "Create table \"message_search_documents\"",
+    "summary": "Creates table \"message_search_documents\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_documents"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_documents\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_documents\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_documents\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_documents\" (\n  \"conversationId\" text NOT NULL,\n  \"createdAt\" timestamp(3) NOT NULL,\n  \"messageId\" text NOT NULL,\n  \"revision\" int4 NOT NULL,\n  \"termIds\" int4[] DEFAULT '{}' NOT NULL,\n  CONSTRAINT \"message_search_documents_pkey\" PRIMARY KEY (\"messageId\"),\n  CONSTRAINT \"message_search_documents_termIds_elem_not_null_c60d8cf2\" CHECK (array_position(\"termIds\", NULL) IS NULL)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_documents\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_documents\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.message_search_outbox",
+    "label": "Create table \"message_search_outbox\"",
+    "summary": "Creates table \"message_search_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_outbox\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_outbox\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_outbox\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_outbox\" (\n  \"attempts\" int4 DEFAULT 0 NOT NULL,\n  \"audienceUserIds\" text[] DEFAULT '{}' NOT NULL,\n  \"changeSequence\" int4 NOT NULL,\n  \"completedAt\" timestamp(3),\n  \"conversationId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"kind\" text NOT NULL,\n  \"messageId\" text NOT NULL,\n  \"revision\" int4 NOT NULL,\n  CONSTRAINT \"message_search_outbox_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"message_search_outbox_audienceUserIds_elem_not_null_5d6452e6\" CHECK (array_position(\"audienceUserIds\", NULL) IS NULL)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_outbox\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_outbox\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.message_search_terms",
+    "label": "Create table \"message_search_terms\"",
+    "summary": "Creates table \"message_search_terms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_terms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_terms\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_terms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_terms\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_terms\" (\n  \"conversationId\" text NOT NULL,\n  \"gramKeys\" text[] NOT NULL,\n  \"id\" SERIAL NOT NULL,\n  \"normalized\" text NOT NULL,\n  CONSTRAINT \"message_search_terms_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"message_search_terms_gramKeys_elem_not_null_3012be25\" CHECK (array_position(\"gramKeys\", NULL) IS NULL)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_terms\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_terms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversations.changeSeq",
+    "label": "Add column \"changeSeq\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "changeSeq",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"changeSeq\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_conversations",
+          "changeSeq"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"changeSeq\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"changeSeq\" int4 DEFAULT 0 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"changeSeq\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_conversations",
+          "changeSeq"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.messages.creationSequence",
+    "label": "Add column \"creationSequence\" to \"messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "creationSequence",
+        "table": "messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"creationSequence\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "messages",
+          "creationSequence"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"creationSequence\"",
+        "sql": "ALTER TABLE \"public\".\"messages\" ADD COLUMN \"creationSequence\" int4 DEFAULT 0 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"creationSequence\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "messages",
+          "creationSequence"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.messages.keyEpoch",
+    "label": "Add column \"keyEpoch\" to \"messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "keyEpoch",
+        "table": "messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"keyEpoch\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "messages",
+          "keyEpoch"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"keyEpoch\"",
+        "sql": "ALTER TABLE \"public\".\"messages\" ADD COLUMN \"keyEpoch\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"keyEpoch\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "messages",
+          "keyEpoch"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.messages.revision",
+    "label": "Add column \"revision\" to \"messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "revision",
+        "table": "messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"revision\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "messages",
+          "revision"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"revision\"",
+        "sql": "ALTER TABLE \"public\".\"messages\" ADD COLUMN \"revision\" int4 DEFAULT 1 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"revision\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "messages",
+          "revision"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_search_terms.message_search_terms_conversation_normalized_key",
+    "label": "Add unique constraint on \"message_search_terms\" (conversationId, normalized)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_search_terms_conversation_normalized_key",
+        "table": "message_search_terms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_search_terms_conversation_normalized_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_search_terms_conversation_normalized_key",
+          "public",
+          "\"public\".\"message_search_terms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_search_terms_conversation_normalized_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_terms\" ADD CONSTRAINT \"message_search_terms_conversation_normalized_key\" UNIQUE (\"conversationId\", \"normalized\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_search_terms_conversation_normalized_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_search_terms_conversation_normalized_key",
+          "public",
+          "\"public\".\"message_search_terms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_documents.message_search_documents_conversation_created_message_idx",
+    "label": "Create index \"message_search_documents_conversation_created_message_idx\" on \"message_search_documents\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_documents_conversation_created_message_idx",
+        "table": "message_search_documents"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_documents_conversation_created_message_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_documents_conversation_created_message_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_documents_conversation_created_message_idx\"",
+        "sql": "CREATE INDEX \"message_search_documents_conversation_created_message_idx\" ON \"public\".\"message_search_documents\" (\"conversationId\", \"createdAt\", \"messageId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_documents_conversation_created_message_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_documents_conversation_created_message_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_documents.message_search_documents_term_ids_idx",
+    "label": "Create index \"message_search_documents_term_ids_idx\" on \"message_search_documents\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_documents_term_ids_idx",
+        "table": "message_search_documents"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_documents_term_ids_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_documents_term_ids_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_documents_term_ids_idx\"",
+        "sql": "CREATE INDEX \"message_search_documents_term_ids_idx\" ON \"public\".\"message_search_documents\" USING \"gin\" (\"termIds\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_documents_term_ids_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_documents_term_ids_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_outbox.message_search_outbox_conversation_sequence_idx",
+    "label": "Create index \"message_search_outbox_conversation_sequence_idx\" on \"message_search_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_outbox_conversation_sequence_idx",
+        "table": "message_search_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_outbox_conversation_sequence_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_outbox_conversation_sequence_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_outbox_conversation_sequence_idx\"",
+        "sql": "CREATE INDEX \"message_search_outbox_conversation_sequence_idx\" ON \"public\".\"message_search_outbox\" (\"conversationId\", \"changeSequence\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_outbox_conversation_sequence_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_outbox_conversation_sequence_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_outbox.message_search_outbox_pending_created_idx",
+    "label": "Create index \"message_search_outbox_pending_created_idx\" on \"message_search_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_outbox_pending_created_idx",
+        "table": "message_search_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_outbox_pending_created_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_outbox_pending_created_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_outbox_pending_created_idx\"",
+        "sql": "CREATE INDEX \"message_search_outbox_pending_created_idx\" ON \"public\".\"message_search_outbox\" (\"completedAt\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_outbox_pending_created_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_outbox_pending_created_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_terms.message_search_terms_conversation_id_idx",
+    "label": "Create index \"message_search_terms_conversation_id_idx\" on \"message_search_terms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_terms_conversation_id_idx",
+        "table": "message_search_terms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_terms_conversation_id_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_terms_conversation_id_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_terms_conversation_id_idx\"",
+        "sql": "CREATE INDEX \"message_search_terms_conversation_id_idx\" ON \"public\".\"message_search_terms\" (\"conversationId\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_terms_conversation_id_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_terms_conversation_id_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_terms.message_search_terms_gram_keys_idx",
+    "label": "Create index \"message_search_terms_gram_keys_idx\" on \"message_search_terms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_terms_gram_keys_idx",
+        "table": "message_search_terms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_terms_gram_keys_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_terms_gram_keys_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_terms_gram_keys_idx\"",
+        "sql": "CREATE INDEX \"message_search_terms_gram_keys_idx\" ON \"public\".\"message_search_terms\" USING \"gin\" (\"gramKeys\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_terms_gram_keys_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_terms_gram_keys_idx\""
+        ]
+      }
+    ]
+  }
+]

@@ -202,6 +202,7 @@ namespace public {
     // needed recording against them: a client that reads 0 learns nothing it did
     // not already have from `updatedAt`.
     membershipSeq              Int                          @default(0)
+    changeSeq                  Int                          @default(0)
     // The codes this den has rotated away, so a link that was already shared can
     // still name the den. See `MessageConversationInviteCodes`.
     messageConversationInviteCodes MessageConversationInviteCodes[]
@@ -937,6 +938,9 @@ namespace public {
     ciphertext     String
     iv             String
     ratchetIndex   Int                  @default(0)
+    revision       Int                  @default(1)
+    keyEpoch       Int?
+    creationSequence Int                @default(0)
     createdAt      Timestamp(3)         @default(now())
     deletedAt      Timestamp(3)?
     editedAt       Timestamp(3)?
@@ -961,6 +965,67 @@ namespace public {
     @@id([messageId, userId], map: "message_hidden_pkey")
     @@index([userId], map: "message_hidden_userId_idx")
     @@map("message_hidden")
+  }
+
+  model MessageSearchOutbox {
+    id               String    @id(map: "message_search_outbox_pkey") @default(uuid())
+    conversationId   String
+    messageId        String
+    revision         Int
+    changeSequence   Int
+    kind             String
+    audienceUserIds  String[]  @default([])
+    createdAt        Timestamp(3) @default(now())
+    attempts         Int       @default(0)
+    completedAt      Timestamp(3)?
+
+    @@index([conversationId, changeSequence], map: "message_search_outbox_conversation_sequence_idx")
+    @@index([completedAt, createdAt], map: "message_search_outbox_pending_created_idx")
+    @@map("message_search_outbox")
+  }
+
+  model MessageSearchTerms {
+    id               Int       @id(map: "message_search_terms_pkey") @default(autoincrement())
+    conversationId   String
+    normalized       String
+    gramKeys         String[]
+
+    @@unique([conversationId, normalized], map: "message_search_terms_conversation_normalized_key")
+    @@index([conversationId, id], map: "message_search_terms_conversation_id_idx")
+    @@index([gramKeys], map: "message_search_terms_gram_keys_idx", type: "gin")
+    @@map("message_search_terms")
+  }
+
+  model MessageSearchDocuments {
+    messageId        String    @id(map: "message_search_documents_pkey")
+    conversationId   String
+    revision         Int
+    createdAt        Timestamp(3)
+    termIds          Int[]     @default([])
+
+    @@index([conversationId, createdAt, messageId], map: "message_search_documents_conversation_created_message_idx")
+    @@index([termIds], map: "message_search_documents_term_ids_idx", type: "gin")
+    @@map("message_search_documents")
+  }
+
+  model MessageSearchCoverage {
+    conversationId       String @id(map: "message_search_coverage_pkey")
+    rowsTraversed        Int    @default(0)
+    artifactsCommitted   Int    @default(0)
+    unrecoverableEpochs  Int    @default(0)
+    completedChangeSeq   Int    @default(0)
+    recoveryGeneration   Int    @default(0)
+    updatedAt            Timestamp(3) @default(now())
+
+    @@map("message_search_coverage")
+  }
+
+  model MessageSearchAccountState {
+    userId              String @id(map: "message_search_account_state_pkey")
+    recoveryGeneration Int    @default(0)
+    updatedAt           Timestamp(3) @default(now())
+
+    @@map("message_search_account_state")
   }
 
   model Notifications {
