@@ -14,6 +14,7 @@ import {
 import { useSession } from "@/app/(main)/session-provider";
 import {
   fetchIdentity,
+  refreshIdentityBackup,
   resetMessageIdentity,
   saveIdentity,
 } from "@/lib/messages/client";
@@ -21,7 +22,6 @@ import type { MessageIdentityPayload } from "@/lib/messages/client";
 import {
   KDF_ITERATIONS,
   clearStoredPrivateKey,
-  decryptWithMasterKey,
   deriveMasterKey,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -35,6 +35,10 @@ import {
   publicKeyJwkToBase64,
   setStoredPrivateKey,
 } from "@/lib/messages/crypto";
+import {
+  refreshLegacyIdentityBackup,
+  unlockAndMigrateIdentityBackup,
+} from "@/lib/messages/identity-backup";
 import type { OfflineSearchCacheScope } from "@/lib/messages/indexeddb-offline-search-cache";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 
@@ -150,18 +154,15 @@ export function MessageIdentityProvider({
     }
   }, [activeUserId, recoveryScope]);
 
-  // Decrypts the backup with `masterKey`, imports the private key, and caches
-  // it on this device. Shared by both unlock derivations.
+  // Caches a verified identity private key on this device.
   const persistUnlockedKey = useCallback(
     async (
       userId: string,
-      masterKey: CryptoKey,
-      blob: { ciphertext: string; iv: string }
-    ): Promise<void> => {
-      const decrypted = await decryptWithMasterKey(masterKey, blob);
-      const key = await importPrivateKeyJwk(JSON.parse(decrypted));
-      await setStoredPrivateKey(userId, await exportPrivateKeyJwk(key));
-      setPrivateKey(key);
+      unlockedKey: CryptoKey,
+      privateKeyJwk: JsonWebKey
+    ) => {
+      await setStoredPrivateKey(userId, privateKeyJwk);
+      setPrivateKey(unlockedKey);
     },
     []
   );
@@ -217,55 +218,29 @@ export function MessageIdentityProvider({
       if (!user) {
         return;
       }
-      const saltBytes = Uint8Array.from(
-        atob(identityToUnlock.salt),
-        (char) => char.codePointAt(0) ?? 0
-      );
-      // The backup is stored as `iv.ciphertext` (see enableIdentity()).
-      const [iv, ciphertext] = identityToUnlock.encryptedPrivateKey.split(".");
-      if (!iv || !ciphertext) {
-        throw new MessageIdentityLockedError(
-          "This device can't read its messages key"
-        );
-      }
-
-      // Legacy verifier row: the backup key came from the raw secret, so try
-      // the copy this device still holds (if any) before the row derivation.
-      const deviceSecret = getStoredAccountSecret(user.id);
-      if (deviceSecret) {
-        try {
-          const verifier = await hashAccountSecret(deviceSecret);
-          if (
-            verifier.toLowerCase() ===
-            identityToUnlock.masterKeyHash.toLowerCase()
-          ) {
-            const secretKey = await deriveMasterKey(
-              deviceSecret,
-              saltBytes,
-              identityToUnlock.kdfIterations
-            );
-            await persistUnlockedKey(user.id, secretKey, { ciphertext, iv });
-            setStatus("ready");
-            return;
-          }
-        } catch {
-          // Fall through to the stored-hash derivation below.
-        }
-      }
-
-      // Current (and original) rows: the stored hash IS the KDF input, so the
-      // row alone is enough.
+      let unlocked: Awaited<ReturnType<typeof unlockAndMigrateIdentityBackup>>;
       try {
-        const masterKey = await deriveMasterKey(
-          identityToUnlock.masterKeyHash,
-          saltBytes,
-          identityToUnlock.kdfIterations
+        unlocked = await unlockAndMigrateIdentityBackup(
+          identityToUnlock,
+          getStoredAccountSecret(user.id),
+          {
+            persist: (key, privateKeyJwk) =>
+              persistUnlockedKey(user.id, key, privateKeyJwk),
+            refresh: refreshIdentityBackup,
+          }
         );
-        await persistUnlockedKey(user.id, masterKey, { ciphertext, iv });
-        setStatus("ready");
       } catch {
         throw new MessageIdentityLockedError(
           "This device can't read its messages key"
+        );
+      }
+      setStatus("ready");
+      if (unlocked.refreshedIdentity && activeUserIdRef.current === user.id) {
+        setIdentity((current) =>
+          current?.publicKey === identityToUnlock.publicKey &&
+          current.updatedAt === identityToUnlock.updatedAt
+            ? unlocked.refreshedIdentity
+            : current
         );
       }
     },
@@ -306,6 +281,14 @@ export function MessageIdentityProvider({
             userId: user.id,
           });
           storeRecoveryGeneration(user.id, data.recoveryGeneration);
+          if (data.identity) {
+            await refreshLegacyIdentityBackup(
+              data.identity,
+              getStoredAccountSecret(user.id),
+              stored,
+              refreshIdentityBackup
+            );
+          }
         } catch {
           // Keep the last locally verified recovery generation for offline use.
         }

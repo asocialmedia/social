@@ -8,6 +8,7 @@ import {
   ensureConversationKeys,
   fetchConversationDetail,
   fetchIdentity,
+  refreshIdentityBackup,
   isConversationSnapshotStale,
   markMessagesDeletedInPages,
   reencryptMessageForEdit,
@@ -59,6 +60,60 @@ describe("fetchIdentity recovery generation", () => {
       identity: null,
       recoveryGeneration: 0,
     });
+  });
+});
+
+describe("refreshIdentityBackup", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("uses the identity revision compare-and-swap endpoint", async () => {
+    const updatedAt = "2026-01-02T00:00:00.001Z";
+    let requestUrl = "";
+    let requestInit: RequestInit | undefined;
+    globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
+      requestUrl = String(input);
+      requestInit = init;
+      return Promise.resolve(Response.json({ updatedAt }));
+    }) as unknown as typeof fetch;
+
+    await expect(
+      refreshIdentityBackup({
+        encryptedPrivateKey: "iv.ciphertext",
+        expectedUpdatedAt: "2026-01-02T00:00:00.000Z",
+        kdfIterations: 100_000,
+        masterKeyHash: "a".repeat(64),
+        publicKey: "stored-public-key",
+        salt: "salt",
+      })
+    ).resolves.toEqual({ updatedAt });
+
+    expect(requestUrl).toBe("/api/messages/identity");
+    expect(requestInit?.method).toBe("PATCH");
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      expectedUpdatedAt: "2026-01-02T00:00:00.000Z",
+      publicKey: "stored-public-key",
+    });
+  });
+
+  test("rejects malformed success responses so callers can retry safely", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(Response.json({}))
+    ) as unknown as typeof fetch;
+
+    await expect(
+      refreshIdentityBackup({
+        encryptedPrivateKey: "iv.ciphertext",
+        expectedUpdatedAt: "2026-01-02T00:00:00.000Z",
+        kdfIterations: 100_000,
+        masterKeyHash: "a".repeat(64),
+        publicKey: "stored-public-key",
+        salt: "salt",
+      })
+    ).rejects.toThrow("Identity backup could not be refreshed");
   });
 });
 

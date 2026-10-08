@@ -313,6 +313,42 @@ export async function saveIdentity(payload: {
   }
 }
 
+export async function refreshIdentityBackup(payload: {
+  encryptedPrivateKey: string;
+  expectedUpdatedAt: string;
+  kdfIterations: number;
+  masterKeyHash: string;
+  publicKey: string;
+  salt: string;
+}): Promise<{ updatedAt: string }> {
+  const response = await fetch("/api/messages/identity", {
+    body: JSON.stringify(payload),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body: unknown = await response.json();
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("updatedAt" in body) ||
+    typeof body.updatedAt !== "string"
+  ) {
+    throw new Error("Identity backup could not be refreshed");
+  }
+  const updatedAt = new Date(body.updatedAt);
+  if (
+    !Number.isFinite(updatedAt.getTime()) ||
+    updatedAt.toISOString() !== body.updatedAt
+  ) {
+    throw new Error("Identity backup could not be refreshed");
+  }
+  return { updatedAt: body.updatedAt };
+}
+
 // Drops this account's server-side identity and its own conversation-key wraps
 // so the next bootstrap provisions a fresh keypair. The recovery path when the
 // stored identity row can no longer be read on any device. Messages are

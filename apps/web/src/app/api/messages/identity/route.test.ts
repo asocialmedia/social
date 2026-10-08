@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
-import { DELETE, GET, POST } from "./route";
+import { DELETE, GET, PATCH, POST } from "./route";
 
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
@@ -19,6 +19,9 @@ type IdentityRow = {
 } | null;
 const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
 const mockCreate = mock(() => ({}));
+const mockIdentityUpdate = mock(() => 1);
+let identityUpdateWhere: Record<string, unknown> | null = null;
+let identityUpdateInput: Record<string, unknown> | null = null;
 
 // Reset path: the route runs both deletes inside one transaction callback.
 // Recorded so the tests can assert each delete stayed self-scoped.
@@ -76,7 +79,16 @@ mock.module("@asm/db", () => ({
         MessageIdentities: {
           create: mockCreate,
           select: () => ({ where: () => ({ first: mockFindUnique }) }),
-          where: () => ({ first: mockFindUnique }),
+          where: (where: Record<string, unknown>) => {
+            identityUpdateWhere = where;
+            return {
+              first: mockFindUnique,
+              updateAndCount: (input: Record<string, unknown>) => {
+                identityUpdateInput = input;
+                return mockIdentityUpdate();
+              },
+            };
+          },
         },
         MessageSearchAccountState: {
           select: () => ({
@@ -278,6 +290,116 @@ describe("POST /api/messages/identity", () => {
     );
     expect(res.status).toBe(409);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/messages/identity", () => {
+  const expectedUpdatedAt = "2026-01-02T00:00:00.000Z";
+  const validBody = {
+    encryptedPrivateKey: "new-iv.new-ciphertext",
+    expectedUpdatedAt,
+    kdfIterations: 100_000,
+    masterKeyHash:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    publicKey: "pub-key",
+    salt: "new-salt",
+  };
+
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockReturnValue({ user: { id: "user1" } });
+    mockIdentityUpdate.mockReset();
+    mockIdentityUpdate.mockReturnValue(1);
+    identityUpdateWhere = null;
+    identityUpdateInput = null;
+  });
+
+  test("requires auth", async () => {
+    mockGetSession.mockReturnValueOnce(null);
+    const response = await PATCH(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      })
+    );
+    expect(response.status).toBe(401);
+    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+  });
+
+  test("validates refresh fields before updating the row", async () => {
+    const response = await PATCH(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify({ ...validBody, expectedUpdatedAt: "invalid" }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+  });
+
+  test("rejects oversized request bodies before updating the identity", async () => {
+    const response = await PATCH(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify({
+          ...validBody,
+          encryptedPrivateKey: "x".repeat(130 * 1024),
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      })
+    );
+    expect(response.status).toBe(413);
+    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+  });
+
+  test("updates only the matching identity revision and preserves its keypair", async () => {
+    const response = await PATCH(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(identityUpdateWhere).toEqual({
+      publicKey: "pub-key",
+      updatedAt: new Date(expectedUpdatedAt),
+      userId: "user1",
+    });
+    expect(identityUpdateInput).toMatchObject({
+      encryptedPrivateKey: validBody.encryptedPrivateKey,
+      kdfIterations: validBody.kdfIterations,
+      masterKeyHash: validBody.masterKeyHash,
+      salt: validBody.salt,
+    });
+    const updatedAt = identityUpdateInput?.updatedAt;
+    expect(updatedAt).toBeInstanceOf(Date);
+    if (!(updatedAt instanceof Date)) {
+      throw new Error("The identity revision timestamp must be a Date");
+    }
+    expect(updatedAt.getTime()).toBeGreaterThan(
+      new Date(expectedUpdatedAt).getTime()
+    );
+    expect(await response.json()).toMatchObject({
+      updatedAt: expect.any(String),
+    });
+  });
+
+  test("returns a conflict when reset or another refresh wins the compare-and-swap", async () => {
+    mockIdentityUpdate.mockReturnValueOnce(0);
+    const response = await PATCH(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      })
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: expect.any(String),
+    });
   });
 });
 

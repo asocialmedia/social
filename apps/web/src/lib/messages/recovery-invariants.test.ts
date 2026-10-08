@@ -443,17 +443,24 @@ describe("the device-secret unlock attempt is kept", () => {
     "messages",
     "message-identity-provider.tsx"
   );
+  const identityBackupPath = path.join(
+    import.meta.dirname,
+    "identity-backup.ts"
+  );
 
   test("unlockIdentity still tries the device secret, and derives from it", async () => {
-    const source = await readFile(providerPath, "utf-8");
+    const [provider, source] = await Promise.all([
+      readFile(providerPath, "utf-8"),
+      readFile(identityBackupPath, "utf-8"),
+    ]);
     // The raw secret this device holds, verified against the stored hash and then
     // used as the KDF input.
-    expect(source).toContain("getStoredAccountSecret");
+    expect(provider).toContain("getStoredAccountSecret");
+    expect(provider).toContain("unlockAndMigrateIdentityBackup");
     expect(source).toMatch(/deriveMasterKey\(\s*deviceSecret\s*,/);
     // And the row-alone derivation, which is what makes recovery automatic.
-    expect(source).toMatch(
-      /deriveMasterKey\(\s*identityToUnlock\.masterKeyHash\s*,/
-    );
+    expect(source).toMatch(/deriveMasterKey\(\s*identity\.masterKeyHash\s*,/);
+    expect(source).toContain("refreshLegacyIdentityBackup");
   });
 
   test("no user-facing credential is bolted onto identity recovery", async () => {

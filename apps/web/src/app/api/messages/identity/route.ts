@@ -16,6 +16,52 @@ export interface MessageIdentityPayload {
   updatedAt: string;
 }
 
+interface IdentityBackupRefreshBody {
+  encryptedPrivateKey: string;
+  expectedUpdatedAt: string;
+  kdfIterations: number;
+  masterKeyHash: string;
+  publicKey: string;
+  salt: string;
+}
+
+const MAX_IDENTITY_REFRESH_BODY_BYTES = 128 * 1024;
+
+function isIdentityBackupRefreshBody(
+  value: unknown
+): value is IdentityBackupRefreshBody {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const body = value as Record<string, unknown>;
+  if (
+    typeof body.encryptedPrivateKey !== "string" ||
+    body.encryptedPrivateKey.length === 0 ||
+    body.encryptedPrivateKey.length > 65_536 ||
+    typeof body.masterKeyHash !== "string" ||
+    body.masterKeyHash.length < 32 ||
+    body.masterKeyHash.length > 256 ||
+    typeof body.publicKey !== "string" ||
+    body.publicKey.length === 0 ||
+    body.publicKey.length > 4096 ||
+    typeof body.salt !== "string" ||
+    body.salt.length === 0 ||
+    body.salt.length > 256 ||
+    typeof body.kdfIterations !== "number" ||
+    !Number.isSafeInteger(body.kdfIterations) ||
+    body.kdfIterations < 100_000 ||
+    body.kdfIterations > 5_000_000 ||
+    typeof body.expectedUpdatedAt !== "string"
+  ) {
+    return false;
+  }
+  const expectedUpdatedAt = new Date(body.expectedUpdatedAt);
+  return (
+    Number.isFinite(expectedUpdatedAt.getTime()) &&
+    expectedUpdatedAt.toISOString() === body.expectedUpdatedAt
+  );
+}
+
 export async function GET() {
   const session = await getSessionFromApi();
   const user = session?.user;
@@ -121,6 +167,78 @@ export async function POST(request: Request) {
     }
     console.error("Failed to save message identity:", error);
     return Response.json({ error: "Failed to save identity" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const session = await getSessionFromApi();
+  const user = session?.user;
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_IDENTITY_REFRESH_BODY_BYTES) {
+    return Response.json(
+      { error: "Identity backup refresh is too large" },
+      { status: 413 }
+    );
+  }
+  let parsed: unknown;
+  try {
+    const bodyText = await request.text();
+    if (
+      new TextEncoder().encode(bodyText).byteLength >
+      MAX_IDENTITY_REFRESH_BODY_BYTES
+    ) {
+      return Response.json(
+        { error: "Identity backup refresh is too large" },
+        { status: 413 }
+      );
+    }
+    parsed = JSON.parse(bodyText);
+  } catch {
+    return Response.json(
+      { error: "Invalid identity backup refresh" },
+      { status: 400 }
+    );
+  }
+  if (!isIdentityBackupRefreshBody(parsed)) {
+    return Response.json(
+      { error: "Invalid identity backup refresh" },
+      { status: 400 }
+    );
+  }
+
+  const expectedUpdatedAt = new Date(parsed.expectedUpdatedAt);
+  const nextUpdatedAt = new Date(
+    Math.max(Date.now(), expectedUpdatedAt.getTime() + 1)
+  );
+  try {
+    const updated = await prisma.orm.public.MessageIdentities.where({
+      publicKey: parsed.publicKey,
+      updatedAt: toPrismaDateTime(expectedUpdatedAt),
+      userId: user.id,
+    }).updateAndCount({
+      encryptedPrivateKey: parsed.encryptedPrivateKey,
+      kdfIterations: parsed.kdfIterations,
+      masterKeyHash: parsed.masterKeyHash,
+      salt: parsed.salt,
+      updatedAt: toPrismaDateTime(nextUpdatedAt),
+    });
+    if (updated !== 1) {
+      return Response.json(
+        { error: "Identity changed; reload messages to continue" },
+        { status: 409 }
+      );
+    }
+    return Response.json({ updatedAt: nextUpdatedAt.toISOString() });
+  } catch (error) {
+    console.error("Failed to refresh message identity backup:", error);
+    return Response.json(
+      { error: "Failed to refresh identity backup" },
+      { status: 500 }
+    );
   }
 }
 
