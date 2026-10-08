@@ -140,6 +140,30 @@ export type MessageSearchMutationInput = {
   | { kind: "delete"; deletedAt: Date }
 );
 
+export interface MessageConversationChange {
+  audienceUserIds: string[];
+  conversationId: string;
+  createdAt: Date;
+  id: string;
+  kind: string;
+  messageId: string | null;
+  revision: number | null;
+  sequence: number;
+  sourceAvailable?: boolean;
+  sourceRevision?: number | null;
+  globallyDeleted?: boolean;
+  hiddenForViewer?: boolean;
+}
+
+export type MessageHideCommitResult =
+  | { status: "membership-ended" }
+  | {
+      changes: MessageConversationChange[];
+      hidden: number;
+      unreadDecrement: number;
+      status: "committed";
+    };
+
 export interface MessageSearchBackfillPosition {
   createdAt: Date | null;
   messageId: string | null;
@@ -706,6 +730,20 @@ export async function commitMessageSearchMutation(
         audienceUserIds,
       ]
     );
+    await client.query(
+      `INSERT INTO public.message_conversation_changes
+         (id, "conversationId", sequence, "messageId", revision, kind, "audienceUserIds")
+       VALUES ($1, $2, $3, $4, $5, $6, $7::text[])`,
+      [
+        randomUUID(),
+        input.conversationId,
+        sequence,
+        input.messageId,
+        updatedMessage.revision,
+        input.kind === "delete" ? "message.deleted" : "message.edited",
+        audienceUserIds,
+      ]
+    );
     await client.query("COMMIT");
     return {
       changeSequence: sequence,
@@ -719,6 +757,235 @@ export async function commitMessageSearchMutation(
   } finally {
     client.release();
   }
+}
+
+export async function commitMessageHides(input: {
+  conversationId: string;
+  messageIds: readonly string[];
+  userId: string;
+}): Promise<MessageHideCommitResult> {
+  const messageIds = [...new Set(input.messageIds)].toSorted();
+  if (messageIds.length === 0) {
+    return {
+      changes: [],
+      hidden: 0,
+      status: "committed",
+      unreadDecrement: 0,
+    };
+  }
+
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    const conversation = await client.query<{ changeSeq: number }>(
+      `SELECT "changeSeq"
+         FROM public.message_conversations
+        WHERE id = $1
+        FOR UPDATE`,
+      [input.conversationId]
+    );
+    if (conversation.rows.length === 0) {
+      await client.query("COMMIT");
+      return {
+        changes: [],
+        hidden: 0,
+        status: "committed",
+        unreadDecrement: 0,
+      };
+    }
+    const membership = await client.query<{
+      lastReadAt: Date | null;
+      leftAt: Date | null;
+    }>(
+      `SELECT "lastReadAt", "leftAt"
+         FROM public.message_conversation_members
+        WHERE "conversationId" = $1 AND "userId" = $2
+        FOR UPDATE`,
+      [input.conversationId, input.userId]
+    );
+    const [member] = membership.rows;
+    if (!member || member.leftAt) {
+      await client.query("COMMIT");
+      return { status: "membership-ended" };
+    }
+
+    const source = await client.query<{
+      createdAt: Date;
+      deletedAt: Date | null;
+      id: string;
+      revision: number;
+      senderId: string;
+    }>(
+      `SELECT id, "senderId", "createdAt", "deletedAt", revision
+         FROM public.messages
+        WHERE "conversationId" = $1 AND id = ANY($2::text[])
+        ORDER BY id`,
+      [input.conversationId, messageIds]
+    );
+    if (source.rows.length === 0) {
+      await client.query("COMMIT");
+      return {
+        changes: [],
+        hidden: 0,
+        status: "committed",
+        unreadDecrement: 0,
+      };
+    }
+
+    const inserted = await client.query<{ messageId: string }>(
+      `INSERT INTO public.message_hidden ("messageId", "userId")
+       SELECT message.id, $2
+         FROM public.messages AS message
+        WHERE message."conversationId" = $1
+          AND message.id = ANY($3::text[])
+       ON CONFLICT ("messageId", "userId") DO NOTHING
+       RETURNING "messageId"`,
+      [input.conversationId, input.userId, source.rows.map((row) => row.id)]
+    );
+    const insertedIds = inserted.rows.map((row) => row.messageId).toSorted();
+    if (insertedIds.length === 0) {
+      await client.query("COMMIT");
+      return {
+        changes: [],
+        hidden: 0,
+        status: "committed",
+        unreadDecrement: 0,
+      };
+    }
+
+    const bumped = await client.query<{ changeSeq: number }>(
+      `UPDATE public.message_conversations
+          SET "changeSeq" = "changeSeq" + $2
+        WHERE id = $1
+        RETURNING "changeSeq"`,
+      [input.conversationId, insertedIds.length]
+    );
+    const finalSequence = bumped.rows[0]?.changeSeq;
+    if (finalSequence === undefined) {
+      throw new Error("Message conversation disappeared while hiding messages");
+    }
+
+    const firstSequence = finalSequence - insertedIds.length + 1;
+    const createdAt = new Date();
+    const sourceById = new Map(source.rows.map((row) => [row.id, row]));
+    const changes = insertedIds.map((messageId, index) => {
+      const message = sourceById.get(messageId);
+      if (!message) {
+        throw new Error("Hidden message disappeared while writing its change");
+      }
+      return {
+        audienceUserIds: [input.userId],
+        conversationId: input.conversationId,
+        createdAt,
+        id: randomUUID(),
+        kind: "message.hidden",
+        messageId,
+        revision: message.revision,
+        sequence: firstSequence + index,
+      } satisfies MessageConversationChange;
+    });
+    const values: unknown[] = [];
+    const placeholders = changes.map((change, index) => {
+      const offset = index * 7;
+      values.push(
+        change.id,
+        change.conversationId,
+        change.sequence,
+        change.messageId,
+        change.revision,
+        change.kind,
+        change.audienceUserIds
+      );
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::text[])`;
+    });
+    await client.query(
+      `INSERT INTO public.message_conversation_changes
+         (id, "conversationId", sequence, "messageId", revision, kind, "audienceUserIds")
+       VALUES ${placeholders.join(", ")}`,
+      values
+    );
+
+    const readAt = member.lastReadAt?.getTime() ?? 0;
+    const unreadDecrement = source.rows.filter(
+      (row) =>
+        insertedIds.includes(row.id) &&
+        row.senderId !== input.userId &&
+        row.deletedAt === null &&
+        row.createdAt.getTime() > readAt
+    ).length;
+    await client.query("COMMIT");
+    return {
+      changes,
+      hidden: changes.length,
+      status: "committed",
+      unreadDecrement,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listMessageConversationChanges(input: {
+  afterSequence: number;
+  conversationId: string;
+  limit: number;
+  membershipWindows: readonly SearchMessageWindow[];
+  snapshotSequence: number;
+  userId: string;
+}): Promise<MessageConversationChange[]> {
+  const windows = input.membershipWindows.map((window) => ({
+    after: window.after ? pgTimestamp(window.after) : null,
+    before: window.before ? pgTimestamp(window.before) : null,
+  }));
+  const result = await getSearchPool().query<MessageConversationChange>(
+    `SELECT change_event.id,
+            change_event."conversationId",
+            change_event.sequence,
+            change_event."messageId",
+            change_event.revision,
+            change_event.kind,
+            change_event."audienceUserIds",
+            change_event."createdAt",
+            (message.id IS NOT NULL) AS "sourceAvailable",
+            message.revision AS "sourceRevision",
+            COALESCE(message."deletedAt" IS NOT NULL, false) AS "globallyDeleted",
+            (hidden."messageId" IS NOT NULL) AS "hiddenForViewer"
+       FROM public.message_conversation_changes AS change_event
+       LEFT JOIN public.messages AS message
+         ON message.id = change_event."messageId"
+        AND message."conversationId" = change_event."conversationId"
+       LEFT JOIN public.message_hidden AS hidden
+         ON hidden."messageId" = change_event."messageId"
+        AND hidden."userId" = $4
+      WHERE change_event."conversationId" = $1
+        AND change_event.sequence > $2
+        AND change_event.sequence <= $3
+        AND change_event."audienceUserIds" @> ARRAY[$4::text]
+        AND (
+          change_event."messageId" IS NULL OR message.id IS NULL OR (
+            $5::jsonb IS NULL OR EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements($5::jsonb) AS membership_window
+               WHERE (membership_window.value->>'after' IS NULL OR message."createdAt" >= (membership_window.value->>'after')::timestamp)
+                 AND (membership_window.value->>'before' IS NULL OR message."createdAt" <= (membership_window.value->>'before')::timestamp)
+            )
+          )
+        )
+      ORDER BY change_event.sequence ASC
+      LIMIT $6`,
+    [
+      input.conversationId,
+      input.afterSequence,
+      input.snapshotSequence,
+      input.userId,
+      JSON.stringify(windows),
+      Math.min(Math.max(Math.trunc(input.limit), 1), 101),
+    ]
+  );
+  return result.rows;
 }
 
 export async function persistSearchDocument(

@@ -102,6 +102,7 @@ export {
 export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
 export {
   commitMessageSearchBackfillBatch,
+  commitMessageHides,
   closeMessageSearchPool,
   commitMessageSearchMutation,
   claimMessageSearchCountRequest,
@@ -110,6 +111,7 @@ export {
   expireStaleMessageSearchCounts,
   getMessageSearchCountRequestStatus,
   listRunnableMessageSearchCounts,
+  listMessageConversationChanges,
   listRunnableMessageSearchBackfills,
   markSearchOutboxUnreadable,
   persistSearchDocument,
@@ -118,6 +120,10 @@ export {
   requestMessageSearchCount,
   searchMessageCandidates,
   startMessageSearchBackfill,
+} from "./src/messages/search-index";
+export type {
+  MessageConversationChange,
+  MessageHideCommitResult,
 } from "./src/messages/search-index";
 export type {
   MessageSearchCountRequest,

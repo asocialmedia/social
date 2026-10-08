@@ -72,6 +72,10 @@ const mockCreateSearchOutbox = mock((args: Record<string, unknown>) => ({
   id: "search-outbox-1",
   ...args,
 }));
+const mockCreateConversationChange = mock((args: Record<string, unknown>) => ({
+  id: "conversation-change-1",
+  ...args,
+}));
 const mockEnqueueMessageSearchOutbox = mock(() => Promise.resolve());
 // The queue. Every created notification is enqueued by its own id, so the
 // calls are the fan-out's report to the worker.
@@ -281,6 +285,7 @@ const txClient = {
   messageConversationKey: { updateMany: mockKeyUpdateAndCount },
   orm: {
     public: {
+      MessageConversationChanges: { create: mockCreateConversationChange },
       MessageConversationKeys: {
         // The CAS ratchet reads the newest epoch's counter, so the read chain
         // carries an orderBy on version before it resolves.
@@ -393,6 +398,7 @@ mock.module("@asm/db", () => ({
   prisma: {
     orm: {
       public: {
+        MessageConversationChanges: { create: mockCreateConversationChange },
         MessageConversationKeys: {
           select: () => ({ where: () => ({ first: mockKeyFirst }) }),
           where: () => ({ updateAndCount: mockKeyUpdateAndCount }),
@@ -478,6 +484,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     }));
     mockMessageUpdate.mockClear();
     mockCreateSearchOutbox.mockClear();
+    mockCreateConversationChange.mockClear();
     mockEnqueueMessageSearchOutbox.mockClear();
     mockTransaction.mockReset();
     mockGetSession.mockClear();
@@ -643,6 +650,14 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       kind: "upsert",
       messageId: "msg-1",
       revision: 1,
+    });
+    expect(mockCreateConversationChange).toHaveBeenCalledWith({
+      audienceUserIds: ["user1", "user2"],
+      conversationId: "convo-1",
+      kind: "message.created",
+      messageId: "msg-1",
+      revision: 1,
+      sequence: 1,
     });
     expect(mockEnqueueMessageSearchOutbox).toHaveBeenCalledWith(
       "search-outbox-1"

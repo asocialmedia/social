@@ -735,6 +735,16 @@ export async function POST(
         revision: created.revision,
       });
       searchOutboxId = outbox.id;
+      await tx.orm.public.MessageConversationChanges.create({
+        audienceUserIds: conversation.members
+          .filter((member) => !member.leftAt)
+          .map((member) => member.userId),
+        conversationId: id,
+        kind: "message.created",
+        messageId: created.id,
+        revision: created.revision,
+        sequence: changeSequence,
+      });
 
       // A DM has no notification for a new message, so nothing fans out there.
       // A den does: one row per member, minus the sender, minus anyone who has

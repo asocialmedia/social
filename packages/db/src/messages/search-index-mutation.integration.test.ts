@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import {
   closeMessageSearchPool,
+  listMessageConversationChanges,
   commitMessageSearchMutation,
   keys,
   prisma,
@@ -72,6 +73,9 @@ afterAll(async () => {
       outbox.id.in(OUTBOX_IDS)
     ).deleteAndCount();
   }
+  await prisma.orm.public.MessageConversationChanges.where({
+    conversationId: CONVERSATION_ID,
+  }).deleteAndCount();
   await prisma.orm.public.MessageConversations.where({
     id: CONVERSATION_ID,
   }).deleteAndCount();
@@ -154,6 +158,16 @@ describe("commitMessageSearchMutation", () => {
     )
       .where((row) => row.id.in(OUTBOX_IDS))
       .all();
+    const changes = await prisma.orm.public.MessageConversationChanges.select(
+      "audienceUserIds",
+      "kind",
+      "messageId",
+      "revision",
+      "sequence"
+    )
+      .where({ conversationId: CONVERSATION_ID })
+      .orderBy((change) => change.sequence.asc())
+      .all();
 
     expect(storedMessage?.ciphertext).toMatch(/^rewrite-[ab]$/);
     expect(storedMessage?.deletedAt).not.toBeNull();
@@ -166,5 +180,35 @@ describe("commitMessageSearchMutation", () => {
       ["upsert", 2, 1],
       ["delete", 3, 2],
     ]);
+    expect(
+      changes.map((change) => [
+        change.kind,
+        change.messageId,
+        change.revision,
+        change.sequence,
+      ])
+    ).toEqual([
+      ["message.edited", MESSAGE_ID, 2, 1],
+      ["message.deleted", MESSAGE_ID, 3, 2],
+    ]);
+    expect(changes.every((change) => change.audienceUserIds.length === 2)).toBe(
+      true
+    );
+    const replay = await listMessageConversationChanges({
+      afterSequence: 0,
+      conversationId: CONVERSATION_ID,
+      limit: 10,
+      membershipWindows: [{ after: null, before: null }],
+      snapshotSequence: 2,
+      userId: OWNER_ID,
+    });
+    expect(replay.map((change) => change.sourceRevision)).toEqual([3, 3]);
+    expect(replay.map((change) => change.globallyDeleted)).toEqual([
+      true,
+      true,
+    ]);
+    expect(replay.every((change) => change.hiddenForViewer === false)).toBe(
+      true
+    );
   });
 });

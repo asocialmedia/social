@@ -1,0 +1,118 @@
+[
+  {
+    "id": "table.message_conversation_changes",
+    "label": "Create table \"message_conversation_changes\"",
+    "summary": "Creates table \"message_conversation_changes\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_conversation_changes"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_conversation_changes\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_conversation_changes\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_conversation_changes\"",
+        "sql": "CREATE TABLE \"public\".\"message_conversation_changes\" (\n  \"audienceUserIds\" text[] DEFAULT '{}' NOT NULL,\n  \"conversationId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"kind\" text NOT NULL,\n  \"messageId\" text,\n  \"revision\" int4,\n  \"sequence\" int4 NOT NULL,\n  CONSTRAINT \"message_conversation_changes_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"message_conversation_changes_audienceUserIds_elem_not__5d6452e6\" CHECK (array_position(\"audienceUserIds\", NULL) IS NULL)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_conversation_changes\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_conversation_changes\""]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_conversation_changes.message_conversation_changes_conversation_sequence_key",
+    "label": "Add unique constraint on \"message_conversation_changes\" (conversationId, sequence)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_conversation_changes_conversation_sequence_key",
+        "table": "message_conversation_changes"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_conversation_changes_conversation_sequence_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_changes_conversation_sequence_key",
+          "public",
+          "\"public\".\"message_conversation_changes\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_conversation_changes_conversation_sequence_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversation_changes\" ADD CONSTRAINT \"message_conversation_changes_conversation_sequence_key\" UNIQUE (\"conversationId\", \"sequence\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_conversation_changes_conversation_sequence_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversation_changes_conversation_sequence_key",
+          "public",
+          "\"public\".\"message_conversation_changes\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_conversation_changes.message_conversation_changes_conversation_created_idx",
+    "label": "Create index \"message_conversation_changes_conversation_created_idx\" on \"message_conversation_changes\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_conversation_changes_conversation_created_idx",
+        "table": "message_conversation_changes"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_conversation_changes_conversation_created_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_changes_conversation_created_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_conversation_changes_conversation_created_idx\"",
+        "sql": "CREATE INDEX \"message_conversation_changes_conversation_created_idx\" ON \"public\".\"message_conversation_changes\" (\"conversationId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_conversation_changes_conversation_created_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversation_changes_conversation_created_idx\""
+        ]
+      }
+    ]
+  }
+]

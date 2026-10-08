@@ -984,6 +984,21 @@ namespace public {
     @@map("message_search_outbox")
   }
 
+  model MessageConversationChanges {
+    id              String    @id(map: "message_conversation_changes_pkey") @default(uuid())
+    conversationId  String
+    sequence        Int
+    messageId       String?
+    revision        Int?
+    kind            String
+    audienceUserIds String[]  @default([])
+    createdAt       Timestamp(3) @default(now())
+
+    @@unique([conversationId, sequence], map: "message_conversation_changes_conversation_sequence_key")
+    @@index([conversationId, createdAt], map: "message_conversation_changes_conversation_created_idx")
+    @@map("message_conversation_changes")
+  }
+
   model MessageSearchTerms {
     id               Int       @id(map: "message_search_terms_pkey") @default(autoincrement())
     conversationId   String
