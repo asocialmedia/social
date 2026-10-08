@@ -1,6 +1,6 @@
 {
   "name": "@asm/messages",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "private": true,
   "description": "Shared message crypto and search contracts",
   "license": "AGPL-3.0",
@@ -18,5 +18,8 @@
       "types": "./src/crypto.ts",
       "default": "./src/crypto.ts"
     }
+  },
+  "dependencies": {
+    "@asm/media": "workspace:*"
   }
 }
