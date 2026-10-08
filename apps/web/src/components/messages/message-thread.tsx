@@ -755,6 +755,10 @@ export function MessageThread({
   // would race the cursor. Deliberately a ref (not query state) so the awaited
   // jump loop never sees a stale `isFetching` closure and bails after one page.
   const loadingOlderRef = useRef(false);
+  // The media viewer can move toward newer messages when it is opened around an
+  // older image. Keep that cursor independent from older paging so concurrent
+  // direction changes cannot issue duplicate next-page requests.
+  const loadingNewerMediaRef = useRef(false);
   // Who owns the conversation's history endpoint. The search backfill reads the
   // same one, 500 rows every 250ms, from the first keystroke on a fresh device --
   // so a jump's single anchored read used to land inside a stream that was
@@ -2658,7 +2662,11 @@ export function MessageThread({
     // check keeps an awaited walk going between fetches: query state flips
     // asynchronously, so a render-scoped closure would report "busy" as "no
     // more history" and stop after a single page.
-    if (loadingOlderRef.current || !hasPreviousPage) {
+    if (
+      loadingOlderRef.current ||
+      loadingNewerMediaRef.current ||
+      !hasPreviousPage
+    ) {
       return { added: [], error: null };
     }
     loadingOlderRef.current = true;
@@ -4039,6 +4047,43 @@ export function MessageThread({
     }
     return false;
   }, [hasPreviousPage, loadOlderMessages, requestDecryptMessages]);
+
+  const loadNewerMedia = useCallback(async (): Promise<boolean> => {
+    if (
+      loadingNewerMediaRef.current ||
+      loadingOlderRef.current ||
+      !hasNextPage
+    ) {
+      return false;
+    }
+    loadingNewerMediaRef.current = true;
+    olderWalkRef.current = false;
+    const known = new Set(readFlat().map((message) => message.id));
+    const readToken = historyReads.acquire();
+    let result: Awaited<ReturnType<typeof fetchNextPage>> | null = null;
+    try {
+      result = await fetchNextPage();
+    } catch {
+      return false;
+    } finally {
+      loadingNewerMediaRef.current = false;
+      historyReads.release(readToken);
+    }
+    const added = (result?.data?.pages ?? [])
+      .flatMap((page) => page.messages)
+      .filter((message) => !known.has(message.id));
+    if (added.length > 0) {
+      requestDecryptMessages(added, { urgent: true });
+      return true;
+    }
+    return false;
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    historyReads,
+    readFlat,
+    requestDecryptMessages,
+  ]);
 
   const handleViewerPosition = useCallback((index: number, total: number) => {
     setViewerPosition((current) =>
@@ -5626,11 +5671,14 @@ export function MessageThread({
             <ConversationMediaViewer
               anchorKey={mediaViewerKey}
               hasOlder={hasPreviousPage}
+              hasNewer={hasNextPage ?? false}
               isFetchingOlder={isFetchingPreviousPage}
+              isFetchingNewer={isFetchingNextPage}
               messages={allMessages}
               onActive={handleViewerActive}
               onClose={closeViewer}
               onLoadOlder={loadOlderMedia}
+              onLoadNewer={loadNewerMedia}
               onPosition={handleViewerPosition}
             />
           ) : null}

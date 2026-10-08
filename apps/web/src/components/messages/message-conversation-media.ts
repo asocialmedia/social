@@ -52,6 +52,15 @@ export interface ConversationMediaIndex {
   revision: number;
 }
 
+export interface ConversationMediaWindow extends ConversationMediaIndex {
+  activeIndex: number;
+  absoluteIndex: number;
+  startIndex: number;
+  totalItems: number;
+}
+
+export const CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT = 100;
+
 export function mediaFlatKey(messageId: string, imageIndex: number): string {
   return `${messageId}:${imageIndex}`;
 }
@@ -134,6 +143,91 @@ export function buildConversationMediaIndex(
   }
 
   return { indexByKey, items, revision };
+}
+
+export function buildConversationMediaWindow(
+  messages: readonly ConversationMediaMessage[],
+  getPayload: (id: string) => DecryptEntry | undefined,
+  anchorKey: string,
+  revision = 0,
+  limit = CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT
+): ConversationMediaWindow {
+  const boundedLimit = Math.min(
+    CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT,
+    Math.max(1, Math.trunc(limit))
+  );
+  let totalItems = 0;
+  let absoluteIndex = -1;
+
+  for (const message of messages) {
+    if (message.deletedAt) {
+      continue;
+    }
+    const payload = getPayload(message.id);
+    if (!payload || payload === "error" || payload === "pending") {
+      continue;
+    }
+    if (payload.type !== "media") {
+      continue;
+    }
+    const derived =
+      derivations.get(payload) ?? deriveMediaItems(message, payload);
+    if (!derivations.has(payload)) {
+      derivations.set(payload, derived);
+    }
+    for (const item of derived) {
+      if (item.flatKey === anchorKey) {
+        absoluteIndex = totalItems;
+      }
+      totalItems += 1;
+    }
+  }
+
+  const centeredIndex = absoluteIndex >= 0 ? absoluteIndex : totalItems - 1;
+  const midpoint = Math.floor(boundedLimit / 2);
+  const startIndex = Math.max(
+    0,
+    Math.min(centeredIndex - midpoint, totalItems - boundedLimit)
+  );
+  const endIndex = Math.min(totalItems, startIndex + boundedLimit);
+  const items: ConversationMediaItem[] = [];
+  const indexByKey = new Map<string, number>();
+  let itemIndex = 0;
+
+  for (const message of messages) {
+    if (message.deletedAt) {
+      continue;
+    }
+    const payload = getPayload(message.id);
+    if (!payload || payload === "error" || payload === "pending") {
+      continue;
+    }
+    if (payload.type !== "media") {
+      continue;
+    }
+    const derived =
+      derivations.get(payload) ?? deriveMediaItems(message, payload);
+    if (!derivations.has(payload)) {
+      derivations.set(payload, derived);
+    }
+    for (const item of derived) {
+      if (itemIndex >= startIndex && itemIndex < endIndex) {
+        indexByKey.set(item.flatKey, items.length);
+        items.push(item);
+      }
+      itemIndex += 1;
+    }
+  }
+
+  return {
+    absoluteIndex,
+    activeIndex: absoluteIndex < 0 ? -1 : absoluteIndex - startIndex,
+    indexByKey,
+    items,
+    revision,
+    startIndex,
+    totalItems,
+  };
 }
 
 // Test-only: whether a payload's attachments are already derived, so a test can

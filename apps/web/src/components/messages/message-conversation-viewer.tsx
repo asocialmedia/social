@@ -29,7 +29,7 @@ import type {
   ConversationMediaItem,
   ConversationMediaMessage,
 } from "./message-conversation-media";
-import { useConversationMediaIndex } from "./use-conversation-media";
+import { useConversationMediaWindow } from "./use-conversation-media";
 
 type LoadStatus = "error" | "loaded" | "loading";
 
@@ -49,6 +49,16 @@ const PRELOAD_CACHE_CAP = 128;
 // imageless tail from silently streaming in the whole conversation while still
 // walking past a few empty pages.
 const MAX_BOUNDARY_MISSES = 3;
+
+async function tryLoadBoundaryPage(
+  loadPage: () => Promise<boolean> | boolean
+): Promise<boolean> {
+  try {
+    return await loadPage();
+  } catch {
+    return false;
+  }
+}
 
 // Streams a media row back as a forced download. Module scope because React
 // Compiler cannot lower a `throw` inside a component-level try block (see
@@ -191,10 +201,14 @@ function Filmstrip({
   activeIndex,
   items,
   onSelect,
+  startIndex,
+  total,
 }: {
   activeIndex: number;
   items: ConversationMediaItem[];
   onSelect: (flatKey: string) => void;
+  startIndex: number;
+  total: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -271,11 +285,11 @@ function Filmstrip({
             item={item}
             key={item.flatKey}
             onClick={() => onSelect(item.flatKey)}
-            position={index + 1}
+            position={startIndex + index + 1}
             style={{
               transform: `translate3d(${index * THUMB_STRIDE}px, 0, 0)`,
             }}
-            total={count}
+            total={total}
           />
         ))}
       </div>
@@ -286,13 +300,16 @@ function Filmstrip({
 interface ConversationMediaViewerProps {
   anchorKey: string;
   hasOlder: boolean;
+  hasNewer: boolean;
   isFetchingOlder: boolean;
+  isFetchingNewer: boolean;
   messages: readonly ConversationMediaMessage[];
   onActive: (flatKey: string, direction: MediaNavDirection) => void;
   onClose: () => void;
-  // Loads one older page. Resolves true when the loaded transcript actually
-  // grew, so the boundary loader knows whether it made progress.
+  // Loads one older or newer page. Resolves true when the loaded transcript
+  // actually grew, so the boundary loader knows whether it made progress.
   onLoadOlder: () => Promise<boolean> | boolean;
+  onLoadNewer: () => Promise<boolean> | boolean;
   onPosition: (activeIndex: number, total: number) => void;
 }
 
@@ -305,16 +322,26 @@ interface ConversationMediaViewerProps {
 export function ConversationMediaViewer({
   anchorKey,
   hasOlder,
+  hasNewer,
   isFetchingOlder,
+  isFetchingNewer,
   messages,
   onActive,
   onClose,
   onLoadOlder,
+  onLoadNewer,
   onPosition,
 }: ConversationMediaViewerProps) {
-  const index = useConversationMediaIndex(messages);
-  const { indexByKey, items } = index;
   const [activeKey, setActiveKey] = useState(anchorKey);
+  const index = useConversationMediaWindow(messages, activeKey);
+  const {
+    absoluteIndex,
+    activeIndex,
+    indexByKey,
+    items,
+    startIndex,
+    totalItems,
+  } = index;
   const [downloading, setDownloading] = useState(false);
   // Direction of an in-flight boundary extension, tagged with the media count
   // at request time. Deriving `extending` from the current count means the
@@ -326,20 +353,20 @@ export function ConversationMediaViewer({
   // A stale extension must not resurface its spinner if the list later shrinks
   // back to the count it was recorded at. Drop it whenever the length changes
   // (React's derive-state-during-render pattern; no effect needed).
-  const [extensionLength, setExtensionLength] = useState(items.length);
-  if (extensionLength !== items.length) {
-    setExtensionLength(items.length);
+  const [extensionLength, setExtensionLength] = useState(totalItems);
+  if (extensionLength !== totalItems) {
+    setExtensionLength(totalItems);
     setExtension(null);
   }
   const extending =
-    extension && extension.count === items.length ? extension.direction : null;
+    extension && extension.count === totalItems ? extension.direction : null;
   // Insertion-ordered set of preloaded URLs (Map so the oldest can be evicted
   // first when the cap is reached).
   const preloadedRef = useRef(new Map<string, true>());
-  // Consecutive older pages pulled while parked on the oldest known image that
-  // turned out to hold no media. Reset whenever the media list grows and when
-  // the user leaves the boundary.
-  const boundaryMissesRef = useRef(0);
+  // Consecutive pages pulled while parked at either media boundary that turned
+  // out to hold no media. A few empty pages are tolerated, then automatic
+  // paging stops so an imageless tail cannot stream the whole conversation.
+  const boundaryMissesRef = useRef({ newer: 0, older: 0 });
 
   // Fail-safe: if a boundary extension discovers no further media, clear the
   // spinner after a beat so an arrow can never spin forever.
@@ -356,14 +383,13 @@ export function ConversationMediaViewer({
   // Re-resolve the numeric position from the key every render: discovering
   // older media prepends items, and keying by flatKey keeps the current image
   // put instead of shifting out from under the user.
-  const activeIndex = indexByKey.get(activeKey) ?? -1;
   const item = activeIndex >= 0 ? items[activeIndex] : undefined;
 
   // Report the current position to the thread so it can bound loaded history
   // without the viewer needing to know about React Query pages.
   useEffect(() => {
-    onPosition(activeIndex, items.length);
-  }, [activeIndex, items.length, onPosition]);
+    onPosition(absoluteIndex, totalItems);
+  }, [absoluteIndex, onPosition, totalItems]);
 
   const selectKey = useCallback(
     (flatKey: string) => {
@@ -400,35 +426,77 @@ export function ConversationMediaViewer({
       // Ran out of known media in this direction: ask for more transcript to be
       // decrypted, and show a spinner until the list changes.
       const direction: MediaNavDirection = delta > 0 ? "newer" : "older";
-      setExtension({ count: items.length, direction });
+      const canLoad = direction === "older" ? hasOlder : hasNewer;
+      const isFetching =
+        direction === "older" ? isFetchingOlder : isFetchingNewer;
+      if (!canLoad || isFetching) {
+        return;
+      }
+      setExtension({ count: totalItems, direction });
       if (direction === "older") {
-        void onLoadOlder();
+        void tryLoadBoundaryPage(onLoadOlder);
+      } else {
+        void tryLoadBoundaryPage(onLoadNewer);
       }
       onActive(activeKey, direction);
     },
-    [activeIndex, activeKey, items, onActive, onLoadOlder, selectKey]
+    [
+      activeIndex,
+      activeKey,
+      hasNewer,
+      hasOlder,
+      isFetchingNewer,
+      isFetchingOlder,
+      items,
+      onActive,
+      onLoadNewer,
+      onLoadOlder,
+      selectKey,
+      totalItems,
+    ]
   );
 
-  // Reaching the oldest known image pulls one more page of history so the strip
-  // keeps extending as the user walks back through the conversation. Bounded:
+  // Reaching a loaded media boundary pulls one page in that direction. Bounded:
   // after a few consecutive pages with no media the walk stops, so an imageless
-  // tail cannot silently stream in the entire thread. Any new media (a change
-  // in the media count) resets the budget, and leaving the boundary resets it.
+  // stretch cannot silently stream in the entire conversation.
   useEffect(() => {
-    if (activeIndex !== 0) {
-      boundaryMissesRef.current = 0;
-      return;
+    const atOlderBoundary = absoluteIndex === 0;
+    const atNewerBoundary =
+      absoluteIndex >= 0 && absoluteIndex === totalItems - 1;
+    if (!atOlderBoundary) {
+      boundaryMissesRef.current.older = 0;
+    }
+    if (!atNewerBoundary) {
+      boundaryMissesRef.current.newer = 0;
     }
     if (
-      !hasOlder ||
-      isFetchingOlder ||
-      boundaryMissesRef.current >= MAX_BOUNDARY_MISSES
+      atOlderBoundary &&
+      hasOlder &&
+      !isFetchingOlder &&
+      boundaryMissesRef.current.older < MAX_BOUNDARY_MISSES
     ) {
-      return;
+      boundaryMissesRef.current.older += 1;
+      void tryLoadBoundaryPage(onLoadOlder);
     }
-    boundaryMissesRef.current += 1;
-    void onLoadOlder();
-  }, [activeIndex, hasOlder, isFetchingOlder, onLoadOlder]);
+    if (
+      atNewerBoundary &&
+      hasNewer &&
+      !isFetchingNewer &&
+      boundaryMissesRef.current.newer < MAX_BOUNDARY_MISSES
+    ) {
+      boundaryMissesRef.current.newer += 1;
+      void tryLoadBoundaryPage(onLoadNewer);
+    }
+  }, [
+    absoluteIndex,
+    hasNewer,
+    hasOlder,
+    isFetchingNewer,
+    isFetchingOlder,
+    onLoadNewer,
+    onLoadOlder,
+    totalItems,
+  ]);
 
   // Keep the decrypt window centered on wherever the viewer currently is. The
   // effect re-runs on navigation AND whenever the thread's callback identity
@@ -522,7 +590,8 @@ export function ConversationMediaViewer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [items, selectKey, step]);
 
-  const hasNeighbors = items.length > 1;
+  const hasNeighbors = items.length > 1 || hasOlder || hasNewer;
+  const position = absoluteIndex + 1;
 
   return (
     <Dialog onOpenChange={onClose} open>
@@ -533,8 +602,7 @@ export function ConversationMediaViewer({
         <VisuallyHidden>
           <DialogTitle>Conversation media</DialogTitle>
           <DialogDescription>
-            {item?.kind === "gif" ? "GIF" : "Image"} {activeIndex + 1} of{" "}
-            {items.length}
+            {item?.kind === "gif" ? "GIF" : "Image"} {position} of {totalItems}
           </DialogDescription>
         </VisuallyHidden>
 
@@ -546,8 +614,8 @@ export function ConversationMediaViewer({
             <StageImage
               item={item}
               key={item.flatKey}
-              position={activeIndex + 1}
-              total={items.length}
+              position={position}
+              total={totalItems}
             />
           ) : (
             <span className="text-muted-foreground text-sm">
@@ -610,7 +678,7 @@ export function ConversationMediaViewer({
             the visible counter so it does not fire on every unrelated update. */}
         <span aria-live="polite" className="sr-only">
           {item
-            ? `${item.kind === "gif" ? "GIF" : "Image"} ${activeIndex + 1} of ${items.length}`
+            ? `${item.kind === "gif" ? "GIF" : "Image"} ${position} of ${totalItems}`
             : ""}
         </span>
 
@@ -620,6 +688,8 @@ export function ConversationMediaViewer({
               activeIndex={activeIndex}
               items={items}
               onSelect={selectKey}
+              startIndex={startIndex}
+              total={totalItems}
             />
           ) : null}
         </div>
