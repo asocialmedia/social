@@ -121,6 +121,7 @@ describe("GET /api/messages/presence", () => {
         avatarUrl: null,
         displayName: "Bob",
         id: "user2",
+        isFollowing: true,
         status: "online",
         username: "bob",
       },
@@ -141,9 +142,10 @@ describe("GET /api/messages/presence", () => {
     ]);
     const res = await GET();
     const body = (await res.json()) as {
-      users: { id: string; status: string }[];
+      users: { id: string; isFollowing: boolean; status: string }[];
     };
     expect(body.users.map((u) => u.id)).toEqual(["user2"]);
+    expect(body.users[0]?.isFollowing).toBe(false);
     expect(mockFollowFindMany).toHaveBeenCalledWith("followerId");
     expect(mockFollowFindMany).toHaveBeenCalledWith("followingId");
   });

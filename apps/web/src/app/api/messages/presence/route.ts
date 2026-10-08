@@ -16,6 +16,7 @@ export interface PresenceUser {
   avatarUrl: string | null;
   displayName: string;
   id: string;
+  isFollowing: boolean;
   status: "idle" | "online";
   username: string;
 }
@@ -61,6 +62,11 @@ export async function GET() {
       .all(),
   ]);
   const follows = [...followingRows, ...followerRows];
+  const followingIds = new Set(
+    followingRows
+      .filter((follow) => follow.followerId === user.id)
+      .map((follow) => follow.followingId)
+  );
   const connectedIds = new Set<string>();
   for (const follow of follows) {
     if (follow.followerId !== user.id) {
@@ -122,6 +128,7 @@ export async function GET() {
 
   const withStatus: PresenceUser[] = users.map((member) => ({
     ...member,
+    isFollowing: followingIds.has(member.id),
     status: onlineSet.has(member.id) ? "online" : "idle",
   }));
 

@@ -147,6 +147,7 @@ export interface PresenceUser {
   avatarUrl: string | null;
   displayName: string;
   id: string;
+  isFollowing: boolean;
   status: "idle" | "online";
   username: string;
 }

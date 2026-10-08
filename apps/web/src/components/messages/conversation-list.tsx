@@ -26,6 +26,7 @@ import { ConversationRow } from "@/components/messages/conversation-list-item";
 import { CreateDenDialog } from "@/components/messages/create-den-dialog";
 import { JoinDenDialog } from "@/components/messages/join-den-dialog";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
+import { OnlineFriendsStrip } from "@/components/messages/online-friends-strip";
 import { toast } from "@/lib/gooey-toast";
 import {
   createConversation,
@@ -101,6 +102,7 @@ export function ConversationList({
   const [results, setResults] = useState<SearchUserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
+  const creatingRef = useRef(false);
   const [filter, setFilter] = useState<DenListFilter>("ALL");
   const [denDialogOpen, setDenDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
@@ -182,6 +184,10 @@ export function ConversationList({
   // createConversation, list refresh, selection, error toast, and cleanup.
   const startConversation = useCallback(
     async (recipientId: string) => {
+      if (creatingRef.current) {
+        return;
+      }
+      creatingRef.current = true;
       try {
         setCreating(recipientId);
         const { conversation } = await createConversation(recipientId);
@@ -198,6 +204,7 @@ export function ConversationList({
       // The catch above never rethrows and the try body has no early returns,
       // so resetting here matches the previous `finally` semantics.
       setCreating(null);
+      creatingRef.current = false;
     },
     [onSelect, refetchList]
   );
@@ -609,6 +616,16 @@ export function ConversationList({
             </div>
           ) : null}
         </div>
+
+        {full && !activeConversationId ? (
+          <OnlineFriendsStrip
+            creating={creating}
+            onSelect={(userId) => {
+              void startConversation(userId);
+            }}
+            users={onlineUsers}
+          />
+        ) : null}
 
         {/* All / DMs / Dens tabs */}
         <div

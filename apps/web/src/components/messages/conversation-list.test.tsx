@@ -19,6 +19,7 @@ mock.module("next/navigation", () => ({
 }));
 
 function renderList(props: {
+  activeConversationId?: string;
   isCollapsed?: boolean;
   layout: "full" | "hidden" | "rail";
 }) {
@@ -30,12 +31,25 @@ function renderList(props: {
       },
     },
   });
+  queryClient.setQueryData(
+    ["messages-presence", undefined],
+    [
+      {
+        avatarUrl: null,
+        displayName: "Ada",
+        id: "ada",
+        isFollowing: true,
+        status: "online",
+        username: "ada",
+      },
+    ]
+  );
 
   return renderToString(
     <QueryClientProvider client={queryClient}>
       <MessageIdentityProvider>
         <ConversationList
-          activeConversationId={null}
+          activeConversationId={props.activeConversationId ?? null}
           isCollapsed={props.isCollapsed}
           layout={props.layout}
           onSelect={() => {}}
@@ -67,6 +81,10 @@ describe("ConversationList collapsible sidebar", () => {
     expect(html).toContain("All");
     expect(html).toContain("Dens");
     expect(html).toContain("DMs");
+    expect(html).toContain('aria-label="Online people you follow"');
+    expect(html.indexOf('aria-label="Online people you follow"')).toBeLessThan(
+      html.indexOf('aria-label="Filter conversations"')
+    );
   });
 
   test("collapsed state renders expand trigger, collapsed search button, and hides new den button and tabs", () => {
@@ -86,10 +104,19 @@ describe("ConversationList collapsible sidebar", () => {
 
     // Tabs are hidden
     expect(html).not.toContain('aria-label="Filter conversations"');
+    expect(html).not.toContain('aria-label="Online people you follow"');
   });
 
   test("hidden layout renders nothing", () => {
     const html = renderList({ layout: "hidden" });
     expect(html).toBe("");
+  });
+
+  test("keeps the online strip on the list screen rather than an open conversation", () => {
+    const html = renderList({
+      activeConversationId: "conversation-1",
+      layout: "full",
+    });
+    expect(html).not.toContain('aria-label="Online people you follow"');
   });
 });
