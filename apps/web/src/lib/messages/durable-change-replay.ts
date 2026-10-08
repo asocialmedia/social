@@ -196,3 +196,29 @@ export function writeMessageChangeCursor(
     return false;
   }
 }
+
+export async function applyChangesBeforeCursorCommit(input: {
+  apply: () => Promise<boolean>;
+  conversationId: string;
+  cursor: string;
+  storage: DurableMessageChangeStorage | null;
+  userId: string;
+}): Promise<{ applied: boolean; cursorStored: boolean }> {
+  try {
+    const applied = await input.apply();
+    if (!applied) {
+      return { applied: false, cursorStored: false };
+    }
+  } catch {
+    return { applied: false, cursorStored: false };
+  }
+  return {
+    applied: true,
+    cursorStored: writeMessageChangeCursor(
+      input.storage,
+      input.userId,
+      input.conversationId,
+      input.cursor
+    ),
+  };
+}

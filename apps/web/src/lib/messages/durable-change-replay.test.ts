@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyChangesBeforeCursorCommit,
   MAX_MESSAGE_CHANGE_REPLAY_PAGES,
   MESSAGE_CHANGE_PAGE_SIZE,
   messageChangeCursorStorageKey,
@@ -199,5 +200,55 @@ describe("durable message change replay", () => {
         "x".repeat(4097)
       )
     ).toBe(false);
+  });
+
+  test("commits the shared cursor only after derived-cache changes succeed", async () => {
+    const values = new Map<string, string>();
+    let cacheApplied = false;
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (!cacheApplied) {
+          throw new Error("cursor was written before the cache changed");
+        }
+        values.set(key, value);
+      },
+    };
+    const result = await applyChangesBeforeCursorCommit({
+      apply: () => {
+        cacheApplied = true;
+        return true;
+      },
+      conversationId: "conversation-1",
+      cursor: "next-cursor",
+      storage,
+      userId: "user-1",
+    });
+
+    expect(result).toEqual({ applied: true, cursorStored: true });
+    expect(readMessageChangeCursor(storage, "user-1", "conversation-1")).toBe(
+      "next-cursor"
+    );
+  });
+
+  test("leaves the prior cursor intact when derived-cache reconciliation fails", async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+    writeMessageChangeCursor(storage, "user-1", "conversation-1", "old");
+    const result = await applyChangesBeforeCursorCommit({
+      apply: () => Promise.resolve(false),
+      conversationId: "conversation-1",
+      cursor: "new",
+      storage,
+      userId: "user-1",
+    });
+
+    expect(result).toEqual({ applied: false, cursorStored: false });
+    expect(readMessageChangeCursor(storage, "user-1", "conversation-1")).toBe(
+      "old"
+    );
   });
 });
