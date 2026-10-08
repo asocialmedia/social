@@ -85,10 +85,11 @@ import {
 import {
   messageWindowIncludesLatest,
   reconcileAnchoredWindow,
+  shouldFoldLiveMessage,
 } from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
-  foldMessageIntoPages,
+  foldMessageIntoBoundedData,
   toCachedMessage,
   deleteMessage,
   editMessage,
@@ -2281,16 +2282,24 @@ export function MessageThread({
     unreadAnchorId,
   ]);
 
-  // Track the pinned state from actual scroll position. Passive listener with
-  // change-gated state writes, so scrolling never triggers a render storm.
-  // Becoming pinned clears the arrival badge (the user has caught up).
+  // Track whether the viewport is at the conversation's latest page, not just
+  // the end of an anchored history window. Passive and change-gated, so scrolling
+  // never triggers a render storm. Reaching the actual latest tail clears badges.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) {
       return;
     }
     const measure = () => {
-      const pinned = isNearBottom(el);
+      const data = queryClient.getQueryData<MessagesInfiniteData>([
+        "messages",
+        conversationId,
+      ]);
+      const pinned = Boolean(
+        isNearBottom(el) &&
+        data &&
+        messageWindowIncludesLatest(data.pages, data.pageParams)
+      );
       if (pinned === pinnedRef.current) {
         return;
       }
@@ -2303,7 +2312,7 @@ export function MessageThread({
     measure();
     el.addEventListener("scroll", measure, { passive: true });
     return () => el.removeEventListener("scroll", measure);
-  }, [detail]);
+  }, [conversationId, detail, messagesQuery.data, queryClient]);
 
   // When the peer starts typing, reveal the in-flow typing row if the viewport
   // is pinned to the bottom. The row lives after the virtualized list (not as
@@ -4363,18 +4372,37 @@ export function MessageThread({
         return;
       }
       if (event.kind === "message.created") {
-        queryClient.setQueryData<MessagesInfiniteData>(
-          ["messages", conversationId] as const,
-          (old) => {
-            if (!old) {
-              return old;
-            }
-            // Dedupe against the sender's own optimistic fold of the same
-            // message (the SSE stream echoes every write, including ours).
-            const nextPages = foldMessageIntoPages(old.pages, message);
-            return nextPages ? { ...old, pages: nextPages } : old;
-          }
+        const messageQueryKey = ["messages", conversationId] as const;
+        const currentWindow =
+          queryClient.getQueryData<MessagesInfiniteData>(messageQueryKey);
+        const followingNewest = Boolean(
+          currentWindow &&
+          shouldFoldLiveMessage({
+            pageParams: currentWindow.pageParams,
+            pages: currentWindow.pages,
+            pinned: pinnedRef.current,
+          })
         );
+        if (followingNewest) {
+          queryClient.setQueryData<MessagesInfiniteData>(
+            messageQueryKey,
+            (old) => {
+              if (
+                !old ||
+                !shouldFoldLiveMessage({
+                  pageParams: old.pageParams,
+                  pages: old.pages,
+                  pinned: pinnedRef.current,
+                })
+              ) {
+                return old;
+              }
+              // Dedupe the sender's optimistic fold, and cap retained history
+              // even during a sustained live stream.
+              return foldMessageIntoBoundedData(old, message) ?? old;
+            }
+          );
+        }
         // A message from the peer while we're looking at the thread counts as
         // read immediately and means they stopped typing.
         if (message.senderId !== user?.id) {
@@ -4382,10 +4410,10 @@ export function MessageThread({
           scheduleRead();
           // Scrolled away from the bottom: surface how many arrived instead
           // of yanking the viewport (Telegram behavior).
-          setArrivalCount((current) =>
-            nextArrivalCount(current, {
+          setArrivalCount((arrivalTotal) =>
+            nextArrivalCount(arrivalTotal, {
               isOwn: false,
-              pinned: pinnedRef.current,
+              pinned: followingNewest,
             })
           );
         }

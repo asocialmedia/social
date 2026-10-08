@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   appendMessageToLastPage,
+  foldMessageIntoBoundedData,
   foldMessageIntoPages,
   createRootKeyStore,
   ensureConversationKeys,
@@ -1724,6 +1725,145 @@ describe("foldMessageIntoPages", () => {
         wireRow("m-2", "2026-01-02T00:00:00.000Z")
       )
     ).toBeNull();
+  });
+});
+
+describe("foldMessageIntoBoundedData", () => {
+  test("keeps at most 800 rows and retains the newest rows", () => {
+    const messages = Array.from({ length: 800 }, (_, index) =>
+      fetchedRow(`m-${index}`, new Date(index).toISOString())
+    );
+    const inputPages = Array.from({ length: 8 }, (_, pageIndex) => ({
+      messages: messages.slice(pageIndex * 100, (pageIndex + 1) * 100),
+      previousCursor: `cursor-${pageIndex}`,
+    }));
+    const data = {
+      pageParams: Array.from({ length: 8 }, (_, index) => `param-${index}`),
+      pages: inputPages,
+    };
+
+    const next = foldMessageIntoBoundedData(
+      data,
+      fetchedRow("m-800", new Date(800).toISOString())
+    );
+    const retained = next?.pages.flatMap((page) => page.messages) ?? [];
+
+    expect(retained).toHaveLength(800);
+    expect(retained[0]?.id).toBe("m-1");
+    expect(retained.at(-1)?.id).toBe("m-800");
+    expect(next?.pageParams).toEqual(data.pageParams);
+    expect(next?.pages.map((page) => page.messages.length)).toEqual([
+      99, 100, 100, 100, 100, 100, 100, 101,
+    ]);
+  });
+
+  test("drops complete oldest pages when the ciphertext budget is reached", () => {
+    const oldPage = {
+      messages: [
+        {
+          ...fetchedRow("old", "2026-01-01T00:00:00.000Z"),
+          ciphertext: "x".repeat(7 * 1024 * 1024),
+        },
+      ],
+      previousCursor: "older",
+    };
+    const latestPage = {
+      messages: [
+        {
+          ...fetchedRow("recent", "2026-01-02T00:00:00.000Z"),
+          ciphertext: "y".repeat(2 * 1024 * 1024),
+        },
+      ],
+      nextCursor: null,
+      previousCursor: "middle",
+    };
+
+    const next = foldMessageIntoBoundedData(
+      {
+        pageParams: ["old-param", "latest-param"],
+        pages: [oldPage, latestPage],
+      },
+      fetchedRow("newest", "2026-01-03T00:00:00.000Z")
+    );
+
+    expect(next?.pages).toHaveLength(1);
+    expect(next?.pages[0]?.messages.map((message) => message.id)).toEqual([
+      "recent",
+      "newest",
+    ]);
+    expect(next?.pageParams).toEqual(["latest-param"]);
+  });
+
+  test("counts supplementary Unicode characters as four UTF-8 bytes", () => {
+    const oldPage = {
+      messages: [
+        {
+          ...fetchedRow("old", "2026-01-01T00:00:00.000Z"),
+          ciphertext: "😀".repeat(2 * 1024 * 1024),
+        },
+      ],
+      previousCursor: "older",
+    };
+    const latestPage = {
+      messages: [fetchedRow("recent", "2026-01-02T00:00:00.000Z")],
+      nextCursor: null,
+      previousCursor: "middle",
+    };
+
+    const next = foldMessageIntoBoundedData(
+      {
+        pageParams: ["old-param", "latest-param"],
+        pages: [oldPage, latestPage],
+      },
+      fetchedRow("newest", "2026-01-03T00:00:00.000Z")
+    );
+
+    expect(next?.pages).toHaveLength(1);
+    expect(next?.pages[0]?.messages.map((message) => message.id)).toEqual([
+      "recent",
+      "newest",
+    ]);
+    expect(next?.pageParams).toEqual(["latest-param"]);
+  });
+
+  test("moves a partial oldest page's cursor and clears its stale anchor", () => {
+    const oldPage = {
+      anchorIndex: 0,
+      messages: [
+        {
+          ...fetchedRow("old-1", "2026-01-01T00:00:00.000Z"),
+          ciphertext: "x".repeat(7 * 1024 * 1024),
+        },
+        fetchedRow("old-2", "2026-01-02T00:00:00.000Z"),
+      ],
+      previousCursor: "older-cursor",
+    };
+    const latestPage = {
+      messages: [
+        {
+          ...fetchedRow("recent", "2026-01-03T00:00:00.000Z"),
+          ciphertext: "y".repeat(2 * 1024 * 1024),
+        },
+      ],
+      nextCursor: null,
+      previousCursor: "latest-cursor",
+    };
+
+    const next = foldMessageIntoBoundedData(
+      {
+        pageParams: ["old-param", "latest-param"],
+        pages: [oldPage, latestPage],
+      },
+      fetchedRow("newest", "2026-01-04T00:00:00.000Z")
+    );
+
+    expect(next?.pages).toHaveLength(2);
+    expect(next?.pages[0]?.messages.map((message) => message.id)).toEqual([
+      "old-2",
+    ]);
+    expect(next?.pages[0]?.previousCursor).toBe("old-2");
+    expect(next?.pages[0]?.anchorIndex).toBeUndefined();
+    expect(next?.pageParams).toEqual(["old-param", "latest-param"]);
   });
 });
 

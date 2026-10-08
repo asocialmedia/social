@@ -5,6 +5,7 @@ import type { MessageData, MessagePage } from "@/lib/messages/types";
 import {
   messageWindowIncludesLatest,
   reconcileAnchoredWindow,
+  shouldFoldLiveMessage,
 } from "./anchored-window";
 
 const CONVO = "c1";
@@ -166,6 +167,38 @@ describe("messageWindowIncludesLatest", () => {
   test("fails closed when cache pages and cursors are misaligned", () => {
     expect(
       messageWindowIncludesLatest([page([message("latest", 2)])], [])
+    ).toBe(false);
+  });
+});
+
+describe("shouldFoldLiveMessage", () => {
+  const latest = page([message("latest", 3)], { nextCursor: null });
+  const anchored = page([message("middle", 2)], { nextCursor: "newer" });
+
+  test("folds an arrival only while the viewport follows the latest window", () => {
+    expect(
+      shouldFoldLiveMessage({
+        pageParams: [{ kind: "older" }],
+        pages: [latest],
+        pinned: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldFoldLiveMessage({
+        pageParams: [{ kind: "older" }],
+        pages: [latest],
+        pinned: false,
+      })
+    ).toBe(false);
+  });
+
+  test("holds live arrivals out of a historical cursor window", () => {
+    expect(
+      shouldFoldLiveMessage({
+        pageParams: [{ kind: "around", messageId: "middle" }],
+        pages: [anchored],
+        pinned: true,
+      })
     ).toBe(false);
   });
 });

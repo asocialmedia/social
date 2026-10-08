@@ -1676,6 +1676,108 @@ export function foldMessageIntoPages<P extends { messages: MessageData[] }>(
   return appendMessageToLastPage(pages, toCachedMessage(message));
 }
 
+const TRANSCRIPT_MAX_MESSAGES = 800;
+const TRANSCRIPT_MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
+
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.codePointAt(index);
+    if (code === undefined) {
+      continue;
+    }
+    if (code <= 0x7f) {
+      bytes += 1;
+    } else if (code <= 0x7_ff) {
+      bytes += 2;
+    } else if (code <= 0xff_ff) {
+      bytes += 3;
+    } else {
+      bytes += 4;
+      index += 1;
+    }
+  }
+  return bytes;
+}
+
+function boundTranscriptPages(pages: MessagePage[]): {
+  droppedPages: number;
+  pages: MessagePage[];
+} {
+  const retained: MessagePage[] = [];
+  let messageCount = 0;
+  let ciphertextBytes = 0;
+  let exhausted = false;
+
+  for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
+    const page = pages[pageIndex];
+    if (!page) {
+      continue;
+    }
+    let firstRetainedIndex = page.messages.length;
+    while (!exhausted && firstRetainedIndex > 0) {
+      const candidate = page.messages[firstRetainedIndex - 1];
+      if (!candidate) {
+        firstRetainedIndex -= 1;
+        continue;
+      }
+      const candidateBytes = utf8ByteLength(candidate.ciphertext);
+      if (
+        messageCount >= TRANSCRIPT_MAX_MESSAGES ||
+        ciphertextBytes + candidateBytes > TRANSCRIPT_MAX_CIPHERTEXT_BYTES
+      ) {
+        exhausted = true;
+        break;
+      }
+      messageCount += 1;
+      ciphertextBytes += candidateBytes;
+      firstRetainedIndex -= 1;
+    }
+
+    if (firstRetainedIndex < page.messages.length) {
+      const messages = page.messages.slice(firstRetainedIndex);
+      if (firstRetainedIndex === 0) {
+        retained.unshift({ ...page, messages });
+      } else {
+        const { anchorIndex: _anchorIndex, ...pageWithoutAnchor } = page;
+        const [oldestRetained] = messages;
+        retained.unshift({
+          ...pageWithoutAnchor,
+          messages,
+          previousCursor: oldestRetained?.id ?? page.previousCursor,
+        });
+      }
+    } else if (page.messages.length === 0 && !exhausted) {
+      retained.unshift(page);
+    }
+
+    if (exhausted) {
+      break;
+    }
+  }
+
+  const droppedPages = pages.length - retained.length;
+  return { droppedPages, pages: retained };
+}
+
+// Folds into the latest transcript window while keeping the rows and ciphertext
+// retained by the cache within fixed limits. Any whole pages trimmed from the
+// front are removed from pageParams in lockstep so the cursor chain stays valid.
+export function foldMessageIntoBoundedData<TPageParam>(
+  data: { pageParams: TPageParam[]; pages: MessagePage[] },
+  message: MessageData
+): { pageParams: TPageParam[]; pages: MessagePage[] } | null {
+  const folded = foldMessageIntoPages(data.pages, message);
+  if (!folded) {
+    return null;
+  }
+  const bounded = boundTranscriptPages(folded);
+  return {
+    pageParams: data.pageParams.slice(bounded.droppedPages),
+    pages: bounded.pages,
+  };
+}
+
 // Replaces an existing message row in place across an infinite-query page list,
 // matching by id. Returns null when no page holds the id (an edit for a message
 // this session has not loaded), so callers can skip a needless cache write.

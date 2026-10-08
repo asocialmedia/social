@@ -50,6 +50,16 @@ export function messageWindowIncludesLatest(
   );
 }
 
+export function shouldFoldLiveMessage(input: {
+  pageParams: readonly MessageHistoryPageParam[];
+  pages: readonly MessagePage[];
+  pinned: boolean;
+}): boolean {
+  return (
+    input.pinned && messageWindowIncludesLatest(input.pages, input.pageParams)
+  );
+}
+
 // Newest last, matching every page the messages API returns.
 function isNewerThan(candidate: MessageData, reference: MessageData): boolean {
   const at = new Date(candidate.createdAt).getTime();

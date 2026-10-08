@@ -23,15 +23,19 @@ import { MessageAttachmentStrip } from "@/components/messages/message-attachment
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
+import { messageWindowIncludesLatest } from "@/lib/messages/anchored-window";
 import {
   MessagesApiError,
-  foldMessageIntoPages,
+  foldMessageIntoBoundedData,
   ensureConversationKeys,
   fetchConversationDetail,
   sendEncryptedMessage,
   sendTypingIndicator,
 } from "@/lib/messages/client";
-import type { ConversationDetailResponse } from "@/lib/messages/client";
+import type {
+  ConversationDetailResponse,
+  MessagePageAxis,
+} from "@/lib/messages/client";
 import {
   composerPlaceholder,
   replySenderFallbackName,
@@ -295,15 +299,16 @@ export function MessageComposer({
 
         // Fold the sent message into the cache (deduped against the SSE echo of
         // the same message) and clear the input.
-        queryClient.setQueryData(
+        queryClient.setQueryData<InfiniteData<MessagePage, MessagePageAxis>>(
           ["messages", conversation.conversation.id],
-          (old: unknown) => {
-            if (!old) {
+          (old) => {
+            if (
+              !old ||
+              !messageWindowIncludesLatest(old.pages, old.pageParams)
+            ) {
               return old;
             }
-            const data = old as InfiniteData<MessagePage, string | undefined>;
-            const nextPages = foldMessageIntoPages(data.pages, sent);
-            return nextPages ? { ...data, pages: nextPages } : old;
+            return foldMessageIntoBoundedData(old, sent) ?? old;
           }
         );
         if (!options?.preserveInput) {
