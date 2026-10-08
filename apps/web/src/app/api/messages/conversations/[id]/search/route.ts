@@ -1,10 +1,12 @@
 import {
   consumeRateLimit,
+  enqueueMessageSearchCount,
   enqueueMessageSearchBackfill,
   fromPrismaDateTime,
   keys,
   listDenMembershipEvents,
   prisma,
+  requestMessageSearchCount,
   searchMessageCandidates,
   startMessageSearchBackfill,
 } from "@asm/db";
@@ -16,6 +18,7 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { readerMessageWindows } from "@/lib/messages/reader-window";
+import { createMessageSearchCountToken } from "@/lib/messages/search-count-token";
 import {
   createMessageSearchCursor,
   messageSearchQueryHash,
@@ -233,14 +236,58 @@ export async function POST(
           )
         : null;
     const completedChangeSequence = coverage?.completedChangeSeq ?? 0;
+    const coverageComplete =
+      coverage?.backfillCompletedAt !== null &&
+      coverage?.backfillCompletedAt !== undefined &&
+      completedChangeSequence >= effectiveSnapshotSequence &&
+      coverage.unrecoverableEpochs === 0;
+    let countToken: string | null = null;
+    if (!rawBody.cursor && hasMore && coverageComplete) {
+      try {
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+        const countRequest = await requestMessageSearchCount({
+          conversationId,
+          expiresAt,
+          fragments: normalized.tokens.map((text) => ({
+            grams: messageSearchGramKeys(text),
+            text,
+          })),
+          membershipSequence: conversation.membershipSeq ?? 0,
+          membershipWindows: windows,
+          normalizationVersion: MESSAGE_SEARCH_NORMALIZATION_VERSION,
+          queryHash,
+          recoveryGeneration,
+          snapshotSequence: effectiveSnapshotSequence,
+          userId: user.id,
+        });
+        countToken = createMessageSearchCountToken(
+          {
+            conversationId,
+            expiresAt: countRequest.expiresAt.toISOString(),
+            membershipSequence: conversation.membershipSeq ?? 0,
+            normalizationVersion: MESSAGE_SEARCH_NORMALIZATION_VERSION,
+            queryHash,
+            recoveryGeneration,
+            requestId: countRequest.id,
+            snapshotSequence: effectiveSnapshotSequence,
+            userId: user.id,
+          },
+          keys.VIEWER_HASH_SECRET
+        );
+        if (countRequest.state === "pending") {
+          await enqueueMessageSearchCount(countRequest.id).catch(() => {
+            console.error("Failed to enqueue a DM search count request");
+          });
+        }
+      } catch {
+        console.error("Failed to create a DM search count request");
+      }
+    }
     return Response.json({
+      countToken,
       coverage: {
         artifactsCommitted: coverage?.artifactsCommitted ?? 0,
-        complete:
-          coverage?.backfillCompletedAt !== null &&
-          coverage?.backfillCompletedAt !== undefined &&
-          completedChangeSequence >= effectiveSnapshotSequence &&
-          coverage.unrecoverableEpochs === 0,
+        complete: coverageComplete,
         completedChangeSequence,
         rowsTraversed: coverage?.rowsTraversed ?? 0,
         snapshotSequence: effectiveSnapshotSequence,

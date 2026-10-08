@@ -30,6 +30,16 @@ const mockStartBackfill = mock(() =>
   })
 );
 const mockEnqueueBackfill = mock(() => Promise.resolve());
+const mockEnqueueCount = mock(() => Promise.resolve());
+const mockRequestCount = mock((input: Record<string, unknown>) =>
+  Promise.resolve({
+    ...input,
+    exactCount: null,
+    id: "count-request-1",
+    state: "pending",
+    userId: "user-1",
+  })
+);
 const mockListMembershipEvents = mock(() => Promise.resolve([]));
 const mockSearchCandidates = mock(() => Promise.resolve([] as object[]));
 const mockChangeSequence = mock(() => ({ changeSeq: 90 }));
@@ -51,6 +61,7 @@ mock.module("@/lib/messages/server", () => ({
 mock.module("@asm/db", () => ({
   consumeRateLimit: mockRateLimit,
   enqueueMessageSearchBackfill: mockEnqueueBackfill,
+  enqueueMessageSearchCount: mockEnqueueCount,
   fromPrismaDateTime: (value: Date) => value,
   keys: { VIEWER_HASH_SECRET: "test-search-cursor-secret" },
   listDenMembershipEvents: mockListMembershipEvents,
@@ -67,6 +78,7 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  requestMessageSearchCount: mockRequestCount,
   searchMessageCandidates: (input: Record<string, unknown>) => {
     candidateInput = input;
     return mockSearchCandidates();
@@ -121,6 +133,17 @@ describe("POST /api/messages/conversations/:id/search", () => {
       })
     );
     mockEnqueueBackfill.mockClear();
+    mockEnqueueCount.mockClear();
+    mockRequestCount.mockReset();
+    mockRequestCount.mockImplementation((input: Record<string, unknown>) =>
+      Promise.resolve({
+        ...input,
+        exactCount: null,
+        id: "count-request-1",
+        state: "pending",
+        userId: "user-1",
+      })
+    );
     mockListMembershipEvents.mockClear();
     mockSearchCandidates.mockReset();
     mockSearchCandidates.mockReturnValue(Promise.resolve([]));
@@ -225,6 +248,46 @@ describe("POST /api/messages/conversations/:id/search", () => {
     const body = (await response.json()) as { coverage: { complete: boolean } };
     expect(body.coverage.complete).toBe(true);
     expect(mockEnqueueBackfill).not.toHaveBeenCalled();
+  });
+
+  test("creates a separately queued count only for a complete multi-page search", async () => {
+    mockStartBackfill.mockReturnValueOnce(
+      Promise.resolve({
+        completedAt: new Date("2026-10-08T00:01:00.000Z"),
+        expectedPosition: { createdAt: null, messageId: null },
+        throughSequence: 90,
+      })
+    );
+    mockCoverage.mockReturnValueOnce({
+      artifactsCommitted: 100,
+      backfillCompletedAt: new Date("2026-10-08T00:01:00.000Z"),
+      completedChangeSeq: 90,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+    mockSearchCandidates.mockReturnValueOnce(
+      Promise.resolve(
+        Array.from({ length: 21 }, (_, index) => ({
+          ciphertext: "ciphertext",
+          createdAt: new Date("2026-10-08T00:00:00.000Z"),
+          id: `message-${index}`,
+          iv: "iv",
+          keyEpoch: 1,
+          ratchetIndex: index,
+          revision: 1,
+          senderId: "user-1",
+        }))
+      )
+    );
+    const response = await POST(request({ query: "needle" }), context);
+    const body = (await response.json()) as {
+      countToken: string | null;
+      hits: unknown[];
+    };
+    expect(body.hits).toHaveLength(20);
+    expect(body.countToken).toBeString();
+    expect(mockRequestCount).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueCount).toHaveBeenCalledWith("count-request-1");
   });
 
   test("pins later pages to the original snapshot and stable keyset", async () => {

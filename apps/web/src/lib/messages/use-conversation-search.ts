@@ -118,6 +118,7 @@ const EMPTY_MATCH_IDS: string[] = [];
 
 interface ServerSearchPage {
   coverageComplete: boolean;
+  countToken: string | null;
   hits: MessageData[];
   nextCursor: string | null;
 }
@@ -453,12 +454,17 @@ export function useConversationSearch(
           (coverage as Record<string, unknown>).complete === true;
         const nextCursor =
           typeof body.nextCursor === "string" ? body.nextCursor : null;
+        const countToken =
+          typeof body.countToken === "string" ? body.countToken : null;
         if (!cancelled) {
           setServerPageState((current) => {
             const pages = current.key === requestKey ? current.pages : [];
             return {
               key: requestKey,
-              pages: [...pages, { coverageComplete, hits, nextCursor }],
+              pages: [
+                ...pages,
+                { countToken, coverageComplete, hits, nextCursor },
+              ],
             };
           });
           setServerRequest({ error: null, key: requestKey, loading: false });
@@ -498,6 +504,79 @@ export function useConversationSearch(
     () => serverPages.flatMap((page) => page.hits),
     [serverPages]
   );
+  const serverCountToken = serverPages[0]?.countToken ?? null;
+  const [serverCount, setServerCount] = useState<{
+    count: number;
+    key: string;
+  } | null>(null);
+  const serverCountKey = `${serverSearchKey}\u0000${serverCountToken ?? ""}`;
+  useEffect(() => {
+    if (!serverMode || !enabled || !serverCountToken) {
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
+    let delayMs = 1000;
+    const pollCount = async () => {
+      controller = new AbortController();
+      try {
+        const response = await fetch(
+          `/api/messages/conversations/${encodeURIComponent(conversationId)}/search/count`,
+          {
+            body: JSON.stringify({ token: serverCountToken }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+            signal: controller.signal,
+          }
+        );
+        if (cancelled) {
+          return;
+        }
+        if (response.ok) {
+          const payload: unknown = await response.json();
+          if (typeof payload === "object" && payload !== null) {
+            const body = payload as Record<string, unknown>;
+            if (
+              body.state === "exact" &&
+              typeof body.count === "number" &&
+              Number.isSafeInteger(body.count) &&
+              body.count >= 0
+            ) {
+              setServerCount({ count: body.count, key: serverCountKey });
+              return;
+            }
+            if (body.state === "unavailable") {
+              return;
+            }
+          }
+        } else if (response.status === 429) {
+          const retryAfter = Number(response.headers.get("Retry-After"));
+          if (Number.isFinite(retryAfter) && retryAfter > 0) {
+            delayMs = Math.max(delayMs, retryAfter * 1000);
+          }
+        }
+      } catch {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+      }
+      if (!cancelled) {
+        timer = setTimeout(() => {
+          /* empty */
+        }, delayMs);
+        delayMs = Math.min(delayMs * 2, 10_000);
+      }
+    };
+    void pollCount();
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+      controller?.abort();
+    };
+  }, [conversationId, enabled, serverCountKey, serverCountToken, serverMode]);
   const searchMessages = useMemo(
     () => (serverMode ? serverMessages : allMessages),
     [allMessages, serverMessages, serverMode]
@@ -1117,9 +1196,17 @@ export function useConversationSearch(
   );
   const lastServerPage = serverPages.at(-1);
   const serverHasMore =
-    lastServerPage !== undefined && lastServerPage.nextCursor !== null;
+    serverCount?.key !== serverCountKey &&
+    ((lastServerPage !== undefined && lastServerPage.nextCursor !== null) ||
+      (serverMode &&
+        enabled &&
+        normalizeMessageSearchQuery(debouncedQuery).valid &&
+        (serverPages.length === 0 ||
+          serverPages.at(-1)?.coverageComplete !== true)));
+  const serverExactCount =
+    serverCount?.key === serverCountKey ? serverCount.count : null;
   const serverTotalMatches = serverMode
-    ? serverKnownHitCount + (serverHasMore ? 1 : 0)
+    ? (serverExactCount ?? serverKnownHitCount + (serverHasMore ? 1 : 0))
     : 0;
   const serverRequestCurrent = serverRequest.key === serverSearchKey;
   const serverSearchError = serverRequestCurrent ? serverRequest.error : null;

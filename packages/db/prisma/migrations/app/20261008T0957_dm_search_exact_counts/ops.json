@@ -1,0 +1,192 @@
+[
+  {
+    "id": "table.message_search_count_requests",
+    "label": "Create table \"message_search_count_requests\"",
+    "summary": "Creates table \"message_search_count_requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_count_requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_count_requests\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_count_requests\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_count_requests\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_count_requests\" (\n  \"attempts\" int4 DEFAULT 0 NOT NULL,\n  \"completedAt\" timestamp(3),\n  \"conversationId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"exactCount\" int4,\n  \"expiresAt\" timestamp(3) NOT NULL,\n  \"fragments\" jsonb,\n  \"id\" text NOT NULL,\n  \"leaseUntil\" timestamp(3),\n  \"membershipSequence\" int4 NOT NULL,\n  \"membershipWindows\" jsonb,\n  \"normalizationVersion\" int4 NOT NULL,\n  \"queryHash\" text NOT NULL,\n  \"recoveryGeneration\" int4 NOT NULL,\n  \"requestKey\" text NOT NULL,\n  \"snapshotSequence\" int4 NOT NULL,\n  \"state\" text DEFAULT 'pending' NOT NULL,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_search_count_requests_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_count_requests\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_count_requests\""]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_search_count_requests.message_search_count_requests_request_key_key",
+    "label": "Add unique constraint on \"message_search_count_requests\" (requestKey)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_search_count_requests_request_key_key",
+        "table": "message_search_count_requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_search_count_requests_request_key_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_search_count_requests_request_key_key",
+          "public",
+          "\"public\".\"message_search_count_requests\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_search_count_requests_request_key_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_count_requests\" ADD CONSTRAINT \"message_search_count_requests_request_key_key\" UNIQUE (\"requestKey\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_search_count_requests_request_key_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_search_count_requests_request_key_key",
+          "public",
+          "\"public\".\"message_search_count_requests\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_count_requests.message_search_count_requests_expires_idx",
+    "label": "Create index \"message_search_count_requests_expires_idx\" on \"message_search_count_requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_count_requests_expires_idx",
+        "table": "message_search_count_requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_count_requests_expires_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_count_requests_expires_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_count_requests_expires_idx\"",
+        "sql": "CREATE INDEX \"message_search_count_requests_expires_idx\" ON \"public\".\"message_search_count_requests\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_count_requests_expires_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_count_requests_expires_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_count_requests.message_search_count_requests_scope_created_idx",
+    "label": "Create index \"message_search_count_requests_scope_created_idx\" on \"message_search_count_requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_count_requests_scope_created_idx",
+        "table": "message_search_count_requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_count_requests_scope_created_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_count_requests_scope_created_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_count_requests_scope_created_idx\"",
+        "sql": "CREATE INDEX \"message_search_count_requests_scope_created_idx\" ON \"public\".\"message_search_count_requests\" (\"userId\", \"conversationId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_count_requests_scope_created_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_count_requests_scope_created_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_count_requests.message_search_count_requests_state_created_idx",
+    "label": "Create index \"message_search_count_requests_state_created_idx\" on \"message_search_count_requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_count_requests_state_created_idx",
+        "table": "message_search_count_requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_count_requests_state_created_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_count_requests_state_created_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_count_requests_state_created_idx\"",
+        "sql": "CREATE INDEX \"message_search_count_requests_state_created_idx\" ON \"public\".\"message_search_count_requests\" (\"state\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_count_requests_state_created_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_search_count_requests_state_created_idx\""
+        ]
+      }
+    ]
+  }
+]

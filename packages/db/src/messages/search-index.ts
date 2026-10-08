@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
 
@@ -49,6 +49,48 @@ export interface SearchCandidateQuery {
   limit: number;
   membershipWindows: readonly SearchMessageWindow[];
   snapshotSequence: number;
+  userId: string;
+}
+
+export interface MessageSearchCountRequestInput {
+  conversationId: string;
+  expiresAt: Date;
+  fragments: readonly { grams: readonly string[]; text: string }[];
+  membershipSequence: number;
+  membershipWindows: readonly SearchMessageWindow[];
+  normalizationVersion: number;
+  queryHash: string;
+  recoveryGeneration: number;
+  snapshotSequence: number;
+  userId: string;
+}
+
+export interface MessageSearchCountRequest {
+  attempts: number;
+  conversationId: string;
+  expiresAt: Date;
+  fragments: { grams: string[]; text: string }[];
+  id: string;
+  membershipSequence: number;
+  membershipWindows: SearchMessageWindow[];
+  normalizationVersion: number;
+  queryHash: string;
+  recoveryGeneration: number;
+  snapshotSequence: number;
+  userId: string;
+}
+
+export interface MessageSearchCountRequestStatus {
+  conversationId: string;
+  exactCount: number | null;
+  expiresAt: Date;
+  id: string;
+  membershipSequence: number;
+  normalizationVersion: number;
+  queryHash: string;
+  recoveryGeneration: number;
+  snapshotSequence: number;
+  state: "cancelled" | "exact" | "pending" | "running" | "unavailable";
   userId: string;
 }
 
@@ -131,6 +173,420 @@ export interface MessageSearchBackfillArtifact {
 
 function pgTimestamp(value: Date): string {
   return value.toISOString().replace("T", " ").replace("Z", "");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function decodeCountFragments(
+  value: unknown
+): { grams: string[]; text: string }[] | null {
+  const parsed = typeof value === "string" ? safeJsonParse(value) : value;
+  if (!Array.isArray(parsed)) {
+    return null;
+  }
+  const fragments: { grams: string[]; text: string }[] = [];
+  for (const item of parsed) {
+    if (
+      !isRecord(item) ||
+      typeof item.text !== "string" ||
+      !Array.isArray(item.grams) ||
+      !item.grams.every((gram) => typeof gram === "string")
+    ) {
+      return null;
+    }
+    fragments.push({ grams: item.grams, text: item.text });
+  }
+  return fragments.length > 0 ? fragments : null;
+}
+
+function decodeCountWindows(value: unknown): SearchMessageWindow[] | null {
+  const parsed = typeof value === "string" ? safeJsonParse(value) : value;
+  if (!Array.isArray(parsed)) {
+    return null;
+  }
+  const windows: SearchMessageWindow[] = [];
+  for (const item of parsed) {
+    if (
+      !isRecord(item) ||
+      (item.after !== null && typeof item.after !== "string") ||
+      (item.before !== null && typeof item.before !== "string")
+    ) {
+      return null;
+    }
+    const after = item.after === null ? null : new Date(item.after);
+    const before = item.before === null ? null : new Date(item.before);
+    if (
+      (after && !Number.isFinite(after.getTime())) ||
+      (before && !Number.isFinite(before.getTime()))
+    ) {
+      return null;
+    }
+    windows.push({ after, before });
+  }
+  return windows;
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function messageSearchCountRequestKey(
+  input: MessageSearchCountRequestInput
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        input.userId,
+        input.conversationId,
+        input.queryHash,
+        input.normalizationVersion,
+        input.snapshotSequence,
+        input.membershipSequence,
+        input.recoveryGeneration,
+      ])
+    )
+    .digest("hex");
+}
+
+export async function requestMessageSearchCount(
+  input: MessageSearchCountRequestInput
+): Promise<MessageSearchCountRequestStatus> {
+  const client = await getSearchPool().connect();
+  const requestKey = messageSearchCountRequestKey(input);
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+      [`${input.userId}:${input.conversationId}`]
+    );
+    const existingResult = await client.query<{
+      conversationId: string;
+      exactCount: number | null;
+      expiresAt: Date;
+      id: string;
+      membershipSequence: number;
+      normalizationVersion: number;
+      queryHash: string;
+      recoveryGeneration: number;
+      snapshotSequence: number;
+      state: MessageSearchCountRequestStatus["state"];
+      userId: string;
+    }>(
+      `SELECT id, state, "exactCount", "expiresAt", "userId", "conversationId",
+              "queryHash", "normalizationVersion", "snapshotSequence",
+              "membershipSequence", "recoveryGeneration"
+         FROM public.message_search_count_requests
+        WHERE "requestKey" = $1
+        FOR UPDATE`,
+      [requestKey]
+    );
+    const [existing] = existingResult.rows;
+    if (
+      existing &&
+      existing.expiresAt.getTime() > Date.now() &&
+      ["pending", "running", "exact"].includes(existing.state)
+    ) {
+      await client.query(
+        `UPDATE public.message_search_count_requests
+            SET state = 'cancelled', fragments = NULL, "membershipWindows" = NULL,
+                "leaseUntil" = NULL, "completedAt" = now(), "updatedAt" = now()
+          WHERE "userId" = $1 AND "conversationId" = $2
+            AND id <> $3 AND state IN ('pending', 'running')`,
+        [input.userId, input.conversationId, existing.id]
+      );
+      await client.query("COMMIT");
+      return existing;
+    }
+    if (existing) {
+      await client.query(
+        `DELETE FROM public.message_search_count_requests WHERE id = $1`,
+        [existing.id]
+      );
+    }
+    await client.query(
+      `UPDATE public.message_search_count_requests
+          SET state = 'cancelled', fragments = NULL, "membershipWindows" = NULL,
+              "leaseUntil" = NULL, "completedAt" = now(), "updatedAt" = now()
+        WHERE "userId" = $1 AND "conversationId" = $2
+          AND state IN ('pending', 'running')`,
+      [input.userId, input.conversationId]
+    );
+    const inserted = await client.query<{
+      conversationId: string;
+      exactCount: number | null;
+      expiresAt: Date;
+      id: string;
+      membershipSequence: number;
+      normalizationVersion: number;
+      queryHash: string;
+      recoveryGeneration: number;
+      snapshotSequence: number;
+      state: MessageSearchCountRequestStatus["state"];
+      userId: string;
+    }>(
+      `INSERT INTO public.message_search_count_requests
+         (id, "requestKey", "userId", "conversationId", "queryHash",
+          "normalizationVersion", "snapshotSequence", "membershipSequence",
+          "recoveryGeneration", fragments, "membershipWindows", state,
+          "expiresAt", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb,
+               'pending', $12, now(), now())
+       RETURNING id, state, "exactCount", "expiresAt", "userId", "conversationId",
+                 "queryHash", "normalizationVersion", "snapshotSequence",
+                 "membershipSequence", "recoveryGeneration"`,
+      [
+        randomUUID(),
+        requestKey,
+        input.userId,
+        input.conversationId,
+        input.queryHash,
+        input.normalizationVersion,
+        input.snapshotSequence,
+        input.membershipSequence,
+        input.recoveryGeneration,
+        JSON.stringify(input.fragments),
+        JSON.stringify(
+          input.membershipWindows.map((window) => ({
+            after: window.after?.toISOString() ?? null,
+            before: window.before?.toISOString() ?? null,
+          }))
+        ),
+        input.expiresAt,
+      ]
+    );
+    const [created] = inserted.rows;
+    if (!created) {
+      throw new Error("Search count request insert returned no row");
+    }
+    await client.query("COMMIT");
+    return created;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getMessageSearchCountRequestStatus(input: {
+  id: string;
+  userId: string;
+  conversationId: string;
+}): Promise<MessageSearchCountRequestStatus | null> {
+  const result = await getSearchPool().query<MessageSearchCountRequestStatus>(
+    `SELECT id, state, "exactCount", "expiresAt", "userId", "conversationId",
+            "queryHash", "normalizationVersion", "snapshotSequence",
+            "membershipSequence", "recoveryGeneration"
+       FROM public.message_search_count_requests
+      WHERE id = $1 AND "userId" = $2 AND "conversationId" = $3
+      LIMIT 1`,
+    [input.id, input.userId, input.conversationId]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function listRunnableMessageSearchCounts(
+  limit: number
+): Promise<string[]> {
+  const result = await getSearchPool().query<{ id: string }>(
+    `SELECT request.id
+       FROM public.message_search_count_requests AS request
+       JOIN public.message_search_coverage AS coverage
+         ON coverage."conversationId" = request."conversationId"
+       JOIN public.message_conversations AS conversation
+         ON conversation.id = request."conversationId"
+       LEFT JOIN public.message_search_account_state AS account
+         ON account."userId" = request."userId"
+      WHERE request."expiresAt" > now()
+        AND (request.state = 'pending'
+          OR (request.state = 'running' AND request."leaseUntil" <= now()))
+        AND coverage."backfillCompletedAt" IS NOT NULL
+        AND coverage."completedChangeSeq" >= request."snapshotSequence"
+        AND coverage."unrecoverableEpochs" = 0
+        AND conversation."changeSeq" = request."snapshotSequence"
+        AND conversation."membershipSeq" = request."membershipSequence"
+        AND COALESCE(account."recoveryGeneration", 0) = request."recoveryGeneration"
+      ORDER BY request."createdAt" ASC
+      LIMIT $1`,
+    [Math.min(Math.max(Math.trunc(limit), 1), 100)]
+  );
+  return result.rows.map((row) => row.id);
+}
+
+export async function expireStaleMessageSearchCounts(): Promise<void> {
+  await getSearchPool().query(
+    `UPDATE public.message_search_count_requests AS request
+        SET state = 'unavailable', fragments = NULL, "membershipWindows" = NULL,
+            "leaseUntil" = NULL, "completedAt" = now(), "updatedAt" = now()
+      WHERE request.state IN ('pending', 'running')
+        AND (request."expiresAt" <= now()
+          OR NOT EXISTS (
+            SELECT 1
+              FROM public.message_search_coverage AS coverage
+             WHERE coverage."conversationId" = request."conversationId"
+               AND coverage."backfillCompletedAt" IS NOT NULL
+               AND coverage."completedChangeSeq" >= request."snapshotSequence"
+               AND coverage."unrecoverableEpochs" = 0
+          )
+          OR EXISTS (
+            SELECT 1
+              FROM public.message_conversations AS conversation
+             WHERE conversation.id = request."conversationId"
+               AND (conversation."changeSeq" <> request."snapshotSequence"
+                 OR conversation."membershipSeq" <> request."membershipSequence")
+          )
+          OR COALESCE((
+            SELECT account."recoveryGeneration"
+              FROM public.message_search_account_state AS account
+             WHERE account."userId" = request."userId"
+          ), 0) <> request."recoveryGeneration")`
+  );
+}
+
+export async function claimMessageSearchCountRequest(
+  id: string
+): Promise<MessageSearchCountRequest | null> {
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query<{
+      attempts: number;
+      conversationId: string;
+      expiresAt: Date;
+      fragments: unknown;
+      id: string;
+      membershipSequence: number;
+      membershipWindows: unknown;
+      normalizationVersion: number;
+      queryHash: string;
+      recoveryGeneration: number;
+      snapshotSequence: number;
+      userId: string;
+    }>(
+      `SELECT request.id, request."userId", request."conversationId",
+              request."queryHash", request."normalizationVersion",
+              request."snapshotSequence", request."membershipSequence",
+              request."recoveryGeneration", request.fragments,
+              request."membershipWindows", request.attempts, request."expiresAt"
+         FROM public.message_search_count_requests AS request
+         JOIN public.message_search_coverage AS coverage
+           ON coverage."conversationId" = request."conversationId"
+         JOIN public.message_conversations AS conversation
+           ON conversation.id = request."conversationId"
+         LEFT JOIN public.message_search_account_state AS account
+           ON account."userId" = request."userId"
+        WHERE request.id = $1
+          AND request."expiresAt" > now()
+          AND (request.state = 'pending'
+            OR (request.state = 'running' AND request."leaseUntil" <= now()))
+          AND coverage."backfillCompletedAt" IS NOT NULL
+          AND coverage."completedChangeSeq" >= request."snapshotSequence"
+          AND coverage."unrecoverableEpochs" = 0
+          AND conversation."changeSeq" = request."snapshotSequence"
+          AND conversation."membershipSeq" = request."membershipSequence"
+          AND COALESCE(account."recoveryGeneration", 0) = request."recoveryGeneration"
+        FOR UPDATE OF request SKIP LOCKED`,
+      [id]
+    );
+    const [row] = selected.rows;
+    if (!row) {
+      await client.query("COMMIT");
+      return null;
+    }
+    const fragments = decodeCountFragments(row.fragments);
+    const membershipWindows = decodeCountWindows(row.membershipWindows);
+    if (!fragments || !membershipWindows) {
+      await client.query(
+        `UPDATE public.message_search_count_requests
+            SET state = 'unavailable', fragments = NULL, "membershipWindows" = NULL,
+                "leaseUntil" = NULL, "completedAt" = now(), "updatedAt" = now()
+          WHERE id = $1`,
+        [id]
+      );
+      await client.query("COMMIT");
+      return null;
+    }
+    if (row.attempts >= 8) {
+      await client.query(
+        `UPDATE public.message_search_count_requests
+            SET state = 'unavailable', fragments = NULL, "membershipWindows" = NULL,
+                "leaseUntil" = NULL, "completedAt" = now(), "updatedAt" = now()
+          WHERE id = $1`,
+        [id]
+      );
+      await client.query("COMMIT");
+      return null;
+    }
+    const lease = await client.query(
+      `UPDATE public.message_search_count_requests
+          SET state = 'running', attempts = attempts + 1,
+              "leaseUntil" = now() + interval '2 minutes', "updatedAt" = now()
+        WHERE id = $1`,
+      [id]
+    );
+    if (lease.rowCount !== 1) {
+      throw new Error("Search count request lease was not acquired");
+    }
+    await client.query("COMMIT");
+    return {
+      attempts: row.attempts + 1,
+      conversationId: row.conversationId,
+      expiresAt: row.expiresAt,
+      fragments,
+      id: row.id,
+      membershipSequence: row.membershipSequence,
+      membershipWindows,
+      normalizationVersion: row.normalizationVersion,
+      queryHash: row.queryHash,
+      recoveryGeneration: row.recoveryGeneration,
+      snapshotSequence: row.snapshotSequence,
+      userId: row.userId,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function completeMessageSearchCountRequest(
+  id: string,
+  exactCount: number
+): Promise<void> {
+  if (!Number.isSafeInteger(exactCount) || exactCount < 0) {
+    throw new Error("Search count result is outside the supported range");
+  }
+  await getSearchPool().query(
+    `UPDATE public.message_search_count_requests
+        SET state = 'exact', "exactCount" = $2, fragments = NULL,
+            "membershipWindows" = NULL, "leaseUntil" = NULL,
+            "completedAt" = now(), "updatedAt" = now()
+      WHERE id = $1 AND state = 'running' AND "expiresAt" > now()`,
+    [id, exactCount]
+  );
+}
+
+export async function releaseMessageSearchCountRequest(
+  id: string
+): Promise<void> {
+  await getSearchPool().query(
+    `UPDATE public.message_search_count_requests
+        SET state = CASE WHEN attempts >= 8 THEN 'unavailable' ELSE 'pending' END,
+            fragments = CASE WHEN attempts >= 8 THEN NULL ELSE fragments END,
+            "membershipWindows" = CASE WHEN attempts >= 8 THEN NULL ELSE "membershipWindows" END,
+            "leaseUntil" = NULL,
+            "completedAt" = CASE WHEN attempts >= 8 THEN now() ELSE NULL END,
+            "updatedAt" = now()
+      WHERE id = $1 AND state = 'running'`,
+    [id]
+  );
 }
 
 export async function commitMessageSearchMutation(
@@ -845,6 +1301,12 @@ export async function searchMessageCandidates(
         AND m."deletedAt" IS NULL
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_search_outbox AS newer_revision
+           WHERE newer_revision."messageId" = m.id
+             AND newer_revision."changeSequence" > $4
+        )
         AND EXISTS (
           SELECT 1
             FROM public.message_conversation_keys AS readable_key
@@ -897,6 +1359,97 @@ export async function searchMessageCandidates(
     ]
   );
   return result.rows;
+}
+
+export async function countMessageSearchCandidates(input: {
+  conversationId: string;
+  fragments: readonly { grams: readonly string[]; text: string }[];
+  membershipWindows: readonly SearchMessageWindow[];
+  snapshotSequence: number;
+  userId: string;
+}): Promise<number> {
+  const windows = input.membershipWindows.map((window) => ({
+    after: window.after ? pgTimestamp(window.after) : null,
+    before: window.before ? pgTimestamp(window.before) : null,
+  }));
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL statement_timeout = '120s'`);
+    const result = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM public.message_search_documents AS d
+         JOIN public.messages AS m
+           ON m.id = d."messageId"
+          AND m."conversationId" = d."conversationId"
+          AND m.revision = d.revision
+         JOIN public.message_conversation_members AS member
+           ON member."conversationId" = d."conversationId"
+          AND member."userId" = $2
+        WHERE d."conversationId" = $1
+          AND m."deletedAt" IS NULL
+          AND m."keyEpoch" IS NOT NULL
+          AND m."creationSequence" <= $4
+          AND NOT EXISTS (
+            SELECT 1
+              FROM public.message_search_outbox AS newer_revision
+             WHERE newer_revision."messageId" = m.id
+               AND newer_revision."changeSequence" > $4
+          )
+          AND EXISTS (
+            SELECT 1
+              FROM public.message_conversation_keys AS readable_key
+             WHERE readable_key."conversationId" = d."conversationId"
+               AND readable_key."ownerUserId" = $2
+               AND readable_key.version = m."keyEpoch"
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM public.message_hidden AS hidden
+             WHERE hidden."messageId" = m.id AND hidden."userId" = $2
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements($3::jsonb) AS fragment
+             WHERE NOT EXISTS (
+               SELECT 1
+                 FROM public.message_search_terms AS term
+                WHERE term."conversationId" = d."conversationId"
+                  AND d."termIds" @> ARRAY[term.id]
+                  AND term."gramKeys" @> ARRAY(
+                    SELECT jsonb_array_elements_text(fragment.value->'grams')
+                  )
+                  AND strpos(term.normalized, fragment.value->>'text') > 0
+             )
+          )
+          AND (
+            $5::jsonb IS NULL OR EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements($5::jsonb) AS membership_window
+               WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+                 AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
+            )
+          )`,
+      [
+        input.conversationId,
+        input.userId,
+        JSON.stringify(input.fragments),
+        input.snapshotSequence,
+        JSON.stringify(windows),
+      ]
+    );
+    const count = Number(result.rows[0]?.count);
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new Error("Search count is outside the supported integer range");
+    }
+    await client.query("COMMIT");
+    return count;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function closeMessageSearchPool(): Promise<void> {

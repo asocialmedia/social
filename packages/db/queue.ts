@@ -473,6 +473,24 @@ export async function enqueueMessageSearchBackfill(
   );
 }
 
+export async function enqueueMessageSearchCount(
+  requestId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_COUNT_QUEUE),
+    "count-conversation-search",
+    `dm-search-count-${requestId}`,
+    { requestId },
+    {
+      attempts: 8,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      priority: 20,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
 export async function enqueueMediaScan(
   mediaId: string,
   options?: { backfill?: boolean; jobIdSuffix?: string }

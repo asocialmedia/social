@@ -1035,6 +1035,33 @@ namespace public {
     @@map("message_search_account_state")
   }
 
+  model MessageSearchCountRequests {
+    id                    String    @id(map: "message_search_count_requests_pkey") @default(uuid())
+    requestKey            String    @unique(map: "message_search_count_requests_request_key_key")
+    userId                String
+    conversationId        String
+    queryHash             String
+    normalizationVersion  Int
+    snapshotSequence      Int
+    membershipSequence   Int
+    recoveryGeneration    Int
+    fragments             Jsonb?
+    membershipWindows     Jsonb?
+    state                 String    @default("pending")
+    exactCount            Int?
+    attempts              Int       @default(0)
+    expiresAt             Timestamp(3)
+    leaseUntil            Timestamp(3)?
+    completedAt           Timestamp(3)?
+    createdAt             Timestamp(3) @default(now())
+    updatedAt             Timestamp(3) @default(now())
+
+    @@index([state, createdAt], map: "message_search_count_requests_state_created_idx")
+    @@index([userId, conversationId, createdAt], map: "message_search_count_requests_scope_created_idx")
+    @@index([expiresAt], map: "message_search_count_requests_expires_idx")
+    @@map("message_search_count_requests")
+  }
+
   model Notifications {
     id          String                    @id(map: "notifications_pkey") @default(uuid())
     recipientId String

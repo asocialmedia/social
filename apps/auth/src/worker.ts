@@ -25,9 +25,12 @@ if (import.meta.main) {
 
   const {
     ensureStreamGroups,
+    enqueueMessageSearchCount,
     enqueueMessageSearchBackfill,
     enqueueMessageSearchBackfillOutbox,
     enqueueMessageSearchOutbox,
+    expireStaleMessageSearchCounts,
+    listRunnableMessageSearchCounts,
     listRunnableMessageSearchBackfills,
     registerMaintenanceSchedulers,
     createBullConnection,
@@ -53,6 +56,8 @@ if (import.meta.main) {
   } = await import("./worker/jobs");
   const { processMessageSearchBackfill, processMessageSearchOutbox } =
     await import("./worker/message-search-index");
+  const { processMessageSearchCount } =
+    await import("./worker/message-search-count");
   const { prisma } = await import("@asm/db");
 
   const workers: QueueWorkerType[] = [];
@@ -166,6 +171,11 @@ if (import.meta.main) {
             )
           )
         );
+        await expireStaleMessageSearchCounts();
+        const countRequests = await listRunnableMessageSearchCounts(20);
+        await Promise.all(
+          countRequests.map((requestId) => enqueueMessageSearchCount(requestId))
+        );
       } catch (error) {
         logger.error({ error }, "message search outbox sweep failed");
       }
@@ -190,6 +200,11 @@ if (import.meta.main) {
           );
         }
       },
+      { concurrency: 1, connection }
+    );
+    const messageSearchCountWorker = new QueueWorker(
+      "message-search-count",
+      (job) => processMessageSearchCount(job.data.requestId, logger),
       { concurrency: 1, connection }
     );
     await sweepMessageSearchOutbox();
@@ -295,7 +310,8 @@ if (import.meta.main) {
       notificationWorker,
       maintenanceWorker,
       messageSearchLiveWorker,
-      messageSearchBackfillWorker
+      messageSearchBackfillWorker,
+      messageSearchCountWorker
     );
 
     notificationWorker.on("completed", (job) => {
