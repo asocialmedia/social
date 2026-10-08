@@ -232,15 +232,14 @@ export function createMessageIndexBackfill(
   // The cursor only ever moves forward through committed pages, so a failed or
   // aborted page leaves the persisted position pointing at real indexed history.
   //
-  // `refsReachedStart` is written here, alongside `reachedStart` and never
-  // separately, because the two mean the same range: a run that reached the oldest
-  // message derived that message's shared refs on the way, in the same writer pass.
-  // Writing them in one place is what keeps the verdict from claiming a text
-  // coverage the refs index does not share.
+  // Both verdicts are written with the cursor, but they answer different
+  // questions: `reachedStart` records traversal, while `refsReachedStart` is
+  // true only after every encountered artifact has settled.
   async function persistCursor(
     oldestReachedId: string | null,
     reachedStart: boolean,
-    chainVerified: boolean
+    chainVerified: boolean,
+    refsReachedStart: boolean
   ): Promise<void> {
     try {
       const existing =
@@ -251,7 +250,7 @@ export function createMessageIndexBackfill(
         cursorVerified: chainVerified,
         indexedThroughId: oldestReachedId,
         reachedStart,
-        refsReachedStart: reachedStart,
+        refsReachedStart,
         updatedAt: Date.now(),
       });
     } catch {
@@ -393,6 +392,20 @@ export function createMessageIndexBackfill(
     runController = new AbortController();
     let cursor: string | undefined;
     let chainVerified: boolean;
+    let pending = 0;
+    try {
+      const initialFlush = await writer.flush();
+      pending = writer.coverage().pendingCount;
+      if (initialFlush.failed) {
+        setState("failed");
+        report({ pendingCount: pending });
+        return progress;
+      }
+    } catch {
+      setState("failed");
+      report({ pendingCount: pending });
+      return progress;
+    }
     try {
       const meta = await store.readMeta(conversationId);
       cursor = meta?.indexedThroughId ?? undefined;
@@ -402,6 +415,13 @@ export function createMessageIndexBackfill(
       chainVerified = cursor === undefined || meta?.cursorVerified === true;
     } catch {
       // Unreadable meta means no resume point; walk from the newest indexed row.
+      cursor = undefined;
+      chainVerified = true;
+    }
+    if (pending > 0) {
+      // A pending row may sit anywhere above the saved cursor. Revisit from the
+      // newest page and include durable pending IDs so a fresh writer can retry
+      // them instead of silently treating queue membership as completed work.
       cursor = undefined;
       chainVerified = true;
     }
@@ -446,7 +466,6 @@ export function createMessageIndexBackfill(
 
     let pages = 0;
     let indexed = 0;
-    let pending = 0;
     let latestIndexedId: string | null = null;
     let oldestReachedId = cursor ?? null;
     let reachedStart = false;
@@ -563,10 +582,10 @@ export function createMessageIndexBackfill(
           store.hasIndexedMessages(conversationId, pageIds),
           store.hasPendingMessages(conversationId, pageIds),
         ]);
-        const uncovered = messages.filter(
-          (row) => !indexedPage.has(row.id) && !pendingPage.has(row.id)
+        const toIndex = messages.filter(
+          (row) => !indexedPage.has(row.id) || pendingPage.has(row.id)
         );
-        if (uncovered.length === 0) {
+        if (toIndex.length === 0) {
           // Nothing to do: counts and cursor advance through the shared tail
           // below, and the flush still runs so transcript-queued rows commit on
           // the walk's cadence rather than their own.
@@ -576,12 +595,12 @@ export function createMessageIndexBackfill(
           // pending and retry them against a transcript that will never hold
           // them. A stop lands here as an abandoned wait, not a skipped page:
           // the fetched rows still commit below, and the halt is after them.
-          waitedOut = await waitForPageDecrypts(uncovered, signal);
-          writer.consider(uncovered);
+          waitedOut = await waitForPageDecrypts(toIndex, signal);
+          writer.consider(toIndex);
         }
         const result = await writer.flush();
         indexed += messages.length;
-        pending = result.stillPending.length;
+        pending = writer.coverage().pendingCount;
         if (result.failed) {
           // The rows committed or were queued, but the QUEUE could not be
           // persisted, so any row that did not commit is recoverable from
@@ -621,7 +640,7 @@ export function createMessageIndexBackfill(
       // Persisted per page, not per run: an interrupted walk must not redo the
       // pages it already paid for. Safe now precisely because every row in the
       // page is committed or durably queued.
-      await persistCursor(oldestReachedId, false, chainVerified);
+      await persistCursor(oldestReachedId, false, chainVerified, false);
 
       if (!waitedOut || stopped || signal?.aborted) {
         // Stopped mid-page: the fetched rows committed above, so the cursor is
@@ -644,7 +663,15 @@ export function createMessageIndexBackfill(
     // ended without error. That is what `reachedStart` distinguishes: the UI
     // keeps offering "index older messages" until it is true.
     // oxlint-enable no-await-in-loop
-    await persistCursor(oldestReachedId, reachedStart, chainVerified);
+    pending = writer.coverage().pendingCount;
+    const refsReachedStart =
+      reachedStart && writer.coverage().pendingCount === 0;
+    await persistCursor(
+      oldestReachedId,
+      reachedStart,
+      chainVerified,
+      refsReachedStart
+    );
     setState(stopped || signal?.aborted ? "stopped" : "done");
     report({
       indexedCount: indexed,
@@ -652,7 +679,7 @@ export function createMessageIndexBackfill(
       oldestReachedId,
       pendingCount: pending,
       reachedStart,
-      refsReachedStart: reachedStart,
+      refsReachedStart,
     });
     return progress;
   }

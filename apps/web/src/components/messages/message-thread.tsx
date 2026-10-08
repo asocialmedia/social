@@ -3481,10 +3481,9 @@ export function MessageThread({
           // and the chain verdict go together from here on.
           setPersistedCovered(true);
           setPersistedChainVerified(true);
-          // And the refs half, for the same reason: this run wrote each message's
-          // media, posts and links in the same pass it wrote the text, so it
-          // covered both indexes and the pane can stop offering to index older.
-          setPersistedRefsCovered(true);
+          // The refs half settles independently. A failed refs write leaves the
+          // text traversal complete while keeping the details pane incomplete.
+          setPersistedRefsCovered(next.refsReachedStart === true);
         }
       },
       pageDelayMs: BACKFILL_PAGE_DELAY_MS,

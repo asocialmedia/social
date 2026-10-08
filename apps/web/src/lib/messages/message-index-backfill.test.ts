@@ -334,6 +334,66 @@ describe("message index backfill", () => {
     expect(meta?.refsReachedStart).toBe(true);
   });
 
+  test("keeps refs coverage incomplete until a failed artifact is retried", async () => {
+    const store = createMemorySearchIndexStore();
+    const { putSharedRefs } = store;
+    let failRefs = true;
+    store.putSharedRefs = (...args) => {
+      if (failRefs) {
+        return Promise.reject(new Error("refs store temporarily unavailable"));
+      }
+      return putSharedRefs(...args);
+    };
+    const payloads = new Map<string, IndexablePayload>([
+      ["message-with-link", { content: "https://example.com/a", type: "text" }],
+    ]);
+    const createWriter = () =>
+      createMessageIndexWriter({
+        conversationId: CONVO,
+        getPayload: (id) => payloads.get(id),
+        store,
+      });
+    const fetchPage = () => ({
+      messages: [message("message-with-link", 1)],
+      previousCursor: null,
+    });
+    const first = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage,
+      pageDelayMs: 0,
+      store,
+      writer: createWriter(),
+    });
+
+    const incomplete = await first.run();
+    expect(incomplete.reachedStart).toBe(true);
+    expect(incomplete.refsReachedStart).toBe(false);
+    expect(await pendingIdsFor(store, CONVO)).toEqual(["message-with-link"]);
+    const incompleteMeta = await store.readMeta(CONVO);
+    expect(incompleteMeta?.refsReachedStart).toBe(false);
+
+    failRefs = false;
+    const resumed = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage,
+      pageDelayMs: 0,
+      store,
+      writer: createWriter(),
+    });
+    const completed = await resumed.run();
+
+    expect(completed.refsReachedStart).toBe(true);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
+    const linkedMessages = await store.readSharedRefs(CONVO, "link", {
+      limit: 10,
+    });
+    const completedMeta = await store.readMeta(CONVO);
+    expect(linkedMessages.items).toHaveLength(1);
+    expect(completedMeta?.refsReachedStart).toBe(true);
+  });
+
   test("a run that stops on its budget claims neither, and resumes to both", async () => {
     const bounded = makeHarness({ maxPages: 3, pages: 50 });
     const result = await bounded.backfill.run();
