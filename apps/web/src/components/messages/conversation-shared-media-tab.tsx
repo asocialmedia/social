@@ -15,6 +15,7 @@ import {
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
 import { EMPTY_FOOTNOTE } from "./conversation-shared-posts-tab";
+import { createDistinctWidthReporter } from "./media-grid-width";
 import type { ConversationMediaItem } from "./message-conversation-media";
 
 // Shared media for a conversation, as a virtualized grid.
@@ -109,24 +110,26 @@ export function ConversationSharedMediaTab({
   // itself on the very next render instead of waiting for a remount.
   if (width === 0) {
     return (
-      <div className="h-full px-4 pt-1 pb-6" ref={measureRef}>
-        {items.length === 0 ? (
-          <EmptyShared
-            body="Images and GIFs sent in this chat collect here."
-            footnote={EMPTY_FOOTNOTE}
-            illustration={noMediaImage}
-            title="No media yet"
-          />
-        ) : (
-          <div className="grid grid-cols-2 gap-1.5">
-            {Array.from({ length: 6 }, (_, index) => (
-              <span
-                className="bg-muted/50 aspect-square animate-pulse rounded-xl"
-                key={index}
-              />
-            ))}
-          </div>
-        )}
+      <div className="h-full px-4 pt-1 pb-6">
+        <div className="h-full w-full" ref={measureRef}>
+          {items.length === 0 ? (
+            <EmptyShared
+              body="Images and GIFs sent in this chat collect here."
+              footnote={EMPTY_FOOTNOTE}
+              illustration={noMediaImage}
+              title="No media yet"
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-1.5">
+              {Array.from({ length: 6 }, (_, index) => (
+                <span
+                  className="bg-muted/50 aspect-square animate-pulse rounded-xl"
+                  key={index}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -198,9 +201,16 @@ function useContentWidth(): [(node: HTMLDivElement | null) => void, number] {
     if (!node) {
       return;
     }
-    const measure = () => setWidth(node.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
+    const reportWidth = createDistinctWidthReporter(setWidth);
+    reportWidth(node.clientWidth);
+    // The browser has already measured this unpadded container. Reuse that
+    // value instead of reading layout again during the drawer's height animation.
+    const observer = new ResizeObserver((entries) => {
+      const [entry] = entries;
+      if (entry) {
+        reportWidth(entry.contentRect.width);
+      }
+    });
     observer.observe(node);
     observerRef.current = observer;
   }, []);
