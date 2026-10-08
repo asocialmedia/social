@@ -2,10 +2,14 @@ import { expect, test } from "bun:test";
 
 import {
   closeMessageSearchPool,
+  commitMessageSearchBackfillBatch,
   countMessageSearchCandidates,
   keys,
+  persistSearchDocument,
   prisma,
+  readNextMessageSearchBackfillBatch,
   searchMessageCandidates,
+  startMessageSearchBackfill,
   toPrismaDateTime,
 } from "@asm/db";
 import { Pool } from "pg";
@@ -31,6 +35,8 @@ const {
 const MESSAGE_BATCH_SIZE = 100;
 const TRANSACTION_BATCH_SIZE = 10_000;
 const CONCURRENT_SEARCHES = 50;
+const CONCURRENT_LIVE_INDEX_WRITES = 40;
+const LIVE_INDEX_CONCURRENCY = 2;
 const HIDDEN_NEWEST_MESSAGE_COUNT = 10;
 const RUN_ID = crypto.randomUUID();
 const CONVERSATION_IDS = Array.from({ length: CONVERSATION_COUNT }, () =>
@@ -233,6 +239,176 @@ async function seedConversation(): Promise<void> {
   }
 }
 
+async function seedPendingLiveIndexWrites(): Promise<
+  {
+    conversationId: string;
+    messageId: string;
+    outboxId: string;
+    revision: number;
+  }[]
+> {
+  const pending = Array.from(
+    { length: CONCURRENT_LIVE_INDEX_WRITES },
+    (_, offset) => {
+      const conversationIndex = offset % CONVERSATION_COUNT;
+      const conversationId = CONVERSATION_IDS[conversationIndex];
+      const peerId = PEER_IDS[conversationIndex];
+      if (!conversationId || !peerId) {
+        throw new Error("DM search scale fixture conversation was not created");
+      }
+      const sequence =
+        MESSAGE_COUNT + Math.floor(offset / CONVERSATION_COUNT) + 1;
+      return {
+        audienceUserIds: [OWNER_ID, peerId],
+        changeSequence: sequence,
+        conversationId,
+        conversationIndex,
+        createdAt: toPrismaDateTime(new Date(BASE_TIME.getTime() + sequence)),
+        id: messageId(conversationIndex, sequence),
+        outboxId: crypto.randomUUID(),
+        peerId,
+        sequence,
+      };
+    }
+  );
+
+  await prisma.transaction(async (tx) => {
+    const finalSequenceByConversation = new Map<number, number>();
+    for (const row of pending) {
+      finalSequenceByConversation.set(row.conversationIndex, row.sequence);
+    }
+    for (const [conversationIndex, changeSeq] of finalSequenceByConversation) {
+      const conversationId = CONVERSATION_IDS[conversationIndex];
+      if (!conversationId) {
+        throw new Error("DM search scale fixture conversation was not created");
+      }
+      // oxlint-disable-next-line no-await-in-loop -- Keep fixture sequence updates inside one transaction.
+      await tx.orm.public.MessageConversations.where({
+        id: conversationId,
+      }).update({
+        changeSeq,
+      });
+    }
+    await tx.orm.public.Messages.createAll(
+      pending.map((row) => ({
+        ciphertext: "synthetic-live-encrypted-payload",
+        conversationId: row.conversationId,
+        createdAt: row.createdAt,
+        creationSequence: row.sequence,
+        id: row.id,
+        iv: "synthetic-live-iv",
+        keyEpoch: 1,
+        ratchetIndex: row.sequence,
+        revision: 1,
+        senderId: row.peerId,
+      }))
+    );
+    await tx.orm.public.MessageSearchOutbox.createAll(
+      pending.map((row) => ({
+        audienceUserIds: row.audienceUserIds,
+        changeSequence: row.changeSequence,
+        conversationId: row.conversationId,
+        id: row.outboxId,
+        kind: "upsert",
+        messageId: row.id,
+        revision: 1,
+      }))
+    );
+    await tx.orm.public.MessageConversationChanges.createAll(
+      pending.map((row) => ({
+        audienceUserIds: row.audienceUserIds,
+        conversationId: row.conversationId,
+        kind: "message.created",
+        messageId: row.id,
+        revision: 1,
+        sequence: row.changeSequence,
+      }))
+    );
+  });
+
+  return pending.map(({ conversationId, id, outboxId }) => ({
+    conversationId,
+    messageId: id,
+    outboxId,
+    revision: 1,
+  }));
+}
+
+async function processPendingLiveIndexWrites(
+  pending: Awaited<ReturnType<typeof seedPendingLiveIndexWrites>>
+): Promise<void> {
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(LIVE_INDEX_CONCURRENCY, pending.length) },
+      async () => {
+        while (nextIndex < pending.length) {
+          const write = pending[nextIndex];
+          nextIndex += 1;
+          if (!write) {
+            throw new Error(
+              "DM search scale fixture lost a pending index write"
+            );
+          }
+          // oxlint-disable-next-line no-await-in-loop -- Model the configured two-worker live-index limit.
+          const result = await persistSearchDocument({
+            conversationId: write.conversationId,
+            keyEpoch: 1,
+            messageId: write.messageId,
+            outboxId: write.outboxId,
+            references: [],
+            revision: write.revision,
+            terms: [
+              { gramKeys: gramKeys(COMMON_TERM), normalized: COMMON_TERM },
+            ],
+          });
+          if (result.status !== "indexed") {
+            throw new Error("DM search scale live index write was superseded");
+          }
+        }
+      }
+    )
+  );
+}
+
+async function commitConcurrentBackfillBatch(): Promise<boolean> {
+  const started = await startMessageSearchBackfill(CONVERSATION_ID);
+  if (!started || started.throughSequence === null || started.completedAt) {
+    throw new Error(
+      "DM search scale fixture could not start historical backfill"
+    );
+  }
+  const batch = await readNextMessageSearchBackfillBatch(CONVERSATION_ID);
+  if (!batch || batch.messages.length === 0) {
+    throw new Error("DM search scale fixture did not read a backfill batch");
+  }
+  const lastMessage = batch.messages.at(-1);
+  if (!lastMessage) {
+    throw new Error("DM search scale fixture returned an empty backfill batch");
+  }
+  const result = await commitMessageSearchBackfillBatch({
+    artifacts: batch.messages.map((message) => ({
+      createdAt: message.createdAt,
+      keyEpoch: 1,
+      messageId: message.id,
+      references: [],
+      revision: message.revision,
+      terms: [{ gramKeys: gramKeys(COMMON_TERM), normalized: COMMON_TERM }],
+    })),
+    conversationId: CONVERSATION_ID,
+    expectedPosition: batch.expectedPosition,
+    finished: false,
+    nextPosition: {
+      createdAt: lastMessage.createdAt,
+      messageId: lastMessage.id,
+    },
+    rowsTraversed: batch.messages.length,
+    throughSequence: batch.throughSequence,
+    unrecoverableEpochs: 0,
+  });
+  return result.committed;
+}
+
 test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
   `searches ${CONVERSATION_COUNT} DM(s) with ${MESSAGE_COUNT} messages each under broad and concurrent query load`,
   async () => {
@@ -375,7 +551,8 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       const exactCountDurationMs = performance.now() - countStartedAt;
       expect(broadCount).toBe(MESSAGE_COUNT - HIDDEN_NEWEST_MESSAGE_COUNT);
 
-      const concurrentAttempts = await Promise.all(
+      const pendingLiveIndexWrites = await seedPendingLiveIndexWrites();
+      const concurrentSearches = Promise.all(
         Array.from({ length: CONCURRENT_SEARCHES }, async (_, index) => {
           const conversationIndex = index % CONVERSATION_COUNT;
           const conversationId =
@@ -398,6 +575,18 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
           }
         })
       );
+      const liveIndexing = processPendingLiveIndexWrites(
+        pendingLiveIndexWrites
+      );
+      const historicalBackfill = commitConcurrentBackfillBatch();
+      const [concurrentAttempts, liveIndexingResult, backfillCommitted] =
+        await Promise.all([
+          concurrentSearches,
+          liveIndexing,
+          historicalBackfill,
+        ]);
+      expect(liveIndexingResult).toBeUndefined();
+      expect(backfillCommitted).toBe(true);
       const durations = concurrentAttempts.map((attempt) => attempt.durationMs);
       const concurrentPages = concurrentAttempts.flatMap((attempt) =>
         "rows" in attempt && attempt.rows !== undefined ? [attempt.rows] : []
@@ -424,6 +613,7 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       );
       console.info(
         JSON.stringify({
+          backfillBatchCommitted: backfillCommitted,
           broadCandidateHitExecutionMs: Math.round(
             broadCandidateHitPlan.executionTimeMs
           ),
@@ -438,6 +628,7 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
               }
             : null,
           broadQueryExecutionMs: Math.round(broadQueryPlan.executionTimeMs),
+          concurrentLiveIndexWrites: pendingLiveIndexWrites.length,
           concurrentSearches: CONCURRENT_SEARCHES,
           conversations: CONVERSATION_COUNT,
           exactCountMs: Math.round(exactCountDurationMs),
@@ -459,7 +650,7 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       expect(concurrentPages).toHaveLength(CONCURRENT_SEARCHES);
       expect(concurrentPages.every((page) => page.length === 20)).toBe(true);
       expect(p95DurationMs).toBeDefined();
-      expect(p95DurationMs).toBeLessThan(500);
+      expect(p95DurationMs).toBeLessThan(300);
     } finally {
       await prisma.orm.public.MessageSearchDocuments.where((document) =>
         document.conversationId.in(CONVERSATION_IDS)
