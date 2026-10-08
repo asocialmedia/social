@@ -38,6 +38,8 @@ import {
   SHARED_REFS_MESSAGE_STORE,
   SHARED_REFS_STORE,
 } from "./message-db";
+import { createMessageIndexWriter } from "./message-index-writer";
+import type { IndexablePayload } from "./message-index-writer";
 import {
   buildSearchIndexEntry,
   emptySearchIndexMeta,
@@ -343,6 +345,78 @@ describe("indexeddb search index store", () => {
     const reopened = createTestStore();
     const found = await queryStore(reopened, "c1", ["deploy"]);
     expect(found.ids).toEqual(["m1"]);
+  });
+
+  test("a serialized conversation reset clears IDB and lets the writer re-index", async () => {
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "deploy safely", type: "text" }],
+    ]);
+    const writer = createMessageIndexWriter({
+      conversationId: "c1",
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    const message = {
+      createdAt: new Date(1),
+      id: "m1",
+      senderId: "user-a",
+    };
+
+    try {
+      writer.consider([message]);
+      await writer.flush();
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: ["m1"],
+        totalMatched: 1,
+      });
+
+      expect(await writer.clearConversation()).toBe(true);
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: [],
+        totalMatched: 0,
+      });
+
+      writer.consider([message]);
+      await writer.flush();
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: ["m1"],
+        totalMatched: 1,
+      });
+    } finally {
+      await writer.dispose();
+    }
+  });
+
+  test("waitable removals commit text and shared-reference deletes before returning", async () => {
+    const writer = createMessageIndexWriter({
+      conversationId: "c1",
+      getPayload: () => ({
+        content: "deploy safely",
+        kind: "image",
+        type: "media",
+        url: "https://example.test/image.png",
+      }),
+      store,
+    });
+
+    try {
+      writer.consider([
+        { createdAt: new Date(1), id: "m1", senderId: "user-a" },
+      ]);
+      await writer.flush();
+      const refsBeforeRemoval = await store.readSharedRefsCounts("c1");
+      expect(refsBeforeRemoval?.media).toBe(1);
+
+      expect(await writer.removeAndWait(["m1"])).toBe(true);
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: [],
+        totalMatched: 0,
+      });
+      const refsAfterRemoval = await store.readSharedRefsCounts("c1");
+      expect(refsAfterRemoval?.media).toBe(0);
+    } finally {
+      await writer.dispose();
+    }
   });
 
   test("keeps conversations isolated", async () => {
