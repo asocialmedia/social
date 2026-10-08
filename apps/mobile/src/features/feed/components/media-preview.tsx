@@ -9,7 +9,6 @@ import {
   ArrowBigDown,
   ArrowBigUp,
   Bookmark,
-  BookmarkCheck,
   CornerDownRight,
   Download,
   Maximize2,
@@ -18,8 +17,8 @@ import {
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ComponentProps } from "react";
 import {
-  ActivityIndicator,
   AppState,
   Modal,
   Platform,
@@ -43,7 +42,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
 
 import { toast } from "@/components/feedback/toast";
-import { panel3d } from "@/components/surface/recipes";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  BOOKMARK_ACTIVE_SHADOWS,
+  BOOKMARK_GRADIENT,
+  ORANGE_GRADIENT,
+  PURPLE_GRADIENT,
+  VOTE_DOWN_SHADOWS,
+  VOTE_DOWN_SHADOWS_DARK,
+  VOTE_UP_SHADOWS,
+  VOTE_UP_SHADOWS_DARK,
+  panel3d,
+} from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
@@ -79,16 +89,20 @@ function MediaAction({
   centered = false,
   color,
   icon: Icon,
+  iconColor,
   label,
   selected,
+  surface,
 }: {
   action: () => void;
   busy: boolean;
   centered?: boolean;
   color: string;
   icon: LucideIcon;
+  iconColor: string;
   label: string;
   selected?: boolean;
+  surface?: Pick<ComponentProps<typeof Gradient3D>, "colors" | "shadows">;
 }) {
   return (
     <Pressable
@@ -98,17 +112,33 @@ function MediaAction({
       disabled={busy}
       onPress={action}
       className="justify-center px-3 py-2"
-      style={{ minHeight: 44, width: centered ? "50%" : undefined }}
+      style={{
+        alignItems: centered ? "center" : "stretch",
+        minHeight: 44,
+        width: centered ? "50%" : undefined,
+      }}
     >
       {({ pressed }) => (
         <View
           className="flex-row items-center gap-3"
+          collapsable={false}
+          testID={`media-action-content-${label}`}
           style={{
-            alignSelf: centered ? "center" : "stretch",
             opacity: (busy ? 0.5 : 1) * (pressed ? 0.6 : 1),
           }}
         >
-          <Icon color={color} size={22} strokeWidth={1.8} />
+          <View
+            className="items-center justify-center"
+            style={{ height: 28, width: 28 }}
+          >
+            {selected && surface ? (
+              <Gradient3D {...surface} style={{ height: 28, width: 28 }}>
+                <Icon color="#ffffff" fill="#ffffff" size={16} />
+              </Gradient3D>
+            ) : (
+              <Icon color={iconColor} size={22} />
+            )}
+          </View>
           <Text
             style={{
               color,
@@ -177,8 +207,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const progress = useSharedValue(0);
   const [presented, setPresented] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const closing = useRef(false);
   const afterClose = useRef<(() => void) | null>(null);
@@ -353,11 +382,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     }
     return { descriptor, file };
   };
-  const run = async (
-    label: string,
-    action: () => Promise<unknown>,
-    feedback = true
-  ) => {
+  const run = async (action: () => Promise<unknown>, feedback = true) => {
     if (busyRef.current) {
       return;
     }
@@ -365,8 +390,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     if (feedback) {
       haptic();
     }
-    setBusy(label);
-    setNotice(null);
+    setBusy(true);
     try {
       await action();
     } catch (error) {
@@ -379,13 +403,10 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         title: "Couldn't complete the action",
         variant: "destructive",
       });
-      if (mounted.current) {
-        setNotice(error instanceof Error ? error.message : "Please try again.");
-      }
     }
     busyRef.current = false;
     if (mounted.current) {
-      setBusy(null);
+      setBusy(false);
     }
   };
   const save = async () => {
@@ -400,9 +421,6 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     }
     const { file } = await download();
     await MediaLibrary.Asset.create(file.uri);
-    if (mounted.current) {
-      setNotice("Saved to your gallery");
-    }
     haptic("success");
     toast({ title: "Saved to your gallery" });
   };
@@ -422,14 +440,14 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const actions = [
     {
       action: () => {
-        void run("Saving…", save);
+        void run(save);
       },
       icon: Download,
       label: "Save media",
     },
     {
       action: () => {
-        void run("Preparing share…", share);
+        void run(share);
       },
       icon: Share2,
       label: "Share media",
@@ -461,10 +479,12 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     {
       action: () =>
         requireUser(() => {
-          void run("Bookmarking…", toggleBookmark, false);
+          void run(toggleBookmark, false);
         }),
-      icon: engagement.isBookmarkedByUser ? BookmarkCheck : Bookmark,
+      icon: Bookmark,
       label: engagement.isBookmarkedByUser ? "Bookmarked" : "Bookmark",
+      selected: engagement.isBookmarkedByUser,
+      surface: { colors: BOOKMARK_GRADIENT, shadows: BOOKMARK_ACTIVE_SHADOWS },
     },
     {
       action: () => {
@@ -494,22 +514,28 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     {
       action: () =>
         requireUser(() => {
-          void run("Amplifying…", () => vote(1), false);
+          void run(() => vote(1), false);
         }),
-      color: engagement.userVote === 1 ? theme.auxLink : theme.inputText,
       icon: ArrowBigUp,
       label: engagement.userVote === 1 ? "Amplified" : "Amplify",
       selected: engagement.userVote === 1,
+      surface: {
+        colors: ORANGE_GRADIENT,
+        shadows: isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS,
+      },
     },
     {
       action: () =>
         requireUser(() => {
-          void run("Muting…", () => vote(-1), false);
+          void run(() => vote(-1), false);
         }),
-      color: engagement.userVote === -1 ? "#7c5cff" : theme.inputText,
       icon: ArrowBigDown,
       label: engagement.userVote === -1 ? "Muted" : "Mute",
       selected: engagement.userVote === -1,
+      surface: {
+        colors: PURPLE_GRADIENT,
+        shadows: isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS,
+      },
     },
   ];
   return (
@@ -611,16 +637,30 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                 }}
                 style={{
                   backgroundColor: theme.cardBg,
-                  borderColor: panel.border,
                   borderTopLeftRadius: 28,
                   borderTopRightRadius: 28,
-                  borderWidth: 1,
-                  boxShadow: panel.shadows,
                   height: menuHeight,
+                  overflow: "hidden",
                   paddingBottom: bottomPadding,
                   width: window.width,
                 }}
               >
+                <View
+                  pointerEvents="none"
+                  style={{
+                    backgroundColor: theme.cardBg,
+                    borderColor: panel.border,
+                    borderTopLeftRadius: 28,
+                    borderTopRightRadius: 28,
+                    borderWidth: 1,
+                    bottom: -16,
+                    boxShadow: panel.shadows,
+                    left: 0,
+                    position: "absolute",
+                    right: 0,
+                    top: 0,
+                  }}
+                />
                 <View
                   pointerEvents="none"
                   style={{
@@ -638,22 +678,6 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                     }}
                   />
                 </View>
-                {busy || notice ? (
-                  <View className="flex-row items-center gap-2 px-4 pb-2">
-                    {busy ? <ActivityIndicator color={theme.auxLink} /> : null}
-                    <Text
-                      accessibilityLiveRegion="polite"
-                      style={{
-                        color: theme.inputText,
-                        flex: 1,
-                        fontFamily: "SofiaProReg",
-                        fontSize: 14,
-                      }}
-                    >
-                      {busy ?? notice}
-                    </Text>
-                  </View>
-                ) : null}
                 <ScrollView
                   style={{ flex: 1 }}
                   nestedScrollEnabled
@@ -676,8 +700,10 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                       <MediaAction
                         key={item.label}
                         {...item}
-                        busy={Boolean(busy)}
+                        busy={busy}
                         centered
+                        color={theme.inputText}
+                        iconColor={theme.dividerText}
                       />
                     ))}
                   </View>
@@ -686,8 +712,9 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                     <MediaAction
                       key={item.label}
                       {...item}
-                      busy={Boolean(busy)}
+                      busy={busy}
                       color={theme.inputText}
+                      iconColor={theme.dividerText}
                     />
                   ))}
                 </ScrollView>

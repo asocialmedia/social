@@ -24,6 +24,14 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  BOOKMARK_ACTIVE_SHADOWS,
+  BOOKMARK_GRADIENT,
+  VOTE_DOWN_SHADOWS,
+  VOTE_DOWN_SHADOWS_DARK,
+  VOTE_UP_SHADOWS,
+  VOTE_UP_SHADOWS_DARK,
+} from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   replyTargetFromPost,
@@ -38,24 +46,6 @@ import {
 import type { FeedPost } from "../lib/feed-types";
 import { usePostEngagement } from "../state/use-post-engagement";
 import type { MenuAnchor } from "./more-menu";
-
-// `.vote-btn-up` / `.vote-btn-down` 3D dual-border shadows, light + dark.
-// Resting vote buttons are bare (web's idle state); the gradient + ring only
-// applies while the vote is active.
-const VOTE_UP_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
-const VOTE_UP_SHADOWS_DARK =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
-const VOTE_DOWN_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(70, 40, 170, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
-const VOTE_DOWN_SHADOWS_DARK =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
-
-// Web's bookmark-button active `shadow-[...]`: same dual-border construction as
-// the vote buttons, tuned to the amber fill. One recipe for both themes, as on
-// web (no separate light/dark variant there).
-const BOOKMARK_ACTIVE_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(150, 90, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
 
 function ActionLabel({
   children,
@@ -367,7 +357,7 @@ export function BookmarkToggle({
         // read as a flat dot rather than the raised, gradient-filled pill web
         // shows. Gradient3D keeps that stack intact on RN.
         <Gradient3D
-          colors={["#fbbf24", "#d97706"]}
+          colors={BOOKMARK_GRADIENT}
           radius={9999}
           shadows={BOOKMARK_ACTIVE_SHADOWS}
           style={[styles.bookmarkActive, { height: size, width: size }]}

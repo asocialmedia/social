@@ -22,6 +22,26 @@ export function panel3d(isDark: boolean) {
   return isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
 }
 
+// `.vote-btn-up` / `.vote-btn-down` 3D dual-border shadows, light + dark.
+// Resting vote buttons are bare (web's idle state); the gradient + ring only
+// applies while the vote is active.
+export const VOTE_UP_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+export const VOTE_UP_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+export const VOTE_DOWN_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(70, 40, 170, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+export const VOTE_DOWN_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+// Web's bookmark-button active `shadow-[...]`: same dual-border construction as
+// the vote buttons, tuned to the amber fill. One recipe for both themes, as on
+// web (no separate light/dark variant there).
+export const BOOKMARK_ACTIVE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(150, 90, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+export const BOOKMARK_GRADIENT = ["#fbbf24", "#d97706"] as const;
+
 // `.premium-input` (+ :focus) light + dark.
 export function premiumInput(isDark: boolean, focused: boolean) {
   if (isDark) {
