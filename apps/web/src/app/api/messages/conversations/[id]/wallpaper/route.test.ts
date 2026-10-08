@@ -14,6 +14,8 @@ import { DELETE, POST } from "./route";
 // cleanup worker. That is the reason this route is metered at all, and it is why
 // both methods charge the same bucket: both can schedule one.
 
+let conversationType = "DM";
+
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 
@@ -77,7 +79,11 @@ mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
     Promise.resolve(
       conversationId === "convo-1" && userId === "user1"
-        ? { id: "convo-1", members: [{ userId }], type: "DM" }
+        ? {
+            id: "convo-1",
+            members: [{ role: "MEMBER", userId }],
+            type: conversationType,
+          }
         : null
     ),
   parseJsonBody: async (request: Request) => {
@@ -178,6 +184,7 @@ function ownedImage(id: string) {
 }
 
 beforeEach(() => {
+  conversationType = "DM";
   mockGetSession.mockReset();
   mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
   media = ownedImage("media-2");
@@ -287,4 +294,14 @@ describe("/api/messages/conversations/:id/wallpaper rate limit", () => {
       DEN_PREFS_RATE_LIMIT.limit
     );
   });
+});
+
+test("ordinary den members cannot upload or remove the shared wallpaper", async () => {
+  conversationType = "DEN";
+  const uploadResponse = await link("media-2");
+  const removeResponse = await clear();
+  expect(uploadResponse.status).toBe(403);
+  expect(removeResponse.status).toBe(403);
+  expect(mockMemberUpdate).not.toHaveBeenCalled();
+  expect(mockScheduleCleanup).not.toHaveBeenCalled();
 });

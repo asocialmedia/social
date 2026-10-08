@@ -40,6 +40,9 @@ export async function purgeSupersededProfileMedia(
     .include("usersUsers", (user) => user.select("id"))
     .include("communities", (community) => community.select("id"))
     .include("communitiesCommunities", (community) => community.select("id"))
+    .include("wallpaperConversations", (conversation) =>
+      conversation.select("id")
+    )
     .include("messageConversationMembers", (member) => member.select("userId"))
     .where({ id: mediaId })
     .first();
@@ -54,6 +57,7 @@ export async function purgeSupersededProfileMedia(
     // The same bytes can be somebody's chat wallpaper as well as their avatar.
     // Purging on the avatar swap must not delete the wallpaper out from under
     // the conversation that is still using it.
+    media.wallpaperConversations.length > 0 ||
     media.messageConversationMembers.length > 0 ||
     media.userId !== userId
   ) {

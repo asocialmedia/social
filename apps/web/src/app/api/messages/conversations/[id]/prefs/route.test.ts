@@ -12,6 +12,7 @@ import { PATCH } from "./route";
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockReset = mock(() => Promise.resolve());
+let conversationType = "DM";
 let updateValue: Record<string, unknown> = {};
 let selectColumns: string[] = [];
 
@@ -32,7 +33,15 @@ mock.module("@/lib/messages/server", () => ({
     conversationId === "convo-1" && userId === "user1"
       ? {
           id: "convo-1",
-          members: [{ lastReadAt: null, mutedAt: null, userId: "user1" }],
+          members: [
+            {
+              lastReadAt: null,
+              mutedAt: null,
+              role: "MEMBER",
+              userId: "user1",
+            },
+          ],
+          type: conversationType,
         }
       : null,
   parseJsonBody: async (request: Request) => {
@@ -95,6 +104,7 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockReset.mockReset();
     mockReset.mockImplementation(() => Promise.resolve());
+    conversationType = "DM";
     updateValue = {};
     selectColumns = [];
     limiter.reset();
@@ -225,4 +235,18 @@ describe("PATCH /api/messages/conversations/:id/prefs rate limit", () => {
       DEN_DETAILS_RATE_LIMIT.limit
     );
   });
+});
+
+test("ordinary den members cannot change the shared wallpaper or dim", async () => {
+  conversationType = "DEN";
+  mock.module("@/lib/messages/server", () => ({
+    getConversationForUser: () => ({
+      id: "convo-1",
+      members: [{ role: "MEMBER", userId: "user1" }],
+      type: "DEN",
+    }),
+  }));
+  const response = await PATCH(prefsRequest({ wallpaperDim: 50 }), params);
+  expect(response.status).toBe(403);
+  expect(updateValue).toEqual({});
 });

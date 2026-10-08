@@ -70,6 +70,7 @@ mock.module("@/lib/media/media-access", () => ({
 }));
 
 mock.module("@/lib/media/message-media-access", () => ({
+  resolveDenWallpaperConversationId: () => Promise.resolve(null),
   resolveMessageMediaMembership: () => Promise.resolve(false),
 }));
 

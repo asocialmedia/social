@@ -485,8 +485,7 @@ export function ConversationDetailsBody({
   // A den has no single peer, so `peer` is null for one by construction (see the
   // caller) and the whole contact card below is DM-only. What a den gets instead
   // is its own header plus DenPanel; the per-member preferences underneath are
-  // identical either way, because mute, theme and wallpaper belong to the member
-  // rather than to the pair.
+  // shared for mute and theme; the den wallpaper is managed for all members.
   const isDen = detail.conversation.type === "DEN";
   const defaultTab = isDen ? "members" : "settings";
   const [tab, setTab] = useState<string>(defaultTab);
@@ -614,6 +613,14 @@ export function ConversationDetailsBody({
       <ThemeRow onChange={handleThemeChange} selectedKey={prefs.themeKey} />
 
       <WallpaperRow
+        readOnly={
+          isDen &&
+          !["OWNER", "ADMIN"].includes(
+            detail.conversation.members.find(
+              (member) => member.userId === myUserId
+            )?.role ?? "MEMBER"
+          )
+        }
         onDimChange={handleDimChange}
         onDimCommit={handleDimCommit}
         onRemove={handleWallpaperRemove}
@@ -1237,6 +1244,7 @@ function sliderLevel(next: number[]): number | null {
 // thread paints from, so a level can never read as one thing and look like
 // another.
 function WallpaperRow({
+  readOnly = false,
   onDimChange,
   onDimCommit,
   onRemove,
@@ -1248,6 +1256,7 @@ function WallpaperRow({
   uploadProgress,
   uploadStage,
 }: {
+  readOnly?: boolean;
   onDimChange: (level: number) => void;
   onDimCommit: (level: number) => void;
   onRemove: () => void;
@@ -1276,11 +1285,15 @@ function WallpaperRow({
       : `url(${src})`;
   };
   const uploading = uploadStage !== null;
+  const wallpaperHelp = readOnly
+    ? "Shared den wallpaper · managed by owners and elders"
+    : "Sits behind both sides' messages";
 
   return (
     <div>
       <button
         aria-expanded={open}
+        disabled={readOnly}
         className="pill-3d-hover flex w-full items-center gap-3 px-2.5 py-2 text-left"
         onClick={() => setOpen((value) => !value)}
         type="button"
@@ -1291,7 +1304,7 @@ function WallpaperRow({
           <span className="text-muted-foreground block truncate text-xs">
             {uploading
               ? uploadStageLabel(uploadStage, uploadProgress)
-              : "Sits behind both sides' messages"}
+              : wallpaperHelp}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
@@ -1322,7 +1335,7 @@ function WallpaperRow({
         </span>
       </button>
 
-      {open ? (
+      {open && !readOnly ? (
         <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 px-2.5 pt-1 pb-2.5 motion-safe:duration-200">
           <div className="grid grid-cols-3 gap-2">
             <WallpaperSwatch

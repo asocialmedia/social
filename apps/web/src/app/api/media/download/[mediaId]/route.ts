@@ -5,7 +5,10 @@ import { NextResponse } from "next/server";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
 import { mediaError, mediaJsonError } from "@/lib/media/media-responses";
-import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
+import {
+  resolveDenWallpaperConversationId,
+  resolveMessageMediaMembership,
+} from "@/lib/media/message-media-access";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
 import {
@@ -65,6 +68,16 @@ export async function GET(
     return mediaError("Media not found", 404);
   }
 
+  if (
+    !media.postId &&
+    !media.commentId &&
+    media.mimeType.startsWith("image/")
+  ) {
+    media.messageConversationId ??= await resolveDenWallpaperConversationId(
+      mediaId,
+      user.id
+    );
+  }
   const decision = decideMediaAccess(media, user, {
     isConversationMember: await resolveMessageMediaMembership(
       media.messageConversationId,

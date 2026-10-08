@@ -572,6 +572,7 @@ export interface MessageStreamEvent {
     // the conversation detail, because the wraps and/or the peer's identity
     // public key may have changed and a stale copy silently fails every
     // decrypt. Carries no key material, so it is safe to broadcast.
+    | "conversation.appearance.changed"
     | "keys.rotated"
     // A den's roster moved: created, somebody joined or left, somebody was
     // added or removed, a role changed, ownership transferred, or the den was
@@ -686,6 +687,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
+      parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "keys.rotated" &&
       parsed.kind !== "den.membership.changed"
     ) {

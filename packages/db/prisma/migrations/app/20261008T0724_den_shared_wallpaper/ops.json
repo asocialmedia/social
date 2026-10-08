@@ -1,0 +1,185 @@
+[
+  {
+    "id": "column.public.message_conversations.wallpaperDim",
+    "label": "Add column \"wallpaperDim\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "wallpaperDim",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"wallpaperDim\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "wallpaperDim"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"wallpaperDim\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"wallpaperDim\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"wallpaperDim\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "wallpaperDim"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversations.wallpaperKey",
+    "label": "Add column \"wallpaperKey\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "wallpaperKey",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"wallpaperKey\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "wallpaperKey"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"wallpaperKey\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"wallpaperKey\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"wallpaperKey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "wallpaperKey"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_conversations.wallpaperMediaId",
+    "label": "Add column \"wallpaperMediaId\" to \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "wallpaperMediaId",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"wallpaperMediaId\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "wallpaperMediaId"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"wallpaperMediaId\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\" ADD COLUMN \"wallpaperMediaId\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"wallpaperMediaId\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_conversations", "wallpaperMediaId"]
+      }
+    ]
+  },
+  {
+    "id": "index.message_conversations.message_conversations_wallpaperMediaId_idx_e7014658",
+    "label": "Create index \"message_conversations_wallpaperMediaId_idx_e7014658\" on \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_conversations_wallpaperMediaId_idx_e7014658",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_conversations_wallpaperMediaId_idx_e7014658\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversations_wallpaperMediaId_idx_e7014658\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_conversations_wallpaperMediaId_idx_e7014658\"",
+        "sql": "CREATE INDEX \"message_conversations_wallpaperMediaId_idx_e7014658\" ON \"public\".\"message_conversations\" (\"wallpaperMediaId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_conversations_wallpaperMediaId_idx_e7014658\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_conversations_wallpaperMediaId_idx_e7014658\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_conversations.message_conversations_wallpaperMediaId_fkey",
+    "label": "Add foreign key \"message_conversations_wallpaperMediaId_fkey\" on \"message_conversations\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_conversations_wallpaperMediaId_fkey",
+        "table": "message_conversations"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_conversations_wallpaperMediaId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversations_wallpaperMediaId_fkey",
+          "public",
+          "\"public\".\"message_conversations\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_conversations_wallpaperMediaId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_conversations\"\nADD CONSTRAINT \"message_conversations_wallpaperMediaId_fkey\"\nFOREIGN KEY (\"wallpaperMediaId\")\nREFERENCES \"public\".\"post_media\" (\"id\")\nON DELETE SET NULL\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_conversations_wallpaperMediaId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_conversations_wallpaperMediaId_fkey",
+          "public",
+          "\"public\".\"message_conversations\""
+        ]
+      }
+    ]
+  }
+]

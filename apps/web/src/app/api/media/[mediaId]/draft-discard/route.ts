@@ -39,6 +39,7 @@ export async function DELETE(
       media.communities.none(),
       media.communitiesCommunities.none(),
       media.messageConversationMembers.none(),
+      media.wallpaperConversations.none(),
       media.status.in([
         "UPLOADING",
         "QUARANTINED",

@@ -17,6 +17,10 @@ import {
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import {
+  canManageDenWallpaper,
+  updateDenWallpaper,
+} from "@/lib/messages/den-wallpaper";
+import {
   getConversationForUser,
   hasLeftConversation,
   leftConversationResponse,
@@ -164,17 +168,57 @@ export async function PATCH(
     }
   }
 
-  const member = await prisma.orm.public.MessageConversationMembers.where(
+  if (
+    (hasWallpaper || hasDim) &&
+    !canManageDenWallpaper(conversation, user.id)
+  ) {
+    return Response.json(
+      { error: "Only owners and elders can change the den wallpaper" },
+      { status: 403 }
+    );
+  }
+  let sharedWallpaper =
+    conversation.type === "DEN"
+      ? {
+          wallpaperDim: conversation.wallpaperDim,
+          wallpaperKey: conversation.wallpaperKey,
+          wallpaperMediaId: conversation.wallpaperMediaId,
+        }
+      : null;
+  if (conversation.type === "DEN" && (hasWallpaper || hasDim)) {
+    sharedWallpaper = await updateDenWallpaper(id, user.id, {
+      ...(hasWallpaper
+        ? { wallpaperKey: data.wallpaperKey, wallpaperMediaId: null }
+        : {}),
+      ...(hasDim ? { wallpaperDim: data.wallpaperDim } : {}),
+    });
+    if (!sharedWallpaper) {
+      return Response.json(
+        { error: "Wallpaper change is no longer permitted" },
+        { status: 403 }
+      );
+    }
+  }
+  const memberData =
+    conversation.type === "DEN"
+      ? {
+          ...(hasMuted ? { mutedAt: data.mutedAt } : {}),
+          ...(hasTheme ? { themeKey: data.themeKey } : {}),
+        }
+      : data;
+  const memberQuery = prisma.orm.public.MessageConversationMembers.where(
     (row) => and(row.conversationId.eq(id), row.userId.eq(user.id))
-  )
-    .select(
-      "mutedAt",
-      "themeKey",
-      "wallpaperDim",
-      "wallpaperKey",
-      "wallpaperMediaId"
-    )
-    .update(data);
+  ).select(
+    "mutedAt",
+    "themeKey",
+    "wallpaperDim",
+    "wallpaperKey",
+    "wallpaperMediaId"
+  );
+  const member =
+    Object.keys(memberData).length > 0
+      ? await memberQuery.update(memberData)
+      : await memberQuery.first();
 
   // getConversationForUser already proved the membership exists, so a null here
   // means the row was removed between the check and this write.
@@ -199,12 +243,18 @@ export async function PATCH(
         ? fromPrismaDateTime(member.mutedAt).toISOString()
         : null,
       themeKey: member.themeKey,
-      wallpaperDim: member.wallpaperDim,
-      wallpaperKey: member.wallpaperKey,
+      wallpaperDim: sharedWallpaper
+        ? sharedWallpaper.wallpaperDim
+        : member.wallpaperDim,
+      wallpaperKey: sharedWallpaper
+        ? sharedWallpaper.wallpaperKey
+        : member.wallpaperKey,
       // Returned even though this route only ever clears it: the client treats
       // the response as the whole prefs object, so omitting it would make every
       // unrelated write look like it removed the member's uploaded wallpaper.
-      wallpaperMediaId: member.wallpaperMediaId,
+      wallpaperMediaId: sharedWallpaper
+        ? sharedWallpaper.wallpaperMediaId
+        : member.wallpaperMediaId,
     },
   });
 }

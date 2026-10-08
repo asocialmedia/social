@@ -4196,6 +4196,7 @@ export function MessageThread({
         | "conversation.read"
         | "conversation.delivered"
         | "typing.started"
+        | "conversation.appearance.changed"
         | "keys.rotated"
         | "den.membership.changed";
       deliveredAt?: string;
@@ -4329,6 +4330,12 @@ export function MessageThread({
         // subscriber would be a second stream connection to the same endpoint.
         void queryClient.invalidateQueries({
           queryKey: ["message-den", conversationId],
+        });
+        return;
+      }
+      if (event.kind === "conversation.appearance.changed") {
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversationId],
         });
         return;
       }

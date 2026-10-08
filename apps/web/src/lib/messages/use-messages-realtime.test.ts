@@ -412,3 +412,18 @@ describe("catchUpKeys", () => {
     ).toEqual([["messages", CONVERSATION_ID]]);
   });
 });
+
+test("shared wallpaper changes reach the open conversation without pretending the roster changed", () => {
+  expect(
+    parseMessageEvent(
+      JSON.stringify({
+        conversationId: CONVERSATION_ID,
+        kind: "conversation.appearance.changed",
+        userId: "elder",
+      })
+    )
+  ).toMatchObject({
+    conversationId: CONVERSATION_ID,
+    kind: "conversation.appearance.changed",
+  });
+});

@@ -17,6 +17,7 @@ interface MessageStreamEvent {
     | "conversation.read"
     | "conversation.delivered"
     | "typing.started"
+    | "conversation.appearance.changed"
     | "keys.rotated"
     | "den.membership.changed";
   conversationId: string;
@@ -59,6 +60,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
+      parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "keys.rotated" &&
       parsed.kind !== "den.membership.changed"
     ) {

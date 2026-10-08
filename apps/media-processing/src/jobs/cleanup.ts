@@ -47,6 +47,9 @@ export async function processMediaCleanup(
         .include("messageConversation", (conversation) =>
           conversation.select("id")
         )
+        .include("wallpaperConversations", (conversation) =>
+          conversation.select("id")
+        )
         .include("messageConversationMembers", (member) =>
           member.select("userId")
         )
@@ -67,6 +70,7 @@ export async function processMediaCleanup(
         media.communities.length > 0 ||
         media.communitiesCommunities.length > 0 ||
         media.messageConversation ||
+        media.wallpaperConversations.length > 0 ||
         media.messageConversationMembers.length > 0
       ) {
         return;

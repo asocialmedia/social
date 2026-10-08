@@ -13,18 +13,18 @@ import {
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
 import {
+  canManageDenWallpaper,
+  updateDenWallpaper,
+} from "@/lib/messages/den-wallpaper";
+import {
   getConversationForUser,
   hasLeftConversation,
   leftConversationResponse,
   parseJsonBody,
 } from "@/lib/messages/server";
 
-// Links a member's own uploaded image as this conversation's custom chat
-// wallpaper, and unlinks it again.
-//
-// Mirrors the avatar/banner link routes: the row is claimed onto the member's
-// own preference row, never a shared one, so the peer cannot see it and the
-// serving route only ever admits the uploader.
+// Uploaded wallpapers belong to the den for group chats and to the member for
+// DMs. Owners and elders manage the shared den background.
 //
 // The image itself is a normal pipeline upload (`purpose: "wallpaper"`), so it
 // gets the same quarantine, ClamAV scan, magic-byte check and EXIF strip as
@@ -162,6 +162,13 @@ export async function POST(
     return Response.json({ error: check.rejection.message }, { status: 422 });
   }
 
+  if (!canManageDenWallpaper(conversation, user.id)) {
+    return Response.json(
+      { error: "Only owners and elders can change the den wallpaper" },
+      { status: 403 }
+    );
+  }
+
   const currentMember =
     await prisma.orm.public.MessageConversationMembers.select(
       "wallpaperMediaId"
@@ -171,11 +178,29 @@ export async function POST(
 
   // The claim and the clear land in the same update, so no interleaving can
   // leave both a preset and an upload set on the row.
-  const member = await prisma.orm.public.MessageConversationMembers.where(
+  const sharedWallpaper =
+    conversation.type === "DEN"
+      ? await updateDenWallpaper(id, user.id, {
+          wallpaperKey: null,
+          wallpaperMediaId: media.id,
+        })
+      : null;
+  if (conversation.type === "DEN" && !sharedWallpaper) {
+    return Response.json(
+      { error: "Wallpaper change is no longer permitted" },
+      { status: 403 }
+    );
+  }
+  const memberQuery = prisma.orm.public.MessageConversationMembers.where(
     (row) => and(row.conversationId.eq(id), row.userId.eq(user.id))
-  )
-    .select(...memberPrefsSelect)
-    .update({ wallpaperKey: null, wallpaperMediaId: media.id });
+  ).select(...memberPrefsSelect);
+  const member =
+    conversation.type === "DEN"
+      ? await memberQuery.first()
+      : await memberQuery.update({
+          wallpaperKey: null,
+          wallpaperMediaId: media.id,
+        });
 
   if (!member) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
@@ -198,7 +223,7 @@ export async function POST(
     currentMember.wallpaperMediaId !== media.id
       ? currentMember.wallpaperMediaId
       : null;
-  if (previousMediaId) {
+  if (previousMediaId && conversation.type !== "DEN") {
     try {
       await scheduleMediaCleanup(previousMediaId);
     } catch (error) {
@@ -209,7 +234,11 @@ export async function POST(
     }
   }
 
-  return Response.json({ prefs: prefsPayload(member) });
+  return Response.json({
+    prefs: prefsPayload(
+      sharedWallpaper ? { ...member, ...sharedWallpaper } : member
+    ),
+  });
 }
 
 // Clears the custom upload, returning the chat to what it would show with no
@@ -241,6 +270,13 @@ export async function DELETE(
     return leftConversationResponse();
   }
 
+  if (!canManageDenWallpaper(conversation, user.id)) {
+    return Response.json(
+      { error: "Only owners and elders can change the den wallpaper" },
+      { status: 403 }
+    );
+  }
+
   const currentMember =
     await prisma.orm.public.MessageConversationMembers.select(
       "wallpaperMediaId"
@@ -248,11 +284,23 @@ export async function DELETE(
       .where((row) => and(row.conversationId.eq(id), row.userId.eq(user.id)))
       .first();
 
-  const member = await prisma.orm.public.MessageConversationMembers.where(
+  const sharedWallpaper =
+    conversation.type === "DEN"
+      ? await updateDenWallpaper(id, user.id, { wallpaperMediaId: null })
+      : null;
+  if (conversation.type === "DEN" && !sharedWallpaper) {
+    return Response.json(
+      { error: "Wallpaper change is no longer permitted" },
+      { status: 403 }
+    );
+  }
+  const memberQuery = prisma.orm.public.MessageConversationMembers.where(
     (row) => and(row.conversationId.eq(id), row.userId.eq(user.id))
-  )
-    .select(...memberPrefsSelect)
-    .update({ wallpaperMediaId: null });
+  ).select(...memberPrefsSelect);
+  const member =
+    conversation.type === "DEN"
+      ? await memberQuery.first()
+      : await memberQuery.update({ wallpaperMediaId: null });
 
   if (!member) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
@@ -261,7 +309,7 @@ export async function DELETE(
   // Unlinked, so schedule the reaper to reclaim the bytes. Deliberately not
   // immediate: the member may be about to re-pick the same image, and the
   // cleanup job re-checks attachment first anyway.
-  if (currentMember?.wallpaperMediaId) {
+  if (currentMember?.wallpaperMediaId && conversation.type !== "DEN") {
     try {
       await scheduleMediaCleanup(currentMember.wallpaperMediaId);
     } catch (error) {
@@ -269,5 +317,9 @@ export async function DELETE(
     }
   }
 
-  return Response.json({ prefs: prefsPayload(member) });
+  return Response.json({
+    prefs: prefsPayload(
+      sharedWallpaper ? { ...member, ...sharedWallpaper } : member
+    ),
+  });
 }

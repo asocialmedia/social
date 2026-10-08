@@ -302,6 +302,9 @@ export async function createInitiatedUpload(input: {
       .include("usersUsers", (user) => user.select("id"))
       .include("communities", (community) => community.select("id"))
       .include("communitiesCommunities", (community) => community.select("id"))
+      .include("wallpaperConversations", (conversation) =>
+        conversation.select("id")
+      )
       .include("messageConversationMembers", (member) =>
         member.select("userId")
       )
@@ -319,6 +322,7 @@ export async function createInitiatedUpload(input: {
         existing.usersUsers.length === 0 &&
         existing.communities.length === 0 &&
         existing.communitiesCommunities.length === 0 &&
+        existing.wallpaperConversations.length === 0 &&
         existing.messageConversationMembers.length === 0;
       // A different audio overlay means the row's stored (or in-flight) bytes
       // were baked with another track; reusing them would serve the wrong

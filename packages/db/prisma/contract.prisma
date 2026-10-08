@@ -136,6 +136,9 @@ namespace public {
     // supplies the label and avatar.
     name                       String?
     description                String?
+    wallpaperKey               String?
+    wallpaperDim               Int?
+    wallpaperMediaId           String?
     avatarMediaId              String?
     // SetNull rather than Cascade on both people columns: deleting the last
     // member's account must not delete a den's history out from under everyone
@@ -209,6 +212,7 @@ namespace public {
     messages                       Messages[]
     notifications                  Notifications[]
     postMedias                     PostMedia[]
+    wallpaperMedia                 PostMedia? @relation(name: "message_conversations_wallpaperMediaId_fkey", fields:[wallpaperMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_wallpaperMediaId_fkey")
     avatarMedia                    PostMedia?                   @relation(name: "message_conversations_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_avatarMediaId_fkey")
     createdBy                      Users?                      @relation(name: "message_conversations_createdById_fkey", fields:[createdById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_createdById_fkey")
     owner                          Users?                      @relation(name: "message_conversations_ownerId_fkey", fields:[ownerId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_ownerId_fkey")
@@ -292,6 +296,7 @@ namespace public {
     post                   Posts?                    @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_postId_fkey")
     users                  Users[]                   @relation(name: "users_avatarMediaId_fkey")
     usersUsers             Users[]                   @relation(name: "users_bannerMediaId_fkey")
+    wallpaperConversations MessageConversations[] @relation(name: "message_conversations_wallpaperMediaId_fkey")
     messageConversationMembers MessageConversationMembers[] @relation(name: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@unique([audioOverlayId], map: "post_media_audioOverlayId_key")

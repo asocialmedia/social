@@ -125,3 +125,25 @@ async function checkMembership(
   }
   return !(await areBlocked(viewerId, peer.userId));
 }
+
+// Only the den's active members may resolve its current shared wallpaper.
+export async function resolveDenWallpaperConversationId(
+  mediaId: string,
+  viewerId: string | undefined
+) {
+  if (!viewerId) {
+    return null;
+  }
+  const conversation = await prisma.orm.public.MessageConversations.select("id")
+    .where((row) =>
+      and(
+        row._type.eq("DEN"),
+        row.wallpaperMediaId.eq(mediaId),
+        row.messageConversationMembers.some((member) =>
+          and(member.userId.eq(viewerId), member.leftAt.isNull())
+        )
+      )
+    )
+    .first();
+  return conversation?.id ?? null;
+}

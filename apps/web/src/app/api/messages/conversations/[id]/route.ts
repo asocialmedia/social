@@ -64,6 +64,8 @@ export async function GET(
       ? await listDenMembershipEvents(id, myMember?.leftAt ?? null)
       : [];
 
+  const wallpaperPrefs = conversation.type === "DEN" ? conversation : myMember;
+
   return Response.json({
     conversation: {
       ...conversation,
@@ -103,9 +105,9 @@ export async function GET(
     prefs: {
       mutedAt: myMember?.mutedAt?.toISOString() ?? null,
       themeKey: myMember?.themeKey ?? null,
-      wallpaperDim: myMember?.wallpaperDim ?? null,
-      wallpaperKey: myMember?.wallpaperKey ?? null,
-      wallpaperMediaId: myMember?.wallpaperMediaId ?? null,
+      wallpaperDim: wallpaperPrefs?.wallpaperDim ?? null,
+      wallpaperKey: wallpaperPrefs?.wallpaperKey ?? null,
+      wallpaperMediaId: wallpaperPrefs?.wallpaperMediaId ?? null,
     },
   });
 }
