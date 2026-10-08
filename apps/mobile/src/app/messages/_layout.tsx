@@ -11,9 +11,8 @@
 // name is what promotes `messages` to a route of its own.
 //
 // The identity provider lives HERE rather than on each screen. It bootstraps a
-// key by running PBKDF2 at 100k iterations, which is genuinely slow on Hermes,
-// so mounting it per screen re-ran the whole derivation on every hop between
-// the list and a thread. One provider over the subtree runs it once, and a deep
+// key on a native background queue. One provider over the subtree shares that
+// recovery between the list and a thread, and a deep
 // link straight into a thread still resolves its key first, because the layout
 // renders above the thread. See the recovery invariants in message-identity.tsx.
 

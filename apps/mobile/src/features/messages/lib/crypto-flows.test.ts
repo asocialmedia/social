@@ -4,7 +4,7 @@
 // This is the test that would catch a wire-format regression: a root key wrapped
 // on one device must unwrap on the other, a message sent must decrypt on the
 // peer's device, and an edit must stay readable to the peer under the same epoch.
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   createRootKeyStore,
@@ -33,6 +33,7 @@ import {
   importPublicKeyJwk,
   isAllowedMediaUrl,
   KDF_ITERATIONS,
+  setNativeMasterKeyDeriver,
   publicKeyBase64ToJwk,
   publicKeyJwkToBase64,
   unwrapRootKey,
@@ -915,5 +916,37 @@ describe("ensureConversationKeys", () => {
       })
     ).resolves.toBeNull();
     expect(recorder.posted).toHaveLength(0);
+  });
+});
+
+describe("native background master key", () => {
+  afterEach(() => setNativeMasterKeyDeriver(null));
+
+  test("uses the native driver without changing the stored-row KDF inputs", async () => {
+    const salt = new Uint8Array(16).fill(4);
+    const hash = "stored-row-master-key-hash";
+    const expected = await deriveMasterKey(hash, salt);
+    const calls: { secret: string; salt: Uint8Array; iterations: number }[] =
+      [];
+    setNativeMasterKeyDeriver((secret, receivedSalt, iterations) => {
+      calls.push({ iterations, salt: receivedSalt, secret });
+      return Promise.resolve(expected);
+    });
+    const derived = await deriveMasterKey(hash, salt);
+    expect(calls).toEqual([{ iterations: KDF_ITERATIONS, salt, secret: hash }]);
+    const backup = await encryptWithMasterKey(
+      expected,
+      "existing identity backup"
+    );
+    expect(await decryptWithMasterKey(derived, backup)).toBe(
+      "existing identity backup"
+    );
+  });
+
+  test("rejects malformed native key results instead of encrypting an unreadable backup", async () => {
+    setNativeMasterKeyDeriver(() => Promise.resolve(new Uint8Array(16)));
+    await expect(deriveMasterKey("hash", new Uint8Array(16))).rejects.toThrow(
+      "Invalid derived message key length"
+    );
   });
 });

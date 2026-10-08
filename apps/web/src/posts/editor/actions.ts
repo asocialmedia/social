@@ -34,7 +34,7 @@ import {
 import type { PrismaTransaction } from "@asm/db";
 import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
 import { siteConfig } from "@asm/ui/meta/site";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 
 import { resolvePostEmbeds } from "@/lib/link-embeds/server";
 import { MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
@@ -569,14 +569,6 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         }
       }
 
-      // The media rows' postId just changed (draft uploads start unlinked), and
-      // /api/media caches the row to drive its access decision. Drop that cache
-      // so the now-public ownership is picked up immediately instead of serving
-      // a stale "protected" row for up to an hour.
-      if (validatedInput.mediaIds.length > 0) {
-        updateTag("media-object");
-      }
-
       if (input.hnStory) {
         await tx.orm.public.HnStoryShares.create({
           by: input.hnStory.by,
@@ -700,6 +692,12 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
       return mapPostData(completePostRow);
     });
+
+    // Only expire ownership after the attachment claim commits. This helper is
+    // shared by Server Actions and native API routes, so use route-safe expiry.
+    if (validatedInput.mediaIds.length > 0) {
+      revalidateTag("media-object", { expire: 0 });
+    }
 
     // A new community post changes the community's aggregate aura and the
     // global post-derived aggregates (hero totals, top-by-aura), so drop both

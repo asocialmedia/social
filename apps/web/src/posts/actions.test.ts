@@ -212,7 +212,7 @@ const mockPrisma = {
   },
 };
 
-const mockUpdateTag = mock(() => {});
+const mockRevalidateTag = mock(() => {});
 const mockInclude = () => ({ attachments: true, user: true });
 const mockEnqueueNotificationCreated = mock((userId: string) => {
   enqueuedNotificationRecipients.push(userId);
@@ -317,7 +317,10 @@ mock.module("@/lib/auth/session", () => ({
 }));
 
 mock.module("next/cache", () => ({
-  updateTag: mockUpdateTag,
+  revalidateTag: mockRevalidateTag,
+  updateTag: () => {
+    throw new Error("updateTag requires a Server Action");
+  },
 }));
 
 beforeEach(() => {
@@ -338,7 +341,7 @@ beforeEach(() => {
   mockUnlinkedAuraLogs = [];
   mockDeletedPosts = [];
   mockGetSession.mockClear();
-  mockUpdateTag.mockClear();
+  mockRevalidateTag.mockClear();
   mockEnqueueNotificationCreated.mockClear();
 });
 
@@ -396,8 +399,12 @@ describe("updatePostModeration", () => {
     ]);
     // Expire both the OG card and media rows so share cards + media pages
     // reflect the new moderation state.
-    expect(mockUpdateTag).toHaveBeenCalledWith("og-post-card");
-    expect(mockUpdateTag).toHaveBeenCalledWith("media-object");
+    expect(mockRevalidateTag).toHaveBeenCalledWith("og-post-card", {
+      expire: 0,
+    });
+    expect(mockRevalidateTag).toHaveBeenCalledWith("media-object", {
+      expire: 0,
+    });
   });
 
   test("author self-moderation still notifies via the Zeph persona", async () => {

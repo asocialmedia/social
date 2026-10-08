@@ -5,9 +5,8 @@
 // navigation instead of a CSS breakpoint.
 //
 // The identity provider is NOT here. It sits in `messages/_layout.tsx` so it
-// wraps both screens at once: bootstrapping a key runs PBKDF2 at 100k
-// iterations, which is slow enough on Hermes that re-deriving it on every hop
-// between the list and a thread showed up as a stall. The layout still renders
+// wraps both screens at once: background key recovery is shared between the
+// list and a thread. The layout still renders
 // above this screen, so a deep link into a thread resolves its key first.
 import { useRouter } from "expo-router";
 import { useCallback } from "react";

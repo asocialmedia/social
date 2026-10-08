@@ -17,7 +17,7 @@ import {
   RESPONSE_RECEIVED_POST_AURA,
   reverseExactAura,
 } from "@asm/db";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getModerationSystemUserId } from "@/lib/moderation/system-moderation-user";
@@ -215,8 +215,8 @@ export async function updatePostModeration(
 
   // Expire the cached OG card + media rows so the moderation state is reflected
   // on share cards and media pages (read-your-own-writes).
-  updateTag("og-post-card");
-  updateTag("media-object");
+  revalidateTag("og-post-card", { expire: 0 });
+  revalidateTag("media-object", { expire: 0 });
 
   return updated;
 }
@@ -351,8 +351,8 @@ export async function deletePost(id: string) {
 
   // Expire the cached OG card + media rows immediately so a deleted post's
   // share card and media URLs stop being served (read-your-own-writes).
-  updateTag("og-post-card");
-  updateTag("media-object");
+  revalidateTag("og-post-card", { expire: 0 });
+  revalidateTag("media-object", { expire: 0 });
 
   // If the deleted post was a response, drop it from open threads live (keyed
   // on the thread root so every viewer of the post gets it) and refund the
