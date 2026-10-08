@@ -18,6 +18,7 @@ export async function processMessageSearchCount(
   const startedAt = performance.now();
   let outcome: "completed" | "retry" | "skipped" = "retry";
   let claimedRequestId: string | null = null;
+  let queuedAt: Date | null = null;
   try {
     const request = await claimMessageSearchCountRequest(requestId);
     if (!request) {
@@ -25,6 +26,7 @@ export async function processMessageSearchCount(
       return;
     }
     claimedRequestId = request.id;
+    queuedAt = request.createdAt;
     const exactCount = await countMessageSearchCandidates({
       conversationId: request.conversationId,
       fragments: request.fragments,
@@ -46,6 +48,11 @@ export async function processMessageSearchCount(
     safelyRecordMessageSearchWorkerMetric(metrics, {
       durationMs: performance.now() - startedAt,
       job: "count",
+      ...(queuedAt
+        ? {
+            queueAgeMs: Math.max(0, Date.now() - queuedAt.getTime()),
+          }
+        : {}),
       outcome,
     });
   }

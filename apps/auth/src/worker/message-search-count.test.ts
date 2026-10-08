@@ -5,6 +5,7 @@ import type { MessageSearchWorkerMetricEvent } from "./message-search-metrics";
 const request = {
   attempts: 1,
   conversationId: "conversation-1",
+  createdAt: new Date(Date.now() - 5000),
   expiresAt: new Date("2026-10-08T10:00:00.000Z"),
   fragments: [{ grams: ["3:nee"], text: "needle" }],
   id: "count-request-1",
@@ -67,7 +68,11 @@ describe("message search count worker", () => {
     expect(mockComplete).toHaveBeenCalledWith(request.id, 17);
     expect(mockRelease).not.toHaveBeenCalled();
     expect(metrics).toEqual([
-      expect.objectContaining({ job: "count", outcome: "completed" }),
+      expect.objectContaining({
+        job: "count",
+        outcome: "completed",
+        queueAgeMs: expect.any(Number),
+      }),
     ]);
   });
 
@@ -102,7 +107,11 @@ describe("message search count worker", () => {
       "DM search count processing failed"
     );
     expect(metrics).toEqual([
-      expect.objectContaining({ job: "count", outcome: "retry" }),
+      expect.objectContaining({
+        job: "count",
+        outcome: "retry",
+        queueAgeMs: expect.any(Number),
+      }),
     ]);
   });
 });

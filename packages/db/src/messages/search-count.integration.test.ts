@@ -247,6 +247,8 @@ describe("durable DM search counts", () => {
     if (!claimed) {
       throw new Error("expected the durable count request to be claimed");
     }
+    expect(claimed.createdAt).toBeInstanceOf(Date);
+    expect(claimed.createdAt.getTime()).toBeLessThanOrEqual(Date.now());
     const exactCount = await countMessageSearchCandidates({
       conversationId: CONVERSATION_ID,
       fragments: claimed.fragments,

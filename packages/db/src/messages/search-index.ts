@@ -120,6 +120,7 @@ export interface MessageSearchCountRequestInput {
 export interface MessageSearchCountRequest {
   attempts: number;
   conversationId: string;
+  createdAt: Date;
   expiresAt: Date;
   fragments: { grams: string[]; text: string }[];
   id: string;
@@ -592,6 +593,7 @@ export async function claimMessageSearchCountRequest(
     const selected = await client.query<{
       attempts: number;
       conversationId: string;
+      createdAt: Date;
       expiresAt: Date;
       fragments: unknown;
       id: string;
@@ -607,7 +609,8 @@ export async function claimMessageSearchCountRequest(
               request."queryHash", request."normalizationVersion",
               request."snapshotSequence", request."membershipSequence",
               request."recoveryGeneration", request.fragments,
-              request."membershipWindows", request.attempts, request."expiresAt"
+              request."membershipWindows", request.attempts, request."createdAt",
+              request."expiresAt"
          FROM public.message_search_count_requests AS request
          JOIN public.message_search_coverage AS coverage
            ON coverage."conversationId" = request."conversationId"
@@ -671,6 +674,7 @@ export async function claimMessageSearchCountRequest(
     return {
       attempts: row.attempts + 1,
       conversationId: row.conversationId,
+      createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       fragments,
       id: row.id,
