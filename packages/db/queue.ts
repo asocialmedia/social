@@ -455,6 +455,24 @@ export async function enqueueMessageSearchBackfillOutbox(
   );
 }
 
+export async function enqueueMessageSearchBackfill(
+  conversationId: string,
+  cursorKey: string | null = "start"
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_BACKFILL_QUEUE),
+    "index-conversation-search-backfill",
+    `dm-search-backfill-${conversationId}-${cursorKey}`,
+    { conversationId },
+    {
+      attempts: 8,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
 export async function enqueueMediaScan(
   mediaId: string,
   options?: { backfill?: boolean; jobIdSuffix?: string }

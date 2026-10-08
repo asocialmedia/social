@@ -1,0 +1,231 @@
+[
+  {
+    "id": "column.public.message_search_coverage.backfillCompletedAt",
+    "label": "Add column \"backfillCompletedAt\" to \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "backfillCompletedAt",
+        "table": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"backfillCompletedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_search_coverage", "backfillCompletedAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"backfillCompletedAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_coverage\" ADD COLUMN \"backfillCompletedAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"backfillCompletedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_search_coverage", "backfillCompletedAt"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_search_coverage.backfillCursorCreatedAt",
+    "label": "Add column \"backfillCursorCreatedAt\" to \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "backfillCursorCreatedAt",
+        "table": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"backfillCursorCreatedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_search_coverage",
+          "backfillCursorCreatedAt"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"backfillCursorCreatedAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_coverage\" ADD COLUMN \"backfillCursorCreatedAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"backfillCursorCreatedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_search_coverage",
+          "backfillCursorCreatedAt"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_search_coverage.backfillCursorMessageId",
+    "label": "Add column \"backfillCursorMessageId\" to \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "backfillCursorMessageId",
+        "table": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"backfillCursorMessageId\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_search_coverage",
+          "backfillCursorMessageId"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"backfillCursorMessageId\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_coverage\" ADD COLUMN \"backfillCursorMessageId\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"backfillCursorMessageId\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_search_coverage",
+          "backfillCursorMessageId"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_search_coverage.backfillStartedAt",
+    "label": "Add column \"backfillStartedAt\" to \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "backfillStartedAt",
+        "table": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"backfillStartedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_search_coverage", "backfillStartedAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"backfillStartedAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_coverage\" ADD COLUMN \"backfillStartedAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"backfillStartedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_search_coverage", "backfillStartedAt"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_search_coverage.backfillThroughSequence",
+    "label": "Add column \"backfillThroughSequence\" to \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "backfillThroughSequence",
+        "table": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"backfillThroughSequence\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_search_coverage",
+          "backfillThroughSequence"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"backfillThroughSequence\"",
+        "sql": "ALTER TABLE \"public\".\"message_search_coverage\" ADD COLUMN \"backfillThroughSequence\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"backfillThroughSequence\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "message_search_coverage",
+          "backfillThroughSequence"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_coverage.message_search_coverage_backfill_idx",
+    "label": "Create index \"message_search_coverage_backfill_idx\" on \"message_search_coverage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_coverage_backfill_idx",
+        "table": "message_search_coverage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_coverage_backfill_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_coverage_backfill_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_coverage_backfill_idx\"",
+        "sql": "CREATE INDEX \"message_search_coverage_backfill_idx\" ON \"public\".\"message_search_coverage\" (\"backfillCompletedAt\", \"backfillStartedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_coverage_backfill_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_coverage_backfill_idx\""]
+      }
+    ]
+  }
+]

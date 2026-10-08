@@ -1,4 +1,4 @@
-import { fromPrismaDateTime, prisma } from "@asm/db";
+import { fromPrismaDateTime, prisma, toPrismaDateTime } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
@@ -150,6 +150,18 @@ export async function DELETE() {
       const deleted = await tx.orm.public.MessageConversationKeys.where({
         ownerUserId: user.id,
       }).deleteAndCount();
+      const searchState = await tx.orm.public.MessageSearchAccountState.where({
+        userId: user.id,
+      }).first();
+      await tx.orm.public.MessageSearchAccountState.where({
+        userId: user.id,
+      }).upsert({
+        create: { recoveryGeneration: 1, userId: user.id },
+        update: {
+          recoveryGeneration: (searchState?.recoveryGeneration ?? 0) + 1,
+          updatedAt: toPrismaDateTime(new Date()),
+        },
+      });
       return deleted;
     });
 

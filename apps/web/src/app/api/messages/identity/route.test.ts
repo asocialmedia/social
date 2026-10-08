@@ -24,8 +24,12 @@ const mockCreate = mock(() => ({}));
 // Recorded so the tests can assert each delete stayed self-scoped.
 const mockIdentityDelete = mock(() => ({}));
 const mockKeysDeleteAndCount = mock(() => 2);
+const mockSearchStateFind = mock(() => ({ recoveryGeneration: 5 }));
+const mockSearchStateUpsert = mock(() => ({}));
 let identityWhere: Record<string, unknown> | null = null;
 let keysWhere: Record<string, unknown> | null = null;
+let searchStateWhere: Record<string, unknown> | null = null;
+let searchStateUpsertInput: Record<string, unknown> | null = null;
 const mockTransaction = mock((fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     orm: {
@@ -40,6 +44,18 @@ const mockTransaction = mock((fn: (tx: unknown) => Promise<unknown>) =>
           where: (where: Record<string, unknown>) => {
             identityWhere = where;
             return { delete: mockIdentityDelete };
+          },
+        },
+        MessageSearchAccountState: {
+          where: (where: Record<string, unknown>) => {
+            searchStateWhere = where;
+            return {
+              first: mockSearchStateFind,
+              upsert: (input: Record<string, unknown>) => {
+                searchStateUpsertInput = input;
+                return mockSearchStateUpsert();
+              },
+            };
           },
         },
       },
@@ -254,11 +270,16 @@ describe("DELETE /api/messages/identity", () => {
     mockGetSession.mockClear();
     mockIdentityDelete.mockClear();
     mockKeysDeleteAndCount.mockClear();
+    mockSearchStateFind.mockReset();
+    mockSearchStateFind.mockReturnValue({ recoveryGeneration: 5 });
+    mockSearchStateUpsert.mockClear();
     mockTransaction.mockClear();
     mockGetSession.mockReturnValue({ user: { id: "user1" } });
     mockKeysDeleteAndCount.mockReturnValue(2);
     identityWhere = null;
     keysWhere = null;
+    searchStateWhere = null;
+    searchStateUpsertInput = null;
   });
 
   test("requires auth", async () => {
@@ -285,5 +306,15 @@ describe("DELETE /api/messages/identity", () => {
     // peer's wraps and destroy their history, which the reset must never do.
     expect(keysWhere).toEqual({ ownerUserId: "user1" });
     expect(keysWhere).not.toHaveProperty("conversationId");
+  });
+
+  test("increments the caller's recovery generation in the same reset transaction", async () => {
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    expect(searchStateWhere).toEqual({ userId: "user1" });
+    expect(searchStateUpsertInput).toMatchObject({
+      create: { recoveryGeneration: 1, userId: "user1" },
+      update: { recoveryGeneration: 6 },
+    });
   });
 });

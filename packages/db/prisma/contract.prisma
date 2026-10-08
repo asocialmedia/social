@@ -1009,13 +1009,20 @@ namespace public {
   }
 
   model MessageSearchCoverage {
-    conversationId       String @id(map: "message_search_coverage_pkey")
-    rowsTraversed        Int    @default(0)
-    artifactsCommitted   Int    @default(0)
-    unrecoverableEpochs  Int    @default(0)
-    completedChangeSeq   Int    @default(0)
-    recoveryGeneration   Int    @default(0)
-    updatedAt            Timestamp(3) @default(now())
+    conversationId          String       @id(map: "message_search_coverage_pkey")
+    rowsTraversed           Int          @default(0)
+    artifactsCommitted      Int          @default(0)
+    unrecoverableEpochs     Int          @default(0)
+    completedChangeSeq      Int          @default(0)
+    recoveryGeneration      Int          @default(0)
+    backfillThroughSequence Int?
+    backfillCursorCreatedAt Timestamp(3)?
+    backfillCursorMessageId String?
+    backfillStartedAt       Timestamp(3)?
+    backfillCompletedAt     Timestamp(3)?
+    updatedAt               Timestamp(3) @default(now())
+
+    @@index([backfillCompletedAt, backfillStartedAt], map: "message_search_coverage_backfill_idx")
 
     @@map("message_search_coverage")
   }

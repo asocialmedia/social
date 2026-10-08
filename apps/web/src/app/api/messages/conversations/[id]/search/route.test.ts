@@ -22,6 +22,14 @@ const mockRateLimit = mock(() =>
     retryAfterSeconds: 0,
   })
 );
+const mockStartBackfill = mock(() =>
+  Promise.resolve({
+    completedAt: null,
+    expectedPosition: { createdAt: null, messageId: null },
+    throughSequence: 90,
+  })
+);
+const mockEnqueueBackfill = mock(() => Promise.resolve());
 const mockListMembershipEvents = mock(() => Promise.resolve([]));
 const mockSearchCandidates = mock(() => Promise.resolve([] as object[]));
 const mockChangeSequence = mock(() => ({ changeSeq: 90 }));
@@ -42,6 +50,7 @@ mock.module("@/lib/messages/server", () => ({
 }));
 mock.module("@asm/db", () => ({
   consumeRateLimit: mockRateLimit,
+  enqueueMessageSearchBackfill: mockEnqueueBackfill,
   fromPrismaDateTime: (value: Date) => value,
   keys: { VIEWER_HASH_SECRET: "test-search-cursor-secret" },
   listDenMembershipEvents: mockListMembershipEvents,
@@ -62,6 +71,7 @@ mock.module("@asm/db", () => ({
     candidateInput = input;
     return mockSearchCandidates();
   },
+  startMessageSearchBackfill: mockStartBackfill,
 }));
 
 function request(
@@ -102,6 +112,15 @@ describe("POST /api/messages/conversations/:id/search", () => {
       type: "DM",
     });
     mockRateLimit.mockClear();
+    mockStartBackfill.mockReset();
+    mockStartBackfill.mockReturnValue(
+      Promise.resolve({
+        completedAt: null,
+        expectedPosition: { createdAt: null, messageId: null },
+        throughSequence: 90,
+      })
+    );
+    mockEnqueueBackfill.mockClear();
     mockListMembershipEvents.mockClear();
     mockSearchCandidates.mockReset();
     mockSearchCandidates.mockReturnValue(Promise.resolve([]));
@@ -109,6 +128,7 @@ describe("POST /api/messages/conversations/:id/search", () => {
     mockRecoveryState.mockReturnValue({ recoveryGeneration: 2 });
     mockCoverage.mockReturnValue({
       artifactsCommitted: 100,
+      backfillCompletedAt: null,
       completedChangeSeq: 89,
       rowsTraversed: 100,
       unrecoverableEpochs: 0,
@@ -171,6 +191,8 @@ describe("POST /api/messages/conversations/:id/search", () => {
       snapshotSequence: 90,
     });
     expect(body.hits[0]?.ciphertext).toBe("ciphertext");
+    expect(mockStartBackfill).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueBackfill).toHaveBeenCalledWith("c1", null);
     expect(candidateInput).toMatchObject({
       conversationId: "c1",
       fragments: [{ grams: expect.any(Array), text: "cafe" }],
@@ -179,6 +201,30 @@ describe("POST /api/messages/conversations/:id/search", () => {
       snapshotSequence: 90,
       userId: "user-1",
     });
+  });
+
+  test("declares coverage complete only after the backfill and snapshot settle", async () => {
+    mockStartBackfill.mockReturnValueOnce(
+      Promise.resolve({
+        completedAt: new Date("2026-10-08T00:01:00.000Z"),
+        expectedPosition: {
+          createdAt: new Date("2026-10-08T00:00:00.000Z"),
+          messageId: "message-100",
+        },
+        throughSequence: 90,
+      })
+    );
+    mockCoverage.mockReturnValueOnce({
+      artifactsCommitted: 100,
+      backfillCompletedAt: new Date("2026-10-08T00:01:00.000Z"),
+      completedChangeSeq: 90,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+    const response = await POST(request({ query: "needle" }), context);
+    const body = (await response.json()) as { coverage: { complete: boolean } };
+    expect(body.coverage.complete).toBe(true);
+    expect(mockEnqueueBackfill).not.toHaveBeenCalled();
   });
 
   test("pins later pages to the original snapshot and stable keyset", async () => {

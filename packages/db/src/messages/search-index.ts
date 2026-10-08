@@ -3,6 +3,8 @@ import { Pool } from "pg";
 import { keys } from "../../keys";
 
 const MAX_SEARCH_TERM_INSERT_BATCH = 100;
+export const MESSAGE_SEARCH_BACKFILL_BATCH_MESSAGES = 100;
+export const MESSAGE_SEARCH_BACKFILL_BATCH_BYTES = 1024 * 1024;
 
 let searchPool: Pool | undefined;
 
@@ -61,6 +63,37 @@ export interface SearchCandidateRow {
 
 export interface SearchArtifactCommitResult {
   status: "indexed" | "superseded" | "unreadable";
+}
+
+export interface MessageSearchBackfillPosition {
+  createdAt: Date | null;
+  messageId: string | null;
+}
+
+export interface MessageSearchBackfillMessage {
+  ciphertext: string;
+  createdAt: Date;
+  deletedAt: Date | null;
+  id: string;
+  iv: string;
+  keyEpoch: number | null;
+  ratchetIndex: number;
+  revision: number;
+  senderId: string;
+}
+
+export interface MessageSearchBackfillBatch {
+  throughSequence: number;
+  expectedPosition: MessageSearchBackfillPosition;
+  messages: MessageSearchBackfillMessage[];
+}
+
+export interface MessageSearchBackfillArtifact {
+  createdAt: Date;
+  keyEpoch: number;
+  messageId: string;
+  revision: number;
+  terms: readonly SearchTermArtifact[];
 }
 
 function pgTimestamp(value: Date): string {
@@ -199,11 +232,10 @@ export async function persistSearchDocument(
           : Math.max(0, coverageRow.pendingSequence - 1);
       await client.query(
         `INSERT INTO public.message_search_coverage
-           ("conversationId", "rowsTraversed", "artifactsCommitted", "completedChangeSeq", "updatedAt")
-         VALUES ($1, 1, $2, $3, now())
+           ("conversationId", "artifactsCommitted", "completedChangeSeq", "updatedAt")
+         VALUES ($1, $2, $3, now())
          ON CONFLICT ("conversationId") DO UPDATE
-           SET "rowsTraversed" = public.message_search_coverage."rowsTraversed" + 1,
-               "artifactsCommitted" = public.message_search_coverage."artifactsCommitted" + $2,
+           SET "artifactsCommitted" = public.message_search_coverage."artifactsCommitted" + $2,
                "completedChangeSeq" = GREATEST(public.message_search_coverage."completedChangeSeq", $3),
                "updatedAt" = now()`,
         [
@@ -217,9 +249,348 @@ export async function persistSearchDocument(
     await client.query("COMMIT");
     return { status };
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {
-      /* empty */
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function startMessageSearchBackfill(
+  conversationId: string
+): Promise<{
+  completedAt: Date | null;
+  expectedPosition: MessageSearchBackfillPosition;
+  throughSequence: number | null;
+} | null> {
+  const pool = getSearchPool();
+  await pool.query(
+    `INSERT INTO public.message_search_coverage
+       ("conversationId", "backfillThroughSequence", "backfillStartedAt", "updatedAt")
+     SELECT id, "changeSeq", now(), now()
+       FROM public.message_conversations
+      WHERE id = $1
+     ON CONFLICT ("conversationId") DO UPDATE
+       SET "backfillThroughSequence" = EXCLUDED."backfillThroughSequence",
+           "backfillStartedAt" = now(),
+           "updatedAt" = now()
+     WHERE public.message_search_coverage."backfillStartedAt" IS NULL
+       AND public.message_search_coverage."backfillCompletedAt" IS NULL`,
+    [conversationId]
+  );
+  const result = await pool.query<{
+    backfillCompletedAt: Date | null;
+    backfillCursorCreatedAt: Date | null;
+    backfillCursorMessageId: string | null;
+    backfillThroughSequence: number | null;
+  }>(
+    `SELECT "backfillCompletedAt", "backfillCursorCreatedAt",
+            "backfillCursorMessageId", "backfillThroughSequence"
+       FROM public.message_search_coverage
+      WHERE "conversationId" = $1`,
+    [conversationId]
+  );
+  const [row] = result.rows;
+  if (!row) {
+    return null;
+  }
+  return {
+    completedAt: row.backfillCompletedAt,
+    expectedPosition: {
+      createdAt: row.backfillCursorCreatedAt,
+      messageId: row.backfillCursorMessageId,
+    },
+    throughSequence: row.backfillThroughSequence,
+  };
+}
+
+export async function listRunnableMessageSearchBackfills(
+  limit = 20
+): Promise<{ conversationId: string; cursorMessageId: string | null }[]> {
+  const result = await getSearchPool().query<{
+    conversationId: string;
+    backfillCursorMessageId: string | null;
+  }>(
+    `SELECT "conversationId", "backfillCursorMessageId"
+       FROM public.message_search_coverage
+      WHERE "backfillStartedAt" IS NOT NULL
+        AND "backfillCompletedAt" IS NULL
+        AND "backfillThroughSequence" IS NOT NULL
+      ORDER BY "updatedAt" ASC
+      LIMIT $1`,
+    [Math.min(Math.max(Math.trunc(limit), 1), 100)]
+  );
+  return result.rows.map((row) => ({
+    conversationId: row.conversationId,
+    cursorMessageId: row.backfillCursorMessageId,
+  }));
+}
+
+export async function readNextMessageSearchBackfillBatch(
+  conversationId: string
+): Promise<MessageSearchBackfillBatch | null> {
+  const pool = getSearchPool();
+  const coverageResult = await pool.query<{
+    backfillCompletedAt: Date | null;
+    backfillCursorCreatedAt: Date | null;
+    backfillCursorMessageId: string | null;
+    backfillThroughSequence: number | null;
+  }>(
+    `SELECT "backfillCompletedAt", "backfillCursorCreatedAt",
+            "backfillCursorMessageId", "backfillThroughSequence"
+       FROM public.message_search_coverage
+      WHERE "conversationId" = $1
+        AND "backfillStartedAt" IS NOT NULL`,
+    [conversationId]
+  );
+  const [coverage] = coverageResult.rows;
+  if (
+    !coverage ||
+    coverage.backfillCompletedAt ||
+    coverage.backfillThroughSequence === null
+  ) {
+    return null;
+  }
+
+  const messagesResult = await pool.query<MessageSearchBackfillMessage>(
+    `WITH candidates AS (
+       SELECT id, "ciphertext", "createdAt", "deletedAt", "iv",
+              "keyEpoch", "ratchetIndex", revision, "senderId",
+              octet_length("ciphertext") AS "ciphertextBytes"
+         FROM public.messages
+        WHERE "conversationId" = $1
+          AND "creationSequence" <= $2
+          AND ($3::timestamp IS NULL OR ("createdAt", id) > ($3::timestamp, $4::text))
+        ORDER BY "createdAt" ASC, id ASC
+        LIMIT $5
+     ), sized AS (
+       SELECT *, SUM("ciphertextBytes") OVER (
+         ORDER BY "createdAt" ASC, id ASC
+         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+       ) AS "batchBytes"
+         FROM candidates
+     )
+     SELECT id, "ciphertext", "createdAt", "deletedAt", "iv", "keyEpoch",
+            "ratchetIndex", revision, "senderId"
+       FROM sized
+      WHERE "batchBytes" <= $6
+      ORDER BY "createdAt" ASC, id ASC`,
+    [
+      conversationId,
+      coverage.backfillThroughSequence,
+      coverage.backfillCursorCreatedAt,
+      coverage.backfillCursorMessageId,
+      MESSAGE_SEARCH_BACKFILL_BATCH_MESSAGES,
+      MESSAGE_SEARCH_BACKFILL_BATCH_BYTES,
+    ]
+  );
+  return {
+    expectedPosition: {
+      createdAt: coverage.backfillCursorCreatedAt,
+      messageId: coverage.backfillCursorMessageId,
+    },
+    messages: messagesResult.rows,
+    throughSequence: coverage.backfillThroughSequence,
+  };
+}
+
+export async function commitMessageSearchBackfillBatch(input: {
+  artifacts: readonly MessageSearchBackfillArtifact[];
+  conversationId: string;
+  expectedPosition: MessageSearchBackfillPosition;
+  finished: boolean;
+  nextPosition: MessageSearchBackfillPosition;
+  rowsTraversed: number;
+  throughSequence: number;
+  unrecoverableEpochs: number;
+}): Promise<{ committed: boolean }> {
+  const pool = getSearchPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const claimed = await client.query(
+      `UPDATE public.message_search_coverage
+          SET "backfillCursorCreatedAt" = $3,
+              "backfillCursorMessageId" = $4,
+              "backfillCompletedAt" = CASE WHEN $5 THEN now() ELSE NULL END,
+              "updatedAt" = now()
+        WHERE "conversationId" = $1
+          AND "backfillThroughSequence" = $2
+          AND "backfillCompletedAt" IS NULL
+          AND "backfillCursorCreatedAt" IS NOT DISTINCT FROM $6::timestamp
+          AND "backfillCursorMessageId" IS NOT DISTINCT FROM $7::text
+        RETURNING "conversationId"`,
+      [
+        input.conversationId,
+        input.throughSequence,
+        input.nextPosition.createdAt,
+        input.nextPosition.messageId,
+        input.finished,
+        input.expectedPosition.createdAt,
+        input.expectedPosition.messageId,
+      ]
+    );
+    if (claimed.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return { committed: false };
+    }
+
+    const messageIds = input.artifacts.map((artifact) => artifact.messageId);
+    const sourceRows = messageIds.length
+      ? await client.query<{
+          deletedAt: Date | null;
+          id: string;
+          revision: number;
+        }>(
+          `SELECT id, revision, "deletedAt"
+             FROM public.messages
+            WHERE "conversationId" = $1 AND id = ANY($2::text[])
+            FOR SHARE`,
+          [input.conversationId, messageIds]
+        )
+      : {
+          rows: [] as {
+            deletedAt: Date | null;
+            id: string;
+            revision: number;
+          }[],
+        };
+    const currentRevisions = new Map(
+      sourceRows.rows.map((row) => [row.id, row])
+    );
+    const currentArtifacts = input.artifacts.filter((artifact) => {
+      const current = currentRevisions.get(artifact.messageId);
+      return (
+        current && !current.deletedAt && current.revision === artifact.revision
+      );
     });
+    const terms = [
+      ...new Map(
+        currentArtifacts
+          .flatMap((artifact) => artifact.terms)
+          .map((term) => [term.normalized, term])
+      ).values(),
+    ];
+    const termInsertQueries: { sql: string; values: unknown[] }[] = [];
+    for (
+      let offset = 0;
+      offset < terms.length;
+      offset += MAX_SEARCH_TERM_INSERT_BATCH
+    ) {
+      const batch = terms.slice(offset, offset + MAX_SEARCH_TERM_INSERT_BATCH);
+      const values: unknown[] = [];
+      const tuples = batch.map((term, index) => {
+        const base = index * 3;
+        values.push(input.conversationId, term.normalized, term.gramKeys);
+        return `($${base + 1}, $${base + 2}, $${base + 3}::text[])`;
+      });
+      termInsertQueries.push({
+        sql: `INSERT INTO public.message_search_terms
+           ("conversationId", normalized, "gramKeys")
+         VALUES ${tuples.join(",")}
+         ON CONFLICT ("conversationId", normalized) DO NOTHING`,
+        values,
+      });
+    }
+    await Promise.all(
+      termInsertQueries.map(({ sql, values }) => client.query(sql, values))
+    );
+
+    if (currentArtifacts.length > 0) {
+      const normalizedTerms = terms.map((term) => term.normalized);
+      const termRows = await client.query<{ id: number; normalized: string }>(
+        `SELECT id, normalized
+           FROM public.message_search_terms
+          WHERE "conversationId" = $1 AND normalized = ANY($2::text[])`,
+        [input.conversationId, normalizedTerms]
+      );
+      const termIdsByText = new Map(
+        termRows.rows.map((row) => [row.normalized, row.id])
+      );
+      const documentValues: unknown[] = [];
+      const documentTuples = currentArtifacts.map((artifact, index) => {
+        const base = index * 5;
+        const termIds = [
+          ...new Set(
+            artifact.terms.flatMap((term) => {
+              const id = termIdsByText.get(term.normalized);
+              return id === undefined ? [] : [id];
+            })
+          ),
+        ];
+        documentValues.push(
+          artifact.messageId,
+          input.conversationId,
+          artifact.revision,
+          artifact.createdAt,
+          termIds
+        );
+        return `($${base + 1}::text, $${base + 2}::text, $${base + 3}::int4, $${base + 4}::timestamp, $${base + 5}::int4[])`;
+      });
+      await client.query(
+        `INSERT INTO public.message_search_documents
+           ("messageId", "conversationId", revision, "createdAt", "termIds")
+         VALUES ${documentTuples.join(",")}
+         ON CONFLICT ("messageId") DO UPDATE
+           SET "conversationId" = EXCLUDED."conversationId",
+               revision = EXCLUDED.revision,
+               "createdAt" = EXCLUDED."createdAt",
+               "termIds" = EXCLUDED."termIds"
+         WHERE public.message_search_documents.revision <= EXCLUDED.revision`,
+        documentValues
+      );
+      const epochValues: unknown[] = [];
+      const epochTuples = currentArtifacts.map((artifact, index) => {
+        const base = index * 3;
+        epochValues.push(
+          artifact.messageId,
+          artifact.keyEpoch,
+          artifact.revision
+        );
+        return `($${base + 1}::text, $${base + 2}::int4, $${base + 3}::int4)`;
+      });
+      await client.query(
+        `UPDATE public.messages AS message
+            SET "keyEpoch" = candidate."keyEpoch"
+           FROM (VALUES ${epochTuples.join(",")}) AS candidate(id, "keyEpoch", revision)
+          WHERE message.id = candidate.id
+            AND message."conversationId" = $${epochValues.length + 1}
+            AND message.revision = candidate.revision
+            AND message."keyEpoch" IS NULL`,
+        [...epochValues, input.conversationId]
+      );
+    }
+
+    await client.query(
+      `UPDATE public.message_search_coverage
+          SET "rowsTraversed" = "rowsTraversed" + $2,
+              "artifactsCommitted" = "artifactsCommitted" + $3,
+              "unrecoverableEpochs" = "unrecoverableEpochs" + $4,
+              "completedChangeSeq" = CASE WHEN $5
+                THEN GREATEST(
+                  "completedChangeSeq",
+                  LEAST("backfillThroughSequence", COALESCE((
+                    SELECT MIN("changeSequence") - 1
+                      FROM public.message_search_outbox
+                     WHERE "conversationId" = $1 AND "completedAt" IS NULL
+                  ), "backfillThroughSequence"))
+                )
+                ELSE "completedChangeSeq"
+              END,
+              "updatedAt" = now()
+        WHERE "conversationId" = $1`,
+      [
+        input.conversationId,
+        input.rowsTraversed,
+        currentArtifacts.length,
+        input.unrecoverableEpochs,
+        input.finished,
+      ]
+    );
+    await client.query("COMMIT");
+    return { committed: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
     throw error;
   } finally {
     client.release();
@@ -262,11 +633,10 @@ export async function markSearchOutboxUnreadable(input: {
           : Math.max(0, coverageRow.pendingSequence - 1);
       await client.query(
         `INSERT INTO public.message_search_coverage
-           ("conversationId", "rowsTraversed", "unrecoverableEpochs", "completedChangeSeq", "updatedAt")
-         VALUES ($1, 1, 1, $2, now())
+           ("conversationId", "unrecoverableEpochs", "completedChangeSeq", "updatedAt")
+         VALUES ($1, 1, $2, now())
          ON CONFLICT ("conversationId") DO UPDATE
-           SET "rowsTraversed" = public.message_search_coverage."rowsTraversed" + 1,
-               "unrecoverableEpochs" = public.message_search_coverage."unrecoverableEpochs" + 1,
+           SET "unrecoverableEpochs" = public.message_search_coverage."unrecoverableEpochs" + 1,
                "completedChangeSeq" = GREATEST(public.message_search_coverage."completedChangeSeq", $2),
                "updatedAt" = now()`,
         [input.conversationId, settledSequence]
@@ -274,9 +644,7 @@ export async function markSearchOutboxUnreadable(input: {
     }
     await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {
-      /* empty */
-    });
+    await client.query("ROLLBACK").catch(() => null);
     throw error;
   } finally {
     client.release();
@@ -326,7 +694,7 @@ export async function searchMessageCandidates(
         )
         AND NOT EXISTS (
           SELECT 1
-            FROM jsonb_array_elements($3::jsonb) AS fragment
+             FROM jsonb_array_elements($3::jsonb) AS fragment
            WHERE NOT EXISTS (
              SELECT 1
                FROM public.message_search_terms AS term
@@ -341,9 +709,9 @@ export async function searchMessageCandidates(
         AND (
           $7::jsonb IS NULL OR EXISTS (
             SELECT 1
-              FROM jsonb_array_elements($7::jsonb) AS window
-             WHERE (window.value->>'after' IS NULL OR m."createdAt" >= (window.value->>'after')::timestamp)
-               AND (window.value->>'before' IS NULL OR m."createdAt" <= (window.value->>'before')::timestamp)
+              FROM jsonb_array_elements($7::jsonb) AS membership_window
+             WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+               AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
           )
         )
         AND (

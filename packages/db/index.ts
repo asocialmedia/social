@@ -101,12 +101,20 @@ export {
 } from "./src/messages/visibility";
 export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
 export {
+  commitMessageSearchBackfillBatch,
   closeMessageSearchPool,
+  listRunnableMessageSearchBackfills,
   markSearchOutboxUnreadable,
   persistSearchDocument,
+  readNextMessageSearchBackfillBatch,
   searchMessageCandidates,
+  startMessageSearchBackfill,
 } from "./src/messages/search-index";
 export type {
+  MessageSearchBackfillArtifact,
+  MessageSearchBackfillBatch,
+  MessageSearchBackfillMessage,
+  MessageSearchBackfillPosition,
   SearchCandidateQuery,
   SearchCandidateRow,
   SearchDocumentArtifact,

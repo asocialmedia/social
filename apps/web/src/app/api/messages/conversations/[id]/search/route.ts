@@ -1,10 +1,12 @@
 import {
   consumeRateLimit,
+  enqueueMessageSearchBackfill,
   fromPrismaDateTime,
   keys,
   listDenMembershipEvents,
   prisma,
   searchMessageCandidates,
+  startMessageSearchBackfill,
 } from "@asm/db";
 import {
   MESSAGE_SEARCH_NORMALIZATION_VERSION,
@@ -120,6 +122,21 @@ export async function POST(
   const member = conversation.members.find(
     (candidate) => candidate.userId === user.id
   );
+  try {
+    const started = await startMessageSearchBackfill(conversationId);
+    if (started && !started.completedAt) {
+      await enqueueMessageSearchBackfill(
+        conversationId,
+        started.expectedPosition.messageId
+      ).catch(() => {
+        // The durable coverage row lets the worker sweeper retry after Redis recovers.
+        console.error("Failed to enqueue DM search history backfill");
+      });
+    }
+  } catch {
+    console.error("Failed to start DM search history coverage");
+  }
+
   const searchState = await Promise.all([
     prisma.orm.public.MessageConversations.select("changeSeq")
       .where({ id: conversationId })
@@ -219,7 +236,11 @@ export async function POST(
     return Response.json({
       coverage: {
         artifactsCommitted: coverage?.artifactsCommitted ?? 0,
-        complete: false,
+        complete:
+          coverage?.backfillCompletedAt !== null &&
+          coverage?.backfillCompletedAt !== undefined &&
+          completedChangeSequence >= effectiveSnapshotSequence &&
+          coverage.unrecoverableEpochs === 0,
         completedChangeSequence,
         rowsTraversed: coverage?.rowsTraversed ?? 0,
         snapshotSequence: effectiveSnapshotSequence,

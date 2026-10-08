@@ -25,8 +25,10 @@ if (import.meta.main) {
 
   const {
     ensureStreamGroups,
+    enqueueMessageSearchBackfill,
     enqueueMessageSearchBackfillOutbox,
     enqueueMessageSearchOutbox,
+    listRunnableMessageSearchBackfills,
     registerMaintenanceSchedulers,
     createBullConnection,
     NOTIFICATIONS_QUEUE,
@@ -49,7 +51,7 @@ if (import.meta.main) {
     processBadgeSweep,
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
-  const { processMessageSearchOutbox } =
+  const { processMessageSearchBackfill, processMessageSearchOutbox } =
     await import("./worker/message-search-index");
   const { prisma } = await import("@asm/db");
 
@@ -155,6 +157,15 @@ if (import.meta.main) {
               : enqueueMessageSearchOutbox(item.id)
           )
         );
+        const backfills = await listRunnableMessageSearchBackfills(20);
+        await Promise.all(
+          backfills.map((item) =>
+            enqueueMessageSearchBackfill(
+              item.conversationId,
+              item.cursorMessageId
+            )
+          )
+        );
       } catch (error) {
         logger.error({ error }, "message search outbox sweep failed");
       }
@@ -167,7 +178,18 @@ if (import.meta.main) {
     );
     const messageSearchBackfillWorker = new QueueWorker(
       "message-search-backfill",
-      (job) => processMessageSearchOutbox(job.data.outboxId, logger),
+      async (job) => {
+        const result = await processMessageSearchBackfill(
+          job.data.conversationId,
+          logger
+        );
+        if (result.nextCursorMessageId) {
+          await enqueueMessageSearchBackfill(
+            job.data.conversationId,
+            result.nextCursorMessageId
+          );
+        }
+      },
       { concurrency: 1, connection }
     );
     await sweepMessageSearchOutbox();
