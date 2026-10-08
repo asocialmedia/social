@@ -85,6 +85,10 @@ const scope = {
   recoveryGeneration: 2,
   userId: "user-1",
 };
+const persistedStartCursor = createMessageChangeCursor(
+  { ...scope, afterSequence: 0, snapshotSequence: 150 },
+  secret
+);
 
 describe("GET /api/messages/conversations/:id/changes", () => {
   beforeEach(() => {
@@ -127,6 +131,23 @@ describe("GET /api/messages/conversations/:id/changes", () => {
     expect(notFound.status).toBe(404);
   });
 
+  test("seeds new devices at the current sequence without replaying the archive", async () => {
+    const response = await GET(changesRequest(), context);
+    const body = await response.json();
+    const cursor = readMessageChangeCursor(body.nextCursor, scope, secret);
+
+    expect(body).toMatchObject({
+      changes: [],
+      resetRequired: true,
+      snapshotSequence: 150,
+    });
+    expect(cursor.status).toBe("valid");
+    if (cursor.status === "valid") {
+      expect(cursor.cursor.afterSequence).toBe(150);
+    }
+    expect(mockReadChanges).not.toHaveBeenCalled();
+  });
+
   test("returns revision-aware change metadata without message content", async () => {
     mockReadChanges.mockReturnValueOnce(
       Promise.resolve([
@@ -147,7 +168,7 @@ describe("GET /api/messages/conversations/:id/changes", () => {
       ])
     );
 
-    const response = await GET(changesRequest(), context);
+    const response = await GET(changesRequest(persistedStartCursor), context);
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -184,7 +205,7 @@ describe("GET /api/messages/conversations/:id/changes", () => {
       )
     );
 
-    const first = await GET(changesRequest(), context);
+    const first = await GET(changesRequest(persistedStartCursor), context);
     const firstBody = await first.json();
     expect(firstBody.changes).toHaveLength(100);
     const firstCursor = readMessageChangeCursor(
@@ -252,7 +273,7 @@ describe("GET /api/messages/conversations/:id/changes", () => {
       Promise.reject(new Error("database unavailable"))
     );
 
-    const response = await GET(changesRequest(), context);
+    const response = await GET(changesRequest(persistedStartCursor), context);
 
     expect(response.status).toBe(503);
   });

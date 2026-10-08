@@ -90,7 +90,7 @@ export async function GET(
     };
     let afterSequence = 0;
     let snapshotSequence = currentSequence;
-    let resetRequired = false;
+    let resetRequired = !cursorToken;
 
     if (cursorToken) {
       const result = readMessageChangeCursor(

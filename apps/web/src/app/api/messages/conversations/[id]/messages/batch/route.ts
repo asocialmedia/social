@@ -52,7 +52,7 @@ async function readBoundedBody(request: Request): Promise<BodyReadResult> {
     }
     return { status: "ok", text: new TextDecoder().decode(bytes) };
   } catch {
-    await reader.cancel().catch(() => {});
+    await reader.cancel().catch(() => false);
     return { status: "failed" };
   }
 }
