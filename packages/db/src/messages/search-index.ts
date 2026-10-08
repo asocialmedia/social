@@ -52,6 +52,18 @@ export interface SearchCandidateQuery {
   userId: string;
 }
 
+export interface SearchHydrationRequest {
+  id: string;
+  revision: number;
+}
+
+export interface SearchHydrationQuery {
+  conversationId: string;
+  messages: readonly SearchHydrationRequest[];
+  membershipWindows: readonly SearchMessageWindow[];
+  userId: string;
+}
+
 export interface MessageSearchCountRequestInput {
   conversationId: string;
   expiresAt: Date;
@@ -1623,6 +1635,85 @@ export async function searchMessageCandidates(
       input.before?.messageId ?? null,
       JSON.stringify(windows),
       Math.min(Math.max(Math.trunc(input.limit), 1), 21),
+    ]
+  );
+  return result.rows;
+}
+
+export async function hydrateSearchMessageCandidates(
+  input: SearchHydrationQuery
+): Promise<SearchCandidateRow[]> {
+  if (input.messages.length < 1 || input.messages.length > 20) {
+    throw new RangeError(
+      "A search hydration batch must contain 1 to 20 messages"
+    );
+  }
+  const windows = input.membershipWindows.map((window) => ({
+    after: window.after ? pgTimestamp(window.after) : null,
+    before: window.before ? pgTimestamp(window.before) : null,
+  }));
+  const requested = input.messages.map((message) => {
+    if (
+      message.id.length === 0 ||
+      !Number.isSafeInteger(message.revision) ||
+      message.revision > 2_147_483_647 ||
+      message.revision < 1
+    ) {
+      throw new TypeError("Search hydration identifiers are invalid");
+    }
+    return message;
+  });
+  const result = await getSearchPool().query<SearchCandidateRow>(
+    `WITH requested AS (
+       SELECT value->>'id' AS id,
+              (value->>'revision')::integer AS revision,
+              ordinal
+         FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS request(value, ordinal)
+     )
+     SELECT m.id,
+            m."ciphertext",
+            m."createdAt",
+            m.iv,
+            m."keyEpoch",
+            m."ratchetIndex",
+            m.revision,
+            m."senderId"
+       FROM requested AS request
+       JOIN public.messages AS m
+         ON m.id = request.id
+        AND m.revision = request.revision
+        AND m."conversationId" = $1
+       JOIN public.message_conversation_members AS member
+         ON member."conversationId" = m."conversationId"
+        AND member."userId" = $2
+      WHERE m."deletedAt" IS NULL
+        AND m."keyEpoch" IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+            FROM public.message_conversation_keys AS readable_key
+           WHERE readable_key."conversationId" = m."conversationId"
+             AND readable_key."ownerUserId" = $2
+             AND readable_key.version = m."keyEpoch"
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM public.message_hidden AS hidden
+           WHERE hidden."messageId" = m.id AND hidden."userId" = $2
+        )
+        AND (
+          $4::jsonb IS NULL OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements($4::jsonb) AS membership_window
+             WHERE (membership_window.value->>'after' IS NULL OR m."createdAt" >= (membership_window.value->>'after')::timestamp)
+               AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
+          )
+        )
+      ORDER BY request.ordinal`,
+    [
+      input.conversationId,
+      input.userId,
+      JSON.stringify(requested),
+      JSON.stringify(windows),
     ]
   );
   return result.rows;

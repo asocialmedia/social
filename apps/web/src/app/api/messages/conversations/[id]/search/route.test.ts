@@ -188,7 +188,7 @@ describe("POST /api/messages/conversations/:id/search", () => {
     expect(mockSearchCandidates).not.toHaveBeenCalled();
   });
 
-  test("returns ciphertext candidates with honest incomplete coverage", async () => {
+  test("returns bounded candidate metadata with honest incomplete coverage", async () => {
     mockSearchCandidates.mockReturnValueOnce(
       Promise.resolve([
         {
@@ -207,13 +207,14 @@ describe("POST /api/messages/conversations/:id/search", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       coverage: { complete: boolean; snapshotSequence: number };
-      hits: { ciphertext: string }[];
+      hits: { ciphertext?: string; id: string; revision: number }[];
     };
     expect(body.coverage).toMatchObject({
       complete: false,
       snapshotSequence: 90,
     });
-    expect(body.hits[0]?.ciphertext).toBe("ciphertext");
+    expect(body.hits[0]).toMatchObject({ id: "message-1", revision: 1 });
+    expect(body.hits[0]?.ciphertext).toBeUndefined();
     expect(mockStartBackfill).toHaveBeenCalledTimes(1);
     expect(mockEnqueueBackfill).toHaveBeenCalledWith("c1", null);
     expect(candidateInput).toMatchObject({

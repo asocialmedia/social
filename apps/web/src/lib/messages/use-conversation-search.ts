@@ -31,6 +31,8 @@ import type {
   RankedSearchResult,
   SearchCandidate,
 } from "./message-search";
+import { hydrateSearchHits } from "./search-hydration";
+import type { SearchHydrationHit } from "./search-hydration";
 import { SEARCH_INDEX_QUERY_LIMIT } from "./search-index-format";
 import type {
   SearchIndexCursor,
@@ -128,53 +130,24 @@ interface ServerSearchPageState {
   pages: ServerSearchPage[];
 }
 
-interface SearchApiHit {
-  ciphertext: string;
-  createdAt: string;
-  id: string;
-  iv: string;
-  keyEpoch: number;
-  ratchetIndex: number;
-  revision: number;
-  senderId: string;
-}
-
-function isSearchApiHit(value: unknown): value is SearchApiHit {
+function isSearchApiHit(value: unknown): value is SearchHydrationHit {
   if (typeof value !== "object" || value === null) {
     return false;
   }
   const row = value as Record<string, unknown>;
   return (
-    typeof row.ciphertext === "string" &&
     typeof row.createdAt === "string" &&
+    !Number.isNaN(new Date(row.createdAt).getTime()) &&
     typeof row.id === "string" &&
-    typeof row.iv === "string" &&
     typeof row.keyEpoch === "number" &&
-    Number.isInteger(row.keyEpoch) &&
+    Number.isSafeInteger(row.keyEpoch) &&
     typeof row.ratchetIndex === "number" &&
-    Number.isInteger(row.ratchetIndex) &&
+    Number.isSafeInteger(row.ratchetIndex) &&
     typeof row.revision === "number" &&
-    Number.isInteger(row.revision) &&
+    Number.isSafeInteger(row.revision) &&
+    row.revision > 0 &&
     typeof row.senderId === "string"
   );
-}
-
-function mapSearchApiHit(
-  hit: SearchApiHit,
-  conversationId: string
-): MessageData {
-  return {
-    ciphertext: hit.ciphertext,
-    conversationId,
-    createdAt: new Date(hit.createdAt),
-    deletedAt: null,
-    editedAt: null,
-    id: hit.id,
-    iv: hit.iv,
-    ratchetIndex: hit.ratchetIndex,
-    sender: null,
-    senderId: hit.senderId,
-  };
 }
 
 // The only two predecessor states the page-turn decision distinguishes. "loaded"
@@ -444,9 +417,22 @@ export function useConversationSearch(
           }
           return;
         }
-        const hits = rawHits
-          .filter(isSearchApiHit)
-          .map((hit) => mapSearchApiHit(hit, conversationId));
+        const searchHits = rawHits.filter(isSearchApiHit);
+        if (searchHits.length !== rawHits.length) {
+          if (!cancelled) {
+            setServerRequest({
+              error: "Search could not load. Try again.",
+              key: requestKey,
+              loading: false,
+            });
+          }
+          return;
+        }
+        const hits = await hydrateSearchHits({
+          conversationId,
+          hits: searchHits,
+          signal: controller.signal,
+        });
         const { coverage } = body;
         const coverageComplete =
           typeof coverage === "object" &&

@@ -293,7 +293,14 @@ export async function POST(
         snapshotSequence: effectiveSnapshotSequence,
         unrecoverableEpochs: coverage?.unrecoverableEpochs ?? 0,
       },
-      hits,
+      hits: hits.map((hit) => ({
+        createdAt: hit.createdAt,
+        id: hit.id,
+        keyEpoch: hit.keyEpoch,
+        ratchetIndex: hit.ratchetIndex,
+        revision: hit.revision,
+        senderId: hit.senderId,
+      })),
       nextCursor,
     });
   } catch {
