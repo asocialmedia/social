@@ -66,8 +66,7 @@ export interface MessageIndexWriterOptions {
 }
 
 export interface MessageIndexCoverage {
-  // Rows known to be indexed in this session (not the whole conversation; the
-  // persisted count comes from the store when a backfill is running).
+  // Recent rows whose current signatures are cached by this writer.
   indexedCount: number;
   // Ids that exist but are not searchable yet.
   pendingCount: number;
@@ -77,11 +76,9 @@ export interface MessageIndexCoverage {
 // row failing to decrypt) would otherwise grow this without bound. Rows trimmed
 // from the in-session retry set move to the durable set rather than being lost.
 const MAX_TRACKED_PENDING = 5000;
-// Ceiling on the PERSISTED queue, for the same reason: a conversation where
-// nothing decrypts must not grow an unbounded record. Rows past it are genuinely
-// unindexed -- a real loss of coverage, reported through the bar's pending count
-// rather than hidden.
-const MAX_DURABLE_PENDING = 5000;
+// Signatures only avoid repeat work for messages the writer has recently seen.
+// Keeping one for every row in a long backfill grows the tab's heap with history.
+const MAX_WRITTEN_SIGNATURES = 1024;
 
 // How long coalesced writes wait for the rest of their batch before committing.
 // Short enough that a decrypted row becomes searchable almost at once, long
@@ -121,6 +118,8 @@ export interface MessageIndexWriter {
   // Rows persisted as not-yet-searchable from an earlier session. The caller
   // re-fetches and re-considers them; the writer only owns the bookkeeping.
   durablePending: () => Promise<string[]>;
+  // Flushes any queued work and releases the decryptor subscription and timer.
+  dispose: () => Promise<MessageIndexFlushResult>;
   // Deleted, globally, or hidden for this user: drop them from the index.
   remove: (messageIds: readonly string[]) => void;
   // Hold coalesced writes for the caller that is about to flush itself, so a
@@ -206,7 +205,6 @@ export function createMessageIndexWriter(
   // failed to write is retried instead of being mistaken for current.
   const written = new Map<string, WrittenState>();
   const pending = new Map<string, IndexableMessage>();
-  const removed = new Set<string>();
   // Handle for the pending coalescing window, so a timer that has not fired yet
   // is still "already scheduled" and cannot be stacked by a later `consider`.
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -231,8 +229,39 @@ export function createMessageIndexWriter(
   // committer, so the cost is one commit per page. Rows are not lost: they sit
   // in `pending` and the walk's `flush()` writes them with its batch.
   let deferring = false;
+  let disposed = false;
+  let unsubscribeFromPayloads: (() => void) | null = null;
+
+  function getWrittenState(id: string): WrittenState | undefined {
+    const state = written.get(id);
+    if (state) {
+      written.delete(id);
+      written.set(id, state);
+    }
+    return state;
+  }
+
+  function rememberWrittenState(id: string, state: WrittenState): void {
+    written.delete(id);
+    written.set(id, state);
+    if (written.size > MAX_WRITTEN_SIGNATURES) {
+      const oldestId = written.keys().next().value;
+      if (oldestId !== undefined) {
+        written.delete(oldestId);
+      }
+    }
+  }
+
+  function reportStorageFull(): void {
+    if (!disposed) {
+      onStorageFull?.();
+    }
+  }
 
   function notifyCoverage(): void {
+    if (disposed) {
+      return;
+    }
     onCoverage?.({
       indexedCount: written.size,
       // The durable count, not the in-memory one: a row dropped from the retry
@@ -261,7 +290,7 @@ export function createMessageIndexWriter(
   };
 
   async function persistPending(): Promise<boolean> {
-    const ids = [...durable].slice(0, MAX_DURABLE_PENDING);
+    const ids = [...durable];
     try {
       await store.writePending(conversationId, ids);
       return true;
@@ -278,16 +307,17 @@ export function createMessageIndexWriter(
     if (pending.size === 0) {
       // Still flush an emptied durable queue, so a conversation that has caught up
       // does not leave a stale record claiming otherwise.
-      await persistPending();
+      const persisted = await persistPending();
       lastResult = {
         committed,
-        failed: false,
+        failed: !persisted,
         settledEmpty,
         stillPending: [...durable],
       };
       return lastResult;
     }
     const batch = new Map<string, SearchIndexEntry>();
+    const expectedById = new Map<string, WrittenState>();
     // The two ref-side collections, split because they mean different things:
     // `refsBatch` is what to persist, and `textless` remembers the messages that
     // have shareable content but no searchable text — a captionless GIF, or a
@@ -311,10 +341,6 @@ export function createMessageIndexWriter(
     const toRemove: string[] = [];
 
     for (const [id, message] of pending) {
-      if (removed.has(id)) {
-        pending.delete(id);
-        continue;
-      }
       if (message.deletedAt) {
         pending.delete(id);
         durable.delete(id);
@@ -359,28 +385,29 @@ export function createMessageIndexWriter(
       // failed half is retried.
       const nextText = textSignature(built);
       const nextRefs = refsSignature(refs);
-      const state = written.get(id);
+      expectedById.set(id, { refs: nextRefs, text: nextText });
+      const state = getWrittenState(id);
       if (state && state.text === nextText && state.refs === nextRefs) {
         pending.delete(id);
         durable.delete(id);
         continue;
       }
-      if (built) {
+      if (built && state?.text !== nextText) {
         batch.set(id, built);
-      } else if (refs) {
+      } else if (!built && refs && state?.refs !== nextRefs) {
         // Refs with no searchable text. The text index cannot hold a row with no
         // tokens, but the refs can, and this is exactly the message that would
         // otherwise be dropped from both.
         textless.set(id, refs);
       }
-      if (refs) {
+      if (refs && state?.refs !== nextRefs) {
         refsBatch.set(id, {
           createdAt: new Date(message.createdAt).getTime(),
           messageId: id,
           refs,
           senderId: message.senderId,
         });
-      } else if (state?.refs !== null && state?.refs !== undefined) {
+      } else if (!refs && state?.refs !== null && state?.refs !== undefined) {
         // Refs went to zero on an edit: schedule the old rows for deletion. Keyed
         // off what was stored rather than off a side set, so the two cannot
         // disagree about whether a message has refs.
@@ -399,15 +426,13 @@ export function createMessageIndexWriter(
           // Only the TEXT half is settled by this transaction; the refs half is
           // left as it was, so a failed refs write below still reads as
           // out-of-date on the next pass.
-          written.set(id, {
-            refs: written.get(id)?.refs ?? null,
+          rememberWrittenState(id, {
+            refs: getWrittenState(id)?.refs ?? null,
             text: textSignature(entry),
           });
-          pending.delete(id);
         }
         for (const id of batch.keys()) {
           committed.push(id);
-          durable.delete(id);
         }
       } catch (error) {
         // Storage refused. Leave the whole batch queued so a later attempt
@@ -419,7 +444,7 @@ export function createMessageIndexWriter(
           durable.add(id);
         }
         if (isStorageExhausted(error)) {
-          onStorageFull?.();
+          reportStorageFull();
         }
       }
     }
@@ -436,12 +461,10 @@ export function createMessageIndexWriter(
       try {
         await store.putSharedRefs(conversationId, onlyRefs);
         for (const [id, row] of refsBatch) {
-          written.set(id, {
+          rememberWrittenState(id, {
             refs: refsSignature(row.refs),
-            text: written.get(id)?.text ?? null,
+            text: getWrittenState(id)?.text ?? null,
           });
-          pending.delete(id);
-          durable.delete(id);
           // Only a message that has never been written is "committed" from the
           // refs side; a message that also had text was already counted above, and
           // counting it twice would make the walk's coverage counts disagree with
@@ -459,7 +482,7 @@ export function createMessageIndexWriter(
           durable.add(id);
         }
         if (isStorageExhausted(error)) {
-          onStorageFull?.();
+          reportStorageFull();
         }
       }
     }
@@ -471,9 +494,9 @@ export function createMessageIndexWriter(
       try {
         await store.removeSharedRefs(conversationId, refsRemoved);
         for (const id of refsRemoved) {
-          const state = written.get(id);
+          const state = getWrittenState(id);
           if (state) {
-            written.set(id, { ...state, refs: null });
+            rememberWrittenState(id, { ...state, refs: null });
           }
         }
       } catch {
@@ -482,7 +505,7 @@ export function createMessageIndexWriter(
       }
     }
 
-    // Bound the tracked set so a conversation where nothing can decrypt cannot
+    // Bound the in-session retry set so a conversation where nothing can decrypt cannot
     // grow this map forever. The oldest are the ones given up on.
     if (pending.size > MAX_TRACKED_PENDING) {
       const excess = pending.size - MAX_TRACKED_PENDING;
@@ -499,8 +522,22 @@ export function createMessageIndexWriter(
       }
     }
 
+    // A message leaves the retry queue only when every derived index half has
+    // committed. A ref write that fails after text succeeds stays pending and is
+    // retried directly on the next payload notification, without rewriting text.
+    for (const [id, expected] of expectedById) {
+      const state = getWrittenState(id);
+      if (state?.text === expected.text && state.refs === expected.refs) {
+        pending.delete(id);
+        durable.delete(id);
+      } else {
+        durable.add(id);
+      }
+    }
+
     // Persisted after the trim, so what survives to disk is the durable set
-    // rather than the in-memory one.
+    // rather than the in-memory one. Do not truncate this set: losing even one
+    // queued id makes a completed cursor look truthful while stranding history.
     const persisted = await persistPending();
     // Notify only on change. An unconditional notify re-renders every
     // subscriber on every flush, and one subscriber -- the transcript's writer
@@ -530,7 +567,6 @@ export function createMessageIndexWriter(
       written.delete(id);
       pending.delete(id);
       durable.delete(id);
-      removed.add(id);
     }
     try {
       await store.removeEntries(conversationId, ids);
@@ -539,7 +575,7 @@ export function createMessageIndexWriter(
       // than a rejected delete, and the row is gone from the transcript so it
       // cannot be clicked. Re-indexing the conversation repairs it.
       if (isStorageExhausted(error)) {
-        onStorageFull?.();
+        reportStorageFull();
       }
     }
     // Refs, alongside the text rows and for the same reason: a deleted or hidden
@@ -557,7 +593,7 @@ export function createMessageIndexWriter(
   }
 
   function schedule(): void {
-    if (deferring) {
+    if (deferring || disposed) {
       return;
     }
     if (timer !== null) {
@@ -595,7 +631,7 @@ export function createMessageIndexWriter(
   // resolves when this batch finishes; a rejection inside one batch must not
   // break the chain for later ones, so failures are swallowed here (the batch
   // itself already records them in `lastResult`).
-  function enqueueBatch(): Promise<void> {
+  function enqueueOperation(operation: () => Promise<void>): Promise<void> {
     const previous = batchChain;
     let release!: () => void;
     // oxlint-disable-next-line promise/avoid-new -- a mutex handoff has no async/await form
@@ -605,7 +641,7 @@ export function createMessageIndexWriter(
     const run = (async () => {
       await previous;
       try {
-        await writeBatch();
+        await operation();
       } finally {
         release();
       }
@@ -613,21 +649,57 @@ export function createMessageIndexWriter(
     return run;
   }
 
+  function enqueueBatch(): Promise<void> {
+    return enqueueOperation(async () => {
+      await writeBatch();
+    });
+  }
+
+  async function flush(): Promise<MessageIndexFlushResult> {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    // oxlint-disable no-await-in-loop -- passes are sequential so batches never overlap
+    for (let pass = 0; pass < MAX_DRAIN_PASSES; pass += 1) {
+      const seen = batchEpoch;
+      await enqueueBatch();
+      if (batchEpoch === seen) {
+        break;
+      }
+    }
+    // oxlint-enable no-await-in-loop
+    return lastResult;
+  }
+
   // Pending rows are retried when their payload finally lands, not only when the
   // next batch happens to include them. Without this a row that missed its window
   // waited for unrelated activity, and a quiet conversation never caught up.
-  subscribeToPayloads?.(() => {
-    if (pending.size > 0) {
-      schedule();
+  if (subscribeToPayloads) {
+    try {
+      unsubscribeFromPayloads = subscribeToPayloads(() => {
+        if (pending.size > 0) {
+          schedule();
+        }
+      });
+    } catch {
+      unsubscribeFromPayloads = null;
     }
-  });
+  }
 
   // Loaded once, so a row that was unsearchable last session is retried as soon
   // as the caller re-fetches and re-considers it.
   void (async () => {
     try {
       for (const id of await store.readPending(conversationId)) {
+        if (disposed) {
+          return;
+        }
         durable.add(id);
+      }
+      if (!disposed && durable.size !== lastNotifiedDurable) {
+        lastNotifiedDurable = durable.size;
+        notifyCoverage();
       }
     } catch {
       // Unreadable queue: the conversation behaves as fully indexed, which the
@@ -637,9 +709,11 @@ export function createMessageIndexWriter(
 
   return {
     consider(messages) {
+      if (disposed) {
+        return;
+      }
       for (const message of messages) {
-        removed.delete(message.id);
-        const current = written.get(message.id);
+        const current = getWrittenState(message.id);
         if (current !== undefined) {
           // Already indexed. An edit rewrites the row object, so comparing the
           // object identity is a cheap way to spot a change without decrypting:
@@ -659,47 +733,49 @@ export function createMessageIndexWriter(
       return { indexedCount: written.size, pendingCount: pending.size };
     },
 
+    dispose() {
+      if (!disposed) {
+        disposed = true;
+        try {
+          unsubscribeFromPayloads?.();
+        } catch {
+          // Cleanup cannot prevent the last durable flush from running.
+        }
+        unsubscribeFromPayloads = null;
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        deferring = false;
+      }
+      return flush();
+    },
+
     durablePending() {
       return store.readPending(conversationId);
     },
 
-    async flush() {
-      // A window armed but not yet fired still owns pending rows, and `flush` is
-      // the caller's guarantee they are committed. Disarming and draining inline
-      // keeps that guarantee without waiting out the window; every batch goes
-      // through the same chain, so this can never overlap one the timer started.
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      // Repeat only while new rows arrived mid-drain. A refused write with no new
-      // arrivals stops after one pass, so an honest "the store refused this" is
-      // never retried into a silent success inside the same flush.
-      // oxlint-disable no-await-in-loop -- passes must be sequential; awaiting them together would overlap batches, which is the bug this chain exists to prevent
-      for (let pass = 0; pass < MAX_DRAIN_PASSES; pass += 1) {
-        const seen = batchEpoch;
-        await enqueueBatch();
-        if (batchEpoch === seen) {
-          break;
-        }
-      }
-      // oxlint-enable no-await-in-loop
-      return lastResult;
-    },
+    flush,
 
     remove(messageIds) {
-      if (messageIds.length === 0) {
+      if (disposed || messageIds.length === 0) {
         return;
       }
       for (const id of messageIds) {
         pending.delete(id);
       }
-      void removeEntries([...messageIds]);
+      const ids = [...new Set(messageIds)];
+      void enqueueOperation(async () => {
+        await removeEntries(ids);
+        if (!(await persistPending())) {
+          schedule();
+        }
+      });
       notifyCoverage();
     },
 
     setDeferring(next) {
-      if (deferring === next) {
+      if (disposed || deferring === next) {
         return;
       }
       deferring = next;

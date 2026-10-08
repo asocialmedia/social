@@ -190,6 +190,44 @@ describe("message index writer", () => {
     expect(await idsFor(counting, "deploy")).toHaveLength(6);
   });
 
+  test("a removal waits behind an in-flight index write and stays final", async () => {
+    const store = createMemorySearchIndexStore();
+    const originalPut = store.putEntries;
+    let releaseWrite: (() => void) | null = null;
+    let reportWriteStarted: (() => void) | null = null;
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeStarted = new Promise<void>((resolve) => {
+      reportWriteStarted = resolve;
+    });
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    store.putEntries = async (conversationId, entries) => {
+      reportWriteStarted?.();
+      await writeGate;
+      await originalPut(conversationId, entries);
+    };
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "remove this", type: "text" }),
+      store,
+    });
+    writer.consider([message("m1")]);
+    const firstFlush = writer.flush();
+    await writeStarted;
+    writer.remove(["m1"]);
+    const release = releaseWrite;
+    if (!release) {
+      throw new Error("Expected the blocked write to be releasable");
+    }
+    release();
+    await firstFlush;
+    await writer.flush();
+    expect(await idsFor(store, "remove")).toEqual([]);
+    expect(await store.readPending(CONVO)).toEqual([]);
+  });
+
   // An empty flush must stay silent. It used to notify on every pass, and one
   // subscriber re-considered on every notification -- a self-sustaining loop
   // of empty commits (~8/sec in the browser) that burned writes forever and,
@@ -512,6 +550,23 @@ describe("message index writer", () => {
     store.putEntries = original;
   });
 
+  test("persists every pending id beyond the in-session retry cap", async () => {
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => "pending",
+      store,
+    });
+    const messages = Array.from({ length: 5001 }, (_, index) =>
+      message(`pending-${index}`)
+    );
+    writer.consider(messages);
+    const result = await writer.flush();
+    expect(result.failed).toBe(false);
+    expect(result.stillPending).toHaveLength(5001);
+    expect(await store.readPending(CONVO)).toHaveLength(5001);
+  });
+
   test("a queue that cannot be persisted reports failure, so the cursor stays put", async () => {
     const store = createMemorySearchIndexStore();
     store.writePending = () => Promise.reject(new Error("quota"));
@@ -609,6 +664,56 @@ describe("message index writer", () => {
     await Promise.resolve();
     // An idle conversation must not wake the writer on every decrypt anywhere.
     expect(writes).toBe(0);
+  });
+
+  test("dispose unsubscribes and flushes the final queued batch", async () => {
+    let notify: (() => void) | null = null;
+    let unsubscribed = false;
+    let writes = 0;
+    const store = createMemorySearchIndexStore();
+    const { putEntries } = store;
+    store.putEntries = (conversationId, entries) => {
+      writes += 1;
+      return putEntries(conversationId, entries);
+    };
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "final batch", type: "text" }),
+      store,
+      subscribeToPayloads: (listener) => {
+        notify = listener;
+        return () => {
+          unsubscribed = true;
+          notify = null;
+        };
+      },
+    });
+    writer.consider([message("m1")]);
+
+    const result = await writer.dispose();
+    notify?.();
+    expect(unsubscribed).toBe(true);
+    expect(result.committed).toEqual(["m1"]);
+    expect(writes).toBe(1);
+    expect(await idsFor(store, "final")).toEqual(["m1"]);
+  });
+
+  test("bounds the in-memory signature cache for long backfills", async () => {
+    const payloads = new Map<string, IndexablePayload>();
+    const messages = [];
+    for (let index = 0; index < 1100; index += 1) {
+      const id = `bounded-${index}`;
+      payloads.set(id, { content: `message ${index}`, type: "text" });
+      messages.push(message(id));
+    }
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store: createMemorySearchIndexStore(),
+    });
+    writer.consider(messages);
+    await writer.flush();
+    expect(writer.coverage().indexedCount).toBe(1024);
   });
 
   test("coverage counts the durable queue, not the in-memory retry set", async () => {
@@ -999,8 +1104,15 @@ describe("message index writer: shared refs", () => {
     // IndexedDB rejection here would mean faulting the browser.
     const failing = createMemorySearchIndexStore();
     let failNext = true;
+    let textWrites = 0;
     const spy = {
       ...failing,
+      putEntries: (
+        ...args: Parameters<typeof failing.putEntries>
+      ): Promise<void> => {
+        textWrites += 1;
+        return failing.putEntries(...args);
+      },
       putSharedRefs: (
         ...args: Parameters<typeof failing.putSharedRefs>
       ): Promise<void> => {
@@ -1014,10 +1126,17 @@ describe("message index writer: shared refs", () => {
     const payloads = new Map<string, IndexablePayload>([
       ["m1", { content: "https://example.com/a", type: "text" }],
     ]);
+    let notify: (() => void) | null = null;
     const writer = createMessageIndexWriter({
       conversationId: CONVO,
       getPayload: (id) => payloads.get(id),
       store: spy,
+      subscribeToPayloads: (listener) => {
+        notify = listener;
+        return () => {
+          notify = null;
+        };
+      },
     });
     writer.consider([message("m1")]);
     const failed = await writer.flush();
@@ -1031,9 +1150,10 @@ describe("message index writer: shared refs", () => {
     // And the retry lands it. This is the part the two-half signature exists for:
     // the text half was already current, so a combined signature would have
     // skipped this pass and left the hole open for good.
-    writer.consider([message("m1")]);
+    notify?.();
     await writer.flush();
     const filled = await failing.readSharedRefs(CONVO, "link", { limit: 10 });
     expect(filled.items).toHaveLength(1);
+    expect(textWrites).toBe(1);
   });
 });

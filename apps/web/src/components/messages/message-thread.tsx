@@ -3280,6 +3280,13 @@ export function MessageThread({
     return () => {
       searchWriterRef.current = null;
       setWriterReady(false);
+      void (async () => {
+        try {
+          await writer.dispose();
+        } catch {
+          // Conversation teardown must not surface a background flush failure.
+        }
+      })();
     };
   }, [
     bumpSearchIndex,
@@ -3551,8 +3558,8 @@ export function MessageThread({
     [historyReads]
   );
 
-  // Feed every row the transcript holds to the writer. Coalesced inside the
-  // writer onto a microtask, so a page of 100 arriving rows is one write.
+  // Feed every row the transcript holds to the writer. Its bounded timer window
+  // coalesces a page of arriving rows into one write.
   useEffect(() => {
     const writer = searchWriterRef.current;
     if (!writer || allMessages.length === 0) {
