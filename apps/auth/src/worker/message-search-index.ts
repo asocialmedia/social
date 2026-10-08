@@ -1,5 +1,6 @@
 import {
   commitMessageSearchBackfillBatch,
+  fromPrismaDateTime,
   markSearchOutboxUnreadable,
   persistSearchDocument,
   prisma,
@@ -28,6 +29,8 @@ import {
 import { searchableTextFromPayload } from "@asm/messages/search-contracts";
 
 import { mapConcurrent } from "./map-concurrent";
+import type { MessageSearchWorkerMetricSink } from "./message-search-metrics";
+import { safelyRecordMessageSearchWorkerMetric } from "./message-search-metrics";
 
 const PRIVATE_KEY_CACHE_CAPACITY = 128;
 const PRIVATE_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -259,151 +262,205 @@ export async function processMessageSearchOutbox(
   outboxId: string,
   logger: {
     warn: (fields: Record<string, unknown>, message: string) => void;
-  }
+  },
+  metrics?: MessageSearchWorkerMetricSink
 ): Promise<void> {
-  const outbox = await prisma.orm.public.MessageSearchOutbox.where({
-    id: outboxId,
-  }).first();
-  if (!outbox || outbox.completedAt) {
-    return;
-  }
-  const message = await prisma.orm.public.Messages.where({
-    conversationId: outbox.conversationId,
-    id: outbox.messageId,
-  }).first();
-  if (!message || message.deletedAt || message.revision !== outbox.revision) {
-    await persistSearchDocument({
+  const startedAt = performance.now();
+  let outcome: "indexed" | "retry" | "skipped" | "superseded" | "unreadable" =
+    "retry";
+  let queueAgeMs: number | undefined;
+  try {
+    const outbox = await prisma.orm.public.MessageSearchOutbox.where({
+      id: outboxId,
+    }).first();
+    if (!outbox || outbox.completedAt) {
+      outcome = "skipped";
+      return;
+    }
+    queueAgeMs = Math.max(
+      0,
+      Date.now() - fromPrismaDateTime(outbox.createdAt).getTime()
+    );
+    const message = await prisma.orm.public.Messages.where({
       conversationId: outbox.conversationId,
-      keyEpoch: message?.keyEpoch ?? 0,
-      messageId: outbox.messageId,
+      id: outbox.messageId,
+    }).first();
+    if (!message || message.deletedAt || message.revision !== outbox.revision) {
+      const persisted = await persistSearchDocument({
+        conversationId: outbox.conversationId,
+        keyEpoch: message?.keyEpoch ?? 0,
+        messageId: outbox.messageId,
+        outboxId,
+        references: [],
+        revision: outbox.revision,
+        terms: [],
+      });
+      outcome = persisted.status === "indexed" ? "indexed" : "superseded";
+      return;
+    }
+    const context = await loadConversationSearchContext(outbox.conversationId);
+    const result = await decryptSearchableMessage(
+      outbox.conversationId,
+      message,
+      context
+    );
+    if (result) {
+      const persisted = await persistSearchDocument({
+        conversationId: outbox.conversationId,
+        keyEpoch: result.keyEpoch,
+        messageId: message.id,
+        outboxId,
+        references: result.references,
+        revision: message.revision,
+        terms: result.terms,
+      });
+      outcome = persisted.status === "indexed" ? "indexed" : "superseded";
+      return;
+    }
+    await markSearchOutboxUnreadable({
+      changeSequence: outbox.changeSequence,
+      conversationId: outbox.conversationId,
       outboxId,
-      references: [],
       revision: outbox.revision,
-      terms: [],
     });
-    return;
-  }
-  const context = await loadConversationSearchContext(outbox.conversationId);
-  const result = await decryptSearchableMessage(
-    outbox.conversationId,
-    message,
-    context
-  );
-  if (result) {
-    await persistSearchDocument({
-      conversationId: outbox.conversationId,
-      keyEpoch: result.keyEpoch,
-      messageId: message.id,
-      outboxId,
-      references: result.references,
-      revision: message.revision,
-      terms: result.terms,
+    logger.warn(
+      { outboxId },
+      "DM search item is waiting for a readable message-key epoch"
+    );
+    outcome = "unreadable";
+  } finally {
+    safelyRecordMessageSearchWorkerMetric(metrics, {
+      durationMs: performance.now() - startedAt,
+      job: "live-index",
+      outcome,
+      ...(queueAgeMs === undefined ? {} : { queueAgeMs }),
     });
-    return;
   }
-  await markSearchOutboxUnreadable({
-    changeSequence: outbox.changeSequence,
-    conversationId: outbox.conversationId,
-    outboxId,
-    revision: outbox.revision,
-  });
-  logger.warn(
-    { outboxId },
-    "DM search item is waiting for a readable message-key epoch"
-  );
 }
 
 export async function processMessageSearchBackfill(
   conversationId: string,
   logger: {
     warn: (fields: Record<string, unknown>, message: string) => void;
-  }
+  },
+  metrics?: MessageSearchWorkerMetricSink
 ): Promise<{ finished: boolean; nextCursorMessageId: string | null }> {
-  const backfill = await startMessageSearchBackfill(conversationId);
-  if (!backfill || backfill.completedAt || backfill.throughSequence === null) {
-    return { finished: true, nextCursorMessageId: null };
-  }
-  const batch = await readNextMessageSearchBackfillBatch(conversationId);
-  if (!batch) {
-    return { finished: true, nextCursorMessageId: null };
-  }
-  if (batch.messages.length === 0) {
+  const startedAt = performance.now();
+  let outcome: "completed" | "retry" | "skipped" | "superseded" | "unreadable" =
+    "retry";
+  let rows = 0;
+  let unreadableRows = 0;
+  try {
+    const backfill = await startMessageSearchBackfill(conversationId);
+    if (
+      !backfill ||
+      backfill.completedAt ||
+      backfill.throughSequence === null
+    ) {
+      outcome = "skipped";
+      return { finished: true, nextCursorMessageId: null };
+    }
+    const batch = await readNextMessageSearchBackfillBatch(conversationId);
+    if (!batch) {
+      outcome = "skipped";
+      return { finished: true, nextCursorMessageId: null };
+    }
+    rows = batch.messages.length;
+    if (batch.messages.length === 0) {
+      const committed = await commitMessageSearchBackfillBatch({
+        artifacts: [],
+        conversationId,
+        expectedPosition: batch.expectedPosition,
+        finished: true,
+        nextPosition: batch.expectedPosition,
+        rowsTraversed: 0,
+        throughSequence: batch.throughSequence,
+        unrecoverableEpochs: 0,
+      });
+      outcome = committed.committed ? "completed" : "superseded";
+      return { finished: committed.committed, nextCursorMessageId: null };
+    }
+
+    const context = await loadConversationSearchContext(conversationId);
+    const decryptOutcomes = await mapConcurrent(
+      batch.messages,
+      MESSAGE_SEARCH_DECRYPT_CONCURRENCY,
+      async (message) => {
+        if (message.deletedAt) {
+          return null;
+        }
+        const result = await decryptSearchableMessage(
+          conversationId,
+          message,
+          context
+        );
+        if (!result) {
+          return { messageId: message.id, status: "unreadable" as const };
+        }
+        return {
+          artifact: {
+            createdAt: message.createdAt,
+            keyEpoch: result.keyEpoch,
+            messageId: message.id,
+            references: result.references,
+            revision: message.revision,
+            terms: result.terms,
+          } satisfies MessageSearchBackfillArtifact,
+          status: "indexed" as const,
+        };
+      }
+    );
+    const artifacts = decryptOutcomes.flatMap((decryptOutcome) =>
+      decryptOutcome?.status === "indexed" ? [decryptOutcome.artifact] : []
+    );
+    const unreadableMessages = decryptOutcomes.filter(
+      (decryptOutcome) => decryptOutcome?.status === "unreadable"
+    );
+    unreadableRows = unreadableMessages.length;
+    const unrecoverableEpochs = unreadableMessages.length;
+    for (const unreadableMessage of unreadableMessages) {
+      logger.warn(
+        { conversationId, messageId: unreadableMessage.messageId },
+        "DM search history contains a message without a readable key epoch"
+      );
+    }
+    const lastMessage = batch.messages.at(-1);
+    if (!lastMessage) {
+      return { finished: false, nextCursorMessageId: null };
+    }
     const committed = await commitMessageSearchBackfillBatch({
-      artifacts: [],
+      artifacts,
       conversationId,
       expectedPosition: batch.expectedPosition,
-      finished: true,
-      nextPosition: batch.expectedPosition,
-      rowsTraversed: 0,
+      finished: false,
+      nextPosition: {
+        createdAt: lastMessage.createdAt,
+        messageId: lastMessage.id,
+      },
+      rowsTraversed: batch.messages.length,
       throughSequence: batch.throughSequence,
-      unrecoverableEpochs: 0,
+      unrecoverableEpochs,
     });
-    return { finished: committed.committed, nextCursorMessageId: null };
-  }
-
-  const context = await loadConversationSearchContext(conversationId);
-  const outcomes = await mapConcurrent(
-    batch.messages,
-    MESSAGE_SEARCH_DECRYPT_CONCURRENCY,
-    async (message) => {
-      if (message.deletedAt) {
-        return null;
-      }
-      const result = await decryptSearchableMessage(
-        conversationId,
-        message,
-        context
-      );
-      if (!result) {
-        return { messageId: message.id, status: "unreadable" as const };
-      }
-      return {
-        artifact: {
-          createdAt: message.createdAt,
-          keyEpoch: result.keyEpoch,
-          messageId: message.id,
-          references: result.references,
-          revision: message.revision,
-          terms: result.terms,
-        } satisfies MessageSearchBackfillArtifact,
-        status: "indexed" as const,
-      };
+    if (!committed.committed) {
+      outcome = "superseded";
+    } else if (unreadableRows > 0) {
+      outcome = "unreadable";
+    } else {
+      outcome = "completed";
     }
-  );
-  const artifacts = outcomes.flatMap((outcome) =>
-    outcome?.status === "indexed" ? [outcome.artifact] : []
-  );
-  const unreadableMessages = outcomes.filter(
-    (outcome) => outcome?.status === "unreadable"
-  );
-  const unrecoverableEpochs = unreadableMessages.length;
-  for (const outcome of unreadableMessages) {
-    logger.warn(
-      { conversationId, messageId: outcome.messageId },
-      "DM search history contains a message without a readable key epoch"
-    );
+    return {
+      finished: false,
+      nextCursorMessageId: committed.committed ? lastMessage.id : null,
+    };
+  } finally {
+    safelyRecordMessageSearchWorkerMetric(metrics, {
+      durationMs: performance.now() - startedAt,
+      job: "backfill",
+      outcome,
+      rows,
+      unreadableRows,
+    });
   }
-  const lastMessage = batch.messages.at(-1);
-  if (!lastMessage) {
-    return { finished: false, nextCursorMessageId: null };
-  }
-  const committed = await commitMessageSearchBackfillBatch({
-    artifacts,
-    conversationId,
-    expectedPosition: batch.expectedPosition,
-    finished: false,
-    nextPosition: {
-      createdAt: lastMessage.createdAt,
-      messageId: lastMessage.id,
-    },
-    rowsTraversed: batch.messages.length,
-    throughSequence: batch.throughSequence,
-    unrecoverableEpochs,
-  });
-  return {
-    finished: false,
-    nextCursorMessageId: committed.committed ? lastMessage.id : null,
-  };
 }
 
 export function clearMessageSearchKeyCache(): void {

@@ -31,6 +31,9 @@ if (import.meta.main) {
   const { initTelemetry, createLogger } = await import("@asm/logger");
   const telemetry = initTelemetry({ serviceName: "worker", version: "1.0.0" });
   const logger = createLogger({ serviceName: "worker" });
+  const { createMessageSearchWorkerMetricSink } =
+    await import("./worker/message-search-metrics");
+  const messageSearchMetrics = createMessageSearchWorkerMetricSink();
 
   const {
     ensureStreamGroups,
@@ -191,7 +194,12 @@ if (import.meta.main) {
 
     const messageSearchLiveWorker = new QueueWorker(
       "message-search-live",
-      (job) => processMessageSearchOutbox(job.data.outboxId, logger),
+      (job) =>
+        processMessageSearchOutbox(
+          job.data.outboxId,
+          logger,
+          messageSearchMetrics
+        ),
       { concurrency: 2, connection }
     );
     const messageSearchBackfillWorker = messageSearchFeatures.backfill
@@ -200,7 +208,8 @@ if (import.meta.main) {
           async (job) => {
             const result = await processMessageSearchBackfill(
               job.data.conversationId,
-              logger
+              logger,
+              messageSearchMetrics
             );
             if (result.nextCursorMessageId) {
               await enqueueMessageSearchBackfill(
@@ -215,7 +224,12 @@ if (import.meta.main) {
     const messageSearchCountWorker = messageSearchFeatures.counts
       ? new QueueWorker(
           "message-search-count",
-          (job) => processMessageSearchCount(job.data.requestId, logger),
+          (job) =>
+            processMessageSearchCount(
+              job.data.requestId,
+              logger,
+              messageSearchMetrics
+            ),
           { concurrency: 1, connection }
         )
       : undefined;

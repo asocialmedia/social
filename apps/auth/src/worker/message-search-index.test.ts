@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { MessageSearchWorkerMetricEvent } from "./message-search-metrics";
+
 const mockOutboxFirst = mock(() => Promise.resolve(outbox));
 const mockMessageFirst = mock(() => Promise.resolve(message));
 const mockLoadMembers = mock(() => Promise.resolve([{ userId: "user-happy" }]));
 const mockLoadConversation = mock(() => Promise.resolve({ _type: "DM" }));
 const mockLoadIdentities = mock(() => Promise.resolve([identity]));
 const mockLoadWraps = mock(() => Promise.resolve([wrap]));
-const mockPersistDocument = mock(() => Promise.resolve());
+const mockPersistDocument = mock(() =>
+  Promise.resolve({ status: "indexed" as const })
+);
 const mockMarkUnreadable = mock(() => Promise.resolve());
 const mockStartBackfill = mock(() => Promise.resolve(backfillState));
 const mockReadBackfill = mock(() => Promise.resolve(backfillBatch));
@@ -18,6 +22,7 @@ let outbox = {
   changeSequence: 8,
   completedAt: null as Date | null,
   conversationId: "conversation-1",
+  createdAt: new Date("2026-10-08T10:00:00.000Z"),
   id: "outbox-1",
   kind: "upsert",
   messageId: "message-1",
@@ -73,6 +78,8 @@ let backfillBatch = {
 
 mock.module("@asm/db", () => ({
   commitMessageSearchBackfillBatch: mockCommitBackfill,
+  fromPrismaDateTime: (value: unknown) =>
+    value instanceof Date ? value : new Date(String(value)),
   markSearchOutboxUnreadable: mockMarkUnreadable,
   persistSearchDocument: mockPersistDocument,
   prisma: {
@@ -146,6 +153,7 @@ describe("message search indexing worker", () => {
       changeSequence: 8,
       completedAt: null,
       conversationId: "conversation-1",
+      createdAt: new Date("2026-10-08T10:00:00.000Z"),
       id: "outbox-1",
       kind: "upsert",
       messageId: "message-1",
@@ -215,7 +223,7 @@ describe("message search indexing worker", () => {
     mockLoadConversation.mockReturnValue(Promise.resolve({ _type: "DM" }));
     mockLoadIdentities.mockReturnValue(Promise.resolve([identity]));
     mockLoadWraps.mockReturnValue(Promise.resolve([wrap]));
-    mockPersistDocument.mockReturnValue(Promise.resolve());
+    mockPersistDocument.mockReturnValue(Promise.resolve({ status: "indexed" }));
     mockMarkUnreadable.mockReturnValue(Promise.resolve());
     mockStartBackfill.mockReturnValue(Promise.resolve(backfillState));
     mockReadBackfill.mockReturnValue(Promise.resolve(backfillBatch));
@@ -225,7 +233,12 @@ describe("message search indexing worker", () => {
   test("decrypts transiently and atomically persists only normalized terms", async () => {
     const { processMessageSearchOutbox } =
       await import("./message-search-index");
-    await processMessageSearchOutbox("outbox-1", { warn: mockLoggerWarn });
+    const metrics: MessageSearchWorkerMetricEvent[] = [];
+    await processMessageSearchOutbox(
+      "outbox-1",
+      { warn: mockLoggerWarn },
+      { record: (event) => metrics.push(event) }
+    );
 
     expect(mockPersistDocument).toHaveBeenCalledWith({
       conversationId: "conversation-1",
@@ -250,6 +263,29 @@ describe("message search indexing worker", () => {
     });
     expect(mockMarkUnreadable).not.toHaveBeenCalled();
     expect(mockLoggerWarn).not.toHaveBeenCalled();
+    expect(metrics).toEqual([
+      expect.objectContaining({ job: "live-index", outcome: "indexed" }),
+    ]);
+    expect(metrics[0]).not.toHaveProperty("conversationId");
+    expect(metrics[0]).not.toHaveProperty("messageId");
+  });
+
+  test("telemetry sink failures do not fail an indexed message", async () => {
+    const { processMessageSearchOutbox } =
+      await import("./message-search-index");
+
+    await expect(
+      processMessageSearchOutbox(
+        "outbox-1",
+        { warn: mockLoggerWarn },
+        {
+          record: () => {
+            throw new Error("telemetry unavailable");
+          },
+        }
+      )
+    ).resolves.toBeUndefined();
+    expect(mockPersistDocument).toHaveBeenCalledTimes(1);
   });
 
   test("settles stale and deleted revisions as empty documents without decrypting", async () => {
@@ -326,9 +362,14 @@ describe("message search indexing worker", () => {
   test("indexes a bounded historical batch and advances only after commit", async () => {
     const { processMessageSearchBackfill } =
       await import("./message-search-index");
-    const result = await processMessageSearchBackfill("conversation-1", {
-      warn: mockLoggerWarn,
-    });
+    const metrics: MessageSearchWorkerMetricEvent[] = [];
+    const result = await processMessageSearchBackfill(
+      "conversation-1",
+      {
+        warn: mockLoggerWarn,
+      },
+      { record: (event) => metrics.push(event) }
+    );
 
     expect(mockCommitBackfill).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -342,6 +383,14 @@ describe("message search indexing worker", () => {
       finished: false,
       nextCursorMessageId: "message-1",
     });
+    expect(metrics).toEqual([
+      expect.objectContaining({
+        job: "backfill",
+        outcome: "completed",
+        rows: 1,
+        unreadableRows: 0,
+      }),
+    ]);
   });
 
   test("does not enqueue a successor when the backfill cursor compare-and-swap loses", async () => {

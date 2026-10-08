@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { MessageSearchWorkerMetricEvent } from "./message-search-metrics";
+
 const request = {
   attempts: 1,
   conversationId: "conversation-1",
@@ -45,9 +47,14 @@ describe("message search count worker", () => {
   test("claims a scoped request and commits its exact count", async () => {
     const { processMessageSearchCount } =
       await import("./message-search-count");
-    await processMessageSearchCount("count-request-1", {
-      error: mockError,
-    });
+    const metrics: MessageSearchWorkerMetricEvent[] = [];
+    await processMessageSearchCount(
+      "count-request-1",
+      {
+        error: mockError,
+      },
+      { record: (event) => metrics.push(event) }
+    );
 
     expect(mockClaim).toHaveBeenCalledWith("count-request-1");
     expect(mockCount).toHaveBeenCalledWith({
@@ -59,6 +66,9 @@ describe("message search count worker", () => {
     });
     expect(mockComplete).toHaveBeenCalledWith(request.id, 17);
     expect(mockRelease).not.toHaveBeenCalled();
+    expect(metrics).toEqual([
+      expect.objectContaining({ job: "count", outcome: "completed" }),
+    ]);
   });
 
   test("does no work for a stale or already completed queue delivery", async () => {
@@ -77,8 +87,13 @@ describe("message search count worker", () => {
     mockCount.mockRejectedValueOnce(failure);
     const { processMessageSearchCount } =
       await import("./message-search-count");
+    const metrics: MessageSearchWorkerMetricEvent[] = [];
     await expect(
-      processMessageSearchCount("count-request-1", { error: mockError })
+      processMessageSearchCount(
+        "count-request-1",
+        { error: mockError },
+        { record: (event) => metrics.push(event) }
+      )
     ).rejects.toBe(failure);
     expect(mockRelease).toHaveBeenCalledWith(request.id);
     expect(mockComplete).not.toHaveBeenCalled();
@@ -86,5 +101,8 @@ describe("message search count worker", () => {
       { requestId: "count-request-1" },
       "DM search count processing failed"
     );
+    expect(metrics).toEqual([
+      expect.objectContaining({ job: "count", outcome: "retry" }),
+    ]);
   });
 });
