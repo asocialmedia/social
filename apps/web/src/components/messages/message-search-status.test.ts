@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isMessageSearchQueryTooLong,
+  MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE,
   searchChatStatus,
   searchCoverageLabel,
   searchListEmptyState,
@@ -11,6 +13,13 @@ import {
 const COVERED = { fullyCovered: true, indexingOlder: false, queryReady: true };
 const PARTIAL = { fullyCovered: false, indexingOlder: false, queryReady: true };
 const WALKING = { fullyCovered: false, indexingOlder: true, queryReady: true };
+
+describe("isMessageSearchQueryTooLong", () => {
+  test("measures the normalized query in Unicode code points", () => {
+    expect(isMessageSearchQueryTooLong("😀".repeat(256))).toBe(false);
+    expect(isMessageSearchQueryTooLong("😀".repeat(257))).toBe(true);
+  });
+});
 
 describe("searchChatStatus", () => {
   test("says nothing until the query is worth searching", () => {
@@ -272,6 +281,16 @@ describe("searchCoverageLabel", () => {
 });
 
 describe("searchListEmptyState", () => {
+  test("reports an oversized query instead of an empty search result", () => {
+    expect(
+      searchListEmptyState({
+        ...BASE,
+        queryTooLong: true,
+        totalMatches: 0,
+      })
+    ).toBe(MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE);
+  });
+
   const BASE = {
     indexing: false,
     indexingOlder: false,

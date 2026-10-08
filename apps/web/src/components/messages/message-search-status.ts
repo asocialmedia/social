@@ -8,6 +8,11 @@
 // partial the wording says so, and only a fully indexed conversation gets a
 // plain "No results".
 
+import {
+  MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS,
+  normalizeMessageSearchQuery,
+} from "@asm/messages/search";
+
 export interface SearchStatusInput {
   // A backfill walk is paging through older history right now.
   indexingOlder: boolean;
@@ -15,6 +20,13 @@ export interface SearchStatusInput {
   fullyCovered: boolean;
   queryReady: boolean;
 }
+
+export function isMessageSearchQueryTooLong(query: string): boolean {
+  const normalized = normalizeMessageSearchQuery(query).normalizedQuery;
+  return [...normalized].length > MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS;
+}
+
+export const MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE = `Search queries must be ${MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS} characters or fewer`;
 
 export interface SearchChatStatusInput extends SearchStatusInput {
   activePosition: number;
@@ -105,6 +117,7 @@ export interface SearchListEmptyInput {
   // correct advice.
   listPageStale: boolean;
   queryReady: boolean;
+  queryTooLong?: boolean;
   // Rows actually on screen, which can be fewer than the matches: the list
   // pages one window at a time, so an empty page with a nonzero total is "not
   // here", never "does not exist".
@@ -128,10 +141,17 @@ export function searchListEmptyState(
     listPageLoading,
     listPageStale,
     queryReady,
+    queryTooLong = false,
     resultCount,
     totalMatches,
   } = input;
-  if (!queryReady || resultCount > 0) {
+  if (queryTooLong) {
+    return MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
+  }
+  if (resultCount > 0) {
+    return null;
+  }
+  if (!queryReady) {
     return null;
   }
   if (listPageError) {

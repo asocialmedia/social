@@ -11,7 +11,10 @@ import type { RankedSearchResult } from "@/lib/messages/message-search";
 import type { MessageData } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
 
-import { searchListEmptyState } from "./message-search-status";
+import {
+  isMessageSearchQueryTooLong,
+  searchListEmptyState,
+} from "./message-search-status";
 
 // The list half of chat search, rendered as a full surface inside the DM. It is
 // deliberately chrome-free: the search bar above already owns the mode toggle,
@@ -93,6 +96,7 @@ export function MessageSearchResults({
     listPageLoading,
     listPageStale,
     queryReady,
+    queryTooLong: isMessageSearchQueryTooLong(query),
     resultCount: results.length,
     totalMatches,
   });

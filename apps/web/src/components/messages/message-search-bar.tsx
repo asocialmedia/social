@@ -19,6 +19,8 @@ import {
   searchChatStatus,
   searchCoverageLabel,
   searchListStatus,
+  isMessageSearchQueryTooLong,
+  MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE,
   searchStorageStatus,
 } from "./message-search-status";
 
@@ -146,6 +148,7 @@ export function MessageSearchBar({
 
   const listView = view === "list";
   const queryReady = query.trim().length >= MIN_SEARCH_QUERY_LENGTH;
+  const queryTooLong = isMessageSearchQueryTooLong(query);
   const coverageLabel = searchCoverageLabel({
     indexFailed,
     indexedCount,
@@ -154,7 +157,9 @@ export function MessageSearchBar({
   // A failed jump replaces the counter: the miss must read as a miss, not as a
   // hang, and the next attempt (which clears it) is the retry.
   let statusText: string;
-  if (serverManaged) {
+  if (queryTooLong) {
+    statusText = MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
+  } else if (serverManaged) {
     if (searchError) {
       statusText = "Search failed";
     } else if (searching) {
