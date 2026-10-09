@@ -111,6 +111,7 @@ export interface IndexedDbOfflineSearchCacheStore {
     removals?: readonly OfflineSearchCacheRemoval[]
   ) => Promise<boolean>;
   search: (input: {
+    after?: OfflineSearchCursor;
     before?: OfflineSearchCursor;
     conversationId: string;
     limit?: number;
@@ -826,6 +827,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
   }
 
   async function search(input: {
+    after?: OfflineSearchCursor;
     before?: OfflineSearchCursor;
     conversationId: string;
     limit?: number;
@@ -863,6 +865,7 @@ export function createIndexedDbOfflineSearchCacheStore(): IndexedDbOfflineSearch
             input.conversationId
           );
           const page = offlineSearchRecords(documents, {
+            after: input.after,
             before: input.before,
             limit: input.limit,
             query: input.query,

@@ -23,6 +23,14 @@ describe("offline search fallback", () => {
     expect(
       decodeOfflineSearchCursor(encodeOfflineSearchCursor(cursor))
     ).toEqual(cursor);
+    expect(
+      decodeOfflineSearchCursor(encodeOfflineSearchCursor(cursor, "newer"))
+    ).toEqual({ ...cursor, direction: "newer" });
+    expect(
+      decodeOfflineSearchCursor(
+        JSON.stringify({ ...cursor, direction: "invalid" })
+      )
+    ).toBeUndefined();
     expect(decodeOfflineSearchCursor(null)).toBeUndefined();
     expect(decodeOfflineSearchCursor("{}")).toBeUndefined();
     expect(

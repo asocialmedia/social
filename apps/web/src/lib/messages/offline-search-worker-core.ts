@@ -64,6 +64,7 @@ export type OfflineSearchWorkerRequest =
       type: "remove";
     }
   | {
+      after?: OfflineSearchCursor;
       before?: OfflineSearchCursor;
       conversationId: string;
       limit?: number;
@@ -284,6 +285,7 @@ export function createOfflineSearchWorkerProcessor(input: {
         }
         if (request.type === "search") {
           const page = await input.cache.search({
+            after: request.after,
             before: request.before,
             conversationId: request.conversationId,
             limit: request.limit,

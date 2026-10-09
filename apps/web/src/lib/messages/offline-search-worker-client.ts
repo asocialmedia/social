@@ -72,6 +72,7 @@ export interface OfflineSearchWorkerClient {
     removals?: readonly OfflineSearchCacheRemoval[]
   ) => Promise<boolean>;
   search: (input: {
+    after?: OfflineSearchCursor;
     before?: OfflineSearchCursor;
     conversationId: string;
     limit?: number;

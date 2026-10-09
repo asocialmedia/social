@@ -66,6 +66,7 @@ class TestWorker {
           hasMore: false,
           hits: [],
           nextCursor: null,
+          previousCursor: null,
           totalMatches: 0,
         },
         success: true,
@@ -134,6 +135,31 @@ function sourceMessage(index: number) {
 }
 
 describe("offline search worker client", () => {
+  test("forwards reverse keyset reads without expanding result history on the main thread", async () => {
+    const worker = new TestWorker();
+    const client = clientWithWorker(worker);
+    expect(await client.activateScope(scope)).toBe(true);
+    const after = { createdAt: 123, id: "message-20" };
+    const page = await client.search({
+      after,
+      conversationId: "conversation-1",
+      limit: 20,
+      query: "needle",
+      scope,
+    });
+    expect(page).toMatchObject({ hits: [], previousCursor: null });
+    expect(worker.posted.at(-1)).toMatchObject({
+      after,
+      conversationId: "conversation-1",
+      limit: 20,
+      query: "needle",
+      scope,
+      type: "search",
+    });
+    client.dispose();
+    expect(worker.terminated).toBe(true);
+  });
+
   test("activates scope and splits index writes into bounded requests", async () => {
     const worker = new TestWorker();
     const client = clientWithWorker(worker);

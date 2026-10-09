@@ -11,29 +11,6 @@ export interface ServerSearchCoveragePollState {
   serverMode: boolean;
 }
 
-export interface ServerSearchPageRequestState {
-  currentPagesLength: number;
-  listPage: number;
-  refreshingIncompleteHead: boolean;
-  requestGenerationChanged: boolean;
-}
-
-export function decideServerSearchPageRequest(
-  state: ServerSearchPageRequestState
-): { pageIndex: number } | null {
-  const currentPageExists = state.currentPagesLength > state.listPage;
-  if (
-    currentPageExists &&
-    (!state.requestGenerationChanged || !state.refreshingIncompleteHead)
-  ) {
-    return null;
-  }
-  if (state.refreshingIncompleteHead) {
-    return { pageIndex: 0 };
-  }
-  return { pageIndex: state.currentPagesLength };
-}
-
 export function shouldPollServerSearchCoverage(
   state: ServerSearchCoveragePollState
 ): boolean {

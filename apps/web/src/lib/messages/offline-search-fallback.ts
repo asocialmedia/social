@@ -9,14 +9,17 @@ export function shouldUseOfflineSearchForStatus(status: number): boolean {
 }
 
 export function encodeOfflineSearchCursor(
-  cursor: OfflineSearchCursor | null
+  cursor: OfflineSearchCursor | null,
+  direction: "newer" | "older" = "older"
 ): string | null {
-  return cursor ? JSON.stringify(cursor) : null;
+  return cursor
+    ? JSON.stringify(direction === "newer" ? { ...cursor, direction } : cursor)
+    : null;
 }
 
 export function decodeOfflineSearchCursor(
   value: string | null
-): OfflineSearchCursor | undefined {
+): (OfflineSearchCursor & { direction?: "newer" | "older" }) | undefined {
   if (!value) {
     return undefined;
   }
@@ -25,13 +28,16 @@ export function decodeOfflineSearchCursor(
     if (
       typeof parsed !== "object" ||
       parsed === null ||
+      ((parsed as Record<string, unknown>).direction !== undefined &&
+        (parsed as Record<string, unknown>).direction !== "newer" &&
+        (parsed as Record<string, unknown>).direction !== "older") ||
       typeof (parsed as Record<string, unknown>).createdAt !== "number" ||
       !Number.isSafeInteger((parsed as Record<string, unknown>).createdAt) ||
       typeof (parsed as Record<string, unknown>).id !== "string"
     ) {
       return undefined;
     }
-    return parsed as OfflineSearchCursor;
+    return parsed as OfflineSearchCursor & { direction?: "newer" | "older" };
   } catch {
     return undefined;
   }

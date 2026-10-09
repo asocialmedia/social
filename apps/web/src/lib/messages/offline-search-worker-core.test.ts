@@ -105,6 +105,91 @@ describe("offline search worker processor", () => {
     expect(page.page?.hits[0]?.id).toBe("message-4");
   });
 
+  test("restores evicted result pages through worker keysets after a cache reload and fences old scopes", async () => {
+    const cache = createIndexedDbOfflineSearchCacheStore();
+    const processor = createOfflineSearchWorkerProcessor({ cache });
+    await processor.handle({ requestId: 1, scope, type: "activate" });
+    const indexed = await processor.handle({
+      activeConversationId: "conversation-worker-test",
+      messages: Array.from({ length: 65 }, (_, index) =>
+        workerMessage(index, "ciphertext")
+      ),
+      requestId: 2,
+      scope,
+      type: "index",
+    });
+    expect(indexed).toMatchObject({ indexed: 65, success: true });
+    const first = await processor.handle({
+      conversationId: "conversation-worker-test",
+      limit: 20,
+      query: "marker",
+      requestId: 3,
+      scope,
+      type: "search",
+    });
+    const second = await processor.handle({
+      before: first.page?.nextCursor ?? undefined,
+      conversationId: "conversation-worker-test",
+      limit: 20,
+      query: "marker",
+      requestId: 4,
+      scope,
+      type: "search",
+    });
+    const third = await processor.handle({
+      before: second.page?.nextCursor ?? undefined,
+      conversationId: "conversation-worker-test",
+      limit: 20,
+      query: "marker",
+      requestId: 5,
+      scope,
+      type: "search",
+    });
+    resetIndexedDbOfflineSearchCacheStoreForTests();
+    const reloaded = createOfflineSearchWorkerProcessor({
+      cache: createIndexedDbOfflineSearchCacheStore(),
+    });
+    await reloaded.handle({ requestId: 6, scope, type: "activate" });
+    const returned = await reloaded.handle({
+      after: third.page?.previousCursor ?? undefined,
+      conversationId: "conversation-worker-test",
+      limit: 20,
+      query: "marker",
+      requestId: 7,
+      scope,
+      type: "search",
+    });
+    expect(returned.success).toBe(true);
+    expect(returned.page?.hits).toEqual(second.page?.hits);
+    expect(returned.page?.totalMatches).toBe(65);
+    const returnedHead = await reloaded.handle({
+      after: returned.page?.previousCursor ?? undefined,
+      conversationId: "conversation-worker-test",
+      limit: 20,
+      query: "marker",
+      requestId: 8,
+      scope,
+      type: "search",
+    });
+    expect(returnedHead.page?.hits).toEqual(first.page?.hits);
+    expect(returnedHead.page?.previousCursor).toBeNull();
+    await reloaded.handle({
+      requestId: 9,
+      scope: { ...scope, recoveryGeneration: 3 },
+      type: "activate",
+    });
+    const stale = await reloaded.handle({
+      after: third.page?.previousCursor ?? undefined,
+      conversationId: "conversation-worker-test",
+      limit: 20,
+      query: "marker",
+      requestId: 10,
+      scope,
+      type: "search",
+    });
+    expect(stale).toMatchObject({ error: "scope-mismatch", success: false });
+  });
+
   test("refuses delayed writes from an old scope after a recovery generation change", async () => {
     const cache = createIndexedDbOfflineSearchCacheStore();
     const processor = createOfflineSearchWorkerProcessor({ cache });

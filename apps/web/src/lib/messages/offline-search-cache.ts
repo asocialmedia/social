@@ -66,6 +66,7 @@ export interface OfflineSearchPage<
   hasMore: boolean;
   hits: T[];
   nextCursor: OfflineSearchCursor | null;
+  previousCursor: OfflineSearchCursor | null;
   totalMatches: number;
 }
 
@@ -148,9 +149,21 @@ export function estimateOfflineSearchRecordBytes(
   return new TextEncoder().encode(JSON.stringify(record)).byteLength;
 }
 
+function compareOfflineSearchRecords(
+  left: OfflineSearchMatchRecord,
+  right: OfflineSearchMatchRecord
+): number {
+  const timestampDifference = right.createdAt - left.createdAt;
+  if (timestampDifference || left.id === right.id) {
+    return timestampDifference;
+  }
+  return left.id < right.id ? 1 : -1;
+}
+
 export function offlineSearchRecords<T extends OfflineSearchMatchRecord>(
   records: readonly T[],
   input: {
+    after?: OfflineSearchCursor;
     before?: OfflineSearchCursor;
     limit?: number;
     query: string;
@@ -158,35 +171,57 @@ export function offlineSearchRecords<T extends OfflineSearchMatchRecord>(
 ): OfflineSearchPage<T> {
   const normalized = normalizeMessageSearchQuery(input.query);
   if (!normalized.valid) {
-    return { hasMore: false, hits: [], nextCursor: null, totalMatches: 0 };
+    return {
+      hasMore: false,
+      hits: [],
+      nextCursor: null,
+      previousCursor: null,
+      totalMatches: 0,
+    };
   }
 
   const matches = records
     .filter((record) => messageSearchTermsMatch(record.terms, input.query))
-    .toSorted(
-      (left, right) =>
-        right.createdAt - left.createdAt || right.id.localeCompare(left.id)
+    .toSorted(compareOfflineSearchRecords);
+  const { before, after } = input;
+  if (before && after) {
+    throw new TypeError("An offline search page can use only one cursor");
+  }
+  let candidates = matches;
+  if (before) {
+    candidates = matches.filter(
+      (record) =>
+        record.createdAt < before.createdAt ||
+        (record.createdAt === before.createdAt && record.id < before.id)
     );
-  const { before } = input;
-  const afterCursor = before
-    ? matches.filter(
+  } else if (after) {
+    candidates = matches
+      .filter(
         (record) =>
-          record.createdAt < before.createdAt ||
-          (record.createdAt === before.createdAt && record.id < before.id)
+          record.createdAt > after.createdAt ||
+          (record.createdAt === after.createdAt && record.id > after.id)
       )
-    : matches;
+      .toReversed();
+  }
   const limit = Math.min(
     Math.max(Math.trunc(input.limit ?? OFFLINE_SEARCH_MAX_PAGE_SIZE), 1),
     OFFLINE_SEARCH_MAX_PAGE_SIZE
   );
-  const hits = afterCursor.slice(0, limit);
+  const nearestHits = candidates.slice(0, limit);
+  const hits = after ? nearestHits.toReversed() : nearestHits;
+  const [firstHit] = hits;
   const lastHit = hits.at(-1);
+  const nextCursor =
+    lastHit && (after || candidates.length > hits.length)
+      ? { createdAt: lastHit.createdAt, id: lastHit.id }
+      : null;
   return {
-    hasMore: afterCursor.length > hits.length,
+    hasMore: nextCursor !== null,
     hits,
-    nextCursor:
-      afterCursor.length > hits.length && lastHit
-        ? { createdAt: lastHit.createdAt, id: lastHit.id }
+    nextCursor,
+    previousCursor:
+      firstHit && (before || (after && candidates.length > hits.length))
+        ? { createdAt: firstHit.createdAt, id: firstHit.id }
         : null,
     totalMatches: matches.length,
   };
@@ -225,10 +260,7 @@ export function retainOfflineSearchRecords(input: {
     byConversation.set(record.conversationId, rows);
   }
   for (const rows of byConversation.values()) {
-    rows.sort(
-      (left, right) =>
-        right.createdAt - left.createdAt || right.id.localeCompare(left.id)
-    );
+    rows.sort(compareOfflineSearchRecords);
     for (const record of rows.slice(
       OFFLINE_SEARCH_MAX_MESSAGES_PER_CONVERSATION
     )) {

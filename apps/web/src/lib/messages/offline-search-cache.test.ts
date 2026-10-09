@@ -41,6 +41,44 @@ function recordKey(conversationId: string, id: string): string {
 }
 
 describe("bounded offline DM search cache contract", () => {
+  test("reverse pages restore the nearest twenty hits before reversing tied timestamps", () => {
+    const rows = Array.from({ length: 65 }, (_, index) =>
+      record({ createdAt: 20, id: `message-${String(index).padStart(3, "0")}` })
+    );
+    const first = offlineSearchRecords(rows, { limit: 20, query: "needle" });
+    const second = offlineSearchRecords(rows, {
+      before: first.nextCursor ?? undefined,
+      limit: 20,
+      query: "needle",
+    });
+    const third = offlineSearchRecords(rows, {
+      before: second.nextCursor ?? undefined,
+      limit: 20,
+      query: "needle",
+    });
+    const returned = offlineSearchRecords(rows, {
+      after: third.previousCursor ?? undefined,
+      limit: 20,
+      query: "needle",
+    });
+    expect(returned.hits).toEqual(second.hits);
+    expect(returned.hits).toHaveLength(20);
+    const returnedHead = offlineSearchRecords(rows, {
+      after: returned.previousCursor ?? undefined,
+      limit: 20,
+      query: "needle",
+    });
+    expect(returnedHead.hits).toEqual(first.hits);
+    expect(returnedHead.previousCursor).toBeNull();
+    expect(returnedHead.nextCursor).toEqual(first.nextCursor);
+    expect(() =>
+      offlineSearchRecords(rows, {
+        after: { createdAt: 20, id: "message-020" },
+        before: { createdAt: 20, id: "message-040" },
+        query: "needle",
+      })
+    ).toThrow(TypeError);
+  });
   test("stores ciphertext, normalized terms, and ID-only references without message bodies", () => {
     const source = {
       ciphertext: "encrypted-message-body",

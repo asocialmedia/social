@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  decideServerSearchPageRequest,
   isServerSearchScopeChanged,
   serverSearchHasMore,
   shouldRestartAfterServerSearchScopeChange,
@@ -22,41 +21,6 @@ const POLLABLE = {
 };
 
 describe("server search coverage refresh policy", () => {
-  test("loads missing pages and refreshes incomplete page zero", () => {
-    expect(
-      decideServerSearchPageRequest({
-        currentPagesLength: 1,
-        listPage: 1,
-        refreshingIncompleteHead: false,
-        requestGenerationChanged: false,
-      })
-    ).toEqual({ pageIndex: 1 });
-    expect(
-      decideServerSearchPageRequest({
-        currentPagesLength: 1,
-        listPage: 0,
-        refreshingIncompleteHead: true,
-        requestGenerationChanged: true,
-      })
-    ).toEqual({ pageIndex: 0 });
-    expect(
-      decideServerSearchPageRequest({
-        currentPagesLength: 1,
-        listPage: 0,
-        refreshingIncompleteHead: false,
-        requestGenerationChanged: false,
-      })
-    ).toBeNull();
-    expect(
-      decideServerSearchPageRequest({
-        currentPagesLength: 1,
-        listPage: 1,
-        refreshingIncompleteHead: false,
-        requestGenerationChanged: false,
-      })
-    ).toEqual({ pageIndex: 1 });
-  });
-
   test("polls only while an online server search has a partial result page", () => {
     expect(shouldPollServerSearchCoverage(POLLABLE)).toBe(true);
     expect(
