@@ -118,8 +118,8 @@ export interface MessageIndexWriter {
   // Rows persisted as not-yet-searchable from an earlier session. The caller
   // re-fetches and re-considers them; the writer only owns the bookkeeping.
   durablePending: (messageIds: readonly string[]) => Promise<string[]>;
-  // Flushes any queued work and releases the decryptor subscription and timer.
-  dispose: () => Promise<MessageIndexFlushResult>;
+  // Releases the decryptor subscription and timer, then flushes or discards data.
+  dispose: (options?: { flush?: boolean }) => Promise<MessageIndexFlushResult>;
   // Deleted, globally, or hidden for this user: drop them from the index.
   remove: (messageIds: readonly string[]) => void;
   removeAndWait: (messageIds: readonly string[]) => Promise<boolean>;
@@ -235,6 +235,7 @@ export function createMessageIndexWriter(
   let deferring = false;
   let resetting = false;
   let disposed = false;
+  let disposal: Promise<MessageIndexFlushResult> | null = null;
   let unsubscribeFromPayloads: (() => void) | null = null;
 
   function getWrittenState(id: string): WrittenState | undefined {
@@ -857,13 +858,16 @@ export function createMessageIndexWriter(
       };
     },
 
-    dispose() {
+    dispose(disposeOptions) {
+      if (disposal) {
+        return disposal;
+      }
       if (!disposed) {
         disposed = true;
         try {
           unsubscribeFromPayloads?.();
         } catch {
-          // Cleanup cannot prevent the last durable flush from running.
+          // Cleanup cannot prevent the requested final write or cache discard.
         }
         unsubscribeFromPayloads = null;
         if (timer !== null) {
@@ -872,7 +876,39 @@ export function createMessageIndexWriter(
         }
         deferring = false;
       }
-      return flush();
+      if (disposeOptions?.flush !== false) {
+        disposal = flush();
+        return disposal;
+      }
+      pending.clear();
+      unpersistedPending.clear();
+      written.clear();
+      batchEpoch += 1;
+      disposal = (async () => {
+        await enqueueOperation(async () => {
+          let cleared = false;
+          try {
+            await store.clearConversation(conversationId);
+            cleared = true;
+          } catch {
+            cleared = false;
+          }
+          written.clear();
+          pending.clear();
+          unpersistedPending.clear();
+          pendingCount = 0;
+          lastNotifiedPending = 0;
+          pendingCountMutated = true;
+          lastResult = {
+            committed: [],
+            failed: !cleared,
+            settledEmpty: [],
+            stillPending: [],
+          };
+        });
+        return lastResult;
+      })();
+      return disposal;
     },
 
     async durablePending(messageIds) {

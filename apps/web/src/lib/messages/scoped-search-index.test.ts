@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createMemorySearchIndexStore } from "./memory-search-index";
 import {
   clearAllSearchIndexScopes,
-  clearSearchIndexScopesExcept,
+  clearSearchIndexScope,
   createScopedSearchIndexStore,
 } from "./scoped-search-index";
 import { buildSearchIndexEntry } from "./search-index-format";
@@ -99,7 +99,7 @@ describe("account-scoped legacy search indexes", () => {
     expect(await secondAccount.listConversations()).toEqual([]);
   });
 
-  test("purges other account and recovery scopes without clearing the active scope", async () => {
+  test("clears only the exact prior account and recovery scope", async () => {
     const baseStore = createMemorySearchIndexStore();
     const firstAccount = createScopedSearchIndexStore(baseStore, {
       recoveryGeneration: 1,
@@ -109,12 +109,20 @@ describe("account-scoped legacy search indexes", () => {
       recoveryGeneration: 1,
       userId: "account-b",
     });
+    const nextRecoveryGeneration = createScopedSearchIndexStore(baseStore, {
+      recoveryGeneration: 2,
+      userId: "account-a",
+    });
 
     await firstAccount.putEntries("conversation-a", new Map([["a", entry]]));
     await secondAccount.putEntries("conversation-b", new Map([["b", entry]]));
+    await nextRecoveryGeneration.putEntries(
+      "conversation-c",
+      new Map([["c", entry]])
+    );
 
     expect(
-      await clearSearchIndexScopesExcept(baseStore, {
+      await clearSearchIndexScope(baseStore, {
         recoveryGeneration: 1,
         userId: "account-a",
       })
@@ -129,10 +137,16 @@ describe("account-scoped legacy search indexes", () => {
       ["private"],
       20
     );
+    const nextGenerationResults = await nextRecoveryGeneration.query(
+      "conversation-c",
+      ["private"],
+      20
+    );
     const remainingConversations = await baseStore.listConversations();
-    expect(firstResults.totalMatched).toBe(1);
-    expect(secondResults.totalMatched).toBe(0);
-    expect(remainingConversations).toHaveLength(1);
+    expect(firstResults.totalMatched).toBe(0);
+    expect(secondResults.totalMatched).toBe(1);
+    expect(nextGenerationResults.totalMatched).toBe(1);
+    expect(remainingConversations).toHaveLength(2);
   });
 
   test("retires every legacy scope after server search cutover", async () => {

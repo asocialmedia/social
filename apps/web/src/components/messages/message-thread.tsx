@@ -184,10 +184,7 @@ import {
 import { messagesTrustNote } from "@/lib/messages/messages-trust";
 import { planOfflineSearchChangeEffects } from "@/lib/messages/offline-search-change-policy";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
-import {
-  clearSearchIndexScopesExcept,
-  createScopedSearchIndexStore,
-} from "@/lib/messages/scoped-search-index";
+import { createScopedSearchIndexStore } from "@/lib/messages/scoped-search-index";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -556,6 +553,10 @@ export function MessageThread({
         offlineSearchScope.recoveryGeneration,
       ])
     : null;
+  const localSearchScopeKeyRef = useRef(localSearchScopeKey);
+  useLayoutEffect(() => {
+    localSearchScopeKeyRef.current = localSearchScopeKey;
+  }, [localSearchScopeKey]);
   const queryClient = useQueryClient();
   const rootKeyStore = useRootKeyStore();
   const onlineUsers = usePresence(true);
@@ -3219,7 +3220,6 @@ export function MessageThread({
           resolved.store,
           offlineSearchScope
         );
-        await clearSearchIndexScopesExcept(resolved.store, offlineSearchScope);
         if (cancelled) {
           return;
         }
@@ -3428,6 +3428,7 @@ export function MessageThread({
       // would otherwise never catch up on rows it had already fetched.
       subscribeToPayloads: messageDecryptor.subscribe,
     });
+    const writerScopeKey = localSearchScopeKey;
     searchWriterRef.current = writer;
     setWriterReady(true);
     return () => {
@@ -3435,7 +3436,9 @@ export function MessageThread({
       setWriterReady(false);
       void (async () => {
         try {
-          await writer.dispose();
+          await writer.dispose({
+            flush: localSearchScopeKeyRef.current === writerScopeKey,
+          });
         } catch {
           // Conversation teardown must not surface a background flush failure.
         }
@@ -3445,6 +3448,7 @@ export function MessageThread({
     bumpSearchIndex,
     conversationId,
     enforceIndexBudget,
+    localSearchScopeKey,
     scheduleCoverageRefresh,
     setStorageFull,
     searchIndexStore,

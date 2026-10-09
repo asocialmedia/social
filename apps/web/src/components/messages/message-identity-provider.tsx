@@ -42,6 +42,18 @@ import {
 import type { OfflineSearchCacheScope } from "@/lib/messages/indexeddb-offline-search-cache";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 
+async function clearLegacySearchIndexScopeForIdentity(
+  scope: OfflineSearchCacheScope
+): Promise<boolean> {
+  try {
+    const searchIndexBackend =
+      await import("@/lib/messages/search-index-backend");
+    return await searchIndexBackend.clearLegacySearchIndexScope(scope);
+  } catch {
+    return false;
+  }
+}
+
 export type IdentityStatus = "loading" | "ready" | "error" | "locked";
 
 // Raised when a server-side identity exists but neither derivation produced the
@@ -140,17 +152,23 @@ export function MessageIdentityProvider({
   }, [activeUserId]);
 
   useEffect(() => {
-    const activeScope = activeSearchScopeRef.current;
-    if (activeScope && activeScope.userId !== activeUserId) {
-      activeSearchScopeRef.current = null;
-      void offlineSearchWorkerClient.clearScope(activeScope);
-      return;
-    }
-    if (activeUserId && recoveryScope?.userId === activeUserId) {
-      activeSearchScopeRef.current = {
-        recoveryGeneration: recoveryScope.recoveryGeneration,
-        userId: recoveryScope.userId,
-      };
+    const nextScope =
+      activeUserId && recoveryScope?.userId === activeUserId
+        ? {
+            recoveryGeneration: recoveryScope.recoveryGeneration,
+            userId: recoveryScope.userId,
+          }
+        : null;
+    const previousScope = activeSearchScopeRef.current;
+    const scopeChanged =
+      previousScope !== null &&
+      (nextScope === null ||
+        previousScope.userId !== nextScope.userId ||
+        previousScope.recoveryGeneration !== nextScope.recoveryGeneration);
+    activeSearchScopeRef.current = nextScope;
+    if (scopeChanged && previousScope) {
+      void offlineSearchWorkerClient.clearScope(previousScope);
+      void clearLegacySearchIndexScopeForIdentity(previousScope);
     }
   }, [activeUserId, recoveryScope]);
 

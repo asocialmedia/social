@@ -127,21 +127,18 @@ export function createScopedSearchIndexStore(
   };
 }
 
-export async function clearSearchIndexScopesExcept(
+export async function clearSearchIndexScope(
   store: SearchIndexStore,
   scope: SearchIndexScope
 ): Promise<boolean> {
-  const prefix = scopePrefix(scope);
   try {
-    const conversations = await store.listConversations();
+    const scopedStore = createScopedSearchIndexStore(store, scope);
+    const conversations = await scopedStore.listConversations();
     let succeeded = true;
     // oxlint-disable no-await-in-loop -- avoid opening unbounded IDB write transactions
     for (const conversation of conversations) {
-      if (conversation.conversationId.startsWith(prefix)) {
-        continue;
-      }
       try {
-        await store.clearConversation(conversation.conversationId);
+        await scopedStore.clearConversation(conversation.conversationId);
       } catch {
         succeeded = false;
       }

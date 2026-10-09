@@ -4,7 +4,10 @@
 
 import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
 import { createMemorySearchIndexStore } from "./memory-search-index";
-import { clearAllSearchIndexScopes } from "./scoped-search-index";
+import {
+  clearAllSearchIndexScopes,
+  clearSearchIndexScope,
+} from "./scoped-search-index";
 import type { SearchIndexStore } from "./search-index-format";
 
 export type SearchIndexBackend = "indexeddb" | "memory";
@@ -36,6 +39,21 @@ export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
   return persistent
     ? { backend: "indexeddb", store: persistent }
     : { backend: "memory", store: createMemorySearchIndexStore() };
+}
+
+export async function clearLegacySearchIndexScope(scope: {
+  recoveryGeneration: number;
+  userId: string;
+}): Promise<boolean> {
+  try {
+    const resolved = await resolveSearchIndexStore();
+    if (resolved.backend !== "indexeddb") {
+      return true;
+    }
+    return await clearSearchIndexScope(resolved.store, scope);
+  } catch {
+    return false;
+  }
 }
 
 let legacySearchRetirement: Promise<boolean> | null = null;

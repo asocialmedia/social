@@ -799,6 +799,66 @@ describe("message index writer", () => {
     expect(await idsFor(store, "final")).toEqual(["m1"]);
   });
 
+  test("dispose without flushing clears scope data after an in-flight write", async () => {
+    const store = createMemorySearchIndexStore();
+    const originalPut = store.putEntries;
+    let releaseWrite: (() => void) | null = null;
+    let reportWriteStarted: (() => void) | null = null;
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeStarted = new Promise<void>((resolve) => {
+      reportWriteStarted = resolve;
+    });
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    await store.putSharedRefs(
+      CONVO,
+      new Map([
+        [
+          "old-scope-message",
+          {
+            createdAt: 1_700_000_000_000,
+            messageId: "old-scope-message",
+            refs: {
+              links: ["https://example.test/old-scope"],
+              media: [],
+              postIds: [],
+            },
+            senderId: "sender",
+          },
+        ],
+      ])
+    );
+    store.putEntries = async (conversationId, entries) => {
+      reportWriteStarted?.();
+      await writeGate;
+      await originalPut(conversationId, entries);
+    };
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "old recovery scope", type: "text" }),
+      store,
+    });
+    writer.consider([message("old-scope-message")]);
+    const flushingWrite = writer.flush();
+    await writeStarted;
+
+    const discarded = writer.dispose({ flush: false });
+    const release = releaseWrite;
+    if (!release) {
+      throw new Error("Expected the blocked write to be releasable");
+    }
+    release();
+    await Promise.all([flushingWrite, discarded]);
+
+    expect(await idsFor(store, "recovery")).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
+    const refs = await store.readSharedRefs(CONVO, "link", { limit: 10 });
+    expect(refs.items).toEqual([]);
+    expect(writer.coverage()).toEqual({ indexedCount: 0, pendingCount: 0 });
+  });
+
   test("bounds the in-memory signature cache for long backfills", async () => {
     const payloads = new Map<string, IndexablePayload>();
     const messages = [];
