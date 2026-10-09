@@ -16,6 +16,10 @@ interface SessionWhereCall {
 
 const sessionWhereCalls: SessionWhereCall[] = [];
 
+mock.module("@/lib/security/session-location", () => ({
+  getSessionLocation: () => null,
+}));
+
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
@@ -127,8 +131,10 @@ describe("/api/security/sessions", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([
       {
+        city: null,
         country: "IN",
         createdAt: "2026-09-10T00:00:00.000Z",
+        current: true,
         expiresAt: "2026-09-17T00:00:00.000Z",
         id: "current-session",
         ipAddress: "203.0.113.10",

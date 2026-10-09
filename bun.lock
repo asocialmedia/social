@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.1.84",
+      "version": "1.1.85",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.1.73",
+      "version": "0.1.76",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/media": "workspace:*",
@@ -164,7 +164,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.48",
+      "version": "1.5.49",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -259,7 +259,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.1.83",
+      "version": "1.1.84",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -290,7 +290,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.1.94",
+      "version": "1.1.95",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -369,7 +369,7 @@
     },
     "packages/notifications": {
       "name": "@asm/notifications",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "dependencies": {
         "jose": "^6.2.12",
         "web-push": "^3.6.7",

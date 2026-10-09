@@ -80,6 +80,26 @@ export class ConversationListStore {
   #version = 0;
   readonly #listeners = new Set<() => void>();
   #searchCache = new Map<string, SearchUserResult[]>();
+  #updatedAt = 0;
+
+  getUpdatedAt = (): number => this.#updatedAt;
+
+  exportCiphertextResponse(): ConversationListResponse {
+    const items = this.#snapshot.rows.map(
+      ({ conversation, isNew, lastMessage, unreadCount }) => ({
+        conversation,
+        isNew,
+        lastMessage,
+        unreadCount,
+      })
+    );
+    return {
+      conversations: items.map((item) => item.conversation),
+      hasMore: this.#snapshot.hasMore,
+      items,
+      nextCursor: this.#snapshot.nextCursor,
+    };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
@@ -102,15 +122,49 @@ export class ConversationListStore {
 
   replaceAll(
     response: ConversationListResponse,
-    myUserId: string | null
+    myUserId: string | null,
+    fetchedAt = Date.now(),
+    retainOlder = false
   ): void {
+    const previous = new Map(
+      this.#snapshot.rows.map((row) => [row.conversation.id, row])
+    );
+    const headIds = new Set(response.items.map((item) => item.conversation.id));
+    const older =
+      retainOlder && this.#snapshot.rows.length > response.items.length
+        ? this.#snapshot.rows.filter(
+            (row) =>
+              row.mineUserId === myUserId && !headIds.has(row.conversation.id)
+          )
+        : [];
+    const retainedPaging = older.length > 0;
+    this.#updatedAt = fetchedAt;
     this.setSnapshot({
       error: null,
-      hasMore: response.hasMore,
+      hasMore: retainedPaging ? this.#snapshot.hasMore : response.hasMore,
       loading: false,
-      nextCursor: response.nextCursor,
+      nextCursor: retainedPaging
+        ? this.#snapshot.nextCursor
+        : response.nextCursor,
       refreshing: false,
-      rows: response.items.map((item) => toRow(item, myUserId)),
+      rows: [
+        ...response.items.map((item) => {
+          const next = toRow(item, myUserId);
+          const old = previous.get(item.conversation.id);
+          if (
+            old?.mineUserId === myUserId &&
+            old.lastMessage?.id === item.lastMessage?.id &&
+            old.lastMessage?.ciphertext === item.lastMessage?.ciphertext &&
+            old.lastMessage?.iv === item.lastMessage?.iv &&
+            old.lastMessage?.deletedAt === item.lastMessage?.deletedAt &&
+            old.lastMessage?.ratchetIndex === item.lastMessage?.ratchetIndex
+          ) {
+            return { ...next, payload: old.payload, preview: old.preview };
+          }
+          return next;
+        }),
+        ...older,
+      ],
     });
   }
 
@@ -235,6 +289,7 @@ export class ConversationListStore {
   }
 
   reset(): void {
+    this.#updatedAt = 0;
     this.#snapshot = EMPTY;
     this.#searchCache.clear();
     this.#version += 1;

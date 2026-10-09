@@ -256,7 +256,7 @@ export class PopupCache {
 
 // Process-wide popup cache used by the hook.
 export const popupCache = new PopupCache(Date.now, 20, schedulePopupPersist);
-const POPUP_CACHE_NAME = "popup-profiles-v1";
+const POPUP_CACHE_NAME = "popup-profiles-v2";
 let hydration: Promise<void> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 

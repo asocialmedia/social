@@ -96,7 +96,6 @@ export function PushRegistrar() {
       }
     });
     const tokenSubscription = subscribeToPushTokenChanges(() => {
-      resetPushRegistration();
       void registerForPushNotifications(runWithInstallToken);
     });
     return () => {

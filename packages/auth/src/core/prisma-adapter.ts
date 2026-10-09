@@ -17,7 +17,14 @@ import type {
 } from "better-auth/adapters";
 import { createAdapterFactory } from "better-auth/adapters";
 
-type AuthModel = "account" | "jwks" | "session" | "user" | "verification";
+type AuthModel =
+  | "account"
+  | "jwks"
+  | "passkey"
+  | "twoFactor"
+  | "session"
+  | "user"
+  | "verification";
 type AuthExpression = Parameters<typeof and>[number];
 type AuthRecord = Record<string, unknown>;
 
@@ -69,7 +76,9 @@ interface AdapterContext {
 const AUTH_MODELS: Record<string, AuthModel> = {
   account: "account",
   jwks: "jwks",
+  passkey: "passkey",
   session: "session",
+  twoFactor: "twoFactor",
   user: "user",
   verification: "verification",
 };
@@ -89,6 +98,12 @@ function modelCollection(orm: PrismaOrm, model: AuthModel): DynamicCollection {
     }
     case "jwks": {
       return orm.public.Jwks as unknown as DynamicCollection;
+    }
+    case "passkey": {
+      return orm.public.Passkey as unknown as DynamicCollection;
+    }
+    case "twoFactor": {
+      return orm.public.TwoFactor as unknown as DynamicCollection;
     }
     case "session": {
       return orm.public.Sessions as unknown as DynamicCollection;
@@ -251,6 +266,18 @@ function whereBranches(where: CleanedWhere[] | undefined): CleanedWhere[][] {
 }
 
 function relationName(model: AuthModel, joinedModel: string): string {
+  if (model === "user" && joinedModel === "passkey") {
+    return "passkeys";
+  }
+  if (model === "user" && joinedModel === "twoFactor") {
+    return "twoFactor";
+  }
+  if (
+    (model === "passkey" || model === "twoFactor") &&
+    joinedModel === "user"
+  ) {
+    return "user";
+  }
   if (model === "user" && joinedModel === "account") {
     return "accounts";
   }

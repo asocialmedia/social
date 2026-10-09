@@ -8,7 +8,7 @@ import type { NotificationTarget } from "@asm/notifications/shared";
 // web feeds cannot drift. The unread badge is zeroed through the shared store,
 // so the header and the bottom dock update in the same tick.
 import { Image } from "expo-image";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useRouter, useFocusEffect } from "expo-router";
 import {
   useCallback,
   useEffect,
@@ -73,6 +73,7 @@ import {
   subscribePushSetupStatus,
 } from "../lib/push-setup";
 import type { PushSetupStatus } from "../lib/push-setup";
+import { markNotificationRowsSeen } from "../lib/seen-state";
 import { NotificationRow } from "./notification-row";
 import { NotificationsSkeleton } from "./notifications-skeleton";
 
@@ -111,6 +112,7 @@ export function NotificationsScreen() {
     mentions: emptyTab(),
   });
   const inflight = useRef<NotificationTab | null>(null);
+  const seenThrough = useRef(0);
   const unread = useUnreadNotificationCount(viewerId, showUser);
   const insets = useSafeAreaInsets();
   const [dockHeight, setDockHeight] = useState(56);
@@ -172,7 +174,11 @@ export function NotificationsScreen() {
           mode === "append" ? current.cursor : null,
           { apiBase, cookie }
         );
-        const grouped = groupFetchedNotifications(page.notifications);
+        const grouped = markNotificationRowsSeen(
+          groupFetchedNotifications(page.notifications),
+          seenThrough.current
+        );
+
         updateTab(tab, {
           cursor: page.nextCursor,
           hasMore: page.nextCursor !== null,
@@ -215,11 +221,35 @@ export function NotificationsScreen() {
   }, [activeTab, loadPage, showUser, tabs]);
 
   // Opening the screen marks everything read and zeroes the badge, like web.
-  useEffect(() => {
-    if (showUser) {
-      void unreadCountStore.markAllRead();
-    }
-  }, [showUser]);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      if (showUser && viewerId) {
+        const openedAt = Date.now();
+        void (async () => {
+          if ((await unreadCountStore.markAllRead()) && !cancelled) {
+            seenThrough.current = openedAt;
+            setTabs((current) => ({
+              all: {
+                ...current.all,
+                items: markNotificationRowsSeen(current.all.items, openedAt),
+              },
+              mentions: {
+                ...current.mentions,
+                items: markNotificationRowsSeen(
+                  current.mentions.items,
+                  openedAt
+                ),
+              },
+            }));
+          }
+        })();
+      }
+      return () => {
+        cancelled = true;
+      };
+    }, [showUser, viewerId])
+  );
 
   const handleOpen = useCallback(
     (target: NotificationTarget) => {
@@ -263,6 +293,7 @@ export function NotificationsScreen() {
             handleSwipe(gestureState.dx > 0 ? "right" : "left");
           }
         },
+        onPanResponderTerminationRequest: () => false,
       }),
     [handleSwipe]
   );
@@ -401,40 +432,44 @@ export function NotificationsScreen() {
             ) : null}
           </View>
         ) : null}
-        <FlatList
-          {...LIST_VIRTUALIZATION_PROPS}
-          {...panResponder.panHandlers}
-          // flexGrow lets the empty/loading/error slot centre vertically instead
-          // of collapsing to the top; harmless once rows exist.
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingBottom: HEADER_BAR_HEIGHT + dockHeight + insets.bottom + 12,
-          }}
-          data={active.items}
-          keyExtractor={(item) => item.id}
-          ListEmptyComponent={listEmpty}
-          ListFooterComponent={
-            active.status === "loading-more" ? <NotificationsSkeleton /> : null
-          }
-          onEndReached={handleEndReached}
-          onEndReachedThreshold={0.5}
-          onScroll={(event) =>
-            reportFeedScroll(event.nativeEvent.contentOffset.y)
-          }
-          renderItem={({ item, index }) => (
-            <View
-              style={
-                index > 0
-                  ? { borderTopColor: theme.cardBorder, borderTopWidth: 1 }
-                  : undefined
-              }
-            >
-              <NotificationRow notification={item} onOpen={handleOpen} />
-            </View>
-          )}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-        />
+        <View {...panResponder.panHandlers} style={{ flex: 1 }}>
+          <FlatList
+            {...LIST_VIRTUALIZATION_PROPS}
+            // flexGrow lets the empty/loading/error slot centre vertically instead
+            // of collapsing to the top; harmless once rows exist.
+            contentContainerStyle={{
+              flexGrow: 1,
+              paddingBottom:
+                HEADER_BAR_HEIGHT + dockHeight + insets.bottom + 12,
+            }}
+            data={active.items}
+            keyExtractor={(item) => item.id}
+            ListEmptyComponent={listEmpty}
+            ListFooterComponent={
+              active.status === "loading-more" ? (
+                <NotificationsSkeleton />
+              ) : null
+            }
+            onEndReached={handleEndReached}
+            onEndReachedThreshold={0.5}
+            onScroll={(event) =>
+              reportFeedScroll(event.nativeEvent.contentOffset.y)
+            }
+            renderItem={({ item, index }) => (
+              <View
+                style={
+                  index > 0
+                    ? { borderTopColor: theme.cardBorder, borderTopWidth: 1 }
+                    : undefined
+                }
+              >
+                <NotificationRow notification={item} onOpen={handleOpen} />
+              </View>
+            )}
+            scrollEventThrottle={16}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+          />
+        </View>
       </Animated.View>
       <MobileBottomNav onHeightChange={setDockHeight} />
     </View>

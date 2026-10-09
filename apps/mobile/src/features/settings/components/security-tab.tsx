@@ -901,7 +901,7 @@ function SessionsBody({
               ) : null}
             </View>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
-              {getSessionLocation(session.country, session.ipAddress)}
+              {getSessionLocation(session.country, session.city ?? null)}
             </Text>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
               Last active {formatLastActive(session.updatedAt, currentTimeMs())}

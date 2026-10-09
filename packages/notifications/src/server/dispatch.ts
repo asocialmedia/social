@@ -104,7 +104,7 @@ export async function dispatchNotificationPush(
       webSent: web.sent,
     });
 
-    return { device, web };
+    return { device, web, ...(device.retryable ? { retryable: true } : {}) };
   } catch (error) {
     log?.error("push.dispatch_failed", {
       error: String(error),

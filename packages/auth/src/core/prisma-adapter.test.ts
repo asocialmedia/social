@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { PrismaClient } from "@asm/db";
+import { passkey } from "@better-auth/passkey";
 import type { BetterAuthOptions } from "better-auth";
-import { jwt, username } from "better-auth/plugins";
+import { jwt, twoFactor, username } from "better-auth/plugins";
 
 import { prismaAdapter } from "./prisma-adapter";
 
@@ -97,11 +98,18 @@ const usersQuery: FakeQuery = {
 };
 
 const fakeClient = {
-  orm: { public: { Jwks: query, Users: usersQuery } },
+  orm: {
+    public: {
+      Jwks: query,
+      Passkey: query,
+      TwoFactor: query,
+      Users: usersQuery,
+    },
+  },
   transaction: () => {},
 } as unknown as PrismaClient;
 const adapter = prismaAdapter(fakeClient)({
-  plugins: [jwt(), username()],
+  plugins: [jwt(), username(), passkey(), twoFactor()],
 } as BetterAuthOptions);
 
 beforeEach(() => {
@@ -122,6 +130,15 @@ describe("Prisma 8 Better Auth adapter", () => {
 
     expect(result).toEqual([expect.objectContaining({ id: "a1" })]);
   });
+
+  test.each(["passkey", "twoFactor"])(
+    "supports the security plugin model %s",
+    async (model) => {
+      expect(await adapter.findMany({ limit: 1, model, where: [] })).toEqual([
+        expect.objectContaining({ id: "a1" }),
+      ]);
+    }
+  );
 
   test("preserves an explicit zero limit", async () => {
     const result = await adapter.findMany({

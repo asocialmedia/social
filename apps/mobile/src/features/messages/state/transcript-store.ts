@@ -25,6 +25,7 @@ import { advanceWatermark } from "@/features/messages/lib/message-receipts";
 import type { PeerWatermarks } from "@/features/messages/lib/message-receipts";
 import type { MessageData, MessagePage } from "@/features/messages/lib/types";
 import { firstUnreadMessageId } from "@/features/messages/lib/unread-marker";
+import { orderedCopy } from "@/lib/ordered-copy";
 
 // How many rows one page holds. Matches the server's own default so a page is a
 // full screen and a bit, and a user paging history pays a request roughly once per
@@ -61,6 +62,7 @@ const EMPTY_SNAPSHOT: TranscriptSnapshot = {
 };
 
 interface TranscriptEntry {
+  updatedAt: number;
   pages: MessagePage[];
   peerTypingTimer: ReturnType<typeof setTimeout> | null;
   snapshot: TranscriptSnapshot;
@@ -89,6 +91,40 @@ export class TranscriptStore {
   getSnapshot = (conversationId: string): TranscriptSnapshot =>
     this.#entries.get(conversationId)?.snapshot ?? EMPTY_SNAPSHOT;
 
+  getUpdatedAt = (conversationId: string): number =>
+    this.#entries.get(conversationId)?.updatedAt ?? 0;
+
+  exportCiphertextPages(): Record<
+    string,
+    { fetchedAt: number; page: MessagePage }
+  > {
+    return Object.fromEntries(
+      [...this.#entries].slice(-20).flatMap(([id, entry]) => {
+        if (!entry.snapshot.initialLoaded) {
+          return [];
+        }
+        const messages = entry.snapshot.messages.slice(-150);
+        return [
+          [
+            id,
+            {
+              fetchedAt: entry.updatedAt,
+              page: {
+                messages,
+                nextCursor: null,
+                previousCursor:
+                  entry.snapshot.hasMoreOlder ||
+                  entry.snapshot.messages.length > messages.length
+                    ? (messages[0]?.id ?? null)
+                    : null,
+              },
+            },
+          ],
+        ];
+      })
+    );
+  }
+
   /**
    * The store is read on every render, so it must return a STABLE object while
    * nothing changed. Rebuilding the snapshot only on mutation is what keeps
@@ -105,12 +141,16 @@ export class TranscriptStore {
     const next: TranscriptSnapshot = { ...base, ...patch };
     if (entry) {
       entry.snapshot = next;
+      if (patch.messages) {
+        entry.updatedAt = Date.now();
+      }
       entry.version += 1;
     } else {
       this.#entries.set(conversationId, {
         pages: [],
         peerTypingTimer: null,
         snapshot: next,
+        updatedAt: 0,
         version: 1,
       });
     }
@@ -121,31 +161,87 @@ export class TranscriptStore {
 
   #flatten(conversationId: string): MessageData[] {
     const pages = this.#entries.get(conversationId)?.pages ?? [];
-    return pages.flatMap((page) => page.messages);
+    return orderedCopy(
+      [
+        ...new Map(
+          pages
+            .flatMap((page) => page.messages)
+            .map((message) => [message.id, message])
+        ).values(),
+      ],
+      (left, right) =>
+        Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+        left.id.localeCompare(right.id)
+    );
   }
 
   /** Folds a freshly fetched page set in. Used for the first load and a refresh. */
-  setPages(conversationId: string, page: MessagePage): void {
+  setPages(
+    conversationId: string,
+    page: MessagePage,
+    fetchedAt = Date.now()
+  ): void {
     const entry = this.#entries.get(conversationId);
+    const previous = entry?.snapshot.messages ?? [];
+    const byId = new Map(previous.map((message) => [message.id, message]));
+    for (const message of page.messages) {
+      const old = byId.get(message.id);
+      byId.set(
+        message.id,
+        old && JSON.stringify(old) === JSON.stringify(message) ? old : message
+      );
+    }
+    const messages = orderedCopy(
+      [...byId.values()],
+      (left, right) =>
+        Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+        left.id.localeCompare(right.id)
+    );
+    const merged = {
+      ...page,
+      messages,
+      previousCursor: entry?.snapshot.initialLoaded
+        ? (entry.pages.at(-1)?.previousCursor ?? null)
+        : page.previousCursor,
+    };
     if (entry) {
-      entry.pages = [page];
+      entry.pages = [merged];
+      entry.updatedAt = fetchedAt;
+      if (
+        entry.snapshot.initialLoaded &&
+        !entry.snapshot.error &&
+        !entry.snapshot.loading &&
+        !entry.snapshot.loadingOlder &&
+        entry.snapshot.hasMoreNewer === Boolean(page.nextCursor) &&
+        messages.length === previous.length &&
+        messages.every((message, index) => message === previous[index])
+      ) {
+        return;
+      }
     } else {
       this.#entries.set(conversationId, {
-        pages: [page],
+        pages: [merged],
         peerTypingTimer: null,
         snapshot: EMPTY_SNAPSHOT,
+        updatedAt: Date.now(),
         version: 0,
       });
     }
     this.#patch(conversationId, {
       error: null,
       hasMoreNewer: Boolean(page.nextCursor),
-      hasMoreOlder: Boolean(page.previousCursor),
+      hasMoreOlder: entry?.snapshot.initialLoaded
+        ? entry.snapshot.hasMoreOlder
+        : Boolean(page.previousCursor),
       initialLoaded: true,
       loading: false,
       loadingOlder: false,
-      messages: page.messages,
+      messages,
     });
+    const updatedEntry = this.#entries.get(conversationId);
+    if (updatedEntry) {
+      updatedEntry.updatedAt = fetchedAt;
+    }
   }
 
   /** Prepends an older page, keeping the transcript oldest-first. */
@@ -189,7 +285,7 @@ export class TranscriptStore {
     const entry = this.#entries.get(conversationId);
     // Never flash the skeleton over a transcript that already has rows: the
     // reconcile poll fires while the user is reading.
-    if (loading && entry && entry.snapshot.messages.length > 0) {
+    if (loading && entry?.snapshot.initialLoaded) {
       return;
     }
     this.#patch(conversationId, { loading });

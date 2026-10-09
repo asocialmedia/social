@@ -36,6 +36,7 @@ export interface DeviceTarget {
 }
 
 export interface DevicePushResult {
+  retryable?: boolean;
   failed: number;
   sent: number;
   // Tokens FCM reported as gone; the caller prunes these.
