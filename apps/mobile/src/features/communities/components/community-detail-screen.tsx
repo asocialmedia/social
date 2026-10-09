@@ -471,6 +471,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     marginTop: 18,
+    paddingHorizontal: 16,
     paddingVertical: 14,
   },
   topBar: {
@@ -478,7 +479,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     height: 52,
     justifyContent: "space-between",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
   },
   topButton: {
     alignItems: "center",

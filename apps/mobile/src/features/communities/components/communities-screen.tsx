@@ -350,7 +350,7 @@ export function CommunitiesScreen() {
           </View>
         </View>
       </View>
-      <View style={[styles.searchBand, { backgroundColor: theme.containerBg }]}>
+      <View style={styles.searchBand}>
         <View
           style={[
             styles.search,
@@ -363,7 +363,7 @@ export function CommunitiesScreen() {
             },
           ]}
         >
-          <Search color={theme.dividerText} size={17} />
+          <Search color={theme.dividerText} size={16} />
           <TextInput
             accessibilityLabel="Search communities"
             autoCapitalize="none"
@@ -608,19 +608,19 @@ const styles = StyleSheet.create({
   browseCountRow: {
     alignItems: "center",
     flexDirection: "row",
-    paddingBottom: 12,
+    paddingBottom: 0,
     paddingHorizontal: 32,
-    paddingTop: 16,
+    paddingTop: 12,
   },
   browseHeading: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
     paddingHorizontal: 32,
-    paddingTop: 33,
+    paddingTop: 32,
   },
   browseTitle: { fontFamily: "SofiaProBold", fontSize: 18 },
-  cardWrap: { paddingHorizontal: 32 },
+  cardWrap: { paddingHorizontal: 32, paddingTop: 0 },
   category: {
     alignItems: "center",
     borderCurve: "continuous",
@@ -628,16 +628,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
   },
-  categoryBar: { borderBottomWidth: 1, paddingVertical: 6 },
+  categoryBar: {
+    borderBottomWidth: 1,
+    paddingHorizontal: 32,
+    paddingVertical: 6,
+  },
   categoryCount: {
     fontFamily: "SofiaProReg",
     fontSize: 11,
     fontVariant: ["tabular-nums"],
   },
-  categoryRow: { gap: 6, paddingHorizontal: 32 },
+  categoryRow: { gap: 6 },
   categoryText: { fontFamily: "SofiaProMed", fontSize: 13 },
   content: { paddingTop: 0 },
   countLabel: { fontFamily: "SofiaProReg", fontSize: 12 },
@@ -709,7 +713,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     maxWidth: 310,
   },
-  heroContent: { gap: 4, paddingHorizontal: 32, paddingTop: 23 },
+  heroContent: { gap: 4, paddingHorizontal: 32, paddingTop: 32 },
   heroMark: { height: 30, width: 38 },
   heroTitle: { fontFamily: "SofiaProBold", fontSize: 30, lineHeight: 32 },
   heroTitleRow: { alignItems: "center", flexDirection: "row", gap: 7 },
@@ -733,7 +737,7 @@ const styles = StyleSheet.create({
   },
   loadingCard: { borderRadius: 16, height: 280 },
   loadingState: { gap: 16, padding: 32 },
-  rail: { paddingTop: 24 },
+  rail: { paddingTop: 28 },
   root: { flex: 1 },
   search: {
     alignItems: "center",
@@ -741,12 +745,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
     marginHorizontal: 32,
     minHeight: 48,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
   },
-  searchBand: { paddingBottom: 10, paddingTop: 27 },
+  searchBand: { paddingBottom: 8, paddingTop: 8 },
   searchInput: {
     flex: 1,
     fontFamily: "SofiaProReg",

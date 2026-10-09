@@ -1380,9 +1380,13 @@ export function ExplicitGate({
   const cover = attachments.find((media) => !isAudioMedia(media));
   let coverUri: string | null = null;
   if (cover) {
-    coverUri = isVideoMedia(cover)
-      ? mediaPosterUrl(apiBase, cover.id)
-      : mediaGridImageUrl(apiBase, cover);
+    if (isVideoMedia(cover)) {
+      coverUri = mediaPosterUrl(apiBase, cover.id);
+    } else if (isGifMedia(cover)) {
+      coverUri = mediaImageUrl(apiBase, cover);
+    } else {
+      coverUri = mediaGridImageUrl(apiBase, cover);
+    }
   }
   const coverAspect =
     cover && cover.width && cover.height && cover.height > 0
@@ -1404,7 +1408,7 @@ export function ExplicitGate({
       {coverUri ? (
         <Image
           accessibilityLabel=""
-          blurRadius={blurSupported ? 24 : 0}
+          blurRadius={blurSupported ? 40 : 0}
           contentFit="cover"
           source={{ uri: coverUri }}
           style={[
