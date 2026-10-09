@@ -23,6 +23,7 @@ RUN apk add --no-cache \
     && addgroup -g 1001 -S auth \
     && adduser -S auth -u 1001 -G auth
 WORKDIR /app
+ENV NODE_ENV=production
 COPY --from=build --chown=auth:auth /app/apps/auth/dist/auth-server ./auth-server
 COPY --from=build --chown=auth:auth /app/apps/auth/dist/asm-worker ./asm-worker
 COPY --from=build --chown=auth:auth /app/apps/auth/scripts/docker-entrypoint.sh ./docker-entrypoint.sh

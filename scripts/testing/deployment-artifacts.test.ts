@@ -56,6 +56,12 @@ describe("Prisma sync deployment artifact", () => {
     expect(authDockerfile).toContain("ENV MESSAGE_SEARCH_WORKER_ONLY=1");
     expect(authDockerfile).toContain('CMD ["./asm-worker"]');
     expect(authDockerfile).toContain('CMD ["./docker-entrypoint.sh"]');
+    const runtimeBase = authDockerfile.split(
+      "FROM alpine:3.20 AS runtime-base"
+    )[1];
+    expect(
+      runtimeBase?.split("FROM runtime-base AS message-search-worker")[0]
+    ).toContain("ENV NODE_ENV=production");
   });
 
   test("runs the score synchronization after verification and before the success marker", async () => {

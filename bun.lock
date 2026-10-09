@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.1.89",
+      "version": "1.1.90",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -248,7 +248,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.1.88",
+      "version": "1.1.89",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
