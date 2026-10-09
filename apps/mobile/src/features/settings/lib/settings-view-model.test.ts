@@ -7,7 +7,7 @@ import {
   SETTINGS_TABS,
   settingsTabPath,
 } from "./settings-tabs";
-import { accountFactsFrom } from "./settings-view-model";
+import { accountFactsFrom, withLinkedAccounts } from "./settings-view-model";
 
 describe("resolveSettingsTab", () => {
   test("accepts every declared tab", () => {
@@ -119,5 +119,39 @@ describe("accountFactsFrom", () => {
       username: "ada",
     });
     expect(facts.linkedProviders).toEqual(["reddit"]);
+  });
+});
+
+describe("withLinkedAccounts", () => {
+  test("merges the server's account rows onto the session facts", () => {
+    const facts = accountFactsFrom({
+      email: "ada@example.com",
+      emailVerified: true,
+      id: "u1",
+      username: "ada",
+    });
+    const merged = withLinkedAccounts(facts, {
+      hasPassword: true,
+      linkedProviders: ["google"],
+    });
+    expect(merged.hasPassword).toBe(true);
+    expect(merged.linkedProviders).toEqual(["google"]);
+    expect(merged.canLinkProviders).toBe(true);
+  });
+
+  test("flags a Reddit-only account with no password", () => {
+    const facts = accountFactsFrom({
+      email: "ada@example.com",
+      emailVerified: true,
+      id: "u1",
+      username: "ada",
+    });
+    const merged = withLinkedAccounts(facts, {
+      hasPassword: false,
+      linkedProviders: ["reddit"],
+    });
+    expect(merged.hasPassword).toBe(false);
+    expect(merged.hasReddit).toBe(true);
+    expect(merged.canLinkProviders).toBe(false);
   });
 });
