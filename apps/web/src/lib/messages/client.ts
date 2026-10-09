@@ -1748,24 +1748,26 @@ export function foldMessageIntoPages<P extends { messages: MessageData[] }>(
 const TRANSCRIPT_MAX_MESSAGES = 800;
 const TRANSCRIPT_MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
 
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.codePointAt(index);
-    if (code === undefined) {
-      continue;
-    }
-    if (code <= 0x7f) {
-      bytes += 1;
-    } else if (code <= 0x7_ff) {
-      bytes += 2;
-    } else if (code <= 0xff_ff) {
-      bytes += 3;
-    } else {
-      bytes += 4;
-      index += 1;
-    }
+const ciphertextEncoder = new TextEncoder();
+const ciphertextByteLengths = new WeakMap<
+  MessageData,
+  { bytes: number; ciphertext: string }
+>();
+const NON_ASCII_CIPHERTEXT = /[\u0080-\uFFFF]/;
+
+function ciphertextByteLength(message: MessageData): number {
+  const cached = ciphertextByteLengths.get(message);
+  if (cached?.ciphertext === message.ciphertext) {
+    return cached.bytes;
   }
+  // Encrypted payloads use ASCII base64. Count other accepted strings exactly.
+  const bytes = NON_ASCII_CIPHERTEXT.test(message.ciphertext)
+    ? ciphertextEncoder.encode(message.ciphertext).byteLength
+    : message.ciphertext.length;
+  ciphertextByteLengths.set(message, {
+    bytes,
+    ciphertext: message.ciphertext,
+  });
   return bytes;
 }
 
@@ -1790,7 +1792,7 @@ function boundTranscriptPages(pages: MessagePage[]): {
         firstRetainedIndex -= 1;
         continue;
       }
-      const candidateBytes = utf8ByteLength(candidate.ciphertext);
+      const candidateBytes = ciphertextByteLength(candidate);
       if (
         messageCount >= TRANSCRIPT_MAX_MESSAGES ||
         ciphertextBytes + candidateBytes > TRANSCRIPT_MAX_CIPHERTEXT_BYTES

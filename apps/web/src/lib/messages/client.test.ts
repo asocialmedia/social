@@ -1851,6 +1851,32 @@ describe("foldMessageIntoPages", () => {
 });
 
 describe("foldMessageIntoBoundedData", () => {
+  test("rechecks a rewritten ciphertext before enforcing the retained-byte budget", () => {
+    const older = fetchedRow("older", "2026-01-01T00:00:00.000Z");
+    const recent = {
+      ...fetchedRow("recent", "2026-01-02T00:00:00.000Z"),
+      ciphertext: "x".repeat(2 * 1024 * 1024),
+    };
+    const initial = foldMessageIntoBoundedData(
+      { pageParams: ["tail"], pages: [{ messages: [older, recent] }] },
+      fetchedRow("arrival-1", "2026-01-03T00:00:00.000Z")
+    );
+    expect(initial?.pages[0].messages[0]).toBe(older);
+    older.ciphertext = "x".repeat(7 * 1024 * 1024);
+    const next = initial
+      ? foldMessageIntoBoundedData(
+          initial,
+          fetchedRow("arrival-2", "2026-01-04T00:00:00.000Z")
+        )
+      : null;
+    expect(next?.pages[0].messages.map((message) => message.id)).toEqual([
+      "recent",
+      "arrival-1",
+      "arrival-2",
+    ]);
+    expect(next?.pages[0].previousCursor).toBe("recent");
+  });
+
   test("keeps at most 800 rows and retains the newest rows", () => {
     const messages = Array.from({ length: 800 }, (_, index) =>
       fetchedRow(`m-${index}`, new Date(index).toISOString())
