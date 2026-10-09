@@ -1,5 +1,17 @@
 import { messageSearchEpochFingerprint, prisma } from "@asm/db";
 
+// Concurrent scale fixtures seed the same shared owner identity at once, so
+// the check-then-insert below can lose a race. A unique violation means a
+// sibling fixture won with identical values and is safe to adopt.
+function isIdentityRace(error: unknown): boolean {
+  const details = error as { code?: unknown; sqlState?: unknown } | null;
+  return (
+    details?.code === "P2002" ||
+    details?.code === "23505" ||
+    details?.sqlState === "23505"
+  );
+}
+
 // Query fixtures deliberately stub cryptographic verification; the worker integration suite uses real encrypted keys.
 export async function seedVerifiedMessageEpochFixture(
   conversationId: string
@@ -13,15 +25,21 @@ export async function seedVerifiedMessageEpochFixture(
       userId: member.userId,
     }).first();
     if (!identity) {
-      // oxlint-disable-next-line no-await-in-loop -- A fixture must exist before its proof can be constructed.
-      await prisma.orm.public.MessageIdentities.create({
-        encryptedPrivateKey: "fixture-iv.fixture-private",
-        kdfIterations: 210_000,
-        masterKeyHash: "a".repeat(64),
-        publicKey: `fixture-public:${member.userId}`,
-        salt: "fixture-salt",
-        userId: member.userId,
-      });
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- A fixture must exist before its proof can be constructed.
+        await prisma.orm.public.MessageIdentities.create({
+          encryptedPrivateKey: "fixture-iv.fixture-private",
+          kdfIterations: 210_000,
+          masterKeyHash: "a".repeat(64),
+          publicKey: `fixture-public:${member.userId}`,
+          salt: "fixture-salt",
+          userId: member.userId,
+        });
+      } catch (error) {
+        if (!isIdentityRace(error)) {
+          throw error;
+        }
+      }
     }
   }
   const identities = await prisma.orm.public.MessageIdentities.where(
