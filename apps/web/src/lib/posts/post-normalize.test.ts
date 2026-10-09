@@ -14,7 +14,7 @@ import {
 
 describe("post-normalize", () => {
   const basePost: PostData = {
-    _count: { comments: 5, mentions: 1, vote: 10 },
+    _count: { bookmarks: 0, comments: 5, responses: 0, vote: 10 },
     attachments: [],
     aura: 10,
     bookmarks: [{ userId: "user-1" }],
@@ -91,8 +91,9 @@ describe("post-normalize", () => {
     expect(Array.isArray(normalized.tags)).toBe(true);
     expect(Array.isArray(normalized.mentions)).toBe(true);
     expect(normalized._count).toEqual({
+      bookmarks: 0,
       comments: 0,
-      mentions: 0,
+      responses: 0,
       vote: 0,
     });
   });
@@ -139,7 +140,7 @@ describe("post-normalize", () => {
     ).toBe(true);
     expect(
       isStalePost({
-        _count: { comments: 0, mentions: 0, vote: 0 },
+        _count: { bookmarks: 0, comments: 0, responses: 0, vote: 0 },
         attachments: [],
         aura: 1,
         bookmarks: [],
@@ -159,7 +160,7 @@ describe("post-normalize", () => {
     expect(
       isStalePost({
         ...basePost,
-        _count: { comments: "5", mentions: 0, vote: 0 },
+        _count: { bookmarks: 0, comments: "5", responses: 0, vote: 0 },
       } as unknown as Record<string, unknown>)
     ).toBe(true);
   });

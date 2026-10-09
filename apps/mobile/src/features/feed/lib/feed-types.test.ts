@@ -21,7 +21,7 @@ import { ViewBatcher } from "./view-batcher";
 
 function post(id: string, extra: Partial<FeedPost> = {}): FeedPost {
   return {
-    _count: { comments: 0, mentions: 0, vote: 0 },
+    _count: { bookmarks: 0, comments: 0, responses: 0, vote: 0 },
     attachments: [],
     bookmarks: [],
     createdAt: "2024-01-01T00:00:00.000Z",
@@ -112,8 +112,8 @@ describe("normalizePostData", () => {
     expect(normalized.attachments).toEqual([]);
     expect(normalized.bookmarks).toEqual([]);
     expect(normalized._count).toEqual({
+      bookmarks: 0,
       comments: 0,
-      mentions: 0,
       responses: 0,
       vote: 0,
     });

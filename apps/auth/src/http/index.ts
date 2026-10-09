@@ -44,6 +44,12 @@ const OAUTH_CALLBACK_PATTERN = /^\/api\/auth\/callback\/[a-z-]+$/;
 // The Dockerfile's HEALTHCHECK, every 30 seconds against a healthy container.
 const HEALTH_PROBE_PATH = "/api/health";
 
+// Same-origin hint the native app sets on every request (see
+// apps/mobile/src/lib/install-token.ts). Not a credential: it only tags the
+// request so MOBILE and WEB traffic are separable in the shared logs.
+const CLIENT_PLATFORM_HEADER = "x-asm-client";
+const CLIENT_PLATFORM_MOBILE = "mobile";
+
 /** A health probe that passed is infrastructure chatter, not a request. */
 function isRoutineHealthProbe(pathname: string, status: number): boolean {
   return pathname === HEALTH_PROBE_PATH && status < 400;
@@ -351,8 +357,17 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     // lines a day and buried the requests worth reading. A probe that did not
     // succeed still logs - that is the signal - and so does everything else.
     if (!isRoutineHealthProbe(pathname, response.status)) {
+      // The web app and the native app share this service and these routes, so
+      // every request carries a `client` tag ("mobile" when the native app set
+      // the hint, "web" otherwise). That is what makes MOBILE and WEB traffic
+      // separable in the shared OpenObserve streams.
+      const client =
+        request.headers.get(CLIENT_PLATFORM_HEADER) === CLIENT_PLATFORM_MOBILE
+          ? "mobile"
+          : "web";
       log.info(
         {
+          client,
           duration_ms: Date.now() - startedAt,
           method: request.method,
           path: pathname,

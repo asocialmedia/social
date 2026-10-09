@@ -259,8 +259,8 @@ function isStalePostRecord(record: Record<string, unknown>): boolean {
     !record._count ||
     typeof record._count !== "object" ||
     Array.isArray(record._count) ||
+    typeof (record._count as Record<string, unknown>).bookmarks !== "number" ||
     typeof (record._count as Record<string, unknown>).comments !== "number" ||
-    typeof (record._count as Record<string, unknown>).mentions !== "number" ||
     typeof (record._count as Record<string, unknown>).responses !== "number" ||
     typeof (record._count as Record<string, unknown>).vote !== "number"
   );
@@ -304,11 +304,14 @@ export function repairStalePostCaches(queryClient: QueryClient): boolean {
         count && typeof count === "object" && !Array.isArray(count)
           ? {
               ...count,
+              bookmarks:
+                typeof count.bookmarks === "number" ? count.bookmarks : 0,
               comments: typeof count.comments === "number" ? count.comments : 0,
-              mentions: typeof count.mentions === "number" ? count.mentions : 0,
+              responses:
+                typeof count.responses === "number" ? count.responses : 0,
               vote: typeof count.vote === "number" ? count.vote : 0,
             }
-          : { comments: 0, mentions: 0, vote: 0 },
+          : { bookmarks: 0, comments: 0, responses: 0, vote: 0 },
       attachments: Array.isArray(record.attachments) ? record.attachments : [],
       bookmarks: Array.isArray(record.bookmarks) ? record.bookmarks : [],
       mentions: Array.isArray(record.mentions) ? record.mentions : [],

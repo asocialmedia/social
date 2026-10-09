@@ -27,6 +27,10 @@ function headerOf(call: Call): string | null {
   return new Headers(call.init?.headers).get("x-asm-install");
 }
 
+function clientOf(call: Call): string | null {
+  return new Headers(call.init?.headers).get("x-asm-client");
+}
+
 function harness(token: string | null) {
   const calls: Call[] = [];
   const baseFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -232,5 +236,25 @@ describe("withInstallHeader", () => {
       "x-asm-install": "tok",
     });
     expect(withInstallHeader({ a: "1" }, null)).toEqual({ a: "1" });
+  });
+});
+
+describe("createInstallFetch client platform hint", () => {
+  test("tags same-origin requests as mobile even before a token exists", async () => {
+    const { calls, wrapped } = harness(null);
+    await wrapped(`${ORIGIN}/api/auth/get-session`);
+    expect(clientOf(firstCall(calls))).toBe("mobile");
+  });
+
+  test("tags same-origin requests as mobile when a token is present", async () => {
+    const { calls, wrapped } = harness("token-abc");
+    await wrapped(`${ORIGIN}/api/post-feed`);
+    expect(clientOf(firstCall(calls))).toBe("mobile");
+  });
+
+  test("does not tag other hosts", async () => {
+    const { calls, wrapped } = harness("token-abc");
+    await wrapped("https://api.github.com/repos/x");
+    expect(clientOf(firstCall(calls))).toBeNull();
   });
 });

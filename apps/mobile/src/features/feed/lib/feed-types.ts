@@ -46,9 +46,9 @@ export interface FeedBookmark {
 }
 
 export interface FeedCounts {
+  bookmarks: number;
   comments: number;
-  mentions: number;
-  responses?: number;
+  responses: number;
   vote: number;
 }
 
@@ -201,14 +201,15 @@ export function normalizePostData(post: FeedPost): FeedPost {
   if (
     typeof count !== "object" ||
     count === null ||
+    typeof count.bookmarks !== "number" ||
     typeof count.comments !== "number" ||
-    typeof count.mentions !== "number" ||
+    typeof count.responses !== "number" ||
     typeof count.vote !== "number"
   ) {
     const target = ensure();
     target._count = {
+      bookmarks: countOf((count as FeedCounts | undefined)?.bookmarks),
       comments: countOf((count as FeedCounts | undefined)?.comments),
-      mentions: countOf((count as FeedCounts | undefined)?.mentions),
       responses: countOf((count as FeedCounts | undefined)?.responses),
       vote: countOf((count as FeedCounts | undefined)?.vote),
     };

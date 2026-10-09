@@ -7,6 +7,14 @@
 /** Header the web API expects. Mirrors the server constant. */
 export const INSTALL_TOKEN_HEADER = "x-asm-install";
 
+// Identifies the native client on every same-origin request so the shared
+// auth/web services can tag their logs and telemetry MOBILE vs WEB. The app
+// and the site call the same API hosts, so without this the request logs are
+// indistinguishable. It is not a credential: the server treats it as a hint
+// for observability only and never authorizes on it.
+export const CLIENT_PLATFORM_HEADER = "x-asm-client";
+export const CLIENT_PLATFORM_VALUE = "mobile";
+
 export interface InstallCredentials {
   installId: string;
   token: string;
@@ -87,6 +95,21 @@ export function isSameOrigin(url: string | null, origin: string): boolean {
 }
 
 /**
+ * Returns a copy of `headers` with the client-platform hint added. Never
+ * overwrites an explicit value, and is applied on every same-origin request
+ * (token or not), so mobile traffic is always distinguishable in the shared
+ * service logs.
+ */
+export function withClientHeader(headers: Headers): Headers {
+  if (headers.has(CLIENT_PLATFORM_HEADER)) {
+    return headers;
+  }
+  const next = new Headers(headers);
+  next.set(CLIENT_PLATFORM_HEADER, CLIENT_PLATFORM_VALUE);
+  return next;
+}
+
+/**
  * Merges a Request's own headers with per-call init headers (init wins on
  * conflict, matching `fetch(request, init)`), so neither set is dropped.
  */
@@ -116,7 +139,8 @@ export function withTokenHeader(headers: Headers, token: string): Headers {
 /**
  * Builds a fetch that attaches the install token to same-origin requests only,
  * so the credential never leaks to another host (the update gate talks to
- * GitHub). Pure and injectable for testing.
+ * GitHub), and tags every same-origin request with the mobile client hint.
+ * Pure and injectable for testing.
  *
  * The two input shapes are handled separately and deliberately. When `input` is
  * a Request its headers live ON the Request, and passing `{ headers }` as init
@@ -137,26 +161,17 @@ export function createInstallFetch(options: {
       return options.baseFetch(input, init);
     }
     const token = options.getToken();
-    if (!token) {
-      // No token yet: send unchanged. A mutation will be rejected with
-      // install-token-required, which the caller turns into a re-registration.
-      return options.baseFetch(input, init);
-    }
 
     if (input instanceof Request) {
       // Forward the caller's init (signal, method/body overrides, per-call
       // headers) instead of dropping it, with the token merged into the
       // combined headers. An explicit token in either place still wins.
-      return options.baseFetch(
-        new Request(input, {
-          ...init,
-          headers: withTokenHeader(mergeRequestHeaders(input, init), token),
-        })
-      );
+      const merged = withClientHeader(mergeRequestHeaders(input, init));
+      const headers = token ? withTokenHeader(merged, token) : merged;
+      return options.baseFetch(new Request(input, { ...init, headers }));
     }
-    return options.baseFetch(input, {
-      ...init,
-      headers: withTokenHeader(new Headers(init?.headers), token),
-    });
+    const merged = withClientHeader(new Headers(init?.headers));
+    const headers = token ? withTokenHeader(merged, token) : merged;
+    return options.baseFetch(input, { ...init, headers });
   };
 }
