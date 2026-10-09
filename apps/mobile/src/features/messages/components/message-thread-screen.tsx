@@ -32,7 +32,6 @@ import {
 import {
   Alert,
   FlatList,
-  TextInput,
   useWindowDimensions,
   KeyboardAvoidingView,
   Platform,
@@ -72,7 +71,6 @@ import type {
 } from "@/features/messages/lib/decryptor";
 import { getMessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
-import { reelsInput } from "@/features/messages/lib/message-recipes";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { buildTranscriptRows } from "@/features/messages/lib/transcript-rows";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
@@ -84,6 +82,8 @@ import {
   transcriptStore,
   unreadBoundaryId,
 } from "@/features/messages/state/transcript-store";
+import { unreadMessageStore } from "@/features/messages/state/unread-message-store";
+import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -97,6 +97,8 @@ import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
 import { MessagePeoplePanel } from "./message-people-panel";
+import { MessageSearchBar } from "./message-search-bar";
+import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
 import { TypingDots } from "./typing-dots";
 
@@ -119,7 +121,7 @@ export function MessageThreadScreen({
   conversationId: string;
   onBack: () => void;
 }) {
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { user } = useSessionContext();
@@ -148,11 +150,11 @@ export function MessageThreadScreen({
     images: string[];
     index: number;
   } | null>(null);
+  const atLiveEnd = useRef(true);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [readyKey, setReadyKey] = useState<typeof privateKey>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [keySignature, setKeySignature] = useState("");
   const healedSignature = useRef<string | null>(null);
   const chatTheme = useMemo(
@@ -432,6 +434,9 @@ export function MessageThreadScreen({
       clearTimeout(readTimer.current);
     }
     readTimer.current = setTimeout((): void => {
+      if (!atLiveEnd.current) {
+        return;
+      }
       const visible = transcriptStore.getSnapshot(conversationId).messages;
       const newestPeerMessage = visible.filter(
         (row) => row.senderId !== userId && !row.deletedAt
@@ -444,24 +449,27 @@ export function MessageThreadScreen({
         const options = await apiOptions();
         // The read route also advances delivery, so one call covers both marks on
         // OUR row; the explicit ack moves the watermark for what the PEER sent.
-        await markConversationRead(conversationId, options).catch(() => {
-          /* empty */
-        });
+        try {
+          await markConversationRead(conversationId, options);
+          transcriptStore.setMyLastReadAt(
+            conversationId,
+            new Date().toISOString()
+          );
+          unreadMessageStore.notifyActivity();
+        } catch {
+          // Keep the unread state until the server accepts the read watermark.
+        }
         await ackMessageDelivered(conversationId, target.id, options).catch(
           () => {
-            /* empty */
+            // Delivery retries on a later foreground reconciliation.
           }
-        );
-        transcriptStore.setMyLastReadAt(
-          conversationId,
-          new Date().toISOString()
         );
       })();
     }, 400);
   }, [apiOptions, conversationId, userId]);
 
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && foreground && !searchOpen) {
       scheduleRead();
     }
     return () => {
@@ -469,7 +477,7 @@ export function MessageThreadScreen({
         clearTimeout(readTimer.current);
       }
     };
-  }, [messages.length, scheduleRead]);
+  }, [foreground, messages.length, scheduleRead, searchOpen]);
 
   // ---- media -----------------------------------------------------------------
 
@@ -545,6 +553,33 @@ export function MessageThreadScreen({
     transcript.loadOlder();
   }, [transcript]);
 
+  const threadListRef = useRef<FlatList<TranscriptItem>>(null);
+  const scrollToSearchIndex = useCallback((index: number) => {
+    threadListRef.current?.scrollToIndex({
+      animated: false,
+      index,
+      viewPosition: 0.5,
+    });
+  }, []);
+  const scrollToSearchOffset = useCallback((offset: number) => {
+    threadListRef.current?.scrollToOffset({ animated: false, offset });
+  }, []);
+  const search = useMessageSearch({
+    decrypted,
+    foreground,
+    hasMoreOlder: transcript.snapshot.hasMoreOlder,
+    historyError: transcript.snapshot.error,
+    items,
+    loadOlder: transcript.loadOlder,
+    loadingOlder: transcript.snapshot.loadingOlder,
+    messages,
+    onClose: () => setSearchOpen(false),
+    open: searchOpen,
+    scope: userId ? `${userId}:${conversationId}` : null,
+    scrollToIndex: scrollToSearchIndex,
+    scrollToOffset: scrollToSearchOffset,
+  });
+
   // ---- render ----------------------------------------------------------------
 
   const renderItem = useCallback(
@@ -575,6 +610,7 @@ export function MessageThreadScreen({
       });
       return (
         <MessageBubble
+          searchJump={search.activeId === message.id ? search.jump : 0}
           deleted={Boolean(message.deletedAt)}
           edited={Boolean(message.editedAt)}
           failed={entry === "error"}
@@ -592,6 +628,8 @@ export function MessageThreadScreen({
       );
     },
     [
+      search.activeId,
+      search.jump,
       chatTheme,
       cachedPeer?.avatarUrl,
       peer?.avatarUrl,
@@ -634,7 +672,13 @@ export function MessageThreadScreen({
         displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
         fingerprint={fingerprint}
         onBack={onBack}
-        onSearch={() => setSearchOpen((open) => !open)}
+        onSearch={() => {
+          if (searchOpen) {
+            search.handleClose();
+          } else {
+            setSearchOpen(true);
+          }
+        }}
         onFriends={() => setFriendsOpen((open) => !open)}
         username={cachedPeer?.peerUsername ?? null}
         typing={transcript.snapshot.peerTyping}
@@ -646,24 +690,26 @@ export function MessageThreadScreen({
         />
       ) : null}
       {searchOpen ? (
-        <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
-          <TextInput
-            accessibilityLabel="Search in conversation"
-            autoFocus
-            placeholder="Search in conversation…"
-            placeholderTextColor={theme.dividerText}
-            onChangeText={setQuery}
-            value={query}
-            style={{
-              backgroundColor: reelsInput(isDark).background,
-              borderRadius: 12,
-              color: isDark ? "#eeeeee" : "#202020",
-              fontFamily: "SofiaProReg",
-              fontSize: 14,
-              padding: 12,
-            }}
-          />
-        </View>
+        <MessageSearchBar
+          query={search.query}
+          onQueryChange={(value) => search.setQuery(value)}
+          listView={search.listView}
+          onToggleView={() => search.setListView((value) => !value)}
+          onClose={search.handleClose}
+          onStep={search.handleStep}
+          onPage={(direction) =>
+            search.setRequestedPage(search.page.page + direction)
+          }
+          onIndexOlder={search.handleIndexOlder}
+          indexingOlder={search.indexingOlder}
+          indexedCount={search.indexedCount}
+          fullyCovered={search.fullyCovered}
+          canIndexOlder={search.canIndexOlder}
+          error={search.error}
+          matchCount={search.matchCount}
+          activePosition={search.activePosition}
+          page={search.page}
+        />
       ) : null}
       {status === "error" ||
       (detailError && !peer && !cachedPeer) ||
@@ -686,39 +732,47 @@ export function MessageThreadScreen({
           </Text>
         </Pressable>
       ) : null}
-      {transcript.snapshot.loading && messages.length === 0 ? (
-        <ThreadSkeleton />
-      ) : (
-        <FlatList
-          contentContainerStyle={styles.listContent}
-          data={
-            searchOpen && query.trim()
-              ? items.filter((item) => {
-                  if (item.kind !== "message") {
-                    return false;
-                  }
-                  const entry = decrypted.get(item.message.id);
-                  return (
-                    isPayload(entry) &&
-                    entry.content
-                      ?.toLocaleLowerCase()
-                      .includes(query.trim().toLocaleLowerCase())
-                  );
-                })
-              : items
-          }
-          style={{ flex: 1 }}
-          inverted
-          keyboardDismissMode="interactive"
-          keyExtractor={(row) => row.key}
-          // Inversion turns "keep loading as the reader scrolls back" into the same
-          // endReached the list already knows about, with no scroll-position maths.
-          onEndReached={searchOpen ? undefined : handleLoadOlder}
-          onEndReachedThreshold={0.5}
-          renderItem={renderItem}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-        />
-      )}
+      <View style={{ flex: 1 }}>
+        {transcript.snapshot.loading && messages.length === 0 ? (
+          <ThreadSkeleton />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.listContent}
+            ref={threadListRef}
+            data={items}
+            onScrollToIndexFailed={search.handleScrollToIndexFailed}
+            style={{ flex: 1 }}
+            inverted
+            scrollEventThrottle={128}
+            onScroll={(event) => {
+              const atLatest = event.nativeEvent.contentOffset.y <= 60;
+              if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
+                scheduleRead();
+              }
+              atLiveEnd.current = atLatest;
+            }}
+            keyboardDismissMode="interactive"
+            keyExtractor={(row) => row.key}
+            // Inversion turns "keep loading as the reader scrolls back" into the same
+            // endReached the list already knows about, with no scroll-position maths.
+            onEndReached={searchOpen ? undefined : handleLoadOlder}
+            onEndReachedThreshold={0.5}
+            renderItem={renderItem}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+          />
+        )}
+        {searchOpen && search.listView ? (
+          <MessageSearchResults
+            results={search.page.pageResults}
+            messages={messages}
+            activeId={search.activeId}
+            userId={userId}
+            peerName={peer?.displayName ?? cachedPeer?.displayName ?? "them"}
+            onJump={search.handleJumpTo}
+            emptyLabel={search.emptyLabel}
+          />
+        ) : null}
+      </View>
       {transcript.snapshot.peerTyping ? <TypingDots /> : null}
       <MessageComposer
         conversationId={conversationId}

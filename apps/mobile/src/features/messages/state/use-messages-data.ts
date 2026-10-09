@@ -35,16 +35,12 @@ import type { DecryptItem } from "@/features/messages/lib/decryptor";
 import { peerWatermarks } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import {
-  readMessageActivityStream,
   readMessageStream,
   shouldCatchUp,
 } from "@/features/messages/lib/realtime";
 import type { MessageStreamEvent } from "@/features/messages/lib/realtime";
 import type { MessageData } from "@/features/messages/lib/types";
-import {
-  conversationListStore,
-  loadUnreadCount,
-} from "@/features/messages/state/conversation-list-store";
+import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import type { ConversationListSnapshot } from "@/features/messages/state/conversation-list-store";
 import {
   MESSAGE_PAGE_SIZE,
@@ -54,6 +50,7 @@ import type { TranscriptSnapshot } from "@/features/messages/state/transcript-st
 import { getApiBaseUrl } from "@/lib/api-env";
 
 import { useMessagesIdentity } from "./message-identity";
+import { unreadMessageStore } from "./unread-message-store";
 import { useMessagesForeground } from "./use-messages-foreground";
 
 export { type MessagePageAxis } from "@/features/messages/lib/client";
@@ -63,7 +60,6 @@ export { peerOf } from "@/features/messages/state/conversation-list-store";
 // Generous: the stream does the real work, this only covers a silently dead socket.
 const TRANSCRIPT_POLL_MS = 60_000;
 const LIST_POLL_MS = 30_000;
-const UNREAD_POLL_MS = 60_000;
 
 export interface MessagesApiContext {
   apiBase: string;
@@ -160,75 +156,17 @@ export function useConversationList(): ConversationListSnapshot & {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `nonce` IS the reload channel; bumping it re-runs this poll, which is why it is a dependency
   }, [apiBase, cookie, foreground, nonce, userId]);
 
-  // The activity stream: a nudge to refetch, nothing more. This is what makes a
-  // new message appear in the list without waiting out the poll.
   useEffect(() => {
-    if (!userId || !cookie || !foreground) {
+    if (!foreground) {
       return;
     }
-    const controller = new AbortController();
-    void readMessageActivityStream({
-      baseFetch: streamingFetch,
-      cookie,
-      onActivity: () => {
-        setNonce((value) => value + 1);
-      },
-      signal: controller.signal,
-      url: `${apiBase}/api/messages/events`,
-    });
-    return () => {
-      controller.abort();
-    };
-  }, [apiBase, cookie, foreground, userId]);
+    return unreadMessageStore.subscribeActivity(refresh);
+  }, [foreground, refresh]);
 
   return { ...snapshot, refresh };
 }
 
-// ---- unread badge -------------------------------------------------------------
-
-/**
- * The nav badge count. Refcounted to one poller so the dock, the list header and
- * the profile menu do not each run their own.
- */
-let unreadRefs = 0;
-let unreadTimer: ReturnType<typeof setInterval> | null = null;
-
-export function useUnreadMessageCount(): number {
-  const { user } = useSessionContext();
-  const { apiBase, cookie } = useMessagesApiContext();
-  const [count, setCount] = useState(0);
-  const userId = user?.id ?? null;
-
-  useEffect(() => {
-    if (!userId || !cookie) {
-      // oxlint-disable-next-line react/set-state-in-effect -- signing out has to clear the badge the nav dock is showing
-      setCount(0);
-      return;
-    }
-    // oxlint-disable-next-line react/set-state-in-effect -- the badge is the result of a poll, so it cannot be derived during render
-    setCount(0);
-    const options = { apiBase, baseFetch: fetch, cookie };
-    const poll = async () => {
-      setCount(await loadUnreadCount(options));
-    };
-    void poll();
-    unreadRefs += 1;
-    if (!unreadTimer) {
-      unreadTimer = setInterval(() => {
-        void poll();
-      }, UNREAD_POLL_MS);
-    }
-    return () => {
-      unreadRefs -= 1;
-      if (unreadRefs <= 0 && unreadTimer) {
-        clearInterval(unreadTimer);
-        unreadTimer = null;
-      }
-    };
-  }, [apiBase, cookie, userId]);
-
-  return count;
-}
+export { useUnreadMessageCount } from "./use-unread-message-count";
 
 // ---- transcript ---------------------------------------------------------------
 

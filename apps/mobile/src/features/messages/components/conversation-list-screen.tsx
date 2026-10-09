@@ -8,7 +8,6 @@
 // last message is decrypted through the same scheduler the thread uses, so opening
 // a conversation later is instant.
 
-import { Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
@@ -31,22 +30,17 @@ import {
 } from "@/features/messages/state/conversation-list-store";
 import type { ConversationRowView } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
-import {
-  useConversationList,
-  useUnreadMessageCount,
-} from "@/features/messages/state/use-messages-data";
+import { useConversationList } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MessagePeoplePanel } from "./message-people-panel";
-import {
-  MessagesIconButton,
-  MutedGlyph,
-  PressableRow,
-} from "./messages-primitives";
+import { MutedGlyph, PressableRow } from "./messages-primitives";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
 
@@ -57,13 +51,13 @@ export function ConversationListScreen({
 }: {
   onOpen: (conversationId: string) => void;
 }) {
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
   const [searchOpen, setSearchOpen] = useState(false);
   const { user } = useSessionContext();
   const userId = user?.id ?? null;
   const list = useConversationList();
   const foreground = useMessagesForeground();
-  const unreadCount = useUnreadMessageCount();
+  const unreadCount = useUnreadNotificationCount(userId, foreground);
   const [presence, setPresence] = useState<PresenceUser[]>([]);
   const stopHeartbeatRef = useRef<(() => void) | null>(null);
 
@@ -160,6 +154,12 @@ export function ConversationListScreen({
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
+        onSearchPress={() => {
+          haptic();
+          setSearchOpen((open) => !open);
+        }}
+        searchLabel="Search people"
+        searchOpen={searchOpen}
         unreadCount={unreadCount}
         user={
           user
@@ -171,66 +171,53 @@ export function ConversationListScreen({
             : null
         }
       />
-      <View
-        style={{
-          alignItems: "center",
-          borderBottomColor: theme.dividerLine,
-          borderBottomWidth: 1,
-          flexDirection: "row",
-          height: 56,
-          justifyContent: "space-between",
-          paddingHorizontal: 16,
-        }}
-      >
-        <Text
-          style={{
-            color: isDark ? "#eeeeee" : "#202020",
-            fontFamily: "SofiaProBold",
-            fontSize: 14,
-          }}
-        >
-          Messages
-        </Text>
-        <MessagesIconButton
-          icon={searchOpen ? X : Search}
-          label="Search people"
-          onPress={() => setSearchOpen((open) => !open)}
-          size={36}
-        />
-      </View>
-      {searchOpen ? (
-        <MessagePeoplePanel
-          mode="search"
-          onClose={() => setSearchOpen(false)}
-        />
-      ) : null}
-      {list.error ? (
-        <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
-          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-            Couldn't update Messages. Tap to retry.
-          </Text>
-        </PressableRow>
-      ) : null}
-      {list.loading && list.rows.length === 0 ? (
-        <ConversationListSkeleton />
-      ) : (
-        <FlatList
-          contentContainerStyle={styles.listContent}
-          data={list.rows}
-          keyExtractor={(row) => row.conversation.id}
-          refreshControl={
-            <RefreshControl
-              onRefresh={handleRefresh}
-              refreshing={list.refreshing}
-              tintColor={theme.dividerText}
+      <View style={{ flex: 1 }}>
+        {searchOpen ? (
+          <View
+            style={{
+              left: 8,
+              position: "absolute",
+              right: 8,
+              top: 8,
+              zIndex: 10,
+            }}
+          >
+            <MessagePeoplePanel
+              mode="search"
+              onClose={() => setSearchOpen(false)}
             />
-          }
-          renderItem={renderRow}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          {...LIST_VIRTUALIZATION_PROPS}
-        />
-      )}
-      <MobileBottomNav unreadCount={unreadCount} />
+          </View>
+        ) : null}
+        {list.error ? (
+          <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
+            <Text
+              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
+            >
+              Couldn't update Messages. Tap to retry.
+            </Text>
+          </PressableRow>
+        ) : null}
+        {list.loading && list.rows.length === 0 ? (
+          <ConversationListSkeleton />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.listContent}
+            data={list.rows}
+            keyExtractor={(row) => row.conversation.id}
+            refreshControl={
+              <RefreshControl
+                onRefresh={handleRefresh}
+                refreshing={list.refreshing}
+                tintColor={theme.dividerText}
+              />
+            }
+            renderItem={renderRow}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            {...LIST_VIRTUALIZATION_PROPS}
+          />
+        )}
+      </View>
+      <MobileBottomNav />
     </View>
   );
 }

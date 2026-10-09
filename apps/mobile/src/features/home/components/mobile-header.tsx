@@ -10,7 +10,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePathname, useRouter } from "expo-router";
-import { Bell, Search } from "lucide-react-native";
+import { Bell, Search, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   Animated,
@@ -63,6 +63,8 @@ export const headerSlide = new Animated.Value(0);
 
 interface MobileHeaderProps {
   onSearchPress?: () => void;
+  searchOpen?: boolean;
+  searchLabel?: string;
   unreadCount?: number;
   user?: {
     avatarUrl?: string | null;
@@ -74,6 +76,8 @@ interface MobileHeaderProps {
 
 export function MobileHeader({
   onSearchPress,
+  searchOpen = false,
+  searchLabel = "Search",
   unreadCount = 0,
   user = null,
 }: MobileHeaderProps) {
@@ -290,7 +294,7 @@ export function MobileHeader({
                   )}
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Search"
+                  accessibilityLabel={searchOpen ? "Close search" : searchLabel}
                   accessibilityRole="button"
                   hitSlop={6}
                   onPress={
@@ -308,7 +312,11 @@ export function MobileHeader({
                         pressed && styles.pressedShift,
                       ]}
                     >
-                      <Search color={theme.passkeyIcon} size={20} />
+                      {searchOpen ? (
+                        <X color={theme.passkeyIcon} size={20} />
+                      ) : (
+                        <Search color={theme.passkeyIcon} size={20} />
+                      )}
                     </View>
                   )}
                 </Pressable>

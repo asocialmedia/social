@@ -73,12 +73,14 @@ export function MessagesIconButton({
   onPress,
   size = 34,
   tone = "default",
+  disabled = false,
 }: {
   icon: ComponentType<{ color?: string; size?: number }>;
   label: string;
   onPress: () => void;
   size?: number;
   tone?: "danger" | "default";
+  disabled?: boolean;
 }) {
   const { isDark } = useAppTheme();
   const recipe = iconButton3d(isDark);
@@ -87,6 +89,8 @@ export function MessagesIconButton({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       hitSlop={6}
       onPress={() => {
         haptic();
@@ -98,6 +102,7 @@ export function MessagesIconButton({
           backgroundColor: pressed ? pressedFill(isDark) : recipe.background,
           boxShadow: recipe.shadows,
           height: size,
+          opacity: disabled ? 0.4 : 1,
           width: size,
         },
       ]}

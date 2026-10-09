@@ -41,6 +41,7 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
 
+import { MessageSearchHighlight } from "./message-search-highlight";
 import {
   DeletedBubble,
   MessageImage,
@@ -55,6 +56,7 @@ const ALBUM_MAX_WIDTH = 384;
 const MAX_BUBBLE_WIDTH_RATIO = 0.85;
 
 export interface MessageBubbleProps {
+  searchJump?: number;
   deleted: boolean;
   edited: boolean;
   group: MessageGroupMeta;
@@ -76,6 +78,7 @@ export interface MessageBubbleProps {
 }
 
 function MessageBubbleInner({
+  searchJump = 0,
   deleted,
   edited,
   failed,
@@ -209,6 +212,7 @@ function MessageBubbleInner({
                 </Pressable>
               );
             })}
+            <MessageSearchHighlight jump={searchJump} />
           </View>
           {payload.content ? (
             <Text
@@ -241,6 +245,7 @@ function MessageBubbleInner({
         ]}
       >
         <SentOrReceived
+          searchJump={searchJump}
           corners={corners}
           maxWidth={bubbleWidth}
           mine={mine}
@@ -274,6 +279,7 @@ function MessageBubbleInner({
         </View>
       ) : null}
       <SentOrReceived
+        searchJump={searchJump}
         corners={corners}
         maxWidth={bubbleWidth}
         mine={mine}
@@ -331,12 +337,14 @@ MessageBubble.displayName = "MessageBubble";
  * element's own background and a gradient child would erase the lip.
  */
 function SentOrReceived({
+  searchJump,
   children,
   corners,
   maxWidth,
   mine,
   theme,
 }: {
+  searchJump: number;
   children: React.ReactNode;
   corners: BubbleCorners;
   maxWidth: number;
@@ -345,8 +353,12 @@ function SentOrReceived({
 }) {
   if (!mine) {
     return (
-      <ReceivedBubbleSurface corners={corners} style={{ maxWidth }}>
+      <ReceivedBubbleSurface
+        corners={corners}
+        style={{ maxWidth, overflow: "hidden" }}
+      >
         {children}
+        <MessageSearchHighlight jump={searchJump} />
       </ReceivedBubbleSurface>
     );
   }
@@ -359,9 +371,10 @@ function SentOrReceived({
       borderRadius={corners}
       colors={bubbleSentStops(theme.from, theme.to)}
       shadows={sentBubbleShadows(theme)}
-      style={[styles.bubbleMine, { maxWidth }]}
+      style={[styles.bubbleMine, { maxWidth, overflow: "hidden" }]}
     >
       <View style={styles.bubbleContent}>{children}</View>
+      <MessageSearchHighlight jump={searchJump} />
     </Gradient3D>
   );
 }

@@ -44,6 +44,11 @@ const SpotlightModal = lazy(async () => {
     await import("@/features/search/components/spotlight-modal");
   return { default: searchModule.SpotlightModal };
 });
+const UnreadMessageObserver = lazy(async () => {
+  const observerModule =
+    await import("@/features/messages/state/unread-message-observer");
+  return { default: observerModule.UnreadMessageObserver };
+});
 const SupportGate = lazy(async () => {
   const supportModule =
     await import("@/features/support/components/support-gate");
@@ -179,6 +184,7 @@ export default function RootLayout() {
                 past first paint: it is not needed to show cached content. */}
                 <Suspense fallback={null}>
                   {deferredReady ? <SupportGate /> : null}
+                  {deferredReady ? <UnreadMessageObserver /> : null}
                 </Suspense>
                 {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
