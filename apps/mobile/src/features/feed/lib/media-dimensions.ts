@@ -1,3 +1,4 @@
+import { orderedCopy } from "@/lib/ordered-copy";
 import { emptySnapshot } from "@/lib/persistent-cache";
 import type { PersistSnapshot, PersistedEntry } from "@/lib/persistent-cache";
 
@@ -89,7 +90,8 @@ export class MediaDimensionsCache {
   }
 
   restore(snapshot: PersistSnapshot<unknown>): void {
-    const entries = Object.entries(snapshot.entries).toSorted(
+    const entries = orderedCopy(
+      Object.entries(snapshot.entries),
       (a, b) => a[1].fetchedAt - b[1].fetchedAt
     );
     for (const [key, entry] of entries) {

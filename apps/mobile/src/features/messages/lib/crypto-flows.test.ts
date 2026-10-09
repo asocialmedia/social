@@ -950,3 +950,54 @@ describe("native background master key", () => {
     );
   });
 });
+
+test("conversation recovery works when Hermes has no copying array methods", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    Array.prototype,
+    "toSorted"
+  );
+  // oxlint-disable-next-line no-extend-native -- emulate the release Hermes runtime for this regression, restored below
+  Object.defineProperty(Array.prototype, "toSorted", {
+    configurable: true,
+    value: undefined,
+  });
+  try {
+    const alice = makeParty("hermes-alice");
+    const bob = makeParty("hermes-bob");
+    const conversation = conversationOf("hermes-conversation", alice, bob);
+    const written: WrappedKeyPayload[] = [];
+    const root = await ensureConversationKeys(
+      conversation,
+      alice.privateKey,
+      alice.userId,
+      {
+        postKeys: (_target, keys) => {
+          written.push(...keys);
+          return Promise.resolve();
+        },
+        refreshConversation: () => Promise.resolve(conversation),
+      }
+    );
+    expect(root?.length).toBe(32);
+    if (!root) {
+      throw new Error("Root not provisioned");
+    }
+    const mine = written
+      .filter((wrap) => wrap.ownerUserId === alice.userId)
+      .map((wrap) => ({
+        encryptedKey: wrap.encryptedKey,
+        version: wrap.version ?? 1,
+      }));
+    const recovered = await createRootKeyStore(alice.privateKey).getRootKeys(
+      conversation.id,
+      mine,
+      bob.publicKeyBase64
+    );
+    expect(recovered[0]).toEqual(root);
+  } finally {
+    if (descriptor) {
+      // oxlint-disable-next-line no-extend-native -- restore the test runtime after the Hermes regression
+      Object.defineProperty(Array.prototype, "toSorted", descriptor);
+    }
+  }
+});

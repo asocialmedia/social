@@ -29,6 +29,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -68,13 +69,16 @@ import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { surface3d } from "@/features/messages/lib/message-recipes";
 import type { MessageData } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
+import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import {
   transcriptStore,
   unreadBoundaryId,
 } from "@/features/messages/state/transcript-store";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
+import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { reversedCopy } from "@/lib/ordered-copy";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -121,6 +125,7 @@ export function MessageThreadScreen({
     error: identityError,
     privateKey,
     reset: resetIdentity,
+    retry,
     status,
   } = useMessagesIdentity();
   const userId = user?.id ?? null;
@@ -152,6 +157,13 @@ export function MessageThreadScreen({
     () => resolveConversationTheme(themeKey),
     [themeKey]
   );
+
+  const foreground = useMessagesForeground();
+  const [detailError, setDetailError] = useState(false);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const cachedPeer = conversationListStore
+    .getSnapshot()
+    .rows.find((row) => row.conversation.id === conversationId);
 
   const apiOptions = useCallback(async (): Promise<ApiCallOptions> => {
     const cookie = await authClient.getCookie();
@@ -213,7 +225,7 @@ export function MessageThreadScreen({
   // ---- peer detail + key healing ---------------------------------------------
 
   useEffect(() => {
-    if (!userId || !privateKey) {
+    if (!userId || !foreground) {
       return;
     }
     let cancelled = false;
@@ -230,6 +242,7 @@ export function MessageThreadScreen({
         const mine = detail.conversation.members.find(
           (member) => member.userId === userId
         );
+        setDetailError(false);
         setPeer({
           avatarUrl: peerMember?.user.avatarUrl ?? null,
           displayName:
@@ -262,6 +275,9 @@ export function MessageThreadScreen({
         rootKeys.current = null;
         messageDecryptor.clearKeys();
       } catch (error) {
+        if (!cancelled) {
+          setDetailError(true);
+        }
         logWarn("conversation detail failed", {
           reason: error instanceof Error ? error.name : "unknown",
           step: "detail",
@@ -271,7 +287,15 @@ export function MessageThreadScreen({
     return () => {
       cancelled = true;
     };
-  }, [apiOptions, conversationId, privateKey, userId]);
+  }, [
+    apiOptions,
+    conversationId,
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- detailRevision explicitly retries a failed detail request
+    detailRevision,
+    foreground,
+    privateKey,
+    userId,
+  ]);
 
   // ---- decryption ------------------------------------------------------------
 
@@ -311,7 +335,7 @@ export function MessageThreadScreen({
   // scroll with the transcript rather than being positioned against it.
   const items = useMemo<TranscriptItem[]>(() => {
     const rows: TranscriptItem[] = [];
-    const ordered = messages.toReversed();
+    const ordered = reversedCopy(messages);
     for (const [index, message] of ordered.entries()) {
       const forwardIndex = messages.length - 1 - index;
       const group = getMessageGroupMeta(messages, forwardIndex);
@@ -605,12 +629,30 @@ export function MessageThreadScreen({
       style={[styles.root, { backgroundColor: theme.containerBg }]}
     >
       <ThreadHeader
-        avatarUrl={peer?.avatarUrl ?? null}
-        displayName={peer?.displayName ?? "Chat"}
+        avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+        displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
         fingerprint={fingerprint}
         onBack={onBack}
         typing={transcript.snapshot.peerTyping}
       />
+      {status === "error" || detailError || transcript.snapshot.error ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading Messages"
+          onPress={() => {
+            if (status === "error") {
+              retry();
+            }
+            setDetailRevision((value) => value + 1);
+            transcript.refresh();
+          }}
+          style={{ paddingHorizontal: 16, paddingVertical: 12 }}
+        >
+          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+            Couldn't connect to Messages. Tap to retry.
+          </Text>
+        </Pressable>
+      ) : null}
       {transcript.snapshot.loading && messages.length === 0 ? (
         <ThreadSkeleton />
       ) : (

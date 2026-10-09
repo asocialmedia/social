@@ -1,3 +1,4 @@
+import { fetch as streamingFetch } from "expo/fetch";
 // The React bindings for the messages realtime streams and the polling that backs
 // them up.
 //
@@ -14,8 +15,13 @@
 // optimisation: iOS suspends the app and Android throttles timers, so a socket held
 // open in the background would reconnect on wake with a large gap. Pausing and
 // reconciling on resume is both cheaper and more honest than pretending to be live.
-
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -45,6 +51,8 @@ import {
 } from "@/features/messages/state/transcript-store";
 import type { TranscriptSnapshot } from "@/features/messages/state/transcript-store";
 import { getApiBaseUrl } from "@/lib/api-env";
+
+import { useMessagesForeground } from "./use-messages-foreground";
 
 export { type MessagePageAxis } from "@/features/messages/lib/client";
 export { peerOf } from "@/features/messages/state/conversation-list-store";
@@ -96,6 +104,7 @@ export function useConversationList(): ConversationListSnapshot & {
 } {
   const { user } = useSessionContext();
   const { apiBase, cookie } = useMessagesApiContext();
+  const foreground = useMessagesForeground();
   const [nonce, setNonce] = useState(0);
 
   const snapshot = useSyncExternalStore(
@@ -112,7 +121,7 @@ export function useConversationList(): ConversationListSnapshot & {
 
   // oxlint-disable-next-line react/set-state-in-effect -- the list is an external system; a poll that lands mid-render has to be written to state
   useEffect(() => {
-    if (!userId || !cookie) {
+    if (!userId || !cookie || !foreground) {
       return;
     }
     let cancelled = false;
@@ -132,7 +141,7 @@ export function useConversationList(): ConversationListSnapshot & {
         // dropped request would make the app look like it lost the user's messages.
         conversationListStore.setSnapshot({
           error: error instanceof Error ? error.message : null,
-          loading: conversationListStore.getSnapshot().rows.length > 0,
+          loading: false,
           refreshing: false,
         });
       }
@@ -147,17 +156,17 @@ export function useConversationList(): ConversationListSnapshot & {
       clearInterval(timer);
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `nonce` IS the reload channel; bumping it re-runs this poll, which is why it is a dependency
-  }, [apiBase, cookie, nonce, userId]);
+  }, [apiBase, cookie, foreground, nonce, userId]);
 
   // The activity stream: a nudge to refetch, nothing more. This is what makes a
   // new message appear in the list without waiting out the poll.
   useEffect(() => {
-    if (!userId || !cookie) {
+    if (!userId || !cookie || !foreground) {
       return;
     }
     const controller = new AbortController();
     void readMessageActivityStream({
-      baseFetch: fetch,
+      baseFetch: streamingFetch,
       cookie,
       onActivity: () => {
         setNonce((value) => value + 1);
@@ -168,7 +177,7 @@ export function useConversationList(): ConversationListSnapshot & {
     return () => {
       controller.abort();
     };
-  }, [apiBase, cookie, userId]);
+  }, [apiBase, cookie, foreground, userId]);
 
   return { ...snapshot, refresh };
 }
@@ -234,8 +243,11 @@ export function useTranscript(conversationId: string): TranscriptBinding {
   const { user } = useSessionContext();
   const { apiBase, cookie } = useMessagesApiContext();
   const userId = user?.id ?? null;
+  const foreground = useMessagesForeground();
   const [nonce, setNonce] = useState(0);
   const [reload, setReload] = useState(0);
+  const newestFetching = useRef(false);
+  const newestUpdatedAt = useRef(0);
 
   const snapshot = useSyncExternalStore(
     useCallback(
@@ -261,7 +273,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
   }, []);
 
   const loadOlder = useCallback(() => {
-    if (!userId || !cookie) {
+    if (!userId || !cookie || !foreground) {
       return;
     }
     const current = transcriptStore.getSnapshot(conversationId);
@@ -292,15 +304,16 @@ export function useTranscript(conversationId: string): TranscriptBinding {
       }
     };
     void fetchOlderPage();
-  }, [apiBase, conversationId, cookie, userId]);
+  }, [apiBase, conversationId, cookie, foreground, userId]);
 
   // The newest page. Reruns on `reload` (a send forced a reconcile) and on `nonce`
   // (a stream reconnect said we might have missed something).
   useEffect(() => {
-    if (!userId || !cookie) {
+    if (!userId || !cookie || !foreground) {
       return;
     }
     let cancelled = false;
+    newestFetching.current = true;
     transcriptStore.setSnapshotLoading(conversationId, true);
     const fetchNewestPage = async () => {
       try {
@@ -314,6 +327,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           return;
         }
         transcriptStore.setPages(conversationId, page);
+        newestUpdatedAt.current = Date.now();
         // Seed the read/delivered watermarks from the detail call, so a receipt
         // drawn before the first stream event is still correct.
         const detail = await fetchConversationDetail(conversationId, {
@@ -344,6 +358,9 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           error instanceof Error ? error.message : "Couldn't load messages."
         );
       }
+      if (!cancelled) {
+        newestFetching.current = false;
+      }
     };
     void fetchNewestPage();
     return () => {
@@ -353,11 +370,11 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     // a send that needs reconciling. The body never reads them, but the effect has to
     // re-run when they change, which is the entire reason they exist.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- see above
-  }, [apiBase, conversationId, cookie, nonce, reload, userId]);
+  }, [apiBase, conversationId, cookie, foreground, nonce, reload, userId]);
 
   // The per-conversation stream.
   useEffect(() => {
-    if (!userId || !cookie) {
+    if (!userId || !cookie || !foreground) {
       return;
     }
     const controller = new AbortController();
@@ -442,15 +459,15 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     };
 
     void readMessageStream({
-      baseFetch: fetch,
+      baseFetch: streamingFetch,
       cookie,
       onConnect: (isReconnect) => {
         // A reconnect may have missed anything at all: the stream has no replay
         // cursor. The initial connect only reconciles a cold or stale cache.
         if (
           shouldCatchUp({
-            dataUpdatedAt: lastUpdatedAt,
-            isFetching: false,
+            dataUpdatedAt: Math.max(lastUpdatedAt, newestUpdatedAt.current),
+            isFetching: newestFetching.current,
             isReconnect,
             now: Date.now(),
           })
@@ -478,7 +495,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
       clearInterval(poll);
       controller.abort();
     };
-  }, [apiBase, conversationId, cookie, userId]);
+  }, [apiBase, conversationId, cookie, foreground, userId]);
 
   return { loadNewest, loadOlder, refresh, snapshot };
 }

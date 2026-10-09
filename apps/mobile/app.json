@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.1.61",
+    "version": "0.1.62",
     "description": "The social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

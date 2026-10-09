@@ -2,8 +2,8 @@
 // per-user activity stream, both server-sent events over fetch + a ReadableStream
 // reader.
 //
-// RN has no EventSource and Hermes has no crypto, so the fetch-reader shape is
-// the only option -- and it is the same shape web uses, which keeps one frame
+// Native callers inject expo/fetch so headers and chunks arrive before the
+// response ends. React Native global fetch buffers the entire SSE response -- and it is the same shape web uses, which keeps one frame
 // parser for both clients.
 //
 // TWO DELIBERATE DIFFERENCES FROM THE SHARED @/lib/sse-stream READER:
@@ -15,6 +15,7 @@
 //    stream multiplexes seven event kinds over the same `message` event name and
 //    filters in `parseMessageEvent`.
 
+import { withAuthHeaders } from "@/lib/auth-headers";
 import { drainSseFrames } from "@/lib/sse-stream";
 import type { SseStatus } from "@/lib/sse-stream";
 
@@ -159,10 +160,15 @@ export interface MessageStreamCallbacks {
   onUnauthorized?: () => void;
 }
 
+export type MessageStreamFetch = (
+  input: string,
+  init?: { headers?: Record<string, string>; signal?: AbortSignal }
+) => Promise<Pick<Response, "status" | "ok" | "body" | "headers">>;
+
 export interface MessageStreamOptions extends MessageStreamCallbacks {
   url: string;
   cookie?: string | null;
-  baseFetch?: typeof fetch;
+  baseFetch?: MessageStreamFetch;
   signal?: AbortSignal;
   setTimeoutFn?: typeof setTimeout;
   clearTimeoutFn?: typeof clearTimeout;
@@ -216,10 +222,7 @@ export async function readMessageStream({
     const onAbort = () => controller?.abort();
     signal?.addEventListener("abort", onAbort);
     try {
-      const headers: Record<string, string> = { accept: "text/event-stream" };
-      if (cookie) {
-        headers.cookie = cookie;
-      }
+      const headers = withAuthHeaders({ accept: "text/event-stream" }, cookie);
       const response = await baseFetch(url, {
         headers,
         signal: controller.signal,
@@ -228,6 +231,12 @@ export async function readMessageStream({
         onUnauthorized?.();
         stop();
         return;
+      }
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers.get("retry-after"));
+        if (Number.isFinite(retryAfter) && retryAfter > 0) {
+          retryDelay = Math.max(retryDelay, retryAfter * 1000);
+        }
       }
       if (!response.ok || !response.body) {
         throw new Error(`Message stream returned ${response.status}`);
@@ -302,7 +311,7 @@ export async function readMessageStream({
 export async function readMessageActivityStream(options: {
   url: string;
   cookie?: string | null;
-  baseFetch?: typeof fetch;
+  baseFetch?: MessageStreamFetch;
   onActivity: (event: MessageActivityEvent) => void;
   onStatusChange?: (status: SseStatus) => void;
   onUnauthorized?: () => void;
@@ -343,10 +352,10 @@ export async function readMessageActivityStream(options: {
     const onAbort = () => controller?.abort();
     options.signal?.addEventListener("abort", onAbort);
     try {
-      const headers: Record<string, string> = { accept: "text/event-stream" };
-      if (options.cookie) {
-        headers.cookie = options.cookie;
-      }
+      const headers = withAuthHeaders(
+        { accept: "text/event-stream" },
+        options.cookie
+      );
       const response = await (options.baseFetch ?? fetch)(options.url, {
         headers,
         signal: controller.signal,
@@ -355,6 +364,12 @@ export async function readMessageActivityStream(options: {
         options.onUnauthorized?.();
         stop();
         return;
+      }
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers.get("retry-after"));
+        if (Number.isFinite(retryAfter) && retryAfter > 0) {
+          retryDelay = Math.max(retryDelay, retryAfter * 1000);
+        }
       }
       if (!response.ok || !response.body) {
         throw new Error(`Activity stream returned ${response.status}`);

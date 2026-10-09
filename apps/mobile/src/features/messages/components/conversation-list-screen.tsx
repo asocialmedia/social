@@ -32,6 +32,7 @@ import {
   useConversationList,
   useUnreadMessageCount,
 } from "@/features/messages/state/use-messages-data";
+import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -52,6 +53,7 @@ export function ConversationListScreen({
   const { user } = useSessionContext();
   const userId = user?.id ?? null;
   const list = useConversationList();
+  const foreground = useMessagesForeground();
   const unreadCount = useUnreadMessageCount();
   const [presence, setPresence] = useState<PresenceUser[]>([]);
   const stopHeartbeatRef = useRef<(() => void) | null>(null);
@@ -59,7 +61,7 @@ export function ConversationListScreen({
   // Presence keeps the reader's online rail honest. The heartbeat is refcounted, so
   // the list, the thread header and the nav rail share one POST.
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !foreground) {
       return;
     }
     let cancelled = false;
@@ -84,6 +86,9 @@ export function ConversationListScreen({
     // here would race the one inside `refresh`.
     void (async () => {
       const cookie = await authClient.getCookie();
+      if (cancelled) {
+        return;
+      }
       stopHeartbeatRef.current = startPresenceHeartbeat({
         apiBase: getApiBaseUrl(),
         cookie: cookie ?? undefined,
@@ -98,7 +103,7 @@ export function ConversationListScreen({
       stopHeartbeatRef.current?.();
       stopHeartbeatRef.current = null;
     };
-  }, [userId]);
+  }, [foreground, userId]);
 
   const presenceById = useMemo(
     () => new Map(presence.map((entry) => [entry.id, entry.status])),
@@ -157,6 +162,13 @@ export function ConversationListScreen({
             : null
         }
       />
+      {list.error ? (
+        <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
+          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+            Couldn't update Messages. Tap to retry.
+          </Text>
+        </PressableRow>
+      ) : null}
       {list.loading && list.rows.length === 0 ? (
         <ConversationListSkeleton />
       ) : (

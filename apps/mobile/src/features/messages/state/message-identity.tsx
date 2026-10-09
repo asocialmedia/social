@@ -38,9 +38,15 @@ import {
 } from "@/features/messages/lib/crypto";
 import type { EcdhPrivateKey } from "@/features/messages/lib/crypto-primitives";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
+import {
+  HistoryThrottledError,
+  isHistoryNetworkError,
+  isHistoryServerError,
+} from "@/features/messages/lib/history-throttle";
 import { bootstrapMessageIdentity } from "@/features/messages/lib/identity-bootstrap";
 import { secureMessageKeyStore } from "@/features/messages/lib/secure-key-store";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { RequestTimeoutError } from "@/lib/http-get";
 
 import { configureNativeMessageCrypto } from "./native-message-crypto";
 
@@ -58,6 +64,7 @@ interface IdentityData {
 
 export interface MessagesIdentityValue extends IdentityData {
   reset: () => Promise<void>;
+  retry: () => void;
 }
 
 const EMPTY_DATA: IdentityData = {
@@ -74,6 +81,9 @@ const NO_RESET: () => Promise<void> = () => Promise.resolve();
 const MessagesIdentityContext = createContext<MessagesIdentityValue>({
   ...EMPTY_DATA,
   reset: NO_RESET,
+  retry: () => {
+    // No provider is mounted to retry yet.
+  },
 });
 
 export function useMessagesIdentity(): MessagesIdentityValue {
@@ -87,7 +97,7 @@ export class MessageIdentityLockedError extends Error {
   }
 }
 
-const GENERIC_FAILURE = "We couldn't set up message encryption.";
+const GENERIC_FAILURE = "Couldn't connect to Messages. Please try again.";
 const LOCKED_COPY =
   "Your message key can't be read on this device. Start over to create a new one. Your conversation history before this point stays readable to the other person.";
 
@@ -105,6 +115,11 @@ export function MessagesIdentityProvider({
   useEffect(() => {
     setMessageKeyStore(secureMessageKeyStore);
   }, []);
+
+  const retry = useCallback(() => {
+    setData({ ...EMPTY_DATA, userId });
+    setRevision((value) => value + 1);
+  }, [userId]);
 
   const reset = useCallback(async () => {
     if (!userId) {
@@ -146,8 +161,10 @@ export function MessagesIdentityProvider({
       return;
     }
     let cancelled = false;
+    let retries = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    void (async () => {
+    const load = async () => {
       try {
         // Entropy first: on Hermes there is no global crypto at all, so a keypair
         // generated before this would throw.
@@ -163,7 +180,7 @@ export function MessagesIdentityProvider({
         } else {
           setData({ ...resolved, error: LOCKED_COPY, userId });
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setData({
             error: GENERIC_FAILURE,
@@ -172,12 +189,31 @@ export function MessagesIdentityProvider({
             status: "error",
             userId,
           });
+          const transient =
+            error instanceof HistoryThrottledError ||
+            error instanceof RequestTimeoutError ||
+            isHistoryNetworkError(error) ||
+            isHistoryServerError(error);
+          if (transient && retries < 3) {
+            retries += 1;
+            const delay =
+              error instanceof HistoryThrottledError
+                ? error.retryAfterSeconds * 1000
+                : 1000 * retries;
+            retryTimer = setTimeout(() => {
+              void load();
+            }, delay);
+          }
         }
       }
-    })();
+    };
+    void load();
 
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- revision starts a fresh bootstrap after an explicit identity reset
   }, [publishReady, revision, userId]);
@@ -186,8 +222,9 @@ export function MessagesIdentityProvider({
     () => ({
       ...(data.userId === userId ? data : { ...EMPTY_DATA, userId }),
       reset: userId ? reset : NO_RESET,
+      retry,
     }),
-    [data, reset, userId]
+    [data, reset, retry, userId]
   );
 
   return (

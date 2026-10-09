@@ -17,6 +17,8 @@
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { withAuthHeaders } from "@/lib/auth-headers";
+import { getWithTimeout } from "@/lib/http-get";
+import { orderedCopy } from "@/lib/ordered-copy";
 
 import {
   encryptMessage,
@@ -171,13 +173,18 @@ async function request<T>(
   }
 ): Promise<T> {
   const baseFetch = options.baseFetch ?? fetch;
-  const response = await baseFetch(`${options.apiBase}${path}`, {
+  const url = `${options.apiBase}${path}`;
+  const requestInit = {
     ...init,
     headers: withAuthHeaders(
       { "Content-Type": "application/json", ...init?.headers },
       options.cookie
     ),
-  });
+  };
+  const response =
+    (init?.method ?? "GET") === "GET"
+      ? await getWithTimeout(url, requestInit, { baseFetch })
+      : await baseFetch(url, requestInit);
   if (!response.ok) {
     throw await parseError(response);
   }
@@ -686,7 +693,8 @@ export function createRootKeyStore(privateKey: EcdhPrivateKey) {
       const peerKey = importPublicKeyJwk(
         publicKeyBase64ToJwk(peerPublicKeyBase64)
       );
-      const ordered = [...myWrappedKeys].toSorted(
+      const ordered = orderedCopy(
+        myWrappedKeys,
         (left, right) => right.version - left.version
       );
       // Independent unwraps, one per epoch: run them together and keep the ones
@@ -751,11 +759,12 @@ function conversationKeySignature(
   conversation: MessageConversationData,
   myUserId: string
 ): string {
-  const wraps = conversation.keys
-    .filter((key) => key.ownerUserId === myUserId)
-    .map((key) => `${key.version ?? 1}:${key.encryptedKey}:${key.iv}`)
-    .toSorted()
-    .join("|");
+  const wraps = orderedCopy(
+    conversation.keys
+      .filter((key) => key.ownerUserId === myUserId)
+      .map((key) => `${key.version ?? 1}:${key.encryptedKey}:${key.iv}`),
+    (left, right) => (left < right ? -1 : Number(left > right))
+  ).join("|");
   const peer = conversation.members.find(
     (member) => member.userId !== myUserId
   );
@@ -776,9 +785,10 @@ async function unwrapExistingKey(
   // Newest epoch first. A wrap left over from a superseded identity fails to
   // unwrap and falls through. Sequential on purpose: each iteration's await
   // depends on the previous failure, and the first success exits the loop.
-  const myKeys = conversation.keys
-    .filter((key) => key.ownerUserId === myUserId)
-    .toSorted((left, right) => (right.version ?? 1) - (left.version ?? 1));
+  const myKeys = orderedCopy(
+    conversation.keys.filter((key) => key.ownerUserId === myUserId),
+    (left, right) => (right.version ?? 1) - (left.version ?? 1)
+  );
   // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
   for (const myKey of myKeys) {
     let rootKey: Uint8Array;
