@@ -736,11 +736,13 @@ export function MessageThreadScreen({
         }}
         replyTo={replyTo}
       />
-      <MessageMediaViewer
-        images={viewer?.images ?? []}
-        index={viewer?.index ?? null}
-        onClose={() => setViewer(null)}
-      />
+      {viewer ? (
+        <MessageMediaViewer
+          images={viewer.images}
+          index={viewer.index}
+          onClose={() => setViewer(null)}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
