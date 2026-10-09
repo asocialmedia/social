@@ -32,6 +32,7 @@ import type { ReactNode } from "react";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { resetMessageIdentity } from "@/features/messages/lib/client";
+import { createConversationKeySource } from "@/features/messages/lib/conversation-key-source";
 import {
   clearStoredPrivateKey,
   setMessageKeyStore,
@@ -58,6 +59,9 @@ interface IdentityData {
 }
 
 export interface MessagesIdentityValue extends IdentityData {
+  mediaCookie: string | null;
+  getBaseKeys: (conversationId: string) => Promise<Uint8Array[]>;
+  invalidateKeys: (conversationId: string) => void;
   reset: () => Promise<void>;
   retry: () => void;
 }
@@ -71,10 +75,17 @@ const EMPTY_DATA: IdentityData = {
 };
 
 // Signing out, or arriving with no session: nothing to reset.
+const NO_KEYS = () => Promise.resolve<Uint8Array[]>([]);
+
 const NO_RESET: () => Promise<void> = () => Promise.resolve();
 
 const MessagesIdentityContext = createContext<MessagesIdentityValue>({
   ...EMPTY_DATA,
+  getBaseKeys: NO_KEYS,
+  invalidateKeys: () => {
+    // No identity is mounted yet.
+  },
+  mediaCookie: null,
   reset: NO_RESET,
   retry: () => {
     // No provider is mounted to retry yet.
@@ -105,6 +116,10 @@ export function MessagesIdentityProvider({
   const userId = user?.id ?? null;
   const [data, setData] = useState<IdentityData>(EMPTY_DATA);
   const [revision, setRevision] = useState(0);
+  const [mediaAuth, setMediaAuth] = useState<{
+    cookie: string;
+    userId: string;
+  } | null>(null);
 
   // Register the SecureStore binding before anything can ask for a key.
   useEffect(() => {
@@ -165,6 +180,9 @@ export function MessagesIdentityProvider({
         // generated before this would throw.
         await configureNativeMessageCrypto();
         const cookie = await authClient.getCookie();
+        if (!cancelled) {
+          setMediaAuth({ cookie: cookie ?? "", userId });
+        }
         const options = { apiBase: getApiBaseUrl(), cookie };
         const resolved = await bootstrapMessageIdentity(userId, options);
         if (cancelled) {
@@ -205,13 +223,31 @@ export function MessagesIdentityProvider({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- revision starts a fresh bootstrap after an explicit identity reset
   }, [publishReady, revision, userId]);
 
+  const keySource = useMemo(() => {
+    if (data.userId !== userId || !userId || !data.privateKey) {
+      return {
+        getBaseKeys: NO_KEYS,
+        invalidate: () => {
+          // Keys will be resolved after identity recovery.
+        },
+      };
+    }
+    return createConversationKeySource(data.privateKey, userId, async () => ({
+      apiBase: getApiBaseUrl(),
+      cookie: await authClient.getCookie(),
+    }));
+  }, [data.privateKey, data.userId, userId]);
+
   const value: MessagesIdentityValue = useMemo(
     () => ({
       ...(data.userId === userId ? data : { ...EMPTY_DATA, userId }),
+      getBaseKeys: keySource.getBaseKeys,
+      invalidateKeys: keySource.invalidate,
+      mediaCookie: mediaAuth?.userId === userId ? mediaAuth.cookie : null,
       reset: userId ? reset : NO_RESET,
       retry,
     }),
-    [data, reset, retry, userId]
+    [data, keySource, mediaAuth, reset, retry, userId]
   );
 
   return (

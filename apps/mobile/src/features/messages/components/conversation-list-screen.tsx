@@ -8,6 +8,7 @@
 // last message is decrypted through the same scheduler the thread uses, so opening
 // a conversation later is instant.
 
+import { Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
@@ -24,10 +25,12 @@ import {
   formatListTimestamp,
 } from "@/features/messages/lib/message-grouping";
 import {
+  conversationListStore,
   loadPresence,
   startPresenceHeartbeat,
 } from "@/features/messages/state/conversation-list-store";
 import type { ConversationRowView } from "@/features/messages/state/conversation-list-store";
+import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import {
   useConversationList,
   useUnreadMessageCount,
@@ -38,7 +41,12 @@ import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
-import { MutedGlyph, PressableRow } from "./messages-primitives";
+import { MessagePeoplePanel } from "./message-people-panel";
+import {
+  MessagesIconButton,
+  MutedGlyph,
+  PressableRow,
+} from "./messages-primitives";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
 
@@ -49,7 +57,8 @@ export function ConversationListScreen({
 }: {
   onOpen: (conversationId: string) => void;
 }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
+  const [searchOpen, setSearchOpen] = useState(false);
   const { user } = useSessionContext();
   const userId = user?.id ?? null;
   const list = useConversationList();
@@ -162,6 +171,39 @@ export function ConversationListScreen({
             : null
         }
       />
+      <View
+        style={{
+          alignItems: "center",
+          borderBottomColor: theme.dividerLine,
+          borderBottomWidth: 1,
+          flexDirection: "row",
+          height: 56,
+          justifyContent: "space-between",
+          paddingHorizontal: 16,
+        }}
+      >
+        <Text
+          style={{
+            color: isDark ? "#eeeeee" : "#202020",
+            fontFamily: "SofiaProBold",
+            fontSize: 14,
+          }}
+        >
+          Messages
+        </Text>
+        <MessagesIconButton
+          icon={searchOpen ? X : Search}
+          label="Search people"
+          onPress={() => setSearchOpen((open) => !open)}
+          size={36}
+        />
+      </View>
+      {searchOpen ? (
+        <MessagePeoplePanel
+          mode="search"
+          onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
       {list.error ? (
         <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
           <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
@@ -233,7 +275,7 @@ function ConversationRow({
     <PressableRow onPress={onPress} style={styles.row}>
       <View style={styles.avatarWrap}>
         <UserAvatar
-          size={48}
+          size={40}
           url={row.avatarUrl}
           userId={row.peerId}
           username={row.peerUsername}
@@ -301,37 +343,28 @@ function ConversationRow({
 // Keeps the decryptor subscribed for the visible rows' last messages, and pushes
 // each decrypted payload back into the row's preview.
 function useDecryptPreviews(items: DecryptItem[]) {
+  const { getBaseKeys, status } = useMessagesIdentity();
   useEffect(() => {
-    if (items.length > 0) {
-      messageDecryptor.request(items, {
-        getBaseKeys: (conversationId) => keyStoreFor(conversationId),
-      });
+    if (status !== "ready") {
+      return;
     }
-  }, [items]);
-}
-
-// Resolves a conversation's root keys through the shared key store. The store is
-// created by the thread; until it exists there is nothing to unwrap with, and the
-// decryptor treats that as a retryable "not available yet" rather than an error.
-let rootKeyResolver:
-  | ((conversationId: string) => Promise<Uint8Array[]>)
-  | null = null;
-
-export function setRootKeyResolver(
-  resolver: (conversationId: string) => Promise<Uint8Array[]>
-): void {
-  rootKeyResolver = resolver;
-}
-
-async function keyStoreFor(conversationId: string): Promise<Uint8Array[]> {
-  if (!rootKeyResolver) {
-    return [];
-  }
-  try {
-    return await rootKeyResolver(conversationId);
-  } catch {
-    return [];
-  }
+    const apply = () => {
+      const payloads = new Map(
+        items.map((item) => {
+          const entry = messageDecryptor.get(item.message.id);
+          return [
+            item.message.id,
+            typeof entry === "object" ? entry : undefined,
+          ] as const;
+        })
+      );
+      conversationListStore.applyPreview(payloads);
+    };
+    const unsubscribe = messageDecryptor.subscribe(apply);
+    messageDecryptor.request(items, { getBaseKeys });
+    apply();
+    return unsubscribe;
+  }, [getBaseKeys, items, status]);
 }
 
 function ConversationListSkeleton() {
@@ -368,8 +401,8 @@ function ConversationListSkeleton() {
 
 const styles = StyleSheet.create({
   avatarWrap: {
-    height: 48,
-    width: 48,
+    height: 40,
+    width: 40,
   },
   listContent: {
     paddingBottom: 120,
@@ -392,8 +425,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   rowBody: {
     flex: 1,
@@ -432,8 +465,8 @@ const styles = StyleSheet.create({
   },
   skeletonAvatar: {
     borderRadius: 14,
-    height: 48,
-    width: 48,
+    height: 40,
+    width: 40,
   },
   skeletonBody: {
     flex: 1,

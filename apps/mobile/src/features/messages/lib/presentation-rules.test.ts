@@ -1,6 +1,3 @@
-// The presentation rules a transcript is built from: grouping, bubble shaping,
-// dividers, receipts, the unread boundary, list previews, album geometry, delete
-// copy and chat themes. All pure, so the rules are asserted without a renderer.
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -45,6 +42,11 @@ import {
   peerWatermarks,
   receiptLabel,
 } from "./message-receipts";
+// The presentation rules a transcript is built from: grouping, bubble shaping,
+// dividers, receipts, the unread boundary, list previews, album geometry, delete
+// copy and chat themes. All pure, so the rules are asserted without a renderer.
+import { buildTranscriptRows } from "./transcript-rows";
+import type { MessageData } from "./types";
 import { firstUnreadMessageId, UNREAD_DIVIDER_LABEL } from "./unread-marker";
 
 const NOW = new Date(2026, 5, 15, 14, 30, 0);
@@ -690,4 +692,34 @@ describe("chat themes", () => {
     expect(sentBubbleShadows(theme)).toContain(theme.ring);
     expect(sentBubbleShadows(theme)).toContain("inset 0 0 0 1px");
   });
+});
+
+test("inverted transcript dividers stay above their messages and do not stamp the newest row twice", () => {
+  const messages = [
+    makeMessage("first", "2026-10-09T10:00:00Z"),
+    makeMessage("second", "2026-10-09T10:01:00Z"),
+    makeMessage("later", "2026-10-09T11:00:00Z"),
+  ];
+  const rows = buildTranscriptRows(messages, "second");
+  expect(rows.map((row) => row.key)).toEqual([
+    "later",
+    "divider-later",
+    "second",
+    "unread-second",
+    "first",
+    "divider-first",
+  ]);
+  expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length);
+});
+
+const makeMessage = (id: string, createdAt: string): MessageData => ({
+  ciphertext: "opaque",
+  conversationId: "thread",
+  createdAt,
+  deletedAt: null,
+  editedAt: null,
+  id,
+  iv: "opaque",
+  ratchetIndex: 0,
+  senderId: "peer",
 });

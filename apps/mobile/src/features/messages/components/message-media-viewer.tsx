@@ -8,7 +8,6 @@
 // The index is owned by the parent so the album it belongs to stays identifiable
 // when the user swipes out of the thread: closing passes null rather than an
 // out-of-range index.
-import { Image } from "expo-image";
 import { X } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
@@ -21,7 +20,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { imageCachePolicy } from "@/lib/image-cache";
+import { MessageImage } from "./messages-primitives";
 
 export function MessageMediaViewer({
   images,
@@ -34,19 +33,30 @@ export function MessageMediaViewer({
 }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  // A local offset so a swipe does not round-trip through the parent on every
-  // frame, which would re-render the whole transcript behind the viewer.
-  const [offset, setOffset] = useState(0);
-
+  // Keep swipe state local and tie it to the opened album and initial image.
+  const selectionKey = `${images.join("|")}:${index}`;
+  const [selection, setSelection] = useState<{
+    key: string;
+    page: number;
+  } | null>(null);
   const active =
-    index === null ? null : Math.min(index + offset, images.length - 1);
-
+    index === null
+      ? null
+      : Math.max(
+          0,
+          Math.min(
+            selection?.key === selectionKey ? selection.page : index,
+            images.length - 1
+          )
+        );
   const handleMomentumEnd = useCallback(
     (event: { nativeEvent: { contentOffset: { x: number } } }) => {
-      const page = Math.round(event.nativeEvent.contentOffset.x / width);
-      setOffset(page - (active ?? 0));
+      setSelection({
+        key: selectionKey,
+        page: Math.round(event.nativeEvent.contentOffset.x / width),
+      });
     },
-    [active, width]
+    [selectionKey, width]
   );
 
   if (index === null || images.length === 0) {
@@ -63,11 +73,10 @@ export function MessageMediaViewer({
         contentOffset={{ x: (active ?? 0) * width, y: 0 }}
       >
         {images.map((uri) => (
-          <Image
-            cachePolicy={imageCachePolicy(uri)}
+          <MessageImage
             contentFit="contain"
             key={uri}
-            source={{ uri }}
+            source={uri}
             style={{ height: "100%", width }}
           />
         ))}

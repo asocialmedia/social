@@ -110,6 +110,10 @@ export const secureMessageKeyStore: MessageKeyStore = {
 
 // Called on sign-out so the next account on this device cannot read the previous
 // account's key out of the memo.
-export function forgetCachedPrivateKey(userId: string): void {
-  privateKeyCache.delete(userId);
+export function forgetCachedPrivateKey(userId?: string): void {
+  if (userId) {
+    privateKeyCache.delete(userId);
+  } else {
+    privateKeyCache.clear();
+  }
 }

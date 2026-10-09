@@ -13,6 +13,7 @@ import {
   reencryptMessageForEdit,
 } from "./client";
 import type { WrappedKeyPayload } from "./client";
+import { createConversationKeySource } from "./conversation-key-source";
 import {
   ACCOUNT_SECRET_LENGTH,
   decryptMessage,
@@ -567,6 +568,55 @@ describe("fingerprints", () => {
 });
 
 describe("root key store", () => {
+  test("the shared resolver deduplicates reads, caches roots and refreshes changed epochs", async () => {
+    const alice = makeParty("alice");
+    const bob = makeParty("bob");
+    const root = generateRootKey();
+    let encryptedKey = await wrapRootKeyForPeer(
+      bob.privateKey,
+      alice.publicKeyBase64,
+      "shared",
+      root
+    );
+    let version = 1;
+    let calls = 0;
+    const baseFetch: typeof fetch = Object.assign(
+      () => {
+        calls += 1;
+        return Promise.resolve(
+          Response.json({
+            conversation: conversationOf("shared", alice, bob),
+            keys: [{ encryptedKey, ownerUserId: "bob", version }],
+          })
+        );
+      },
+      { preconnect: fetch.preconnect }
+    );
+    const source = createConversationKeySource(bob.privateKey, "bob", () =>
+      Promise.resolve({ apiBase: "https://keys.invalid", baseFetch })
+    );
+    const [first, same] = await Promise.all([
+      source.getBaseKeys("shared"),
+      source.getBaseKeys("shared"),
+    ]);
+    expect(same).toBe(first);
+    expect(first[0]).toEqual(root);
+    expect(await source.getBaseKeys("shared")).toBe(first);
+    expect(calls).toBe(1);
+    const nextRoot = generateRootKey();
+    encryptedKey = await wrapRootKeyForPeer(
+      bob.privateKey,
+      alice.publicKeyBase64,
+      "shared",
+      nextRoot
+    );
+    version = 2;
+    source.invalidate("shared");
+    const refreshed = await source.getBaseKeys("shared");
+    expect(refreshed[0]).toEqual(nextRoot);
+    expect(calls).toBe(2);
+  });
+
   test("returns epochs newest-first and drops un-unwrappable wraps", async () => {
     const alice = makeParty("alice");
     const bob = makeParty("bob");

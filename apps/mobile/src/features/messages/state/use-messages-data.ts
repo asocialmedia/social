@@ -53,6 +53,7 @@ import {
 import type { TranscriptSnapshot } from "@/features/messages/state/transcript-store";
 import { getApiBaseUrl } from "@/lib/api-env";
 
+import { useMessagesIdentity } from "./message-identity";
 import { useMessagesForeground } from "./use-messages-foreground";
 
 export { type MessagePageAxis } from "@/features/messages/lib/client";
@@ -241,6 +242,7 @@ export interface TranscriptBinding {
 }
 
 export function useTranscript(conversationId: string): TranscriptBinding {
+  const { invalidateKeys } = useMessagesIdentity();
   const { user } = useSessionContext();
   const { apiBase, cookie } = useMessagesApiContext();
   const userId = user?.id ?? null;
@@ -461,8 +463,9 @@ export function useTranscript(conversationId: string): TranscriptBinding {
         case "keys.rotated": {
           // A rotation invalidates every cached root for this conversation, so the
           // next fetch resolves the newest wraps rather than reading superseded ones.
-          messageDecryptor.clearKeys();
-          messageDecryptor.clearErrors();
+          invalidateKeys(conversationId);
+          messageDecryptor.clearKeys(conversationId);
+          messageDecryptor.clearErrors(conversationId);
           setNonce((value) => value + 1);
           break;
         }
@@ -509,7 +512,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
       clearInterval(poll);
       controller.abort();
     };
-  }, [apiBase, conversationId, cookie, foreground, userId]);
+  }, [apiBase, conversationId, cookie, foreground, invalidateKeys, userId]);
 
   return { loadNewest, loadOlder, refresh, snapshot };
 }

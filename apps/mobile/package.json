@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.1.64",
+  "version": "0.1.66",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -71,6 +71,7 @@
     "react-native-css": "3.1.0-rc.0",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-otel": "^0.1.14",
+    "react-native-qrcode-svg": "^6.3.26",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",

@@ -15,6 +15,7 @@
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { sentBubbleShadows } from "@/features/messages/lib/conversation-theme";
 import type { ConversationTheme } from "@/features/messages/lib/conversation-theme";
@@ -50,7 +51,7 @@ import {
 // The album's rendered width. Web caps the collage at 384px; on a phone the bubble
 // itself is the cap, and this is the ceiling inside it.
 const ALBUM_MAX_WIDTH = 260;
-const MAX_BUBBLE_WIDTH_RATIO = 0.78;
+const MAX_BUBBLE_WIDTH_RATIO = 0.85;
 
 export interface MessageBubbleProps {
   deleted: boolean;
@@ -65,6 +66,7 @@ export interface MessageBubbleProps {
   onPressImage?: (index: number) => void;
   /** The message this one replies to, if it is loaded. */
   replyPreview?: { senderId: string; text: string } | null;
+  peerAvatarUrl?: string | null;
   receipt?: MessageReceiptInfo | null;
   theme: ConversationTheme;
   /** Fraction of the screen the bubble may occupy. */
@@ -81,12 +83,14 @@ function MessageBubbleInner({
   mine,
   onPressImage,
   onRetry,
+  peerAvatarUrl,
   payload,
   receipt,
   replyPreview,
   showReceipt,
   theme,
 }: MessageBubbleProps) {
+  const { isDark } = useAppTheme();
   const position = bubblePosition(group.isFirstInGroup, group.isLastInGroup);
   const corners = bubbleCorners(position, mine);
 
@@ -258,6 +262,11 @@ function MessageBubbleInner({
         { marginTop: group.isFirstInGroup ? 8 : 2 },
       ]}
     >
+      {!mine && group.isLastInGroup ? (
+        <View style={styles.peerAvatar}>
+          <UserAvatar size={28} url={peerAvatarUrl ?? null} />
+        </View>
+      ) : null}
       <SentOrReceived
         corners={corners}
         maxWidth={bubbleWidth}
@@ -282,7 +291,12 @@ function MessageBubbleInner({
             </Text>
           </View>
         ) : null}
-        <Text style={mine ? styles.textMine : styles.textTheirs}>
+        <Text
+          style={[
+            mine ? styles.textMine : styles.textTheirs,
+            !mine && { color: isDark ? "#eeeeee" : "#202020" },
+          ]}
+        >
           {payload.content}
         </Text>
         {edited ? (
@@ -445,6 +459,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
+  peerAvatar: {
+    bottom: 0,
+    left: 16,
+    position: "absolute",
+  },
   pending: {
     borderRadius: 16,
     gap: 6,
@@ -496,13 +515,14 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "column",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
   },
   rowMine: {
     alignItems: "flex-end",
   },
   rowTheirs: {
     alignItems: "flex-start",
+    paddingLeft: 52,
   },
   sharedLabel: {
     color: "#646464",
@@ -512,11 +532,11 @@ const styles = StyleSheet.create({
   textMine: {
     color: "#ffffff",
     fontFamily: "SofiaProReg",
-    fontSize: 15,
+    fontSize: 14,
   },
   textTheirs: {
     color: "#202020",
     fontFamily: "SofiaProReg",
-    fontSize: 15,
+    fontSize: 14,
   },
 });

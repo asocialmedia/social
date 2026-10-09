@@ -168,7 +168,7 @@ export class ConversationListStore {
         return row;
       }
       const payload = payloads.get(last.id);
-      if (payload === undefined) {
+      if (payload === undefined || row.payload === payload) {
         return row;
       }
       changed = true;

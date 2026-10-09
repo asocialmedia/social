@@ -56,6 +56,74 @@ const keys = {
 };
 
 describe("decryptor", () => {
+  test("queued conversations retain their own key source", async () => {
+    const gate = createGate();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: async (entry, key) => {
+        if (entry.message.id === "held") {
+          await gate.wait();
+        }
+        return payload(String(key[0]));
+      },
+    });
+    const first = { getBaseKeys: () => Promise.resolve([new Uint8Array([1])]) };
+    const second = {
+      getBaseKeys: () => Promise.resolve([new Uint8Array([2])]),
+    };
+    const held = { ...item("held"), conversationId: "first" };
+    const queued = { ...item("queued"), conversationId: "queued-conversation" };
+    decryptor.request([held, queued], first);
+    decryptor.request([{ ...item("other"), conversationId: "other" }], second);
+    gate.open();
+    await settle(60);
+    expect(decryptor.get("queued")).toEqual(payload("1"));
+    expect(decryptor.get("other")).toEqual(payload("2"));
+  });
+
+  test("key readiness clears only this conversation's errors and retains plaintext", async () => {
+    const decryptor = createDecryptor({
+      decrypt: (entry) => payload(entry.message.id),
+    });
+    decryptor.request([item("early")], {
+      getBaseKeys: () => Promise.resolve([]),
+    });
+    decryptor.request([{ ...item("other-error"), conversationId: "other" }], {
+      getBaseKeys: () => Promise.resolve([]),
+    });
+    await settle(30);
+    decryptor.request([item("cached")], keys);
+    await settle(30);
+    const cached = decryptor.get("cached");
+    decryptor.clearKeys("conv-1");
+    decryptor.clearErrors("conv-1");
+    decryptor.request([item("early")], keys);
+    await settle(30);
+    expect(decryptor.get("early")).toEqual(payload("early"));
+    expect(decryptor.get("other-error")).toBe("error");
+    expect(decryptor.get("cached")).toBe(cached);
+  });
+
+  test("a key refresh discards an in-flight stale failure and permits retry", async () => {
+    const gate = createGate();
+    const decryptor = createDecryptor({
+      decrypt: (entry) => payload(entry.message.id),
+    });
+    decryptor.request([item("waiting")], {
+      getBaseKeys: async () => {
+        await gate.wait();
+        return [];
+      },
+    });
+    decryptor.clearKeys("conv-1");
+    gate.open();
+    await settle(30);
+    expect(decryptor.get("waiting")).toBeUndefined();
+    decryptor.request([item("waiting")], keys);
+    await settle(30);
+    expect(decryptor.get("waiting")).toEqual(payload("waiting"));
+  });
+
   test("decrypts a batch and coalesces the notification", async () => {
     // The default scheduleFlush (queueMicrotask) is what coalesces, so the test
     // must use it: a stub that flushes synchronously would defeat the property.

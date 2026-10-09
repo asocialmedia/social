@@ -14,21 +14,27 @@
 // also means one slow photo does not send the rest out of order, and the ratchet
 // chain stays in step with what the peer can actually read.
 
-import { Plus, SendHorizontal, X } from "lucide-react-native";
+import { ArrowUp, Clapperboard, ImagePlus, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Image,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
+import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { pickPhotosAndVideos } from "@/features/composer/lib/pick-media";
+import {
+  downloadGif,
+  pickPhotosAndVideos,
+} from "@/features/composer/lib/pick-media";
 import {
   UploadError,
   uploadMedia,
@@ -80,6 +86,7 @@ export function MessageComposer({
   onSend,
   onTyping,
   replyTo,
+  peerName,
 }: {
   conversationId: string;
   disabled?: boolean;
@@ -89,8 +96,24 @@ export function MessageComposer({
   onSend: (payload: MessagePayload) => Promise<void>;
   onTyping: () => void;
   replyTo: ComposerTarget | null;
+  peerName: string;
 }) {
   const { isDark, theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
+  const [gifOpen, setGifOpen] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () =>
+      setKeyboardVisible(true)
+    );
+    const hide = Keyboard.addListener("keyboardDidHide", () =>
+      setKeyboardVisible(false)
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const input = reelsInput(isDark);
   const button = sendButton(isDark);
   // The draft the user is typing, and the text the field shows. They differ only
@@ -268,7 +291,15 @@ export function MessageComposer({
   const atCapacity = attachments.length >= MAX_MESSAGE_ATTACHMENTS;
 
   return (
-    <View style={[styles.root, { borderTopColor: theme.dividerLine }]}>
+    <View
+      style={[
+        styles.root,
+        {
+          borderTopColor: theme.dividerLine,
+          paddingBottom: 12 + (keyboardVisible ? 0 : insets.bottom),
+        },
+      ]}
+    >
       {editing ? (
         <ContextBar
           label="Editing message"
@@ -294,48 +325,63 @@ export function MessageComposer({
           ))}
         </View>
       ) : null}
-      <View style={styles.inputRow}>
+      <View
+        style={[
+          styles.field,
+          {
+            backgroundColor: input.background,
+            borderColor: input.border,
+            boxShadow: input.shadows,
+          },
+        ]}
+      >
+        <TextInput
+          accessibilityLabel="Message"
+          editable={!disabled}
+          multiline
+          onChangeText={(value) => {
+            setDraft(value);
+            if (value.trim().length > 0) {
+              noteTyping();
+            } else {
+              stopTyping();
+            }
+          }}
+          placeholder={
+            editing
+              ? "Edit message…"
+              : `Message${peerName ? ` ${peerName}` : ""}…`
+          }
+          placeholderTextColor={isDark ? "#6b6b6b" : "#9a9a9a"}
+          style={[styles.fieldInput, { color: isDark ? "#eeeeee" : "#202020" }]}
+          value={fieldValue}
+        />
         <Pressable
           accessibilityLabel="Add photo"
           accessibilityRole="button"
           disabled={disabled || atCapacity}
-          hitSlop={8}
+          hitSlop={4}
           onPress={attach}
           style={styles.attachButton}
         >
-          <Plus color={theme.dividerText} size={22} strokeWidth={2.2} />
+          <ImagePlus color={theme.dividerText} size={16} />
         </Pressable>
-        <View
-          style={[
-            styles.field,
-            {
-              backgroundColor: input.background,
-              borderColor: input.border,
-              boxShadow: input.shadows,
-            },
-          ]}
+        <Pressable
+          accessibilityLabel="Add GIF"
+          accessibilityRole="button"
+          disabled={disabled || atCapacity}
+          hitSlop={4}
+          onPress={() => {
+            Keyboard.dismiss();
+            setGifOpen((open) => !open);
+          }}
+          style={styles.attachButton}
         >
-          <TextInput
-            accessibilityLabel="Message"
-            editable={!disabled}
-            multiline
-            onChangeText={(value) => {
-              setDraft(value);
-              if (value.trim().length > 0) {
-                noteTyping();
-              } else {
-                stopTyping();
-              }
-            }}
-            placeholder="Message"
-            placeholderTextColor={isDark ? "#6b6b6b" : "#9a9a9a"}
-            style={[
-              styles.fieldInput,
-              { color: isDark ? "#eeeeee" : "#202020" },
-            ]}
-            value={fieldValue}
+          <Clapperboard
+            color={gifOpen ? "#a855f7" : theme.dividerText}
+            size={16}
           />
-        </View>
+        </Pressable>
         <Pressable
           accessibilityLabel="Send"
           accessibilityRole="button"
@@ -351,15 +397,51 @@ export function MessageComposer({
               shadows={button.shadows}
               style={[styles.send, !canSend && styles.sendDisabled]}
             >
-              <SendHorizontal
+              <ArrowUp
                 color={canSend ? "#ffffff" : "#ffffff99"}
-                size={18}
+                size={16}
                 strokeWidth={2.4}
               />
             </Gradient3D>
           )}
         </Pressable>
       </View>
+      {gifOpen ? (
+        <View style={{ paddingTop: 12 }}>
+          <GifPicker
+            disabled={disabled || atCapacity}
+            onSelect={(gif) => {
+              setGifOpen(false);
+              // oxlint-disable promise/prefer-await-to-then -- the compiler cannot lower try/catch inside this event callback
+              void downloadGif(gif)
+                .then((file) => {
+                  const staged: StagedAttachment = {
+                    error: null,
+                    file,
+                    id: `${file.uri}-${Date.now()}`,
+                    mediaId: null,
+                    owned: false,
+                    progress: 0,
+                  };
+                  setAttachments((current) => [...current, staged]);
+                  return uploadStagedAttachments([staged], {
+                    aborts,
+                    conversationId,
+                    onPatch: update,
+                  });
+                })
+                .catch(() =>
+                  toast({
+                    description: "Please try again.",
+                    title: "Couldn't add GIF",
+                    variant: "destructive",
+                  })
+                );
+              // oxlint-enable promise/prefer-await-to-then
+            }}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -663,9 +745,10 @@ function AttachmentTile({
 const styles = StyleSheet.create({
   attachButton: {
     alignItems: "center",
-    height: 40,
+    borderRadius: 9999,
+    height: 32,
     justifyContent: "center",
-    width: 30,
+    width: 32,
   },
   contextBar: {
     alignItems: "center",
@@ -707,20 +790,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   field: {
+    alignItems: "center",
     borderRadius: 16,
     borderWidth: 1,
-    flex: 1,
-    justifyContent: "center",
-    minHeight: 40,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 56,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
   },
   fieldInput: {
+    flex: 1,
     fontFamily: "SofiaProReg",
-    fontSize: 15,
-    maxHeight: 96,
-    minHeight: 22,
-    padding: 0,
+    fontSize: 14,
+    maxHeight: 128,
+    minHeight: 40,
+    paddingHorizontal: 0,
+    paddingVertical: 6,
     textAlignVertical: "center",
   },
   inputRow: {
@@ -743,8 +829,9 @@ const styles = StyleSheet.create({
   },
   root: {
     borderTopWidth: 1,
-    paddingBottom: 8,
-    paddingTop: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   send: {
     alignItems: "center",
@@ -756,9 +843,9 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   sendWrap: {
-    height: 40,
+    height: 36,
     justifyContent: "center",
-    width: 40,
+    width: 36,
   },
   strip: {
     flexDirection: "row",
