@@ -51,6 +51,17 @@ const [CONVERSATION_ID] = CONVERSATION_IDS;
 const BASE_TIME = new Date("2026-01-01T00:00:00.000Z");
 const COMMON_TERM = "common";
 const RARE_TERM = "rare";
+const COMMON_TERMS = [
+  COMMON_TERM,
+  "pipeline",
+  "intersect",
+  "cursor",
+  "rotation",
+  "epoch",
+  "replica",
+  "throughput",
+] as const;
+const INDEXED_TERMS = [...COMMON_TERMS, RARE_TERM] as const;
 
 function assertLocalTestDatabase(): void {
   const databaseUrl = new URL(keys.DATABASE_URL);
@@ -136,7 +147,7 @@ async function seedConversation(): Promise<void> {
     );
     await tx.orm.public.MessageSearchTerms.createAll(
       CONVERSATION_IDS.flatMap((conversationId) =>
-        [COMMON_TERM, RARE_TERM].map((normalized) => ({
+        INDEXED_TERMS.map((normalized) => ({
           conversationId,
           gramKeys: gramKeys(normalized),
           normalized,
@@ -163,11 +174,17 @@ async function seedConversation(): Promise<void> {
       .where({ conversationId })
       .all();
     const termIds = new Map(terms.map((term) => [term.normalized, term.id]));
-    const commonTermId = termIds.get(COMMON_TERM);
+    const commonTermIds = COMMON_TERMS.map((term) => termIds.get(term));
     const rareTermId = termIds.get(RARE_TERM);
-    if (commonTermId === undefined || rareTermId === undefined) {
+    if (
+      commonTermIds.some((id) => id === undefined) ||
+      rareTermId === undefined
+    ) {
       throw new Error("DM search scale fixture terms were not created");
     }
+    const completeCommonTermIds = commonTermIds.filter(
+      (id): id is number => id !== undefined
+    );
 
     // Sequential bounded transactions avoid turning fixture setup into a write burst.
     // oxlint-disable no-await-in-loop -- Preserve the fixture's database batch and transaction bounds.
@@ -217,8 +234,8 @@ async function seedConversation(): Promise<void> {
             revision: 1,
             termIds:
               message.creationSequence === 1
-                ? [commonTermId, rareTermId]
-                : [commonTermId],
+                ? [...completeCommonTermIds, rareTermId]
+                : completeCommonTermIds,
           }));
           await tx.orm.public.Messages.createAll(messages);
           await tx.orm.public.MessageSearchDocuments.createAll(documents);
@@ -270,6 +287,134 @@ async function readSearchIndexStorageSnapshot(pool: Pool): Promise<{
     indexBytes: BigInt(indexResult.rows[0]?.indexBytes ?? "0"),
     walBytes: BigInt(walResult.rows[0]?.walBytes ?? "0"),
   };
+}
+
+async function readFreshSearchIndexFootprint(
+  pool: Pool,
+  conversationIds: readonly string[]
+): Promise<{
+  documentCount: number;
+  documentIndexBytes: number;
+  meanTermsPerDocument: number;
+  referenceIndexBytes: number;
+  termIndexBytes: number;
+}> {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  let destroyClient = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    await client.query(
+      `CREATE TEMP TABLE dm_search_scale_documents ON COMMIT DROP AS
+       SELECT "messageId", "conversationId", "createdAt", "termIds"
+       FROM public.message_search_documents
+       WHERE "conversationId" = ANY($1::text[])`,
+      [conversationIds]
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX dm_search_scale_documents_pkey
+       ON dm_search_scale_documents ("messageId")`
+    );
+    await client.query(
+      `CREATE INDEX dm_search_scale_documents_conversation_created_idx
+       ON dm_search_scale_documents ("conversationId", "createdAt", "messageId")`
+    );
+    await client.query(
+      `CREATE INDEX dm_search_scale_documents_term_ids_idx
+       ON dm_search_scale_documents USING gin ("termIds")`
+    );
+    await client.query(
+      `CREATE TEMP TABLE dm_search_scale_terms ON COMMIT DROP AS
+       SELECT "id", "conversationId", "normalized", "gramKeys", "documentFrequency"
+       FROM public.message_search_terms
+       WHERE "conversationId" = ANY($1::text[])`,
+      [conversationIds]
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX dm_search_scale_terms_pkey
+       ON dm_search_scale_terms ("id")`
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX dm_search_scale_terms_conversation_normalized_idx
+       ON dm_search_scale_terms ("conversationId", "normalized")`
+    );
+    await client.query(
+      `CREATE INDEX dm_search_scale_terms_conversation_id_idx
+       ON dm_search_scale_terms ("conversationId", "id")`
+    );
+    await client.query(
+      `CREATE INDEX dm_search_scale_terms_orphaned_idx
+       ON dm_search_scale_terms ("conversationId")
+       WHERE "documentFrequency" = 0`
+    );
+    await client.query(
+      `CREATE INDEX dm_search_scale_terms_gram_keys_idx
+       ON dm_search_scale_terms USING gin ("gramKeys")`
+    );
+    await client.query(
+      `CREATE TEMP TABLE dm_search_scale_references ON COMMIT DROP AS
+       SELECT "messageId", "conversationId", "kind", "ordinal", "createdAt"
+       FROM public.message_search_references
+       WHERE "conversationId" = ANY($1::text[])`,
+      [conversationIds]
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX dm_search_scale_references_pkey
+       ON dm_search_scale_references ("messageId", "kind", "ordinal")`
+    );
+    await client.query(
+      `CREATE INDEX dm_search_scale_references_conversation_kind_created_idx
+       ON dm_search_scale_references ("conversationId", "kind", "createdAt", "messageId", "ordinal")`
+    );
+    const sizes = await client.query<{
+      documentIndexBytes: string;
+      referenceIndexBytes: string;
+      termIndexBytes: string;
+    }>(
+      `SELECT
+           pg_indexes_size('dm_search_scale_documents'::regclass)::text AS "documentIndexBytes",
+           pg_indexes_size('dm_search_scale_terms'::regclass)::text AS "termIndexBytes",
+           pg_indexes_size('dm_search_scale_references'::regclass)::text AS "referenceIndexBytes"`
+    );
+    const counts = await client.query<{
+      documentCount: string;
+      meanTermsPerDocument: string;
+    }>(
+      `SELECT
+           COUNT(*)::text AS "documentCount",
+           COALESCE(AVG(CARDINALITY("termIds")), 0)::text AS "meanTermsPerDocument"
+         FROM dm_search_scale_documents`
+    );
+    const [size] = sizes.rows;
+    const [count] = counts.rows;
+    if (!size || !count) {
+      throw new Error(
+        "DM search scale fresh index measurement returned no rows"
+      );
+    }
+    const footprint = {
+      documentCount: Number(count.documentCount),
+      documentIndexBytes: Number(size.documentIndexBytes),
+      meanTermsPerDocument: Number(count.meanTermsPerDocument),
+      referenceIndexBytes: Number(size.referenceIndexBytes),
+      termIndexBytes: Number(size.termIndexBytes),
+    };
+    await client.query("ROLLBACK");
+    transactionStarted = false;
+    return footprint;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        destroyClient = true;
+      }
+    }
+    throw error;
+  } finally {
+    client.release(destroyClient);
+  }
 }
 
 async function seedPendingLiveIndexWrites(): Promise<
@@ -471,10 +616,6 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       const storageAfterSeed =
         await readSearchIndexStorageSnapshot(statisticsPool);
       const fixtureRows = CONVERSATION_COUNT * MESSAGE_COUNT;
-      const searchIndexBytesAdded =
-        storageAfterSeed.indexBytes >= storageBeforeSeed.indexBytes
-          ? Number(storageAfterSeed.indexBytes - storageBeforeSeed.indexBytes)
-          : null;
       const observedWalBytesDuringSeed =
         storageAfterSeed.walBytes >= storageBeforeSeed.walBytes
           ? Number(storageAfterSeed.walBytes - storageBeforeSeed.walBytes)
@@ -498,7 +639,6 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
             observedWalBytesDuringSeed === null
               ? null
               : Math.round(observedWalBytesDuringSeed / fixtureRows),
-          searchIndexBytesAdded,
           searchIndexBytesAfterSeed: Number(storageAfterSeed.indexBytes),
           searchIndexBytesBeforeSeed: Number(storageBeforeSeed.indexBytes),
           seedDurationMs: Math.round(seedDurationMs),
@@ -700,6 +840,14 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       const rareDocumentScan = rareQueryPlan.planNodes.find(
         (node) => node.relationName === "message_search_documents"
       );
+      const freshSearchIndexFootprint = await readFreshSearchIndexFootprint(
+        statisticsPool,
+        CONVERSATION_IDS
+      );
+      const freshIndexBytesTotal =
+        freshSearchIndexFootprint.documentIndexBytes +
+        freshSearchIndexFootprint.termIndexBytes +
+        freshSearchIndexFootprint.referenceIndexBytes;
       console.info(
         JSON.stringify({
           backfillBatchCommitted: backfillCommitted,
@@ -729,6 +877,20 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
               attempts?.length ?? 0,
             ])
           ),
+          freshDocumentIndexBytes: freshSearchIndexFootprint.documentIndexBytes,
+          freshIndexBytesPerDocument:
+            freshSearchIndexFootprint.documentCount === 0
+              ? null
+              : Math.round(
+                  freshIndexBytesTotal / freshSearchIndexFootprint.documentCount
+                ),
+          freshIndexBytesTotal,
+          freshIndexDocumentCount: freshSearchIndexFootprint.documentCount,
+          freshMeanTermsPerDocument:
+            freshSearchIndexFootprint.meanTermsPerDocument,
+          freshReferenceIndexBytes:
+            freshSearchIndexFootprint.referenceIndexBytes,
+          freshTermIndexBytes: freshSearchIndexFootprint.termIndexBytes,
           messagesPerConversation: MESSAGE_COUNT,
           p95BroadSearchMs: Math.round(p95DurationMs),
           rareCandidateRows: rareDocumentScan?.actualRows,
