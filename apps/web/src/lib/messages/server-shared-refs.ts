@@ -21,6 +21,7 @@ export interface ServerSharedRefItem extends SearchHydrationHit {
 
 export interface ServerSharedRefPage {
   coverageComplete: boolean;
+  coverageSettled: boolean;
   hasMore: boolean;
   items: ServerSharedRefItem[];
   nextCursor: string | null;
@@ -66,6 +67,8 @@ function parseServerPage(
   }
   if (
     typeof value.coverageComplete !== "boolean" ||
+    (value.coverageSettled !== undefined &&
+      typeof value.coverageSettled !== "boolean") ||
     typeof value.hasMore !== "boolean" ||
     (value.nextCursor !== null && typeof value.nextCursor !== "string") ||
     typeof value.snapshotSequence !== "number" ||
@@ -136,6 +139,10 @@ function parseServerPage(
   }
   return {
     coverageComplete: value.coverageComplete,
+    coverageSettled:
+      typeof value.coverageSettled === "boolean"
+        ? value.coverageSettled
+        : value.coverageComplete,
     hasMore: value.hasMore,
     items,
     nextCursor: value.nextCursor,
@@ -237,6 +244,7 @@ export async function resolveServerSharedRefsPage(
   return {
     ...(page.nextCursor ? { after: page.nextCursor } : {}),
     coverageComplete: page.coverageComplete,
+    coverageSettled: page.coverageSettled,
     hasMore: page.hasMore,
     items,
     ...(page.window ? { window: page.window } : {}),

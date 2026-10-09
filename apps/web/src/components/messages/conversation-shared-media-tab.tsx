@@ -10,7 +10,7 @@ import { getMessageMediaVariantUrl } from "@/lib/utils/image-url";
 import {
   EmptyShared,
   ListFooter,
-  READ_FAILED_FOOTNOTE,
+  sharedRefsEmptyFootnote,
   useAutoLoadMore,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
@@ -36,6 +36,7 @@ const OVERSCAN_ROWS = 3;
 const THREE_COLUMN_MIN_WIDTH = 380;
 
 export function ConversationSharedMediaTab({
+  coverageUnavailable,
   hasMore,
   indexing,
   items,
@@ -43,6 +44,7 @@ export function ConversationSharedMediaTab({
   onOpen,
   readError,
 }: {
+  coverageUnavailable: boolean;
   hasMore: boolean;
   indexing: boolean;
   items: readonly ConversationMediaItem[];
@@ -115,7 +117,11 @@ export function ConversationSharedMediaTab({
           {items.length === 0 ? (
             <EmptyShared
               body="Images and GIFs sent in this chat collect here."
-              footnote={EMPTY_FOOTNOTE}
+              footnote={sharedRefsEmptyFootnote({
+                coverageUnavailable,
+                fallback: EMPTY_FOOTNOTE,
+                readError,
+              })}
               illustration={noMediaImage}
               title="No media yet"
             />
@@ -140,14 +146,23 @@ export function ConversationSharedMediaTab({
       empty={
         <EmptyShared
           body="Images and GIFs sent in this chat collect here."
-          footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
+          footnote={sharedRefsEmptyFootnote({
+            coverageUnavailable,
+            fallback: EMPTY_FOOTNOTE,
+            readError,
+          })}
           illustration={noMediaImage}
           title="No media yet"
         />
       }
       footer={
         items.length === 0 ? null : (
-          <ListFooter indexing={indexing} noun="media" readError={readError} />
+          <ListFooter
+            coverageUnavailable={coverageUnavailable}
+            indexing={indexing}
+            noun="media"
+            readError={readError}
+          />
         )
       }
       isEmpty={items.length === 0}

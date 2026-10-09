@@ -10,6 +10,29 @@ function response(value: unknown, ok = true): Response {
 }
 
 describe("resolveServerSharedRefsPage", () => {
+  test("preserves settled-but-incomplete coverage for truthful shared-item status", async () => {
+    const page = await resolveServerSharedRefsPage({
+      conversationId: "conversation-1",
+      decrypt: () => new Map(),
+      fetcher: () =>
+        response({
+          coverageComplete: false,
+          coverageSettled: true,
+          hasMore: false,
+          items: [],
+          nextCursor: null,
+          snapshotSequence: 40,
+        }),
+      kind: "media",
+    });
+
+    expect(page).toMatchObject({
+      coverageComplete: false,
+      coverageSettled: true,
+      items: [],
+    });
+  });
+
   test("requests a cursor window around an anchor and preserves both boundaries", async () => {
     const requests: { input: RequestInfo | URL; init?: RequestInit }[] = [];
     const fetcher: typeof fetch = (input, init) => {

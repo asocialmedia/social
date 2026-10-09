@@ -190,6 +190,24 @@ describe("GET /api/messages/conversations/:id/shared", () => {
     });
   });
 
+  test("distinguishes finished indexing from complete references when keys are unavailable", async () => {
+    mockCoverage.mockReturnValueOnce(
+      Promise.resolve({
+        backfillCompletedAt: new Date("2026-10-08T11:00:00.000Z"),
+        completedChangeSeq: 80,
+        unrecoverableEpochs: 2,
+      })
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(body).toMatchObject({
+      coverageComplete: false,
+      coverageSettled: true,
+    });
+  });
+
   test("returns a bounded window around an anchor with cursors in both directions", async () => {
     mockListReferences
       .mockImplementationOnce(() =>

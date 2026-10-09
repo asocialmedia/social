@@ -70,6 +70,7 @@ export interface SharedRefsPage {
   // Strictly OLDER than this, on the next read. Absent means "from the newest".
   after?: string;
   coverageComplete?: boolean;
+  coverageSettled?: boolean;
   hasMore: boolean;
   items: SharedRefRecord[];
   window?: {

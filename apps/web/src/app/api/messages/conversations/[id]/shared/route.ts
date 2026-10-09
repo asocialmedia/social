@@ -188,11 +188,12 @@ export async function GET(
     }
     const snapshotSequence =
       cursor?.snapshotSequence ?? sequence?.changeSeq ?? 0;
-    const coverageComplete =
+    const coverageSettled =
       coverage?.backfillCompletedAt !== null &&
       coverage?.backfillCompletedAt !== undefined &&
-      coverage.completedChangeSeq >= snapshotSequence &&
-      coverage.unrecoverableEpochs === 0;
+      coverage.completedChangeSeq >= snapshotSequence;
+    const coverageComplete =
+      coverageSettled && coverage?.unrecoverableEpochs === 0;
     const membershipWindows = readerMessageWindows({
       conversationType: conversation.type,
       events: membershipEvents,
@@ -269,6 +270,7 @@ export async function GET(
         : null;
       return Response.json({
         coverageComplete,
+        coverageSettled,
         hasMore: hasOlder || hasNewer,
         items: [...newerItems, ...olderItems].map((item) => ({
           createdAt: item.createdAt,
@@ -335,6 +337,7 @@ export async function GET(
         : null;
     return Response.json({
       coverageComplete,
+      coverageSettled,
       hasMore,
       items: items.map((item) => ({
         createdAt: item.createdAt,

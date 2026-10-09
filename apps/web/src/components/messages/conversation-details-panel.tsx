@@ -864,6 +864,7 @@ export function ConversationDetailsBody({
               value="media"
             >
               <ConversationSharedMediaTab
+                coverageUnavailable={refs.state === "unavailable"}
                 hasMore={
                   refs.state === "indexed" &&
                   refs.media.length < refs.counts.media
@@ -881,6 +882,7 @@ export function ConversationDetailsBody({
               value="posts"
             >
               <ConversationSharedPostsTab
+                coverageUnavailable={refs.state === "unavailable"}
                 hasMore={
                   refs.state === "indexed" &&
                   refs.posts.length < refs.counts.post
@@ -896,6 +898,7 @@ export function ConversationDetailsBody({
               value="links"
             >
               <ConversationSharedLinksTab
+                coverageUnavailable={refs.state === "unavailable"}
                 hasMore={
                   refs.state === "indexed" &&
                   refs.links.length < refs.counts.link

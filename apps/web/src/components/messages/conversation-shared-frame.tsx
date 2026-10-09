@@ -93,6 +93,22 @@ export const AUTO_LOAD_LAST_ROWS = 2;
 // exists to avoid.
 export const READ_FAILED_FOOTNOTE =
   "Couldn't read the saved index, so this is only what this device has loaded.";
+export const SHARED_REFS_UNAVAILABLE_FOOTNOTE =
+  "Some older shared items couldn't be loaded.";
+
+export function sharedRefsEmptyFootnote(input: {
+  coverageUnavailable: boolean;
+  fallback: string;
+  readError: boolean;
+}): string {
+  if (input.readError) {
+    return READ_FAILED_FOOTNOTE;
+  }
+  if (input.coverageUnavailable) {
+    return SHARED_REFS_UNAVAILABLE_FOOTNOTE;
+  }
+  return input.fallback;
+}
 
 // Whether a virtualized list should read its next page.
 //
@@ -156,10 +172,12 @@ export function useAutoLoadMore(input: {
 // conversation and the reader could otherwise believe it is -- a background walk
 // still running, and a store this device cannot read.
 export function ListFooter({
+  coverageUnavailable,
   indexing,
   noun,
   readError,
 }: {
+  coverageUnavailable?: boolean;
   indexing: boolean;
   noun: string;
   readError: boolean;
@@ -169,6 +187,13 @@ export function ListFooter({
       <p className="text-muted-foreground/80 py-3 text-center text-[11px]">
         Couldn&apos;t read the saved index, so this is only what this device has
         loaded.
+      </p>
+    );
+  }
+  if (coverageUnavailable) {
+    return (
+      <p className="text-muted-foreground/80 py-3 text-center text-[11px]">
+        {SHARED_REFS_UNAVAILABLE_FOOTNOTE}
       </p>
     );
   }

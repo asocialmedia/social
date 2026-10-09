@@ -9,7 +9,7 @@ import type { SharedPostItem } from "@/lib/messages/shared-refs-format";
 import {
   EmptyShared,
   ListFooter,
-  READ_FAILED_FOOTNOTE,
+  sharedRefsEmptyFootnote,
   useAutoLoadMore,
   VirtualRowsFrame,
 } from "./conversation-shared-frame";
@@ -33,12 +33,14 @@ const OVERSCAN_ROWS = 4;
 const ESTIMATED_ROW_SIZE = 300;
 
 export function ConversationSharedPostsTab({
+  coverageUnavailable,
   hasMore,
   indexing,
   items,
   loadMore,
   readError,
 }: {
+  coverageUnavailable: boolean;
   hasMore: boolean;
   indexing: boolean;
   items: readonly SharedPostItem[];
@@ -76,14 +78,23 @@ export function ConversationSharedPostsTab({
       empty={
         <EmptyShared
           body="Posts shared in this chat collect here."
-          footnote={readError ? READ_FAILED_FOOTNOTE : EMPTY_FOOTNOTE}
+          footnote={sharedRefsEmptyFootnote({
+            coverageUnavailable,
+            fallback: EMPTY_FOOTNOTE,
+            readError,
+          })}
           illustration={noFeedImage}
           title="No posts yet"
         />
       }
       footer={
         items.length === 0 ? null : (
-          <ListFooter indexing={indexing} noun="posts" readError={readError} />
+          <ListFooter
+            coverageUnavailable={coverageUnavailable}
+            indexing={indexing}
+            noun="posts"
+            readError={readError}
+          />
         )
       }
       isEmpty={items.length === 0}

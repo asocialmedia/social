@@ -51,7 +51,8 @@ export type SharedRefsReadState =
   // No index to read: IndexedDB is unavailable, the store is not resolved yet, or
   // every read failed. The tabs fall back to the decrypted window.
   | "window"
-  | "indexing";
+  | "indexing"
+  | "unavailable";
 
 export interface SharedRefsReader {
   // Per-kind totals across the whole conversation, for the tab labels. Zero when
@@ -194,6 +195,8 @@ export function useSharedRefsReader(input: {
   const [indexedUsable, setIndexedUsable] = useState(false);
   const [serverCoverageIncomplete, setServerCoverageIncomplete] =
     useState(false);
+  const [serverCoverageUnavailable, setServerCoverageUnavailable] =
+    useState(false);
   const paging = useRef<PagingState>(newPagingState(refreshToken));
 
   // The decrypted-window fallbacks. Both are computed unconditionally: they are
@@ -262,7 +265,14 @@ export function useSharedRefsReader(input: {
           state.started[kind] = true;
           state.source[kind] = result.source;
           setServerCoverageIncomplete(
-            result.source === "server" && page.coverageComplete === false
+            result.source === "server" &&
+              page.coverageComplete === false &&
+              page.coverageSettled !== true
+          );
+          setServerCoverageUnavailable(
+            result.source === "server" &&
+              page.coverageComplete === false &&
+              page.coverageSettled === true
           );
           if (kind === "media") {
             setMedia((current) =>
@@ -315,6 +325,8 @@ export function useSharedRefsReader(input: {
     // and the "more" cursors are left alone, so paged-in history survives.
     const previousToken = paging.current.token;
     if (previousToken !== refreshToken) {
+      setServerCoverageIncomplete(false);
+      setServerCoverageUnavailable(false);
       for (const controller of Object.values(paging.current.controllers)) {
         controller?.abort();
       }
@@ -378,6 +390,9 @@ export function useSharedRefsReader(input: {
   let state: SharedRefsReadState = "indexed";
   if (indexing || serverCoverageIncomplete) {
     state = "indexing";
+  }
+  if (serverCoverageUnavailable) {
+    state = "unavailable";
   }
   if (useWindow) {
     state = "window";
