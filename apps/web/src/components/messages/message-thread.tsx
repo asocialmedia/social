@@ -9,11 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
-import {
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -83,6 +79,7 @@ import {
   SELF_LEAVE_DESCRIPTION,
 } from "@/lib/messages/access-ended";
 import {
+  buildAnchoredMessageWindow,
   messageWindowIncludesLatest,
   reconcileAnchoredWindow,
   shouldFoldLiveMessage,
@@ -242,9 +239,9 @@ import { getMessageMediaId } from "@/lib/utils/image-url";
 import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
 import type { MessageGroupMeta } from "./message-grouping";
+import { useConversationHistory } from "./use-conversation-history";
 import {
   pagesToDropForViewerHistory,
-  TRANSCRIPT_MAX_HISTORY_PAGES,
   trimOldestPages,
 } from "./viewer-history-window";
 
@@ -976,42 +973,7 @@ export function MessageThread({
       ? detailsTabState.tab
       : undefined;
 
-  const messagesQuery = useInfiniteQuery<
-    MessagePage,
-    Error,
-    MessagesInfiniteData,
-    readonly [string, string],
-    MessagesPageParam
-  >({
-    // Newer messages normally arrive over the SSE stream, so the newest read has
-    // no next page. After an anchored jump the window sits mid-history and
-    // carries a nextCursor, and growing upward is what keeps the transcript
-    // coherent when the user scrolls toward the present.
-    getNextPageParam: (firstPage) =>
-      firstPage.nextCursor
-        ? { cursor: firstPage.nextCursor, kind: "newer" }
-        : undefined,
-    getPreviousPageParam: (firstPage) =>
-      firstPage.previousCursor
-        ? { cursor: firstPage.previousCursor, kind: "older" }
-        : undefined,
-    initialPageParam: NEWEST_PAGE,
-    maxPages: TRANSCRIPT_MAX_HISTORY_PAGES,
-    queryFn: ({ pageParam }) =>
-      fetchMessages(conversationId, pageParam, HISTORY_PAGE_SIZE),
-    queryKey: ["messages", conversationId] as const,
-    // Live updates come from the SSE stream, which folds creates/deletes
-    // straight into this cache. Mount/focus/reconnect refetches therefore add
-    // nothing but races: overlapping responses can land out of order and
-    // replace freshly folded pages with a stale snapshot, which is exactly
-    // what made the transcript differ on every open. Keep a short freshness
-    // window so genuine remounts reuse the cache, and let the guarded
-    // reconnect catch-up handle real gaps.
-    refetchOnMount: true,
-    refetchOnReconnect: true,
-    refetchOnWindowFocus: false,
-    staleTime: 30 * 1000,
-  });
+  const messagesQuery = useConversationHistory(conversationId);
 
   // The den's durable membership log, rendered as lines between messages. A DM
   // answers with an empty list, so this fetch is harmless there; it is enabled
@@ -3020,12 +2982,14 @@ export function MessageThread({
       }
       if (index === -1) {
         try {
+          const issuedIds = new Set(readFlat().map((row) => row.id));
           const window = await fetchMessages(
             conversationId,
             { kind: "around", messageId },
             HISTORY_PAGE_SIZE,
             { signal: controller.signal }
           );
+          controller.signal.throwIfAborted();
           if (window.messages.length > 0) {
             // The window becomes the loaded transcript BEFORE the text wait, so
             // the wait has a row to look at: it used to run first, against a
@@ -3050,23 +3014,18 @@ export function MessageThread({
             // already had. The blind write this replaces discarded both, and a
             // peer message folded in during the read simply vanished from the
             // screen while the badge said it had arrived.
-            const issuedIds = new Set(loadedNow);
             queryClient.setQueryData<MessagesInfiniteData>(
               ["messages", conversationId],
               (old) => {
                 if (!old) {
                   return old;
                 }
-                return {
-                  pageParams: [NEWEST_PAGE],
-                  pages: [
-                    reconcileAnchoredWindow({
-                      currentPages: old.pages,
-                      fetched: window,
-                      issuedIds,
-                    }),
-                  ],
-                };
+                return buildAnchoredMessageWindow({
+                  currentPages: old.pages,
+                  fetched: window,
+                  issuedIds,
+                  messageId,
+                });
               }
             );
             // The window's own decrypts are urgent: this jump is about to wait on

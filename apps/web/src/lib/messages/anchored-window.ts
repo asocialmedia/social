@@ -22,14 +22,16 @@
 // window cannot already contain it, which means it arrived after the read was
 // issued. Messages the window DOES cover are dropped, because the server sent
 // them again and keeping the old copy would duplicate the row. Everything else --
-// including an edit to a row the window holds -- is the server's answer, and the
-// server's answer is the fresher copy.
+// including a newer edit or deletion received during the request -- must respect
+// the source revision rather than the order in which network responses arrive.
 //
 // Pure, and tested without a React harness, because the rule is the whole fix and
 // the harness this package does not have would otherwise be the only way to reach
 // it.
 
 import type { MessageData, MessagePage } from "@/lib/messages/types";
+
+import { shouldReplaceMessageRevision } from "./message-revision";
 
 export type MessageHistoryPageParam =
   | { cursor?: string; kind: "older" }
@@ -89,6 +91,7 @@ function appendIfAbsent(
 // `currentPages` is the cache as it stands NOW, which may already include a live
 // arrival, a prepended page, or both. Returns the single page to install.
 export function reconcileAnchoredWindow(input: {
+  carryArrivals?: boolean;
   // The rows the anchored read returned, as the server sent them.
   fetched: MessagePage;
   // The transcript as it stands at write time. Empty or absent is normal: the
@@ -99,8 +102,33 @@ export function reconcileAnchoredWindow(input: {
   // read and is what this function is here to not lose.
   issuedIds: ReadonlySet<string>;
 }): MessagePage {
-  const { currentPages, fetched, issuedIds } = input;
+  const { currentPages, issuedIds } = input;
+  let { fetched } = input;
   if (!currentPages || currentPages.length === 0) {
+    return fetched;
+  }
+  const currentById = new Map<string, MessageData>();
+  for (const currentPage of currentPages) {
+    for (const row of currentPage.messages) {
+      const previous = currentById.get(row.id);
+      if (!previous || shouldReplaceMessageRevision(previous, row)) {
+        currentById.set(row.id, row);
+      }
+    }
+  }
+  let revisionsChanged = false;
+  const messages = fetched.messages.map((row) => {
+    const current = currentById.get(row.id);
+    if (current && !shouldReplaceMessageRevision(current, row)) {
+      revisionsChanged ||= current !== row;
+      return current;
+    }
+    return row;
+  });
+  if (revisionsChanged) {
+    fetched = { ...fetched, messages };
+  }
+  if (input.carryArrivals === false) {
     return fetched;
   }
   const fetchedIds = new Set(fetched.messages.map((row) => row.id));
@@ -137,4 +165,22 @@ export function reconcileAnchoredWindow(input: {
     }
   }
   return merged;
+}
+
+export function buildAnchoredMessageWindow(input: {
+  currentPages?: readonly MessagePage[] | null;
+  fetched: MessagePage;
+  issuedIds: ReadonlySet<string>;
+  messageId: string;
+}): { pageParams: MessageHistoryPageParam[]; pages: MessagePage[] } {
+  return {
+    pageParams: [{ kind: "around", messageId: input.messageId }],
+    pages: [
+      reconcileAnchoredWindow({
+        ...input,
+        // Older windows keep arrivals in the separate live-tail summary.
+        carryArrivals: input.fetched.nextCursor === null,
+      }),
+    ],
+  };
 }
