@@ -33,6 +33,7 @@ import {
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
 import { peerWatermarks } from "@/features/messages/lib/message-receipts";
+import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import {
   readMessageActivityStream,
   readMessageStream,
@@ -248,6 +249,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
   const [reload, setReload] = useState(0);
   const newestFetching = useRef(false);
   const newestUpdatedAt = useRef(0);
+  const newestRetries = useRef(0);
 
   const snapshot = useSyncExternalStore(
     useCallback(
@@ -313,6 +315,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
       return;
     }
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     newestFetching.current = true;
     transcriptStore.setSnapshotLoading(conversationId, true);
     const fetchNewestPage = async () => {
@@ -349,6 +352,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           conversationId,
           mine?.lastReadAt ?? null
         );
+        newestRetries.current = 0;
       } catch (error: unknown) {
         if (cancelled) {
           return;
@@ -357,6 +361,13 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           conversationId,
           error instanceof Error ? error.message : "Couldn't load messages."
         );
+        const delay = messageReadRetryDelay(error, newestRetries.current);
+        if (delay !== null) {
+          newestRetries.current += 1;
+          retryTimer = setTimeout(() => {
+            setNonce((value) => value + 1);
+          }, delay);
+        }
       }
       if (!cancelled) {
         newestFetching.current = false;
@@ -365,6 +376,9 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     void fetchNewestPage();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
     };
     // `nonce` and `reload` are the reload channel, bumped by a stream reconnect or by
     // a send that needs reconciling. The body never reads them, but the effect has to

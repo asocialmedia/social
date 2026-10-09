@@ -38,15 +38,10 @@ import {
 } from "@/features/messages/lib/crypto";
 import type { EcdhPrivateKey } from "@/features/messages/lib/crypto-primitives";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
-import {
-  HistoryThrottledError,
-  isHistoryNetworkError,
-  isHistoryServerError,
-} from "@/features/messages/lib/history-throttle";
 import { bootstrapMessageIdentity } from "@/features/messages/lib/identity-bootstrap";
+import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { secureMessageKeyStore } from "@/features/messages/lib/secure-key-store";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { RequestTimeoutError } from "@/lib/http-get";
 
 import { configureNativeMessageCrypto } from "./native-message-crypto";
 
@@ -189,17 +184,9 @@ export function MessagesIdentityProvider({
             status: "error",
             userId,
           });
-          const transient =
-            error instanceof HistoryThrottledError ||
-            error instanceof RequestTimeoutError ||
-            isHistoryNetworkError(error) ||
-            isHistoryServerError(error);
-          if (transient && retries < 3) {
+          const delay = messageReadRetryDelay(error, retries);
+          if (delay !== null) {
             retries += 1;
-            const delay =
-              error instanceof HistoryThrottledError
-                ? error.retryAfterSeconds * 1000
-                : 1000 * retries;
             retryTimer = setTimeout(() => {
               void load();
             }, delay);

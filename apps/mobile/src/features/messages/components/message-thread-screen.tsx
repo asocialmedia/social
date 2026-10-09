@@ -67,6 +67,7 @@ import {
 } from "@/features/messages/lib/message-grouping";
 import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { surface3d } from "@/features/messages/lib/message-recipes";
+import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import type { MessageData } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
@@ -161,6 +162,7 @@ export function MessageThreadScreen({
   const foreground = useMessagesForeground();
   const [detailError, setDetailError] = useState(false);
   const [detailRevision, setDetailRevision] = useState(0);
+  const detailRetries = useRef(0);
   const cachedPeer = conversationListStore
     .getSnapshot()
     .rows.find((row) => row.conversation.id === conversationId);
@@ -229,6 +231,7 @@ export function MessageThreadScreen({
       return;
     }
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     void (async () => {
       try {
         const options = await apiOptions();
@@ -272,11 +275,19 @@ export function MessageThreadScreen({
           return;
         }
         // The heal may have posted a wrap the cached roots did not include.
+        detailRetries.current = 0;
         rootKeys.current = null;
         messageDecryptor.clearKeys();
       } catch (error) {
         if (!cancelled) {
           setDetailError(true);
+          const delay = messageReadRetryDelay(error, detailRetries.current);
+          if (delay !== null) {
+            detailRetries.current += 1;
+            retryTimer = setTimeout(() => {
+              setDetailRevision((value) => value + 1);
+            }, delay);
+          }
         }
         logWarn("conversation detail failed", {
           reason: error instanceof Error ? error.name : "unknown",
@@ -286,6 +297,9 @@ export function MessageThreadScreen({
     })();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
     };
   }, [
     apiOptions,
@@ -635,7 +649,9 @@ export function MessageThreadScreen({
         onBack={onBack}
         typing={transcript.snapshot.peerTyping}
       />
-      {status === "error" || detailError || transcript.snapshot.error ? (
+      {status === "error" ||
+      (detailError && !peer && !cachedPeer) ||
+      (transcript.snapshot.error && !transcript.snapshot.initialLoaded) ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Retry loading Messages"
@@ -643,6 +659,7 @@ export function MessageThreadScreen({
             if (status === "error") {
               retry();
             }
+            detailRetries.current = 0;
             setDetailRevision((value) => value + 1);
             transcript.refresh();
           }}
