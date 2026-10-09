@@ -43,6 +43,21 @@ describe("Prisma sync deployment artifact", () => {
     expect(webDockerfile).not.toContain("prisma generate");
   });
 
+  test("keeps auth as the default image and provides an isolated search worker target", async () => {
+    const authDockerfile = await Bun.file(
+      path.join(repositoryRoot, "apps/auth/Dockerfile")
+    ).text();
+    const stages = [...authDockerfile.matchAll(/^FROM .* AS ([\w-]+)$/gm)];
+
+    expect(stages.at(-1)?.[1]).toBe("runtime");
+    expect(authDockerfile).toContain(
+      "FROM runtime-base AS message-search-worker"
+    );
+    expect(authDockerfile).toContain("ENV MESSAGE_SEARCH_WORKER_ONLY=1");
+    expect(authDockerfile).toContain('CMD ["./asm-worker"]');
+    expect(authDockerfile).toContain('CMD ["./docker-entrypoint.sh"]');
+  });
+
   test("runs the score synchronization after verification and before the success marker", async () => {
     const entrypoint = await Bun.file(
       path.join(repositoryRoot, "docker/prisma-sync.sh")

@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import {
   readMessageSearchWorkerFeatures,
+  readMessageSearchWorkerRole,
   sweepMessageSearchWork,
 } from "./message-search-sweep";
 
@@ -32,6 +33,25 @@ function createDependencies() {
 }
 
 describe("message-search worker sweep", () => {
+  test("defaults search processing on in the combined worker role", () => {
+    expect(readMessageSearchWorkerRole({})).toEqual({
+      enabled: true,
+      only: false,
+    });
+    expect(
+      readMessageSearchWorkerRole({ MESSAGE_SEARCH_WORKER_ENABLED: "false" })
+    ).toEqual({ enabled: false, only: false });
+  });
+
+  test("runs an isolated search-only role even when the combined role is off", () => {
+    expect(
+      readMessageSearchWorkerRole({
+        MESSAGE_SEARCH_WORKER_ENABLED: "0",
+        MESSAGE_SEARCH_WORKER_ONLY: "1",
+      })
+    ).toEqual({ enabled: true, only: true });
+  });
+
   test("defaults worker queues on and parses independent pause values", () => {
     expect(readMessageSearchWorkerFeatures({})).toEqual({
       backfill: true,

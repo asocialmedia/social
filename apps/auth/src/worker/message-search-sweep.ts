@@ -8,9 +8,30 @@ export interface MessageSearchWorkerEnvironment {
   MESSAGE_SEARCH_COUNT_ENABLED?: string;
 }
 
+export interface MessageSearchWorkerRoleEnvironment {
+  MESSAGE_SEARCH_WORKER_ENABLED?: string;
+  MESSAGE_SEARCH_WORKER_ONLY?: string;
+}
+
+export interface MessageSearchWorkerRole {
+  enabled: boolean;
+  only: boolean;
+}
+
 function isFeatureEnabled(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
   return !["0", "false", "off", "no", "disabled"].includes(normalized ?? "");
+}
+
+export function readMessageSearchWorkerRole(
+  environment: MessageSearchWorkerRoleEnvironment
+): MessageSearchWorkerRole {
+  const only = environment.MESSAGE_SEARCH_WORKER_ONLY?.trim() === "1";
+  return {
+    enabled:
+      only || isFeatureEnabled(environment.MESSAGE_SEARCH_WORKER_ENABLED),
+    only,
+  };
 }
 
 export function readMessageSearchWorkerFeatures(

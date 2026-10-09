@@ -5,6 +5,7 @@ import "reflect-metadata";
 import { loadRootEnv } from "./env";
 import {
   readMessageSearchWorkerFeatures,
+  readMessageSearchWorkerRole,
   sweepMessageSearchWork,
 } from "./worker/message-search-sweep";
 
@@ -22,15 +23,25 @@ function readWorkerInteger(
 
 if (import.meta.main) {
   loadRootEnv();
+  const messageSearchWorkerRole = readMessageSearchWorkerRole({
+    MESSAGE_SEARCH_WORKER_ENABLED: process.env.MESSAGE_SEARCH_WORKER_ENABLED,
+    MESSAGE_SEARCH_WORKER_ONLY: process.env.MESSAGE_SEARCH_WORKER_ONLY,
+  });
   const messageSearchFeatures = readMessageSearchWorkerFeatures({
     MESSAGE_SEARCH_BACKFILL_ENABLED:
       process.env.MESSAGE_SEARCH_BACKFILL_ENABLED,
     MESSAGE_SEARCH_COUNT_ENABLED: process.env.MESSAGE_SEARCH_COUNT_ENABLED,
   });
 
+  const workerServiceName = messageSearchWorkerRole.only
+    ? "message-search-worker"
+    : "worker";
   const { initTelemetry, createLogger } = await import("@asm/logger");
-  const telemetry = initTelemetry({ serviceName: "worker", version: "1.0.0" });
-  const logger = createLogger({ serviceName: "worker" });
+  const telemetry = initTelemetry({
+    serviceName: workerServiceName,
+    version: "1.0.0",
+  });
+  const logger = createLogger({ serviceName: workerServiceName });
   const { createMessageSearchWorkerMetricSink } =
     await import("./worker/message-search-metrics");
   const messageSearchMetrics = createMessageSearchWorkerMetricSink();
@@ -83,12 +94,15 @@ if (import.meta.main) {
   let running = true;
 
   const start = async () => {
-    await ensureStreamGroups();
-    await registerMaintenanceSchedulers();
+    if (!messageSearchWorkerRole.only) {
+      await ensureStreamGroups();
+      await registerMaintenanceSchedulers();
+    }
 
-    // Heartbeat written to Redis so the web /api/health endpoint can report
-    // whether the worker process is alive.
-    const HEARTBEAT_KEY = "worker:heartbeat";
+    // The general and message-search heartbeats let health checks distinguish
+    // their independently deployed worker processes.
+    const WORKER_HEARTBEAT_KEY = "worker:heartbeat";
+    const MESSAGE_SEARCH_HEARTBEAT_KEY = "worker:message-search:heartbeat";
     const HEARTBEAT_TTL = 30;
     const heartbeat = async () => {
       if (!running) {
@@ -96,7 +110,24 @@ if (import.meta.main) {
       }
       try {
         const { redis } = await import("@asm/db");
-        await redis.set(HEARTBEAT_KEY, String(Date.now()), "EX", HEARTBEAT_TTL);
+        const heartbeatValue = String(Date.now());
+        const heartbeats: Promise<unknown>[] = [];
+        if (!messageSearchWorkerRole.only) {
+          heartbeats.push(
+            redis.set(WORKER_HEARTBEAT_KEY, heartbeatValue, "EX", HEARTBEAT_TTL)
+          );
+        }
+        if (messageSearchWorkerRole.enabled) {
+          heartbeats.push(
+            redis.set(
+              MESSAGE_SEARCH_HEARTBEAT_KEY,
+              heartbeatValue,
+              "EX",
+              HEARTBEAT_TTL
+            )
+          );
+        }
+        await Promise.all(heartbeats);
       } catch (error) {
         logger.error({ error }, "worker heartbeat failed");
       }
@@ -104,56 +135,64 @@ if (import.meta.main) {
     await heartbeat();
     heartbeatTimer = setInterval(heartbeat, 10_000);
 
-    // Stream consumers (blocking loops, one per stream).
-    const runViewLoop = consumeViewStream.bind(
-      null,
-      `view-worker-${process.pid}`,
-      logger
-    );
-    const runShareLoop = consumeShareStream.bind(
-      null,
-      `share-worker-${process.pid}`,
-      logger
-    );
+    if (!messageSearchWorkerRole.only) {
+      // Stream consumers (blocking loops, one per stream).
+      const runViewLoop = consumeViewStream.bind(
+        null,
+        `view-worker-${process.pid}`,
+        logger
+      );
+      const runShareLoop = consumeShareStream.bind(
+        null,
+        `share-worker-${process.pid}`,
+        logger
+      );
 
-    const runViewLoopWithRecovery = async () => {
-      // eslint-disable-next-line no-unmodified-loop-condition -- running is flipped false by shutdown()
-      while (running) {
-        try {
-          // eslint-disable-next-line no-await-in-loop -- blocking stream consumer reads sequentially
-          await runViewLoop();
-        } catch (error) {
-          logger.error(
-            { error, stack: error instanceof Error ? error.stack : undefined },
-            "view stream consumer failed"
-          );
-          // eslint-disable-next-line no-await-in-loop -- retry backoff must delay before the next read
-          await Bun.sleep(1000);
+      const runViewLoopWithRecovery = async () => {
+        // eslint-disable-next-line no-unmodified-loop-condition -- running is flipped false by shutdown()
+        while (running) {
+          try {
+            // eslint-disable-next-line no-await-in-loop -- blocking stream consumer reads sequentially
+            await runViewLoop();
+          } catch (error) {
+            logger.error(
+              {
+                error,
+                stack: error instanceof Error ? error.stack : undefined,
+              },
+              "view stream consumer failed"
+            );
+            // eslint-disable-next-line no-await-in-loop -- retry backoff must delay before the next read
+            await Bun.sleep(1000);
+          }
         }
-      }
-    };
+      };
 
-    const runShareLoopWithRecovery = async () => {
-      // eslint-disable-next-line no-unmodified-loop-condition -- running is flipped false by shutdown()
-      while (running) {
-        try {
-          // eslint-disable-next-line no-await-in-loop -- blocking stream consumer reads sequentially
-          await runShareLoop();
-        } catch (error) {
-          logger.error(
-            { error, stack: error instanceof Error ? error.stack : undefined },
-            "share stream consumer failed"
-          );
-          // eslint-disable-next-line no-await-in-loop -- retry backoff must delay before the next read
-          await Bun.sleep(1000);
+      const runShareLoopWithRecovery = async () => {
+        // eslint-disable-next-line no-unmodified-loop-condition -- running is flipped false by shutdown()
+        while (running) {
+          try {
+            // eslint-disable-next-line no-await-in-loop -- blocking stream consumer reads sequentially
+            await runShareLoop();
+          } catch (error) {
+            logger.error(
+              {
+                error,
+                stack: error instanceof Error ? error.stack : undefined,
+              },
+              "share stream consumer failed"
+            );
+            // eslint-disable-next-line no-await-in-loop -- retry backoff must delay before the next read
+            await Bun.sleep(1000);
+          }
         }
-      }
-    };
+      };
 
-    // Stream consumers run as blocking loops. They exit when `running` flips
-    // false in shutdown, so we keep the promises and await them on close.
-    viewLoopPromise = runViewLoopWithRecovery();
-    shareLoopPromise = runShareLoopWithRecovery();
+      // Stream consumers run as blocking loops. They exit when `running` flips
+      // false in shutdown, so we keep the promises and await them on close.
+      viewLoopPromise = runViewLoopWithRecovery();
+      shareLoopPromise = runShareLoopWithRecovery();
+    }
 
     const connection = createBullConnection();
 
@@ -192,196 +231,202 @@ if (import.meta.main) {
       }
     };
 
-    const messageSearchLiveWorker = new QueueWorker(
-      "message-search-live",
-      (job) =>
-        processMessageSearchOutbox(
-          job.data.outboxId,
-          logger,
-          messageSearchMetrics
-        ),
-      { concurrency: 2, connection }
-    );
-    const messageSearchBackfillWorker = messageSearchFeatures.backfill
-      ? new QueueWorker(
-          "message-search-backfill",
-          async (job) => {
-            const result = await processMessageSearchBackfill(
-              job.data.conversationId,
-              logger,
-              messageSearchMetrics
-            );
-            if (result.nextCursorMessageId) {
-              await enqueueMessageSearchBackfill(
+    if (messageSearchWorkerRole.enabled) {
+      const messageSearchLiveWorker = new QueueWorker(
+        "message-search-live",
+        (job) =>
+          processMessageSearchOutbox(
+            job.data.outboxId,
+            logger,
+            messageSearchMetrics
+          ),
+        { concurrency: 2, connection }
+      );
+      const messageSearchBackfillWorker = messageSearchFeatures.backfill
+        ? new QueueWorker(
+            "message-search-backfill",
+            async (job) => {
+              const result = await processMessageSearchBackfill(
                 job.data.conversationId,
-                result.nextCursorMessageId
+                logger,
+                messageSearchMetrics
               );
+              if (result.nextCursorMessageId) {
+                await enqueueMessageSearchBackfill(
+                  job.data.conversationId,
+                  result.nextCursorMessageId
+                );
+              }
+            },
+            { concurrency: 1, connection }
+          )
+        : undefined;
+      const messageSearchCountWorker = messageSearchFeatures.counts
+        ? new QueueWorker(
+            "message-search-count",
+            (job) =>
+              processMessageSearchCount(
+                job.data.requestId,
+                logger,
+                messageSearchMetrics
+              ),
+            { concurrency: 1, connection }
+          )
+        : undefined;
+      workers.push(
+        messageSearchLiveWorker,
+        ...(messageSearchBackfillWorker ? [messageSearchBackfillWorker] : []),
+        ...(messageSearchCountWorker ? [messageSearchCountWorker] : [])
+      );
+      await sweepMessageSearchOutbox();
+      messageSearchSweepTimer = setInterval(() => {
+        void sweepMessageSearchOutbox();
+      }, 10_000);
+    }
+
+    if (!messageSearchWorkerRole.only) {
+      const messageUnreadCounterWorker = new QueueWorker(
+        MESSAGE_UNREAD_COUNTER_QUEUE,
+        async (job) => {
+          const conversationId = job.data?.conversationId;
+          const userId = job.data?.userId;
+          if (
+            typeof conversationId !== "string" ||
+            conversationId.length === 0 ||
+            typeof userId !== "string" ||
+            userId.length === 0
+          ) {
+            throw new Error("Invalid message unread counter job");
+          }
+          await reconcileMessageUnreadCounter({ conversationId, userId });
+        },
+        { concurrency: 1, connection }
+      );
+      const contentWorker = new QueueWorker(
+        "content-events",
+        (job) => {
+          switch (job.name) {
+            case "post-deleted": {
+              return processPostDeleted(job.data, logger);
             }
+            case "notification-created": {
+              return processNotificationCreated(job.data, logger);
+            }
+            case "notification-deleted": {
+              return processNotificationDeleted(job.data);
+            }
+            case "shitposter-check": {
+              return processShitposterCheck(job.data, logger);
+            }
+            default: {
+              throw new Error(`Unknown content event: ${job.name}`);
+            }
+          }
+        },
+        { connection }
+      );
+
+      const notificationWorker = new QueueWorker(
+        NOTIFICATIONS_QUEUE,
+        async (job) => {
+          if (job.name === "notification-created") {
+            return await processNotificationCreated(job.data, logger);
+          }
+          throw new Error(`Unknown notification event: ${job.name}`);
+        },
+        {
+          concurrency: readWorkerInteger(
+            "NOTIFICATION_WORKER_CONCURRENCY",
+            8,
+            32
+          ),
+          connection,
+          limiter: {
+            duration: 1000,
+            max: readWorkerInteger("NOTIFICATION_WORKER_RATE_MAX", 40, 200),
           },
-          { concurrency: 1, connection }
-        )
-      : undefined;
-    const messageSearchCountWorker = messageSearchFeatures.counts
-      ? new QueueWorker(
-          "message-search-count",
-          (job) =>
-            processMessageSearchCount(
-              job.data.requestId,
-              logger,
-              messageSearchMetrics
-            ),
-          { concurrency: 1, connection }
-        )
-      : undefined;
-    const messageUnreadCounterWorker = new QueueWorker(
-      MESSAGE_UNREAD_COUNTER_QUEUE,
-      async (job) => {
-        const conversationId = job.data?.conversationId;
-        const userId = job.data?.userId;
-        if (
-          typeof conversationId !== "string" ||
-          conversationId.length === 0 ||
-          typeof userId !== "string" ||
-          userId.length === 0
-        ) {
-          throw new Error("Invalid message unread counter job");
         }
-        await reconcileMessageUnreadCounter({ conversationId, userId });
-      },
-      { concurrency: 1, connection }
-    );
-    await sweepMessageSearchOutbox();
-    messageSearchSweepTimer = setInterval(() => {
-      void sweepMessageSearchOutbox();
-    }, 10_000);
+      );
 
-    const contentWorker = new QueueWorker(
-      "content-events",
-      (job) => {
-        switch (job.name) {
-          case "post-deleted": {
-            return processPostDeleted(job.data, logger);
-          }
-          case "notification-created": {
-            return processNotificationCreated(job.data, logger);
-          }
-          case "notification-deleted": {
-            return processNotificationDeleted(job.data);
-          }
-          case "shitposter-check": {
-            return processShitposterCheck(job.data, logger);
-          }
-          default: {
-            throw new Error(`Unknown content event: ${job.name}`);
-          }
-        }
-      },
-      { connection }
-    );
+      // The "media" queue is consumed by apps/media-processing since the
+      // pipeline worker split; auth no longer touches media jobs.
 
-    const notificationWorker = new QueueWorker(
-      NOTIFICATIONS_QUEUE,
-      async (job) => {
-        if (job.name === "notification-created") {
-          return await processNotificationCreated(job.data, logger);
-        }
-        throw new Error(`Unknown notification event: ${job.name}`);
-      },
-      {
-        concurrency: readWorkerInteger(
-          "NOTIFICATION_WORKER_CONCURRENCY",
-          8,
-          32
-        ),
-        connection,
-        limiter: {
-          duration: 1000,
-          max: readWorkerInteger("NOTIFICATION_WORKER_RATE_MAX", 40, 200),
-        },
-      }
-    );
-
-    // The "media" queue is consumed by apps/media-processing since the
-    // pipeline worker split; auth no longer touches media jobs.
-
-    const maintenanceWorker = new QueueWorker(
-      "maintenance",
-      async (job) => {
-        switch (job.name) {
-          case "hn-refresh": {
-            return processHnRefresh();
-          }
-          case "expired-tokens": {
-            return processExpiredTokens(logger);
-          }
-          case "expired-username-aliases": {
-            return processExpiredUsernameAliases(logger);
-          }
-          case "inactive-users": {
-            return processInactiveUsersSweep(logger);
-          }
-          case "cleanup-published-notification": {
-            return processPublishedNotificationCleanup(job.data, logger);
-          }
-          case "cleanup-published-notifications": {
-            return processPublishedNotificationsSweep(logger);
-          }
-          case "badge-sweep": {
-            return processBadgeSweep(logger);
-          }
-          case "trending-scores": {
-            const startedAtMs = Date.now();
-            try {
-              return await flushTrendingScores(logger);
-            } finally {
-              logger.info(
-                { durationMs: Date.now() - startedAtMs },
-                "trending-scores job finished"
-              );
+      const maintenanceWorker = new QueueWorker(
+        "maintenance",
+        async (job) => {
+          switch (job.name) {
+            case "hn-refresh": {
+              return processHnRefresh();
+            }
+            case "expired-tokens": {
+              return processExpiredTokens(logger);
+            }
+            case "expired-username-aliases": {
+              return processExpiredUsernameAliases(logger);
+            }
+            case "inactive-users": {
+              return processInactiveUsersSweep(logger);
+            }
+            case "cleanup-published-notification": {
+              return processPublishedNotificationCleanup(job.data, logger);
+            }
+            case "cleanup-published-notifications": {
+              return processPublishedNotificationsSweep(logger);
+            }
+            case "badge-sweep": {
+              return processBadgeSweep(logger);
+            }
+            case "trending-scores": {
+              const startedAtMs = Date.now();
+              try {
+                return await flushTrendingScores(logger);
+              } finally {
+                logger.info(
+                  { durationMs: Date.now() - startedAtMs },
+                  "trending-scores job finished"
+                );
+              }
+            }
+            default: {
+              throw new Error(`Unknown maintenance job: ${job.name}`);
             }
           }
-          default: {
-            throw new Error(`Unknown maintenance job: ${job.name}`);
-          }
-        }
-      },
-      { connection }
-    );
-
-    workers.push(
-      contentWorker,
-      notificationWorker,
-      maintenanceWorker,
-      messageSearchLiveWorker,
-      ...(messageSearchBackfillWorker ? [messageSearchBackfillWorker] : []),
-      ...(messageSearchCountWorker ? [messageSearchCountWorker] : []),
-      messageUnreadCounterWorker
-    );
-
-    notificationWorker.on("completed", (job) => {
-      logger.info(
-        {
-          attemptsMade: job.attemptsMade,
-          durationMs:
-            typeof job.processedOn === "number" && job.timestamp
-              ? job.processedOn - job.timestamp
-              : undefined,
-          job: job.name,
         },
-        "notification job completed"
+        { connection }
       );
-    });
 
-    notificationWorker.on("failed", (job, error) => {
-      logger.error(
-        {
-          attemptsMade: job?.attemptsMade,
-          error,
-          job: job?.name,
-        },
-        "notification job failed after retries"
+      workers.push(
+        contentWorker,
+        notificationWorker,
+        maintenanceWorker,
+        messageUnreadCounterWorker
       );
-    });
+
+      notificationWorker.on("completed", (job) => {
+        logger.info(
+          {
+            attemptsMade: job.attemptsMade,
+            durationMs:
+              typeof job.processedOn === "number" && job.timestamp
+                ? job.processedOn - job.timestamp
+                : undefined,
+            job: job.name,
+          },
+          "notification job completed"
+        );
+      });
+
+      notificationWorker.on("failed", (job, error) => {
+        logger.error(
+          {
+            attemptsMade: job?.attemptsMade,
+            error,
+            job: job?.name,
+          },
+          "notification job failed after retries"
+        );
+      });
+    }
 
     for (const worker of workers) {
       worker.on("failed", (job, error) => {
@@ -393,6 +438,8 @@ if (import.meta.main) {
       {
         backfillEnabled: messageSearchFeatures.backfill,
         countsEnabled: messageSearchFeatures.counts,
+        messageSearchWorkerEnabled: messageSearchWorkerRole.enabled,
+        messageSearchWorkerOnly: messageSearchWorkerRole.only,
       },
       "message search workers configured"
     );
