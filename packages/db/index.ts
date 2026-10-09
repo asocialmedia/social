@@ -122,6 +122,7 @@ export {
   markSearchOutboxUnreadable,
   persistSearchDocument,
   readNextMessageSearchBackfillBatch,
+  readMessageSearchViewerEpochCoverage,
   releaseMessageSearchCountRequest,
   requestMessageSearchCount,
   searchMessageCandidates,
@@ -194,3 +195,6 @@ export * from "./src/recommendation/trending-score";
 export * from "./src/notifications";
 export * from "./src/posts/ancestors";
 export * from "./src/posts/visible";
+
+export { messageSearchEpochFingerprint } from "./src/messages/epoch-readability";
+export type { MessageSearchEpochProof } from "./src/messages/epoch-readability";

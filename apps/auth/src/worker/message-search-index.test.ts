@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import type { MessageSearchWorkerMetricEvent } from "./message-search-metrics";
 
@@ -59,6 +60,7 @@ let identity: {
 let wrap = {
   conversationId: "conversation-1",
   encryptedKey: "wrapped-root",
+  id: "wrap-1",
   iv: "wrap-iv",
   ownerUserId: "user-happy",
   version: 1,
@@ -81,6 +83,8 @@ mock.module("@asm/db", () => ({
   fromPrismaDateTime: (value: unknown) =>
     value instanceof Date ? value : new Date(String(value)),
   markSearchOutboxUnreadable: mockMarkUnreadable,
+  messageSearchEpochFingerprint: (input: unknown) =>
+    createHash("sha256").update(JSON.stringify(input)).digest("hex"),
   persistSearchDocument: mockPersistDocument,
   prisma: {
     orm: {
@@ -96,6 +100,12 @@ mock.module("@asm/db", () => ({
         },
         MessageIdentities: {
           where: () => ({ all: mockLoadIdentities }),
+        },
+        MessageSearchAccountState: {
+          where: () => ({ all: () => Promise.resolve([]) }),
+        },
+        MessageSearchEpochReadability: {
+          where: () => ({ all: () => Promise.resolve([]) }),
         },
         MessageSearchOutbox: {
           where: () => ({ first: mockOutboxFirst }),
@@ -120,7 +130,9 @@ mock.module("@asm/messages/crypto", () => ({
     ) => Promise.resolve({ payload })
   ),
   decryptWithMasterKey: mock(() =>
-    Promise.resolve('{"kty":"EC","crv":"P-256"}')
+    Promise.resolve(
+      '{"kty":"EC","crv":"P-256","d":"private-d","x":"public-x","y":"public-y"}'
+    )
   ),
   deriveMasterKey: mock(() => Promise.resolve("master-key")),
   extractMessageReferences: mock(() => [
@@ -134,8 +146,14 @@ mock.module("@asm/messages/crypto", () => ({
   ]),
   importPrivateKeyJwk: mock(() => Promise.resolve({ kind: "private-key" })),
   importPublicKeyJwk: mock(() => Promise.resolve({ kind: "public-key" })),
-  publicKeyBase64ToJwk: mock((value: string) => ({ key: value, kty: "EC" })),
-  unwrapRootKey: mock(() => Promise.resolve("root-key")),
+  publicKeyBase64ToJwk: mock((value: string) => ({
+    crv: "P-256",
+    key: value,
+    kty: "EC",
+    x: "public-x",
+    y: "public-y",
+  })),
+  unwrapRootKey: mock(() => Promise.resolve(new Uint8Array(32))),
 }));
 
 mock.module("@asm/messages/normalization", () => ({
@@ -182,6 +200,7 @@ describe("message search indexing worker", () => {
     wrap = {
       conversationId: "conversation-1",
       encryptedKey: "wrapped-root",
+      id: "wrap-1",
       iv: "wrap-iv",
       ownerUserId: "user-happy",
       version: 1,
@@ -242,6 +261,13 @@ describe("message search indexing worker", () => {
 
     expect(mockPersistDocument).toHaveBeenCalledWith({
       conversationId: "conversation-1",
+      epochProofs: [
+        expect.objectContaining({
+          readable: true,
+          recoveryGeneration: 0,
+          wrapId: "wrap-1",
+        }),
+      ],
       keyEpoch: 1,
       messageId: "message-1",
       outboxId: "outbox-1",

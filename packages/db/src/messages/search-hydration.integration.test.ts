@@ -8,6 +8,8 @@ import {
   toPrismaDateTime,
 } from "@asm/db";
 
+import { seedVerifiedMessageEpochFixture } from "./epoch-readability-fixture";
+
 const RUN_ID = crypto.randomUUID();
 const CONVERSATION_ID = crypto.randomUUID();
 const OWNER_ID = `search-hydration-owner-${RUN_ID}`;
@@ -130,6 +132,7 @@ beforeAll(async () => {
       userId: OWNER_ID,
     });
   });
+  await seedVerifiedMessageEpochFixture(CONVERSATION_ID);
 });
 
 afterAll(async () => {

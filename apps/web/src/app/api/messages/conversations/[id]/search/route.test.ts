@@ -58,6 +58,9 @@ mock.module("@/lib/auth/session", () => ({
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: mockGetConversation,
 }));
+const mockEpochCoverage = mock(() =>
+  Promise.resolve({ pending: 0, unavailable: 0 })
+);
 mock.module("@asm/db", () => ({
   consumeRateLimit: mockRateLimit,
   enqueueMessageSearchBackfill: mockEnqueueBackfill,
@@ -78,6 +81,7 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  readMessageSearchViewerEpochCoverage: mockEpochCoverage,
   requestMessageSearchCount: mockRequestCount,
   searchMessageCandidates: (input: Record<string, unknown>) => {
     candidateInput = input;
@@ -108,6 +112,8 @@ function request(
 const context = { params: Promise.resolve({ id: "c1" }) };
 describe("POST /api/messages/conversations/:id/search", () => {
   beforeEach(() => {
+    mockEpochCoverage.mockReset();
+    mockEpochCoverage.mockResolvedValue({ pending: 0, unavailable: 0 });
     process.env.MESSAGE_SEARCH_BACKFILL_ENABLED = "1";
     process.env.MESSAGE_SEARCH_COUNT_ENABLED = "1";
     process.env.MESSAGE_SEARCH_SERVER_ENABLED = "1";
@@ -313,6 +319,40 @@ describe("POST /api/messages/conversations/:id/search", () => {
       complete: false,
       settled: true,
       unrecoverableEpochs: 2,
+    });
+  });
+
+  test("does not declare full coverage or queue exact counts before viewer epoch verification", async () => {
+    mockCoverage.mockReturnValue({
+      artifactsCommitted: 100,
+      backfillCompletedAt: new Date(),
+      completedChangeSeq: 90,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+    mockEpochCoverage.mockResolvedValue({ pending: 1, unavailable: 0 });
+    const response = await POST(request({ query: "needle" }), context);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.coverage).toMatchObject({ complete: false, settled: false });
+    expect(mockRequestCount).not.toHaveBeenCalled();
+  });
+
+  test("reports a verified unusable viewer epoch without a false complete scope", async () => {
+    mockCoverage.mockReturnValue({
+      artifactsCommitted: 100,
+      backfillCompletedAt: new Date(),
+      completedChangeSeq: 90,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+    mockEpochCoverage.mockResolvedValue({ pending: 0, unavailable: 1 });
+    const response = await POST(request({ query: "needle" }), context);
+    const body = await response.json();
+    expect(body.coverage).toMatchObject({
+      complete: false,
+      settled: true,
+      unrecoverableEpochs: 1,
     });
   });
 

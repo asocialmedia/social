@@ -4,6 +4,13 @@ import { Pool } from "pg";
 import type { PoolClient } from "pg";
 
 import { keys } from "../../keys";
+import {
+  persistMessageSearchEpochProofs,
+  readableMessageKeyEpochsSql,
+  MESSAGE_VIEWER_EPOCH_COVERAGE_SQL,
+  UNVERIFIED_CONVERSATION_EPOCH_SQL,
+} from "./epoch-readability";
+import type { MessageSearchEpochProof } from "./epoch-readability";
 
 const MAX_SEARCH_TERM_INSERT_BATCH = 100;
 export const MESSAGE_SEARCH_BACKFILL_BATCH_MESSAGES = 100;
@@ -89,6 +96,8 @@ export async function commitMessageIdentityBackupRefresh(
            ON coverage."conversationId" = conversation.id
         WHERE member."userId" = $1
           AND (
+            EXISTS (SELECT 1 FROM public.message_conversation_keys AS own_wrap
+                     WHERE own_wrap."conversationId" = conversation.id AND own_wrap."ownerUserId" = $1) OR
             coverage."unrecoverableEpochs" > 0 OR
             (coverage."backfillStartedAt" IS NOT NULL AND
              coverage."backfillCompletedAt" IS NULL)
@@ -162,12 +171,7 @@ export async function commitMessageIdentityBackupRefresh(
         [conversationId]
       );
       const [coverage] = coverageState.rows;
-      if (
-        !coverage ||
-        (coverage.unrecoverableEpochs === 0 &&
-          (coverage.backfillStartedAt === null ||
-            coverage.backfillCompletedAt !== null))
-      ) {
+      if (!coverage) {
         continue;
       }
 
@@ -279,6 +283,7 @@ export interface SearchReferenceArtifact {
 }
 
 export interface SearchDocumentArtifact {
+  epochProofs?: readonly MessageSearchEpochProof[];
   conversationId: string;
   keyEpoch: number;
   messageId: string;
@@ -498,6 +503,7 @@ export interface MessageSearchBackfillBatch {
 }
 
 export interface MessageSearchBackfillArtifact {
+  epochProofs?: readonly MessageSearchEpochProof[];
   createdAt: Date;
   keyEpoch: number;
   messageId: string;
@@ -1713,6 +1719,11 @@ export async function persistSearchDocument(
     let status: SearchArtifactCommitResult["status"] = "superseded";
 
     if (row && !row.deletedAt && row.revision === artifact.revision) {
+      await persistMessageSearchEpochProofs(
+        client,
+        artifact.conversationId,
+        artifact.epochProofs ?? []
+      );
       const terms = [
         ...new Map(
           artifact.terms.map((term) => [term.normalized, term])
@@ -1912,9 +1923,14 @@ export async function startMessageSearchBackfill(
      ON CONFLICT ("conversationId") DO UPDATE
        SET "backfillThroughSequence" = EXCLUDED."backfillThroughSequence",
            "backfillStartedAt" = now(),
+           "backfillCursorCreatedAt" = CASE WHEN public.message_search_coverage."backfillCompletedAt" IS NOT NULL THEN NULL ELSE public.message_search_coverage."backfillCursorCreatedAt" END,
+           "backfillCursorMessageId" = CASE WHEN public.message_search_coverage."backfillCompletedAt" IS NOT NULL THEN NULL ELSE public.message_search_coverage."backfillCursorMessageId" END,
+           "backfillCompletedAt" = NULL,
            "updatedAt" = now()
      WHERE public.message_search_coverage."backfillStartedAt" IS NULL
-       AND public.message_search_coverage."backfillCompletedAt" IS NULL`,
+       AND public.message_search_coverage."backfillCompletedAt" IS NULL
+       OR (public.message_search_coverage."backfillCompletedAt" IS NOT NULL
+           AND EXISTS (${UNVERIFIED_CONVERSATION_EPOCH_SQL}))`,
     [conversationId]
   );
   const result = await pool.query<{
@@ -2035,6 +2051,7 @@ export async function readNextMessageSearchBackfillBatch(
 
 export async function commitMessageSearchBackfillBatch(input: {
   artifacts: readonly MessageSearchBackfillArtifact[];
+  epochProofs?: readonly MessageSearchEpochProof[];
   conversationId: string;
   expectedPosition: MessageSearchBackfillPosition;
   finished: boolean;
@@ -2103,6 +2120,10 @@ export async function commitMessageSearchBackfillBatch(input: {
         current && !current.deletedAt && current.revision === artifact.revision
       );
     });
+    await persistMessageSearchEpochProofs(client, input.conversationId, [
+      ...(input.epochProofs ?? []),
+      ...currentArtifacts.flatMap((artifact) => artifact.epochProofs ?? []),
+    ]);
     const terms = [
       ...new Map(
         currentArtifacts
@@ -2392,13 +2413,7 @@ const SEARCH_MESSAGE_CANDIDATES_SQL = `WITH query_fragments AS MATERIALIZED (
                AND newer_revision."changeSequence" > $4
           )
         )
-        AND EXISTS (
-          SELECT 1
-            FROM public.message_conversation_keys AS readable_key
-           WHERE readable_key."conversationId" = d."conversationId"
-             AND readable_key."ownerUserId" = $2
-             AND readable_key.version = m."keyEpoch"
-        )
+        AND m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2")})
         AND NOT EXISTS (
           SELECT 1
             FROM public.message_hidden AS hidden
@@ -2502,13 +2517,7 @@ const SEARCH_MESSAGE_COUNT_SQL = `WITH query_fragments AS MATERIALIZED (
                AND newer_revision."changeSequence" > $4
           )
         )
-        AND EXISTS (
-          SELECT 1
-            FROM public.message_conversation_keys AS readable_key
-           WHERE readable_key."conversationId" = d."conversationId"
-             AND readable_key."ownerUserId" = $2
-             AND readable_key.version = m."keyEpoch"
-        )
+        AND m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2")})
         AND NOT EXISTS (
           SELECT 1
             FROM public.message_hidden AS hidden
@@ -2566,13 +2575,7 @@ const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = `WITH ordered_documents AS MATERIALIZED
                  AND newer_revision."changeSequence" > $6
             )
           )
-          AND EXISTS (
-            SELECT 1
-              FROM public.message_conversation_keys AS readable_key
-             WHERE readable_key."conversationId" = d."conversationId"
-               AND readable_key."ownerUserId" = $5
-               AND readable_key.version = m."keyEpoch"
-          )
+          AND m."keyEpoch" IN (${readableMessageKeyEpochsSql("$5")})
           AND NOT EXISTS (
             SELECT 1
               FROM public.message_hidden AS hidden
@@ -2661,13 +2664,7 @@ const SEARCH_ORDERED_CANDIDATE_HITS_SQL = `WITH query_fragments AS MATERIALIZED 
       WHERE m."deletedAt" IS NULL
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
-        AND EXISTS (
-          SELECT 1
-            FROM public.message_conversation_keys AS readable_key
-           WHERE readable_key."conversationId" = d."conversationId"
-             AND readable_key."ownerUserId" = $2
-             AND readable_key.version = m."keyEpoch"
-        )
+        AND m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2")})
         AND NOT EXISTS (
           SELECT 1
             FROM public.message_hidden AS hidden
@@ -2748,13 +2745,7 @@ const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIA
       WHERE m."deletedAt" IS NULL
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
-        AND EXISTS (
-          SELECT 1
-            FROM public.message_conversation_keys AS readable_key
-           WHERE readable_key."conversationId" = d."conversationId"
-             AND readable_key."ownerUserId" = $2
-             AND readable_key.version = m."keyEpoch"
-        )
+        AND m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2")})
         AND NOT EXISTS (
           SELECT 1
             FROM public.message_hidden AS hidden
@@ -3096,13 +3087,7 @@ export async function listMessageSearchReferences(
                AND newer_revision."changeSequence" > $4
           )
         )
-        AND EXISTS (
-          SELECT 1
-            FROM public.message_conversation_keys AS readable_key
-           WHERE readable_key."conversationId" = message."conversationId"
-             AND readable_key."ownerUserId" = $2
-             AND readable_key.version = message."keyEpoch"
-        )
+        AND message."keyEpoch" IN (${readableMessageKeyEpochsSql("$2")})
         AND NOT EXISTS (
           SELECT 1
             FROM public.message_hidden AS hidden
@@ -3182,13 +3167,7 @@ export async function hydrateSearchMessageCandidates(
         AND member."userId" = $2
       WHERE m."deletedAt" IS NULL
         AND m."keyEpoch" IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-            FROM public.message_conversation_keys AS readable_key
-           WHERE readable_key."conversationId" = m."conversationId"
-             AND readable_key."ownerUserId" = $2
-             AND readable_key.version = m."keyEpoch"
-        )
+        AND m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2")})
         AND NOT EXISTS (
           SELECT 1
             FROM public.message_hidden AS hidden
@@ -3297,4 +3276,15 @@ export async function closeMessageSearchPool(): Promise<void> {
   if (pool) {
     await pool.end();
   }
+}
+
+export async function readMessageSearchViewerEpochCoverage(
+  conversationId: string,
+  userId: string
+): Promise<{ pending: number; unavailable: number }> {
+  const result = await getSearchPool().query<{
+    pending: number;
+    unavailable: number;
+  }>(MESSAGE_VIEWER_EPOCH_COVERAGE_SQL, [conversationId, userId]);
+  return result.rows[0] ?? { pending: 0, unavailable: 0 };
 }

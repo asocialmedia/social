@@ -7,6 +7,7 @@ import {
   listDenMembershipEvents,
   prisma,
   requestMessageSearchCount,
+  readMessageSearchViewerEpochCoverage,
   searchMessageCandidates,
   startMessageSearchBackfill,
 } from "@asm/db";
@@ -189,6 +190,7 @@ export async function POST(
     conversation.type === "DEN"
       ? listDenMembershipEvents(conversationId, member?.leftAt ?? null)
       : Promise.resolve([]),
+    readMessageSearchViewerEpochCoverage(conversationId, user.id),
   ]).catch(() => null);
   if (!searchState) {
     return Response.json(
@@ -196,7 +198,8 @@ export async function POST(
       { status: 503 }
     );
   }
-  const [sequence, recoveryState, coverage, membershipEvents] = searchState;
+  const [sequence, recoveryState, coverage, membershipEvents, epochCoverage] =
+    searchState;
   const snapshotSequence = sequence?.changeSeq ?? 0;
   const recoveryGeneration = recoveryState?.recoveryGeneration ?? 0;
   const queryHash = messageSearchQueryHash(normalized.tokens.join(" "));
@@ -290,9 +293,12 @@ export async function POST(
     const coverageSettled =
       coverage?.backfillCompletedAt !== null &&
       coverage?.backfillCompletedAt !== undefined &&
-      completedChangeSequence >= effectiveSnapshotSequence;
+      completedChangeSequence >= effectiveSnapshotSequence &&
+      epochCoverage.pending === 0;
     const coverageComplete =
-      coverageSettled && coverage?.unrecoverableEpochs === 0;
+      coverageSettled &&
+      coverage?.unrecoverableEpochs === 0 &&
+      epochCoverage.unavailable === 0;
     let countToken: string | null = null;
     if (
       rawBody.cursor === undefined &&
@@ -351,7 +357,10 @@ export async function POST(
         rowsTraversed: coverage?.rowsTraversed ?? 0,
         settled: coverageSettled,
         snapshotSequence: effectiveSnapshotSequence,
-        unrecoverableEpochs: coverage?.unrecoverableEpochs ?? 0,
+        unrecoverableEpochs: Math.max(
+          coverage?.unrecoverableEpochs ?? 0,
+          epochCoverage.unavailable
+        ),
       },
       hits: hits.map((hit) => ({
         createdAt: hit.createdAt,

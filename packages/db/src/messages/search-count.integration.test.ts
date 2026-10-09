@@ -18,6 +18,8 @@ import {
 } from "@asm/db";
 import { Client } from "pg";
 
+import { seedVerifiedMessageEpochFixture } from "./epoch-readability-fixture";
+
 const RUN_ID = crypto.randomUUID();
 const CONVERSATION_ID = crypto.randomUUID();
 const OWNER_ID = `search-count-owner-${RUN_ID}`;
@@ -170,6 +172,7 @@ beforeAll(async () => {
   } finally {
     await client.end();
   }
+  await seedVerifiedMessageEpochFixture(CONVERSATION_ID);
 });
 
 afterAll(async () => {

@@ -1074,6 +1074,21 @@ namespace public {
     @@map("message_search_account_state")
   }
 
+  model MessageSearchEpochReadability {
+    wrapId             String       @id(map: "message_search_epoch_readability_pkey")
+    wrap               MessageConversationKeys @relation(fields: [wrapId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
+    conversationId     String
+    userId             String
+    keyEpoch           Int
+    recoveryGeneration Int
+    sourceFingerprint  String
+    readable           Boolean
+    verifiedAt         Timestamp(3) @default(now())
+
+    @@index([conversationId, userId, keyEpoch], map: "message_search_epoch_readability_scope_idx")
+    @@map("message_search_epoch_readability")
+  }
+
   model MessageSearchCountRequests {
     id                    String    @id(map: "message_search_count_requests_pkey") @default(uuid())
     requestKey            String    @unique(map: "message_search_count_requests_request_key_key")

@@ -1,7 +1,10 @@
+import { timingSafeEqual } from "node:crypto";
+
 import {
   commitMessageSearchBackfillBatch,
   fromPrismaDateTime,
   markSearchOutboxUnreadable,
+  messageSearchEpochFingerprint,
   persistSearchDocument,
   prisma,
   readNextMessageSearchBackfillBatch,
@@ -9,6 +12,7 @@ import {
 } from "@asm/db";
 import type {
   MessageSearchBackfillArtifact,
+  MessageSearchEpochProof,
   SearchReferenceArtifact,
   SearchTermArtifact,
 } from "@asm/db";
@@ -61,7 +65,16 @@ const privateKeyCache = new Map<string, CachedPrivateKey>();
 const pendingPrivateKeyCache = new Map<string, PendingPrivateKey>();
 
 function identityVersion(identity: MessageIdentityRow): string {
-  return `${identity.publicKey}:${String(identity.updatedAt)}`;
+  return messageSearchEpochFingerprint({
+    identity,
+    resolvedWrapperPublicKey: null,
+    wrap: {
+      encryptedKey: "",
+      iv: "",
+      wrapperPublicKey: null,
+      wrapperUserId: null,
+    },
+  });
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -112,6 +125,16 @@ async function recoverPrivateKey(
       const privateKeyJwk = JSON.parse(
         await decryptWithMasterKey(masterKey, { ciphertext, iv })
       );
+      const publicKeyJwk = publicKeyBase64ToJwk(identity.publicKey);
+      if (
+        privateKeyJwk?.kty !== "EC" ||
+        privateKeyJwk.crv !== "P-256" ||
+        typeof privateKeyJwk.d !== "string" ||
+        privateKeyJwk.x !== publicKeyJwk.x ||
+        privateKeyJwk.y !== publicKeyJwk.y
+      ) {
+        return null;
+      }
       return await importPrivateKeyJwk(privateKeyJwk);
     } catch {
       return null;
@@ -150,23 +173,40 @@ async function loadConversationSearchContext(conversationId: string) {
     .where({ conversationId })
     .all();
   const memberIds = members.map((member) => member.userId);
-  const [conversation, identities, wraps] = await Promise.all([
-    prisma.orm.public.MessageConversations.select("_type")
-      .where({ id: conversationId })
-      .first(),
-    prisma.orm.public.MessageIdentities.where((identity) =>
-      identity.userId.in(memberIds)
-    ).all(),
-    prisma.orm.public.MessageConversationKeys.where({
-      conversationId,
-    }).all(),
-  ]);
+  const [conversation, identities, wraps, accountStates, epochProofs] =
+    await Promise.all([
+      prisma.orm.public.MessageConversations.select("_type")
+        .where({ id: conversationId })
+        .first(),
+      prisma.orm.public.MessageIdentities.where((identity) =>
+        identity.userId.in(memberIds)
+      ).all(),
+      prisma.orm.public.MessageConversationKeys.where({
+        conversationId,
+      }).all(),
+      prisma.orm.public.MessageSearchAccountState.where((account) =>
+        account.userId.in(memberIds)
+      ).all(),
+      prisma.orm.public.MessageSearchEpochReadability.where({
+        conversationId,
+      }).all(),
+    ]);
   return {
     conversationType: conversation?._type,
     identityByUserId: new Map(
       identities.map((identity) => [identity.userId, identity])
     ),
     memberIds,
+    proofPromises: new Map<number, Promise<MessageSearchEpochProof[]>>(),
+    recoveryGenerationByUserId: new Map(
+      accountStates.map((account) => [
+        account.userId,
+        account.recoveryGeneration,
+      ])
+    ),
+    storedEpochProofs: new Map(
+      epochProofs.map((proof) => [proof.wrapId, proof])
+    ),
     wraps,
   };
 }
@@ -174,6 +214,141 @@ async function loadConversationSearchContext(conversationId: string) {
 type ConversationSearchContext = Awaited<
   ReturnType<typeof loadConversationSearchContext>
 >;
+
+type ConversationWrap = ConversationSearchContext["wraps"][number];
+const wrappedRootKeyCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<Uint8Array | null> }
+>();
+const WRAPPED_ROOT_CACHE_CAPACITY = 256;
+
+function resolvedWrapperPublicKey(
+  wrap: ConversationWrap,
+  context: ConversationSearchContext
+): string | null {
+  const legacyWrapperId =
+    context.conversationType === "DM"
+      ? context.memberIds
+          .toSorted()
+          .find((memberId) => memberId !== wrap.ownerUserId)
+      : undefined;
+  return (
+    wrap.wrapperPublicKey ??
+    context.identityByUserId.get(wrap.wrapperUserId ?? legacyWrapperId ?? "")
+      ?.publicKey ??
+    null
+  );
+}
+
+function epochProofSource(
+  wrap: ConversationWrap,
+  context: ConversationSearchContext
+): Omit<MessageSearchEpochProof, "readable"> | null {
+  const identity = context.identityByUserId.get(wrap.ownerUserId);
+  if (!identity) {
+    return null;
+  }
+  return {
+    recoveryGeneration:
+      context.recoveryGenerationByUserId.get(wrap.ownerUserId) ?? 0,
+    sourceFingerprint: messageSearchEpochFingerprint({
+      identity,
+      resolvedWrapperPublicKey: resolvedWrapperPublicKey(wrap, context),
+      wrap,
+    }),
+    wrapId: wrap.id,
+  };
+}
+
+function recoverWrappedRootKey(
+  conversationId: string,
+  wrap: ConversationWrap,
+  context: ConversationSearchContext
+): Promise<Uint8Array | null> {
+  const source = epochProofSource(wrap, context);
+  if (!source) {
+    return Promise.resolve(null);
+  }
+  const cacheKey = `${conversationId}:${wrap.id}:${source.recoveryGeneration}:${source.sourceFingerprint}`;
+  const cached = wrappedRootKeyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+  wrappedRootKeyCache.delete(cacheKey);
+  if (wrappedRootKeyCache.size >= WRAPPED_ROOT_CACHE_CAPACITY) {
+    const oldest = wrappedRootKeyCache.keys().next().value;
+    if (oldest) {
+      wrappedRootKeyCache.delete(oldest);
+    }
+  }
+  const promise = (async () => {
+    const identity = context.identityByUserId.get(wrap.ownerUserId);
+    const wrapperPublicKey = resolvedWrapperPublicKey(wrap, context);
+    if (!identity || !wrapperPublicKey) {
+      return null;
+    }
+    const privateKey = await recoverPrivateKey(identity);
+    if (!privateKey) {
+      return null;
+    }
+    try {
+      const rootKey = await unwrapRootKey(
+        privateKey,
+        await importPublicKeyJwk(publicKeyBase64ToJwk(wrapperPublicKey)),
+        conversationId,
+        { ciphertext: wrap.encryptedKey, iv: wrap.iv }
+      );
+      return rootKey.byteLength === 32 ? rootKey : null;
+    } catch {
+      return null;
+    }
+  })();
+  wrappedRootKeyCache.set(cacheKey, {
+    expiresAt: Date.now() + PRIVATE_KEY_CACHE_TTL_MS,
+    promise,
+  });
+  return promise;
+}
+
+function verifyViewerEpochs(
+  conversationId: string,
+  epoch: number,
+  authenticatedRootKey: Uint8Array,
+  context: ConversationSearchContext
+): Promise<MessageSearchEpochProof[]> {
+  let pending = context.proofPromises.get(epoch);
+  if (!pending) {
+    pending = (async () => {
+      const proofs = await mapConcurrent(
+        context.wraps.filter((wrap) => wrap.version === epoch),
+        MESSAGE_SEARCH_DECRYPT_CONCURRENCY,
+        async (wrap) => {
+          const source = epochProofSource(wrap, context);
+          if (!source) {
+            return null;
+          }
+          const rootKey = await recoverWrappedRootKey(
+            conversationId,
+            wrap,
+            context
+          );
+          return {
+            ...source,
+            readable:
+              rootKey !== null &&
+              rootKey.byteLength === authenticatedRootKey.byteLength &&
+              timingSafeEqual(rootKey, authenticatedRootKey),
+          };
+        }
+      );
+      return proofs.filter(
+        (proof): proof is MessageSearchEpochProof => proof !== null
+      );
+    })();
+    context.proofPromises.set(epoch, pending);
+  }
+  return pending;
+}
 
 async function decryptSearchableMessage(
   conversationId: string,
@@ -187,6 +362,7 @@ async function decryptSearchableMessage(
   },
   context: ConversationSearchContext
 ): Promise<{
+  epochProofs: MessageSearchEpochProof[];
   keyEpoch: number;
   references: SearchReferenceArtifact[];
   terms: SearchTermArtifact[];
@@ -197,33 +373,11 @@ async function decryptSearchableMessage(
 
   // oxlint-disable no-await-in-loop -- authenticated wrap attempts stop at the first successful epoch
   for (const wrap of epochCandidates) {
-    const identity = context.identityByUserId.get(wrap.ownerUserId);
-    if (!identity) {
-      continue;
-    }
-    const privateKey = await recoverPrivateKey(identity);
-    if (!privateKey) {
-      continue;
-    }
-    const legacyDmWrapperId =
-      context.conversationType === "DM"
-        ? context.memberIds.find((memberId) => memberId !== wrap.ownerUserId)
-        : undefined;
-    const wrapperPublicKey =
-      wrap.wrapperPublicKey ??
-      context.identityByUserId.get(
-        wrap.wrapperUserId ?? legacyDmWrapperId ?? ""
-      )?.publicKey;
-    if (!wrapperPublicKey) {
+    const rootKey = await recoverWrappedRootKey(conversationId, wrap, context);
+    if (!rootKey) {
       continue;
     }
     try {
-      const rootKey = await unwrapRootKey(
-        privateKey,
-        await importPublicKeyJwk(publicKeyBase64ToJwk(wrapperPublicKey)),
-        conversationId,
-        { ciphertext: wrap.encryptedKey, iv: wrap.iv }
-      );
       const payload = await decryptMessage(
         rootKey,
         message.senderId,
@@ -249,7 +403,13 @@ async function decryptSearchableMessage(
           ...(requiredId ? { requiredId } : {}),
         })
       );
-      return { keyEpoch: wrap.version, references, terms };
+      const epochProofs = await verifyViewerEpochs(
+        conversationId,
+        wrap.version,
+        rootKey,
+        context
+      );
+      return { epochProofs, keyEpoch: wrap.version, references, terms };
     } catch {
       // Another wrap may be the authenticated epoch for this message.
     }
@@ -309,6 +469,7 @@ export async function processMessageSearchOutbox(
     if (result) {
       const persisted = await persistSearchDocument({
         conversationId: outbox.conversationId,
+        epochProofs: result.epochProofs,
         keyEpoch: result.keyEpoch,
         messageId: message.id,
         outboxId,
@@ -370,9 +531,66 @@ export async function processMessageSearchBackfill(
     }
     rows = batch.messages.length;
     if (batch.messages.length === 0) {
+      const context = await loadConversationSearchContext(conversationId);
+      const epochs = [
+        ...new Set(
+          context.wraps
+            .filter((wrap) => {
+              const source = epochProofSource(wrap, context);
+              const stored = context.storedEpochProofs.get(wrap.id);
+              return (
+                source &&
+                (stored?.sourceFingerprint !== source.sourceFingerprint ||
+                  stored.recoveryGeneration !== source.recoveryGeneration)
+              );
+            })
+            .map((wrap) => wrap.version)
+        ),
+      ];
+      const epochProofBatches = await mapConcurrent(
+        epochs,
+        MESSAGE_SEARCH_DECRYPT_CONCURRENCY,
+        async (epoch) => {
+          const representative = await prisma.orm.public.Messages.where({
+            conversationId,
+            deletedAt: null,
+            keyEpoch: epoch,
+          }).first();
+          if (representative) {
+            const authenticated = await decryptSearchableMessage(
+              conversationId,
+              representative,
+              context
+            );
+            if (authenticated) {
+              return authenticated.epochProofs;
+            }
+          }
+          const proofs = await mapConcurrent(
+            context.wraps.filter((wrap) => wrap.version === epoch),
+            MESSAGE_SEARCH_DECRYPT_CONCURRENCY,
+            async (wrap) => {
+              const source = epochProofSource(wrap, context);
+              if (!source) {
+                return null;
+              }
+              // Existing history requires authenticated message decryption; only an empty epoch can settle by unwrapping alone.
+              const rootKey = representative
+                ? null
+                : await recoverWrappedRootKey(conversationId, wrap, context);
+              return { ...source, readable: rootKey !== null };
+            }
+          );
+          return proofs.filter(
+            (proof): proof is MessageSearchEpochProof => proof !== null
+          );
+        }
+      );
+      const epochProofs = epochProofBatches.flat();
       const committed = await commitMessageSearchBackfillBatch({
         artifacts: [],
         conversationId,
+        epochProofs,
         expectedPosition: batch.expectedPosition,
         finished: true,
         nextPosition: batch.expectedPosition,
@@ -403,6 +621,7 @@ export async function processMessageSearchBackfill(
         return {
           artifact: {
             createdAt: message.createdAt,
+            epochProofs: result.epochProofs,
             keyEpoch: result.keyEpoch,
             messageId: message.id,
             references: result.references,
@@ -469,4 +688,5 @@ export async function processMessageSearchBackfill(
 export function clearMessageSearchKeyCache(): void {
   privateKeyCache.clear();
   pendingPrivateKeyCache.clear();
+  wrappedRootKeyCache.clear();
 }

@@ -14,6 +14,7 @@ import {
 } from "@asm/db";
 import { Pool } from "pg";
 
+import { seedVerifiedMessageEpochFixture } from "./epoch-readability-fixture";
 import { explainSearchMessageCandidatesForDiagnostics } from "./search-index";
 
 const SCALE_PROFILES = {
@@ -155,6 +156,12 @@ async function seedConversation(): Promise<void> {
       )
     );
   });
+
+  await Promise.all(
+    CONVERSATION_IDS.map((conversationId) =>
+      seedVerifiedMessageEpochFixture(conversationId)
+    )
+  );
 
   // oxlint-disable no-await-in-loop -- Keep large fixture conversations sequential to bound write pressure.
   for (

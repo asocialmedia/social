@@ -7,6 +7,7 @@ import {
   listMessageSearchReferences,
   prisma,
   startMessageSearchBackfill,
+  readMessageSearchViewerEpochCoverage,
 } from "@asm/db";
 import { readMessageSearchFeatureFlags } from "@asm/messages/search";
 
@@ -134,7 +135,7 @@ export async function GET(
   }
 
   try {
-    const [sequence, recoveryState, membershipEvents, coverage] =
+    const [sequence, recoveryState, membershipEvents, coverage, epochCoverage] =
       await Promise.all([
         prisma.orm.public.MessageConversations.select("changeSeq")
           .where({ id: conversationId })
@@ -152,6 +153,7 @@ export async function GET(
         )
           .where({ conversationId })
           .first(),
+        readMessageSearchViewerEpochCoverage(conversationId, user.id),
       ]);
     const membershipSequence = conversation.membershipSeq ?? 0;
     const recoveryGeneration = recoveryState?.recoveryGeneration ?? 0;
@@ -191,9 +193,12 @@ export async function GET(
     const coverageSettled =
       coverage?.backfillCompletedAt !== null &&
       coverage?.backfillCompletedAt !== undefined &&
-      coverage.completedChangeSeq >= snapshotSequence;
+      coverage.completedChangeSeq >= snapshotSequence &&
+      epochCoverage.pending === 0;
     const coverageComplete =
-      coverageSettled && coverage?.unrecoverableEpochs === 0;
+      coverageSettled &&
+      coverage?.unrecoverableEpochs === 0 &&
+      epochCoverage.unavailable === 0;
     const coveragePaused = !flags.backfill && !coverageSettled;
     const membershipWindows = readerMessageWindows({
       conversationType: conversation.type,

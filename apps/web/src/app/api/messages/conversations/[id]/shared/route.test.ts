@@ -47,6 +47,9 @@ mock.module("@/lib/auth/session", () => ({
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: mockConversation,
 }));
+const mockEpochCoverage = mock(() =>
+  Promise.resolve({ pending: 0, unavailable: 0 })
+);
 mock.module("@asm/db", () => ({
   consumeRateLimit: mockRateLimit,
   enqueueMessageSearchBackfill: mockEnqueueBackfill,
@@ -73,6 +76,7 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  readMessageSearchViewerEpochCoverage: mockEpochCoverage,
   startMessageSearchBackfill: mockStartBackfill,
 }));
 
@@ -100,6 +104,8 @@ function referenceRow(messageId: string, second: number, ordinal = 0) {
 
 describe("GET /api/messages/conversations/:id/shared", () => {
   beforeEach(() => {
+    mockEpochCoverage.mockReset();
+    mockEpochCoverage.mockResolvedValue({ pending: 0, unavailable: 0 });
     process.env.MESSAGE_SEARCH_BACKFILL_ENABLED = "1";
     process.env.MESSAGE_SEARCH_COUNT_ENABLED = "1";
     process.env.MESSAGE_SEARCH_SERVER_ENABLED = "1";
@@ -193,6 +199,17 @@ describe("GET /api/messages/conversations/:id/shared", () => {
       limit: 2,
       snapshotSequence: 80,
       userId: "user-1",
+    });
+  });
+
+  test("keeps reference coverage incomplete while the viewer's epochs are unverified", async () => {
+    mockEpochCoverage.mockResolvedValue({ pending: 1, unavailable: 0 });
+    const response = await GET(request(), context);
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      coverageComplete: false,
+      coverageSettled: false,
     });
   });
 
