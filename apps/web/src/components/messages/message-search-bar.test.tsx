@@ -66,4 +66,18 @@ describe("MessageSearchBar user-facing fallback states", () => {
     expect(markup).toContain("Search couldn&#x27;t finish");
     expect(markup).not.toContain("Searching older messages…</span>");
   });
+
+  test("keeps partial hits visible while naming incomplete server coverage", () => {
+    const markup = renderSearchBar({
+      indexingOlder: true,
+      matchCount: 7,
+      resultCount: 7,
+      searchHasMore: false,
+      serverManaged: true,
+      totalResults: 7,
+    });
+
+    expect(markup).toContain("Searching older messages…");
+    expect(markup).not.toContain("7 results");
+  });
 });

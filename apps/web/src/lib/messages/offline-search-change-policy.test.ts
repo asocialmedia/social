@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DurableMessageChange } from "./durable-change-replay";
-import { planOfflineSearchChangeEffects } from "./offline-search-change-policy";
+import {
+  planOfflineSearchChangeEffects,
+  shouldRefreshServerSearchSnapshot,
+} from "./offline-search-change-policy";
 
 function change(
   overrides: Partial<DurableMessageChange> = {}
@@ -21,6 +24,31 @@ function change(
 }
 
 describe("offline search replay change policy", () => {
+  test("keeps a paginated search snapshot stable across new messages", () => {
+    expect(
+      shouldRefreshServerSearchSnapshot(
+        [change({ id: "new-message", kind: "message.created" })],
+        false
+      )
+    ).toBe(false);
+  });
+
+  test("refreshes search snapshots for edits, visibility changes, and resets", () => {
+    expect(
+      shouldRefreshServerSearchSnapshot(
+        [change({ kind: "message.edited" })],
+        false
+      )
+    ).toBe(true);
+    expect(
+      shouldRefreshServerSearchSnapshot(
+        [change({ kind: "message.hidden" })],
+        false
+      )
+    ).toBe(true);
+    expect(shouldRefreshServerSearchSnapshot([], true)).toBe(true);
+  });
+
   test("removes changed entries behind revision and sequence tombstones", () => {
     expect(planOfflineSearchChangeEffects([change()])).toEqual({
       invalidateDecryptIds: ["message-1"],

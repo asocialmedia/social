@@ -49,6 +49,12 @@ import type {
   SearchIndexStore,
 } from "./search-index-format";
 import { decidePageRequest, headPageCursor } from "./search-page-refresh";
+import {
+  decideServerSearchPageRequest,
+  serverSearchCoverageRetryDelay,
+  serverSearchHasMore,
+  shouldPollServerSearchCoverage,
+} from "./server-search-coverage";
 
 export interface ConversationSearchInput {
   allMessages: MessageData[];
@@ -137,12 +143,14 @@ interface ServerSearchPage {
   hits: MessageData[];
   offline: boolean;
   nextCursor: string | null;
+  snapshotToken: string | null;
   totalMatches: number | null;
 }
 
 interface ServerSearchPageState {
   key: string;
   pages: ServerSearchPage[];
+  requestGeneration: number;
 }
 
 function isSearchApiHit(value: unknown): value is SearchHydrationHit {
@@ -319,8 +327,12 @@ export function useConversationSearch(
     {
       key: "",
       pages: [],
+      requestGeneration: 0,
     }
   );
+  const [serverRequestGeneration, setServerRequestGeneration] = useState(0);
+  const serverCoveragePollKeyRef = useRef("");
+  const serverCoveragePollAttemptRef = useRef(0);
   const [serverRequest, setServerRequest] = useState<{
     error: string | null;
     key: string;
@@ -522,10 +534,21 @@ export function useConversationSearch(
     }
     const currentPages =
       serverPageState.key === requestKey ? serverPageState.pages : [];
-    if (currentPages.length > listPage) {
+    const requestGenerationChanged =
+      currentPages.length > 0 &&
+      serverPageState.requestGeneration !== serverRequestGeneration;
+    const refreshingIncompleteHead =
+      requestGenerationChanged && currentPages[0]?.coverageComplete === false;
+    const pageRequest = decideServerSearchPageRequest({
+      currentPagesLength: currentPages.length,
+      listPage,
+      refreshingIncompleteHead,
+      requestGenerationChanged,
+    });
+    if (!pageRequest) {
       return;
     }
-    const pageIndex = currentPages.length;
+    const { pageIndex } = pageRequest;
     const cursor =
       pageIndex === 0 ? undefined : currentPages.at(-1)?.nextCursor;
     if (pageIndex > 0 && !cursor) {
@@ -575,6 +598,7 @@ export function useConversationSearch(
             ),
             nextCursor: encodeOfflineSearchCursor(page.nextCursor),
             offline: true,
+            snapshotToken: null,
             totalMatches: page.totalMatches,
           });
           before = page.nextCursor ?? undefined;
@@ -582,7 +606,11 @@ export function useConversationSearch(
         if (cancelled || pages.length === 0) {
           return false;
         }
-        setServerPageState({ key: requestKey, pages });
+        setServerPageState({
+          key: requestKey,
+          pages,
+          requestGeneration: serverRequestGeneration,
+        });
         const lastPage = pages.at(-1);
         if (
           lastPage?.totalMatches !== null &&
@@ -612,19 +640,36 @@ export function useConversationSearch(
         if (page) {
           setServerPageState((current) => ({
             key: requestKey,
-            pages: [
-              ...(current.key === requestKey ? current.pages : []),
-              {
-                countToken: null,
-                coverageComplete: true,
-                hits: page.hits.map((record) =>
-                  offlineSearchRecordToMessageData(conversationId, record)
-                ),
-                nextCursor: encodeOfflineSearchCursor(page.nextCursor),
-                offline: true,
-                totalMatches: page.totalMatches,
-              },
-            ],
+            pages:
+              pageIndex === 0
+                ? [
+                    {
+                      countToken: null,
+                      coverageComplete: true,
+                      hits: page.hits.map((record) =>
+                        offlineSearchRecordToMessageData(conversationId, record)
+                      ),
+                      nextCursor: encodeOfflineSearchCursor(page.nextCursor),
+                      offline: true,
+                      snapshotToken: null,
+                      totalMatches: page.totalMatches,
+                    },
+                  ]
+                : [
+                    ...(current.key === requestKey ? current.pages : []),
+                    {
+                      countToken: null,
+                      coverageComplete: true,
+                      hits: page.hits.map((record) =>
+                        offlineSearchRecordToMessageData(conversationId, record)
+                      ),
+                      nextCursor: encodeOfflineSearchCursor(page.nextCursor),
+                      offline: true,
+                      snapshotToken: null,
+                      totalMatches: page.totalMatches,
+                    },
+                  ],
+            requestGeneration: serverRequestGeneration,
           }));
           setServerCount({
             count: page.totalMatches,
@@ -641,10 +686,18 @@ export function useConversationSearch(
         return;
       }
       try {
+        const snapshot =
+          pageIndex === 0 && refreshingIncompleteHead
+            ? currentPages[0]?.snapshotToken
+            : undefined;
         const response = await fetch(
           `/api/messages/conversations/${encodeURIComponent(conversationId)}/search`,
           {
-            body: JSON.stringify({ cursor, query: debouncedQuery }),
+            body: JSON.stringify({
+              ...(cursor ? { cursor } : {}),
+              ...(snapshot ? { snapshot } : {}),
+              query: debouncedQuery,
+            }),
             headers: { "Content-Type": "application/json" },
             method: "POST",
             signal: controller.signal,
@@ -679,7 +732,11 @@ export function useConversationSearch(
         }
         const body = payload as Record<string, unknown>;
         const rawHits = body.hits;
-        if (!Array.isArray(rawHits)) {
+        if (
+          !Array.isArray(rawHits) ||
+          typeof body.snapshotToken !== "string" ||
+          body.snapshotToken.length === 0
+        ) {
           if (!cancelled) {
             setServerRequest({
               error: "Search could not load. Try again.",
@@ -714,22 +771,23 @@ export function useConversationSearch(
           typeof body.nextCursor === "string" ? body.nextCursor : null;
         const countToken =
           typeof body.countToken === "string" ? body.countToken : null;
+        const {snapshotToken} = body;
         if (!cancelled) {
           setServerPageState((current) => {
             const pages = current.key === requestKey ? current.pages : [];
+            const nextPage = {
+              countToken,
+              coverageComplete,
+              hits,
+              nextCursor,
+              offline: false,
+              snapshotToken,
+              totalMatches: null,
+            };
             return {
               key: requestKey,
-              pages: [
-                ...pages,
-                {
-                  countToken,
-                  coverageComplete,
-                  hits,
-                  nextCursor,
-                  offline: false,
-                  totalMatches: null,
-                },
-              ],
+              pages: pageIndex === 0 ? [nextPage] : [...pages, nextPage],
+              requestGeneration: serverRequestGeneration,
             };
           });
           setServerRequest({ error: null, key: requestKey, loading: false });
@@ -762,6 +820,7 @@ export function useConversationSearch(
     offlineScopeKey,
     offlineSearchScope,
     serverSearchKey,
+    serverRequestGeneration,
   ]);
 
   const serverPages = useMemo(
@@ -845,16 +904,14 @@ export function useConversationSearch(
       controller?.abort();
     };
   }, [conversationId, enabled, serverCountKey, serverCountToken, serverMode]);
+
   const searchMessages = useMemo(
     () => (serverMode ? serverMessages : allMessages),
     [allMessages, serverMessages, serverMode]
   );
 
   const retry = useCallback(() => {
-    setServerPageState((current) => ({
-      key: current.key,
-      pages: [...current.pages],
-    }));
+    setServerRequestGeneration((generation) => generation + 1);
   }, []);
 
   // One point read for the coverage count, so the bar can say how much of the
@@ -1464,13 +1521,16 @@ export function useConversationSearch(
     0
   );
   const lastServerPage = serverPages.at(-1);
-  const serverHasMore =
-    (lastServerPage !== undefined && lastServerPage.nextCursor !== null) ||
-    (serverMode &&
-      enabled &&
-      normalizeMessageSearchQuery(debouncedQuery).valid &&
-      (serverPages.length === 0 ||
-        serverPages.at(-1)?.coverageComplete !== true));
+  const serverCoverageIncomplete =
+    serverMode &&
+    enabled &&
+    !serverOffline &&
+    normalizeMessageSearchQuery(debouncedQuery).valid &&
+    (serverPages.length === 0 || serverPages.at(-1)?.coverageComplete !== true);
+  const serverHasMore = serverSearchHasMore({
+    coverageComplete: !serverCoverageIncomplete,
+    nextCursor: lastServerPage?.nextCursor ?? null,
+  });
   const serverExactCount =
     serverCount?.key === serverCountKey ? serverCount.count : null;
   const serverTotalMatches = serverMode
@@ -1482,12 +1542,52 @@ export function useConversationSearch(
   const serverDecryptLoading = serverMessages.some(
     (message) => messageDecryptor.get(message.id) === "pending"
   );
-  const serverCoverageIncomplete =
-    serverMode &&
-    enabled &&
-    !serverOffline &&
-    normalizeMessageSearchQuery(debouncedQuery).valid &&
-    (serverPages.length === 0 || serverPages.at(-1)?.coverageComplete !== true);
+
+  useEffect(() => {
+    if (serverCoveragePollKeyRef.current !== serverSearchKey) {
+      serverCoveragePollKeyRef.current = serverSearchKey;
+      serverCoveragePollAttemptRef.current = 0;
+    }
+    const canPoll = shouldPollServerSearchCoverage({
+      coverageComplete: serverPages[0]?.coverageComplete === true,
+      hasPage: serverPages.length > 0,
+      offline: serverOffline,
+      queryValid: normalizeMessageSearchQuery(debouncedQuery).valid,
+      requestError: Boolean(serverSearchError),
+      requestLoading: serverSearchLoading,
+      searchEnabled: enabled,
+      serverMode,
+    });
+    if (!canPoll) {
+      if (
+        !serverCoverageIncomplete ||
+        serverOffline ||
+        serverSearchError ||
+        !enabled
+      ) {
+        serverCoveragePollAttemptRef.current = 0;
+      }
+      return;
+    }
+    const delay = serverSearchCoverageRetryDelay(
+      serverCoveragePollAttemptRef.current
+    );
+    const timer = setTimeout(() => {
+      serverCoveragePollAttemptRef.current += 1;
+      setServerRequestGeneration((generation) => generation + 1);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [
+    debouncedQuery,
+    enabled,
+    serverCoverageIncomplete,
+    serverMode,
+    serverOffline,
+    serverPages,
+    serverSearchError,
+    serverSearchKey,
+    serverSearchLoading,
+  ]);
 
   // Which rows the list view renders. Page 0 is the merged head; deeper pages are
   // the on-demand window, and only once it belongs to this query -- a window from

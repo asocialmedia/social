@@ -21,9 +21,11 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { readerMessageWindows } from "@/lib/messages/reader-window";
 import { createMessageSearchCountToken } from "@/lib/messages/search-count-token";
 import {
+  createMessageSearchSnapshot,
   createMessageSearchCursor,
   messageSearchQueryHash,
   readMessageSearchCursor,
+  readMessageSearchSnapshot,
 } from "@/lib/messages/search-cursor";
 import { recordMessageSearchApiMetric } from "@/lib/messages/search-telemetry";
 import { getConversationForUser } from "@/lib/messages/server";
@@ -34,6 +36,7 @@ const MAX_SEARCH_BODY_BYTES = 16 * 1024;
 interface SearchRequestBody {
   cursor?: string;
   query?: string;
+  snapshot?: string;
 }
 
 function isSearchRequestBody(value: unknown): value is SearchRequestBody {
@@ -139,6 +142,19 @@ export async function POST(
   if (rawBody.cursor !== undefined && typeof rawBody.cursor !== "string") {
     return Response.json({ error: "Invalid search cursor" }, { status: 400 });
   }
+  if (rawBody.snapshot !== undefined && typeof rawBody.snapshot !== "string") {
+    return Response.json({ error: "Invalid search snapshot" }, { status: 400 });
+  }
+  if (
+    (rawBody.cursor !== undefined && rawBody.snapshot !== undefined) ||
+    rawBody.cursor === "" ||
+    rawBody.snapshot === ""
+  ) {
+    return Response.json(
+      { error: "Invalid search page request" },
+      { status: 400 }
+    );
+  }
 
   const member = conversation.members.find(
     (candidate) => candidate.userId === user.id
@@ -194,7 +210,7 @@ export async function POST(
   };
   let before: { createdAt: Date; messageId: string } | undefined;
   let effectiveSnapshotSequence = snapshotSequence;
-  if (rawBody.cursor) {
+  if (rawBody.cursor !== undefined) {
     const cursor = readMessageSearchCursor(
       rawBody.cursor,
       cursorScope,
@@ -211,6 +227,19 @@ export async function POST(
       createdAt: new Date(cursor.after.createdAt),
       messageId: cursor.after.messageId,
     };
+  } else if (rawBody.snapshot !== undefined) {
+    const snapshot = readMessageSearchSnapshot(
+      rawBody.snapshot,
+      cursorScope,
+      keys.VIEWER_HASH_SECRET
+    );
+    if (!snapshot || snapshot.snapshotSequence > snapshotSequence) {
+      return Response.json(
+        { code: "SEARCH_SCOPE_CHANGED", error: "Start this search again" },
+        { status: 409 }
+      );
+    }
+    effectiveSnapshotSequence = snapshot.snapshotSequence;
   }
 
   const windows = readerMessageWindows({
@@ -264,7 +293,13 @@ export async function POST(
       completedChangeSequence >= effectiveSnapshotSequence &&
       coverage.unrecoverableEpochs === 0;
     let countToken: string | null = null;
-    if (!rawBody.cursor && hasMore && coverageComplete && features.counts) {
+    if (
+      rawBody.cursor === undefined &&
+      rawBody.snapshot === undefined &&
+      hasMore &&
+      coverageComplete &&
+      features.counts
+    ) {
       try {
         const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
         const countRequest = await requestMessageSearchCount({
@@ -324,6 +359,10 @@ export async function POST(
         senderId: hit.senderId,
       })),
       nextCursor,
+      snapshotToken: createMessageSearchSnapshot(
+        { ...cursorScope, snapshotSequence: effectiveSnapshotSequence },
+        keys.VIEWER_HASH_SECRET
+      ),
     });
     searchOutcome = "success";
     return response;

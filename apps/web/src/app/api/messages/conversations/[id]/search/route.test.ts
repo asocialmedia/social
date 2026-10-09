@@ -331,6 +331,36 @@ describe("POST /api/messages/conversations/:id/search", () => {
     });
   });
 
+  test("pins an incomplete first-page refresh to the initial search snapshot", async () => {
+    const first = await POST(request({ query: "needle" }), context);
+    const firstBody = (await first.json()) as { snapshotToken: string };
+    expect(firstBody.snapshotToken).toBeString();
+
+    mockChangeSequence.mockReturnValueOnce({ changeSeq: 120 });
+    const refreshed = await POST(
+      request({ query: "needle", snapshot: firstBody.snapshotToken }),
+      context
+    );
+
+    expect(refreshed.status).toBe(200);
+    expect(candidateInput).toMatchObject({ snapshotSequence: 90 });
+    const refreshedBody = (await refreshed.json()) as {
+      coverage: { snapshotSequence: number };
+      snapshotToken: string;
+    };
+    expect(refreshedBody.coverage.snapshotSequence).toBe(90);
+    expect(refreshedBody.snapshotToken).toBe(firstBody.snapshotToken);
+  });
+
+  test("rejects invalid and ambiguous page boundaries", async () => {
+    const response = await POST(
+      request({ cursor: "cursor", query: "needle", snapshot: "snapshot" }),
+      context
+    );
+    expect(response.status).toBe(400);
+    expect(mockSearchCandidates).not.toHaveBeenCalled();
+  });
+
   test("rejects a cursor when permission scope changed", async () => {
     mockSearchCandidates.mockReturnValueOnce(
       Promise.resolve(

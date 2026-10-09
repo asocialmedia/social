@@ -8,6 +8,15 @@ export interface OfflineSearchChangePlan {
   unavailableIds: string[];
 }
 
+export function shouldRefreshServerSearchSnapshot(
+  changes: readonly DurableMessageChange[],
+  resetRequired: boolean
+): boolean {
+  return (
+    resetRequired || changes.some((change) => change.kind !== "message.created")
+  );
+}
+
 export function planOfflineSearchChangeEffects(
   changes: readonly DurableMessageChange[]
 ): OfflineSearchChangePlan {

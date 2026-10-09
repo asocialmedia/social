@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createMessageSearchCursor,
+  createMessageSearchSnapshot,
   messageSearchQueryHash,
   readMessageSearchCursor,
+  readMessageSearchSnapshot,
 } from "./search-cursor";
 
 const secret = "test-search-secret";
@@ -54,6 +56,32 @@ describe("message search cursors", () => {
       readMessageSearchCursor(
         token,
         { ...scope, recoveryGeneration: 3 },
+        secret
+      )
+    ).toBeNull();
+  });
+});
+
+describe("message search snapshots", () => {
+  test("round trips while preserving the original search sequence", () => {
+    const snapshot = { ...scope, snapshotSequence: 90 };
+    const token = createMessageSearchSnapshot(snapshot, secret);
+    expect(readMessageSearchSnapshot(token, scope, secret)).toEqual(snapshot);
+  });
+
+  test("rejects tampered tokens and tokens from another permission scope", () => {
+    const token = createMessageSearchSnapshot(
+      { ...scope, snapshotSequence: 90 },
+      secret
+    );
+    expect(readMessageSearchSnapshot(`${token}x`, scope, secret)).toBeNull();
+    expect(
+      readMessageSearchSnapshot(token, { ...scope, userId: "user-2" }, secret)
+    ).toBeNull();
+    expect(
+      readMessageSearchSnapshot(
+        token,
+        { ...scope, queryHash: messageSearchQueryHash("other query") },
         secret
       )
     ).toBeNull();

@@ -182,7 +182,10 @@ import {
   SEARCH_PAGE_SIZE,
 } from "@/lib/messages/message-search";
 import { messagesTrustNote } from "@/lib/messages/messages-trust";
-import { planOfflineSearchChangeEffects } from "@/lib/messages/offline-search-change-policy";
+import {
+  planOfflineSearchChangeEffects,
+  shouldRefreshServerSearchSnapshot,
+} from "@/lib/messages/offline-search-change-policy";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 import { createScopedSearchIndexStore } from "@/lib/messages/scoped-search-index";
 import {
@@ -4706,6 +4709,10 @@ export function MessageThread({
         (change) => change.messageId === null
       );
       const resetConversation = replay.resetRequired || accessChanged;
+      const refreshServerSearchSnapshot = shouldRefreshServerSearchSnapshot(
+        replay.changes,
+        resetConversation
+      );
       let cacheSynchronized = true;
       const clearLegacySearchIndex = async (): Promise<boolean> => {
         const writer = searchWriterRef.current;
@@ -4838,7 +4845,9 @@ export function MessageThread({
             ]);
           }
           bumpSearchIndex();
-          setServerSearchRefreshToken((token) => token + 1);
+          if (refreshServerSearchSnapshot) {
+            setServerSearchRefreshToken((token) => token + 1);
+          }
           return cacheSynchronized;
         },
         conversationId,
@@ -4850,7 +4859,7 @@ export function MessageThread({
         return false;
       }
       durableChangeCursorRef.current = { cursor: replay.cursor, scope };
-      if (replay.changes.length > 0 || resetConversation) {
+      if (refreshServerSearchSnapshot) {
         messageChangeBroadcastRef.current?.publish({
           accessChanged,
           conversationId,

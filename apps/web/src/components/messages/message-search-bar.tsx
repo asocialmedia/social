@@ -218,6 +218,8 @@ export function MessageSearchBar({
       statusText = "No matching messages";
     } else if (offlineSearch) {
       statusText = "Offline — searching saved messages";
+    } else if (indexingOlder) {
+      statusText = "Searching older messages…";
     } else if (listView && totalResults > 0) {
       statusText = `${rangeStart}–${rangeEnd}${searchHasMore ? "+" : ""} results`;
     } else if (!listView && matchCount > 0) {
