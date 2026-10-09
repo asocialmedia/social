@@ -13,6 +13,7 @@ export interface MessageSearchWorkerMetricEvent {
   durationMs: number;
   job: MessageSearchWorkerJob;
   outcome: MessageSearchWorkerOutcome;
+  processRssBytes?: number;
   queueAgeMs?: number;
   rows?: number;
   unreadableRows?: number;
@@ -22,13 +23,43 @@ export interface MessageSearchWorkerMetricSink {
   record: (event: MessageSearchWorkerMetricEvent) => void;
 }
 
-function finiteMilliseconds(value: number): number {
+export interface MessageSearchWorkerMetricCounter {
+  add: (value: number, attributes?: Record<string, string>) => void;
+}
+
+export interface MessageSearchWorkerMetricHistogram {
+  record: (value: number, attributes?: Record<string, string>) => void;
+}
+
+export interface MessageSearchWorkerMetricMeter {
+  createCounter: (
+    name: string,
+    options: { description: string }
+  ) => MessageSearchWorkerMetricCounter;
+  createHistogram: (
+    name: string,
+    options: { description: string; unit: string }
+  ) => MessageSearchWorkerMetricHistogram;
+}
+
+function finiteMeasurement(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-export function createMessageSearchWorkerMetricSink(): MessageSearchWorkerMetricSink {
+function currentProcessRssBytes(): number | undefined {
   try {
-    const { meter } = getTelemetryApi();
+    const value = process.memoryUsage().rss;
+    return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function createMessageSearchWorkerMetricSink(
+  getMeter: () => MessageSearchWorkerMetricMeter = () => getTelemetryApi().meter
+): MessageSearchWorkerMetricSink {
+  try {
+    const meter = getMeter();
     const jobs = meter.createCounter("messages.search.worker.jobs", {
       description: "DM search worker jobs by job type and outcome",
     });
@@ -43,6 +74,20 @@ export function createMessageSearchWorkerMetricSink(): MessageSearchWorkerMetric
     const rows = meter.createCounter("messages.search.worker.rows", {
       description: "Rows traversed or completed by DM search workers",
     });
+    const rowsPerSecond = meter.createHistogram(
+      "messages.search.worker.rows_per_second",
+      {
+        description: "DM search worker row processing throughput",
+        unit: "rows/s",
+      }
+    );
+    const processRss = meter.createHistogram(
+      "messages.search.worker.process_rss_bytes",
+      {
+        description: "DM search worker process resident memory after a job",
+        unit: "By",
+      }
+    );
     const unreadableRows = meter.createCounter(
       "messages.search.worker.unreadable_rows",
       {
@@ -54,16 +99,38 @@ export function createMessageSearchWorkerMetricSink(): MessageSearchWorkerMetric
       record(event) {
         const attributes = { job: event.job, outcome: event.outcome };
         jobs.add(1, attributes);
-        duration.record(finiteMilliseconds(event.durationMs), attributes);
+        duration.record(finiteMeasurement(event.durationMs), attributes);
         if (event.queueAgeMs !== undefined) {
-          queueAge.record(finiteMilliseconds(event.queueAgeMs), {
+          queueAge.record(finiteMeasurement(event.queueAgeMs), {
             job: event.job,
           });
         }
-        if (event.rows !== undefined && event.rows > 0) {
-          rows.add(Math.trunc(event.rows), attributes);
+        if (
+          event.rows !== undefined &&
+          Number.isFinite(event.rows) &&
+          event.rows > 0
+        ) {
+          const rowCount = Math.trunc(event.rows);
+          rows.add(rowCount, attributes);
+          if (event.durationMs > 0) {
+            rowsPerSecond.record(
+              finiteMeasurement((rowCount * 1000) / event.durationMs),
+              { job: event.job }
+            );
+          }
         }
-        if (event.unreadableRows !== undefined && event.unreadableRows > 0) {
+        if (
+          event.processRssBytes !== undefined &&
+          Number.isFinite(event.processRssBytes) &&
+          event.processRssBytes >= 0
+        ) {
+          processRss.record(event.processRssBytes, { job: event.job });
+        }
+        if (
+          event.unreadableRows !== undefined &&
+          Number.isFinite(event.unreadableRows) &&
+          event.unreadableRows > 0
+        ) {
           unreadableRows.add(Math.trunc(event.unreadableRows), {
             job: event.job,
           });
@@ -79,8 +146,15 @@ export function safelyRecordMessageSearchWorkerMetric(
   sink: MessageSearchWorkerMetricSink | undefined,
   event: MessageSearchWorkerMetricEvent
 ): void {
+  if (!sink) {
+    return;
+  }
+  const processRssBytes = currentProcessRssBytes();
   try {
-    sink?.record(event);
+    sink.record({
+      ...event,
+      ...(processRssBytes === undefined ? {} : { processRssBytes }),
+    });
   } catch {
     // Injected or exporter-backed recorders must never fail the worker job.
   }

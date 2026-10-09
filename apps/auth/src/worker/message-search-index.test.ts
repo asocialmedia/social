@@ -264,7 +264,11 @@ describe("message search indexing worker", () => {
     expect(mockMarkUnreadable).not.toHaveBeenCalled();
     expect(mockLoggerWarn).not.toHaveBeenCalled();
     expect(metrics).toEqual([
-      expect.objectContaining({ job: "live-index", outcome: "indexed" }),
+      expect.objectContaining({
+        job: "live-index",
+        outcome: "indexed",
+        rows: 1,
+      }),
     ]);
     expect(metrics[0]).not.toHaveProperty("conversationId");
     expect(metrics[0]).not.toHaveProperty("messageId");

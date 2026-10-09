@@ -269,6 +269,7 @@ export async function processMessageSearchOutbox(
   let outcome: "indexed" | "retry" | "skipped" | "superseded" | "unreadable" =
     "retry";
   let queueAgeMs: number | undefined;
+  let rows = 0;
   try {
     const outbox = await prisma.orm.public.MessageSearchOutbox.where({
       id: outboxId,
@@ -285,6 +286,7 @@ export async function processMessageSearchOutbox(
       conversationId: outbox.conversationId,
       id: outbox.messageId,
     }).first();
+    rows = message ? 1 : 0;
     if (!message || message.deletedAt || message.revision !== outbox.revision) {
       const persisted = await persistSearchDocument({
         conversationId: outbox.conversationId,
@@ -333,6 +335,7 @@ export async function processMessageSearchOutbox(
       durationMs: performance.now() - startedAt,
       job: "live-index",
       outcome,
+      rows,
       ...(queueAgeMs === undefined ? {} : { queueAgeMs }),
     });
   }

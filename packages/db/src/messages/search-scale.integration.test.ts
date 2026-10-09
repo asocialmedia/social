@@ -239,6 +239,39 @@ async function seedConversation(): Promise<void> {
   }
 }
 
+async function readSearchIndexStorageSnapshot(pool: Pool): Promise<{
+  indexBytes: bigint;
+  walBytes: bigint;
+}> {
+  const [indexResult, walResult] = await Promise.all([
+    pool.query<{ indexBytes: string }>(
+      `
+      SELECT COALESCE(SUM(pg_indexes_size(table_rel.oid)), 0)::text AS "indexBytes"
+      FROM pg_class AS table_rel
+      JOIN pg_namespace AS namespace ON namespace.oid = table_rel.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND table_rel.relkind = 'r'
+        AND table_rel.relname = ANY($1::text[])
+    `,
+      [
+        [
+          "message_search_documents",
+          "message_search_references",
+          "message_search_terms",
+        ],
+      ]
+    ),
+    pool.query<{ walBytes: string }>(`
+      SELECT wal_bytes::text AS "walBytes"
+      FROM pg_stat_wal
+    `),
+  ]);
+  return {
+    indexBytes: BigInt(indexResult.rows[0]?.indexBytes ?? "0"),
+    walBytes: BigInt(walResult.rows[0]?.walBytes ?? "0"),
+  };
+}
+
 async function seedPendingLiveIndexWrites(): Promise<
   {
     conversationId: string;
@@ -425,8 +458,27 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
   `searches ${CONVERSATION_COUNT} DM(s) with ${MESSAGE_COUNT} messages each under broad and concurrent query load`,
   async () => {
     assertLocalTestDatabase();
+    const statisticsPool = new Pool({
+      connectionString: keys.DATABASE_URL,
+      max: 1,
+    });
     try {
+      const storageBeforeSeed =
+        await readSearchIndexStorageSnapshot(statisticsPool);
+      const seedStartedAt = performance.now();
       await seedConversation();
+      const seedDurationMs = performance.now() - seedStartedAt;
+      const storageAfterSeed =
+        await readSearchIndexStorageSnapshot(statisticsPool);
+      const fixtureRows = CONVERSATION_COUNT * MESSAGE_COUNT;
+      const searchIndexBytesAdded =
+        storageAfterSeed.indexBytes >= storageBeforeSeed.indexBytes
+          ? Number(storageAfterSeed.indexBytes - storageBeforeSeed.indexBytes)
+          : null;
+      const observedWalBytesDuringSeed =
+        storageAfterSeed.walBytes >= storageBeforeSeed.walBytes
+          ? Number(storageAfterSeed.walBytes - storageBeforeSeed.walBytes)
+          : null;
       await prisma.orm.public.MessageHiddens.createAll(
         Array.from({ length: HIDDEN_NEWEST_MESSAGE_COUNT }, (_, index) => ({
           messageId: messageId(0, MESSAGE_COUNT - index),
@@ -436,7 +488,20 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       console.info(
         JSON.stringify({
           conversations: CONVERSATION_COUNT,
+          fixtureMessagesPerSecond: Math.round(
+            (fixtureRows * 1000) / seedDurationMs
+          ),
+          fixtureRows,
           messagesPerConversation: MESSAGE_COUNT,
+          observedWalBytesDuringSeed,
+          observedWalBytesPerMessage:
+            observedWalBytesDuringSeed === null
+              ? null
+              : Math.round(observedWalBytesDuringSeed / fixtureRows),
+          searchIndexBytesAdded,
+          searchIndexBytesAfterSeed: Number(storageAfterSeed.indexBytes),
+          searchIndexBytesBeforeSeed: Number(storageBeforeSeed.indexBytes),
+          seedDurationMs: Math.round(seedDurationMs),
           stage: "seeded",
           test: "dm-search-scale",
         })
@@ -676,19 +741,25 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       expect(p95DurationMs).toBeDefined();
       expect(p95DurationMs).toBeLessThan(300);
     } finally {
-      await prisma.orm.public.MessageSearchDocuments.where((document) =>
-        document.conversationId.in(CONVERSATION_IDS)
-      ).deleteAndCount();
-      await prisma.orm.public.MessageSearchTerms.where((term) =>
-        term.conversationId.in(CONVERSATION_IDS)
-      ).deleteAndCount();
-      await prisma.orm.public.MessageConversations.where((conversation) =>
-        conversation.id.in(CONVERSATION_IDS)
-      ).deleteAndCount();
-      await prisma.orm.public.Users.where((user) =>
-        user.id.in([OWNER_ID, ...PEER_IDS])
-      ).deleteAndCount();
-      await closeMessageSearchPool();
+      try {
+        await prisma.orm.public.MessageSearchDocuments.where((document) =>
+          document.conversationId.in(CONVERSATION_IDS)
+        ).deleteAndCount();
+        await prisma.orm.public.MessageSearchTerms.where((term) =>
+          term.conversationId.in(CONVERSATION_IDS)
+        ).deleteAndCount();
+        await prisma.orm.public.MessageConversations.where((conversation) =>
+          conversation.id.in(CONVERSATION_IDS)
+        ).deleteAndCount();
+        await prisma.orm.public.Users.where((user) =>
+          user.id.in([OWNER_ID, ...PEER_IDS])
+        ).deleteAndCount();
+      } finally {
+        await Promise.allSettled([
+          closeMessageSearchPool(),
+          statisticsPool.end(),
+        ]);
+      }
     }
   },
   900_000
