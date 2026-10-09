@@ -90,6 +90,19 @@ mock.module("@asm/db", () => ({
   startMessageSearchBackfill: mockStartBackfill,
 }));
 
+const reversePageCandidates = (start: number, count: number, step: number) =>
+  Array.from({ length: count }, (_, index) => {
+    const ordinal = start + index * step;
+    return {
+      createdAt: new Date(1_700_000_000_000 + ordinal * 1000),
+      id: `message-${ordinal}`,
+      keyEpoch: 1,
+      ratchetIndex: ordinal,
+      revision: 1,
+      senderId: "user-1",
+    };
+  });
+
 function request(
   body: unknown,
   options: { contentLength?: string; user?: boolean } = {}
@@ -432,6 +445,65 @@ describe("POST /api/messages/conversations/:id/search", () => {
       },
       snapshotSequence: 90,
     });
+  });
+
+  test("reverse cursors restore adjacent pages in newest-first order without retaining earlier hits", async () => {
+    interface Page {
+      hits: { id: string }[];
+      nextCursor: string | null;
+      previousCursor: string | null;
+    }
+    mockSearchCandidates.mockResolvedValueOnce(
+      reversePageCandidates(61, 21, -1)
+    );
+    const headResponse = await POST(request({ query: "needle" }), context);
+    const head: Page = await headResponse.json();
+    expect(head.previousCursor).toBeNull();
+    mockSearchCandidates.mockResolvedValueOnce(
+      reversePageCandidates(41, 21, -1)
+    );
+    const secondResponse = await POST(
+      request({ cursor: head.nextCursor, query: "needle" }),
+      context
+    );
+    const second: Page = await secondResponse.json();
+    mockSearchCandidates.mockResolvedValueOnce(
+      reversePageCandidates(21, 21, -1)
+    );
+    const thirdResponse = await POST(
+      request({ cursor: second.nextCursor, query: "needle" }),
+      context
+    );
+    const third: Page = await thirdResponse.json();
+    mockSearchCandidates.mockResolvedValueOnce(
+      reversePageCandidates(22, 21, 1)
+    );
+    mockChangeSequence.mockReturnValueOnce({ changeSeq: 120 });
+    const returnedResponse = await POST(
+      request({ cursor: third.previousCursor, query: "needle" }),
+      context
+    );
+    const returned: Page = await returnedResponse.json();
+    expect(returned.hits).toEqual(second.hits);
+    expect(returned.hits).toHaveLength(20);
+    expect(returned.hits.some((hit) => hit.id === "message-42")).toBe(false);
+    expect(candidateInput).toMatchObject({
+      after: { createdAt: expect.any(Date), messageId: "message-21" },
+      before: undefined,
+      snapshotSequence: 90,
+    });
+    mockSearchCandidates.mockResolvedValueOnce(
+      reversePageCandidates(42, 20, 1)
+    );
+    const returnedHeadResponse = await POST(
+      request({ cursor: returned.previousCursor, query: "needle" }),
+      context
+    );
+    const returnedHead: Page = await returnedHeadResponse.json();
+    expect(returnedHead.hits).toEqual(head.hits);
+    expect(returnedHead.previousCursor).toBeNull();
+    expect(returnedHead.nextCursor).toBeString();
+    expect(mockRequestCount).not.toHaveBeenCalled();
   });
 
   test("pins an incomplete first-page refresh to the initial search snapshot", async () => {

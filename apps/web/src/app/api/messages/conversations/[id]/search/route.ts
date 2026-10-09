@@ -212,6 +212,7 @@ export async function POST(
     userId: user.id,
   };
   let before: { createdAt: Date; messageId: string } | undefined;
+  let after: { createdAt: Date; messageId: string } | undefined;
   let effectiveSnapshotSequence = snapshotSequence;
   if (rawBody.cursor !== undefined) {
     const cursor = readMessageSearchCursor(
@@ -226,10 +227,15 @@ export async function POST(
       );
     }
     effectiveSnapshotSequence = cursor.snapshotSequence;
-    before = {
+    const boundary = {
       createdAt: new Date(cursor.after.createdAt),
       messageId: cursor.after.messageId,
     };
+    if (cursor.direction === "newer") {
+      after = boundary;
+    } else {
+      before = boundary;
+    }
   } else if (rawBody.snapshot !== undefined) {
     const snapshot = readMessageSearchSnapshot(
       rawBody.snapshot,
@@ -261,6 +267,7 @@ export async function POST(
   let searchOutcome: "success" | "unavailable" = "unavailable";
   try {
     const candidates = await searchMessageCandidates({
+      after,
       before,
       conversationId,
       fragments: normalized.tokens.map((text) => ({
@@ -274,20 +281,32 @@ export async function POST(
     });
     const hasMore = candidates.length > SEARCH_LIMIT;
     const hits = candidates.slice(0, SEARCH_LIMIT);
+    // Reverse only the bounded visible page, after removing the nearest-first lookahead.
+    if (after) {
+      hits.reverse();
+    }
+    const createBoundaryCursor = (
+      hit: (typeof hits)[number],
+      direction: "newer" | "older"
+    ) =>
+      createMessageSearchCursor(
+        {
+          ...cursorScope,
+          after: { createdAt: hit.createdAt.toISOString(), messageId: hit.id },
+          direction,
+          snapshotSequence: effectiveSnapshotSequence,
+        },
+        keys.VIEWER_HASH_SECRET
+      );
+    const [firstHit] = hits;
     const lastHit = hits.at(-1);
     const nextCursor =
-      hasMore && lastHit
-        ? createMessageSearchCursor(
-            {
-              ...cursorScope,
-              after: {
-                createdAt: lastHit.createdAt.toISOString(),
-                messageId: lastHit.id,
-              },
-              snapshotSequence: effectiveSnapshotSequence,
-            },
-            keys.VIEWER_HASH_SECRET
-          )
+      lastHit && (after || hasMore)
+        ? createBoundaryCursor(lastHit, "older")
+        : null;
+    const previousCursor =
+      firstHit && (before || (after && hasMore))
+        ? createBoundaryCursor(firstHit, "newer")
         : null;
     const completedChangeSequence = coverage?.completedChangeSeq ?? 0;
     const coverageSettled =
@@ -371,6 +390,7 @@ export async function POST(
         senderId: hit.senderId,
       })),
       nextCursor,
+      previousCursor,
       snapshotToken: createMessageSearchSnapshot(
         { ...cursorScope, snapshotSequence: effectiveSnapshotSequence },
         keys.VIEWER_HASH_SECRET

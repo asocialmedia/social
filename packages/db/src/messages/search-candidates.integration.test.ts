@@ -34,6 +34,10 @@ const WINDOW_HIDDEN_ID = crypto.randomUUID();
 const GATE_HIDDEN_ID = crypto.randomUUID();
 const GATE_FIRST_ID = `search-gate-a-${RUN_ID}`;
 const GATE_SECOND_ID = `search-gate-b-${RUN_ID}`;
+const REVERSE_VISIBLE_IDS = Array.from(
+  { length: 24 },
+  (_, index) => `reverse-visible-${String(index).padStart(3, "0")}-${RUN_ID}`
+);
 const OPEN_WINDOW = [{ after: null, before: null }] as const;
 
 interface IndexedMessageFixture {
@@ -206,6 +210,25 @@ const fixtures: IndexedMessageFixture[] = [
     id: GATE_SECOND_ID,
     text: "gate",
   },
+  ...Array.from({ length: 220 }, (_, index) => ({
+    createdAt: new Date(baseTime.getTime() + 120_000 + index * 1000),
+    creationSequence: 19,
+    hidden: true,
+    id: `reverse-hidden-${index}-${RUN_ID}`,
+    text: "reversepage",
+  })),
+  ...REVERSE_VISIBLE_IDS.map((id) => ({
+    createdAt: new Date(baseTime.getTime() + 400_000),
+    creationSequence: 19,
+    id,
+    text: "reversepage",
+  })),
+  {
+    createdAt: new Date(baseTime.getTime() + 399_000),
+    creationSequence: 21,
+    id: `reverse-late-${RUN_ID}`,
+    text: "reversepage",
+  },
 ];
 
 function assertLocalTestDatabase(): void {
@@ -235,6 +258,7 @@ function searchFragments(query: string): { grams: string[]; text: string }[] {
 async function search(
   query: string,
   options: {
+    after?: { createdAt: Date; messageId: string };
     before?: { createdAt: Date; messageId: string };
     limit?: number;
     membershipWindows?: readonly { after: Date | null; before: Date | null }[];
@@ -242,6 +266,7 @@ async function search(
   } = {}
 ) {
   return await searchMessageCandidates({
+    after: options.after,
     before: options.before,
     conversationId: CONVERSATION_ID,
     fragments: searchFragments(query),
@@ -290,7 +315,7 @@ beforeAll(async () => {
       version: 1,
     });
     await tx.orm.public.Messages.createAll(
-      fixtures.map((fixture) => ({
+      fixtures.map((fixture, index) => ({
         ciphertext: `ciphertext-${fixture.id}`,
         conversationId: CONVERSATION_ID,
         createdAt: toPrismaDateTime(fixture.createdAt),
@@ -301,7 +326,7 @@ beforeAll(async () => {
         id: fixture.id,
         iv: `iv-${fixture.id}`,
         keyEpoch: fixture.keyEpoch ?? 1,
-        ratchetIndex: fixture.creationSequence,
+        ratchetIndex: index + 1,
         revision: fixture.revision ?? 1,
         senderId: PEER_ID,
       }))
@@ -342,7 +367,7 @@ beforeAll(async () => {
     );
   });
   await seedVerifiedMessageEpochFixture(CONVERSATION_ID);
-});
+}, 30_000);
 
 afterAll(async () => {
   await prisma.orm.public.MessageSearchDocuments.where({
@@ -408,6 +433,74 @@ describe("indexed DM search candidates", () => {
       limit: 1,
     });
     expect(second.map((row) => row.id)).toEqual([GATE_FIRST_ID]);
+  });
+
+  for (const estimate of [500, 2000, 20_000]) {
+    test(`reverse keysets preserve authorization and tied timestamps with estimate ${estimate}`, async () => {
+      // Estimates exercise selective, general and broad ordered plans using the same owned fixture.
+      await prisma.orm.public.MessageSearchTerms.where({
+        conversationId: CONVERSATION_ID,
+      }).update({ documentFrequency: estimate });
+      try {
+        const anchor = { createdAt: baseTime, messageId: "anchor" };
+        expect(await searchIds("needle", { after: anchor, limit: 1 })).toEqual([
+          NEEDLE_VISIBLE_ID,
+        ]);
+        expect(
+          await searchIds("windowed", {
+            after: anchor,
+            limit: 1,
+            membershipWindows: [{ after: null, before: windowEnd }],
+          })
+        ).toEqual([WINDOW_VISIBLE_ID]);
+        const newer = await search("gate", {
+          after: {
+            createdAt: new Date(baseTime.getTime() + 16_000),
+            messageId: GATE_FIRST_ID,
+          },
+          limit: 1,
+        });
+        expect(newer.map((row) => row.id)).toEqual([GATE_SECOND_ID]);
+        const reverse = await search("reversepage", {
+          after: {
+            createdAt: new Date(baseTime.getTime() + 100_000),
+            messageId: "anchor",
+          },
+          limit: 21,
+        });
+        expect(reverse.map((row) => row.id)).toEqual(
+          REVERSE_VISIBLE_IDS.slice(0, 21)
+        );
+        const boundary = reverse.at(-1);
+        if (!boundary) {
+          throw new Error("Expected a complete reverse keyset page");
+        }
+        expect(
+          await searchIds("reversepage", {
+            after: { createdAt: boundary.createdAt, messageId: boundary.id },
+            limit: 21,
+          })
+        ).toEqual(REVERSE_VISIBLE_IDS.slice(21));
+        const forward = await search("reversepage", {
+          before: { createdAt: boundary.createdAt, messageId: boundary.id },
+          limit: 20,
+        });
+        expect(forward.map((row) => row.id)).toEqual(
+          REVERSE_VISIBLE_IDS.slice(0, 20).toReversed()
+        );
+      } finally {
+        await prisma.orm.public.MessageSearchTerms.where({
+          conversationId: CONVERSATION_ID,
+        }).update({ documentFrequency: 1 });
+      }
+    });
+  }
+
+  test("rejects ambiguous directional boundaries before opening a query", async () => {
+    const cursor = { createdAt: baseTime, messageId: "anchor" };
+    await expect(
+      search("gate", { after: cursor, before: cursor })
+    ).rejects.toThrow("only one cursor");
   });
 
   test("requires conversation membership and a viewer-owned epoch wrap", async () => {

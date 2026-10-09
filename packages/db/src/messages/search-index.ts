@@ -299,6 +299,8 @@ export interface SearchMessageWindow {
 }
 
 export interface SearchCandidateQuery {
+  // Newer pages return nearest-first so callers can trim the lookahead before reversing.
+  after?: { createdAt: Date; messageId: string };
   before?: { createdAt: Date; messageId: string };
   conversationId: string;
   fragments: readonly { grams: readonly string[]; text: string }[];
@@ -2368,7 +2370,9 @@ export async function markSearchOutboxUnreadable(input: {
   }
 }
 
-const SEARCH_MESSAGE_CANDIDATES_SQL = `WITH query_fragments AS MATERIALIZED (
+const SEARCH_MESSAGE_CANDIDATES_SQL = (
+  newer: boolean
+) => `WITH query_fragments AS MATERIALIZED (
        SELECT value, ordinality AS fragment_ordinal
          FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
      ),
@@ -2436,9 +2440,9 @@ const SEARCH_MESSAGE_CANDIDATES_SQL = `WITH query_fragments AS MATERIALIZED (
         )
         AND (
           $5::timestamp IS NULL OR
-          (d."createdAt", d."messageId") < ($5::timestamp, $6::text)
+          (d."createdAt", d."messageId") ${newer ? ">" : "<"} ($5::timestamp, $6::text)
         )
-      ORDER BY d."createdAt" DESC, d."messageId" DESC
+      ORDER BY d."createdAt" ${newer ? "ASC" : "DESC"}, d."messageId" ${newer ? "ASC" : "DESC"}
       LIMIT $8`;
 
 const SEARCH_FRAGMENT_FREQUENCY_SQL = `WITH query_fragments AS MATERIALIZED (
@@ -2532,7 +2536,9 @@ const SEARCH_MESSAGE_COUNT_SQL = `WITH query_fragments AS MATERIALIZED (
           )
         )`;
 
-const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = `WITH ordered_documents AS MATERIALIZED (
+const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = (
+  newer: boolean
+) => `WITH ordered_documents AS MATERIALIZED (
        SELECT d."conversationId",
               d."createdAt",
               d."messageId",
@@ -2541,15 +2547,15 @@ const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = `WITH ordered_documents AS MATERIALIZED
         WHERE d."conversationId" = $1
           AND (
             $2::timestamp IS NULL OR
-            (d."createdAt", d."messageId") < ($2::timestamp, $3::text)
+            (d."createdAt", d."messageId") ${newer ? ">" : "<"} ($2::timestamp, $3::text)
           )
-        ORDER BY d."createdAt" DESC, d."messageId" DESC
+        ORDER BY d."createdAt" ${newer ? "ASC" : "DESC"}, d."messageId" ${newer ? "ASC" : "DESC"}
         LIMIT $4
      ),
      scan_state AS (
        SELECT COUNT(*)::int AS "scannedCount",
-              (ARRAY_AGG("createdAt" ORDER BY "createdAt" ASC, "messageId" ASC))[1] AS "scannedThroughCreatedAt",
-              (ARRAY_AGG("messageId" ORDER BY "createdAt" ASC, "messageId" ASC))[1] AS "scannedThroughMessageId"
+              (ARRAY_AGG("createdAt" ORDER BY "createdAt" ${newer ? "DESC" : "ASC"}, "messageId" ${newer ? "DESC" : "ASC"}))[1] AS "scannedThroughCreatedAt",
+              (ARRAY_AGG("messageId" ORDER BY "createdAt" ${newer ? "DESC" : "ASC"}, "messageId" ${newer ? "DESC" : "ASC"}))[1] AS "scannedThroughMessageId"
          FROM ordered_documents
      ),
      authorized_documents AS (
@@ -2598,9 +2604,11 @@ const SEARCH_ORDERED_DOCUMENT_PAGE_SQL = `WITH ordered_documents AS MATERIALIZED
        FROM scan_state
        LEFT JOIN authorized_documents AS authorized ON true
       WHERE scan_state."scannedCount" > 0
-      ORDER BY authorized."createdAt" DESC, authorized."messageId" DESC`;
+      ORDER BY authorized."createdAt" ${newer ? "ASC" : "DESC"}, authorized."messageId" ${newer ? "ASC" : "DESC"}`;
 
-const SEARCH_ORDERED_CANDIDATE_HITS_SQL = `WITH query_fragments AS MATERIALIZED (
+const SEARCH_ORDERED_CANDIDATE_HITS_SQL = (
+  newer: boolean
+) => `WITH query_fragments AS MATERIALIZED (
        SELECT value, ordinality AS fragment_ordinal
          FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
      ),
@@ -2642,7 +2650,7 @@ const SEARCH_ORDERED_CANDIDATE_HITS_SQL = `WITH query_fragments AS MATERIALIZED 
           )
           AND (
             $5::timestamp IS NULL OR
-            (d."createdAt", d."messageId") < ($5::timestamp, $6::text)
+            (d."createdAt", d."messageId") ${newer ? ">" : "<"} ($5::timestamp, $6::text)
           )
      )
      SELECT m.id,
@@ -2678,10 +2686,12 @@ const SEARCH_ORDERED_CANDIDATE_HITS_SQL = `WITH query_fragments AS MATERIALIZED 
                AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
           )
         )
-      ORDER BY d."createdAt" DESC, d."messageId" DESC
+      ORDER BY d."createdAt" ${newer ? "ASC" : "DESC"}, d."messageId" ${newer ? "ASC" : "DESC"}
       LIMIT $8`;
 
-const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIALIZED (
+const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = (
+  newer: boolean
+) => `WITH query_fragments AS MATERIALIZED (
        SELECT value, ordinality AS fragment_ordinal
          FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS fragment(value, ordinality)
      ),
@@ -2723,7 +2733,7 @@ const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIA
           )
           AND (
             $5::timestamp IS NULL OR
-            (d."createdAt", d."messageId") < ($5::timestamp, $6::text)
+            (d."createdAt", d."messageId") ${newer ? ">" : "<"} ($5::timestamp, $6::text)
           )
      )
      SELECT m.id,
@@ -2759,7 +2769,7 @@ const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = `WITH query_fragments AS MATERIA
                AND (membership_window.value->>'before' IS NULL OR m."createdAt" <= (membership_window.value->>'before')::timestamp)
           )
         )
-      ORDER BY d."createdAt" DESC, d."messageId" DESC
+      ORDER BY d."createdAt" ${newer ? "ASC" : "DESC"}, d."messageId" ${newer ? "ASC" : "DESC"}
       LIMIT $8`;
 
 const SEARCH_SELECTIVE_CANDIDATE_THRESHOLD = 1000;
@@ -2787,6 +2797,10 @@ interface SearchCandidateExplainRow {
 }
 
 function searchCandidateQueryParameters(input: SearchCandidateQuery) {
+  if (input.before && input.after) {
+    throw new TypeError("A message search page can use only one cursor");
+  }
+  const cursor = input.before ?? input.after;
   const windows = input.membershipWindows.map((window) => ({
     after: window.after ? pgTimestamp(window.after) : null,
     before: window.before ? pgTimestamp(window.before) : null,
@@ -2796,8 +2810,8 @@ function searchCandidateQueryParameters(input: SearchCandidateQuery) {
     input.userId,
     JSON.stringify(input.fragments),
     input.snapshotSequence,
-    input.before ? pgTimestamp(input.before.createdAt) : null,
-    input.before?.messageId ?? null,
+    cursor ? pgTimestamp(cursor.createdAt) : null,
+    cursor?.messageId ?? null,
     JSON.stringify(windows),
     Math.min(Math.max(Math.trunc(input.limit), 1), 21),
   ];
@@ -2836,17 +2850,18 @@ export async function explainSearchMessageCandidatesForDiagnostics(
   sharedReadBlocks: number;
 } | null> {
   const queryParameters = searchCandidateQueryParameters(input);
+  const cursor = input.before ?? input.after;
   const { candidateMessageIds, indexedTermIds, strategy } = input;
-  let sql = SEARCH_MESSAGE_CANDIDATES_SQL;
+  let sql = SEARCH_MESSAGE_CANDIDATES_SQL(input.after !== undefined);
   const parameters: SearchSqlParameter[] = [...queryParameters];
   if (strategy === "ordered") {
-    sql = SEARCH_ORDERED_DOCUMENT_PAGE_SQL;
+    sql = SEARCH_ORDERED_DOCUMENT_PAGE_SQL(input.after !== undefined);
     parameters.splice(
       0,
       parameters.length,
       input.conversationId,
-      input.before ? pgTimestamp(input.before.createdAt) : null,
-      input.before?.messageId ?? null,
+      cursor ? pgTimestamp(cursor.createdAt) : null,
+      cursor?.messageId ?? null,
       ORDERED_SEARCH_SCAN_BATCH_SIZE,
       input.userId,
       input.snapshotSequence,
@@ -2860,10 +2875,10 @@ export async function explainSearchMessageCandidatesForDiagnostics(
     ) {
       throw new TypeError("The ordered search candidate IDs are invalid");
     }
-    sql = SEARCH_ORDERED_CANDIDATE_HITS_SQL;
+    sql = SEARCH_ORDERED_CANDIDATE_HITS_SQL(input.after !== undefined);
     parameters.push([...candidateMessageIds]);
   } else if (indexedTermIds !== undefined) {
-    sql = SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL;
+    sql = SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL(input.after !== undefined);
     parameters.push([...indexedTermIds]);
   }
   if (
@@ -2954,11 +2969,11 @@ export async function searchMessageCandidates(
     if (useOrderedQuery) {
       const resultLimit = Math.min(Math.max(Math.trunc(input.limit), 1), 21);
       const results: SearchCandidateRow[] = [];
-      let scanBefore = input.before;
+      let scanBefore = input.before ?? input.after;
       // oxlint-disable no-await-in-loop -- Continue from each document batch until the authorized hit page is full.
       while (results.length < resultLimit) {
         const scannedDocuments = await client.query<OrderedSearchDocumentRow>(
-          SEARCH_ORDERED_DOCUMENT_PAGE_SQL,
+          SEARCH_ORDERED_DOCUMENT_PAGE_SQL(input.after !== undefined),
           [
             input.conversationId,
             scanBefore ? pgTimestamp(scanBefore.createdAt) : null,
@@ -2990,7 +3005,7 @@ export async function searchMessageCandidates(
           candidateParameters[7] = remaining;
           candidateParameters.push(candidateMessageIds);
           const candidates = await client.query<SearchCandidateRow>(
-            SEARCH_ORDERED_CANDIDATE_HITS_SQL,
+            SEARCH_ORDERED_CANDIDATE_HITS_SQL(input.after !== undefined),
             candidateParameters
           );
           results.push(...candidates.rows);
@@ -3009,8 +3024,8 @@ export async function searchMessageCandidates(
     }
     const result = await client.query<SearchCandidateRow>(
       useSelectiveQuery
-        ? SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL
-        : SEARCH_MESSAGE_CANDIDATES_SQL,
+        ? SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL(input.after !== undefined)
+        : SEARCH_MESSAGE_CANDIDATES_SQL(input.after !== undefined),
       useSelectiveQuery
         ? [...queryParameters, selectiveFragment.termIds]
         : queryParameters

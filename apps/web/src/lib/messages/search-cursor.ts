@@ -7,6 +7,7 @@ const MAX_SEARCH_CURSOR_LENGTH = 2048;
 
 export interface MessageSearchCursor {
   after: { createdAt: string; messageId: string };
+  direction?: "newer" | "older";
   conversationId: string;
   membershipSequence: number;
   normalizationVersion: number;
@@ -28,7 +29,7 @@ export interface MessageSearchSnapshot {
 
 export type MessageSearchCursorScope = Omit<
   MessageSearchCursor,
-  "after" | "snapshotSequence"
+  "after" | "direction" | "snapshotSequence"
 >;
 
 function encode(value: Buffer): string {
@@ -124,6 +125,7 @@ export function readMessageSearchSnapshot(
       snapshot.conversationId !== expected.conversationId ||
       snapshot.membershipSequence !== expected.membershipSequence ||
       snapshot.normalizationVersion !== MESSAGE_SEARCH_NORMALIZATION_VERSION ||
+      snapshot.normalizationVersion !== expected.normalizationVersion ||
       snapshot.queryHash !== expected.queryHash ||
       snapshot.recoveryGeneration !== expected.recoveryGeneration ||
       snapshot.userId !== expected.userId
@@ -168,6 +170,9 @@ export function readMessageSearchCursor(
     if (
       value.version !== SEARCH_CURSOR_VERSION ||
       !isRecord(after) ||
+      (value.direction !== undefined &&
+        value.direction !== "newer" &&
+        value.direction !== "older") ||
       typeof after.createdAt !== "string" ||
       typeof after.messageId !== "string" ||
       !isSequence(value.membershipSequence) ||
@@ -181,6 +186,7 @@ export function readMessageSearchCursor(
       return null;
     }
     const cursor: MessageSearchCursor = {
+      ...(value.direction === undefined ? {} : { direction: value.direction }),
       after: { createdAt: after.createdAt, messageId: after.messageId },
       conversationId: value.conversationId,
       membershipSequence: value.membershipSequence,
@@ -194,6 +200,7 @@ export function readMessageSearchCursor(
       cursor.conversationId !== expected.conversationId ||
       cursor.membershipSequence !== expected.membershipSequence ||
       cursor.normalizationVersion !== MESSAGE_SEARCH_NORMALIZATION_VERSION ||
+      cursor.normalizationVersion !== expected.normalizationVersion ||
       cursor.queryHash !== expected.queryHash ||
       cursor.recoveryGeneration !== expected.recoveryGeneration ||
       cursor.userId !== expected.userId

@@ -20,6 +20,30 @@ const scope = {
 };
 
 describe("message search cursors", () => {
+  test("signs reverse direction while keeping older cursors compatible", () => {
+    const cursor = {
+      ...scope,
+      after: { createdAt: "2026-10-08T10:00:00.000Z", messageId: "m20" },
+      direction: "newer" as const,
+    };
+    const token = createMessageSearchCursor(cursor, secret);
+    expect(readMessageSearchCursor(token, scope, secret)).toEqual(cursor);
+    expect(readMessageSearchCursor(`${token}x`, scope, secret)).toBeNull();
+    expect(
+      readMessageSearchCursor(
+        token,
+        { ...scope, membershipSequence: 5 },
+        secret
+      )
+    ).toBeNull();
+    expect(
+      readMessageSearchCursor(
+        token,
+        { ...scope, normalizationVersion: 2 },
+        secret
+      )
+    ).toBeNull();
+  });
   test("round trips with a stable timestamp and complete scope", () => {
     const token = createMessageSearchCursor(
       {
@@ -75,6 +99,13 @@ describe("message search snapshots", () => {
       secret
     );
     expect(readMessageSearchSnapshot(`${token}x`, scope, secret)).toBeNull();
+    expect(
+      readMessageSearchSnapshot(
+        token,
+        { ...scope, normalizationVersion: 2 },
+        secret
+      )
+    ).toBeNull();
     expect(
       readMessageSearchSnapshot(token, { ...scope, userId: "user-2" }, secret)
     ).toBeNull();
