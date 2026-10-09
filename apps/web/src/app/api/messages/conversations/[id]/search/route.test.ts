@@ -208,11 +208,16 @@ describe("POST /api/messages/conversations/:id/search", () => {
     const response = await POST(request({ query: "café" }), context);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      coverage: { complete: boolean; snapshotSequence: number };
+      coverage: {
+        complete: boolean;
+        settled: boolean;
+        snapshotSequence: number;
+      };
       hits: { ciphertext?: string; id: string; revision: number }[];
     };
     expect(body.coverage).toMatchObject({
       complete: false,
+      settled: false,
       snapshotSequence: 90,
     });
     expect(body.hits[0]).toMatchObject({ id: "message-1", revision: 1 });
@@ -248,9 +253,43 @@ describe("POST /api/messages/conversations/:id/search", () => {
       unrecoverableEpochs: 0,
     });
     const response = await POST(request({ query: "needle" }), context);
-    const body = (await response.json()) as { coverage: { complete: boolean } };
-    expect(body.coverage.complete).toBe(true);
+    const body = (await response.json()) as {
+      coverage: { complete: boolean; settled: boolean };
+    };
+    expect(body.coverage).toMatchObject({ complete: true, settled: true });
     expect(mockEnqueueBackfill).not.toHaveBeenCalled();
+  });
+
+  test("reports settled coverage without claiming completeness for unreadable history", async () => {
+    mockStartBackfill.mockReturnValueOnce(
+      Promise.resolve({
+        completedAt: new Date("2026-10-08T00:01:00.000Z"),
+        expectedPosition: { createdAt: null, messageId: null },
+        throughSequence: 90,
+      })
+    );
+    mockCoverage.mockReturnValueOnce({
+      artifactsCommitted: 98,
+      backfillCompletedAt: new Date("2026-10-08T00:01:00.000Z"),
+      completedChangeSeq: 90,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 2,
+    });
+
+    const response = await POST(request({ query: "needle" }), context);
+    const body = (await response.json()) as {
+      coverage: {
+        complete: boolean;
+        settled: boolean;
+        unrecoverableEpochs: number;
+      };
+    };
+
+    expect(body.coverage).toMatchObject({
+      complete: false,
+      settled: true,
+      unrecoverableEpochs: 2,
+    });
   });
 
   test("creates a separately queued count only for a complete multi-page search", async () => {

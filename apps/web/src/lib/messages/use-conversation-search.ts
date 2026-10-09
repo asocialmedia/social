@@ -126,6 +126,7 @@ export interface ConversationSearch {
   searchError: string | null;
   offlineSearch: boolean;
   serverCoverageIncomplete: boolean;
+  serverCoverageUnavailable: boolean;
   serverHasMore: boolean;
   retry: () => void;
 }
@@ -141,6 +142,7 @@ const EMPTY_MATCH_IDS: string[] = [];
 
 interface ServerSearchPage {
   coverageComplete: boolean;
+  coverageSettled: boolean;
   countToken: string | null;
   hits: MessageData[];
   offline: boolean;
@@ -596,6 +598,7 @@ export function useConversationSearch(
           pages.push({
             countToken: null,
             coverageComplete: true,
+            coverageSettled: true,
             hits: page.hits.map((record) =>
               offlineSearchRecordToMessageData(conversationId, record)
             ),
@@ -649,6 +652,7 @@ export function useConversationSearch(
                     {
                       countToken: null,
                       coverageComplete: true,
+                      coverageSettled: true,
                       hits: page.hits.map((record) =>
                         offlineSearchRecordToMessageData(conversationId, record)
                       ),
@@ -663,6 +667,7 @@ export function useConversationSearch(
                     {
                       countToken: null,
                       coverageComplete: true,
+                      coverageSettled: true,
                       hits: page.hits.map((record) =>
                         offlineSearchRecordToMessageData(conversationId, record)
                       ),
@@ -801,10 +806,13 @@ export function useConversationSearch(
           signal: controller.signal,
         });
         const { coverage } = body;
-        const coverageComplete =
-          typeof coverage === "object" &&
-          coverage !== null &&
-          (coverage as Record<string, unknown>).complete === true;
+        const coverageState =
+          typeof coverage === "object" && coverage !== null
+            ? (coverage as Record<string, unknown>)
+            : null;
+        const coverageComplete = coverageState?.complete === true;
+        const coverageSettled =
+          coverageState?.settled === true || coverageComplete;
         const nextCursor =
           typeof body.nextCursor === "string" ? body.nextCursor : null;
         const countToken =
@@ -817,6 +825,7 @@ export function useConversationSearch(
             const nextPage = {
               countToken,
               coverageComplete,
+              coverageSettled,
               hits,
               nextCursor,
               offline: false,
@@ -1561,14 +1570,21 @@ export function useConversationSearch(
     0
   );
   const lastServerPage = serverPages.at(-1);
+  const serverCoverageUnavailable =
+    serverMode &&
+    enabled &&
+    !serverOffline &&
+    serverPages[0]?.coverageSettled === true &&
+    serverPages[0]?.coverageComplete === false;
   const serverCoverageIncomplete =
     serverMode &&
     enabled &&
     !serverOffline &&
     normalizeMessageSearchQuery(debouncedQuery).valid &&
-    (serverPages.length === 0 || serverPages.at(-1)?.coverageComplete !== true);
+    !serverCoverageUnavailable &&
+    (serverPages.length === 0 || serverPages[0]?.coverageSettled !== true);
   const serverHasMore = serverSearchHasMore({
-    coverageComplete: !serverCoverageIncomplete,
+    coverageComplete: lastServerPage?.coverageComplete === true,
     nextCursor: lastServerPage?.nextCursor ?? null,
   });
   const serverExactCount =
@@ -1590,6 +1606,7 @@ export function useConversationSearch(
     }
     const canPoll = shouldPollServerSearchCoverage({
       coverageComplete: serverPages[0]?.coverageComplete === true,
+      coverageSettled: serverPages[0]?.coverageSettled === true,
       hasPage: serverPages.length > 0,
       offline: serverOffline,
       queryValid: normalizeMessageSearchQuery(debouncedQuery).valid,
@@ -1714,6 +1731,7 @@ export function useConversationSearch(
     searchError: serverSearchError,
     searching: serverSearchLoading || serverDecryptLoading,
     serverCoverageIncomplete,
+    serverCoverageUnavailable,
     serverHasMore,
     setQuery,
     totalLoaded: enabled ? loadedCount : 0,

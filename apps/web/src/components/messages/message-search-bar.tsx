@@ -95,6 +95,7 @@ export interface MessageSearchBarProps {
   searchHasMore?: boolean;
   onRetrySearch?: () => void;
   offlineSearch?: boolean;
+  coverageUnavailable?: boolean;
 }
 
 export function MessageSearchBar({
@@ -130,6 +131,7 @@ export function MessageSearchBar({
   searchHasMore = false,
   onRetrySearch,
   offlineSearch = false,
+  coverageUnavailable = false,
 }: MessageSearchBarProps) {
   const queryChangedAtRef = useRef<number | null>(null);
   const sawSearchStartRef = useRef(false);
@@ -214,10 +216,10 @@ export function MessageSearchBar({
       statusText = "Searching…";
     } else if (!queryReady) {
       statusText = "";
-    } else if (offlineSearch && totalResults === 0) {
-      statusText = "No matching messages";
     } else if (offlineSearch) {
       statusText = "Offline — searching saved messages";
+    } else if (coverageUnavailable) {
+      statusText = "Some older messages couldn't be searched";
     } else if (indexingOlder) {
       statusText = "Searching older messages…";
     } else if (listView && totalResults > 0) {

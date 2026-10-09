@@ -287,11 +287,12 @@ export async function POST(
           )
         : null;
     const completedChangeSequence = coverage?.completedChangeSeq ?? 0;
-    const coverageComplete =
+    const coverageSettled =
       coverage?.backfillCompletedAt !== null &&
       coverage?.backfillCompletedAt !== undefined &&
-      completedChangeSequence >= effectiveSnapshotSequence &&
-      coverage.unrecoverableEpochs === 0;
+      completedChangeSequence >= effectiveSnapshotSequence;
+    const coverageComplete =
+      coverageSettled && coverage?.unrecoverableEpochs === 0;
     let countToken: string | null = null;
     if (
       rawBody.cursor === undefined &&
@@ -347,6 +348,7 @@ export async function POST(
         complete: coverageComplete,
         completedChangeSequence,
         rowsTraversed: coverage?.rowsTraversed ?? 0,
+        settled: coverageSettled,
         snapshotSequence: effectiveSnapshotSequence,
         unrecoverableEpochs: coverage?.unrecoverableEpochs ?? 0,
       },

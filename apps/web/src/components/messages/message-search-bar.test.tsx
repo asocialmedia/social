@@ -80,4 +80,26 @@ describe("MessageSearchBar user-facing fallback states", () => {
     expect(markup).toContain("Searching older messages…");
     expect(markup).not.toContain("7 results");
   });
+
+  test("stops the older-history state when settled history has unreadable messages", () => {
+    const markup = renderSearchBar({
+      coverageUnavailable: true,
+      serverManaged: true,
+    });
+
+    expect(markup).toContain("Some older messages couldn&#x27;t be searched");
+    expect(markup).not.toContain("Searching older messages…");
+    expect(markup).not.toContain("No matching messages");
+  });
+
+  test("keeps offline scope visible when saved history has no matching messages", () => {
+    const markup = renderSearchBar({
+      offlineSearch: true,
+      serverManaged: true,
+      totalResults: 0,
+    });
+
+    expect(markup).toContain("Offline — searching saved messages");
+    expect(markup).not.toContain("No matching messages");
+  });
 });

@@ -3810,6 +3810,7 @@ export function MessageThread({
   // "no media" on a chat full of it.
   const fullyCovered = SERVER_MESSAGE_SEARCH_ENABLED
     ? search.serverCoverageIncomplete === false &&
+      search.serverCoverageUnavailable === false &&
       search.debouncedQuery.trim().length > 0
     : (coverage?.reachedStart === true && coverage.refsReachedStart === true) ||
       (persistedCovered === true &&
@@ -5280,6 +5281,7 @@ export function MessageThread({
               activePosition={searchActivePosition}
               serverManaged={SERVER_MESSAGE_SEARCH_ENABLED}
               offlineSearch={search.offlineSearch}
+              coverageUnavailable={search.serverCoverageUnavailable}
               searching={search.searching}
               searchError={search.searchError}
               searchHasMore={search.serverHasMore}
