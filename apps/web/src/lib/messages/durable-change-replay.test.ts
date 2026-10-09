@@ -40,6 +40,48 @@ function page(input: {
 const { signal } = new AbortController();
 
 describe("durable message change replay", () => {
+  test("does not commit a cursor after scope cancellation during cache writes", async () => {
+    const controller = new AbortController();
+    const writes: string[] = [];
+    const result = await applyChangesBeforeCursorCommit({
+      apply: async () => {
+        await Promise.resolve();
+        controller.abort();
+        return true;
+      },
+      conversationId: "old-conversation",
+      cursor: "new-cursor",
+      signal: controller.signal,
+      storage: {
+        getItem: () => "old-cursor",
+        setItem: (_key, cursor) => writes.push(cursor),
+      },
+      userId: "old-user",
+    });
+    expect(result).toEqual({ applied: false, cursorStored: false });
+    expect(writes).toEqual([]);
+  });
+
+  test("does not apply changes when their scope was already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let applied = false;
+    expect(
+      await applyChangesBeforeCursorCommit({
+        apply: () => {
+          applied = true;
+          return true;
+        },
+        conversationId: "old-conversation",
+        cursor: "new-cursor",
+        signal: controller.signal,
+        storage: null,
+        userId: "old-user",
+      })
+    ).toEqual({ applied: false, cursorStored: false });
+    expect(applied).toBe(false);
+  });
+
   test("validates the response contract before exposing changes", () => {
     expect(
       parseDurableMessageChangePage({

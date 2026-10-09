@@ -214,6 +214,7 @@ import {
   firstUnreadMessageId,
   UNREAD_DIVIDER_LABEL,
 } from "@/lib/messages/unread-marker";
+import { useConversationReconciliation } from "@/lib/messages/use-conversation-reconciliation";
 import { useConversationSearch } from "@/lib/messages/use-conversation-search";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
@@ -4666,7 +4667,6 @@ export function MessageThread({
     }
   }, [conversationId, leftDen]);
 
-  const durableChangeReplayRef = useRef<AbortController | null>(null);
   const messageChangeBroadcastRef = useRef<ReturnType<
     typeof createMessageChangeBroadcast
   > | null>(null);
@@ -4674,233 +4674,247 @@ export function MessageThread({
     cursor: string;
     scope: string;
   } | null>(null);
-  const replayConversationChanges = useCallback(async (): Promise<boolean> => {
-    if (!user?.id) {
-      return false;
-    }
-    if (durableChangeReplayRef.current) {
-      return false;
-    }
-
-    const storage = getMessageChangeStorage();
-    const scope = `${user.id}\u0000${conversationId}`;
-    const previousCursor =
-      (storage
-        ? readMessageChangeCursor(storage, user.id, conversationId)
-        : undefined) ??
-      (durableChangeCursorRef.current?.scope === scope
-        ? durableChangeCursorRef.current.cursor
-        : undefined);
-    const controller = new AbortController();
-    durableChangeReplayRef.current = controller;
-    try {
-      const replay = await replayDurableMessageChanges({
-        cursor: previousCursor,
-        fetchPage: async (cursor, signal) => {
-          const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-          const response = await fetch(
-            `/api/messages/conversations/${encodeURIComponent(conversationId)}/changes${suffix}`,
-            { credentials: "same-origin", signal }
-          );
-          if (!response.ok) {
-            throw new Error("Conversation changes could not be loaded");
-          }
-          const payload: unknown = await response.json();
-          return payload;
-        },
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) {
-        return true;
+  const reconcileConversationChanges = useCallback(
+    async (signal: AbortSignal): Promise<boolean> => {
+      if (!user?.id) {
+        return false;
       }
-      const offlineChangePlan = planOfflineSearchChangeEffects(replay.changes);
-      const accessChanged = replay.changes.some(
-        (change) => change.messageId === null
-      );
-      const resetConversation = replay.resetRequired || accessChanged;
-      const refreshServerSearchSnapshot = shouldRefreshServerSearchSnapshot(
-        replay.changes,
-        resetConversation
-      );
-      const refreshServerSharedReferences = shouldRefreshServerSharedReferences(
-        replay.changes,
-        resetConversation
-      );
-      let cacheSynchronized = true;
-      const clearLegacySearchIndex = async (): Promise<boolean> => {
-        const writer = searchWriterRef.current;
-        if (writer) {
-          return writer.clearConversation();
-        }
-        if (!searchIndexStore) {
-          return true;
-        }
-        try {
-          await searchIndexStore.clearConversation(conversationId);
-          return true;
-        } catch {
-          setSearchIndex(null);
-          return false;
-        }
-      };
-      const removeLegacySearchEntries = async (
-        messageIds: readonly string[]
-      ): Promise<boolean> => {
-        if (messageIds.length === 0) {
-          return true;
-        }
-        const writer = searchWriterRef.current;
-        if (writer) {
-          return writer.removeAndWait(messageIds);
-        }
-        if (!searchIndexStore) {
-          return true;
-        }
-        const ids = [...messageIds];
-        try {
-          await searchIndexStore.removeEntries(conversationId, ids);
-          await searchIndexStore.removeSharedRefs(conversationId, ids);
-          return true;
-        } catch {
-          return false;
-        }
-      };
-      const committed = await applyChangesBeforeCursorCommit({
-        apply: async () => {
-          const refreshBoundedWindow =
-            replay.changes.length > 0 || resetConversation;
-          if (!refreshBoundedWindow) {
+      const storage = getMessageChangeStorage();
+      const scope = `${user.id}\u0000${conversationId}`;
+      const previousCursor =
+        (storage
+          ? readMessageChangeCursor(storage, user.id, conversationId)
+          : undefined) ??
+        (durableChangeCursorRef.current?.scope === scope
+          ? durableChangeCursorRef.current.cursor
+          : undefined);
+      try {
+        const replay = await replayDurableMessageChanges({
+          cursor: previousCursor,
+          fetchPage: async (cursor, requestSignal) => {
+            const suffix = cursor
+              ? `?cursor=${encodeURIComponent(cursor)}`
+              : "";
+            const response = await fetch(
+              `/api/messages/conversations/${encodeURIComponent(conversationId)}/changes${suffix}`,
+              { credentials: "same-origin", signal: requestSignal }
+            );
+            if (!response.ok) {
+              throw new Error("Conversation changes could not be loaded");
+            }
+            const payload: unknown = await response.json();
+            return payload;
+          },
+          signal,
+        });
+        signal.throwIfAborted();
+        const offlineChangePlan = planOfflineSearchChangeEffects(
+          replay.changes
+        );
+        const accessChanged = replay.changes.some(
+          (change) => change.messageId === null
+        );
+        const resetConversation = replay.resetRequired || accessChanged;
+        const refreshServerSearchSnapshot = shouldRefreshServerSearchSnapshot(
+          replay.changes,
+          resetConversation
+        );
+        const refreshServerSharedReferences =
+          shouldRefreshServerSharedReferences(
+            replay.changes,
+            resetConversation
+          );
+        let cacheSynchronized = true;
+        const clearLegacySearchIndex = async (): Promise<boolean> => {
+          const writer = searchWriterRef.current;
+          if (writer) {
+            return writer.clearConversation();
+          }
+          if (!searchIndexStore) {
             return true;
           }
-          if (resetConversation) {
-            const legacyIndexCleared = await clearLegacySearchIndex();
-            if (!legacyIndexCleared) {
-              cacheSynchronized = false;
-              setSearchIndex(null);
+          try {
+            await searchIndexStore.clearConversation(conversationId);
+            return true;
+          } catch {
+            signal.throwIfAborted();
+            setSearchIndex(null);
+            return false;
+          }
+        };
+        const removeLegacySearchEntries = async (
+          messageIds: readonly string[]
+        ): Promise<boolean> => {
+          if (messageIds.length === 0) {
+            return true;
+          }
+          const writer = searchWriterRef.current;
+          if (writer) {
+            return writer.removeAndWait(messageIds);
+          }
+          if (!searchIndexStore) {
+            return true;
+          }
+          const ids = [...messageIds];
+          try {
+            await searchIndexStore.removeEntries(conversationId, ids);
+            await searchIndexStore.removeSharedRefs(conversationId, ids);
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        const committed = await applyChangesBeforeCursorCommit({
+          apply: async () => {
+            const refreshBoundedWindow =
+              replay.changes.length > 0 || resetConversation;
+            if (!refreshBoundedWindow) {
+              return true;
             }
-            if (offlineSearchScope) {
-              const cleared = await offlineSearchWorkerClient.clearConversation(
-                offlineSearchScope,
-                conversationId
-              );
-              if (cleared) {
-                setOfflineCacheDisabledFor((current) =>
-                  current === conversationId ? null : current
-                );
-              } else {
-                cacheSynchronized = false;
-                setOfflineCacheDisabledFor(conversationId);
-              }
-            }
-            await refreshRecoveryGeneration();
-            setPersistedCovered(false);
-            setPersistedChainVerified(false);
-            setPersistedRefsCovered(false);
-            setWalkEpoch((epoch) => epoch + 1);
-          } else {
-            const legacyIndexUpdated = await removeLegacySearchEntries(
-              offlineChangePlan.messageIds
-            );
-            if (!legacyIndexUpdated) {
+            if (resetConversation) {
               const legacyIndexCleared = await clearLegacySearchIndex();
+              signal.throwIfAborted();
               if (!legacyIndexCleared) {
                 cacheSynchronized = false;
                 setSearchIndex(null);
               }
-              setPersistedCovered(false);
-              setPersistedChainVerified(false);
-              setPersistedRefsCovered(false);
-              setWalkEpoch((epoch) => epoch + 1);
-            }
-            for (const messageId of offlineChangePlan.messageIds) {
-              messageDecryptor.invalidate(messageId);
-            }
-            if (offlineSearchScope && offlineChangePlan.messageIds.length > 0) {
-              const removed = await offlineSearchWorkerClient.remove(
-                offlineSearchScope,
-                conversationId,
-                offlineChangePlan.messageIds,
-                offlineChangePlan.removals
-              );
-              if (removed) {
-                setOfflineCacheDisabledFor((current) =>
-                  current === conversationId ? null : current
-                );
-              } else {
+              if (offlineSearchScope) {
                 const cleared =
                   await offlineSearchWorkerClient.clearConversation(
                     offlineSearchScope,
                     conversationId
                   );
-                setOfflineCacheDisabledFor(cleared ? null : conversationId);
-                cacheSynchronized &&= cleared;
+                signal.throwIfAborted();
+                if (cleared) {
+                  setOfflineCacheDisabledFor((current) =>
+                    current === conversationId ? null : current
+                  );
+                } else {
+                  cacheSynchronized = false;
+                  setOfflineCacheDisabledFor(conversationId);
+                }
+              }
+              await refreshRecoveryGeneration();
+              signal.throwIfAborted();
+              setPersistedCovered(false);
+              setPersistedChainVerified(false);
+              setPersistedRefsCovered(false);
+              setWalkEpoch((epoch) => epoch + 1);
+            } else {
+              const legacyIndexUpdated = await removeLegacySearchEntries(
+                offlineChangePlan.messageIds
+              );
+              signal.throwIfAborted();
+              if (!legacyIndexUpdated) {
+                const legacyIndexCleared = await clearLegacySearchIndex();
+                signal.throwIfAborted();
+                if (!legacyIndexCleared) {
+                  cacheSynchronized = false;
+                  setSearchIndex(null);
+                }
+                setPersistedCovered(false);
+                setPersistedChainVerified(false);
+                setPersistedRefsCovered(false);
+                setWalkEpoch((epoch) => epoch + 1);
+              }
+              for (const messageId of offlineChangePlan.messageIds) {
+                messageDecryptor.invalidate(messageId);
+              }
+              if (
+                offlineSearchScope &&
+                offlineChangePlan.messageIds.length > 0
+              ) {
+                const removed = await offlineSearchWorkerClient.remove(
+                  offlineSearchScope,
+                  conversationId,
+                  offlineChangePlan.messageIds,
+                  offlineChangePlan.removals
+                );
+                signal.throwIfAborted();
+                if (removed) {
+                  setOfflineCacheDisabledFor((current) =>
+                    current === conversationId ? null : current
+                  );
+                } else {
+                  const cleared =
+                    await offlineSearchWorkerClient.clearConversation(
+                      offlineSearchScope,
+                      conversationId
+                    );
+                  signal.throwIfAborted();
+                  setOfflineCacheDisabledFor(cleared ? null : conversationId);
+                  cacheSynchronized &&= cleared;
+                }
               }
             }
-          }
 
-          await queryClient.invalidateQueries({
-            exact: true,
-            queryKey: ["messages", conversationId],
-            refetchType: "active",
+            await queryClient.invalidateQueries({
+              exact: true,
+              queryKey: ["messages", conversationId],
+              refetchType: "active",
+            });
+            signal.throwIfAborted();
+            if (resetConversation) {
+              await Promise.all([
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["message-conversation", conversationId],
+                  refetchType: "active",
+                }),
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["den-events", conversationId],
+                  refetchType: "active",
+                }),
+              ]);
+            }
+            signal.throwIfAborted();
+            bumpSearchIndex();
+            if (refreshServerSearchSnapshot) {
+              setServerSearchRefreshToken((token) => token + 1);
+            }
+            if (
+              SERVER_MESSAGE_SEARCH_ENABLED &&
+              refreshServerSharedReferences
+            ) {
+              setServerRefsRefreshToken((token) => token + 1);
+            }
+            return cacheSynchronized;
+          },
+          conversationId,
+          cursor: replay.cursor,
+          signal,
+          storage,
+          userId: user.id,
+        });
+        if (!committed.applied) {
+          return false;
+        }
+        durableChangeCursorRef.current = { cursor: replay.cursor, scope };
+        if (refreshServerSearchSnapshot) {
+          messageChangeBroadcastRef.current?.publish({
+            accessChanged,
+            conversationId,
+            messageIds: offlineChangePlan.messageIds,
+            resetRequired: resetConversation,
+            unavailableMessageIds: offlineChangePlan.unavailableIds,
           });
-          if (resetConversation) {
-            await Promise.all([
-              queryClient.invalidateQueries({
-                exact: true,
-                queryKey: ["message-conversation", conversationId],
-                refetchType: "active",
-              }),
-              queryClient.invalidateQueries({
-                exact: true,
-                queryKey: ["den-events", conversationId],
-                refetchType: "active",
-              }),
-            ]);
-          }
-          bumpSearchIndex();
-          if (refreshServerSearchSnapshot) {
-            setServerSearchRefreshToken((token) => token + 1);
-          }
-          if (SERVER_MESSAGE_SEARCH_ENABLED && refreshServerSharedReferences) {
-            setServerRefsRefreshToken((token) => token + 1);
-          }
-          return cacheSynchronized;
-        },
-        conversationId,
-        cursor: replay.cursor,
-        storage,
-        userId: user.id,
-      });
-      if (!committed.applied) {
+        }
+        return true;
+      } catch {
         return false;
       }
-      durableChangeCursorRef.current = { cursor: replay.cursor, scope };
-      if (refreshServerSearchSnapshot) {
-        messageChangeBroadcastRef.current?.publish({
-          accessChanged,
-          conversationId,
-          messageIds: offlineChangePlan.messageIds,
-          resetRequired: resetConversation,
-          unavailableMessageIds: offlineChangePlan.unavailableIds,
-        });
-      }
-      return true;
-    } catch {
-      return controller.signal.aborted;
-    } finally {
-      if (durableChangeReplayRef.current === controller) {
-        durableChangeReplayRef.current = null;
-      }
-    }
-  }, [
-    bumpSearchIndex,
-    conversationId,
-    offlineSearchScope,
-    queryClient,
-    refreshRecoveryGeneration,
-    searchIndexStore,
-    user?.id,
-  ]);
+    },
+    [
+      bumpSearchIndex,
+      conversationId,
+      offlineSearchScope,
+      queryClient,
+      refreshRecoveryGeneration,
+      searchIndexStore,
+      user?.id,
+    ]
+  );
 
   useEffect(() => {
     if (!user?.id) {
@@ -5063,28 +5077,12 @@ export function MessageThread({
     user?.id,
   ]);
 
-  useEffect(
-    () => () => {
-      const controller = durableChangeReplayRef.current;
-      controller?.abort();
-      durableChangeReplayRef.current = null;
-    },
-    [conversationId, user?.id]
-  );
-
-  useEffect(() => {
-    const replayWhenVisible = () => {
-      if (document.visibilityState === "visible" && navigator.onLine) {
-        void replayConversationChanges();
-      }
-    };
-    window.addEventListener("online", replayWhenVisible);
-    document.addEventListener("visibilitychange", replayWhenVisible);
-    return () => {
-      window.removeEventListener("online", replayWhenVisible);
-      document.removeEventListener("visibilitychange", replayWhenVisible);
-    };
-  }, [replayConversationChanges]);
+  const replayConversationChanges = useConversationReconciliation({
+    conversationId,
+    enabled: Boolean(user) && !leftDen,
+    reconcile: reconcileConversationChanges,
+    userId: user?.id,
+  });
 
   useMessagesRealtime(
     conversationId,

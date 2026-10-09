@@ -201,12 +201,16 @@ export async function applyChangesBeforeCursorCommit(input: {
   apply: () => Promise<boolean>;
   conversationId: string;
   cursor: string;
+  signal?: AbortSignal;
   storage: DurableMessageChangeStorage | null;
   userId: string;
 }): Promise<{ applied: boolean; cursorStored: boolean }> {
   try {
+    if (input.signal?.aborted) {
+      return { applied: false, cursorStored: false };
+    }
     const applied = await input.apply();
-    if (!applied) {
+    if (!applied || input.signal?.aborted) {
       return { applied: false, cursorStored: false };
     }
   } catch {
