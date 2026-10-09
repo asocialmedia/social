@@ -32,7 +32,8 @@ RUN chmod +x ./docker-entrypoint.sh
 FROM runtime-base AS message-search-worker
 USER auth
 ENV MESSAGE_SEARCH_WORKER_ONLY=1
-HEALTHCHECK NONE
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["./asm-worker", "--health-check"]
 CMD ["./asm-worker"]
 
 FROM runtime-base AS runtime

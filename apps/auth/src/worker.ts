@@ -2,12 +2,27 @@
 // the passkey stack) throws at module-eval time without Reflect.getMetadata,
 // and the compiled binary evaluates the bundle graph before the entry body.
 import "reflect-metadata";
+import type { Worker } from "bullmq";
+
 import { loadRootEnv } from "./env";
 import {
   readMessageSearchWorkerFeatures,
   readMessageSearchWorkerRole,
   sweepMessageSearchWork,
 } from "./worker/message-search-sweep";
+import {
+  checkWorkerHealth,
+  clearWorkerHealth,
+  workerHealthPath,
+  writeWorkerHealth,
+} from "./worker/worker-health";
+import {
+  attachWorkerFailureReporting,
+  createWorkerPulse,
+  createWorkerShutdown,
+  messageWorkerErrorFields,
+  runMessageSearchJob,
+} from "./worker/worker-lifecycle";
 
 function readWorkerInteger(
   name: string,
@@ -19,6 +34,17 @@ function readWorkerInteger(
     return fallback;
   }
   return Math.min(parsed, maximum);
+}
+
+if (import.meta.main && process.argv.includes("--health-check")) {
+  // The probe must never initialize telemetry, queues, environment files or database clients.
+  const service =
+    process.env.MESSAGE_SEARCH_WORKER_ONLY === "1"
+      ? "message-search-worker"
+      : "worker";
+  process.exit(
+    (await checkWorkerHealth(workerHealthPath(service), service)) ? 0 : 1
+  );
 }
 
 if (import.meta.main) {
@@ -63,7 +89,7 @@ if (import.meta.main) {
     MESSAGE_UNREAD_COUNTER_QUEUE,
   } = await import("@asm/db");
   const { Worker: QueueWorker } = await import("bullmq");
-  type QueueWorkerType = InstanceType<typeof QueueWorker>;
+  type QueueWorkerType = Worker;
   const { consumeViewStream } = await import("./worker/view-flush");
   const { consumeShareStream } = await import("./worker/share-flush");
   const { flushTrendingScores } = await import("./worker/trending-score-flush");
@@ -80,11 +106,19 @@ if (import.meta.main) {
     processBadgeSweep,
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
-  const { processMessageSearchBackfill, processMessageSearchOutbox } =
-    await import("./worker/message-search-index");
+  const {
+    clearMessageSearchKeyCache,
+    processMessageSearchBackfill,
+    processMessageSearchOutbox,
+  } = await import("./worker/message-search-index");
   const { processMessageSearchCount } =
     await import("./worker/message-search-count");
-  const { prisma, reconcileMessageUnreadCounter } = await import("@asm/db");
+  const {
+    closeMessageSearchPool,
+    closePrisma,
+    prisma,
+    reconcileMessageUnreadCounter,
+  } = await import("@asm/db");
 
   const workers: QueueWorkerType[] = [];
   let viewLoopPromise: Promise<void> | undefined;
@@ -92,48 +126,23 @@ if (import.meta.main) {
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let messageSearchSweepTimer: ReturnType<typeof setInterval> | undefined;
   let running = true;
+  const healthPath = workerHealthPath(workerServiceName);
+  let heartbeatPulse: ReturnType<typeof createWorkerPulse> | undefined;
+  let sweepPulse: ReturnType<typeof createWorkerPulse> | undefined;
+  const registerQueueWorker = <T extends Worker>(worker: T): T => {
+    attachWorkerFailureReporting(worker, (fields, message) =>
+      logger.error(fields, message)
+    );
+    // Register immediately so startup failures also participate in shutdown.
+    workers.push(worker);
+    return worker;
+  };
 
   const start = async () => {
     if (!messageSearchWorkerRole.only) {
       await ensureStreamGroups();
       await registerMaintenanceSchedulers();
     }
-
-    // The general and message-search heartbeats let health checks distinguish
-    // their independently deployed worker processes.
-    const WORKER_HEARTBEAT_KEY = "worker:heartbeat";
-    const MESSAGE_SEARCH_HEARTBEAT_KEY = "worker:message-search:heartbeat";
-    const HEARTBEAT_TTL = 30;
-    const heartbeat = async () => {
-      if (!running) {
-        return;
-      }
-      try {
-        const { redis } = await import("@asm/db");
-        const heartbeatValue = String(Date.now());
-        const heartbeats: Promise<unknown>[] = [];
-        if (!messageSearchWorkerRole.only) {
-          heartbeats.push(
-            redis.set(WORKER_HEARTBEAT_KEY, heartbeatValue, "EX", HEARTBEAT_TTL)
-          );
-        }
-        if (messageSearchWorkerRole.enabled) {
-          heartbeats.push(
-            redis.set(
-              MESSAGE_SEARCH_HEARTBEAT_KEY,
-              heartbeatValue,
-              "EX",
-              HEARTBEAT_TTL
-            )
-          );
-        }
-        await Promise.all(heartbeats);
-      } catch (error) {
-        logger.error({ error }, "worker heartbeat failed");
-      }
-    };
-    await heartbeat();
-    heartbeatTimer = setInterval(heartbeat, 10_000);
 
     if (!messageSearchWorkerRole.only) {
       // Stream consumers (blocking loops, one per stream).
@@ -200,206 +209,212 @@ if (import.meta.main) {
       if (!running) {
         return;
       }
-      try {
-        await sweepMessageSearchWork(messageSearchFeatures, {
-          enqueueBackfill: enqueueMessageSearchBackfill,
-          enqueueBackfillOutbox: enqueueMessageSearchBackfillOutbox,
-          enqueueCount: enqueueMessageSearchCount,
-          enqueueLiveOutbox: enqueueMessageSearchOutbox,
-          enqueueUnreadCounter: (task) =>
-            enqueueMessageUnreadCounter(task.conversationId, task.userId),
-          expireStaleCounts: expireStaleMessageSearchCounts,
-          listPendingOutbox: async (limit, includeBackfill) => {
-            const baseQuery = prisma.orm.public.MessageSearchOutbox.select(
-              "id",
-              "kind"
-            ).where({ completedAt: null });
-            const pendingQuery = includeBackfill
-              ? baseQuery
-              : baseQuery.where((row) => row.kind.notIn(["backfill"]));
-            return await pendingQuery
-              .orderBy((row) => row.createdAt.asc())
-              .limit(limit)
-              .all();
-          },
-          listRunnableBackfills: listRunnableMessageSearchBackfills,
-          listRunnableCounts: listRunnableMessageSearchCounts,
-          listRunnableUnreadCounters: listRunnableMessageUnreadCounters,
-        });
-      } catch (error) {
-        logger.error({ error }, "message search outbox sweep failed");
-      }
+      await sweepMessageSearchWork(messageSearchFeatures, {
+        enqueueBackfill: enqueueMessageSearchBackfill,
+        enqueueBackfillOutbox: enqueueMessageSearchBackfillOutbox,
+        enqueueCount: enqueueMessageSearchCount,
+        enqueueLiveOutbox: enqueueMessageSearchOutbox,
+        enqueueUnreadCounter: (task) =>
+          enqueueMessageUnreadCounter(task.conversationId, task.userId),
+        expireStaleCounts: expireStaleMessageSearchCounts,
+        listPendingOutbox: async (limit, includeBackfill) => {
+          const baseQuery = prisma.orm.public.MessageSearchOutbox.select(
+            "id",
+            "kind"
+          ).where({ completedAt: null });
+          const pendingQuery = includeBackfill
+            ? baseQuery
+            : baseQuery.where((row) => row.kind.notIn(["backfill"]));
+          return await pendingQuery
+            .orderBy((row) => row.createdAt.asc())
+            .limit(limit)
+            .all();
+        },
+        listRunnableBackfills: listRunnableMessageSearchBackfills,
+        listRunnableCounts: listRunnableMessageSearchCounts,
+        listRunnableUnreadCounters: listRunnableMessageUnreadCounters,
+      });
     };
 
     if (messageSearchWorkerRole.enabled) {
-      const messageSearchLiveWorker = new QueueWorker(
-        "message-search-live",
-        (job) =>
-          processMessageSearchOutbox(
-            job.data.outboxId,
-            logger,
-            messageSearchMetrics
-          ),
-        { concurrency: 2, connection }
-      );
-      const messageSearchBackfillWorker = messageSearchFeatures.backfill
-        ? new QueueWorker(
-            "message-search-backfill",
-            async (job) => {
-              const result = await processMessageSearchBackfill(
-                job.data.conversationId,
+      registerQueueWorker(
+        new QueueWorker(
+          "message-search-live",
+          (job) =>
+            runMessageSearchJob(() =>
+              processMessageSearchOutbox(
+                job.data.outboxId,
                 logger,
                 messageSearchMetrics
-              );
-              if (result.nextCursorMessageId) {
-                await enqueueMessageSearchBackfill(
+              )
+            ),
+          { concurrency: 2, connection }
+        )
+      );
+      if (messageSearchFeatures.backfill) {
+        registerQueueWorker(
+          new QueueWorker(
+            "message-search-backfill",
+            (job) =>
+              runMessageSearchJob(async () => {
+                const result = await processMessageSearchBackfill(
                   job.data.conversationId,
-                  result.nextCursorMessageId
+                  logger,
+                  messageSearchMetrics
                 );
-              }
-            },
+                if (result.nextCursorMessageId) {
+                  await enqueueMessageSearchBackfill(
+                    job.data.conversationId,
+                    result.nextCursorMessageId
+                  );
+                }
+              }),
             { concurrency: 1, connection }
           )
-        : undefined;
-      const messageSearchCountWorker = messageSearchFeatures.counts
-        ? new QueueWorker(
+        );
+      }
+      if (messageSearchFeatures.counts) {
+        registerQueueWorker(
+          new QueueWorker(
             "message-search-count",
             (job) =>
-              processMessageSearchCount(
-                job.data.requestId,
-                logger,
-                messageSearchMetrics
+              runMessageSearchJob(() =>
+                processMessageSearchCount(
+                  job.data.requestId,
+                  logger,
+                  messageSearchMetrics
+                )
               ),
             { concurrency: 1, connection }
           )
-        : undefined;
-      workers.push(
-        messageSearchLiveWorker,
-        ...(messageSearchBackfillWorker ? [messageSearchBackfillWorker] : []),
-        ...(messageSearchCountWorker ? [messageSearchCountWorker] : [])
-      );
-      await sweepMessageSearchOutbox();
-      messageSearchSweepTimer = setInterval(() => {
-        void sweepMessageSearchOutbox();
-      }, 10_000);
+        );
+      }
+      // eslint-disable-next-line promise/prefer-await-to-callbacks -- the pulse owns asynchronous failure reporting
+      sweepPulse = createWorkerPulse(sweepMessageSearchOutbox, (error) => {
+        logger.error(
+          messageWorkerErrorFields(error),
+          "message search outbox sweep failed"
+        );
+      });
     }
 
     if (!messageSearchWorkerRole.only) {
-      const messageUnreadCounterWorker = new QueueWorker(
-        MESSAGE_UNREAD_COUNTER_QUEUE,
-        async (job) => {
-          const conversationId = job.data?.conversationId;
-          const userId = job.data?.userId;
-          if (
-            typeof conversationId !== "string" ||
-            conversationId.length === 0 ||
-            typeof userId !== "string" ||
-            userId.length === 0
-          ) {
-            throw new Error("Invalid message unread counter job");
-          }
-          await reconcileMessageUnreadCounter({ conversationId, userId });
-        },
-        { concurrency: 1, connection }
+      registerQueueWorker(
+        new QueueWorker(
+          MESSAGE_UNREAD_COUNTER_QUEUE,
+          async (job) => {
+            const conversationId = job.data?.conversationId;
+            const userId = job.data?.userId;
+            if (
+              typeof conversationId !== "string" ||
+              conversationId.length === 0 ||
+              typeof userId !== "string" ||
+              userId.length === 0
+            ) {
+              throw new Error("Invalid message unread counter job");
+            }
+            await reconcileMessageUnreadCounter({ conversationId, userId });
+          },
+          { concurrency: 1, connection }
+        )
       );
-      const contentWorker = new QueueWorker(
-        "content-events",
-        (job) => {
-          switch (job.name) {
-            case "post-deleted": {
-              return processPostDeleted(job.data, logger);
+      registerQueueWorker(
+        new QueueWorker(
+          "content-events",
+          (job) => {
+            switch (job.name) {
+              case "post-deleted": {
+                return processPostDeleted(job.data, logger);
+              }
+              case "notification-created": {
+                return processNotificationCreated(job.data, logger);
+              }
+              case "notification-deleted": {
+                return processNotificationDeleted(job.data);
+              }
+              case "shitposter-check": {
+                return processShitposterCheck(job.data, logger);
+              }
+              default: {
+                throw new Error(`Unknown content event: ${job.name}`);
+              }
             }
-            case "notification-created": {
-              return processNotificationCreated(job.data, logger);
-            }
-            case "notification-deleted": {
-              return processNotificationDeleted(job.data);
-            }
-            case "shitposter-check": {
-              return processShitposterCheck(job.data, logger);
-            }
-            default: {
-              throw new Error(`Unknown content event: ${job.name}`);
-            }
-          }
-        },
-        { connection }
+          },
+          { connection }
+        )
       );
 
-      const notificationWorker = new QueueWorker(
-        NOTIFICATIONS_QUEUE,
-        async (job) => {
-          if (job.name === "notification-created") {
-            return await processNotificationCreated(job.data, logger);
-          }
-          throw new Error(`Unknown notification event: ${job.name}`);
-        },
-        {
-          concurrency: readWorkerInteger(
-            "NOTIFICATION_WORKER_CONCURRENCY",
-            8,
-            32
-          ),
-          connection,
-          limiter: {
-            duration: 1000,
-            max: readWorkerInteger("NOTIFICATION_WORKER_RATE_MAX", 40, 200),
+      const notificationWorker = registerQueueWorker(
+        new QueueWorker(
+          NOTIFICATIONS_QUEUE,
+          async (job) => {
+            if (job.name === "notification-created") {
+              return await processNotificationCreated(job.data, logger);
+            }
+            throw new Error(`Unknown notification event: ${job.name}`);
           },
-        }
+          {
+            concurrency: readWorkerInteger(
+              "NOTIFICATION_WORKER_CONCURRENCY",
+              8,
+              32
+            ),
+            connection,
+            limiter: {
+              duration: 1000,
+              max: readWorkerInteger("NOTIFICATION_WORKER_RATE_MAX", 40, 200),
+            },
+          }
+        )
       );
 
       // The "media" queue is consumed by apps/media-processing since the
       // pipeline worker split; auth no longer touches media jobs.
 
-      const maintenanceWorker = new QueueWorker(
-        "maintenance",
-        async (job) => {
-          switch (job.name) {
-            case "hn-refresh": {
-              return processHnRefresh();
-            }
-            case "expired-tokens": {
-              return processExpiredTokens(logger);
-            }
-            case "expired-username-aliases": {
-              return processExpiredUsernameAliases(logger);
-            }
-            case "inactive-users": {
-              return processInactiveUsersSweep(logger);
-            }
-            case "cleanup-published-notification": {
-              return processPublishedNotificationCleanup(job.data, logger);
-            }
-            case "cleanup-published-notifications": {
-              return processPublishedNotificationsSweep(logger);
-            }
-            case "badge-sweep": {
-              return processBadgeSweep(logger);
-            }
-            case "trending-scores": {
-              const startedAtMs = Date.now();
-              try {
-                return await flushTrendingScores(logger);
-              } finally {
-                logger.info(
-                  { durationMs: Date.now() - startedAtMs },
-                  "trending-scores job finished"
-                );
+      registerQueueWorker(
+        new QueueWorker(
+          "maintenance",
+          async (job) => {
+            switch (job.name) {
+              case "hn-refresh": {
+                return processHnRefresh();
+              }
+              case "expired-tokens": {
+                return processExpiredTokens(logger);
+              }
+              case "expired-username-aliases": {
+                return processExpiredUsernameAliases(logger);
+              }
+              case "inactive-users": {
+                return processInactiveUsersSweep(logger);
+              }
+              case "cleanup-published-notification": {
+                return processPublishedNotificationCleanup(job.data, logger);
+              }
+              case "cleanup-published-notifications": {
+                return processPublishedNotificationsSweep(logger);
+              }
+              case "badge-sweep": {
+                return processBadgeSweep(logger);
+              }
+              case "trending-scores": {
+                const startedAtMs = Date.now();
+                try {
+                  return await flushTrendingScores(logger);
+                } finally {
+                  logger.info(
+                    { durationMs: Date.now() - startedAtMs },
+                    "trending-scores job finished"
+                  );
+                }
+              }
+              default: {
+                throw new Error(`Unknown maintenance job: ${job.name}`);
               }
             }
-            default: {
-              throw new Error(`Unknown maintenance job: ${job.name}`);
-            }
-          }
-        },
-        { connection }
-      );
-
-      workers.push(
-        contentWorker,
-        notificationWorker,
-        maintenanceWorker,
-        messageUnreadCounterWorker
+          },
+          { connection }
+        )
       );
 
       notificationWorker.on("completed", (job) => {
@@ -428,10 +443,75 @@ if (import.meta.main) {
       });
     }
 
-    for (const worker of workers) {
-      worker.on("failed", (job, error) => {
-        logger.error({ error, job: job?.name }, "job failed");
-      });
+    await Promise.all(workers.map((worker) => worker.waitUntilReady()));
+    if (!running) {
+      return;
+    }
+    heartbeatPulse = createWorkerPulse(
+      async () => {
+        if (!running) {
+          return;
+        }
+        // Check each process-owned queue connection; a different replica cannot mask an outage.
+        const connectionsReady = await Promise.all(
+          workers.map(async (worker) => {
+            const backend = worker.getBackend();
+            const client = await backend.client;
+            const blockingClient = await backend.blockingClient;
+            return (
+              worker.isRunning() &&
+              client.status === "ready" &&
+              blockingClient?.status === "ready"
+            );
+          })
+        );
+        if (connectionsReady.some((ready) => !ready)) {
+          await clearWorkerHealth(healthPath);
+          return;
+        }
+        const { redis } = await import("@asm/db");
+        const heartbeatValue = String(Date.now());
+        const heartbeats: Promise<unknown>[] = [];
+        if (!messageSearchWorkerRole.only) {
+          heartbeats.push(
+            redis.set("worker:heartbeat", heartbeatValue, "EX", 30)
+          );
+        }
+        if (messageSearchWorkerRole.enabled) {
+          heartbeats.push(
+            redis.set(
+              "worker:message-search:heartbeat",
+              heartbeatValue,
+              "EX",
+              30
+            )
+          );
+        }
+        await Promise.all(heartbeats);
+        if (running) {
+          await writeWorkerHealth(healthPath, workerServiceName);
+        }
+      },
+      // eslint-disable-next-line promise/prefer-await-to-callbacks -- asynchronous pulse error observer
+      (error) => {
+        logger.error(
+          messageWorkerErrorFields(error),
+          "worker heartbeat failed"
+        );
+      }
+    );
+    await heartbeatPulse.run();
+    if (!running) {
+      return;
+    }
+    heartbeatTimer = setInterval(() => {
+      void heartbeatPulse?.run();
+    }, 10_000);
+    if (sweepPulse) {
+      void sweepPulse.run();
+      messageSearchSweepTimer = setInterval(() => {
+        void sweepPulse?.run();
+      }, 10_000);
     }
 
     logger.info(
@@ -446,44 +526,69 @@ if (import.meta.main) {
     logger.info("worker started");
   };
 
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, "shutting down worker");
-    running = false;
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-    }
-    if (messageSearchSweepTimer) {
-      clearInterval(messageSearchSweepTimer);
-    }
-    await Promise.all([
-      ...workers.map((worker) => worker.close()),
-      viewLoopPromise,
-      shareLoopPromise,
-    ]);
-    await telemetry.shutdown();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => {
-    void (async () => {
-      try {
-        await shutdown("SIGINT");
-      } catch (error: unknown) {
-        logger.error({ error }, "shutdown failed");
-        process.exit(1);
+  const shutdown = createWorkerShutdown({
+    drain: async () => {
+      await clearWorkerHealth(healthPath);
+      await Promise.all([
+        ...workers.map((worker) => worker.close()),
+        heartbeatPulse?.dispose(),
+        sweepPulse?.dispose(),
+        viewLoopPromise,
+        shareLoopPromise,
+      ]);
+      // An in-flight heartbeat may finish during draining; remove its last write as well.
+      await clearWorkerHealth(healthPath);
+      clearMessageSearchKeyCache();
+      await Promise.all([
+        closeMessageSearchPool(),
+        closePrisma(),
+        telemetry.shutdown(),
+      ]);
+    },
+    stop: () => {
+      running = false;
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
       }
-    })();
+      if (messageSearchSweepTimer) {
+        clearInterval(messageSearchSweepTimer);
+      }
+    },
+    timeoutMs: readWorkerInteger("WORKER_SHUTDOWN_TIMEOUT_MS", 30_000, 120_000),
+  });
+
+  let exitRequested = false;
+  const requestShutdown = async (signal: string, failed = false) => {
+    if (exitRequested) {
+      return;
+    }
+    exitRequested = true;
+    logger.info({ signal }, "shutting down worker");
+    try {
+      const outcome = await shutdown();
+      if (outcome === "timed-out") {
+        logger.warn(
+          "worker shutdown deadline reached; durable work will be retried"
+        );
+      }
+      process.exit(failed || outcome === "timed-out" ? 1 : 0);
+    } catch (error) {
+      logger.error(messageWorkerErrorFields(error), "worker shutdown failed");
+      process.exit(1);
+    }
+  };
+  process.on("SIGINT", () => {
+    void requestShutdown("SIGINT");
   });
   process.on("SIGTERM", () => {
-    void (async () => {
-      try {
-        await shutdown("SIGTERM");
-      } catch (error: unknown) {
-        logger.error({ error }, "shutdown failed");
-        process.exit(1);
-      }
-    })();
+    void requestShutdown("SIGTERM");
   });
 
-  await start();
+  try {
+    await clearWorkerHealth(healthPath);
+    await start();
+  } catch (error) {
+    logger.error(messageWorkerErrorFields(error), "worker startup failed");
+    await requestShutdown("startup", true);
+  }
 }

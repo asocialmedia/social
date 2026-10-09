@@ -55,6 +55,16 @@ describe("Prisma sync deployment artifact", () => {
     );
     expect(authDockerfile).toContain("ENV MESSAGE_SEARCH_WORKER_ONLY=1");
     expect(authDockerfile).toContain('CMD ["./asm-worker"]');
+    const searchWorkerStage = authDockerfile
+      .split("FROM runtime-base AS message-search-worker")[1]
+      ?.split("FROM runtime-base AS runtime")[0];
+    expect(searchWorkerStage).toContain(
+      'CMD ["./asm-worker", "--health-check"]'
+    );
+    expect(searchWorkerStage).toContain(
+      "HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3"
+    );
+    expect(searchWorkerStage).not.toContain("HEALTHCHECK NONE");
     expect(authDockerfile).toContain('CMD ["./docker-entrypoint.sh"]');
     const runtimeBase = authDockerfile.split(
       "FROM alpine:3.20 AS runtime-base"
