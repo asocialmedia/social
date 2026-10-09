@@ -89,6 +89,7 @@ import {
 } from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
+  applyMessageDeletionToPages,
   foldMessageIntoBoundedData,
   toCachedMessage,
   deleteMessage,
@@ -177,6 +178,7 @@ import {
   getMessageReceipt,
   peerWatermarks,
 } from "@/lib/messages/message-receipts";
+import { shouldReconcileMessageEvent } from "@/lib/messages/message-revision";
 import {
   paginateSearchResults,
   SEARCH_PAGE_SIZE,
@@ -4597,13 +4599,12 @@ export function MessageThread({
             if (!old) {
               return old;
             }
-            const pages = old.pages.map((page) => ({
-              ...page,
-              messages: page.messages.map((m) =>
-                m.id === message.id ? { ...m, deletedAt: new Date() } : m
-              ),
-            }));
-            return { ...old, pages };
+            const pages = applyMessageDeletionToPages(
+              old.pages,
+              message,
+              new Date()
+            );
+            return pages ? { ...old, pages } : old;
           }
         );
       } else if (event.kind === "message.edited") {
@@ -5084,9 +5085,19 @@ export function MessageThread({
     userId: user?.id,
   });
 
+  const handleReconciledEvent = useCallback(
+    (event: Parameters<typeof handleEvent>[0]) => {
+      handleEvent(event);
+      if (shouldReconcileMessageEvent(event.kind)) {
+        void replayConversationChanges();
+      }
+    },
+    [handleEvent, replayConversationChanges]
+  );
+
   useMessagesRealtime(
     conversationId,
-    handleEvent,
+    handleReconciledEvent,
     // A den somebody left is read-only, and there is nothing for a stream to
     // deliver: the server refuses the connect with a 403, and every message in the
     // channel is encrypted under an epoch they hold no wrap for. Opening one anyway

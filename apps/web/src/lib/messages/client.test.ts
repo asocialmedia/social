@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   appendMessageToLastPage,
+  applyMessageDeletionToPages,
   foldMessageIntoBoundedData,
   foldMessageIntoPages,
   createRootKeyStore,
@@ -1740,6 +1741,11 @@ function pages(messages: { id: string }[]) {
 }
 
 describe("appendMessageToLastPage", () => {
+  test("does not append a late create already retained in an earlier page", () => {
+    expect(
+      appendMessageToLastPage(pages([{ id: "newest" }]), { id: "older-1" })
+    ).toBeNull();
+  });
   test("appends to the last page", () => {
     const next = appendMessageToLastPage(pages([{ id: "m1" }]), { id: "m2" });
     expect(next).not.toBeNull();
@@ -1984,6 +1990,45 @@ describe("foldMessageIntoBoundedData", () => {
 });
 
 describe("updateMessageInPages", () => {
+  test("ignores an out-of-order edit and duplicate revisions", () => {
+    const current = { ciphertext: "latest", id: "m1", revision: 3 };
+    const input = [{ messages: [current] }];
+    expect(
+      updateMessageInPages(input, {
+        ciphertext: "stale",
+        id: "m1",
+        revision: 2,
+      })
+    ).toBeNull();
+    expect(updateMessageInPages(input, { ...current })).toBeNull();
+    expect(input[0].messages[0]).toBe(current);
+    expect(
+      updateMessageInPages(input, { ...current, revision: 4 })?.[0].messages[0]
+        .revision
+    ).toBe(4);
+  });
+
+  test("a late edit cannot resurrect an optimistic global deletion", () => {
+    const row = {
+      ciphertext: "original",
+      deletedAt: null as Date | null,
+      id: "m1",
+      revision: 1,
+    };
+    const deleted = markMessagesDeletedInPages(
+      [{ messages: [row] }],
+      new Set(["m1"]),
+      new Date()
+    );
+    expect(
+      updateMessageInPages(deleted ?? [], {
+        ...row,
+        ciphertext: "late edit",
+        revision: 2,
+      })
+    ).toBeNull();
+    expect(deleted?.[0].messages[0].deletedAt).not.toBeNull();
+  });
   test("replaces the matching row in place, preserving order", () => {
     const next = updateMessageInPages(pages([{ id: "m1" }, { id: "m2" }]), {
       id: "m1",
@@ -2015,6 +2060,41 @@ describe("updateMessageInPages", () => {
     });
     expect(next).not.toBeNull();
     expect(input[1].messages[0]).toEqual({ id: "m1" });
+  });
+});
+
+describe("revision-aware live deletions", () => {
+  test("accepts the committed tombstone while preserving row identity and position", () => {
+    const first = { deletedAt: null, id: "m1", revision: 1 };
+    const second = { deletedAt: null, id: "m2", revision: 3 };
+    const input = [{ messages: [first, second] }];
+    const deletedAt = new Date();
+    const next = applyMessageDeletionToPages(
+      input,
+      { id: "m1", revision: 2 },
+      deletedAt
+    );
+    expect(next?.[0].messages.map((row) => row.id)).toEqual(["m1", "m2"]);
+    expect(next?.[0].messages[0]).toEqual({ ...first, deletedAt, revision: 2 });
+    expect(next?.[0].messages[1]).toBe(second);
+    expect(input[0].messages[0]).toBe(first);
+    expect(
+      applyMessageDeletionToPages(
+        next ?? [],
+        { id: "m1", revision: 2 },
+        new Date()
+      )
+    ).toBeNull();
+  });
+
+  test("a stale deletion or unversioned event cannot replace a newer source row", () => {
+    const input = [{ messages: [{ deletedAt: null, id: "m1", revision: 3 }] }];
+    expect(
+      applyMessageDeletionToPages(input, { id: "m1", revision: 2 }, new Date())
+    ).toBeNull();
+    expect(
+      applyMessageDeletionToPages(input, { id: "m1" }, new Date())
+    ).toBeNull();
   });
 });
 

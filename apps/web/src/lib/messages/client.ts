@@ -35,6 +35,7 @@ import {
   lastAppliedMembershipSeq,
   readMembershipSeq,
 } from "./membership-seq";
+import { shouldReplaceMessageRevision } from "./message-revision";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -1714,7 +1715,10 @@ export function appendMessageToLastPage<
 >(pages: P[], message: T): P[] | null {
   const pagesCopy = [...pages];
   const lastPage = pagesCopy.at(-1);
-  if (!lastPage || lastPage.messages.some((m) => m.id === message.id)) {
+  if (
+    !lastPage ||
+    pages.some((page) => page.messages.some((m) => m.id === message.id))
+  ) {
     return null;
   }
   pagesCopy[pagesCopy.length - 1] = {
@@ -1849,18 +1853,47 @@ export function foldMessageIntoBoundedData<TPageParam>(
 // The edit never changes the row's position: the same id stays in the same
 // slot, so virtualizer keys, order, and scroll anchoring are unaffected.
 export function updateMessageInPages<
-  T extends { id: string },
+  T extends { deletedAt?: Date | string | null; id: string; revision?: number },
   P extends { messages: T[] },
 >(pages: P[], message: T): P[] | null {
   let changed = false;
   const nextPages = pages.map((page) => {
-    if (!page.messages.some((m) => m.id === message.id)) {
+    const previous = page.messages.find((row) => row.id === message.id);
+    if (!previous || !shouldReplaceMessageRevision(previous, message)) {
       return page;
     }
     changed = true;
     return {
       ...page,
       messages: page.messages.map((m) => (m.id === message.id ? message : m)),
+    };
+  });
+  return changed ? nextPages : null;
+}
+
+export function applyMessageDeletionToPages<
+  T extends { deletedAt: Date | string | null; id: string; revision?: number },
+  P extends { messages: T[] },
+>(
+  pages: P[],
+  deletion: { id: string; revision?: number },
+  deletedAt: Date
+): P[] | null {
+  let changed = false;
+  const incoming = { ...deletion, deletedAt };
+  const nextPages = pages.map((page) => {
+    const previous = page.messages.find((row) => row.id === deletion.id);
+    if (!previous || !shouldReplaceMessageRevision(previous, incoming)) {
+      return page;
+    }
+    changed = true;
+    return {
+      ...page,
+      messages: page.messages.map((message) =>
+        message.id === deletion.id
+          ? { ...message, deletedAt, revision: deletion.revision }
+          : message
+      ),
     };
   });
   return changed ? nextPages : null;
