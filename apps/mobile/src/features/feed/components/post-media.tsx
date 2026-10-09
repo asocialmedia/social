@@ -58,7 +58,13 @@ import {
 } from "@/theme";
 
 import { fetchCaptionsVtt, fetchWavePeaks } from "../lib/feed-api";
-import type { FeedMedia } from "../lib/feed-types";
+import type { FeedMedia, FeedPost } from "../lib/feed-types";
+import { isMediaActivityVisible } from "../lib/media-activity";
+import {
+  mediaDimensionsCache,
+  mediaDimensionsKey,
+  rememberMediaDimensions,
+} from "../lib/media-dimensions";
 import {
   formatFileName,
   isAudioMedia,
@@ -82,6 +88,8 @@ import {
   updateVideoClockTime,
 } from "../lib/video-clock";
 import {
+  isFeedMediaActive,
+  subscribeFeedMediaActivity,
   isAutoplayPost,
   isPostVisible,
   subscribeAutoplayPost,
@@ -94,48 +102,60 @@ import {
   eqBarInterpolation,
   shapeWaveform,
 } from "../lib/waveform";
+import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { useVideoMuteStore } from "../state/video-mute-store";
+import { MediaHold, MediaPostContext } from "./media-hold";
 
 // Feed cards keep their complete poster/chrome while native media resources
 // follow viewport activity. Detail screens have no feed activity restriction.
+export const FeedMediaScope = createContext<string | null>(null);
+
 const MediaActivityContext = createContext<{
   active: boolean | undefined;
   focused: boolean;
   postId: string;
 } | null>(null);
 
-function useMediaActivity(fallbackPostId = "") {
+export function useMediaActivity(fallbackPostId = "") {
   const context = useContext(MediaActivityContext);
+  const feedScope = useContext(FeedMediaScope);
   const postId = context?.postId ?? fallbackPostId;
   const subscribe = useCallback(
     (notify: () => void) => {
+      const stopFeed = feedScope
+        ? subscribeFeedMediaActivity(feedScope, notify)
+        : () => null;
       const stopVisibility = subscribePostVisibility(postId, notify);
       const stopAutoplay = subscribeAutoplayPost(postId, notify);
+      const stopPreview = useMediaPreviewStore.subscribe(notify);
       const appStateSubscription = AppState.addEventListener("change", notify);
       return () => {
+        stopFeed();
         stopVisibility();
         stopAutoplay();
+        stopPreview();
         appStateSubscription.remove();
       };
     },
-    [postId]
+    [feedScope, postId]
   );
-  const getSnapshot = useCallback(
-    () =>
-      `${AppState.currentState === "active"}:${isPostVisible(postId)}:${isAutoplayPost(postId)}`,
-    [postId]
-  );
+  const getSnapshot = useCallback(() => {
+    const visible = isMediaActivityVisible({
+      active: context?.active,
+      feedActive:
+        (feedScope === null || isFeedMediaActive(feedScope)) &&
+        !useMediaPreviewStore.getState().request,
+      focused: context?.focused ?? true,
+      foreground: AppState.currentState === "active",
+      inViewport: isPostVisible(postId),
+      viewportRequired: feedScope !== null && Boolean(fallbackPostId),
+    });
+    return `${visible}:${visible && isAutoplayPost(postId)}`;
+  }, [context?.active, context?.focused, fallbackPostId, feedScope, postId]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  const [foreground, inViewport, owner] = snapshot.split(":");
-  return {
-    autoplayOwner: owner === "true",
-    visible:
-      foreground === "true" &&
-      (context?.focused ?? true) &&
-      (context?.active === undefined ||
-        (context.active && inViewport === "true")),
-  };
+  const [visible, owner] = snapshot.split(":");
+  return { autoplayOwner: owner === "true", visible: visible === "true" };
 }
 
 interface GalleryProps {
@@ -149,6 +169,7 @@ interface GalleryProps {
   // cards open post detail; the detail card opens the selected media index.
   onPressMedia?: (index: number) => void;
   postId: string;
+  post?: FeedPost;
 }
 
 function useFailedImages() {
@@ -165,12 +186,16 @@ function useFailedImages() {
   };
 }
 
-function AnimatedFeedImage(props: ImageProps) {
-  const { visible } = useMediaActivity();
+export function ActivityFeedImage({
+  postId,
+  ...props
+}: ImageProps & { postId?: string }) {
+  const { visible } = useMediaActivity(postId);
   const imageRef = useRef<Image>(null);
+  const animatedRef = useRef<boolean | null>(null);
   const synchronizeAnimation = useCallback(() => {
     const image = imageRef.current;
-    if (!image) {
+    if (!image || animatedRef.current === false) {
       return;
     }
     // autoplay controls initial loading; the native methods also pause an
@@ -188,6 +213,8 @@ function AnimatedFeedImage(props: ImageProps) {
       autoplay={visible}
       ref={imageRef}
       onLoad={(event) => {
+        // Native decoding detects GIF/APNG/WebP even when feed MIME is absent.
+        animatedRef.current = event.source.isAnimated ?? null;
         props.onLoad?.(event);
         synchronizeAnimation();
       }}
@@ -208,7 +235,6 @@ function SingleImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
-  const MediaImage = isGifMedia(media) ? AnimatedFeedImage : Image;
   const stored =
     media.width && media.height && media.height > 0
       ? { h: media.height, w: media.width }
@@ -216,7 +242,13 @@ function SingleImage({
   // Web measures the natural size when stored dims are missing; without it
   // a portrait lands in a landscape frame and `contain` centers it with
   // square corners. The measured size keeps the frame hugging the picture.
-  const [natural, setNatural] = useState<{ h: number; w: number } | null>(null);
+  const dimensionsKey = mediaDimensionsKey(apiBase, media.id);
+  const [natural, setNatural] = useState<{ h: number; w: number } | null>(
+    () => {
+      const cached = mediaDimensionsCache.get(dimensionsKey);
+      return cached ? { h: cached.height, w: cached.width } : null;
+    }
+  );
   const dims = natural ?? stored;
   const ratio = dims && dims.h > 0 ? dims.w / dims.h : 4 / 3;
   // Portraits pin left at natural proportions (web w-fit); squares count as
@@ -232,7 +264,7 @@ function SingleImage({
         portrait && styles.singleLeft,
       ]}
     >
-      <MediaImage
+      <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
         cachePolicy={imageCachePolicy(
           mediaImageUrl(apiBase, media),
@@ -247,7 +279,15 @@ function SingleImage({
         onLoad={(event) => {
           const { source } = event;
           if (source?.width > 0 && source?.height > 0) {
-            setNatural({ h: source.height, w: source.width });
+            rememberMediaDimensions(dimensionsKey, {
+              height: source.height,
+              width: source.width,
+            });
+            setNatural((current) =>
+              current?.h === source.height && current.w === source.width
+                ? current
+                : { h: source.height, w: source.width }
+            );
           }
         }}
         source={{ uri: mediaImageUrl(apiBase, media) }}
@@ -261,17 +301,33 @@ function SingleImage({
     </View>
   );
   if (!onPressMedia) {
-    return frame;
+    return (
+      <MediaHold
+        media={media}
+        style={portrait ? { alignSelf: "flex-start" } : undefined}
+      >
+        {frame}
+      </MediaHold>
+    );
   }
   return (
-    <Pressable
-      accessibilityLabel={media.altText ?? "Open post media"}
-      accessibilityRole="link"
-      onPress={() => onPressMedia(index)}
-      style={({ pressed }) => [pressed && styles.mediaTilePressed]}
+    <MediaHold
+      media={media}
+      style={portrait ? { alignSelf: "flex-start" } : undefined}
     >
-      {frame}
-    </Pressable>
+      <Pressable
+        accessibilityLabel={media.altText ?? "Open post media"}
+        accessibilityRole="link"
+        onPress={() => {
+          if (!useMediaPreviewStore.getState().request) {
+            onPressMedia(index);
+          }
+        }}
+        style={({ pressed }) => [pressed && styles.mediaTilePressed]}
+      >
+        {frame}
+      </Pressable>
+    </MediaHold>
   );
 }
 
@@ -288,7 +344,6 @@ function GridImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
-  const MediaImage = isGifMedia(media) ? AnimatedFeedImage : Image;
   const { isDark } = useAppTheme();
   const frameStyle = [
     styles.gridTileWrap,
@@ -296,7 +351,7 @@ function GridImage({
   ];
   const content = (
     <>
-      <MediaImage
+      <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
         cachePolicy={imageCachePolicy(
           mediaGridImageUrl(apiBase, media),
@@ -315,17 +370,30 @@ function GridImage({
     </>
   );
   if (!onPressMedia) {
-    return <View style={frameStyle}>{content}</View>;
+    return (
+      <MediaHold media={media} style={frameStyle}>
+        {content}
+      </MediaHold>
+    );
   }
   return (
-    <Pressable
-      accessibilityLabel={media.altText ?? "Open post media"}
-      accessibilityRole="link"
-      onPress={() => onPressMedia(index)}
-      style={({ pressed }) => [frameStyle, pressed && styles.mediaTilePressed]}
-    >
-      {content}
-    </Pressable>
+    <MediaHold media={media} style={frameStyle}>
+      <Pressable
+        accessibilityLabel={media.altText ?? "Open post media"}
+        accessibilityRole="link"
+        onPress={() => {
+          if (!useMediaPreviewStore.getState().request) {
+            onPressMedia(index);
+          }
+        }}
+        style={({ pressed }) => [
+          styles.tileFill,
+          pressed && styles.mediaTilePressed,
+        ]}
+      >
+        {content}
+      </Pressable>
+    </MediaHold>
   );
 }
 
@@ -490,6 +558,7 @@ function VideoTile({
   const manualPausedRef = useRef(false);
   const endedRef = useRef(false);
   const playbackTimeRef = useRef(0);
+  const loadedDurationRef = useRef<number | null>(null);
 
   const isFailed = posterFailed || videoStatus === "error";
   const isVideoActive = prepareVideo && firstFrame && hasPlayed;
@@ -499,6 +568,7 @@ function VideoTile({
     playbackTimeRef.current = event.currentTime;
   });
   useEventListener(player, "sourceLoad", (event) => {
+    loadedDurationRef.current = event.duration > 0 ? event.duration : null;
     if (playbackTimeRef.current > 0 && event.duration > 0) {
       // oxlint-disable-next-line react/immutability -- restore the playhead through expo-video's documented seek property
       player.currentTime = Math.min(playbackTimeRef.current, event.duration);
@@ -590,7 +660,7 @@ function VideoTile({
           setFetchedCues(
             splitTranscriptIntoTimedLines(
               media.transcript,
-              player.duration || null
+              loadedDurationRef.current
             )
           );
         }
@@ -601,14 +671,7 @@ function VideoTile({
     return () => {
       cancelled = true;
     };
-  }, [
-    apiBase,
-    fetchedCues.length,
-    media.id,
-    media.transcript,
-    player,
-    wantsCaptions,
-  ]);
+  }, [apiBase, fetchedCues.length, media.id, media.transcript, wantsCaptions]);
 
   const directCues = useMemo(
     () => cuesFromTranscript(media.transcript),
@@ -694,7 +757,7 @@ function VideoTile({
   const playbackLabel = isPlaying ? "Pause video" : "Play video";
   const previewLabel = onPressPreview ? "Open video" : playbackLabel;
   return (
-    <View style={frameStyle}>
+    <MediaHold media={media} style={frameStyle}>
       {prepareVideo ? (
         <VideoView
           contentFit="cover"
@@ -733,7 +796,11 @@ function VideoTile({
       <Pressable
         accessibilityLabel={media.altText ?? previewLabel}
         accessibilityRole={onPressPreview ? "link" : "button"}
-        onPress={onPressPreview ?? togglePlayback}
+        onPress={() => {
+          if (!useMediaPreviewStore.getState().request) {
+            (onPressPreview ?? togglePlayback)();
+          }
+        }}
         style={styles.fill}
       />
       <Animated.View
@@ -810,7 +877,7 @@ function VideoTile({
         enabled={showCaptions && (isVideoActive || isPlaying || engaged)}
         player={player}
       />
-    </View>
+    </MediaHold>
   );
 }
 
@@ -1430,15 +1497,32 @@ export function ExplicitGate({
   );
 }
 
-export function MediaGallery({
+export function MediaGallery(props: GalleryProps) {
+  const feedScope = useContext(FeedMediaScope);
+  // Feed focus is published once by its list; only media leaves subscribe.
+  // Other surfaces still follow their own native navigation focus.
+  return feedScope === null ? (
+    <FocusedMediaGallery {...props} />
+  ) : (
+    <GalleryBody {...props} focused />
+  );
+}
+
+function FocusedMediaGallery(props: GalleryProps) {
+  const focused = useIsFocused();
+  return <GalleryBody {...props} focused={focused} />;
+}
+
+function GalleryBody({
   active,
   apiBase,
   attachments,
   onPressMedia,
   postId,
-}: GalleryProps) {
+  focused,
+  post,
+}: GalleryProps & { focused: boolean }) {
   const { failed, markFailed } = useFailedImages();
-  const focused = useIsFocused();
   const activity = useMemo(
     () => ({ active, focused, postId }),
     [active, focused, postId]
@@ -1448,16 +1532,18 @@ export function MediaGallery({
     return null;
   }
   return (
-    <MediaActivityContext.Provider value={activity}>
-      <SingleOrGrid
-        active={active}
-        apiBase={apiBase}
-        items={visible}
-        onFailed={markFailed}
-        onPressMedia={onPressMedia}
-        postId={postId}
-      />
-    </MediaActivityContext.Provider>
+    <MediaPostContext.Provider value={post ?? null}>
+      <MediaActivityContext.Provider value={activity}>
+        <SingleOrGrid
+          active={active}
+          apiBase={apiBase}
+          items={visible}
+          onFailed={markFailed}
+          onPressMedia={onPressMedia}
+          postId={postId}
+        />
+      </MediaActivityContext.Provider>
+    </MediaPostContext.Provider>
   );
 }
 

@@ -1,3 +1,4 @@
+import { Pressable, StyleSheet, Text } from "react-native";
 // The action button every StatusScreen wears: the "Try Again" on the error
 // boundary, the "Return Home" on the not-found route.
 //
@@ -11,14 +12,13 @@
 // the ring is a second view behind it, one pixel proud on every side. That is
 // the same pair of edges, not a flat fill.
 
-import { Pressable, StyleSheet, Text } from "react-native";
-
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ORANGE_BUTTON_SHADOWS,
   ORANGE_GRADIENT,
   ORANGE_PRESSED_GRADIENT,
 } from "@/components/surface/recipes";
+import { haptic } from "@/lib/haptics";
 
 export function StatusActionButton({
   label,
@@ -31,7 +31,10 @@ export function StatusActionButton({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
-      onPress={onPress}
+      onPress={() => {
+        haptic();
+        onPress();
+      }}
       style={styles.ring}
     >
       {({ pressed }) => (

@@ -4,10 +4,18 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { BellOff, Check, CheckCheck, Clock } from "lucide-react-native";
+import { useState } from "react";
 import type { ComponentType } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import type { BubbleCorners } from "@/features/messages/lib/message-bubble-shape";
+import { messageImageSource } from "@/features/messages/lib/message-image-source";
 import type { MessageReceipt } from "@/features/messages/lib/message-receipts";
 import { receiptLabel } from "@/features/messages/lib/message-receipts";
 import {
@@ -16,7 +24,9 @@ import {
   iconButton3d,
   pillHover,
 } from "@/features/messages/lib/message-recipes";
+import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { imageCachePolicy } from "@/lib/image-cache";
 import { useAppTheme } from "@/theme";
 
@@ -63,12 +73,14 @@ export function MessagesIconButton({
   onPress,
   size = 34,
   tone = "default",
+  disabled = false,
 }: {
   icon: ComponentType<{ color?: string; size?: number }>;
   label: string;
   onPress: () => void;
   size?: number;
   tone?: "danger" | "default";
+  disabled?: boolean;
 }) {
   const { isDark } = useAppTheme();
   const recipe = iconButton3d(isDark);
@@ -77,14 +89,20 @@ export function MessagesIconButton({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       hitSlop={6}
-      onPress={onPress}
+      onPress={() => {
+        haptic();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.iconButton,
         {
           backgroundColor: pressed ? pressedFill(isDark) : recipe.background,
           boxShadow: recipe.shadows,
           height: size,
+          opacity: disabled ? 0.4 : 1,
           width: size,
         },
       ]}
@@ -114,7 +132,10 @@ export function PressableRow({
   return (
     <Pressable
       accessibilityRole={onPress ? "button" : undefined}
-      onPress={onPress}
+      onPress={() => {
+        haptic();
+        onPress?.();
+      }}
       style={({ pressed }) => [
         styles.row,
         style,
@@ -300,18 +321,88 @@ export function mediaUrl(path: string): string {
 export function MessageImage({
   source,
   style,
+  contentFit = "cover",
 }: {
   source: string;
   style: object;
+  contentFit?: "cover" | "contain";
 }) {
+  const { mediaCookie, userId } = useMessagesIdentity();
+  const { theme } = useAppTheme();
+  const request = messageImageSource(
+    source,
+    getApiBaseUrl(),
+    userId,
+    mediaCookie
+  );
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
   return (
-    <Image
-      cachePolicy={imageCachePolicy(source)}
-      contentFit="cover"
-      source={{ uri: source }}
-      style={style}
-      transition={120}
-    />
+    <View style={[style, { overflow: "hidden" }]}>
+      <Image
+        key={`${source}:${revision}`}
+        cachePolicy={request.privateMedia ? "memory" : imageCachePolicy(source)}
+        contentFit={contentFit}
+        onError={() => setFailedSource(source)}
+        onLoad={() => {
+          setFailedSource(null);
+          setLoadedSource(source);
+        }}
+        recyclingKey={request.source?.cacheKey ?? source}
+        source={request.source}
+        style={StyleSheet.absoluteFill}
+        transition={120}
+      />
+      {loadedSource !== source && failedSource !== source ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              alignItems: "center",
+              backgroundColor: `${theme.dividerText}20`,
+              justifyContent: "center",
+            },
+          ]}
+        >
+          <ActivityIndicator
+            accessibilityLabel="Loading message image"
+            color={theme.dividerText}
+            size="small"
+          />
+        </View>
+      ) : null}
+      {failedSource === source ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry image"
+          onPress={() => {
+            setFailedSource(null);
+            setRevision((value) => value + 1);
+          }}
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              alignItems: "center",
+              backgroundColor: theme.containerBg,
+              justifyContent: "center",
+              padding: 12,
+            },
+          ]}
+        >
+          <Text
+            style={{
+              color: theme.dividerText,
+              fontFamily: "SofiaProReg",
+              fontSize: 12,
+            }}
+          >
+            Image unavailable. Tap to retry.
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 

@@ -62,6 +62,7 @@ import {
   sendSignupVerificationLink,
   verifySignupOtp,
 } from "../lib/signup-api";
+import { resolveTurnstileSiteKey } from "../lib/turnstile-config";
 import { resolveTurnstileBaseUrl } from "../lib/turnstile-page";
 import { AuthPrimaryButton } from "./auth-primary-button";
 import { OtpInput } from "./otp-input";
@@ -74,7 +75,11 @@ const DIGITS_ONLY = /^\d*$/;
 
 // Public by design: it ships in the app and is served to every browser on the
 // web signup page. The matching secret stays server-side.
-const TURNSTILE_SITE_KEY = process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
+const TURNSTILE_SITE_KEY = resolveTurnstileSiteKey({
+  apiBaseUrl: getApiBaseUrl(),
+  configuredSiteKey: process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY,
+  development: __DEV__,
+});
 
 // The challenge page must claim an origin Cloudflare recognises for this
 // sitekey (it is domain-bound); see resolveTurnstileBaseUrl.

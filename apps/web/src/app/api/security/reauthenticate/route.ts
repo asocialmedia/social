@@ -46,10 +46,14 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // Canonical credential selector: better-auth (and the password writers) key
+  // the credential row by accountId=userId. A (providerId, userId)-only match
+  // could read a legacy email-keyed row and verify the wrong password.
   const credential = await prisma.orm.public.Accounts.select("password")
     .where((account) =>
       and(
         account.providerId.eq("credential"),
+        account.accountId.eq(currentSession.user.id),
         account.userId.eq(currentSession.user.id)
       )
     )

@@ -185,3 +185,14 @@ export function isWellFormedAlbumLayout(
   }
   return grid.every((claims) => claims === 1);
 }
+
+// A single shared image keeps its natural aspect ratio, matching web's album.
+export function singleMessageImageHeight(
+  width: number,
+  image: { width?: number; height?: number }
+): number {
+  if (image.width && image.height && image.width > 0 && image.height > 0) {
+    return (width * image.height) / image.width;
+  }
+  return (width * 3) / 4;
+}

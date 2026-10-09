@@ -3,9 +3,13 @@ import { describe, expect, test } from "bun:test";
 import {
   buildMarker,
   fingerprintContract,
+  formatPrismaFailure,
   missingExtensions,
+  normalizeSkillVersion,
   parseExtensionList,
   parseMarker,
+  parsePendingMigrations,
+  parsePrismaFailure,
   REQUIRED_EXTENSIONS,
   shouldEmitContract,
   shouldInstallExtensions,
@@ -128,6 +132,100 @@ describe("shouldSyncSkills", () => {
   test("runs when nothing has been synced yet", () => {
     expect(shouldSyncSkills("8.0.0-rc.11", null).run).toBe(true);
   });
+
+  test("ignores range prefixes when comparing", () => {
+    expect(shouldSyncSkills("^8.0.0-rc.14", "8.0.0-rc.14").run).toBe(false);
+    expect(shouldSyncSkills("8.0.0-rc.14", "v8.0.0-rc.14").run).toBe(false);
+  });
+});
+
+describe("normalizeSkillVersion", () => {
+  test("strips range prefixes and whitespace", () => {
+    expect(normalizeSkillVersion("^8.0.0-rc.14")).toBe("8.0.0-rc.14");
+    expect(normalizeSkillVersion("  ~8.0.0-rc.14  ")).toBe("8.0.0-rc.14");
+    expect(normalizeSkillVersion("v8.0.0-rc.14")).toBe("8.0.0-rc.14");
+  });
+});
+
+describe("parsePrismaFailure", () => {
+  test("extracts code, summary, why and conflicts from the result envelope", () => {
+    const stdout = [
+      `{"kind":"step-started","step":"Planning migration"}`,
+      JSON.stringify({
+        commandId: "db.update",
+        envelope: {
+          diagnostics: [],
+          error: {
+            code: "MIGRATION.PLANNING_FAILED",
+            meta: {
+              conflicts: [{ summary: "database/public/t/foreign-key:x" }],
+            },
+            summary: "Migration planning failed",
+            why: "some reason",
+          },
+          ok: false,
+        },
+        kind: "result",
+      }),
+    ].join("\n");
+
+    const parsed = parsePrismaFailure(stdout);
+
+    expect(parsed.code).toBe("MIGRATION.PLANNING_FAILED");
+    expect(parsed.summary).toBe("Migration planning failed");
+    expect(parsed.why).toBe("some reason");
+    expect(parsed.conflicts).toEqual(["database/public/t/foreign-key:x"]);
+  });
+
+  test("returns empty fields when no envelope is present", () => {
+    const parsed = parsePrismaFailure("nothing structured here");
+
+    expect(parsed.code).toBeNull();
+    expect(parsed.conflicts).toEqual([]);
+  });
+
+  test("formatPrismaFailure falls back to raw output", () => {
+    const message = formatPrismaFailure(
+      "",
+      'error: "prisma" exited with code 2',
+      2
+    );
+
+    expect(message).toContain("exit 2");
+    expect(message).toContain("prisma");
+  });
+});
+
+describe("parsePendingMigrations", () => {
+  test("lists pending migration directories from the show envelope", () => {
+    const stdout = JSON.stringify({
+      commandId: "db.migrate",
+      envelope: {
+        ok: true,
+        result: {
+          migrations: [
+            { dirName: "20261006T0557_user_deletion_cascade" },
+            { dirName: "20261007T0000_next_change" },
+          ],
+        },
+      },
+      kind: "result",
+    });
+
+    expect(parsePendingMigrations(stdout)).toEqual([
+      "20261006T0557_user_deletion_cascade",
+      "20261007T0000_next_change",
+    ]);
+  });
+
+  test("returns empty when nothing is pending or no envelope exists", () => {
+    expect(parsePendingMigrations("no json here")).toEqual([]);
+    const empty = JSON.stringify({
+      envelope: { ok: true, result: { migrations: [] } },
+      kind: "result",
+    });
+    expect(parsePendingMigrations(empty)).toEqual([]);
+  });
 });
 
 describe("shouldEmitContract", () => {
@@ -212,7 +310,8 @@ describe("shouldUpdateDatabase", () => {
 
   test("runs when verify finds drift, even with a matching fingerprint", () => {
     // A hand edit to the database leaves the contract untouched, so the
-    // fingerprint still matches. Verify is what catches it.
+    // fingerprint still matches. Verify is what catches it. Exit 4 means the
+    // check ran and found something.
     const decision = shouldUpdateDatabase({
       contractFingerprint,
       facts: { verifyExitCode: 4 },
@@ -220,7 +319,19 @@ describe("shouldUpdateDatabase", () => {
     });
 
     expect(decision.run).toBe(true);
-    expect(decision.reason).toContain("findings");
+    expect(decision.reason).toContain("exit 4");
+  });
+
+  test("names exit 2 as could-not-run rather than findings", () => {
+    // Exit 2 means verify never completed (unreachable DB, missing contract).
+    const decision = shouldUpdateDatabase({
+      contractFingerprint,
+      facts: { verifyExitCode: 2 },
+      marker,
+    });
+
+    expect(decision.run).toBe(true);
+    expect(decision.reason).toContain("could not run");
   });
 
   test("runs when verify could not run at all", () => {

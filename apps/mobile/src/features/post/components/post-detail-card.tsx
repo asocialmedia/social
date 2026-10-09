@@ -455,6 +455,7 @@ function DetailBody({
                   <View style={styles.mediaColumn}>
                     {list.length > 0 ? (
                       <MediaGallery
+                        post={post}
                         apiBase={apiBase}
                         attachments={list}
                         onPressMedia={onOpenMedia}
@@ -468,6 +469,7 @@ function DetailBody({
                 <View style={styles.mediaColumn}>
                   {list.length > 0 ? (
                     <MediaGallery
+                      post={post}
                       apiBase={apiBase}
                       attachments={list}
                       onPressMedia={onOpenMedia}

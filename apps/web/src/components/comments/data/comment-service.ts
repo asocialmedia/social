@@ -18,7 +18,7 @@ import {
 } from "@asm/db";
 import type { CommentData } from "@asm/db";
 import { CLAIMABLE_STATUSES } from "@asm/media";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 
 import {
   flushNotificationEvents,
@@ -326,7 +326,7 @@ export async function createComment(
   // drive its access decision. Drop that cache so the updated ownership is
   // picked up instead of serving a stale row for up to an hour.
   if (mediaIdsValidated.length > 0) {
-    updateTag("media-object");
+    revalidateTag("media-object", { expire: 0 });
   }
 
   try {

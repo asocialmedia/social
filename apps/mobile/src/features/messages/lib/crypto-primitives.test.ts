@@ -20,6 +20,7 @@ import {
   importPrivateKeyJwk,
   importPublicKeyJwk,
   pbkdf2Sha256,
+  pbkdf2Sha256Async,
   sha256,
 } from "./crypto-primitives";
 
@@ -373,5 +374,39 @@ describe("concatBytes", () => {
     expect(
       concatBytes(Uint8Array.of(1, 2), Uint8Array.of(3), Uint8Array.of(4, 5))
     ).toEqual(Uint8Array.of(1, 2, 3, 4, 5));
+  });
+});
+
+describe("responsive identity recovery", () => {
+  test("100k-round recovery yields to timers and remains WebCrypto compatible", async () => {
+    const secret = encoder.encode("stored-row-hash-🔑");
+    const salt = new Uint8Array(16).fill(7);
+    let completed = false;
+    let heartbeatDuringRecovery = false;
+    const timer = setTimeout(() => {
+      heartbeatDuringRecovery = !completed;
+    }, 0);
+    const native = await pbkdf2Sha256Async(secret, salt, 100_000);
+    completed = true;
+    clearTimeout(timer);
+    expect(heartbeatDuringRecovery).toBe(true);
+    const material = await subtle.importKey(
+      "raw",
+      source(secret),
+      "PBKDF2",
+      false,
+      ["deriveBits"]
+    );
+    const expected = await subtle.deriveBits(
+      {
+        hash: "SHA-256",
+        iterations: 100_000,
+        name: "PBKDF2",
+        salt: source(salt),
+      },
+      material,
+      256
+    );
+    expect(toHex(native)).toBe(toHex(new Uint8Array(expected)));
   });
 });

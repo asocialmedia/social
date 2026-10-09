@@ -42,6 +42,8 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
+import { useUnreadMessageCount } from "@/features/messages/state/use-unread-message-count";
+import { haptic } from "@/lib/haptics";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
@@ -186,9 +188,17 @@ function DockTab({
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled ?? false, selected: active }}
+      accessibilityHint={
+        badge && badge > 0 ? `${badge} unread messages` : undefined
+      }
       disabled={disabled}
       hitSlop={2}
-      onPress={onPress}
+      onPress={() => {
+        if (!active) {
+          haptic();
+        }
+        onPress?.();
+      }}
       style={styles.tab}
     >
       {({ pressed }) => {
@@ -241,7 +251,6 @@ export function MobileBottomNav({
   hidden: hiddenOverride,
   onHeightChange,
   onHiddenChange,
-  unreadCount = 0,
 }: {
   // Extra lift above the bottom edge. Guests keep this at 0: the dock sits
   // at the bottom edge and the login banner docks above it, like web.
@@ -255,8 +264,8 @@ export function MobileBottomNav({
   // Reports the scroll-hide state so the guest banner can drop back to the
   // bottom edge while the dock is hidden instead of floating over a gap.
   onHiddenChange?: (hidden: boolean) => void;
-  unreadCount?: number;
 }) {
+  const unreadCount = useUnreadMessageCount();
   const { isDark } = useAppTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -348,7 +357,13 @@ export function MobileBottomNav({
         key={item.label}
         label={item.label}
         onPress={() => {
-          router.push(item.href);
+          if (!isActive(item.href)) {
+            if (item.href === "/") {
+              router.dismissTo("/");
+            } else {
+              router.navigate(item.href);
+            }
+          }
         }}
       />
     );

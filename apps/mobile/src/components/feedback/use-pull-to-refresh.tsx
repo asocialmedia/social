@@ -113,6 +113,8 @@ export interface PullToRefresh {
   nativeScrollGesture: ReturnType<typeof createPullGestures>["nativeScroll"];
   // Hand to the scrollable's onScroll; it also feeds the iOS bounce path.
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  // UI-thread lists forward only top-edge crossings and bounce distances.
+  onScrollOffset: (offsetY: number) => void;
   // Hand to the scrollable's onScrollEndDrag to fire the iOS trigger.
   onScrollEndDrag: () => void;
   // Applied as translateY on the view wrapping the scrollable.
@@ -198,9 +200,8 @@ export function usePullToRefresh({
   // iOS: the native bounce carries the distance, so the scroll handler is the
   // pull handler. Progress stays local to PullLoader via the ref: no
   // re-render.
-  const onScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const offsetY = event.nativeEvent.contentOffset.y;
+  const onScrollOffset = useCallback(
+    (offsetY: number) => {
       scrollOffsetRef.current = offsetY;
       const atTop = offsetY <= 0;
       if (atTop !== isAtTopRef.current) {
@@ -219,6 +220,12 @@ export function usePullToRefresh({
       }
     },
     [pullRef, pullUpdateRef, refreshing, scrollOffsetRef]
+  );
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      onScrollOffset(event.nativeEvent.contentOffset.y);
+    },
+    [onScrollOffset]
   );
 
   const onScrollEndDrag = useCallback(() => {
@@ -270,6 +277,7 @@ export function usePullToRefresh({
     nativeScrollGesture: gestures.nativeScroll,
     onScroll,
     onScrollEndDrag,
+    onScrollOffset,
     pullShift,
   };
 }

@@ -10,7 +10,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePathname, useRouter } from "expo-router";
-import { Bell, Search } from "lucide-react-native";
+import { Bell, Search, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   Animated,
@@ -39,7 +39,6 @@ import {
 } from "@/features/feed/lib/header-visibility";
 import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
 import {
   AVATAR_RING_SHADOWS,
@@ -64,6 +63,8 @@ export const headerSlide = new Animated.Value(0);
 
 interface MobileHeaderProps {
   onSearchPress?: () => void;
+  searchOpen?: boolean;
+  searchLabel?: string;
   unreadCount?: number;
   user?: {
     avatarUrl?: string | null;
@@ -75,6 +76,8 @@ interface MobileHeaderProps {
 
 export function MobileHeader({
   onSearchPress,
+  searchOpen = false,
+  searchLabel = "Search",
   unreadCount = 0,
   user = null,
 }: MobileHeaderProps) {
@@ -135,10 +138,14 @@ export function MobileHeader({
   // in avatarUrl while the session's image only covers OAuth providers. The
   // popup profile (cache-first, shared with the popup itself) carries the
   // DB avatarUrl, so the header resolves the same precedence.
-  const popupState = usePopupProfile(user?.id ?? null).state;
+  const { hydrated: profileHydrated, state: popupState } = usePopupProfile(
+    user?.id ?? null
+  );
   const profileAvatar =
     popupState.status === "ready" ? popupState.profile.avatarUrl : null;
-  const rawAvatar = profileAvatar ?? user?.avatarUrl ?? user?.image ?? null;
+  const rawAvatar = profileHydrated
+    ? (profileAvatar ?? user?.avatarUrl ?? user?.image ?? null)
+    : null;
   const avatarUri = rawAvatar
     ? resolveProfileImageUrl(rawAvatar, getApiBaseUrl())
     : null;
@@ -172,7 +179,7 @@ export function MobileHeader({
               >
                 <View style={styles.avatarFrame}>
                   <Image
-                    cachePolicy={imageCachePolicy(avatarUri)}
+                    cachePolicy="memory-disk"
                     contentFit="cover"
                     key={avatarUri ?? "placeholder"}
                     onError={() => {
@@ -209,7 +216,14 @@ export function MobileHeader({
             no matter how wide the side columns are (same as web). Touches
             pass through everywhere except the logo itself. */}
           <View style={[styles.centerOverlay, { pointerEvents: "box-none" }]}>
-            <Pressable hitSlop={6} onPress={() => router.push("/")}>
+            <Pressable
+              hitSlop={6}
+              onPress={() => {
+                if (pathname !== "/") {
+                  router.dismissTo("/");
+                }
+              }}
+            >
               <Image
                 accessibilityLabel="asocialmedia"
                 contentFit="contain"
@@ -250,6 +264,11 @@ export function MobileHeader({
                             ? "#ff9500"
                             : theme.passkeyIcon
                         }
+                        fill={
+                          pathname.startsWith("/notifications")
+                            ? "#ff9500"
+                            : "none"
+                        }
                         size={20}
                       />
                       {unreadCount > 0 ? (
@@ -275,7 +294,7 @@ export function MobileHeader({
                   )}
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Search"
+                  accessibilityLabel={searchOpen ? "Close search" : searchLabel}
                   accessibilityRole="button"
                   hitSlop={6}
                   onPress={
@@ -293,7 +312,11 @@ export function MobileHeader({
                         pressed && styles.pressedShift,
                       ]}
                     >
-                      <Search color={theme.passkeyIcon} size={20} />
+                      {searchOpen ? (
+                        <X color={theme.passkeyIcon} size={20} />
+                      ) : (
+                        <Search color={theme.passkeyIcon} size={20} />
+                      )}
                     </View>
                   )}
                 </Pressable>

@@ -20,6 +20,41 @@ let visibleIds: ReadonlySet<string> = new Set();
 let autoplayPostId: string | null = null;
 const listeners = new Set<() => void>();
 const autoplayListeners = new Set<() => void>();
+const activeFeeds = new Set<string>();
+const feedListeners = new Map<string, Set<() => void>>();
+
+export function isFeedMediaActive(key: string): boolean {
+  return activeFeeds.has(key);
+}
+
+export function setFeedMediaActive(key: string, active: boolean): void {
+  if (activeFeeds.has(key) === active) {
+    return;
+  }
+  if (active) {
+    activeFeeds.add(key);
+  } else {
+    activeFeeds.delete(key);
+  }
+  for (const notify of feedListeners.get(key) ?? []) {
+    notify();
+  }
+}
+
+export function subscribeFeedMediaActivity(
+  key: string,
+  notify: () => void
+): () => void {
+  const subscribers = feedListeners.get(key) ?? new Set<() => void>();
+  feedListeners.set(key, subscribers);
+  subscribers.add(notify);
+  return () => {
+    subscribers.delete(notify);
+    if (subscribers.size === 0) {
+      feedListeners.delete(key);
+    }
+  };
+}
 
 function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   if (a.size !== b.size) {

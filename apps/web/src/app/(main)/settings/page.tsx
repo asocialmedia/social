@@ -40,11 +40,15 @@ async function SettingsContent() {
   const [user, passwordAccount, socialAccounts, twoFactor, passkeys] =
     await Promise.all([
       getUserData(session.user.id),
+      // Canonical credential selector (accountId=userId), matching sign-in.
+      // A (providerId, userId)-only match could report a password on a legacy
+      // email-keyed row that sign-in never reads.
       prisma.orm.public.Accounts.select("id")
         .where((account) =>
           and(
             account.password.isNotNull(),
             account.providerId.eq("credential"),
+            account.accountId.eq(session.user.id),
             account.userId.eq(session.user.id)
           )
         )

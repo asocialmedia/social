@@ -10,7 +10,6 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { resolveAvatarWithFallback } from "@/features/home/components/profile-utils";
 import { usePopupProfile } from "@/features/home/components/use-popup-profile";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,
@@ -51,7 +50,7 @@ export function UserAvatar({
     >
       <Image
         accessibilityLabel=""
-        cachePolicy={imageCachePolicy(resolved)}
+        cachePolicy="memory-disk"
         contentFit="cover"
         onError={() => setFailedUrl(resolved)}
         source={showImage ? { uri: resolved } : avatarPlaceholder}
@@ -75,7 +74,10 @@ export function UserAvatar({
 // custom upload (avatarUrl) over the session's OAuth image.
 export function useViewerAvatarUrl(): string | null {
   const { user } = useSessionContext();
-  const popup = usePopupProfile(user?.id ?? null).state;
+  const { hydrated, state: popup } = usePopupProfile(user?.id ?? null);
+  if (!hydrated) {
+    return null;
+  }
   const profileAvatar =
     popup.status === "ready" ? popup.profile.avatarUrl : null;
   return profileAvatar ?? user?.image ?? null;

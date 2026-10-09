@@ -20,15 +20,25 @@
 // wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
 // is retried once silently instead of surfaced as an error.
 
-import { ArrowLeft, ShieldCheck } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Search, ShieldCheck, Users, X } from "lucide-react-native";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  Alert,
   FlatList,
+  useWindowDimensions,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
   View,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -40,7 +50,6 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import {
   MessagesApiError,
   ackMessageDelivered,
-  createRootKeyStore,
   ensureConversationKeys,
   fetchConversationDetail,
   markConversationRead,
@@ -60,38 +69,42 @@ import type {
   DecryptEntry,
   DecryptItem,
 } from "@/features/messages/lib/decryptor";
-import {
-  formatTimeDivider,
-  getMessageGroupMeta,
-} from "@/features/messages/lib/message-grouping";
+import { getMessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
-import { surface3d } from "@/features/messages/lib/message-recipes";
+import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
+import { buildTranscriptRows } from "@/features/messages/lib/transcript-rows";
+import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
 import type { MessageData } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
+import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import {
   transcriptStore,
   unreadBoundaryId,
 } from "@/features/messages/state/transcript-store";
+import { unreadMessageStore } from "@/features/messages/state/unread-message-store";
+import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
+import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
-import { setRootKeyResolver } from "./conversation-list-screen";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
+import { MessagePeoplePanel } from "./message-people-panel";
+import { MessageSearchBar } from "./message-search-bar";
+import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
 import { TypingDots } from "./typing-dots";
 
 // The widest a bubble may be. On web this is a percentage of the transcript; here
 // it is a point value the screen passes in, because a phone's width is the thing
 // being bounded.
-const MAX_BUBBLE_WIDTH = 320;
 
 // A row that is no longer in the loaded window (a stale index during a trim)
 // renders as a self-contained group rather than throwing.
@@ -101,11 +114,6 @@ const SELF_GROUP = {
   showTimeDivider: false,
 };
 
-type TranscriptItem =
-  | { key: string; kind: "message"; message: MessageData }
-  | { key: string; kind: "divider"; label: string }
-  | { key: string; kind: "unread" };
-
 export function MessageThreadScreen({
   conversationId,
   onBack,
@@ -114,13 +122,17 @@ export function MessageThreadScreen({
   onBack: () => void;
 }) {
   const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { user } = useSessionContext();
   const { runWithInstallToken } = useInstall();
   const {
     error: identityError,
+    getBaseKeys,
+    invalidateKeys,
     privateKey,
     reset: resetIdentity,
+    retry,
     status,
   } = useMessagesIdentity();
   const userId = user?.id ?? null;
@@ -138,20 +150,25 @@ export function MessageThreadScreen({
     images: string[];
     index: number;
   } | null>(null);
+  const atLiveEnd = useRef(true);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The resolved root key for THIS conversation, memoised on a signature of the
-  // wraps and the peer's public key. Keying on the conversation alone was wrong: a
-  // peer identity reset republishes wraps under the SAME conversation id, so the
-  // cached roots came back unchanged and decryption continued with a superseded
-  // key.
-  const rootKeys = useRef<{ keys: Uint8Array[]; signature: string } | null>(
-    null
-  );
-
+  const [readyKey, setReadyKey] = useState<typeof privateKey>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+  const [keySignature, setKeySignature] = useState("");
+  const healedSignature = useRef<string | null>(null);
   const chatTheme = useMemo(
     () => resolveConversationTheme(themeKey),
     [themeKey]
   );
+
+  const foreground = useMessagesForeground();
+  const [detailError, setDetailError] = useState(false);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const detailRetries = useRef(0);
+  const cachedPeer = conversationListStore
+    .getSnapshot()
+    .rows.find((row) => row.conversation.id === conversationId);
 
   const apiOptions = useCallback(async (): Promise<ApiCallOptions> => {
     const cookie = await authClient.getCookie();
@@ -162,61 +179,14 @@ export function MessageThreadScreen({
     };
   }, []);
 
-  // ---- keys ------------------------------------------------------------------
-
-  const getBaseKeys = useCallback(
-    async (target: string): Promise<Uint8Array[]> => {
-      if (!privateKey || target !== conversationId) {
-        return [];
-      }
-      const options = await apiOptions();
-      const detail = await fetchConversationDetail(conversationId, options);
-      const peerMember = detail.conversation.members.find(
-        (member) => member.userId !== userId
-      );
-      const peerPublicKey = peerMember?.user.messageIdentity?.publicKey;
-      if (!peerPublicKey) {
-        return [];
-      }
-      // A legacy wrap row has no explicit version, which means epoch 1. The
-      // signature therefore normalises it rather than reading `undefined`.
-      const myWraps = detail.keys
-        .filter((key) => key.ownerUserId === userId)
-        .map((key) => ({ ...key, version: key.version ?? 1 }));
-      const signature = `${myWraps
-        .map(
-          (key) =>
-            `${key.version ?? 1}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}`
-        )
-        .join("|")}#${peerPublicKey}`;
-      if (rootKeys.current?.signature === signature) {
-        return rootKeys.current.keys;
-      }
-      const store = createRootKeyStore(privateKey);
-      const keys = await store.getRootKeys(
-        conversationId,
-        myWraps,
-        peerPublicKey
-      );
-      rootKeys.current = { keys, signature };
-      return keys;
-    },
-    [apiOptions, conversationId, privateKey, userId]
-  );
-
-  // The conversation list needs the same resolver, so the row previews use one key
-  // path rather than a second implementation that could disagree.
-  useEffect(() => {
-    setRootKeyResolver(getBaseKeys);
-  }, [getBaseKeys]);
-
   // ---- peer detail + key healing ---------------------------------------------
 
   useEffect(() => {
-    if (!userId || !privateKey) {
+    if (!userId || !foreground) {
       return;
     }
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     void (async () => {
       try {
         const options = await apiOptions();
@@ -230,6 +200,7 @@ export function MessageThreadScreen({
         const mine = detail.conversation.members.find(
           (member) => member.userId === userId
         );
+        setDetailError(false);
         setPeer({
           avatarUrl: peerMember?.user.avatarUrl ?? null,
           displayName:
@@ -237,6 +208,9 @@ export function MessageThreadScreen({
           publicKey: peerMember?.user.messageIdentity?.publicKey ?? null,
         });
         setThemeKey(mine?.themeKey ?? null);
+        setKeySignature(
+          `${detail.keys.map((key) => `${key.version}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}`).join("|")}#${peerMember?.user.messageIdentity?.publicKey ?? ""}`
+        );
 
         // Guarantee a wrapped key exists for both members before the first send.
         // Without this the first message goes out under a key the peer has never
@@ -259,9 +233,22 @@ export function MessageThreadScreen({
           return;
         }
         // The heal may have posted a wrap the cached roots did not include.
-        rootKeys.current = null;
-        messageDecryptor.clearKeys();
+        detailRetries.current = 0;
+        invalidateKeys(conversationId);
+        messageDecryptor.clearKeys(conversationId);
+        messageDecryptor.clearErrors(conversationId);
+        setReadyKey(() => privateKey);
       } catch (error) {
+        if (!cancelled) {
+          setDetailError(true);
+          const delay = messageReadRetryDelay(error, detailRetries.current);
+          if (delay !== null) {
+            detailRetries.current += 1;
+            retryTimer = setTimeout(() => {
+              setDetailRevision((value) => value + 1);
+            }, delay);
+          }
+        }
         logWarn("conversation detail failed", {
           reason: error instanceof Error ? error.name : "unknown",
           step: "detail",
@@ -270,8 +257,20 @@ export function MessageThreadScreen({
     })();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
     };
-  }, [apiOptions, conversationId, privateKey, userId]);
+  }, [
+    apiOptions,
+    conversationId,
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- detailRevision explicitly retries a failed detail request
+    detailRevision,
+    foreground,
+    invalidateKeys,
+    privateKey,
+    userId,
+  ]);
 
   // ---- decryption ------------------------------------------------------------
 
@@ -292,13 +291,44 @@ export function MessageThreadScreen({
     [conversationId, messages]
   );
 
-  const decrypted = useDecryptedRows(decryptItems, getBaseKeys);
+  const decrypted = useDecryptedRows(
+    decryptItems,
+    getBaseKeys,
+    readyKey === privateKey && status === "ready"
+  );
 
   useEffect(() => {
-    if (decryptItems.length > 0) {
-      messageDecryptor.request(decryptItems, { getBaseKeys });
+    if (
+      readyKey !== privateKey ||
+      status !== "ready" ||
+      !foreground ||
+      !keySignature
+    ) {
+      return;
     }
-  }, [decryptItems, getBaseKeys]);
+    const heal = () => {
+      if (
+        messageDecryptor.getErroredIds(conversationId).size === 0 ||
+        healedSignature.current === keySignature
+      ) {
+        return;
+      }
+      healedSignature.current = keySignature;
+      invalidateKeys(conversationId);
+      setDetailRevision((value) => value + 1);
+    };
+    const unsubscribe = messageDecryptor.subscribe(heal);
+    heal();
+    return unsubscribe;
+  }, [
+    conversationId,
+    foreground,
+    invalidateKeys,
+    keySignature,
+    privateKey,
+    readyKey,
+    status,
+  ]);
 
   // ---- transcript rows -------------------------------------------------------
 
@@ -309,25 +339,10 @@ export function MessageThreadScreen({
 
   // Newest-first, because the list is inverted. Dividers become list items so they
   // scroll with the transcript rather than being positioned against it.
-  const items = useMemo<TranscriptItem[]>(() => {
-    const rows: TranscriptItem[] = [];
-    const ordered = messages.toReversed();
-    for (const [index, message] of ordered.entries()) {
-      const forwardIndex = messages.length - 1 - index;
-      const group = getMessageGroupMeta(messages, forwardIndex);
-      if (index === 0 || group.showTimeDivider) {
-        const label = formatTimeDivider(message.createdAt);
-        if (label) {
-          rows.push({ key: `divider-${message.id}`, kind: "divider", label });
-        }
-      }
-      if (message.id === unreadId) {
-        rows.push({ key: `unread-${message.id}`, kind: "unread" });
-      }
-      rows.push({ key: message.id, kind: "message", message });
-    }
-    return rows;
-  }, [messages, unreadId]);
+  const items = useMemo(
+    () => buildTranscriptRows(messages, unreadId),
+    [messages, unreadId]
+  );
 
   const groupMetaFor = useCallback(
     (messageId: string) => {
@@ -419,6 +434,9 @@ export function MessageThreadScreen({
       clearTimeout(readTimer.current);
     }
     readTimer.current = setTimeout((): void => {
+      if (!atLiveEnd.current) {
+        return;
+      }
       const visible = transcriptStore.getSnapshot(conversationId).messages;
       const newestPeerMessage = visible.filter(
         (row) => row.senderId !== userId && !row.deletedAt
@@ -431,24 +449,27 @@ export function MessageThreadScreen({
         const options = await apiOptions();
         // The read route also advances delivery, so one call covers both marks on
         // OUR row; the explicit ack moves the watermark for what the PEER sent.
-        await markConversationRead(conversationId, options).catch(() => {
-          /* empty */
-        });
+        try {
+          await markConversationRead(conversationId, options);
+          transcriptStore.setMyLastReadAt(
+            conversationId,
+            new Date().toISOString()
+          );
+          unreadMessageStore.notifyActivity();
+        } catch {
+          // Keep the unread state until the server accepts the read watermark.
+        }
         await ackMessageDelivered(conversationId, target.id, options).catch(
           () => {
-            /* empty */
+            // Delivery retries on a later foreground reconciliation.
           }
-        );
-        transcriptStore.setMyLastReadAt(
-          conversationId,
-          new Date().toISOString()
         );
       })();
     }, 400);
   }, [apiOptions, conversationId, userId]);
 
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && foreground && !searchOpen) {
       scheduleRead();
     }
     return () => {
@@ -456,7 +477,7 @@ export function MessageThreadScreen({
         clearTimeout(readTimer.current);
       }
     };
-  }, [messages.length, scheduleRead]);
+  }, [foreground, messages.length, scheduleRead, searchOpen]);
 
   // ---- media -----------------------------------------------------------------
 
@@ -532,6 +553,33 @@ export function MessageThreadScreen({
     transcript.loadOlder();
   }, [transcript]);
 
+  const threadListRef = useRef<FlatList<TranscriptItem>>(null);
+  const scrollToSearchIndex = useCallback((index: number) => {
+    threadListRef.current?.scrollToIndex({
+      animated: false,
+      index,
+      viewPosition: 0.5,
+    });
+  }, []);
+  const scrollToSearchOffset = useCallback((offset: number) => {
+    threadListRef.current?.scrollToOffset({ animated: false, offset });
+  }, []);
+  const search = useMessageSearch({
+    decrypted,
+    foreground,
+    hasMoreOlder: transcript.snapshot.hasMoreOlder,
+    historyError: transcript.snapshot.error,
+    items,
+    loadOlder: transcript.loadOlder,
+    loadingOlder: transcript.snapshot.loadingOlder,
+    messages,
+    onClose: () => setSearchOpen(false),
+    open: searchOpen,
+    scope: userId ? `${userId}:${conversationId}` : null,
+    scrollToIndex: scrollToSearchIndex,
+    scrollToOffset: scrollToSearchOffset,
+  });
+
   // ---- render ----------------------------------------------------------------
 
   const renderItem = useCallback(
@@ -562,15 +610,17 @@ export function MessageThreadScreen({
       });
       return (
         <MessageBubble
+          searchJump={search.activeId === message.id ? search.jump : 0}
           deleted={Boolean(message.deletedAt)}
           edited={Boolean(message.editedAt)}
           failed={entry === "error"}
           group={groupMetaFor(message.id)}
-          maxBubbleWidth={MAX_BUBBLE_WIDTH}
+          maxBubbleWidth={width - 32}
           mine={mine}
           onPressImage={(index) => openViewer(message, entry, index)}
           onRetry={() => retryRow(message)}
           payload={isPayload(entry) ? entry : null}
+          peerAvatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
           receipt={receipt}
           showReceipt={groupMetaFor(message.id).isLastInGroup}
           theme={chatTheme}
@@ -578,7 +628,12 @@ export function MessageThreadScreen({
       );
     },
     [
+      search.activeId,
+      search.jump,
       chatTheme,
+      cachedPeer?.avatarUrl,
+      peer?.avatarUrl,
+      width,
       decrypted,
       groupMetaFor,
       openViewer,
@@ -602,35 +657,126 @@ export function MessageThreadScreen({
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={insets.top}
-      style={[styles.root, { backgroundColor: theme.containerBg }]}
+      style={[
+        styles.root,
+        {
+          backgroundColor: theme.containerBg,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+          paddingTop: insets.top,
+        },
+      ]}
     >
       <ThreadHeader
-        avatarUrl={peer?.avatarUrl ?? null}
-        displayName={peer?.displayName ?? "Chat"}
+        avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+        displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
         fingerprint={fingerprint}
         onBack={onBack}
+        onSearch={() => {
+          if (searchOpen) {
+            search.handleClose();
+          } else {
+            setSearchOpen(true);
+          }
+        }}
+        onFriends={() => setFriendsOpen((open) => !open)}
+        username={cachedPeer?.peerUsername ?? null}
         typing={transcript.snapshot.peerTyping}
       />
-      {transcript.snapshot.loading && messages.length === 0 ? (
-        <ThreadSkeleton />
-      ) : (
-        <FlatList
-          contentContainerStyle={styles.listContent}
-          data={items}
-          inverted
-          keyboardDismissMode="interactive"
-          keyExtractor={(row) => row.key}
-          // Inversion turns "keep loading as the reader scrolls back" into the same
-          // endReached the list already knows about, with no scroll-position maths.
-          onEndReached={handleLoadOlder}
-          onEndReachedThreshold={0.5}
-          renderItem={renderItem}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+      {friendsOpen ? (
+        <MessagePeoplePanel
+          mode="online"
+          onClose={() => setFriendsOpen(false)}
         />
-      )}
+      ) : null}
+      {searchOpen ? (
+        <MessageSearchBar
+          query={search.query}
+          onQueryChange={(value) => search.setQuery(value)}
+          listView={search.listView}
+          onToggleView={() => search.setListView((value) => !value)}
+          onClose={search.handleClose}
+          onStep={search.handleStep}
+          onPage={(direction) =>
+            search.setRequestedPage(search.page.page + direction)
+          }
+          onIndexOlder={search.handleIndexOlder}
+          indexingOlder={search.indexingOlder}
+          indexedCount={search.indexedCount}
+          fullyCovered={search.fullyCovered}
+          canIndexOlder={search.canIndexOlder}
+          error={search.error}
+          matchCount={search.matchCount}
+          activePosition={search.activePosition}
+          page={search.page}
+        />
+      ) : null}
+      {status === "error" ||
+      (detailError && !peer && !cachedPeer) ||
+      (transcript.snapshot.error && !transcript.snapshot.initialLoaded) ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading Messages"
+          onPress={() => {
+            if (status === "error") {
+              retry();
+            }
+            detailRetries.current = 0;
+            setDetailRevision((value) => value + 1);
+            transcript.refresh();
+          }}
+          style={{ paddingHorizontal: 16, paddingVertical: 12 }}
+        >
+          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+            Couldn't connect to Messages. Tap to retry.
+          </Text>
+        </Pressable>
+      ) : null}
+      <View style={{ flex: 1 }}>
+        {transcript.snapshot.loading && messages.length === 0 ? (
+          <ThreadSkeleton />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.listContent}
+            ref={threadListRef}
+            data={items}
+            onScrollToIndexFailed={search.handleScrollToIndexFailed}
+            style={{ flex: 1 }}
+            inverted
+            scrollEventThrottle={128}
+            onScroll={(event) => {
+              const atLatest = event.nativeEvent.contentOffset.y <= 60;
+              if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
+                scheduleRead();
+              }
+              atLiveEnd.current = atLatest;
+            }}
+            keyboardDismissMode="interactive"
+            keyExtractor={(row) => row.key}
+            // Inversion turns "keep loading as the reader scrolls back" into the same
+            // endReached the list already knows about, with no scroll-position maths.
+            onEndReached={searchOpen ? undefined : handleLoadOlder}
+            onEndReachedThreshold={0.5}
+            renderItem={renderItem}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+          />
+        )}
+        {searchOpen && search.listView ? (
+          <MessageSearchResults
+            results={search.page.pageResults}
+            messages={messages}
+            activeId={search.activeId}
+            userId={userId}
+            peerName={peer?.displayName ?? cachedPeer?.displayName ?? "them"}
+            onJump={search.handleJumpTo}
+            emptyLabel={search.emptyLabel}
+          />
+        ) : null}
+      </View>
       {transcript.snapshot.peerTyping ? <TypingDots /> : null}
       <MessageComposer
         conversationId={conversationId}
+        peerName={peer?.displayName ?? cachedPeer?.displayName ?? ""}
         disabled={status !== "ready"}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
@@ -644,11 +790,13 @@ export function MessageThreadScreen({
         }}
         replyTo={replyTo}
       />
-      <MessageMediaViewer
-        images={viewer?.images ?? []}
-        index={viewer?.index ?? null}
-        onClose={() => setViewer(null)}
-      />
+      {viewer ? (
+        <MessageMediaViewer
+          images={viewer.images}
+          index={viewer.index}
+          onClose={() => setViewer(null)}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -661,22 +809,27 @@ function isPayload(entry: DecryptEntry | undefined): entry is MessagePayload {
 // fills in the instant its plaintext lands rather than on the next list refresh.
 function useDecryptedRows(
   items: DecryptItem[],
-  getBaseKeys: (conversationId: string) => Promise<Uint8Array[]>
+  getBaseKeys: (conversationId: string) => Promise<Uint8Array[]>,
+  ready: boolean
 ): ReadonlyMap<string, DecryptEntry> {
-  const [, bump] = useState(0);
-  useEffect(
-    () => messageDecryptor.subscribe(() => bump((value) => value + 1)),
-    []
+  const version = useSyncExternalStore(
+    messageDecryptor.subscribe,
+    messageDecryptor.getVersion
   );
   useEffect(() => {
-    if (items.length > 0) {
+    if (ready && items.length > 0) {
       messageDecryptor.request(items, { getBaseKeys });
     }
-  }, [getBaseKeys, items]);
-  // NOT memoized on purpose. What changes here is the decryptor's internal state,
-  // which no dependency list can name, so a manual memo would hand back a stale map
-  // and a landed decrypt would never reach the screen. React Compiler memoizes this
-  // on its own; reading the cache on every render is both correct and cheap.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- an external cache invalidation requeues unrequested rows
+  }, [getBaseKeys, items, ready, version]);
+  return readDecryptedRows(items, version);
+}
+
+// Passing the version prevents the compiler from caching reads of this singleton.
+function readDecryptedRows(
+  items: DecryptItem[],
+  _version: number
+): ReadonlyMap<string, DecryptEntry> {
   const map = new Map<string, DecryptEntry>();
   for (const item of items) {
     const entry = messageDecryptor.get(item.message.id);
@@ -694,28 +847,37 @@ function ThreadHeader({
   displayName,
   fingerprint,
   onBack,
+  onSearch,
+  onFriends,
+  username,
   typing,
 }: {
   avatarUrl: string | null;
   displayName: string;
   fingerprint: string | null;
   onBack: () => void;
+  onSearch: () => void;
+  onFriends: () => void;
+  username: string | null;
   typing: boolean;
 }) {
   const { isDark, theme } = useAppTheme();
-  const surface = surface3d(isDark);
   return (
     <View
       style={[
         styles.header,
         {
-          backgroundColor: surface.background,
+          backgroundColor: theme.containerBg,
           borderBottomColor: theme.dividerLine,
-          boxShadow: surface.shadows,
         },
       ]}
     >
-      <MessagesIconButton icon={ArrowLeft} label="Back" onPress={onBack} />
+      <MessagesIconButton
+        icon={ArrowLeft}
+        label="Back"
+        onPress={onBack}
+        size={32}
+      />
       <UserAvatar size={32} url={avatarUrl} />
       <View style={styles.headerIdentity}>
         <Text
@@ -728,19 +890,46 @@ function ThreadHeader({
           <Text style={[styles.headerSub, { color: theme.dividerText }]}>
             typing...
           </Text>
-        ) : null}
+        ) : (
+          <Text
+            numberOfLines={1}
+            style={[styles.headerSub, { color: theme.dividerText }]}
+          >
+            {username ? `@${username}` : ""}
+          </Text>
+        )}
       </View>
       {fingerprint ? (
-        <View
-          accessibilityLabel={`Safety number ${fingerprint}`}
-          style={styles.fingerprint}
-        >
-          <ShieldCheck color={theme.dividerText} size={13} />
-          <Text style={[styles.fingerprintText, { color: theme.dividerText }]}>
-            {fingerprint}
-          </Text>
-        </View>
+        <MessagesIconButton
+          icon={ShieldCheck}
+          label="Safety number"
+          size={32}
+          onPress={() =>
+            Alert.alert(
+              "Safety number",
+              `${fingerprint}\n\nMessages are encrypted in transit and at rest. Your account automatically recovers its keys on new devices.`
+            )
+          }
+        />
       ) : null}
+      <MessagesIconButton
+        icon={Search}
+        label="Search in conversation"
+        onPress={onSearch}
+        size={32}
+      />
+      <MessagesIconButton
+        icon={Users}
+        label="Online friends"
+        onPress={onFriends}
+        size={32}
+      />
+      <MessagesIconButton
+        icon={X}
+        label="Close chat"
+        onPress={onBack}
+        size={32}
+      />
     </View>
   );
 }
@@ -788,20 +977,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomWidth: 1,
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    gap: 8,
+    height: 56,
+    paddingHorizontal: 12,
   },
   headerIdentity: {
     flex: 1,
   },
   headerName: {
     fontFamily: "SofiaProMed",
-    fontSize: 15,
+    fontSize: 14,
   },
   headerSub: {
     fontFamily: "SofiaProReg",
-    fontSize: 11,
+    fontSize: 12,
   },
   listContent: {
     paddingHorizontal: 0,
@@ -811,6 +1000,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   skeleton: {
+    flex: 1,
     gap: 14,
     padding: 16,
   },

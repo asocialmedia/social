@@ -1259,8 +1259,9 @@ export async function hydrateViewCounts<
       const count = record._count as Record<string, unknown> | undefined;
       if (!count || typeof count !== "object") {
         (next as unknown as Record<string, unknown>)._count = {
+          bookmarks: 0,
           comments: 0,
-          mentions: 0,
+          responses: 0,
           vote: 0,
         };
       }

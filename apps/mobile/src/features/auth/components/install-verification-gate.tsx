@@ -9,6 +9,7 @@ import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
+import { resolveTurnstileSiteKey } from "../lib/turnstile-config";
 import { resolveTurnstileBaseUrl } from "../lib/turnstile-page";
 import { useInstall } from "../state/install";
 import { TurnstileWebView } from "./turnstile-webview";
@@ -27,8 +28,13 @@ const TURNSTILE_BASE_URL = resolveTurnstileBaseUrl(
 );
 
 export function InstallVerificationGate({
-  sitekey,
+  sitekey: configuredSiteKey,
 }: InstallVerificationGateProps) {
+  const sitekey = resolveTurnstileSiteKey({
+    apiBaseUrl: getApiBaseUrl(),
+    configuredSiteKey,
+    development: __DEV__,
+  });
   const { isGateVisible, dismissGate, status, submitVerification } =
     useInstall();
   const { theme } = useAppTheme();

@@ -10,8 +10,9 @@
 //   (purple while the picker is open), the length counter, "Send", the GIF
 //   picker
 // It sits above the floating nav dock and rises above the keyboard.
+import { useLocalSearchParams } from "expo-router";
 import { Clapperboard, ImageIcon, SendHorizonal, X } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -151,6 +152,15 @@ export function FloatingEddieBar({ postId }: { postId: string }) {
   );
   const setReplyingTo = useEddieComposerStore((state) => state.setReplyingTo);
   const sender = useEddieSender(postId, replyingTo?.commentId ?? null);
+  const params = useLocalSearchParams<{ eddie?: string }>();
+  const fieldRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (params.eddie !== "1") {
+      return;
+    }
+    const timer = setTimeout(() => fieldRef.current?.focus(), 350);
+    return () => clearTimeout(timer);
+  }, [params.eddie]);
   const [focused, setFocused] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -248,6 +258,7 @@ export function FloatingEddieBar({ postId }: { postId: string }) {
         <View style={styles.row}>
           <UserAvatar radius={10} size={36} url={viewerAvatar} />
           <TextInput
+            ref={fieldRef}
             accessibilityLabel="Eddie"
             editable={!sender.sending}
             multiline

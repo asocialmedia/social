@@ -201,6 +201,44 @@ describe("api cross-site guard", () => {
   // server-to-server. Those used to be rejected, which 403'd the mobile client.
   const API = "https://asocialmedia.cc/api/auth/get-session";
 
+  test("allows the OAuth browser bootstrap from Android Custom Tabs", async () => {
+    const res = await proxy(
+      makeRequest("https://asocialmedia.cc/api/auth/expo-authorization-proxy", {
+        host: "asocialmedia.cc",
+        referer: "android-app://cc.asocialmedia.mobile/",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "cross-site",
+      })
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("does not exempt mutations or neighboring OAuth proxy paths", async () => {
+    const headers = {
+      host: "asocialmedia.cc",
+      referer: "android-app://cc.asocialmedia.mobile/",
+      "sec-fetch-site": "cross-site",
+    };
+    const endpoint =
+      "https://asocialmedia.cc/api/auth/expo-authorization-proxy";
+    const mutation = await proxy(makeRequest(endpoint, headers, "POST"));
+    const neighbor = await proxy(makeRequest(`${endpoint}/other`, headers));
+    expect(mutation.status).toBe(403);
+    expect(neighbor.status).toBe(403);
+  });
+
+  test("keeps cross-site web callers blocked at the OAuth bootstrap", async () => {
+    const res = await proxy(
+      makeRequest("https://asocialmedia.cc/api/auth/expo-authorization-proxy", {
+        host: "asocialmedia.cc",
+        referer: "https://evil.example/",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "cross-site",
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+
   test("allows a native client that sends no origin metadata", async () => {
     const res = await proxy(
       makeRequest(API, { host: "asocialmedia.cc", "user-agent": "okhttp/4.9" })

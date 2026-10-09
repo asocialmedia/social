@@ -1,5 +1,11 @@
 import type { PrismaClient, PrismaOrm } from "@asm/db";
-import { and, fromPrismaDateTime, prisma, toPrismaDateTime } from "@asm/db";
+import {
+  and,
+  exactInsensitivePattern,
+  fromPrismaDateTime,
+  prisma,
+  toPrismaDateTime,
+} from "@asm/db";
 import { or } from "@prisma/orm-postgres/orm-client";
 import type { BetterAuthOptions } from "better-auth";
 import type {
@@ -154,13 +160,32 @@ function fromPrismaData(value: unknown): unknown {
   return value;
 }
 
+// Fields the application treats as case-insensitive identities. Signup writes
+// username/email verbatim (whatever case was typed) because it bypasses
+// better-auth's own user creation, while better-auth's username plugin
+// lowercases the input before an exact-match lookup. Mapping `eq` to a
+// case-sensitive Prisma eq made every mixed-case handle invisible at sign-in:
+// the plugin logged "User not found" and returned 401 even after a password
+// reset. ilike with an escaped pattern restores the intended identity match.
+const CASE_INSENSITIVE_IDENTITY_FIELDS = new Set(["email", "username"]);
+
 function whereExpression(model: object, where: CleanedWhere[]): AuthExpression {
   const expressions = where.map((condition) => {
     const field = dynamicField(model, condition.field);
     const value = normalizedValue(condition.value);
     switch (condition.operator) {
       case "eq": {
-        return value === null ? field.isNull() : field.eq(value);
+        if (value === null) {
+          return field.isNull();
+        }
+        if (
+          typeof value === "string" &&
+          CASE_INSENSITIVE_IDENTITY_FIELDS.has(condition.field) &&
+          field.ilike
+        ) {
+          return field.ilike(exactInsensitivePattern(value));
+        }
+        return field.eq(value);
       }
       case "ne": {
         return value === null ? field.isNotNull() : field.neq(value);

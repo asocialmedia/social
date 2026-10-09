@@ -15,6 +15,7 @@
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { sentBubbleShadows } from "@/features/messages/lib/conversation-theme";
 import type { ConversationTheme } from "@/features/messages/lib/conversation-theme";
@@ -24,6 +25,7 @@ import {
   albumHeightForWidth,
   albumTileFrames,
   getAlbumLayout,
+  singleMessageImageHeight,
 } from "@/features/messages/lib/message-album-layout";
 import {
   bubbleCorners,
@@ -39,6 +41,7 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
 
+import { MessageSearchHighlight } from "./message-search-highlight";
 import {
   DeletedBubble,
   MessageImage,
@@ -49,10 +52,11 @@ import {
 
 // The album's rendered width. Web caps the collage at 384px; on a phone the bubble
 // itself is the cap, and this is the ceiling inside it.
-const ALBUM_MAX_WIDTH = 260;
-const MAX_BUBBLE_WIDTH_RATIO = 0.78;
+const ALBUM_MAX_WIDTH = 384;
+const MAX_BUBBLE_WIDTH_RATIO = 0.85;
 
 export interface MessageBubbleProps {
+  searchJump?: number;
   deleted: boolean;
   edited: boolean;
   group: MessageGroupMeta;
@@ -65,6 +69,7 @@ export interface MessageBubbleProps {
   onPressImage?: (index: number) => void;
   /** The message this one replies to, if it is loaded. */
   replyPreview?: { senderId: string; text: string } | null;
+  peerAvatarUrl?: string | null;
   receipt?: MessageReceiptInfo | null;
   theme: ConversationTheme;
   /** Fraction of the screen the bubble may occupy. */
@@ -73,6 +78,7 @@ export interface MessageBubbleProps {
 }
 
 function MessageBubbleInner({
+  searchJump = 0,
   deleted,
   edited,
   failed,
@@ -81,12 +87,14 @@ function MessageBubbleInner({
   mine,
   onPressImage,
   onRetry,
+  peerAvatarUrl,
   payload,
   receipt,
   replyPreview,
   showReceipt,
   theme,
 }: MessageBubbleProps) {
+  const { isDark } = useAppTheme();
   const position = bubblePosition(group.isFirstInGroup, group.isLastInGroup);
   const corners = bubbleCorners(position, mine);
 
@@ -150,7 +158,10 @@ function MessageBubbleInner({
     const images = getMediaImages(payload);
     const layout = getAlbumLayout(images.length);
     const albumWidth = Math.min(ALBUM_MAX_WIDTH, bubbleWidth);
-    const albumHeight = albumHeightForWidth(layout, albumWidth);
+    const albumHeight =
+      images.length === 1
+        ? singleMessageImageHeight(albumWidth, images[0])
+        : albumHeightForWidth(layout, albumWidth);
     return (
       <View
         style={[
@@ -164,6 +175,7 @@ function MessageBubbleInner({
         >
           <View
             style={{
+              borderRadius: 16,
               height: albumHeight,
               overflow: "hidden",
               width: albumWidth,
@@ -193,12 +205,14 @@ function MessageBubbleInner({
                   ]}
                 >
                   <MessageImage
+                    contentFit={images.length === 1 ? "contain" : "cover"}
                     source={mediaUrl(image.url)}
                     style={StyleSheet.absoluteFill}
                   />
                 </Pressable>
               );
             })}
+            <MessageSearchHighlight jump={searchJump} />
           </View>
           {payload.content ? (
             <Text
@@ -231,6 +245,7 @@ function MessageBubbleInner({
         ]}
       >
         <SentOrReceived
+          searchJump={searchJump}
           corners={corners}
           maxWidth={bubbleWidth}
           mine={mine}
@@ -258,7 +273,13 @@ function MessageBubbleInner({
         { marginTop: group.isFirstInGroup ? 8 : 2 },
       ]}
     >
+      {!mine && group.isLastInGroup ? (
+        <View style={styles.peerAvatar}>
+          <UserAvatar size={28} url={peerAvatarUrl ?? null} />
+        </View>
+      ) : null}
       <SentOrReceived
+        searchJump={searchJump}
         corners={corners}
         maxWidth={bubbleWidth}
         mine={mine}
@@ -282,7 +303,12 @@ function MessageBubbleInner({
             </Text>
           </View>
         ) : null}
-        <Text style={mine ? styles.textMine : styles.textTheirs}>
+        <Text
+          style={[
+            mine ? styles.textMine : styles.textTheirs,
+            !mine && { color: isDark ? "#eeeeee" : "#202020" },
+          ]}
+        >
           {payload.content}
         </Text>
         {edited ? (
@@ -311,12 +337,14 @@ MessageBubble.displayName = "MessageBubble";
  * element's own background and a gradient child would erase the lip.
  */
 function SentOrReceived({
+  searchJump,
   children,
   corners,
   maxWidth,
   mine,
   theme,
 }: {
+  searchJump: number;
   children: React.ReactNode;
   corners: BubbleCorners;
   maxWidth: number;
@@ -325,8 +353,12 @@ function SentOrReceived({
 }) {
   if (!mine) {
     return (
-      <ReceivedBubbleSurface corners={corners} style={{ maxWidth }}>
+      <ReceivedBubbleSurface
+        corners={corners}
+        style={{ maxWidth, overflow: "hidden" }}
+      >
         {children}
+        <MessageSearchHighlight jump={searchJump} />
       </ReceivedBubbleSurface>
     );
   }
@@ -339,9 +371,10 @@ function SentOrReceived({
       borderRadius={corners}
       colors={bubbleSentStops(theme.from, theme.to)}
       shadows={sentBubbleShadows(theme)}
-      style={[styles.bubbleMine, { maxWidth }]}
+      style={[styles.bubbleMine, { maxWidth, overflow: "hidden" }]}
     >
       <View style={styles.bubbleContent}>{children}</View>
+      <MessageSearchHighlight jump={searchJump} />
     </Gradient3D>
   );
 }
@@ -445,6 +478,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
+  peerAvatar: {
+    bottom: 0,
+    left: 16,
+    position: "absolute",
+  },
   pending: {
     borderRadius: 16,
     gap: 6,
@@ -496,13 +534,14 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "column",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
   },
   rowMine: {
     alignItems: "flex-end",
   },
   rowTheirs: {
     alignItems: "flex-start",
+    paddingLeft: 52,
   },
   sharedLabel: {
     color: "#646464",
@@ -512,11 +551,11 @@ const styles = StyleSheet.create({
   textMine: {
     color: "#ffffff",
     fontFamily: "SofiaProReg",
-    fontSize: 15,
+    fontSize: 14,
   },
   textTheirs: {
     color: "#202020",
     fontFamily: "SofiaProReg",
-    fontSize: 15,
+    fontSize: 14,
   },
 });

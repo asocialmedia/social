@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.1.45",
+    "version": "0.1.72",
     "description": "The social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -63,7 +63,14 @@
         }
       ],
       "expo-video",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-media-library",
+        {
+          "granularPermissions": [],
+          "savePhotosPermission": "Allow asocialmedia to save media you choose to your photo library."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

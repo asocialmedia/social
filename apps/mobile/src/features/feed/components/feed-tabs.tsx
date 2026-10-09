@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 
+import { haptic } from "@/lib/haptics";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -122,6 +123,7 @@ export function FeedTabs<T extends string = HomeTab>({
             }}
             onPress={() => {
               if (!selected) {
+                haptic();
                 onChange(tab.value);
               }
             }}

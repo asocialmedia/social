@@ -12,6 +12,12 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 const state = {
   attachmentClaims: [] as { claimedPostId: string; mediaIds: string[] }[],
   auraAwards: [] as { recipientId: string; type: string }[],
+  cacheExpirations: [] as {
+    tag: string;
+    committed: boolean;
+    profile: unknown;
+  }[],
+  committed: false,
   createdPostData: null as Record<string, unknown> | null,
   createdPostId: null as string | null,
   enqueuedNotifications: [] as {
@@ -28,6 +34,8 @@ const state = {
 
 function resetState() {
   state.attachmentClaims = [];
+  state.committed = false;
+  state.cacheExpirations = [];
   state.auraAwards = [];
   state.createdPostId = null;
   state.createdPostData = null;
@@ -243,8 +251,13 @@ const mockPrisma = {
       ),
   },
   orm: mockOrm,
-  transaction: (fn: (tx: typeof mockTx & { orm: typeof mockOrm }) => unknown) =>
-    fn({ ...mockTx, orm: mockOrm }),
+  transaction: async (
+    fn: (tx: typeof mockTx & { orm: typeof mockOrm }) => unknown
+  ) => {
+    const result = await fn({ ...mockTx, orm: mockOrm });
+    state.committed = true;
+    return result;
+  },
   user: {
     upsert: () => Promise.resolve({ id: "sys-zeph" }),
   },
@@ -285,8 +298,12 @@ mock.module("@asm/db", () => ({
 }));
 
 mock.module("next/cache", () => ({
-  revalidateTag: () => {},
-  updateTag: () => {},
+  revalidateTag: (tag: string, profile: unknown) => {
+    state.cacheExpirations.push({ committed: state.committed, profile, tag });
+  },
+  updateTag: () => {
+    throw new Error("updateTag requires a Server Action");
+  },
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -414,6 +431,9 @@ describe("submitPost attachment claiming", () => {
       tags: [],
     } as Parameters<typeof submitPost>[0]);
 
+    expect(state.cacheExpirations).toEqual([
+      { committed: true, profile: { expire: 0 }, tag: "media-object" },
+    ]);
     // The post row was created first and the claim stamped that exact id.
     expect(state.createdPostId).toBeString();
     expect(state.attachmentClaims).toEqual([
@@ -438,6 +458,7 @@ describe("submitPost attachment claiming", () => {
         tags: [],
       } as Parameters<typeof submitPost>[0])
     ).rejects.toThrow("One or more attachments are invalid");
+    expect(state.cacheExpirations).toEqual([]);
   });
 
   test("rejects media bound to a message conversation", async () => {

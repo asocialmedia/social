@@ -15,6 +15,8 @@ mock.module("../../env", () => ({
 // the test environment, so only the google provider gets configured.
 mock.module("@asm/db", () => ({
   and: () => null,
+  exactInsensitivePattern: (value: string) =>
+    value.replaceAll(/[\\%_]/g, "\\$&"),
   fromPrismaDateTime: (value: Date) => value,
   isReservedUsername: () => false,
   prisma: {

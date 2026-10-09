@@ -60,7 +60,15 @@ const TIER_RULES: TierRule[] = [
 ];
 
 // Paths that never count against any tier.
-const EXEMPT_PATHS = [/^\/api\/health$/];
+//
+// The auth proxy is exempt: every authenticated render calls get-session, the
+// session-events stream is long-lived, and the auth service already applies its
+// own layered per-IP limits (burst, strict, session-aware) before any route
+// runs. Counting these here too meant a burst of get-session calls ate the
+// shared per-IP "api" bucket, so unrelated routes from the same IP (for
+// example POST /api/push/device) started returning 429. Health probes are
+// infrastructure chatter.
+const EXEMPT_PATHS = [/^\/api\/health$/, /^\/api\/auth\//];
 
 export function resolveApiTier(pathname: string): ApiTier | null {
   if (!pathname.startsWith("/api/")) {

@@ -4,6 +4,7 @@
 import { create } from "zustand";
 
 import type { FeedMedia, FeedPost } from "@/features/feed/lib/feed-types";
+import { haptic } from "@/lib/haptics";
 
 import type { MentionPick } from "../lib/inline-relations";
 
@@ -25,7 +26,7 @@ export interface ReplyTarget {
 // The in-progress text and autocomplete picks survive closing the composer
 // (web keeps its attachments across a close the same way); publishing or
 // discarding clears them.
-/** The Hacker News story a composer was opened to share, as web sends it. */
+// The Hacker News story a composer was opened to share, as web sends it.
 export interface HnShareDraft {
   by?: string | null;
   descendants?: number | null;
@@ -71,8 +72,10 @@ export const useComposerStore = create<ComposerState>((set) => ({
   draft: EMPTY_DRAFT,
   isOpen: false,
   mode: "post",
-  open: (mode = "post", replyTo = null) =>
-    set({ isOpen: true, mode: replyTo ? "post" : mode, replyTo }),
+  open: (mode = "post", replyTo = null) => {
+    haptic();
+    set({ isOpen: true, mode: replyTo ? "post" : mode, replyTo });
+  },
   replyTo: null,
   setDraft: (draft) =>
     set((state) => ({ draft: { ...state.draft, ...draft } })),

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { QueryClient } from "@tanstack/react-query";
 
-import { removePostFromFeedCache } from "./cache-sync";
+import { removePostFromFeedCache, repairStalePostCaches } from "./cache-sync";
 
 interface Page {
   nextCursor: string | null;
@@ -107,5 +107,51 @@ describe("removePostFromFeedCache", () => {
     expect(
       removePostFromFeedCache(queryClient, ["community-feed"], "p-1")
     ).toBe(false);
+  });
+});
+
+// The canonical shape `mapPostData` produces, which is what every feed/grid
+// response carries. `repairStalePostCaches` must treat this as NOT stale;
+// otherwise it returns true on every run and the caller loops
+// `router.refresh()` + feed invalidation forever (the get-session flood).
+function serverPost(id: string): Record<string, unknown> {
+  return {
+    _count: { bookmarks: 0, comments: 0, responses: 0, vote: 0 },
+    attachments: [],
+    aura: 0,
+    bookmarks: [],
+    content: "hi",
+    id,
+    mentions: [],
+    tags: [],
+    userId: "u1",
+    vote: [],
+  };
+}
+
+describe("repairStalePostCaches convergence", () => {
+  test("a canonical server post is not stale", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["post-feed", "latest"], {
+      pages: [{ posts: [serverPost("p1")] }],
+    });
+    expect(repairStalePostCaches(queryClient)).toBe(false);
+  });
+
+  test("a genuinely stale post is repaired once, then converges", () => {
+    const queryClient = new QueryClient();
+    const broken = serverPost("p1");
+    // Missing viewer joins and two count fields, as an old cache row could be.
+    delete broken.bookmarks;
+    delete broken.vote;
+    broken._count = { comments: 0 };
+    queryClient.setQueryData(["post-feed", "latest"], {
+      pages: [{ posts: [broken] }],
+    });
+    expect(repairStalePostCaches(queryClient)).toBe(true);
+    // The repaired row now carries the full canonical shape, so a second pass
+    // is a no-op. This is the regression: a repair that could not converge
+    // re-fired on every render.
+    expect(repairStalePostCaches(queryClient)).toBe(false);
   });
 });

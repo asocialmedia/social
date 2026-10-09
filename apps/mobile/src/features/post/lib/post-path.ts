@@ -35,3 +35,19 @@ export function parseMediaIndexParam(value: unknown): number | null {
   const parsed = Math.trunc(Number(value));
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
+
+export function resolvePostMediaIndex(
+  attachments: readonly { id: string }[] | undefined,
+  initialIndex: number,
+  mediaId?: string
+): number | null {
+  if (!attachments?.length) {
+    return null;
+  }
+  const matched = mediaId
+    ? attachments.findIndex((entry) => entry.id === mediaId)
+    : -1;
+  return matched >= 0
+    ? matched
+    : Math.min(Math.max(0, initialIndex), attachments.length - 1);
+}

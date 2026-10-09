@@ -172,10 +172,14 @@ export function requestEmailChange(
   otp: string,
   options: ApiCallOptions
 ): Promise<SettingsMutationResult> {
+  // Accounts without a current email skip ownership proof, so the body must
+  // omit `otp` entirely: the server validates `otp` with a minimum length and
+  // rejects an empty string. Accounts with an email send the current-address
+  // code.
   return mutateSettings(
     "/api/users/email",
     "PATCH",
-    { email, otp },
+    otp ? { email, otp } : { email },
     options,
     "Couldn't update your email"
   );

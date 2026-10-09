@@ -4,7 +4,7 @@
 // This is the test that would catch a wire-format regression: a root key wrapped
 // on one device must unwrap on the other, a message sent must decrypt on the
 // peer's device, and an edit must stay readable to the peer under the same epoch.
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   createRootKeyStore,
@@ -13,6 +13,7 @@ import {
   reencryptMessageForEdit,
 } from "./client";
 import type { WrappedKeyPayload } from "./client";
+import { createConversationKeySource } from "./conversation-key-source";
 import {
   ACCOUNT_SECRET_LENGTH,
   decryptMessage,
@@ -33,6 +34,7 @@ import {
   importPublicKeyJwk,
   isAllowedMediaUrl,
   KDF_ITERATIONS,
+  setNativeMasterKeyDeriver,
   publicKeyBase64ToJwk,
   publicKeyJwkToBase64,
   unwrapRootKey,
@@ -566,6 +568,55 @@ describe("fingerprints", () => {
 });
 
 describe("root key store", () => {
+  test("the shared resolver deduplicates reads, caches roots and refreshes changed epochs", async () => {
+    const alice = makeParty("alice");
+    const bob = makeParty("bob");
+    const root = generateRootKey();
+    let encryptedKey = await wrapRootKeyForPeer(
+      bob.privateKey,
+      alice.publicKeyBase64,
+      "shared",
+      root
+    );
+    let version = 1;
+    let calls = 0;
+    const baseFetch: typeof fetch = Object.assign(
+      () => {
+        calls += 1;
+        return Promise.resolve(
+          Response.json({
+            conversation: conversationOf("shared", alice, bob),
+            keys: [{ encryptedKey, ownerUserId: "bob", version }],
+          })
+        );
+      },
+      { preconnect: fetch.preconnect }
+    );
+    const source = createConversationKeySource(bob.privateKey, "bob", () =>
+      Promise.resolve({ apiBase: "https://keys.invalid", baseFetch })
+    );
+    const [first, same] = await Promise.all([
+      source.getBaseKeys("shared"),
+      source.getBaseKeys("shared"),
+    ]);
+    expect(same).toBe(first);
+    expect(first[0]).toEqual(root);
+    expect(await source.getBaseKeys("shared")).toBe(first);
+    expect(calls).toBe(1);
+    const nextRoot = generateRootKey();
+    encryptedKey = await wrapRootKeyForPeer(
+      bob.privateKey,
+      alice.publicKeyBase64,
+      "shared",
+      nextRoot
+    );
+    version = 2;
+    source.invalidate("shared");
+    const refreshed = await source.getBaseKeys("shared");
+    expect(refreshed[0]).toEqual(nextRoot);
+    expect(calls).toBe(2);
+  });
+
   test("returns epochs newest-first and drops un-unwrappable wraps", async () => {
     const alice = makeParty("alice");
     const bob = makeParty("bob");
@@ -916,4 +967,87 @@ describe("ensureConversationKeys", () => {
     ).resolves.toBeNull();
     expect(recorder.posted).toHaveLength(0);
   });
+});
+
+describe("native background master key", () => {
+  afterEach(() => setNativeMasterKeyDeriver(null));
+
+  test("uses the native driver without changing the stored-row KDF inputs", async () => {
+    const salt = new Uint8Array(16).fill(4);
+    const hash = "stored-row-master-key-hash";
+    const expected = await deriveMasterKey(hash, salt);
+    const calls: { secret: string; salt: Uint8Array; iterations: number }[] =
+      [];
+    setNativeMasterKeyDeriver((secret, receivedSalt, iterations) => {
+      calls.push({ iterations, salt: receivedSalt, secret });
+      return Promise.resolve(expected);
+    });
+    const derived = await deriveMasterKey(hash, salt);
+    expect(calls).toEqual([{ iterations: KDF_ITERATIONS, salt, secret: hash }]);
+    const backup = await encryptWithMasterKey(
+      expected,
+      "existing identity backup"
+    );
+    expect(await decryptWithMasterKey(derived, backup)).toBe(
+      "existing identity backup"
+    );
+  });
+
+  test("rejects malformed native key results instead of encrypting an unreadable backup", async () => {
+    setNativeMasterKeyDeriver(() => Promise.resolve(new Uint8Array(16)));
+    await expect(deriveMasterKey("hash", new Uint8Array(16))).rejects.toThrow(
+      "Invalid derived message key length"
+    );
+  });
+});
+
+test("conversation recovery works when Hermes has no copying array methods", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    Array.prototype,
+    "toSorted"
+  );
+  // oxlint-disable-next-line no-extend-native -- emulate the release Hermes runtime for this regression, restored below
+  Object.defineProperty(Array.prototype, "toSorted", {
+    configurable: true,
+    value: undefined,
+  });
+  try {
+    const alice = makeParty("hermes-alice");
+    const bob = makeParty("hermes-bob");
+    const conversation = conversationOf("hermes-conversation", alice, bob);
+    const written: WrappedKeyPayload[] = [];
+    const root = await ensureConversationKeys(
+      conversation,
+      alice.privateKey,
+      alice.userId,
+      {
+        postKeys: (_target, keys) => {
+          written.push(...keys);
+          return Promise.resolve();
+        },
+        refreshConversation: () => Promise.resolve(conversation),
+      }
+    );
+    expect(root?.length).toBe(32);
+    if (!root) {
+      throw new Error("Root not provisioned");
+    }
+    const mine = written
+      .filter((wrap) => wrap.ownerUserId === alice.userId)
+      .map((wrap) => ({
+        encryptedKey: wrap.encryptedKey,
+        version: wrap.version ?? 1,
+      }));
+    const recovered = await createRootKeyStore(alice.privateKey).getRootKeys(
+      conversation.id,
+      mine,
+      bob.publicKeyBase64
+    );
+    expect(recovered[0]).toEqual(root);
+  } finally {
+    if (descriptor) {
+      // oxlint-disable-next-line no-extend-native -- restore the test runtime after the Hermes regression
+      Object.defineProperty(Array.prototype, "toSorted", descriptor);
+    }
+  }
 });

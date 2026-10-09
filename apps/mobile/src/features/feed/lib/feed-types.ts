@@ -46,9 +46,9 @@ export interface FeedBookmark {
 }
 
 export interface FeedCounts {
+  bookmarks: number;
   comments: number;
-  mentions: number;
-  responses?: number;
+  responses: number;
   vote: number;
 }
 
@@ -133,26 +133,33 @@ export interface PostsPage {
   posts: FeedPost[];
 }
 
-// Stable insertion-order sort. Array.prototype.sort/toSorted are both
-// unusable here (Hermes lacks toSorted; the auto-fixer rewrites sort into
-// toSorted), so ordering is explicit.
+// Stable merge sort avoids quadratic insertion scans on long cached feeds.
+// Hermes compatibility still requires avoiding sort/toSorted.
 export function insertionOrder<T>(
   items: readonly T[],
   compare: (a: T, b: T) => number
 ): T[] {
-  const ordered: T[] = [];
-  for (const item of items) {
-    let index = ordered.length;
-    for (let scan = 0; scan < ordered.length; scan += 1) {
-      const current = ordered[scan];
-      if (current !== undefined && compare(item, current) < 0) {
-        index = scan;
-        break;
-      }
-    }
-    ordered.splice(index, 0, item);
+  if (items.length < 2) {
+    return [...items];
   }
-  return ordered;
+  const middle = Math.floor(items.length / 2);
+  const left = insertionOrder(items.slice(0, middle), compare);
+  const right = insertionOrder(items.slice(middle), compare);
+  const ordered: T[] = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    const leftItem = left[leftIndex] as T;
+    const rightItem = right[rightIndex] as T;
+    if (compare(leftItem, rightItem) <= 0) {
+      ordered.push(leftItem);
+      leftIndex += 1;
+    } else {
+      ordered.push(rightItem);
+      rightIndex += 1;
+    }
+  }
+  return [...ordered, ...left.slice(leftIndex), ...right.slice(rightIndex)];
 }
 
 interface IndexedItem {
@@ -194,14 +201,15 @@ export function normalizePostData(post: FeedPost): FeedPost {
   if (
     typeof count !== "object" ||
     count === null ||
+    typeof count.bookmarks !== "number" ||
     typeof count.comments !== "number" ||
-    typeof count.mentions !== "number" ||
+    typeof count.responses !== "number" ||
     typeof count.vote !== "number"
   ) {
     const target = ensure();
     target._count = {
+      bookmarks: countOf((count as FeedCounts | undefined)?.bookmarks),
       comments: countOf((count as FeedCounts | undefined)?.comments),
-      mentions: countOf((count as FeedCounts | undefined)?.mentions),
       responses: countOf((count as FeedCounts | undefined)?.responses),
       vote: countOf((count as FeedCounts | undefined)?.vote),
     };

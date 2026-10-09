@@ -86,6 +86,10 @@ export async function POST(request: Request): Promise<Response> {
         throw new Error("Email verification is required");
       }
 
+      // Match better-auth's canonical credential selector exactly:
+      // (providerId="credential", accountId=userId, userId). Selecting by
+      // (providerId, userId) alone could match a legacy row whose accountId is
+      // the email, so the password landed on a row sign-in never reads.
       const credential = await transaction.orm.public.Accounts.select(
         "id",
         "password"
@@ -93,6 +97,7 @@ export async function POST(request: Request): Promise<Response> {
         .where((account) =>
           and(
             account.providerId.eq("credential"),
+            account.accountId.eq(session.user.id),
             account.userId.eq(session.user.id)
           )
         )
@@ -105,6 +110,7 @@ export async function POST(request: Request): Promise<Response> {
         ? transaction.orm.public.Accounts.where({
             id: credential.id,
           }).update({
+            issuer: LOCAL_CREDENTIAL_ISSUER,
             password: passwordHash,
           })
         : transaction.orm.public.Accounts.create({

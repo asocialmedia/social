@@ -15,6 +15,7 @@ export interface TabFeed {
   fetchedAt: number;
   hasMore: boolean;
   pages: FeedPost[][];
+  pageCursors?: (string | null)[];
   stale: boolean;
   status:
     | "error"
@@ -100,7 +101,13 @@ export function prependPosts(
     return { added: false, pages };
   }
   const known = new Set(pages.flat().map((post) => post.id));
-  const unseen = fresh.filter((post) => post && !known.has(post.id));
+  const unseen = fresh.filter((post) => {
+    if (!post || known.has(post.id)) {
+      return false;
+    }
+    known.add(post.id);
+    return true;
+  });
   if (unseen.length === 0) {
     return { added: false, pages };
   }
@@ -117,6 +124,7 @@ export class FeedCache {
   private listeners = new Set<(changedKeys?: FeedCacheChangeKeys) => void>();
   private now: () => number;
   private tabs = new Map<string, TabFeed>();
+  private residentAt = new Map<string, number>();
 
   constructor(now: () => number = Date.now) {
     this.now = now;
@@ -137,9 +145,13 @@ export class FeedCache {
   }
 
   private prune(): void {
-    for (const [key, feed] of this.tabs) {
-      if (this.now() - feed.fetchedAt > FEED_CACHE_RETENTION_MS) {
+    for (const key of this.tabs.keys()) {
+      if (
+        this.now() - (this.residentAt.get(key) ?? 0) >
+        FEED_CACHE_RETENTION_MS
+      ) {
         this.tabs.delete(key);
+        this.residentAt.delete(key);
       }
     }
   }
@@ -156,12 +168,21 @@ export class FeedCache {
   }
 
   set(key: string, feed: TabFeed): void {
-    this.tabs.set(key, { ...feed, fetchedAt: this.now() });
+    this.tabs.set(key, feed);
+    this.residentAt.set(key, this.now());
+    this.notify(new Set([key]));
   }
 
   patch(key: string, partial: Partial<TabFeed>): TabFeed {
-    const next = { ...this.get(key), ...partial, fetchedAt: this.now() };
+    const current = this.get(key);
+    const next = {
+      ...current,
+      ...partial,
+      fetchedAt:
+        partial.fetchedAt ?? (partial.pages ? this.now() : current.fetchedAt),
+    };
     this.tabs.set(key, next);
+    this.residentAt.set(key, this.now());
     this.notify(new Set([key]));
     try {
       scheduleFeedPersist();
@@ -182,10 +203,14 @@ export class FeedCache {
     const current = this.get(key);
     const clean = filterFeedPosts(normalizePostsData(posts), filter);
     const pages = append ? [...current.pages, clean] : [clean];
+    const pageCursors = append
+      ? [...(current.pageCursors ?? current.pages.map(() => null)), cursor]
+      : [cursor];
     return this.patch(key, {
       cursor,
       error: null,
       hasMore: cursor !== null,
+      pageCursors,
       pages,
       stale: false,
       status: "success",
@@ -276,22 +301,46 @@ export class FeedCache {
 
   clear(): void {
     this.tabs.clear();
+    this.residentAt.clear();
   }
 }
 
 // Process-wide feed cache used by the hooks.
 export const feedCache = new FeedCache();
 
-// Persistent snapshot shape for disk. Only success entries with pages are
-// stored, capped to the first two pages per tab so the file stays small and
-// hydration is instant. Loading states are never persisted.
+// Persist completed pages even during refresh, pagination or a network failure.
+// Only the data and its freshness survive; transient loading/error UI does not.
 export type FeedPersistEntry = Pick<
   TabFeed,
-  "cursor" | "fetchedAt" | "hasMore" | "pages"
->;
+  "cursor" | "fetchedAt" | "hasMore" | "pages" | "pageCursors"
+> &
+  Partial<Pick<TabFeed, "stale">>;
+// Disk previews survive a normal next-day launch; their original age still
+// forces background refresh. In-memory unused tabs retain the shorter TTL.
+export const FEED_PERSIST_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const FEED_PERSIST_NAME = "feed-cache-v1";
 export const FEED_PERSIST_MAX_TABS = 8;
 export const FEED_PERSIST_MAX_PAGES = 2;
+export function persistFeedEntry(entry: TabFeed): FeedPersistEntry {
+  // Legacy entries have no page boundaries. Keep their complete pages rather
+  // than pairing a truncated head with a later cursor and skipping content.
+  const pages = entry.pageCursors
+    ? entry.pages.slice(0, FEED_PERSIST_MAX_PAGES)
+    : entry.pages;
+  const pageCursors = entry.pageCursors?.slice(0, pages.length);
+  const cursor = pageCursors
+    ? (pageCursors[pages.length - 1] ?? null)
+    : entry.cursor;
+  const truncated = pages.length < entry.pages.length;
+  return {
+    cursor,
+    fetchedAt: entry.fetchedAt,
+    hasMore: truncated || entry.hasMore,
+    pageCursors,
+    pages,
+    stale: entry.stale || entry.status !== "success",
+  };
+}
 export function feedCacheToSnapshot(
   now: number = Date.now()
 ): Record<string, FeedPersistEntry> {
@@ -301,18 +350,13 @@ export function feedCacheToSnapshot(
   // The cache below exposes keys() for this purpose.
   for (const key of feedCache.keys()) {
     const entry = feedCache.get(key);
-    if (entry.status !== "success" || entry.pages.length === 0) {
+    if (entry.pages.length === 0) {
       continue;
     }
-    if (now - entry.fetchedAt > FEED_CACHE_RETENTION_MS) {
+    if (now - entry.fetchedAt > FEED_PERSIST_RETENTION_MS) {
       continue;
     }
-    out[key] = {
-      cursor: entry.cursor,
-      fetchedAt: entry.fetchedAt,
-      hasMore: entry.hasMore,
-      pages: entry.pages.slice(0, FEED_PERSIST_MAX_PAGES),
-    };
+    out[key] = persistFeedEntry(entry);
     if (Object.keys(out).length >= FEED_PERSIST_MAX_TABS) {
       break;
     }
@@ -335,16 +379,26 @@ export function restoreFeedCache(
     }
     if (
       !Number.isFinite(entry.fetchedAt) ||
-      now - entry.fetchedAt > FEED_CACHE_RETENTION_MS
+      entry.fetchedAt > now ||
+      now - entry.fetchedAt > FEED_PERSIST_RETENTION_MS
     ) {
       continue;
     }
-    const backgroundRefresh = now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
+    const current = feedCache.get(key);
+    if (current.pages.length > 0 || current.status !== "idle") {
+      continue;
+    }
+    // Old snapshots may contain a cursor beyond their saved pages.
+    const backgroundRefresh =
+      entry.stale === true ||
+      !entry.pageCursors ||
+      now - entry.fetchedAt > HYDRATED_STALE_AFTER_MS;
     feedCache.set(key, {
       cursor: typeof entry.cursor === "string" ? entry.cursor : null,
       error: null,
       fetchedAt: entry.fetchedAt,
       hasMore: entry.hasMore !== false,
+      pageCursors: entry.pageCursors,
       pages: entry.pages,
       stale: backgroundRefresh,
       status: "success",
@@ -389,7 +443,13 @@ export function scheduleFeedPersist(): void {
 // Hydrates the in-memory cache from disk once per launch. Returns restored
 // tab count. Stale-while-revalidate: callers render cached rows instantly and
 // still refetch in the background when stale.
-export async function hydrateFeedCache(): Promise<number> {
+let hydrationRequest: Promise<number> | null = null;
+export function hydrateFeedCache(): Promise<number> {
+  hydrationRequest ??= readFeedCacheFromDisk();
+  return hydrationRequest;
+}
+
+async function readFeedCacheFromDisk(): Promise<number> {
   try {
     const { readSnapshot } = await import("@/lib/persistent-file");
     const snap =
@@ -403,4 +463,25 @@ export async function hydrateFeedCache(): Promise<number> {
     markPersistHydrated();
     return 0;
   }
+}
+
+// A cold-restored post can paint its account-scoped feed preview even when
+// the complete detail has not yet been saved on this device.
+export function findCachedFeedPost(
+  postId: string,
+  viewerId: string | undefined
+): FeedPost | undefined {
+  const suffix = `:${viewerId ?? "guest"}`;
+  for (const key of feedCache.keys()) {
+    if (!key.endsWith(suffix)) {
+      continue;
+    }
+    for (const page of feedCache.get(key).pages) {
+      const post = page.find((candidate) => candidate.id === postId);
+      if (post) {
+        return post;
+      }
+    }
+  }
+  return undefined;
 }

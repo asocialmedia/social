@@ -24,6 +24,15 @@ describe("resolveApiTier", () => {
     expect(resolveApiTier("/api/health")).toBeNull();
   });
 
+  test("auth proxy is exempt; the auth service owns its own limits", () => {
+    // Every authenticated render calls get-session and the session-events
+    // stream is long-lived. Counting these here starved unrelated routes
+    // (like POST /api/push/device) out of the shared per-IP "api" bucket.
+    expect(resolveApiTier("/api/auth/get-session")).toBeNull();
+    expect(resolveApiTier("/api/auth/session-events")).toBeNull();
+    expect(resolveApiTier("/api/auth/sign-out")).toBeNull();
+  });
+
   test("media gets the highest limit", () => {
     const tier = resolveApiTier("/api/media/cmt123");
     expect(tier?.bucket).toBe("media");

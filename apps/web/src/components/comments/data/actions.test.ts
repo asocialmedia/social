@@ -497,7 +497,9 @@ mock.module("@asm/db", () => ({
 
 mock.module("next/cache", () => ({
   revalidateTag: () => {},
-  updateTag: () => {},
+  updateTag: () => {
+    throw new Error("updateTag requires a Server Action");
+  },
 }));
 
 mock.module("@/lib/auth/session", () => ({

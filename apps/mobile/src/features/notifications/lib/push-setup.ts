@@ -1,6 +1,6 @@
 // Push setup diagnostics: why push is or is not working on this device.
 // Raw FCM tokens need a dev build (or release APK) with google-services.json
-// on a physical Android device. Expo Go, simulators/emulators without Play,
+// on Android with Google Play services. Expo Go, emulators without Play,
 // and denied permissions all fail at distinct steps, and the old code logged
 // only "skipped" with no surface for the user. This module names the step so
 // the notifications screen can show the fix instead of silence.
@@ -34,7 +34,7 @@ export function pushSetupCopy(status: PushSetupStatus): {
     case "expo-go": {
       return {
         action: "Use a dev build",
-        body: "Expo Go cannot receive raw FCM tokens. Run a dev build on a physical Android device to enable push.",
+        body: "Expo Go cannot receive raw FCM tokens. Install a development or release build to enable push.",
         title: "Push needs a dev build",
       };
     }
@@ -48,7 +48,7 @@ export function pushSetupCopy(status: PushSetupStatus): {
     case "no-firebase": {
       return {
         action: "",
-        body: "This build has no Firebase config (google-services.json). Rebuild the dev client with Firebase to enable push.",
+        body: "This build has no Firebase config (google-services.json). Rebuild the application with Firebase to enable push.",
         title: "Push not configured in this build",
       };
     }
@@ -81,6 +81,7 @@ export function pushSetupCopy(status: PushSetupStatus): {
 // Synchronous pre-checks that need no native modules.
 export function pushSetupPrecheck(opts: {
   executionEnvironment?: string | null;
+  isExpoGo?: boolean;
   platform: string;
 }): PushSetupReason | null {
   if (opts.platform === "web") {
@@ -89,61 +90,76 @@ export function pushSetupPrecheck(opts: {
   if (opts.platform !== "android") {
     return "ios-unsupported";
   }
-  if (opts.executionEnvironment === "storeClient") {
+  if (opts.isExpoGo ?? opts.executionEnvironment === "storeClient") {
     return "expo-go";
   }
   return null;
 }
 
-// True on an emulator/simulator (no FCM registration possible in practice).
-export async function isPhysicalDevice(): Promise<boolean> {
-  try {
-    const mod = await import("expo-device");
-    const device = mod as unknown as { isDevice?: boolean };
-    if (typeof device.isDevice === "boolean") {
-      return device.isDevice;
-    }
-    return true;
-  } catch {
-    return true;
+// Registration publishes its actual result; the screen observes recovery as well as failure.
+let registrationStatus: PushSetupStatus | null = null;
+const listeners = new Set<() => void>();
+
+export function publishPushSetupStatus(status: PushSetupStatus | null): void {
+  registrationStatus = status;
+  for (const listener of listeners) {
+    listener();
   }
 }
 
-// Full diagnostics for the current device. Best-effort, never throws.
+export function readPushSetupStatus(): PushSetupStatus | null {
+  return registrationStatus;
+}
+
+export function subscribePushSetupStatus(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function pushFailureStatus(error: unknown): PushSetupStatus {
+  const detail = error instanceof Error ? error.message : String(error);
+  const missingFirebase =
+    /default FirebaseApp|FirebaseApp.*initializ|google-services|missing.*firebase/i.test(
+      detail
+    );
+  return {
+    detail: missingFirebase
+      ? "Firebase configuration is missing from this build."
+      : "Couldn't register notifications. Check your connection and try again.",
+    reason: missingFirebase ? "no-firebase" : "unknown",
+  };
+}
+
+// Expo Go has its own native module. Embedded release manifests also expose
+// expoGoConfig, so that property cannot identify the app runtime.
 export async function getPushSetupStatus(): Promise<PushSetupStatus> {
   try {
-    const constantsMod = await import("expo-constants");
-    const constants = constantsMod as unknown as {
-      default?: {
-        expoGoConfig?: unknown;
-        executionEnvironment?: string | null;
-      };
-      expoGoConfig?: unknown;
-      executionEnvironment?: string | null;
-    };
-    const executionEnvironment =
-      constants.default?.executionEnvironment ??
-      constants.executionEnvironment ??
-      null;
-    const expoGoConfig =
-      constants.default?.expoGoConfig ?? constants.expoGoConfig ?? null;
+    const { isRunningInExpoGo } = await import("expo");
     const { Platform } = await import("react-native");
-    const platform = (Platform as unknown as { OS?: string }).OS ?? "unknown";
     const precheck = pushSetupPrecheck({
-      executionEnvironment: expoGoConfig ? "storeClient" : executionEnvironment,
-      platform,
+      isExpoGo: isRunningInExpoGo(),
+      platform: Platform.OS,
     });
     if (precheck) {
       return { detail: precheck, reason: precheck };
     }
-    if (!(await isPhysicalDevice())) {
-      return { detail: "emulator", reason: "emulator" };
+    const notifications = await import("expo-notifications");
+    const permission = await notifications.getPermissionsAsync();
+    if (!permission.granted && !permission.canAskAgain) {
+      return {
+        detail: "Notifications are disabled in system settings.",
+        reason: "permission-denied",
+      };
     }
-    return { detail: "ok", reason: "ready" };
+    return (
+      registrationStatus ?? {
+        detail: "Registration will run after sign-in.",
+        reason: "ready",
+      }
+    );
   } catch (error) {
-    return {
-      detail: error instanceof Error ? error.message : String(error),
-      reason: "unknown",
-    };
+    return pushFailureStatus(error);
   }
 }

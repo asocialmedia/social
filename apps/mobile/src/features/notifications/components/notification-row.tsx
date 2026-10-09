@@ -24,7 +24,6 @@ import {
   ShieldAlert,
   Sparkles,
   UserPlus,
-  X,
 } from "lucide-react-native";
 import type { ComponentType } from "react";
 import { useState } from "react";
@@ -64,7 +63,6 @@ const ICONS: Record<
 
 interface NotificationRowProps {
   notification: GroupedNotificationItem;
-  onDismiss: (notification: GroupedNotificationItem) => void;
   onOpen: (target: NotificationTarget) => void;
 }
 
@@ -250,7 +248,6 @@ function NotificationAvatars({
 
 export function NotificationRow({
   notification,
-  onDismiss,
   onOpen,
 }: NotificationRowProps) {
   const { isDark, theme } = useAppTheme();
@@ -335,22 +332,6 @@ export function NotificationRow({
           </Text>
         </View>
       </Pressable>
-
-      <Pressable
-        accessibilityLabel="Dismiss notification"
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={() => onDismiss(notification)}
-        style={({ pressed }) => [
-          styles.dismiss,
-          {
-            backgroundColor: theme.passkeyBg,
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-      >
-        <X color={theme.passkeyIcon} size={14} />
-      </Pressable>
     </View>
   );
 }
@@ -374,14 +355,6 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     minWidth: 0,
-  },
-  dismiss: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 28,
-    justifyContent: "center",
-    marginTop: 4,
-    width: 28,
   },
   headline: {
     fontFamily: "SofiaProReg",

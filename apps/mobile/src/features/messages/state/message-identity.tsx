@@ -10,14 +10,14 @@
 //    always recovers. See the recovery branch below.
 // 2. ABANDONED VERIFIER ROWS STILL UNLOCK WHERE POSSIBLE. That is the short-lived
 //    scheme whose master key came from a raw secret held on one device.
-//    `unlockVerifierRow` tries the stored secret and compares its hash to the row,
+//    The bootstrap tries the stored secret and compares its hash to the row,
 //    so those rows are not stranded. No user-facing secret is introduced.
 // 3. A LOST KEY DEGRADES, IT NEVER BRICKS. `reset` calls the server route that
 //    drops this account's identity and its own wraps, so the peer's older epochs
 //    stay readable and the peer's history survives.
 //
-// PBKDF2 AT 100k ITERATIONS IS GENUINELY SLOW ON HERMES, so the screen shows a
-// `status` that names the step rather than an unexplained spinner.
+// Release builds derive the backup key on a native background queue. Expo Go
+// yields between JS rounds, so automatic recovery never monopolizes touches.
 
 import {
   createContext,
@@ -25,47 +25,26 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import type { ReactNode } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { resetMessageIdentity } from "@/features/messages/lib/client";
+import { createConversationKeySource } from "@/features/messages/lib/conversation-key-source";
 import {
-  fetchIdentity,
-  resetMessageIdentity,
-  saveIdentity,
-} from "@/features/messages/lib/client";
-import type { MessageIdentityPayload } from "@/features/messages/lib/client";
-import {
-  KDF_ITERATIONS,
   clearStoredPrivateKey,
-  decryptWithMasterKey,
-  deriveMasterKey,
-  encryptWithMasterKey,
-  exportPrivateKeyJwk,
-  exportPublicKeyJwk,
-  generateAccountSecret,
-  generateIdentityKeyPair,
-  getStoredAccountSecret,
-  getStoredPrivateKey,
-  hashAccountSecret,
-  importPrivateKeyJwk,
-  publicKeyJwkToBase64,
-  configureNativeEntropy,
   setMessageKeyStore,
-  setStoredPrivateKey,
 } from "@/features/messages/lib/crypto";
-import {
-  base64ToBytes,
-  bytesToBase64,
-  randomBytes,
-} from "@/features/messages/lib/crypto-primitives";
 import type { EcdhPrivateKey } from "@/features/messages/lib/crypto-primitives";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
+import { bootstrapMessageIdentity } from "@/features/messages/lib/identity-bootstrap";
+import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { secureMessageKeyStore } from "@/features/messages/lib/secure-key-store";
 import { getApiBaseUrl } from "@/lib/api-env";
+
+import { configureNativeMessageCrypto } from "./native-message-crypto";
 
 export type IdentityStatus = "error" | "loading" | "locked" | "ready";
 
@@ -80,7 +59,11 @@ interface IdentityData {
 }
 
 export interface MessagesIdentityValue extends IdentityData {
+  mediaCookie: string | null;
+  getBaseKeys: (conversationId: string) => Promise<Uint8Array[]>;
+  invalidateKeys: (conversationId: string) => void;
   reset: () => Promise<void>;
+  retry: () => void;
 }
 
 const EMPTY_DATA: IdentityData = {
@@ -92,11 +75,21 @@ const EMPTY_DATA: IdentityData = {
 };
 
 // Signing out, or arriving with no session: nothing to reset.
+const NO_KEYS = () => Promise.resolve<Uint8Array[]>([]);
+
 const NO_RESET: () => Promise<void> = () => Promise.resolve();
 
 const MessagesIdentityContext = createContext<MessagesIdentityValue>({
   ...EMPTY_DATA,
+  getBaseKeys: NO_KEYS,
+  invalidateKeys: () => {
+    // No identity is mounted yet.
+  },
+  mediaCookie: null,
   reset: NO_RESET,
+  retry: () => {
+    // No provider is mounted to retry yet.
+  },
 });
 
 export function useMessagesIdentity(): MessagesIdentityValue {
@@ -110,42 +103,9 @@ export class MessageIdentityLockedError extends Error {
   }
 }
 
-const GENERIC_FAILURE = "We couldn't set up message encryption.";
+const GENERIC_FAILURE = "Couldn't connect to Messages. Please try again.";
 const LOCKED_COPY =
   "Your message key can't be read on this device. Start over to create a new one. Your conversation history before this point stays readable to the other person.";
-
-// The server stores the encrypted private key as "<iv>.<ciphertext>".
-function splitPrivateKey(stored: string): { ciphertext: string; iv: string } {
-  const separator = stored.indexOf(".");
-  if (separator === -1) {
-    throw new Error("Malformed encrypted private key");
-  }
-  return {
-    ciphertext: stored.slice(separator + 1),
-    iv: stored.slice(0, separator),
-  };
-}
-
-// Unwraps the stored private key with a master key derived from `material`.
-// Shared by the automatic and verifier paths so both cross the same trust
-// boundary and produce the same JWK.
-async function recoverPrivateKey(
-  identity: MessageIdentityPayload,
-  material: string,
-  userId: string
-): Promise<EcdhPrivateKey> {
-  const masterKey = await deriveMasterKey(
-    material,
-    base64ToBytes(identity.salt),
-    identity.kdfIterations
-  );
-  const { ciphertext, iv } = splitPrivateKey(identity.encryptedPrivateKey);
-  const jwk = JSON.parse(
-    await decryptWithMasterKey(masterKey, { ciphertext, iv })
-  ) as JsonWebKey;
-  await setStoredPrivateKey(userId, jwk);
-  return importPrivateKeyJwk(jwk);
-}
 
 export function MessagesIdentityProvider({
   children,
@@ -155,14 +115,21 @@ export function MessagesIdentityProvider({
   const { user } = useSessionContext();
   const userId = user?.id ?? null;
   const [data, setData] = useState<IdentityData>(EMPTY_DATA);
-  // One bootstrap at a time. Without this, a user object that changes identity
-  // (or a remount) would race two provisions and leave a half-written identity row.
-  const bootstrappingRef = useRef(false);
+  const [revision, setRevision] = useState(0);
+  const [mediaAuth, setMediaAuth] = useState<{
+    cookie: string;
+    userId: string;
+  } | null>(null);
 
   // Register the SecureStore binding before anything can ask for a key.
   useEffect(() => {
     setMessageKeyStore(secureMessageKeyStore);
   }, []);
+
+  const retry = useCallback(() => {
+    setData({ ...EMPTY_DATA, userId });
+    setRevision((value) => value + 1);
+  }, [userId]);
 
   const reset = useCallback(async () => {
     if (!userId) {
@@ -177,6 +144,7 @@ export function MessagesIdentityProvider({
     // Re-provision from scratch: a fresh keypair, a fresh salt, a fresh backup
     // row. Only this account's history becomes unreadable; the peer's wraps stay.
     setData({ ...EMPTY_DATA, status: "loading", userId });
+    setRevision((value) => value + 1);
   }, [userId]);
 
   const publishReady = useCallback(
@@ -202,120 +170,30 @@ export function MessagesIdentityProvider({
       setData(EMPTY_DATA);
       return;
     }
-    if (bootstrappingRef.current) {
-      return;
-    }
-    bootstrappingRef.current = true;
     let cancelled = false;
+    let retries = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    void (async () => {
+    const load = async () => {
       try {
         // Entropy first: on Hermes there is no global crypto at all, so a keypair
         // generated before this would throw.
-        await configureNativeEntropy();
+        await configureNativeMessageCrypto();
         const cookie = await authClient.getCookie();
+        if (!cancelled) {
+          setMediaAuth({ cookie: cookie ?? "", userId });
+        }
         const options = { apiBase: getApiBaseUrl(), cookie };
-        const { identity } = await fetchIdentity(options);
-
-        if (identity) {
-          // A stored row means a returning device.
-          const localJwk = await getStoredPrivateKey(userId);
-          if (localJwk) {
-            if (!cancelled) {
-              publishReady(identity.publicKey, importPrivateKeyJwk(localJwk));
-            }
-            return;
-          }
-
-          // Invariant 1 first: recover from the stored row alone, no user input.
-          try {
-            const recovered = await recoverPrivateKey(
-              identity,
-              identity.masterKeyHash,
-              userId
-            );
-            if (!cancelled) {
-              publishReady(identity.publicKey, recovered);
-            }
-            return;
-          } catch {
-            // Fall through to invariant 2 before giving up.
-          }
-
-          // Invariant 2: a verifier row cannot be auto-recovered, but this device
-          // may still hold the raw secret it was derived from.
-          const verifierSecret = await getStoredAccountSecret(userId);
-          if (verifierSecret) {
-            try {
-              const matches =
-                (await hashAccountSecret(verifierSecret)) ===
-                identity.masterKeyHash;
-              if (matches) {
-                const unlocked = await recoverPrivateKey(
-                  identity,
-                  verifierSecret,
-                  userId
-                );
-                if (!cancelled) {
-                  publishReady(identity.publicKey, unlocked);
-                }
-                return;
-              }
-            } catch {
-              // A stored secret that does not open this row is no help; fall
-              // through to locked.
-            }
-          }
-
-          // Invariant 3: the row exists but nothing on this device can read it.
-          // That is `locked` with a reset, never a dead end.
-          if (!cancelled) {
-            setData({
-              error: LOCKED_COPY,
-              identity: { publicKey: identity.publicKey },
-              privateKey: null,
-              status: "locked",
-              userId,
-            });
-          }
+        const resolved = await bootstrapMessageIdentity(userId, options);
+        if (cancelled) {
           return;
         }
-
-        // No row: provision. Nothing exists to preserve, so this is the only
-        // moment a key is generated.
-        const { privateKey, publicKey } = generateIdentityKeyPair();
-        const salt = bytesToBase64(randomBytes(16));
-        // The raw secret is hashed and discarded: the PBKDF2 input is the HASH, so
-        // the stored row alone re-derives the backup key.
-        const masterKeyHash = await hashAccountSecret(generateAccountSecret());
-        const masterKey = await deriveMasterKey(
-          masterKeyHash,
-          base64ToBytes(salt),
-          KDF_ITERATIONS
-        );
-        const encryptedPrivateKey = await encryptWithMasterKey(
-          masterKey,
-          JSON.stringify(exportPrivateKeyJwk(privateKey))
-        );
-        const publicKeyEncoded = publicKeyJwkToBase64(
-          exportPublicKeyJwk(publicKey)
-        );
-        await saveIdentity(
-          {
-            encryptedPrivateKey: `${encryptedPrivateKey.iv}.${encryptedPrivateKey.ciphertext}`,
-            kdfIterations: KDF_ITERATIONS,
-            masterKeyHash,
-            publicKey: publicKeyEncoded,
-            salt,
-          },
-          options
-        );
-        // Cached locally too, so the next mount skips the PBKDF2 entirely.
-        await setStoredPrivateKey(userId, exportPrivateKeyJwk(privateKey));
-        if (!cancelled) {
-          publishReady(publicKeyEncoded, privateKey);
+        if (resolved.status === "ready" && resolved.privateKey) {
+          publishReady(resolved.identity.publicKey, resolved.privateKey);
+        } else {
+          setData({ ...resolved, error: LOCKED_COPY, userId });
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setData({
             error: GENERIC_FAILURE,
@@ -324,22 +202,52 @@ export function MessagesIdentityProvider({
             status: "error",
             userId,
           });
+          const delay = messageReadRetryDelay(error, retries);
+          if (delay !== null) {
+            retries += 1;
+            retryTimer = setTimeout(() => {
+              void load();
+            }, delay);
+          }
         }
-        // Cleared on both paths rather than in a `finally`, which React Compiler
-        // cannot lower inside a component. The flag exists only to stop two
-        // bootstraps racing, and either path ends that race.
-        bootstrappingRef.current = false;
       }
-    })();
+    };
+    void load();
 
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
     };
-  }, [publishReady, userId]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- revision starts a fresh bootstrap after an explicit identity reset
+  }, [publishReady, revision, userId]);
+
+  const keySource = useMemo(() => {
+    if (data.userId !== userId || !userId || !data.privateKey) {
+      return {
+        getBaseKeys: NO_KEYS,
+        invalidate: () => {
+          // Keys will be resolved after identity recovery.
+        },
+      };
+    }
+    return createConversationKeySource(data.privateKey, userId, async () => ({
+      apiBase: getApiBaseUrl(),
+      cookie: await authClient.getCookie(),
+    }));
+  }, [data.privateKey, data.userId, userId]);
 
   const value: MessagesIdentityValue = useMemo(
-    () => ({ ...data, reset: userId ? reset : NO_RESET }),
-    [data, reset, userId]
+    () => ({
+      ...(data.userId === userId ? data : { ...EMPTY_DATA, userId }),
+      getBaseKeys: keySource.getBaseKeys,
+      invalidateKeys: keySource.invalidate,
+      mediaCookie: mediaAuth?.userId === userId ? mediaAuth.cookie : null,
+      reset: userId ? reset : NO_RESET,
+      retry,
+    }),
+    [data, keySource, mediaAuth, reset, retry, userId]
   );
 
   return (

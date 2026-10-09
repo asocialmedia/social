@@ -31,10 +31,15 @@ import {
   normalizePostsData,
   sortPostsNewest,
 } from "../lib/feed-types";
-import { feedCache, flattenUniquePosts, prependPosts } from "./feed-store";
+import {
+  feedCache,
+  flattenUniquePosts,
+  prependPosts,
+  hydrateFeedCache,
+} from "./feed-store";
 
 // Head probe interval, mirroring web useNewContentProbe.
-const PROBE_INTERVAL_MS = 45_000;
+const PROBE_INTERVAL_MS = 20_000;
 
 export type FeedStatus =
   | "error"
@@ -45,13 +50,20 @@ export type FeedStatus =
   | "success";
 
 interface UseFeedTabOptions {
+  active?: boolean;
   enabled: boolean;
   userId: string | undefined;
   variant: FeedVariant;
 }
 
-export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
+export function useFeedTab({
+  active: activeOverride,
+  enabled,
+  userId,
+  variant,
+}: UseFeedTabOptions): {
   clearNewItems: () => void;
+  incomingIds: ReadonlySet<string>;
   dismissPost: (postId: string) => void;
   error: string | null;
   fetchNext: () => void;
@@ -63,12 +75,16 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
   status: FeedStatus;
   undoDismiss: (postId: string) => void;
 } {
+  const active = activeOverride ?? enabled;
   const cacheKey = `${variant}:${userId ?? "guest"}`;
   const [, setTick] = useState(0);
   const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
   const [newItems, setNewItems] = useState<FeedPost[]>([]);
+  const [incomingIds, setIncomingIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const removedPostsRef = useRef(new Map<string, FeedPost>());
   // The in-flight cache key: a session upgrade mid-fetch (guest key to user
   // key) must not swallow the second fetch, so the guard is per key rather
@@ -100,10 +116,8 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     [cacheKey]
   );
 
-  // Head-only probe: new posts collect in newItems without moving the list,
-  // exactly like web. Starts from the mount fill and from fetch settles,
-  // never from an effect watching cache pages (the Compiler rejects that
-  // dep). Probes immediately and every 45s; swallows fetch errors.
+  // Load new rows above the retained feed; native anchoring preserves the reader.
+  // Only the foreground tab probes, with a cheap head-id check on chronological feeds.
   const pollerRef = useRef<ReturnType<typeof createExpoPoller> | null>(null);
   const probeKey = useRef<string | null>(null);
   const probeCancel = useRef<(() => void) | null>(null);
@@ -128,6 +142,10 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
       };
       const probe = async () => {
         try {
+          const before = feedCache.get(key);
+          if (before.status !== "success" && before.status !== "error") {
+            return;
+          }
           const apiBase = getApiBaseUrl();
           const cookie = await authClient.getCookie();
           const options = { apiBase, cookie };
@@ -135,6 +153,15 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
             flattenUniquePosts(feedCache.get(key).pages).map((post) => post.id)
           );
           if (known.size === 0) {
+            const current = feedCache.get(key);
+            const page = await fetchFeedPage(variant, null, options);
+            if (
+              !cancelled &&
+              activeKeyRef.current === key &&
+              feedCache.get(key) === current
+            ) {
+              feedCache.applyPage(key, page.posts, page.nextCursor, {}, false);
+            }
             return;
           }
           // Cheap first, and only where it is sound: one row answers "did
@@ -154,11 +181,28 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
           const fresh = normalizePostsData(
             await fetchFeedHead(variant, options)
           );
+          if (cancelled || activeKeyRef.current !== key) {
+            return;
+          }
+          const current = feedCache.get(key);
+          if (current.status !== "success" && current.status !== "error") {
+            return;
+          }
+          const currentKnown = new Set(
+            flattenUniquePosts(current.pages).map((post) => post.id)
+          );
           const unseen = isRankedFeed(variant)
-            ? findUnseenRankedItems(fresh, known)
-            : findUnseenItems(fresh, known);
+            ? findUnseenRankedItems(fresh, currentKnown)
+            : findUnseenItems(fresh, currentKnown);
           if (!cancelled && unseen.length > 0) {
-            setNewItems(unseen);
+            const next = prependPosts(current.pages, unseen);
+            if (next.added) {
+              feedCache.patch(key, { pages: next.pages });
+              setIncomingIds(
+                (ids) => new Set([...ids, ...unseen.map((post) => post.id)])
+              );
+              setNewItems((pending) => flattenUniquePosts([unseen, pending]));
+            }
           }
         } catch {
           // Probe failures are silent by design (web swallows them too).
@@ -210,7 +254,7 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         // the first page on cold start). Only when this replace still owns
         // the active key; a stale guest fetch settling after a re-key must
         // not hijack the live probe.
-        if (mode === "replace" && activeKeyRef.current === cacheKey) {
+        if (active && mode === "replace" && activeKeyRef.current === cacheKey) {
           startProbe(cacheKey);
         }
         if (inflightKey.current === cacheKey) {
@@ -236,10 +280,25 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
         if (inflightKey.current === cacheKey) {
           inflightKey.current = null;
         }
+        // Empty feeds that failed offline still need a foreground/network recovery path.
+        if (active && activeKeyRef.current === cacheKey) {
+          startProbe(cacheKey);
+        }
       }
     },
-    [cacheKey, startProbe, variant]
+    [active, cacheKey, startProbe, variant]
   );
+
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- new-content rows belong to one account/feed cache key
+    setNewItems([]);
+    // oxlint-disable-next-line react/set-state-in-effect -- incoming thread grouping belongs to one feed/account
+    setIncomingIds(new Set());
+    // oxlint-disable-next-line react/set-state-in-effect -- dismissals are scoped to one account/feed
+    setDismissedIds(new Set());
+    removedPostsRef.current.clear();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- these local rows belong to the cache key, not focus/enabled state
+  }, [cacheKey]);
 
   // First page: cached entries render as-is (staleTime Infinity); missing or
   // invalidated entries fetch. refetchOnMount picks up invalidations. Tabs
@@ -251,26 +310,24 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
       stopProbe();
       return;
     }
-    activeKeyRef.current = cacheKey;
-    // Key-specific local state must not leak across a guest-to-user re-key:
-    // stale newItems would insert the old feed into the new cache.
-    // oxlint-disable-next-line react/set-state-in-effect -- re-key resets the banner; steady state is cache-driven
-    setNewItems([]);
-    const current = feedCache.get(cacheKey);
-    if (current.status === "idle" || current.stale) {
-      // Cached rows stay on screen while the background refresh runs: patch
-      // to refreshing (not loading) when pages exist so the list never
-      // flashes its skeleton on a stale-while-revalidate mount. Only truly
-      // empty tabs enter loading.
-      const opening = current.pages.length > 0 ? "refreshing" : "loading";
-      // oxlint-disable-next-line react/set-state-in-effect -- mount-fill: idle/invalidated tabs enter loading here; the fetch below settles it
-      feedCache.patch(cacheKey, { error: null, status: opening });
-      // oxlint-disable-next-line react/set-state-in-effect -- mount-fill must kick off the first fetch here; steady state is cache-driven
-      void runFetch("replace", null);
-    } else if (current.pages.length > 0) {
-      startProbe(cacheKey);
-    }
+    activeKeyRef.current = active ? cacheKey : null;
+    let cancelled = false;
+    void (async () => {
+      // Disk hydration owns the first cache fill. Starting the network first
+      // meant it set loading and prevented the saved rows from ever restoring.
+      await hydrateFeedCache();
+      if (cancelled) {
+        return;
+      }
+      const current = feedCache.get(cacheKey);
+      if (current.status === "idle" || current.stale) {
+        void runFetch("replace", null);
+      } else if (active && current.pages.length > 0) {
+        startProbe(cacheKey);
+      }
+    })();
     return () => {
+      cancelled = true;
       if (activeKeyRef.current === cacheKey) {
         activeKeyRef.current = null;
       }
@@ -278,11 +335,15 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     };
     // Runs on mount/tab-switch/enable; runFetch is stable per cacheKey.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional mount-fill keyed by cacheKey via runFetch identity
-  }, [cacheKey, enabled, runFetch, stopProbe, startProbe]);
+  }, [active, cacheKey, enabled, runFetch, stopProbe, startProbe]);
 
   const fetchNext = useCallback(() => {
     const current = feedCache.get(cacheKey);
-    if (!enabled || current.status === "loading-more" || !current.hasMore) {
+    if (
+      !enabled ||
+      (current.status !== "success" && current.status !== "error") ||
+      !current.hasMore
+    ) {
       return;
     }
     if (current.pages.length === 0) {
@@ -296,29 +357,18 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     if (!enabled) {
       return;
     }
+    stopProbe();
+    setIncomingIds(new Set());
+    setNewItems([]);
     feedCache.invalidate(cacheKey);
     void runFetch("replace", null);
-  }, [cacheKey, enabled, runFetch]);
+  }, [cacheKey, enabled, runFetch, stopProbe]);
 
   const clearNewItems = useCallback(() => {
     setNewItems([]);
   }, []);
 
-  const showNewPosts = useCallback(() => {
-    setNewItems((current) => {
-      if (current.length > 0) {
-        const entryNow = feedCache.get(cacheKey);
-        const { added, pages: nextPages } = prependPosts(
-          entryNow.pages,
-          current
-        );
-        if (added) {
-          feedCache.patch(cacheKey, { pages: nextPages });
-        }
-      }
-      return [];
-    });
-  }, [cacheKey]);
+  const showNewPosts = clearNewItems;
 
   const dismissPost = useCallback(
     (postId: string) => {
@@ -365,6 +415,7 @@ export function useFeedTab({ enabled, userId, variant }: UseFeedTabOptions): {
     error,
     fetchNext,
     hasMore,
+    incomingIds,
     newItems,
     posts,
     refresh,

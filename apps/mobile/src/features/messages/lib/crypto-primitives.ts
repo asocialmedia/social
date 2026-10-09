@@ -1,19 +1,10 @@
 // WebCrypto-equivalent primitives for the mobile messages crypto, backed by
 // @noble/* instead of `crypto.subtle`.
 //
-// Why not `crypto.subtle`: Hermes has never shipped it and the RN/Hermes team
-// has declined to (hermes#1003 covers even `crypto.getRandomValues`). Expo's
-// own `expo-standard-web-crypto` polyfills *only* `getRandomValues`. Every
-// fuller option (react-native-quick-crypto, @peculiar/webcrypto,
-// react-native-aes-crypto) needs a native rebuild and therefore cannot run in
-// Expo Go, which this feature must support.
-//
-// noble is pure JS, so it works identically in Hermes and in Expo Go. The cost
-// is that it cannot be constant-time (JIT + GC), which is a fact about every
-// JS crypto library, not about this choice. That is acceptable here: the
-// messages threat model is already server-recoverable rather than end-to-end
-// (see AGENTS.md and the header of crypto.ts), so it is defending against a
-// network attacker and against anyone who is not the database operator.
+// Hermes lacks crypto.subtle. These primitives remain compatible with Expo Go;
+// production identity PBKDF2 uses the optional app-local native background module,
+// while the fallback yields between rounds. The wire format stays identical.
+// Messages deliberately use server-recoverable encryption (see AGENTS.md).
 //
 // WIRE FORMAT IS IDENTICAL TO WEB. Every derivation below was checked against
 // the WebCrypto implementation apps/web uses, byte for byte, in
@@ -23,7 +14,7 @@
 import { gcm } from "@noble/ciphers/aes.js";
 import { p256 } from "@noble/curves/nist.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
-import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
+import { pbkdf2, pbkdf2Async } from "@noble/hashes/pbkdf2.js";
 // Aliased: this module exports its own `sha256` wrapper, and a local `function
 // sha256` declaration would shadow the import for the whole module — including
 // inside the wrapper, which would hand noble its own function back and trip its
@@ -266,6 +257,21 @@ export function pbkdf2Sha256(
     c: iterations,
     dkLen: length,
   }) as AesGcmKey;
+}
+
+// Expo Go and web fall back to short host-task slices, which process touches
+// and timers between rounds instead of starving the event loop with microtasks.
+export async function pbkdf2Sha256Async(
+  secret: Uint8Array,
+  salt: Uint8Array,
+  iterations: number,
+  length = AES_GCM_KEY_BYTES
+): Promise<AesGcmKey> {
+  return (await pbkdf2Async(nobleSha256, secret, salt, {
+    asyncTick: 8,
+    c: iterations,
+    dkLen: length,
+  })) as AesGcmKey;
 }
 
 export function hkdfSha256(

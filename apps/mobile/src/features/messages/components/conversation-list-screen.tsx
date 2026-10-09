@@ -24,19 +24,22 @@ import {
   formatListTimestamp,
 } from "@/features/messages/lib/message-grouping";
 import {
+  conversationListStore,
   loadPresence,
   startPresenceHeartbeat,
 } from "@/features/messages/state/conversation-list-store";
 import type { ConversationRowView } from "@/features/messages/state/conversation-list-store";
-import {
-  useConversationList,
-  useUnreadMessageCount,
-} from "@/features/messages/state/use-messages-data";
+import { useMessagesIdentity } from "@/features/messages/state/message-identity";
+import { useConversationList } from "@/features/messages/state/use-messages-data";
+import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
+import { MessagePeoplePanel } from "./message-people-panel";
 import { MutedGlyph, PressableRow } from "./messages-primitives";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
@@ -49,17 +52,19 @@ export function ConversationListScreen({
   onOpen: (conversationId: string) => void;
 }) {
   const { theme } = useAppTheme();
+  const [searchOpen, setSearchOpen] = useState(false);
   const { user } = useSessionContext();
   const userId = user?.id ?? null;
   const list = useConversationList();
-  const unreadCount = useUnreadMessageCount();
+  const foreground = useMessagesForeground();
+  const unreadCount = useUnreadNotificationCount(userId, foreground);
   const [presence, setPresence] = useState<PresenceUser[]>([]);
   const stopHeartbeatRef = useRef<(() => void) | null>(null);
 
   // Presence keeps the reader's online rail honest. The heartbeat is refcounted, so
   // the list, the thread header and the nav rail share one POST.
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !foreground) {
       return;
     }
     let cancelled = false;
@@ -84,6 +89,9 @@ export function ConversationListScreen({
     // here would race the one inside `refresh`.
     void (async () => {
       const cookie = await authClient.getCookie();
+      if (cancelled) {
+        return;
+      }
       stopHeartbeatRef.current = startPresenceHeartbeat({
         apiBase: getApiBaseUrl(),
         cookie: cookie ?? undefined,
@@ -98,7 +106,7 @@ export function ConversationListScreen({
       stopHeartbeatRef.current?.();
       stopHeartbeatRef.current = null;
     };
-  }, [userId]);
+  }, [foreground, userId]);
 
   const presenceById = useMemo(
     () => new Map(presence.map((entry) => [entry.id, entry.status])),
@@ -146,6 +154,12 @@ export function ConversationListScreen({
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
+        onSearchPress={() => {
+          haptic();
+          setSearchOpen((open) => !open);
+        }}
+        searchLabel="Search people"
+        searchOpen={searchOpen}
         unreadCount={unreadCount}
         user={
           user
@@ -157,26 +171,53 @@ export function ConversationListScreen({
             : null
         }
       />
-      {list.loading && list.rows.length === 0 ? (
-        <ConversationListSkeleton />
-      ) : (
-        <FlatList
-          contentContainerStyle={styles.listContent}
-          data={list.rows}
-          keyExtractor={(row) => row.conversation.id}
-          refreshControl={
-            <RefreshControl
-              onRefresh={handleRefresh}
-              refreshing={list.refreshing}
-              tintColor={theme.dividerText}
+      <View style={{ flex: 1 }}>
+        {searchOpen ? (
+          <View
+            style={{
+              left: 8,
+              position: "absolute",
+              right: 8,
+              top: 8,
+              zIndex: 10,
+            }}
+          >
+            <MessagePeoplePanel
+              mode="search"
+              onClose={() => setSearchOpen(false)}
             />
-          }
-          renderItem={renderRow}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          {...LIST_VIRTUALIZATION_PROPS}
-        />
-      )}
-      <MobileBottomNav unreadCount={unreadCount} />
+          </View>
+        ) : null}
+        {list.error ? (
+          <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
+            <Text
+              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
+            >
+              Couldn't update Messages. Tap to retry.
+            </Text>
+          </PressableRow>
+        ) : null}
+        {list.loading && list.rows.length === 0 ? (
+          <ConversationListSkeleton />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.listContent}
+            data={list.rows}
+            keyExtractor={(row) => row.conversation.id}
+            refreshControl={
+              <RefreshControl
+                onRefresh={handleRefresh}
+                refreshing={list.refreshing}
+                tintColor={theme.dividerText}
+              />
+            }
+            renderItem={renderRow}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            {...LIST_VIRTUALIZATION_PROPS}
+          />
+        )}
+      </View>
+      <MobileBottomNav />
     </View>
   );
 }
@@ -221,7 +262,7 @@ function ConversationRow({
     <PressableRow onPress={onPress} style={styles.row}>
       <View style={styles.avatarWrap}>
         <UserAvatar
-          size={48}
+          size={40}
           url={row.avatarUrl}
           userId={row.peerId}
           username={row.peerUsername}
@@ -289,37 +330,28 @@ function ConversationRow({
 // Keeps the decryptor subscribed for the visible rows' last messages, and pushes
 // each decrypted payload back into the row's preview.
 function useDecryptPreviews(items: DecryptItem[]) {
+  const { getBaseKeys, status } = useMessagesIdentity();
   useEffect(() => {
-    if (items.length > 0) {
-      messageDecryptor.request(items, {
-        getBaseKeys: (conversationId) => keyStoreFor(conversationId),
-      });
+    if (status !== "ready") {
+      return;
     }
-  }, [items]);
-}
-
-// Resolves a conversation's root keys through the shared key store. The store is
-// created by the thread; until it exists there is nothing to unwrap with, and the
-// decryptor treats that as a retryable "not available yet" rather than an error.
-let rootKeyResolver:
-  | ((conversationId: string) => Promise<Uint8Array[]>)
-  | null = null;
-
-export function setRootKeyResolver(
-  resolver: (conversationId: string) => Promise<Uint8Array[]>
-): void {
-  rootKeyResolver = resolver;
-}
-
-async function keyStoreFor(conversationId: string): Promise<Uint8Array[]> {
-  if (!rootKeyResolver) {
-    return [];
-  }
-  try {
-    return await rootKeyResolver(conversationId);
-  } catch {
-    return [];
-  }
+    const apply = () => {
+      const payloads = new Map(
+        items.map((item) => {
+          const entry = messageDecryptor.get(item.message.id);
+          return [
+            item.message.id,
+            typeof entry === "object" ? entry : undefined,
+          ] as const;
+        })
+      );
+      conversationListStore.applyPreview(payloads);
+    };
+    const unsubscribe = messageDecryptor.subscribe(apply);
+    messageDecryptor.request(items, { getBaseKeys });
+    apply();
+    return unsubscribe;
+  }, [getBaseKeys, items, status]);
 }
 
 function ConversationListSkeleton() {
@@ -356,8 +388,8 @@ function ConversationListSkeleton() {
 
 const styles = StyleSheet.create({
   avatarWrap: {
-    height: 48,
-    width: 48,
+    height: 40,
+    width: 40,
   },
   listContent: {
     paddingBottom: 120,
@@ -380,8 +412,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   rowBody: {
     flex: 1,
@@ -420,8 +452,8 @@ const styles = StyleSheet.create({
   },
   skeletonAvatar: {
     borderRadius: 14,
-    height: 48,
-    width: 48,
+    height: 40,
+    width: 40,
   },
   skeletonBody: {
     flex: 1,

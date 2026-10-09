@@ -37,35 +37,40 @@ function secureTabStorage(): StateStorage {
 
 export const useTabStore = createTabMemoryStore(secureTabStorage());
 
-// Reactive hydration flag. Hydration is manual (skipHydration in the factory)
-// so the first paint agrees on defaults and the remembered tab applies after
-// mount instead of flashing in. Degrades to "not ready" where persist is
-// missing.
+let hydration: Promise<void> | undefined;
+let hydrationSettled = false;
+export function hydrateHomeTabMemory(): Promise<void> {
+  hydration ??= (async () => {
+    try {
+      await useTabStore.persist?.rehydrate();
+    } catch {
+      // Corrupt or unavailable storage falls back to the default tab.
+    }
+    hydrationSettled = true;
+  })();
+  return hydration;
+}
+
+// Subscribers share the same launch read, including the startup coordinator.
 export function useHomeTabMemoryReady(): boolean {
   const [ready, setReady] = useState(
-    () => useTabStore.persist?.hasHydrated() ?? false
+    () => hydrationSettled || (useTabStore.persist?.hasHydrated() ?? false)
   );
-
   useEffect(() => {
-    const persistApi = useTabStore.persist;
-    if (!persistApi) {
-      return;
-    }
-    if (persistApi.hasHydrated()) {
-      // oxlint-disable-next-line react/set-state-in-effect -- adopting the rehydrated tab memory must happen after mount; the stored tab cannot be derived during render
-      setReady(true);
-      return;
-    }
-    const unsubHydrate = persistApi.onHydrate(() => setReady(false));
-    const unsubFinish = persistApi.onFinishHydration(() => setReady(true));
-    void persistApi.rehydrate();
-    // oxlint-disable-next-line react/set-state-in-effect -- sync the flag for storages that rehydrate synchronously
-    setReady(persistApi.hasHydrated());
+    let cancelled = false;
+    const unsubscribe = useTabStore.persist?.onFinishHydration(() =>
+      setReady(true)
+    );
+    void (async () => {
+      await hydrateHomeTabMemory();
+      if (!cancelled) {
+        setReady(true);
+      }
+    })();
     return () => {
-      unsubHydrate();
-      unsubFinish();
+      cancelled = true;
+      unsubscribe?.();
     };
   }, []);
-
   return ready;
 }

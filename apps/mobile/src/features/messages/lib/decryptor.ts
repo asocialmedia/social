@@ -60,6 +60,7 @@ export interface DecryptorOptions {
   concurrency?: number;
   decrypt?: DecryptImpl;
   scheduleFlush?: (flush: () => void) => void;
+  scheduleWork?: (work: () => void) => void;
 }
 
 const DEFAULT_CONCURRENCY = 4;
@@ -90,12 +91,12 @@ function isMediaEntry(entry: DecryptEntry): boolean {
 }
 
 export interface MessageDecryptor {
-  clearErrors: () => void;
+  clearErrors: (conversationId?: string) => void;
   // Drops the cached per-conversation base keys so the next request re-resolves
   // them. Called when the identity changes (an identity reset), where retaining
   // the previous epoch's roots would keep decrypting with keys the new identity is
   // not meant to use.
-  clearKeys: () => void;
+  clearKeys: (conversationId?: string) => void;
   configureScope: (scopeKey: string) => void;
   get: (id: string) => DecryptEntry | undefined;
   // Ids whose last attempt failed in `conversationId`. The thread watches these to
@@ -128,6 +129,9 @@ export function createDecryptor(
       queueMicrotask(flush);
     });
 
+  const scheduleWork = options.scheduleWork ?? ((work: () => void) => work());
+  let pumpScheduled = false;
+
   let scopeKey: string | null = null;
   let generation = 0;
   const entries = new Map<string, DecryptEntry>();
@@ -148,7 +152,7 @@ export function createDecryptor(
   let active = 0;
   let version = 0;
   let flushScheduled = false;
-  let lastKeys: DecryptorKeySource | null = null;
+  const keySources = new Map<string, DecryptorKeySource>();
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -234,9 +238,6 @@ export function createDecryptor(
   }
 
   function pump(): void {
-    if (!lastKeys) {
-      return;
-    }
     while (active < concurrency) {
       const item =
         urgentQueue.length > 0
@@ -258,6 +259,21 @@ export function createDecryptor(
     }
   }
 
+  function continueWork(): void {
+    if (pumpScheduled) {
+      return;
+    }
+    pumpScheduled = true;
+    const scheduledGeneration = generation;
+    scheduleWork(() => {
+      if (scheduledGeneration !== generation) {
+        return;
+      }
+      pumpScheduled = false;
+      pump();
+    });
+  }
+
   // Claims a batch as pending and enqueues it in the background lane.
   function enqueue(items: DecryptItem[]): boolean {
     let marked = false;
@@ -267,6 +283,7 @@ export function createDecryptor(
         continue;
       }
       entries.set(id, "pending");
+      conversationById.set(id, item.conversationId);
       queued.add(id);
       queue.push(item);
       marked = true;
@@ -298,7 +315,7 @@ export function createDecryptor(
       active -= 1;
       evictIfNeeded();
       scheduleNotify();
-      pump();
+      continueWork();
       return;
     }
     entries.set(id, payload ?? "error");
@@ -313,7 +330,7 @@ export function createDecryptor(
     active -= 1;
     evictIfNeeded();
     scheduleNotify();
-    pump();
+    continueWork();
   }
 
   // Resolves the conversation's cached candidate base keys, then decrypts with the
@@ -322,12 +339,13 @@ export function createDecryptor(
   async function resolvePayload(
     item: DecryptItem
   ): Promise<MessagePayload | null> {
-    if (!lastKeys) {
+    const source = keySources.get(item.conversationId);
+    if (!source) {
       return null;
     }
     let candidates = baseKeys.get(item.conversationId);
     if (!candidates) {
-      candidates = lastKeys.getBaseKeys(item.conversationId);
+      candidates = source.getBaseKeys(item.conversationId);
       baseKeys.set(item.conversationId, candidates);
       // Neither a rejected unwrap nor an empty list may poison the cache forever.
       // Empty means the keys are not available *yet* (identity still
@@ -371,10 +389,13 @@ export function createDecryptor(
   }
 
   return {
-    clearErrors(): void {
+    clearErrors(conversationId): void {
       let cleared = false;
       for (const [id, entry] of entries) {
-        if (entry === "error") {
+        if (
+          entry === "error" &&
+          (!conversationId || conversationById.get(id) === conversationId)
+        ) {
           entries.delete(id);
           clearErrored(id);
           cleared = true;
@@ -385,8 +406,17 @@ export function createDecryptor(
       }
     },
 
-    clearKeys(): void {
-      baseKeys.clear();
+    clearKeys(conversationId): void {
+      for (const id of inFlight) {
+        if (!conversationId || conversationById.get(id) === conversationId) {
+          staleInFlight.add(id);
+        }
+      }
+      if (conversationId) {
+        baseKeys.delete(conversationId);
+      } else {
+        baseKeys.clear();
+      }
     },
 
     configureScope(key: string): void {
@@ -395,6 +425,7 @@ export function createDecryptor(
       }
       scopeKey = key;
       generation += 1;
+      pumpScheduled = false;
       entries.clear();
       erroredByConversation.clear();
       conversationById.clear();
@@ -402,6 +433,7 @@ export function createDecryptor(
       queue.length = 0;
       urgentQueue.length = 0;
       baseKeys.clear();
+      keySources.clear();
       // Runs still in flight belong to the old generation; their completions are
       // dropped by the generation guard in run(). Clearing the bookkeeping here
       // lets the new scope start at full concurrency immediately.
@@ -440,15 +472,19 @@ export function createDecryptor(
     },
 
     request(items: DecryptItem[], keys: DecryptorKeySource): void {
-      lastKeys = keys;
+      for (const item of items) {
+        keySources.set(item.conversationId, keys);
+      }
       if (enqueue(items)) {
         notify();
+        pump();
       }
-      pump();
     },
 
     requestUrgent(items: DecryptItem[], keys: DecryptorKeySource): void {
-      lastKeys = keys;
+      for (const item of items) {
+        keySources.set(item.conversationId, keys);
+      }
       // Collected and unshifted as one batch so a multi-row urgent request keeps
       // the order it was asked in.
       const promoted: DecryptItem[] = [];
@@ -476,6 +512,7 @@ export function createDecryptor(
           continue;
         }
         entries.set(id, "pending");
+        conversationById.set(id, item.conversationId);
         queued.add(id);
         promoted.push(item);
       }
@@ -508,4 +545,9 @@ export function createDecryptor(
 
 // Session singleton used by message threads. Scoped by user id (plus the identity
 // generation) so a logout/login never serves another account's plaintext.
-export const messageDecryptor = createDecryptor();
+// Yield between small decrypt batches so long histories never monopolize Hermes.
+export const messageDecryptor = createDecryptor({
+  scheduleWork: (work) => {
+    setTimeout(work, 0);
+  },
+});

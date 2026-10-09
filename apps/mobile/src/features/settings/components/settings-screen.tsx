@@ -1,139 +1,209 @@
-// The settings screen: web's three tabs over one route.
+// The settings screen: web's three tabs (profile / account / security) over one
+// route. Web renders a desktop sidebar and keeps the active tab in `?tab=`;
+// native mirrors the mobile web layout: the top bar, the shared tab strip, the
+// mobile search row, then the active tab's scroll content and the bottom dock.
 //
-// Web renders a sidebar on desktop and keeps the active tab in `?tab=`; native
-// uses the same query param behind a tab strip, so a settings deep link lands on
-// the same section it would on the web.
+// The tab strip is the same `FeedTabs` every other tabbed page uses (so its
+// height matches), and the three tabs live inside a `FeedPager`, so a tab
+// change or a horizontal swipe swaps only the content. The route param is kept
+// in sync with `router.setParams`, which updates in place and never remounts
+// the screen, so switching tabs no longer refreshes the header, search or data.
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
+import type { ScrollView as ScrollViewType } from "react-native";
 
-import { FossBanner } from "@/components/misc/foss-banner";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { FeedPager } from "@/features/feed/components/feed-pager";
+import { FeedTabs } from "@/features/feed/components/feed-tabs";
+import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
+import { MobileHeader } from "@/features/home/components/mobile-header";
+import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
-import { MobileHeader } from "../../home/components/mobile-header";
-import { resolveSettingsTab } from "../lib/settings-tabs";
-import { accountFactsFrom } from "../lib/settings-view-model";
+import { fetchSecurityState } from "../lib/security-api";
+import { scrollToSection } from "../lib/settings-scroll";
+import { resolveSettingsTab, SETTINGS_TAB_DEFS } from "../lib/settings-tabs";
+import type { SettingsTab } from "../lib/settings-tabs";
+import {
+  accountFactsFrom,
+  withLinkedAccounts,
+} from "../lib/settings-view-model";
+import type { LinkedAccountInfo } from "../lib/settings-view-model";
 import { AccountTab } from "./account-tab";
+import { ProfileTab } from "./profile-tab";
 import { SecurityTab } from "./security-tab";
-import { SettingsTabBar } from "./settings-ui";
+import { SettingsSearch } from "./settings-search";
+import {
+  SettingsCardSkeleton,
+  SettingsHeaderSkeleton,
+} from "./settings-skeleton";
 
 export function SettingsScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
-  const params = useLocalSearchParams<{ tab?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    section?: string | string[];
+    tab?: string | string[];
+  }>();
   const { refresh, user } = useSessionContext();
   const tab = resolveSettingsTab(params.tab);
+  const activeIndex = Math.max(
+    0,
+    SETTINGS_TAB_DEFS.findIndex((def) => def.value === tab)
+  );
 
-  // The session user is the source of truth for these facts, so a username
-  // change, a new password or an unlinked provider all land here by
-  // revalidating the session rather than by fetching the user a second time.
-  const facts = useMemo(() => accountFactsFrom(user), [user]);
+  // One scroll ref per tab, so a section scroll targets the right ScrollView
+  // even while the other tabs stay mounted in the pager.
+  const scrollRefs = useMemo(
+    () => ({
+      account: { current: null as ScrollViewType | null },
+      profile: { current: null as ScrollViewType | null },
+      security: { current: null as ScrollViewType | null },
+    }),
+    []
+  );
+
+  // Session-derived facts are computed during render; the server-side security
+  // facts web's `settings/page.tsx` reads (verified TOTP row, linked accounts,
+  // password presence) are fetched and merged once.
+  const baseFacts = useMemo(() => accountFactsFrom(user), [user]);
+  const [linked, setLinked] = useState<LinkedAccountInfo | null>(null);
+  const [hasAuthenticatorApp, setHasAuthenticatorApp] = useState(false);
+  const [securityLoaded, setSecurityLoaded] = useState(false);
+  const facts = linked ? withLinkedAccounts(baseFacts, linked) : baseFacts;
+  const [accountsToken, setAccountsToken] = useState(0);
+
+  const section = Array.isArray(params.section)
+    ? params.section[0]
+    : params.section;
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const state = await fetchSecurityState({
+        apiBase: getApiBaseUrl(),
+        cookie: (await authClient.getCookie()) ?? "",
+      });
+      if (cancelled) {
+        return;
+      }
+      if (state) {
+        setLinked({
+          hasPassword: state.hasPassword,
+          linkedProviders: state.linkedProviders,
+        });
+        setHasAuthenticatorApp(state.hasAuthenticatorApp);
+      }
+      setSecurityLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- accountsToken re-reads after a link/unlink
+  }, [user, accountsToken]);
 
   const onChanged = useCallback(() => {
     void refresh();
+    setAccountsToken((token) => token + 1);
   }, [refresh]);
+
+  // `setParams` updates the current route in place: the screen, header and
+  // search never remount, only the pager's active page changes.
+  const goToTab = useCallback(
+    (next: SettingsTab, sectionId?: string) => {
+      router.setParams({ section: sectionId ?? "", tab: next });
+      if (sectionId) {
+        scrollToSection(sectionId, scrollRefs);
+      }
+    },
+    [router, scrollRefs]
+  );
+
+  const handleIndexChange = useCallback(
+    (index: number) => {
+      const def = SETTINGS_TAB_DEFS[index];
+      if (def && def.value !== tab) {
+        haptic();
+        router.setParams({ section: "", tab: def.value });
+      }
+    },
+    [router, tab]
+  );
+
+  // A deep link (or a search selection) carries a section; scroll once the tab
+  // that owns it has rendered. The retry loop inside scrollToSection handles
+  // the layout race.
+  useEffect(() => {
+    if (section) {
+      scrollToSection(section, scrollRefs);
+    }
+  }, [section, scrollRefs]);
+
+  const userForHeader = user
+    ? {
+        id: user.id,
+        image: user.image,
+        username: user.username ?? user.name,
+      }
+    : null;
+
+  const securityReady = securityLoaded || !user;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <MobileHeader
-        user={
-          user
-            ? {
-                id: user.id,
-                image: user.image,
-                username: user.username ?? user.name,
-              }
-            : null
-        }
-      />
-      <SettingsTabBar
-        active={tab}
-        onChange={(next) => {
-          router.replace({ params: { tab: next }, pathname: "/settings" });
-        }}
-      />
-      {tab === "profile" ? (
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+      <MobileHeader user={userForHeader} />
+      <View style={styles.chrome}>
+        <FeedTabs
+          active={tab}
+          onChange={(next) => goToTab(next)}
+          tabs={SETTINGS_TAB_DEFS}
+        />
+        <View
+          style={[styles.searchRow, { borderBottomColor: theme.cardBorder }]}
         >
-          <View style={styles.profileLead}>
-            <Text style={[styles.leadTitle, { color: theme.inputText }]}>
-              Profile
-            </Text>
-            <Text style={[styles.leadBody, { color: theme.dividerText }]}>
-              Your display name, bio, links, avatar and banner.
-            </Text>
-            <Pressable
-              accessibilityLabel="Edit profile"
-              accessibilityRole="button"
-              disabled={!user}
-              onPress={() => {
-                if (!user) {
-                  return;
-                }
-                router.push({
-                  params: { username: user.username ?? user.name ?? user.id },
-                  pathname: "/users/[username]",
-                });
-              }}
-              style={styles.leadAction}
-            >
-              <Text style={styles.leadActionText}>
-                {user ? "Edit profile" : "Sign in to edit your profile"}
-              </Text>
-            </Pressable>
-          </View>
-          <View
-            style={[
-              styles.legalCard,
-              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
-            ]}
-          >
-            <Text style={[styles.leadTitle, { color: theme.inputText }]}>
-              Legal
-            </Text>
-            <Text style={[styles.leadBody, { color: theme.dividerText }]}>
-              The Terms and Privacy Policy you accepted when you signed up.
-            </Text>
-            <Pressable
-              accessibilityLabel="Read the Terms and Conditions"
-              accessibilityRole="button"
-              onPress={() => {
-                router.push({
-                  params: { document: "terms" },
-                  pathname: "/legal/[document]",
-                });
-              }}
-              style={styles.legalLink}
-            >
-              <Text style={styles.leadActionText}>Terms &amp; Conditions</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Read the Privacy Policy"
-              accessibilityRole="button"
-              onPress={() => {
-                router.push({
-                  params: { document: "privacy" },
-                  pathname: "/legal/[document]",
-                });
-              }}
-              style={styles.legalLink}
-            >
-              <Text style={styles.leadActionText}>Privacy Policy</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      ) : null}
-      {tab === "account" ? (
-        <AccountTab facts={facts} onChanged={onChanged} />
-      ) : null}
-      {tab === "security" ? <SecurityTab /> : null}
-      <View style={styles.fossSlot}>
-        <FossBanner />
+          <SettingsSearch onNavigate={goToTab} />
+        </View>
       </View>
+
+      <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
+        <ProfileTab
+          onChanged={onChanged}
+          onNavigateToAccount={() => goToTab("account", "settings-username")}
+          scrollRef={scrollRefs.profile}
+          user={user}
+        />
+        <AccountTab
+          facts={facts}
+          onChanged={onChanged}
+          scrollRef={scrollRefs.account}
+        />
+        {securityReady ? (
+          <SecurityTab
+            email={facts.email}
+            emailVerified={facts.emailVerified}
+            hasAuthenticatorApp={hasAuthenticatorApp}
+            scrollRef={scrollRefs.security}
+            twoFactorEnabled={user?.twoFactorEnabled === true}
+          />
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.securitySkeleton}
+            showsVerticalScrollIndicator={false}
+          >
+            <SettingsHeaderSkeleton />
+            <SettingsCardSkeleton fields={2} />
+            <SettingsCardSkeleton fields={1} />
+          </ScrollView>
+        )}
+      </FeedPager>
+
+      <MobileBottomNav />
     </View>
   );
 }
@@ -141,24 +211,16 @@ export function SettingsScreen() {
 export default SettingsScreen;
 
 const styles = StyleSheet.create({
-  content: { gap: 14, padding: 16, paddingBottom: 40 },
-  fossSlot: { paddingHorizontal: 16, paddingTop: 8 },
-  leadAction: { paddingVertical: 6 },
-  leadActionText: {
-    color: "#ff9500",
-    fontFamily: "SofiaProMed",
-    fontSize: 14,
-  },
-  leadBody: { fontFamily: "SofiaProReg", fontSize: 13, lineHeight: 18 },
-  leadTitle: { fontFamily: "SofiaProBold", fontSize: 18 },
-  legalCard: {
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 6,
-    padding: 16,
-  },
-  legalLink: { paddingVertical: 4 },
-  profileLead: { gap: 6 },
+  chrome: { zIndex: 20 },
   root: { flex: 1 },
+  // Web's mobile search row: the same 16px horizontal gutter as the tab strip
+  // content and tab bodies, with a bottom hairline matching the strip above.
+  searchRow: {
+    borderBottomWidth: 1,
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    zIndex: 50,
+  },
+  securitySkeleton: { gap: 18, padding: 16, paddingBottom: 96 },
 });

@@ -7,6 +7,7 @@ import {
   isResumablePath,
   parseResumeState,
   serializeResumeState,
+  createLaunchResumeReader,
 } from "./app-resume";
 
 describe("isResumablePath", () => {
@@ -21,6 +22,27 @@ describe("isResumablePath", () => {
   });
   test("unknown route does not resume", () => {
     expect(isResumablePath("/messages")).toBe(false);
+  });
+});
+
+describe("launch resume ordering", () => {
+  test("startup readers share the previous route even after a new route is saved", async () => {
+    let route = { pathname: "/posts/real-post", updatedAt: 1000 };
+    let reads = 0;
+    const readLaunch = createLaunchResumeReader(() => {
+      reads += 1;
+      return Promise.resolve(route);
+    });
+    const saverRead = readLaunch();
+    const gateRead = readLaunch();
+    expect(saverRead).toBe(gateRead);
+    await saverRead;
+    route = { pathname: "/", updatedAt: 2000 };
+    const gateRoute = await gateRead;
+    expect(gateRoute?.pathname).toBe("/posts/real-post");
+    const restored = await readLaunch();
+    expect(restored?.pathname).toBe("/posts/real-post");
+    expect(reads).toBe(1);
   });
 });
 

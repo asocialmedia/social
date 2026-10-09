@@ -51,6 +51,7 @@ import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
+import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -62,6 +63,7 @@ import {
   fetchRelatedPosts,
   recordPostVisit,
 } from "../lib/post-api";
+import { postDetailCache, postDetailKey } from "../lib/post-cache";
 import { PostDetailCard } from "./post-detail-card";
 import { PostDetailSkeleton } from "./post-detail-skeleton";
 
@@ -79,9 +81,22 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   const viewerId = user?.id;
   const showGuestBar = !isPending && !user;
 
-  const [status, setStatus] = useState<DetailStatus>("loading");
-  const [post, setPost] = useState<FeedPost | null>(null);
-  const [ancestors, setAncestors] = useState<FeedPost[]>([]);
+  const cacheKey = postDetailKey(postId, viewerId, getApiBaseUrl());
+  if (!postDetailCache.read(cacheKey)) {
+    const preview = findCachedFeedPost(postId, viewerId);
+    if (preview) {
+      postDetailCache.seed(cacheKey, preview);
+    }
+  }
+  const [status, setStatus] = useState<DetailStatus>(() =>
+    postDetailCache.read(cacheKey) ? "ready" : "loading"
+  );
+  const [post, setPost] = useState<FeedPost | null>(
+    () => postDetailCache.read(cacheKey)?.post ?? null
+  );
+  const [ancestors, setAncestors] = useState<FeedPost[]>(
+    () => postDetailCache.read(cacheKey)?.ancestors ?? []
+  );
   const [related, setRelated] = useState<FeedPost[]>([]);
   const [ancestorsExpanded, setAncestorsExpanded] = useState(false);
   const [showEddies, setShowEddies] = useState(true);
@@ -180,8 +195,15 @@ export function PostDetailScreen({ postId }: { postId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    // oxlint-disable-next-line react/set-state-in-effect -- detail reload enters loading here; steady state is fetch-driven
-    setStatus("loading");
+    const cached = postDetailCache.read(cacheKey);
+    // oxlint-disable-next-line react/set-state-in-effect -- route/session changes restore their own cached status
+    setStatus(cached ? "ready" : "loading");
+    // oxlint-disable-next-line react/set-state-in-effect -- clear account-scoped data on route/session changes
+    setPost(cached?.post ?? null);
+    // oxlint-disable-next-line react/set-state-in-effect -- cached ancestors paint with the cached post
+    setAncestors(cached?.ancestors ?? []);
+    // oxlint-disable-next-line react/set-state-in-effect -- related rows belong to the previous route/account
+    setRelated([]);
     // oxlint-disable-next-line react/set-state-in-effect -- a new post resets the collapsed thread; steady state is user-driven
     setAncestorsExpanded(false);
     // oxlint-disable-next-line react/set-state-in-effect -- a new post re-opens eddies; steady state is user-driven
@@ -190,7 +212,9 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       try {
         const apiBase = getApiBaseUrl();
         const cookie = await authClient.getCookie();
-        const detail = await fetchPostDetail(postId, { apiBase, cookie });
+        const detail = await postDetailCache.load(cacheKey, () =>
+          fetchPostDetail(postId, { apiBase, cookie })
+        );
         if (cancelled) {
           return;
         }
@@ -227,7 +251,9 @@ export function PostDetailScreen({ postId }: { postId: string }) {
           error && typeof error === "object" && "status" in error
             ? Number((error as { status: unknown }).status)
             : 0;
-        if (code === 404) {
+        if (code === 404 || code === 401 || code === 403) {
+          setPost(null);
+          setAncestors([]);
           setStatus("not-found");
         } else {
           setStatus("error");
@@ -243,7 +269,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     // postId + viewer identity key the load; viewerId is read for visit
     // gating only (a guest-to-user upgrade refetches with identity).
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional detail load keyed by post
-  }, [postId, viewerId]);
+  }, [cacheKey, postId, viewerId]);
 
   // Restore the exact scroll position when returning from the fullscreen
   // media viewer, instead of landing back at the top.

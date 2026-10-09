@@ -99,7 +99,9 @@ export function normalizePostData<T extends PostData>(post: T): T {
   ensureArray("mentions", [] as unknown as T[keyof T]);
 
   // _count is structurally required by the feed; patch a minimal shape so
-  // stale serialized pages don't throw on `post._count.comments`.
+  // stale serialized pages don't throw on `post._count.comments`. The shape
+  // mirrors `PostData._count` (bookmarks, comments, responses, vote) so the
+  // repair pass in cache-sync.ts sees a converged record and stops re-firing.
   const count = (rawPost as Record<string, unknown>)._count as
     | Record<string, unknown>
     | undefined;
@@ -109,17 +111,20 @@ export function normalizePostData<T extends PostData>(post: T): T {
       mutated = true;
     }
     (next as Record<string, unknown>)._count = {
+      bookmarks: 0,
       comments: 0,
-      mentions: 0,
+      responses: 0,
       vote: 0,
     };
   } else {
+    const bookmarks = typeof count.bookmarks === "number" ? count.bookmarks : 0;
     const comments = typeof count.comments === "number" ? count.comments : 0;
-    const mentions = typeof count.mentions === "number" ? count.mentions : 0;
+    const responses = typeof count.responses === "number" ? count.responses : 0;
     const vote = typeof count.vote === "number" ? count.vote : 0;
     if (
+      count.bookmarks !== bookmarks ||
       count.comments !== comments ||
-      count.mentions !== mentions ||
+      count.responses !== responses ||
       count.vote !== vote
     ) {
       if (!mutated) {
@@ -128,8 +133,9 @@ export function normalizePostData<T extends PostData>(post: T): T {
       }
       (next as Record<string, unknown>)._count = {
         ...count,
+        bookmarks,
         comments,
-        mentions,
+        responses,
         vote,
       };
     }
@@ -169,8 +175,9 @@ export function isStalePost(record: Record<string, unknown>): boolean {
     !record._count ||
     typeof record._count !== "object" ||
     Array.isArray(record._count) ||
+    typeof (record._count as Record<string, unknown>).bookmarks !== "number" ||
     typeof (record._count as Record<string, unknown>).comments !== "number" ||
-    typeof (record._count as Record<string, unknown>).mentions !== "number" ||
+    typeof (record._count as Record<string, unknown>).responses !== "number" ||
     typeof (record._count as Record<string, unknown>).vote !== "number"
   );
 }

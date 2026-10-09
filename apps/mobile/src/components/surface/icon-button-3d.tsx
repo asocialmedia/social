@@ -5,6 +5,7 @@
 import type { ComponentType } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
+import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
 import { Gradient3D } from "./gradient-3d";
@@ -33,7 +34,10 @@ export function IconButton3D({
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       hitSlop={6}
-      onPress={onPress}
+      onPress={() => {
+        haptic();
+        onPress();
+      }}
     >
       {({ pressed }) => (
         <View

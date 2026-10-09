@@ -40,6 +40,7 @@ import { useInstall } from "@/features/auth/state/install";
 import { engagementStore } from "@/features/feed/lib/engagement-store";
 import { feedCache } from "@/features/feed/state/feed-store";
 import { sleep } from "@/features/media-upload/lib/retry";
+import { clearMessageSession } from "@/features/messages/state/clear-message-session";
 import { unregisterPushNotifications } from "@/features/notifications/lib/push";
 import { supportsPasskeyOrigin } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -48,9 +49,11 @@ import { logError, logInfo, logWarn } from "@/lib/telemetry";
 
 export interface SessionUser {
   email: string;
+  emailVerified?: boolean;
   id: string;
   image?: string | null;
   name: string;
+  twoFactorEnabled?: boolean;
   username?: string | null;
 }
 
@@ -388,6 +391,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // viewer's highlights.
       engagementStore.clear();
       feedCache.clear();
+      clearMessageSession();
       if (options?.reason) {
         router.replace(
           `/(auth)/login?reason=${encodeURIComponent(options.reason)}`

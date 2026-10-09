@@ -1,18 +1,24 @@
 import { Stack } from "expo-router";
 import { Platform } from "react-native";
 
+import { useStartupPresented } from "@/lib/startup-context";
+
 export default function PostsLayout() {
+  const presented = useStartupPresented();
+  const navigationAnimation =
+    Platform.OS === "ios" ? "default" : "slide_from_right";
+  const animation = presented ? navigationAnimation : "none";
   return (
     <Stack
       screenOptions={{
-        animation: Platform.OS === "ios" ? "default" : "slide_from_right",
+        animation,
         headerShown: false,
       }}
     >
       <Stack.Screen
         name="[postId]/index"
         options={{
-          animation: Platform.OS === "ios" ? "default" : "slide_from_right",
+          animation,
         }}
       />
       <Stack.Screen

@@ -9,20 +9,35 @@ import type { NotificationTarget } from "@asm/notifications/shared";
 // so the header and the bottom dock update in the same tick.
 import { Image } from "expo-image";
 import { Redirect, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import type {
+  GestureResponderEvent,
+  PanResponderGestureState,
+} from "react-native";
 import {
   Animated,
   FlatList,
+  Linking,
+  AppState,
   Pressable,
   StyleSheet,
   Text,
   View,
+  PanResponder,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
 import noNotificationsImage from "@/assets/images/noNotifications.png";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import {
@@ -47,11 +62,16 @@ import type {
   NotificationTab,
 } from "../lib/notifications-api";
 import {
-  dismissNotifications,
   fetchNotificationsPage,
   groupFetchedNotifications,
 } from "../lib/notifications-api";
-import { getPushSetupStatus, pushSetupCopy } from "../lib/push-setup";
+import { registerForPushNotifications } from "../lib/push";
+import {
+  getPushSetupStatus,
+  pushSetupCopy,
+  readPushSetupStatus,
+  subscribePushSetupStatus,
+} from "../lib/push-setup";
 import type { PushSetupStatus } from "../lib/push-setup";
 import { NotificationRow } from "./notification-row";
 import { NotificationsSkeleton } from "./notifications-skeleton";
@@ -91,24 +111,35 @@ export function NotificationsScreen() {
     mentions: emptyTab(),
   });
   const inflight = useRef<NotificationTab | null>(null);
-  // Ids dismissed this session, so an in-flight page cannot resurrect a row.
-  const dismissedIds = useRef(new Set<string>());
   const unread = useUnreadNotificationCount(viewerId, showUser);
   const insets = useSafeAreaInsets();
   const [dockHeight, setDockHeight] = useState(56);
-  // Push diagnostics banner: names why device push is off (Expo Go, emulator,
-  // no Firebase, permission) instead of failing silently.
-  const [pushStatus, setPushStatus] = useState<PushSetupStatus | null>(null);
+  const { runWithInstallToken } = useInstall();
+  const registrationStatus = useSyncExternalStore(
+    subscribePushSetupStatus,
+    readPushSetupStatus,
+    readPushSetupStatus
+  );
+  const [devicePushStatus, setDevicePushStatus] =
+    useState<PushSetupStatus | null>(null);
+  const pushStatus = registrationStatus ?? devicePushStatus;
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
+    let active = true;
+    const update = async () => {
       const status = await getPushSetupStatus();
-      if (!cancelled && status.reason !== "ready") {
-        setPushStatus(status);
+      if (active) {
+        setDevicePushStatus(status);
       }
-    })();
+    };
+    void update();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void update();
+      }
+    });
     return () => {
-      cancelled = true;
+      active = false;
+      subscription.remove();
     };
   }, []);
 
@@ -141,10 +172,7 @@ export function NotificationsScreen() {
           mode === "append" ? current.cursor : null,
           { apiBase, cookie }
         );
-        // Rows dismissed while this page was in flight must not reappear.
-        const grouped = groupFetchedNotifications(page.notifications).filter(
-          (item) => !dismissedIds.current.has(item.id)
-        );
+        const grouped = groupFetchedNotifications(page.notifications);
         updateTab(tab, {
           cursor: page.nextCursor,
           hasMore: page.nextCursor !== null,
@@ -193,38 +221,6 @@ export function NotificationsScreen() {
     }
   }, [showUser]);
 
-  const handleDismiss = useCallback(
-    async (notification: GroupedNotificationItem) => {
-      const ids =
-        notification.allNotificationIds.length > 0
-          ? notification.allNotificationIds
-          : [notification.id];
-      for (const id of ids) {
-        dismissedIds.current.add(id);
-      }
-      setTabs((current) => ({
-        ...current,
-        [activeTab]: {
-          ...current[activeTab],
-          items: current[activeTab].items.filter(
-            (item) => item.id !== notification.id
-          ),
-        },
-      }));
-      try {
-        const apiBase = getApiBaseUrl();
-        const cookie = await authClient.getCookie();
-        await dismissNotifications(ids, { apiBase, cookie });
-        void unreadCountStore.refresh();
-      } catch (error) {
-        logWarn("notifications.dismiss_failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-    },
-    [activeTab]
-  );
-
   const handleOpen = useCallback(
     (target: NotificationTarget) => {
       // Community and user targets have no native screen yet, so they resolve
@@ -238,6 +234,38 @@ export function NotificationsScreen() {
   );
 
   const active = tabs[activeTab];
+
+  const handleSwipe = useCallback(
+    (direction: "left" | "right") => {
+      if (direction === "left" && activeTab === "all") {
+        setActiveTab("mentions");
+      } else if (direction === "right" && activeTab === "mentions") {
+        setActiveTab("all");
+      }
+    },
+    [activeTab]
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (
+          _: GestureResponderEvent,
+          gestureState: PanResponderGestureState
+        ) =>
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
+          Math.abs(gestureState.dx) > 10,
+        onPanResponderRelease: (
+          _: GestureResponderEvent,
+          gestureState: PanResponderGestureState
+        ) => {
+          if (Math.abs(gestureState.dx) > 50) {
+            handleSwipe(gestureState.dx > 0 ? "right" : "left");
+          }
+        },
+      }),
+    [handleSwipe]
+  );
 
   const handleEndReached = useCallback(() => {
     if (active.hasMore && active.status === "success") {
@@ -337,7 +365,6 @@ export function NotificationsScreen() {
         <View style={styles.tabs}>
           <FeedTabs
             active={activeTab}
-            fill
             onChange={(tab) => setActiveTab(tab)}
             tabs={TAB_DEFS}
           />
@@ -355,10 +382,28 @@ export function NotificationsScreen() {
             <Text style={[styles.pushBody, { color: theme.dividerText }]}>
               {pushSetupCopy(pushStatus).body}
             </Text>
+            {pushSetupCopy(pushStatus).action &&
+            pushStatus.reason !== "expo-go" ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (pushStatus.reason === "permission-denied") {
+                    void Linking.openSettings();
+                  } else {
+                    void registerForPushNotifications(runWithInstallToken);
+                  }
+                }}
+              >
+                <Text style={{ color: theme.auxLink, paddingVertical: 8 }}>
+                  {pushSetupCopy(pushStatus).action}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
         <FlatList
           {...LIST_VIRTUALIZATION_PROPS}
+          {...panResponder.panHandlers}
           // flexGrow lets the empty/loading/error slot centre vertically instead
           // of collapsing to the top; harmless once rows exist.
           contentContainerStyle={{
@@ -384,11 +429,7 @@ export function NotificationsScreen() {
                   : undefined
               }
             >
-              <NotificationRow
-                notification={item}
-                onDismiss={handleDismiss}
-                onOpen={handleOpen}
-              />
+              <NotificationRow notification={item} onOpen={handleOpen} />
             </View>
           )}
           scrollEventThrottle={16}

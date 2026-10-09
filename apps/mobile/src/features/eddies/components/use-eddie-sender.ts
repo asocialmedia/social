@@ -23,6 +23,7 @@ import {
   useScopeAttachments,
 } from "@/features/media-upload/state/attachment-store";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
+import { haptic } from "@/lib/haptics";
 
 import { emitEddieCreated } from "../lib/eddie-events";
 import {
@@ -75,6 +76,7 @@ export function useEddieSender(postId: string, parentId?: string | null) {
     try {
       addPicked(await pickPhotosAndVideos({ imagesOnly: true, remaining: 1 }));
     } catch {
+      haptic("error");
       toast({
         description: "Couldn't open your photos, check app permissions?",
         title: "Photos Unavailable",
@@ -87,6 +89,7 @@ export function useEddieSender(postId: string, parentId?: string | null) {
     try {
       addPicked([await downloadGif(gif)]);
     } catch {
+      haptic("error");
       toast({
         description: "Couldn't add that GIF, try another?",
         title: "GIF Failed",
@@ -99,6 +102,7 @@ export function useEddieSender(postId: string, parentId?: string | null) {
     if (!canSubmit || sending) {
       return null;
     }
+    haptic();
     setSending(true);
     try {
       const comment = await createEddie(postId, {
@@ -116,6 +120,7 @@ export function useEddieSender(postId: string, parentId?: string | null) {
       setSending(false);
       return comment;
     } catch {
+      haptic("error");
       toast({
         description: "Couldn't post your eddie, give it another try?",
         title: "Eddie Failed",

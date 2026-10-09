@@ -9,11 +9,15 @@ import {
   prependPosts,
   requestFeedTop,
   subscribeFeedTopRequests,
+  persistFeedEntry,
+  restoreFeedCache,
+  feedCache,
+  feedCacheToSnapshot,
 } from "./feed-store";
 
 function post(id: string): FeedPost {
   return {
-    _count: { comments: 0, mentions: 0, vote: 0 },
+    _count: { bookmarks: 0, comments: 0, responses: 0, vote: 0 },
     attachments: [],
     bookmarks: [],
     createdAt: "2024-01-01T00:00:00.000Z",
@@ -37,6 +41,27 @@ describe("flattenUniquePosts", () => {
 });
 
 describe("prependPosts", () => {
+  test("repeated head batches deduplicate within themselves and retain the pagination cursor", () => {
+    const cache = new FeedCache();
+    cache.applyPage("feed", [post("old")], "next-page", {}, false);
+    const first = prependPosts(cache.get("feed").pages, [
+      post("one"),
+      post("one"),
+    ]);
+    cache.patch("feed", { pages: first.pages });
+    const second = prependPosts(cache.get("feed").pages, [
+      post("two"),
+      post("one"),
+    ]);
+    cache.patch("feed", { pages: second.pages });
+    expect(cache.get("feed").pages[0]?.map((item) => item.id)).toEqual([
+      "two",
+      "one",
+      "old",
+    ]);
+    expect(cache.get("feed").cursor).toBe("next-page");
+    expect(cache.get("feed").hasMore).toBe(true);
+  });
   test("prepends unseen to page one only", () => {
     const { added, pages } = prependPosts(
       [[post("b")], [post("c")]],
@@ -55,6 +80,94 @@ describe("prependPosts", () => {
 });
 
 describe("FeedCache", () => {
+  test("refresh, pagination and failed requests retain the last completed pages across relaunch", () => {
+    for (const status of ["refreshing", "loading-more", "error"] as const) {
+      feedCache.clear();
+      feedCache.applyPage("saved", [post("retained")], "next-page", {}, false);
+      const fetchedAt = Date.now() - 120_000;
+      feedCache.patch("saved", { fetchedAt });
+      feedCache.patch("saved", {
+        error: status === "error" ? "Offline" : null,
+        status,
+      });
+      const snapshot = feedCacheToSnapshot();
+      expect(snapshot.saved?.pages[0]?.[0]?.id).toBe("retained");
+      expect(snapshot.saved?.fetchedAt).toBe(fetchedAt);
+      feedCache.clear();
+      restoreFeedCache(snapshot);
+      const restored = feedCache.get("saved");
+      expect(restored.status).toBe("success");
+      expect(restored.error).toBeNull();
+      expect(restored.cursor).toBe("next-page");
+      expect(restored.stale).toBe(true);
+      expect(restored.pages[0]?.[0]?.id).toBe("retained");
+    }
+    feedCache.clear();
+  });
+  test("an interrupted refresh revalidates even when its completed pages are recent", () => {
+    feedCache.clear();
+    feedCache.applyPage("recent", [post("cached")], null, {}, false);
+    feedCache.patch("recent", { status: "refreshing" });
+    const snapshot = feedCacheToSnapshot();
+    feedCache.clear();
+    restoreFeedCache(snapshot);
+    expect(feedCache.get("recent").stale).toBe(true);
+    feedCache.clear();
+  });
+  test("disk truncation resumes at the saved page boundary without skipping posts", () => {
+    const cache = new FeedCache();
+    cache.applyPage("k", [post("a")], "page2", {}, false);
+    cache.applyPage("k", [post("b")], "page3", {}, true);
+    const final = cache.applyPage("k", [post("c")], null, {}, true);
+    const saved = persistFeedEntry(final);
+    expect(saved.pages).toHaveLength(2);
+    expect(saved.cursor).toBe("page3");
+    expect(saved.hasMore).toBe(true);
+    feedCache.clear();
+    restoreFeedCache({ k: saved });
+    expect(feedCache.get("k").cursor).toBe("page3");
+    expect(
+      feedCache
+        .get("k")
+        .pages.flat()
+        .map((entry) => entry.id)
+    ).toEqual(["a", "b"]);
+    feedCache.clear();
+  });
+
+  test("hydration preserves the original age and cannot overwrite a live request", () => {
+    feedCache.clear();
+    const fetchedAt = Date.now() - 120_000;
+    const saved = {
+      cursor: null,
+      fetchedAt,
+      hasMore: false,
+      pageCursors: [null],
+      pages: [[post("saved")]],
+    };
+    restoreFeedCache({ k: saved });
+    expect(feedCache.get("k").fetchedAt).toBe(fetchedAt);
+    expect(feedCache.get("k").stale).toBe(true);
+    feedCache.patch("live", { status: "loading" });
+    restoreFeedCache({ live: saved });
+    expect(feedCache.get("live").status).toBe("loading");
+    expect(feedCache.get("live").pages).toEqual([]);
+    feedCache.clear();
+  });
+
+  test("legacy snapshots revalidate instead of trusting mismatched cursors", () => {
+    feedCache.clear();
+    restoreFeedCache({
+      legacy: {
+        cursor: "distant",
+        fetchedAt: Date.now(),
+        hasMore: true,
+        pages: [[post("a")]],
+      },
+    });
+    expect(feedCache.get("legacy").stale).toBe(true);
+    feedCache.clear();
+  });
   test("applies pages with dedupe-ready shape", () => {
     const cache = new FeedCache();
     const feed = cache.applyPage("k", [post("a")], "c1", {}, false);
@@ -273,4 +386,30 @@ describe("FeedCache batched reconciliation", () => {
     cache.invalidateAll();
     expect(seen[1]).toBe(null);
   });
+});
+
+test("next-day launch paints stale disk rows with their original age until refresh", () => {
+  feedCache.clear();
+  const fetchedAt = Date.now() - 24 * 60 * 60 * 1000;
+  const saved = {
+    cursor: null,
+    fetchedAt,
+    hasMore: false,
+    pageCursors: [null],
+    pages: [[post("yesterday")]],
+  };
+  expect(restoreFeedCache({ "latest:viewer": saved })).toBe(1);
+  const entry = feedCache.get("latest:viewer");
+  expect(entry.pages[0]?.[0]?.id).toBe("yesterday");
+  expect(entry.fetchedAt).toBe(fetchedAt);
+  expect(entry.stale).toBe(true);
+  expect(
+    restoreFeedCache({
+      expired: { ...saved, fetchedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 },
+    })
+  ).toBe(0);
+  expect(
+    restoreFeedCache({ future: { ...saved, fetchedAt: Date.now() + 60_000 } })
+  ).toBe(0);
+  feedCache.clear();
 });

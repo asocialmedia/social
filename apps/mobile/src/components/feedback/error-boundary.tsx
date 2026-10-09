@@ -7,6 +7,7 @@
 // because getDerivedStateFromError and componentDidCatch have no hook
 // equivalent, and it logs through the same telemetry helper the rest of the app
 // uses so a caught error is visible rather than swallowed.
+import * as SplashScreen from "expo-splash-screen";
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 
@@ -40,6 +41,13 @@ export class ErrorBoundary extends Component<Props, State> {
 
   // oxlint-disable-next-line class-methods-use-this -- componentDidCatch is a required React lifecycle hook and receives no meaningful `this`
   override componentDidCatch(error: Error, info: ErrorInfo) {
+    // A startup failure must reveal the recovery screen rather than leave
+    // the native splash covering it indefinitely.
+    try {
+      SplashScreen.hide();
+    } catch {
+      // The splash may already be gone.
+    }
     logError("ui.error_boundary", error, {
       componentStack: info.componentStack ?? "",
     });

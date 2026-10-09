@@ -7,6 +7,38 @@ import {
 } from "./header-visibility";
 
 describe("header visibility", () => {
+  test("reveals after reversing deep in the feed and hides after the next reversal", () => {
+    resetHeaderScroll();
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeHeaderVisibility((value) => seen.push(value));
+    reportFeedScroll(120);
+    reportFeedScroll(4000);
+    reportFeedScroll(3996);
+    reportFeedScroll(3992);
+    expect(seen).toEqual([true]);
+    reportFeedScroll(3984);
+    expect(seen).toEqual([true, false]);
+    reportFeedScroll(3000);
+    reportFeedScroll(3008);
+    expect(seen).toEqual([true, false]);
+    reportFeedScroll(3016);
+    expect(seen).toEqual([true, false, true]);
+    unsubscribe();
+    resetHeaderScroll();
+  });
+
+  test("restoring a deep offset does not immediately hide controls", () => {
+    resetHeaderScroll(4000);
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeHeaderVisibility((value) => seen.push(value));
+    reportFeedScroll(4000);
+    reportFeedScroll(3990);
+    expect(seen).toEqual([]);
+    reportFeedScroll(4010);
+    expect(seen).toEqual([true]);
+    unsubscribe();
+    resetHeaderScroll();
+  });
   test("hides on scroll down, shows on scroll up or top", () => {
     const seen: boolean[] = [];
     const unsubscribe = subscribeHeaderVisibility((isHidden) => {

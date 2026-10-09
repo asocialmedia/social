@@ -53,7 +53,7 @@ import {
   hkdfSha256,
   importPrivateKeyJwk as importPrivateKeyBytes,
   importPublicKeyJwk as importPublicKeyBytes,
-  pbkdf2Sha256,
+  pbkdf2Sha256Async,
   randomBytes,
   setRandomSource,
   sha256,
@@ -165,16 +165,34 @@ export function publicKeyBase64ToJwk(encoded: string): JsonWebKey {
 
 // ---- master key (identity backup) -------------------------------------------
 
+export type MasterKeyDeriver = (
+  secret: string,
+  salt: Uint8Array,
+  iterations: number
+) => Promise<Uint8Array>;
+
+let nativeMasterKeyDeriver: MasterKeyDeriver | null = null;
+
+// Injected by the native binding so this wire-format module remains testable.
+export function setNativeMasterKeyDeriver(
+  deriver: MasterKeyDeriver | null
+): void {
+  nativeMasterKeyDeriver = deriver;
+}
+
 export async function deriveMasterKey(
   secret: string,
   salt: Uint8Array,
   iterations = KDF_ITERATIONS
 ): Promise<AesGcmKey> {
-  // Async to keep the same call shape as web's deriveKey. PBKDF2 at 100k
-  // iterations is genuinely expensive on Hermes, so the callers that do this
-  // yield to the UI thread first; see the identity provider.
-  await Promise.resolve();
-  return pbkdf2Sha256(ENCODER.encode(secret), salt, iterations);
+  if (nativeMasterKeyDeriver) {
+    const key = await nativeMasterKeyDeriver(secret, salt, iterations);
+    if (key.length !== 32) {
+      throw new Error("Invalid derived message key length");
+    }
+    return key as AesGcmKey;
+  }
+  return pbkdf2Sha256Async(ENCODER.encode(secret), salt, iterations);
 }
 
 export interface EncryptedBlob {
