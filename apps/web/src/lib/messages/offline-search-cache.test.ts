@@ -5,6 +5,7 @@ import {
   estimateOfflineSearchRecordBytes,
   OFFLINE_SEARCH_MAX_MESSAGES_PER_CONVERSATION,
   offlineSearchRecords,
+  rememberOfflineIndexedRevision,
   retainOfflineSearchRecords,
 } from "./offline-search-cache";
 import type { OfflineSearchCacheRecord } from "./offline-search-cache";
@@ -41,6 +42,22 @@ function recordKey(conversationId: string, id: string): string {
 }
 
 describe("bounded offline DM search cache contract", () => {
+  test("revision signatures stay bounded during long scrolling and retain refreshed entries", () => {
+    const revisions = new Map<string, number>();
+    for (let index = 0; index < 1000; index += 1) {
+      rememberOfflineIndexedRevision(revisions, `message-${index}`, 1);
+    }
+    rememberOfflineIndexedRevision(revisions, "message-0", 2);
+    for (let index = 1000; index < 1999; index += 1) {
+      rememberOfflineIndexedRevision(revisions, `message-${index}`, 1);
+    }
+    expect(revisions.size).toBe(1000);
+    expect(revisions.get("message-0")).toBe(2);
+    expect(revisions.has("message-1")).toBe(false);
+    rememberOfflineIndexedRevision(revisions, "message-1999", 1);
+    expect(revisions.has("message-0")).toBe(false);
+    expect(revisions.size).toBe(1000);
+  });
   test("reverse pages restore the nearest twenty hits before reversing tied timestamps", () => {
     const rows = Array.from({ length: 65 }, (_, index) =>
       record({ createdAt: 20, id: `message-${String(index).padStart(3, "0")}` })

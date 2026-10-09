@@ -43,6 +43,17 @@ function renderSearchBar(
 }
 
 describe("MessageSearchBar user-facing fallback states", () => {
+  test("names saved-history scope during an online service fallback without declaring the device offline", () => {
+    const markup = renderSearchBar({
+      fullyCovered: true,
+      savedHistorySearch: true,
+      serverManaged: true,
+    });
+    expect(markup).toContain("Searching saved messages");
+    expect(markup).not.toContain("Offline");
+    expect(markup).not.toContain("No matching messages");
+    expect(markup).not.toContain("Searching older messages");
+  });
   test("shows incomplete history without manual indexing or technical counters", () => {
     const markup = renderSearchBar();
 

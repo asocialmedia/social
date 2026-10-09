@@ -149,6 +149,22 @@ export function estimateOfflineSearchRecordBytes(
   return new TextEncoder().encode(JSON.stringify(record)).byteLength;
 }
 
+export function rememberOfflineIndexedRevision(
+  revisions: Map<string, number>,
+  id: string,
+  revision: number
+): void {
+  revisions.delete(id);
+  revisions.set(id, revision);
+  while (revisions.size > OFFLINE_SEARCH_MAX_MESSAGES_PER_CONVERSATION) {
+    const oldest = revisions.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    revisions.delete(oldest);
+  }
+}
+
 function compareOfflineSearchRecords(
   left: OfflineSearchMatchRecord,
   right: OfflineSearchMatchRecord

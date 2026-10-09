@@ -165,9 +165,6 @@ import {
   selectionRange,
 } from "@/lib/messages/message-gestures";
 import type { PaneRect } from "@/lib/messages/message-gestures";
-import { createMessageIndexBackfill } from "@/lib/messages/message-index-backfill";
-import type { BackfillProgress } from "@/lib/messages/message-index-backfill";
-import { createMessageIndexWriter } from "@/lib/messages/message-index-writer";
 import type { PeerWatermarks } from "@/lib/messages/message-receipts";
 import {
   advanceWatermark,
@@ -187,7 +184,6 @@ import {
   shouldRefreshServerSearchSnapshot,
 } from "@/lib/messages/offline-search-change-policy";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
-import { createScopedSearchIndexStore } from "@/lib/messages/scoped-search-index";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -195,14 +191,8 @@ import {
   nextArrivalCount,
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
-import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
 import { startMessageScrollFrameTelemetry } from "@/lib/messages/search-client-telemetry";
-import {
-  resolveSearchIndexStore,
-  retireLegacySearchIndex,
-} from "@/lib/messages/search-index-backend";
-import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
-import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
+import { retireLegacySearchIndex } from "@/lib/messages/search-index-backend";
 import { resolveServerSharedRefsPage } from "@/lib/messages/server-shared-refs";
 import type {
   DenMembershipEvent,
@@ -299,22 +289,6 @@ const NEWEST_PAGE: MessagesPageParam = { kind: "older" };
 
 type MessagesInfiniteData = InfiniteData<MessagePage, MessagesPageParam>;
 
-// Backfill walk tuning. The page is the largest the API allows for a declared
-// walk, so covering a conversation costs as few round trips as possible. Because
-// the walk paces per REQUEST, a larger page is less server load for the same
-// politeness, not more: measured at 200k messages, 500 rows/page cuts cover time
-// from 11.1 minutes to 2.3.
-const BACKFILL_PAGE_SIZE = 500;
-const BACKFILL_PAGE_DELAY_MS = 250;
-// Newest messages inspected when a persisted "fully covered" verdict is
-// verified instead of trusted. Five is enough to catch a poisoned flag --
-// uncovered history at the top means the verdict is stale -- while staying a
-// negligible peek next to a 500-row walk page.
-const TOP_COVERAGE_PEEK_SIZE = 5;
-// How long to coalesce index writes during a walk before re-reading the row
-// table. Without this, every committed page would trigger a full row-table read
-// and a 25-page walk would cost 25 of them.
-const COVERAGE_REFRESH_DEBOUNCE_MS = 1500;
 // How long the transcript's automatic fill stands down after a failed page
 // before trying again. Failures settle with fetching false and unchanged
 // cursors -- the exact shape that refires the auto-loaders -- so the pause is
@@ -551,16 +525,6 @@ export function MessageThread({
         : null,
     [recoveryGeneration, user]
   );
-  const localSearchScopeKey = offlineSearchScope
-    ? JSON.stringify([
-        offlineSearchScope.userId,
-        offlineSearchScope.recoveryGeneration,
-      ])
-    : null;
-  const localSearchScopeKeyRef = useRef(localSearchScopeKey);
-  useLayoutEffect(() => {
-    localSearchScopeKeyRef.current = localSearchScopeKey;
-  }, [localSearchScopeKey]);
   const queryClient = useQueryClient();
   const rootKeyStore = useRootKeyStore();
   const onlineUsers = usePresence(true);
@@ -647,42 +611,6 @@ export function MessageThread({
   >(null);
   const activeOfflineSearchScope =
     offlineCacheDisabledFor === conversationId ? null : offlineSearchScope;
-  // The local search index backend, resolved once per conversation. Null until
-  // it resolves, and permanently null when IndexedDB is unavailable, in which
-  // case search falls back to the rows loaded in this session.
-  const [searchIndex, setSearchIndex] = useState<{
-    scopeKey: string;
-    refreshToken: number;
-    store: Awaited<ReturnType<typeof resolveSearchIndexStore>>["store"];
-  } | null>(null);
-  // Bumped every time a walk settles so the auto-start effect re-evaluates
-  // after the run cleared: the final progress report lands while the run
-  // object still exists, which would otherwise look like "already running"
-  // forever and the chain would never continue.
-  const [walkEpoch, setWalkEpoch] = useState(0);
-  // Whether a previous walk persisted that it reached the oldest message.
-  // Null until the stored verdict is read; the auto-start waits for it so a
-  // covered conversation costs nothing on reopen.
-  const [persistedCovered, setPersistedCovered] = useState<boolean | null>(
-    null
-  );
-  // Whether that verdict vouches for its own cursor chain (every page verified
-  // on the way down). A covered flag without it is a legacy row: the next run
-  // descends from the top once to earn it, then resumes cheaply forever after.
-  const [persistedChainVerified, setPersistedChainVerified] = useState<
-    boolean | null
-  >(null);
-  // Whether that verdict also covered the shared-refs index, which the details
-  // pane's tabs read. A verdict written before refs existed is text-only, and
-  // trusting it as a reason to skip the walk is what left the pane reporting "no
-  // media" for conversations full of it. Absent reads as false, so the next open
-  // repairs the conversation by itself.
-  const [persistedRefsCovered, setPersistedRefsCovered] = useState<
-    boolean | null
-  >(null);
-  // Whether the index writer instance exists. Auto-start must wait for it: a
-  // start attempt before it does silently no-ops and never retries.
-  const [writerReady, setWriterReady] = useState(false);
   // Owned here (not inside the bar) so the Ctrl+F shortcut can pull focus back
   // into the field while the results list holds it.
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -930,7 +858,6 @@ export function MessageThread({
   // answered. It used to be derived separately, and the two drifted: a folded pane
   // still counted as a rail, so the walk kept fetching a conversation's whole history
   // for a pane the user had just put away.
-  const detailsVisible = placement !== "none";
 
   // The stored preference, read once the viewport is known to be a desktop one --
   // reading it below `lg` would apply a window preference to the sheet, which has
@@ -1386,7 +1313,6 @@ export function MessageThread({
       // A hidden message is gone from this device's transcript, so it must also
       // leave the local search index: otherwise the index would still surface
       // text the user can no longer see.
-      searchWriterRef.current?.remove(messageIds);
       // Only drop the hidden rows from the selection once the hide succeeded,
       // so a failed batch keeps the user's selection for a retry (ending select
       // mode when the last ticked row goes).
@@ -3157,577 +3083,29 @@ export function MessageThread({
     ]
   );
 
-  // Resolve the index backend once per conversation. A failure here is not
-  // fatal: `resolveSearchIndexStore` already falls back to an in-memory store,
-  // and the caller treats null as "no index, loaded rows only".
   useEffect(() => {
-    if (SERVER_MESSAGE_SEARCH_ENABLED) {
-      setSearchIndex(null);
-      setPersistedCovered(false);
-      setPersistedChainVerified(false);
-      setPersistedRefsCovered(false);
-      void retireLegacySearchIndex();
-      return;
-    }
-    if (!offlineSearchScope || !localSearchScopeKey) {
-      setSearchIndex(null);
-      setPersistedCovered(false);
-      setPersistedChainVerified(false);
-      setPersistedRefsCovered(false);
-      return;
-    }
-    let cancelled = false;
-    setPersistedCovered(null);
-    setPersistedChainVerified(null);
-    setPersistedRefsCovered(null);
-    const resolve = async () => {
-      try {
-        const resolved = await resolveSearchIndexStore();
-        const scopedStore = createScopedSearchIndexStore(
-          resolved.store,
-          offlineSearchScope
-        );
-        if (cancelled) {
-          return;
-        }
-        setSearchIndex({
-          refreshToken: 0,
-          scopeKey: localSearchScopeKey,
-          store: scopedStore,
-        });
-        // Whether a previous walk already reached the start, so reopening
-        // search on a covered conversation starts nothing -- not even the
-        // one-request probe walk that would rediscover it. A persisted "done"
-        // is verified against the newest page rather than trusted blindly: a
-        // cursor that pointed below uncovered history poisons the flag with it,
-        // and trusting it would strand everything above forever.
-        try {
-          const meta = await scopedStore.readMeta(conversationId);
-          let covered = meta?.reachedStart === true;
-          let chainVerified = meta?.cursorVerified === true;
-          if (covered && !cancelled) {
-            try {
-              const peek = await fetchMessages(
-                conversationId,
-                { kind: "older" },
-                TOP_COVERAGE_PEEK_SIZE
-              );
-              const topIds = peek.messages.map((row) => row.id);
-              if (topIds.length > 0) {
-                const indexedTop = await scopedStore.hasIndexedMessages(
-                  conversationId,
-                  topIds
-                );
-                let queued = new Set<string>();
-                try {
-                  queued = new Set(
-                    await scopedStore.hasPendingMessages(conversationId, topIds)
-                  );
-                } catch {
-                  // Unreadable queue: covered means indexed, below.
-                }
-                covered = topIds.every(
-                  (id) => indexedTop.has(id) || queued.has(id)
-                );
-              }
-            } catch {
-              // Peek failed: keep the persisted verdict rather than forcing a
-              // heal walk on a network blip.
-            }
-            if (!covered) {
-              chainVerified = false;
-              try {
-                const current =
-                  (await scopedStore.readMeta(conversationId)) ??
-                  emptySearchIndexMeta(conversationId);
-                await scopedStore.writeMeta({
-                  ...current,
-                  cursorVerified: false,
-                  reachedStart: false,
-                  // Cleared with the verdict it belonged to. Leaving a refs
-                  // marker on a conversation whose coverage was just disproved
-                  // would let a later run skip the repair this write is for.
-                  refsReachedStart: false,
-                  updatedAt: Date.now(),
-                });
-              } catch {
-                // Best effort: the walk re-verifies from the top regardless.
-              }
-            }
-          }
-          if (!cancelled) {
-            setPersistedCovered(covered);
-            setPersistedChainVerified(chainVerified);
-            // Read as false when absent, so an older verdict that predates refs
-            // heals rather than persisting.
-            setPersistedRefsCovered(meta?.refsReachedStart === true && covered);
-          }
-        } catch {
-          if (!cancelled) {
-            setPersistedCovered(false);
-            setPersistedChainVerified(false);
-            setPersistedRefsCovered(false);
-          }
-        }
-      } catch {
-        // Both backends unavailable. Search still works over loaded rows.
-        if (!cancelled) {
-          setSearchIndex(null);
-          setPersistedCovered(false);
-          setPersistedChainVerified(false);
-          setPersistedRefsCovered(false);
-        }
-      }
-    };
-    void resolve();
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId, localSearchScopeKey, offlineSearchScope]);
-
-  // The index writer for this conversation. Created once the store resolves and
-  // torn down on conversation change so one thread never writes another
-  // conversation's entries.
-  // Destructured out of the state object so effect dependencies reference the
-  // values themselves, which is what makes them valid dependencies.
-  const searchIndexIsCurrent =
-    searchIndex !== null && searchIndex.scopeKey === localSearchScopeKey;
-  const searchIndexStore = searchIndexIsCurrent ? searchIndex.store : null;
-  const searchIndexToken = searchIndexIsCurrent ? searchIndex.refreshToken : 0;
-  const sharedRefsRefreshToken = SERVER_MESSAGE_SEARCH_ENABLED
-    ? serverRefsRefreshToken
-    : searchIndexToken;
-  const searchWriterRef = useRef<ReturnType<
-    typeof createMessageIndexWriter
-  > | null>(null);
-  const [storageState, setStorageState] = useState(() => ({
-    conversationId,
-    full: false,
-  }));
-  const storageFull =
-    storageState.conversationId === conversationId && storageState.full;
-  const setStorageFull = useCallback(
-    (full: boolean) => setStorageState({ conversationId, full }),
-    [conversationId]
-  );
-
-  // Bumping the token re-reads the posting lists and the row table, so newly
-  // indexed history is findable without waiting for the next search session.
-  // During a backfill that read is expensive, so writes are coalesced instead.
-  const backfillRunningRef = useRef(false);
-  const coverageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bumpSearchIndex = useCallback(() => {
-    setSearchIndex((current) =>
-      current ? { ...current, refreshToken: current.refreshToken + 1 } : current
-    );
-  }, []);
-  const scheduleCoverageRefresh = useCallback(() => {
-    if (coverageTimerRef.current) {
-      return;
-    }
-    coverageTimerRef.current = setTimeout(() => {
-      coverageTimerRef.current = null;
-      bumpSearchIndex();
-    }, COVERAGE_REFRESH_DEBOUNCE_MS);
-  }, [bumpSearchIndex]);
-
-  // Keep the index inside its budget. Runs once per conversation open, which is
-  // cheap: the policy reads one small meta record per conversation and the row
-  // allocator, never the posting lists.
-  const enforceIndexBudget = useCallback(async () => {
-    if (!searchIndexStore) {
-      return 0;
-    }
-    try {
-      const summaries = await searchIndexStore.listConversations();
-      const plan = planSearchIndexEviction({
-        activeConversationId: conversationId,
-        summaries,
-      });
-      // oxlint-disable no-await-in-loop -- one clear per victim, deliberately serial
-      for (const victim of plan.evict) {
-        await searchIndexStore.clearConversation(victim);
-      }
-      return plan.evict.length;
-    } catch {
-      // Enumeration failed: storage is in a state this device cannot reason
-      // about. Search still works over whatever survived.
-      return 0;
-    }
-  }, [conversationId, searchIndexStore]);
-  // Enforce the budget as soon as a store exists, so a device that accumulated
-  // indexes over months trims on the next conversation rather than the next
-  // quota error.
-  useEffect(() => {
-    if (!searchIndexStore) {
-      return;
-    }
-    void enforceIndexBudget();
-  }, [enforceIndexBudget, searchIndexStore]);
-
-  useEffect(() => {
-    if (!searchIndexStore) {
-      searchWriterRef.current = null;
-      setWriterReady(false);
-      return;
-    }
-    const writer = createMessageIndexWriter({
-      conversationId,
-      getPayload: (id) => messageDecryptor.get(id),
-      onCoverage: () => {
-        if (backfillRunningRef.current) {
-          scheduleCoverageRefresh();
-          return;
-        }
-        bumpSearchIndex();
-      },
-      onStorageFull: () => {
-        // Retry after evicting a derived cache if the browser refused a write.
-        setStorageFull(true);
-        void (async () => {
-          const evicted = await enforceIndexBudget();
-          if (evicted > 0) {
-            setStorageFull(false);
-            bumpSearchIndex();
-          }
-        })();
-      },
-      store: searchIndexStore,
-      // Retries pending rows the moment their payload lands, rather than waiting
-      // for unrelated transcript activity. A conversation that had gone quiet
-      // would otherwise never catch up on rows it had already fetched.
-      subscribeToPayloads: messageDecryptor.subscribe,
-    });
-    const writerScopeKey = localSearchScopeKey;
-    searchWriterRef.current = writer;
-    setWriterReady(true);
-    return () => {
-      searchWriterRef.current = null;
-      setWriterReady(false);
-      void (async () => {
-        try {
-          await writer.dispose({
-            flush: localSearchScopeKeyRef.current === writerScopeKey,
-          });
-        } catch {
-          // Conversation teardown must not surface a background flush failure.
-        }
-      })();
-    };
-  }, [
-    bumpSearchIndex,
-    conversationId,
-    enforceIndexBudget,
-    localSearchScopeKey,
-    scheduleCoverageRefresh,
-    setStorageFull,
-    searchIndexStore,
-  ]);
-
-  // Coverage of this device's index, and the walk that extends it. Opening
-  // search starts the walk on its own and each yielded run chains the next
-  // while search stays open; the bar shows progress throughout, and closing
-  // search (or hiding the tab) ends it. There is no manual stop: indexing is
-  // automatic and stops itself.
-  const [coverage, setCoverage] = useState<BackfillProgress | null>(null);
-  const backfillRef = useRef<ReturnType<
-    typeof createMessageIndexBackfill
-  > | null>(null);
-  const backfillAbortRef = useRef<AbortController | null>(null);
-
-  const awaitBackfillDecrypts = useCallback(
-    (messages: MessageData[], signal?: AbortSignal) =>
-      drainDecryptBatch(messages, signal),
-    [drainDecryptBatch]
-  );
-
-  const startIndexingOlder = useCallback(() => {
-    const writer = searchWriterRef.current;
-    if (!writer || !searchIndexStore || backfillRef.current) {
-      return;
-    }
-
-    const controller = new AbortController();
-    backfillAbortRef.current = controller;
-    backfillRunningRef.current = true;
-    // The walk is about to commit once per page, and every commit takes the
-    // IndexedDB write lock. Holding the writer's own coalesced writes for the
-    // duration keeps the transcript's decryptor completions from adding a
-    // parallel stream of commits that contend for the same lock and starve
-    // search reads. The walk's per-page flush writes everything queued, so
-    // nothing is deferred past the walk.
-    writer.setDeferring(true);
-    const backfill = createMessageIndexBackfill({
-      awaitDecrypts: awaitBackfillDecrypts,
-      // The walk stands aside for a user-initiated read. It shares this
-      // conversation's history endpoint, and on a fresh device it owns the
-      // rate-limit budget from the first keystroke: 500-row pages, 250ms apart,
-      // for as long as search stays open. Without this the user's single anchored
-      // read arrives into that stream, is throttled, and falls back to a bounded
-      // walk that then spends thirty more requests against the same limiter --
-      // which is the "loading messages" that eventually gives up on its own.
-      beforePage: () => historyReads.whenIdle(controller.signal),
-      conversationId,
-      // Fetched directly rather than through the transcript's infinite query:
-      // the point of a backfill is to index history *without* holding it in
-      // memory, and growing the transcript would defeat that.
-      fetchPage: async (cursor) => {
-        const page = await fetchMessages(
-          conversationId,
-          { cursor, kind: "older", walk: true },
-          BACKFILL_PAGE_SIZE,
-          // The run's signal reaches the in-flight request, not just the walk's
-          // between-page waits: closing search or hiding the tab ends the fetch
-          // that is hanging, instead of waiting out a 30s page that nobody
-          // will read.
-          { signal: controller.signal }
-        );
-        return {
-          messages: page.messages,
-          previousCursor: page.previousCursor,
-        };
-      },
-      onProgress: (next) => {
-        setCoverage(next);
-        if (next.reachedStart) {
-          // Reached bottom through this run's verified descent, so the flag
-          // and the chain verdict go together from here on.
-          setPersistedCovered(true);
-          setPersistedChainVerified(true);
-          // The refs half settles independently. A failed refs write leaves the
-          // text traversal complete while keeping the details pane incomplete.
-          setPersistedRefsCovered(next.refsReachedStart === true);
-        }
-      },
-      pageDelayMs: BACKFILL_PAGE_DELAY_MS,
-      signal: controller.signal,
-      store: searchIndexStore,
-      writer,
-    });
-    backfillRef.current = backfill;
-    // Not awaited: the walk is user-initiated background work, and the bar shows
-    // its progress. The teardown below is what the UI depends on.
-    const settle = async () => {
-      try {
-        await backfill.run();
-      } catch {
-        // The walker reports its own failures through progress; this only guards
-        // against a rejection escaping the run itself.
-      } finally {
-        backfillRef.current = null;
-        backfillAbortRef.current = null;
-        backfillRunningRef.current = false;
-        // Released in the walk's own settle, so an abort or a page-budget yield
-        // both give the writer back rather than leaving it holding writes for a
-        // walk that is no longer running.
-        writer.setDeferring(false);
-        if (coverageTimerRef.current) {
-          clearTimeout(coverageTimerRef.current);
-          coverageTimerRef.current = null;
-        }
-        // One last read so the final page's rows are searchable immediately.
-        bumpSearchIndex();
-        // Retrigger the auto-start effect: the run's final report landed while
-        // the run object still existed, so without this the chain would see
-        // "already running" forever and never continue.
-        setWalkEpoch((epoch) => epoch + 1);
-      }
-    };
-    void settle();
-  }, [
-    awaitBackfillDecrypts,
-    bumpSearchIndex,
-    conversationId,
-    historyReads,
-    searchIndexStore,
-  ]);
-
-  // Leaving the conversation, or closing EVERY consumer, must not leave a walk
-  // running: it would keep fetching and decrypting for a thread nobody is reading.
-  // The report is cleared too: it belongs to the ended session, and a stale
-  // `stopped` would veto the next session's auto-start.
-  //
-  // "Every" rather than "search", because the details surface reads the same
-  // index: closing search while the details are showing must not stop a walk whose
-  // output the user is still looking at. `detailsVisible` rather than `placement`
-  // because the pinned pane is a consumer without the user ever asking for it, and
-  // because a pane the user has folded is not a consumer at all.
-  const walkWanted = searchOpen || detailsVisible;
-  useEffect(() => {
-    if (walkWanted) {
-      return;
-    }
-    backfillRef.current?.stop();
-    backfillAbortRef.current?.abort();
-    setCoverage(null);
-  }, [walkWanted]);
-
-  // A hidden tab does no walks: decrypting hundreds of pages for a screen
-  // nobody is looking at is battery and bandwidth spent for nothing. Becoming
-  // visible restarts the current run's successor through the auto-start below
-  // (a stopped run never chains on its own, so without this the walk would
-  // wait for search to reopen).
-  useEffect(() => {
-    if (!walkWanted) {
-      return;
-    }
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        backfillRef.current?.stop();
-        backfillAbortRef.current?.abort();
-        return;
-      }
-      if (
-        shouldAutoStartWalk({
-          autoIndex: true,
-          coverage,
-          persistedChainVerified,
-          persistedCovered,
-          persistedRefsCovered,
-          running: backfillRef.current !== null,
-          storeReady: searchIndexStore !== null,
-          // The tab is visible and a consumer is open, which is exactly the
-          // condition the policy asks about.
-          wantsIndexing: true,
-          writerReady,
-        })
-      ) {
-        startIndexingOlder();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [
-    coverage,
-    persistedChainVerified,
-    persistedCovered,
-    persistedRefsCovered,
-    searchIndexStore,
-    startIndexingOlder,
-    walkWanted,
-    writerReady,
-  ]);
-
-  // Automatic catch-up. Opening search OR the details panel on partially covered
-  // history starts the walk, and each run that yields on its page budget chains
-  // the next while a consumer stays open -- the 25-page bound paces the work,
-  // chaining only removes the clicks. Failed runs never chain (the Retry button
-  // owns them); there is no manual stop by design, so the flag below is always
-  // true and stopping only ever comes from close, hide, or teardown.
-  //
-  // The details surface counts as a consumer because its tabs read this same
-  // index. Without it, showing the details on a device that has never walked the
-  // conversation would show only the decrypted slice and report "no media" for a
-  // chat full of it -- the exact false answer the walk exists to prevent. On a
-  // desktop this is now the default view, so this walk starts on entering a
-  // conversation rather than on opening a panel -- and folding the pane withdraws
-  // the consumer, which stops the walk again.
-  const wantsIndexing = searchOpen || detailsVisible;
-  useEffect(() => {
-    if (
-      shouldAutoStartWalk({
-        autoIndex: true,
-        coverage,
-        persistedChainVerified,
-        persistedCovered,
-        persistedRefsCovered,
-        running: backfillRef.current !== null,
-        storeReady: searchIndexStore !== null,
-        wantsIndexing,
-        writerReady,
-      })
-    ) {
-      startIndexingOlder();
-    }
-  }, [
-    coverage,
-    persistedChainVerified,
-    persistedCovered,
-    persistedRefsCovered,
-    searchIndexStore,
-    startIndexingOlder,
-    walkEpoch,
-    wantsIndexing,
-    writerReady,
-  ]);
+    void retireLegacySearchIndex();
+  }, [conversationId]);
 
   useEffect(
     () => () => {
-      backfillRef.current?.stop();
-      backfillAbortRef.current?.abort();
       jumpAbortRef.current?.abort();
-      // Every holder is gone with the component, and their teardowns will never
-      // run. A token left behind would hold the backfill off for the rest of the
-      // session -- and this instance outlives nothing, so nothing would clear it.
       historyReads.reset();
-      if (coverageTimerRef.current) {
-        clearTimeout(coverageTimerRef.current);
-      }
     },
     [historyReads]
   );
 
-  // Feed every row the transcript holds to the writer. Its bounded timer window
-  // coalesces a page of arriving rows into one write.
-  useEffect(() => {
-    const writer = searchWriterRef.current;
-    if (!writer || allMessages.length === 0) {
-      return;
-    }
-    writer.consider(allMessages);
-  }, [allMessages, searchIndexToken]);
-
-  // Rows persisted as unsearchable by an earlier session are retried as soon as
-  // the transcript holds them again, rather than waiting for the user to scroll
-  // back to them. Rows outside the loaded window are recovered by the backfill
-  // walk instead, which re-fetches from its cursor: fetching each pending id
-  // individually would turn a 5,000-row queue into 5,000 requests.
-  useEffect(() => {
-    const writer = searchWriterRef.current;
-    if (!writer || allMessages.length === 0) {
-      return;
-    }
-    let cancelled = false;
-    const recover = async () => {
-      let queued: string[];
-      try {
-        queued = await writer.durablePending(allMessages.map((row) => row.id));
-      } catch {
-        return;
-      }
-      if (cancelled || queued.length === 0) {
-        return;
-      }
-      const queuedSet = new Set(queued);
-      const retryable = allMessages.filter((row) => queuedSet.has(row.id));
-      if (retryable.length > 0) {
-        writer.consider(retryable);
-      }
-    };
-    void recover();
-    return () => {
-      cancelled = true;
-    };
-  }, [allMessages, searchIndexToken]);
-
-  // One search session backs both surfaces. `enabled` tracks the whole session
-  // (bar or list), so the list view inherits the bar's corpus, query, and
-  // paging walk instead of standing up a second one.
+  const sharedRefsRefreshToken = serverRefsRefreshToken;
   const search = useConversationSearch({
     allMessages,
     conversationId,
     enabled: searchOpen,
-    hasPreviousPage: hasPreviousPage ?? false,
-    indexRefreshToken: searchIndexToken,
-    indexStore: searchIndexStore,
     listPage: searchView === "list" ? searchPage : 0,
     offlineCacheRefreshToken: serverSearchRefreshToken,
     offlineSearchScope: activeOfflineSearchScope,
     requestDecryptBatch,
-    serverMode: SERVER_MESSAGE_SEARCH_ENABLED,
     serverRefreshToken: serverSearchRefreshToken,
+    serverSearchEnabled: SERVER_MESSAGE_SEARCH_ENABLED,
   });
   const handleRetrySearch = search.retry;
   const { matchIds } = search;
@@ -3765,28 +3143,11 @@ export function MessageThread({
     historyReads.reset();
   }, [conversationId, historyReads, search.debouncedQuery, searchOpen]);
 
-  // How much of this conversation the index can actually see, which is what the
-  // bar's counter has to be honest about. Three signals agree on coverage: a
-  // backfill that reached the start this session, a vouched persisted verdict
-  // from an earlier session (covered flag plus verified cursor chain -- either
-  // half missing means the walk must re-prove it), or a transcript that paged
-  // to the start (the API returning no older page means there is no older page).
-  // All three verdict halves, for the same reason the walk needs all three: a
-  // conversation whose TEXT is covered but whose refs are not is not covered as
-  // far as anything on screen can tell, and reporting it as covered is what put
-  // "no media" on a chat full of it.
-  const fullyCovered = SERVER_MESSAGE_SEARCH_ENABLED
-    ? search.serverCoverageIncomplete === false &&
-      search.serverCoverageUnavailable === false &&
-      search.debouncedQuery.trim().length > 0
-    : (coverage?.reachedStart === true && coverage.refsReachedStart === true) ||
-      (persistedCovered === true &&
-        persistedChainVerified === true &&
-        persistedRefsCovered === true) ||
-      (hasPreviousPage === false && allMessages.length > 0);
-  const indexingOlder = SERVER_MESSAGE_SEARCH_ENABLED
-    ? search.serverCoverageIncomplete && !search.searching
-    : coverage?.state === "running";
+  const fullyCovered =
+    search.serverCoverageIncomplete === false &&
+    search.serverCoverageUnavailable === false &&
+    search.debouncedQuery.trim().length > 0;
+  const indexingOlder = search.serverCoverageIncomplete && !search.searching;
   // The list's page and its active row.
   //
   // The pager is sized by the TOTAL, not by the rows on hand. That is the whole
@@ -4551,7 +3912,6 @@ export function MessageThread({
           );
         }
       } else if (event.kind === "message.deleted") {
-        searchWriterRef.current?.remove([message.id]);
         queryClient.setQueryData<MessagesInfiniteData>(
           ["messages", conversationId] as const,
           (old) => {
@@ -4685,45 +4045,6 @@ export function MessageThread({
             resetConversation
           );
         let cacheSynchronized = true;
-        const clearLegacySearchIndex = async (): Promise<boolean> => {
-          const writer = searchWriterRef.current;
-          if (writer) {
-            return writer.clearConversation();
-          }
-          if (!searchIndexStore) {
-            return true;
-          }
-          try {
-            await searchIndexStore.clearConversation(conversationId);
-            return true;
-          } catch {
-            signal.throwIfAborted();
-            setSearchIndex(null);
-            return false;
-          }
-        };
-        const removeLegacySearchEntries = async (
-          messageIds: readonly string[]
-        ): Promise<boolean> => {
-          if (messageIds.length === 0) {
-            return true;
-          }
-          const writer = searchWriterRef.current;
-          if (writer) {
-            return writer.removeAndWait(messageIds);
-          }
-          if (!searchIndexStore) {
-            return true;
-          }
-          const ids = [...messageIds];
-          try {
-            await searchIndexStore.removeEntries(conversationId, ids);
-            await searchIndexStore.removeSharedRefs(conversationId, ids);
-            return true;
-          } catch {
-            return false;
-          }
-        };
         const committed = await applyChangesBeforeCursorCommit({
           apply: async () => {
             const refreshBoundedWindow =
@@ -4732,12 +4053,6 @@ export function MessageThread({
               return true;
             }
             if (resetConversation) {
-              const legacyIndexCleared = await clearLegacySearchIndex();
-              signal.throwIfAborted();
-              if (!legacyIndexCleared) {
-                cacheSynchronized = false;
-                setSearchIndex(null);
-              }
               if (offlineSearchScope) {
                 const cleared =
                   await offlineSearchWorkerClient.clearConversation(
@@ -4756,27 +4071,7 @@ export function MessageThread({
               }
               await refreshRecoveryGeneration();
               signal.throwIfAborted();
-              setPersistedCovered(false);
-              setPersistedChainVerified(false);
-              setPersistedRefsCovered(false);
-              setWalkEpoch((epoch) => epoch + 1);
             } else {
-              const legacyIndexUpdated = await removeLegacySearchEntries(
-                offlineChangePlan.messageIds
-              );
-              signal.throwIfAborted();
-              if (!legacyIndexUpdated) {
-                const legacyIndexCleared = await clearLegacySearchIndex();
-                signal.throwIfAborted();
-                if (!legacyIndexCleared) {
-                  cacheSynchronized = false;
-                  setSearchIndex(null);
-                }
-                setPersistedCovered(false);
-                setPersistedChainVerified(false);
-                setPersistedRefsCovered(false);
-                setWalkEpoch((epoch) => epoch + 1);
-              }
               for (const messageId of offlineChangePlan.messageIds) {
                 messageDecryptor.invalidate(messageId);
               }
@@ -4829,7 +4124,6 @@ export function MessageThread({
               ]);
             }
             signal.throwIfAborted();
-            bumpSearchIndex();
             if (refreshServerSearchSnapshot) {
               setServerSearchRefreshToken((token) => token + 1);
             }
@@ -4866,12 +4160,10 @@ export function MessageThread({
       }
     },
     [
-      bumpSearchIndex,
       conversationId,
       offlineSearchScope,
       queryClient,
       refreshRecoveryGeneration,
-      searchIndexStore,
       user?.id,
     ]
   );
@@ -4902,26 +4194,9 @@ export function MessageThread({
             queryKey: ["messages", conversationId],
           });
           setOfflineCacheDisabledFor(conversationId);
-          setPersistedCovered(false);
-          setPersistedChainVerified(false);
-          setPersistedRefsCovered(false);
-          setWalkEpoch((epoch) => epoch + 1);
           void (async () => {
             try {
               let derivedCacheCleared = true;
-              const writer = searchWriterRef.current;
-              if (writer) {
-                derivedCacheCleared = await writer.clearConversation();
-              } else if (searchIndexStore) {
-                try {
-                  await searchIndexStore.clearConversation(conversationId);
-                } catch {
-                  derivedCacheCleared = false;
-                }
-              }
-              if (!derivedCacheCleared) {
-                setSearchIndex(null);
-              }
               if (offlineSearchScope) {
                 const cleared =
                   await offlineSearchWorkerClient.clearConversation(
@@ -4963,30 +4238,6 @@ export function MessageThread({
             }
           })();
         } else {
-          const writer = searchWriterRef.current;
-          if (writer) {
-            void (async () => {
-              try {
-                const removed = await writer.removeAndWait(notice.messageIds);
-                if (removed) {
-                  return;
-                }
-                const cleared = await writer.clearConversation();
-                if (!cleared) {
-                  setSearchIndex(null);
-                }
-                setPersistedCovered(false);
-                setPersistedChainVerified(false);
-                setPersistedRefsCovered(false);
-                setWalkEpoch((epoch) => epoch + 1);
-              } catch {
-                setSearchIndex(null);
-                setPersistedCovered(false);
-                setPersistedChainVerified(false);
-                setPersistedRefsCovered(false);
-              }
-            })();
-          }
           for (const messageId of notice.messageIds) {
             messageDecryptor.invalidate(messageId);
           }
@@ -5014,7 +4265,6 @@ export function MessageThread({
             refetchType: "active",
           });
         }
-        bumpSearchIndex();
         setServerSearchRefreshToken((token) => token + 1);
         setServerRefsRefreshToken((token) => token + 1);
       },
@@ -5028,12 +4278,10 @@ export function MessageThread({
       }
     };
   }, [
-    bumpSearchIndex,
     conversationId,
     offlineSearchScope,
     queryClient,
     refreshRecoveryGeneration,
-    searchIndexStore,
     user?.id,
   ]);
 
@@ -5263,22 +4511,19 @@ export function MessageThread({
           {searchOpen ? (
             <MessageSearchBar
               activePosition={searchActivePosition}
-              serverManaged={SERVER_MESSAGE_SEARCH_ENABLED}
+              serverManaged
               offlineSearch={search.offlineSearch}
+              savedHistorySearch={search.savedHistorySearch}
               coverageUnavailable={search.serverCoverageUnavailable}
               searching={search.searching}
               searchError={search.searchError}
               searchHasMore={search.serverHasMore}
-              onRetrySearch={
-                SERVER_MESSAGE_SEARCH_ENABLED
-                  ? handleRetrySearch
-                  : startIndexingOlder
-              }
+              onRetrySearch={handleRetrySearch}
               // Jump in flight counts as work: the anchored read and the walk
               // behind it are the slowest requests this bar can be waiting on.
               indexing={transcriptFetching || jumpLoading}
               fullyCovered={fullyCovered}
-              indexFailed={coverage?.state === "failed"}
+              indexFailed={false}
               indexingOlder={indexingOlder}
               inputRef={searchInputRef}
               jumpError={jumpError}
@@ -5295,7 +4540,7 @@ export function MessageThread({
               page={searchPageSlice.page}
               pageCount={searchPageSlice.pageCount}
               query={search.query}
-              storageFull={storageFull}
+              storageFull={false}
               rangeEnd={searchPageSlice.rangeEnd}
               rangeStart={searchPageSlice.rangeStart}
               resultCount={searchPageSlice.pageResults.length}
@@ -5724,7 +4969,7 @@ export function MessageThread({
               }}
               // A walk in flight, so the tabs can say "indexing" rather than imply
               // the list is the whole conversation.
-              indexingRefs={coverage?.state === "running"}
+              indexingRefs={false}
               messages={allMessages}
               onClose={() => setDetailsOpen(false)}
               // The same jump the search results use, so a tile for a message this
@@ -5738,7 +4983,7 @@ export function MessageThread({
               // same store and the same signal search uses, rather than a second
               // subscription that would re-read on a different schedule.
               refsRefreshToken={sharedRefsRefreshToken}
-              searchIndexStore={searchIndexStore}
+              searchIndexStore={null}
               serverReadRefsPage={
                 SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
               }
@@ -5763,14 +5008,14 @@ export function MessageThread({
                 tab,
               });
             }}
-            indexingRefs={coverage?.state === "running"}
+            indexingRefs={false}
             messages={allMessages}
             onJumpToMessage={jumpToMessage}
             onRequestDecrypts={requestLoadedDecrypts}
             peer={peer}
             presence={peerPresence}
             refsRefreshToken={sharedRefsRefreshToken}
-            searchIndexStore={searchIndexStore}
+            searchIndexStore={null}
             serverReadRefsPage={
               SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
             }
