@@ -12,6 +12,7 @@ import {
 
 import type { MessageData } from "@/lib/messages/types";
 
+import { coverageRetryDelay } from "./coverage-retry-delay";
 import { messageDecryptor } from "./decryptor";
 import type { OfflineSearchCacheScope } from "./indexeddb-offline-search-cache";
 import {
@@ -52,7 +53,6 @@ import { decidePageRequest, headPageCursor } from "./search-page-refresh";
 import {
   decideServerSearchPageRequest,
   isServerSearchScopeChanged,
-  serverSearchCoverageRetryDelay,
   serverSearchHasMore,
   shouldRestartAfterServerSearchScopeChange,
   shouldPollServerSearchCoverage,
@@ -1626,9 +1626,7 @@ export function useConversationSearch(
       }
       return;
     }
-    const delay = serverSearchCoverageRetryDelay(
-      serverCoveragePollAttemptRef.current
-    );
+    const delay = coverageRetryDelay(serverCoveragePollAttemptRef.current);
     const timer = setTimeout(() => {
       serverCoveragePollAttemptRef.current += 1;
       setServerRequestGeneration((generation) => generation + 1);

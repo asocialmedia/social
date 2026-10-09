@@ -56,13 +56,6 @@ export function serverSearchHasMore(input: {
   return input.coverageComplete && input.nextCursor !== null;
 }
 
-export function serverSearchCoverageRetryDelay(attempt: number): number {
-  const boundedAttempt = Number.isFinite(attempt)
-    ? Math.min(Math.max(Math.trunc(attempt), 0), 4)
-    : 0;
-  return Math.min(1000 * 2 ** boundedAttempt, 15_000);
-}
-
 export function isServerSearchScopeChanged(
   status: number,
   payload: unknown

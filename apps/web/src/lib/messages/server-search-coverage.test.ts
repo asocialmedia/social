@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   decideServerSearchPageRequest,
   isServerSearchScopeChanged,
-  serverSearchCoverageRetryDelay,
   serverSearchHasMore,
   shouldRestartAfterServerSearchScopeChange,
   shouldPollServerSearchCoverage,
@@ -92,13 +91,6 @@ describe("server search coverage refresh policy", () => {
     expect(
       serverSearchHasMore({ coverageComplete: true, nextCursor: "cursor" })
     ).toBe(true);
-  });
-
-  test("backs off from one second to a bounded fifteen-second interval", () => {
-    expect([0, 1, 2, 3, 4, 5].map(serverSearchCoverageRetryDelay)).toEqual([
-      1000, 2000, 4000, 8000, 15_000, 15_000,
-    ]);
-    expect(serverSearchCoverageRetryDelay(Number.NaN)).toBe(1000);
   });
 
   test("recognizes only explicit scope conflicts and retries once per query", () => {

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { coverageRetryDelay } from "@/lib/messages/coverage-retry-delay";
 import type { SearchIndexStore } from "@/lib/messages/search-index-format";
+import { shouldPollServerSharedRefsCoverage } from "@/lib/messages/server-shared-refs-coverage";
 import {
   sharedRefToLinkItem,
   sharedRefToMediaItem,
@@ -197,6 +199,7 @@ export function useSharedRefsReader(input: {
     useState(false);
   const [serverCoverageUnavailable, setServerCoverageUnavailable] =
     useState(false);
+  const [coveragePollAttempt, setCoveragePollAttempt] = useState(0);
   const paging = useRef<PagingState>(newPagingState(refreshToken));
 
   // The decrypted-window fallbacks. Both are computed unconditionally: they are
@@ -327,6 +330,7 @@ export function useSharedRefsReader(input: {
     if (previousToken !== refreshToken) {
       setServerCoverageIncomplete(false);
       setServerCoverageUnavailable(false);
+      setCoveragePollAttempt(0);
       for (const controller of Object.values(paging.current.controllers)) {
         controller?.abort();
       }
@@ -363,6 +367,39 @@ export function useSharedRefsReader(input: {
       }
     };
   }, [conversationId, readPage, refreshToken, serverReadPage, store]);
+
+  useEffect(() => {
+    if (
+      !shouldPollServerSharedRefsCoverage({
+        coverageIncomplete: serverCoverageIncomplete,
+        coverageUnavailable: serverCoverageUnavailable,
+        requestLoading: paging.current.inFlight.media,
+        serverMode: Boolean(serverReadPage),
+        source: paging.current.source.media,
+      })
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      void (async () => {
+        await readPage("media", "refresh");
+        if (!cancelled) {
+          setCoveragePollAttempt((attempt) => attempt + 1);
+        }
+      })();
+    }, coverageRetryDelay(coveragePollAttempt));
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [
+    coveragePollAttempt,
+    readPage,
+    serverCoverageIncomplete,
+    serverCoverageUnavailable,
+    serverReadPage,
+  ]);
 
   // Awaitable on purpose: the footer's button shows a spinner and refuses further
   // taps while a page is in, and it can only stop doing that if it can see when the
