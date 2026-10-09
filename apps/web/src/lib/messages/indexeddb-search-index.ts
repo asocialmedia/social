@@ -218,6 +218,15 @@ export async function runTransaction<T>(
     let transactionComplete = false;
     let workSettled = false;
     let workFailed = false;
+    const failWork = (error: unknown) => {
+      workFailed = true;
+      try {
+        tx.abort();
+      } catch {
+        // The transaction may already be aborting.
+      }
+      reject(error);
+    };
     const settle = () => {
       if (workFailed || !transactionComplete || !workSettled) {
         return;
@@ -236,25 +245,39 @@ export async function runTransaction<T>(
       workFailed = true;
       reject(tx.error ?? new Error("idb transaction aborted"));
     });
-    void Promise.resolve(work(tx))
+    let workPromise: Promise<T>;
+    try {
+      workPromise = Promise.resolve(work(tx));
+    } catch (error) {
+      // A synchronous callback failure must abort already-issued writes too.
+      failWork(error);
+      return;
+    }
+    void workPromise
       .then((value) => {
         result = value;
         workSettled = true;
         settle();
       })
-      .catch((error: unknown) => {
-        workFailed = true;
-        try {
-          tx.abort();
-        } catch {
-          // Already aborting.
-        }
-        // Rejected here rather than on the abort event: the work already failed,
-        // and waiting on an abort that may never be delivered would leave the
-        // caller hanging on a transaction that can no longer succeed.
-        reject(error);
-      });
+      .catch(failWork);
   });
+}
+
+export async function clearLegacySearchIndexData(): Promise<boolean> {
+  if (storageUnavailable()) {
+    return false;
+  }
+  try {
+    await runTransaction(SEARCH_STORES, "readwrite", (tx) => {
+      // Clear native stores without reading dictionaries, rows or conversation summaries.
+      for (const name of SEARCH_STORES) {
+        tx.objectStore(name).clear();
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function requestAsPromise<T>(request: IDBRequest<T>): Promise<T> {

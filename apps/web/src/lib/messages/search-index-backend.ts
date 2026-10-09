@@ -2,12 +2,12 @@
 // missing, denied, or fails to open, fall back to a session-only in-memory
 // index rather than breaking the transcript.
 
-import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
-import { createMemorySearchIndexStore } from "./memory-search-index";
 import {
-  clearAllSearchIndexScopes,
-  clearSearchIndexScope,
-} from "./scoped-search-index";
+  clearLegacySearchIndexData,
+  createIndexedDbSearchIndexStore,
+} from "./indexeddb-search-index";
+import { createMemorySearchIndexStore } from "./memory-search-index";
+import { clearSearchIndexScope } from "./scoped-search-index";
 import type { SearchIndexStore } from "./search-index-format";
 
 export type SearchIndexBackend = "indexeddb" | "memory";
@@ -62,17 +62,7 @@ export function retireLegacySearchIndex(): Promise<boolean> {
   if (legacySearchRetirement) {
     return legacySearchRetirement;
   }
-  const pending = (async () => {
-    try {
-      const resolved = await resolveSearchIndexStore();
-      if (resolved.backend !== "indexeddb") {
-        return false;
-      }
-      return await clearAllSearchIndexScopes(resolved.store);
-    } catch {
-      return false;
-    }
-  })();
+  const pending = clearLegacySearchIndexData();
   legacySearchRetirement = pending;
   void (async () => {
     const succeeded = await pending;
