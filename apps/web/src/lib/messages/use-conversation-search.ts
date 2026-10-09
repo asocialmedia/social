@@ -51,8 +51,10 @@ import type {
 import { decidePageRequest, headPageCursor } from "./search-page-refresh";
 import {
   decideServerSearchPageRequest,
+  isServerSearchScopeChanged,
   serverSearchCoverageRetryDelay,
   serverSearchHasMore,
+  shouldRestartAfterServerSearchScopeChange,
   shouldPollServerSearchCoverage,
 } from "./server-search-coverage";
 
@@ -333,6 +335,7 @@ export function useConversationSearch(
   const [serverRequestGeneration, setServerRequestGeneration] = useState(0);
   const serverCoveragePollKeyRef = useRef("");
   const serverCoveragePollAttemptRef = useRef(0);
+  const serverScopeRestartKeyRef = useRef("");
   const [serverRequest, setServerRequest] = useState<{
     error: string | null;
     key: string;
@@ -704,6 +707,39 @@ export function useConversationSearch(
           }
         );
         if (!response.ok) {
+          if (response.status === 409) {
+            const payload: unknown = await response.json().catch(() => null);
+            if (isServerSearchScopeChanged(response.status, payload)) {
+              if (
+                shouldRestartAfterServerSearchScopeChange(
+                  requestKey,
+                  serverScopeRestartKeyRef.current
+                )
+              ) {
+                serverScopeRestartKeyRef.current = requestKey;
+                setServerPageState({
+                  key: requestKey,
+                  pages: [],
+                  requestGeneration: serverRequestGeneration,
+                });
+                setServerRequestGeneration((generation) => generation + 1);
+                setServerRequest({
+                  error: null,
+                  key: requestKey,
+                  loading: false,
+                });
+                return;
+              }
+              if (!cancelled) {
+                setServerRequest({
+                  error: "Search could not load. Try again.",
+                  key: requestKey,
+                  loading: false,
+                });
+              }
+              return;
+            }
+          }
           if (
             shouldUseOfflineSearchForStatus(response.status) &&
             (await saveOfflinePages())
@@ -771,8 +807,9 @@ export function useConversationSearch(
           typeof body.nextCursor === "string" ? body.nextCursor : null;
         const countToken =
           typeof body.countToken === "string" ? body.countToken : null;
-        const {snapshotToken} = body;
+        const { snapshotToken } = body;
         if (!cancelled) {
+          serverScopeRestartKeyRef.current = "";
           setServerPageState((current) => {
             const pages = current.key === requestKey ? current.pages : [];
             const nextPage = {
@@ -911,6 +948,7 @@ export function useConversationSearch(
   );
 
   const retry = useCallback(() => {
+    serverScopeRestartKeyRef.current = "";
     setServerRequestGeneration((generation) => generation + 1);
   }, []);
 

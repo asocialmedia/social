@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   decideServerSearchPageRequest,
+  isServerSearchScopeChanged,
   serverSearchCoverageRetryDelay,
   serverSearchHasMore,
+  shouldRestartAfterServerSearchScopeChange,
   shouldPollServerSearchCoverage,
 } from "./server-search-coverage";
 
@@ -93,5 +95,18 @@ describe("server search coverage refresh policy", () => {
       1000, 2000, 4000, 8000, 15_000, 15_000,
     ]);
     expect(serverSearchCoverageRetryDelay(Number.NaN)).toBe(1000);
+  });
+
+  test("recognizes only explicit scope conflicts and retries once per query", () => {
+    expect(
+      isServerSearchScopeChanged(409, { code: "SEARCH_SCOPE_CHANGED" })
+    ).toBe(true);
+    expect(isServerSearchScopeChanged(409, { error: "Conflict" })).toBe(false);
+    expect(
+      isServerSearchScopeChanged(200, { code: "SEARCH_SCOPE_CHANGED" })
+    ).toBe(false);
+    expect(shouldRestartAfterServerSearchScopeChange("q1", "")).toBe(true);
+    expect(shouldRestartAfterServerSearchScopeChange("q1", "q1")).toBe(false);
+    expect(shouldRestartAfterServerSearchScopeChange("q2", "q1")).toBe(true);
   });
 });

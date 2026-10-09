@@ -60,3 +60,23 @@ export function serverSearchCoverageRetryDelay(attempt: number): number {
     : 0;
   return Math.min(1000 * 2 ** boundedAttempt, 15_000);
 }
+
+export function isServerSearchScopeChanged(
+  status: number,
+  payload: unknown
+): boolean {
+  return (
+    status === 409 &&
+    typeof payload === "object" &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    (payload as Record<string, unknown>).code === "SEARCH_SCOPE_CHANGED"
+  );
+}
+
+export function shouldRestartAfterServerSearchScopeChange(
+  requestKey: string,
+  lastRestartedKey: string
+): boolean {
+  return requestKey !== lastRestartedKey;
+}
