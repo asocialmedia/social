@@ -184,6 +184,7 @@ import {
 import { messagesTrustNote } from "@/lib/messages/messages-trust";
 import {
   planOfflineSearchChangeEffects,
+  shouldRefreshServerSharedReferences,
   shouldRefreshServerSearchSnapshot,
 } from "@/lib/messages/offline-search-change-policy";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
@@ -640,6 +641,7 @@ export function MessageThread({
   const [searchPage, setSearchPage] = useState(0);
   const [searchListIndex, setSearchListIndex] = useState(0);
   const [serverSearchRefreshToken, setServerSearchRefreshToken] = useState(0);
+  const [serverRefsRefreshToken, setServerRefsRefreshToken] = useState(0);
   const [offlineCacheDisabledFor, setOfflineCacheDisabledFor] = useState<
     string | null
   >(null);
@@ -3330,6 +3332,9 @@ export function MessageThread({
     searchIndex !== null && searchIndex.scopeKey === localSearchScopeKey;
   const searchIndexStore = searchIndexIsCurrent ? searchIndex.store : null;
   const searchIndexToken = searchIndexIsCurrent ? searchIndex.refreshToken : 0;
+  const sharedRefsRefreshToken = SERVER_MESSAGE_SEARCH_ENABLED
+    ? serverRefsRefreshToken
+    : searchIndexToken;
   const searchWriterRef = useRef<ReturnType<
     typeof createMessageIndexWriter
   > | null>(null);
@@ -4534,6 +4539,9 @@ export function MessageThread({
       if (!message) {
         return;
       }
+      if (SERVER_MESSAGE_SEARCH_ENABLED) {
+        setServerRefsRefreshToken((token) => token + 1);
+      }
       if (event.kind === "message.created") {
         const messageQueryKey = ["messages", conversationId] as const;
         const currentWindow =
@@ -4714,6 +4722,10 @@ export function MessageThread({
         replay.changes,
         resetConversation
       );
+      const refreshServerSharedReferences = shouldRefreshServerSharedReferences(
+        replay.changes,
+        resetConversation
+      );
       let cacheSynchronized = true;
       const clearLegacySearchIndex = async (): Promise<boolean> => {
         const writer = searchWriterRef.current;
@@ -4848,6 +4860,9 @@ export function MessageThread({
           bumpSearchIndex();
           if (refreshServerSearchSnapshot) {
             setServerSearchRefreshToken((token) => token + 1);
+          }
+          if (SERVER_MESSAGE_SEARCH_ENABLED && refreshServerSharedReferences) {
+            setServerRefsRefreshToken((token) => token + 1);
           }
           return cacheSynchronized;
         },
@@ -5027,6 +5042,7 @@ export function MessageThread({
         }
         bumpSearchIndex();
         setServerSearchRefreshToken((token) => token + 1);
+        setServerRefsRefreshToken((token) => token + 1);
       },
       userId: user.id,
     });
@@ -5753,7 +5769,7 @@ export function MessageThread({
               // The index the tabs read, and the token that says it changed. The
               // same store and the same signal search uses, rather than a second
               // subscription that would re-read on a different schedule.
-              refsRefreshToken={searchIndex?.refreshToken ?? 0}
+              refsRefreshToken={sharedRefsRefreshToken}
               searchIndexStore={searchIndexStore}
               serverReadRefsPage={
                 SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
@@ -5785,7 +5801,7 @@ export function MessageThread({
             onRequestDecrypts={requestLoadedDecrypts}
             peer={peer}
             presence={peerPresence}
-            refsRefreshToken={searchIndex?.refreshToken ?? 0}
+            refsRefreshToken={sharedRefsRefreshToken}
             searchIndexStore={searchIndexStore}
             serverReadRefsPage={
               SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined

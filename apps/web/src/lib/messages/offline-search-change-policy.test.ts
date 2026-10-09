@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { DurableMessageChange } from "./durable-change-replay";
 import {
   planOfflineSearchChangeEffects,
+  shouldRefreshServerSharedReferences,
   shouldRefreshServerSearchSnapshot,
 } from "./offline-search-change-policy";
 
@@ -25,12 +26,9 @@ function change(
 
 describe("offline search replay change policy", () => {
   test("keeps a paginated search snapshot stable across new messages", () => {
-    expect(
-      shouldRefreshServerSearchSnapshot(
-        [change({ id: "new-message", kind: "message.created" })],
-        false
-      )
-    ).toBe(false);
+    const created = change({ id: "new-message", kind: "message.created" });
+    expect(shouldRefreshServerSearchSnapshot([created], false)).toBe(false);
+    expect(shouldRefreshServerSharedReferences([created], false)).toBe(true);
   });
 
   test("refreshes search snapshots for edits, visibility changes, and resets", () => {
@@ -47,6 +45,14 @@ describe("offline search replay change policy", () => {
       )
     ).toBe(true);
     expect(shouldRefreshServerSearchSnapshot([], true)).toBe(true);
+    expect(shouldRefreshServerSharedReferences([], false)).toBe(false);
+    expect(shouldRefreshServerSharedReferences([], true)).toBe(true);
+    expect(
+      shouldRefreshServerSharedReferences(
+        [change({ kind: "message.edited" })],
+        false
+      )
+    ).toBe(true);
   });
 
   test("removes changed entries behind revision and sequence tombstones", () => {

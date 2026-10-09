@@ -17,6 +17,13 @@ export function shouldRefreshServerSearchSnapshot(
   );
 }
 
+export function shouldRefreshServerSharedReferences(
+  changes: readonly DurableMessageChange[],
+  resetRequired: boolean
+): boolean {
+  return resetRequired || changes.length > 0;
+}
+
 export function planOfflineSearchChangeEffects(
   changes: readonly DurableMessageChange[]
 ): OfflineSearchChangePlan {
