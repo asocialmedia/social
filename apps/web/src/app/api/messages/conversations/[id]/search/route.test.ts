@@ -400,4 +400,32 @@ describe("POST /api/messages/conversations/:id/search", () => {
     expect(next.status).toBe(409);
     expect(mockSearchCandidates).toHaveBeenCalledTimes(1);
   });
+
+  test("rejects a cursor from a sequence beyond the current database snapshot", async () => {
+    mockSearchCandidates.mockReturnValueOnce(
+      Promise.resolve(
+        Array.from({ length: 21 }, (_, index) => ({
+          ciphertext: "ciphertext",
+          createdAt: new Date("2026-10-08T00:00:00.000Z"),
+          id: `message-${index}`,
+          iv: "iv",
+          keyEpoch: 1,
+          ratchetIndex: index,
+          revision: 1,
+          senderId: "user-1",
+        }))
+      )
+    );
+    const first = await POST(request({ query: "needle" }), context);
+    const firstBody = (await first.json()) as { nextCursor: string };
+    mockChangeSequence.mockReturnValueOnce({ changeSeq: 80 });
+
+    const next = await POST(
+      request({ cursor: firstBody.nextCursor, query: "needle" }),
+      context
+    );
+
+    expect(next.status).toBe(409);
+    expect(mockSearchCandidates).toHaveBeenCalledTimes(1);
+  });
 });

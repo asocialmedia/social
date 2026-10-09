@@ -216,7 +216,7 @@ export async function POST(
       cursorScope,
       keys.VIEWER_HASH_SECRET
     );
-    if (!cursor) {
+    if (!cursor || cursor.snapshotSequence > snapshotSequence) {
       return Response.json(
         { code: "SEARCH_SCOPE_CHANGED", error: "Start this search again" },
         { status: 409 }
