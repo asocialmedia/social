@@ -1408,7 +1408,11 @@ export function ExplicitGate({
       {coverUri ? (
         <Image
           accessibilityLabel=""
+          // A concealed cover stays still until consent; the revealed gallery
+          // owns viewport-scoped animation and playback.
+          autoplay={false}
           blurRadius={blurSupported ? 40 : 0}
+          cachePolicy="memory-disk"
           contentFit="cover"
           source={{ uri: coverUri }}
           style={[

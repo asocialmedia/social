@@ -8,6 +8,7 @@ import * as SystemUI from "expo-system-ui";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { useReducedMotion } from "react-native-reanimated";
 import { enableFreeze } from "react-native-screens";
 
 import { ErrorBoundary } from "@/components/feedback/error-boundary";
@@ -22,6 +23,7 @@ import { PushRegistrar } from "@/features/notifications/components/push-registra
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
+import { finishPostEnter, postEnterAnimation } from "@/lib/navigation-motion";
 import { ResumeGate, ResumeSaver } from "@/lib/resume-gate";
 import { StartupPresentedContext } from "@/lib/startup-context";
 import { prepareNativeStartup } from "@/lib/startup-native";
@@ -91,6 +93,7 @@ function runAfterIdle(work: () => void): () => void {
 
 export default function RootLayout() {
   const { isDark, theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const navigationAnimation =
     Platform.OS === "ios" ? "default" : "slide_from_right";
 
@@ -207,7 +210,20 @@ export default function RootLayout() {
                   }}
                 >
                   <Stack.Screen name="index" options={{ animation: "none" }} />
-                  <Stack.Screen name="posts" />
+                  <Stack.Screen
+                    name="posts"
+                    options={{ animation: postEnterAnimation(presented) }}
+                    listeners={({ navigation }) => ({
+                      transitionEnd: (event) => {
+                        finishPostEnter(
+                          navigation.setOptions,
+                          event.data.closing,
+                          Platform.OS,
+                          reducedMotion
+                        );
+                      },
+                    })}
+                  />
                   <Stack.Screen name="notifications" />
                   <Stack.Screen name="bookmarks" />
                   {/* Messages is a nested stack of its own (see messages/_layout.tsx):
