@@ -194,6 +194,7 @@ export async function GET(
       coverage.completedChangeSeq >= snapshotSequence;
     const coverageComplete =
       coverageSettled && coverage?.unrecoverableEpochs === 0;
+    const coveragePaused = !flags.backfill && !coverageSettled;
     const membershipWindows = readerMessageWindows({
       conversationType: conversation.type,
       events: membershipEvents,
@@ -270,6 +271,7 @@ export async function GET(
         : null;
       return Response.json({
         coverageComplete,
+        coveragePaused,
         coverageSettled,
         hasMore: hasOlder || hasNewer,
         items: [...newerItems, ...olderItems].map((item) => ({
@@ -337,6 +339,7 @@ export async function GET(
         : null;
     return Response.json({
       coverageComplete,
+      coveragePaused,
       coverageSettled,
       hasMore,
       items: items.map((item) => ({

@@ -100,6 +100,9 @@ function referenceRow(messageId: string, second: number, ordinal = 0) {
 
 describe("GET /api/messages/conversations/:id/shared", () => {
   beforeEach(() => {
+    process.env.MESSAGE_SEARCH_BACKFILL_ENABLED = "1";
+    process.env.MESSAGE_SEARCH_COUNT_ENABLED = "1";
+    process.env.MESSAGE_SEARCH_SERVER_ENABLED = "1";
     mockSession.mockReset();
     mockSession.mockReturnValue({ user: { id: "user-1" } });
     mockConversation.mockReset();
@@ -140,6 +143,8 @@ describe("GET /api/messages/conversations/:id/shared", () => {
       })
     );
     mockEnqueueBackfill.mockReturnValue(Promise.resolve());
+    mockStartBackfill.mockClear();
+    mockEnqueueBackfill.mockClear();
     referenceInput = undefined;
     referenceInputs.length = 0;
   });
@@ -170,6 +175,7 @@ describe("GET /api/messages/conversations/:id/shared", () => {
     const body = await response.json();
     expect(body).toMatchObject({
       coverageComplete: true,
+      coveragePaused: false,
       hasMore: true,
       snapshotSequence: 80,
     });
@@ -188,6 +194,29 @@ describe("GET /api/messages/conversations/:id/shared", () => {
       snapshotSequence: 80,
       userId: "user-1",
     });
+  });
+
+  test("marks partial shared history paused when backfill is disabled", async () => {
+    process.env.MESSAGE_SEARCH_BACKFILL_ENABLED = "0";
+    mockCoverage.mockReturnValueOnce(
+      Promise.resolve({
+        backfillCompletedAt: null,
+        completedChangeSeq: 20,
+        unrecoverableEpochs: 0,
+      })
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      coverageComplete: false,
+      coveragePaused: true,
+      coverageSettled: false,
+    });
+    expect(mockStartBackfill).not.toHaveBeenCalled();
+    expect(mockEnqueueBackfill).not.toHaveBeenCalled();
   });
 
   test("distinguishes finished indexing from complete references when keys are unavailable", async () => {

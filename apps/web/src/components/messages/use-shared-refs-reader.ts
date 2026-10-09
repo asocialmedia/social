@@ -270,12 +270,13 @@ export function useSharedRefsReader(input: {
           setServerCoverageIncomplete(
             result.source === "server" &&
               page.coverageComplete === false &&
+              page.coveragePaused !== true &&
               page.coverageSettled !== true
           );
           setServerCoverageUnavailable(
             result.source === "server" &&
               page.coverageComplete === false &&
-              page.coverageSettled === true
+              (page.coveragePaused === true || page.coverageSettled === true)
           );
           if (kind === "media") {
             setMedia((current) =>

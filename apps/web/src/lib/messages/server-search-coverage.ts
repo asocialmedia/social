@@ -1,5 +1,6 @@
 export interface ServerSearchCoveragePollState {
   coverageComplete: boolean;
+  coveragePaused: boolean;
   coverageSettled: boolean;
   hasPage: boolean;
   offline: boolean;
@@ -42,6 +43,7 @@ export function shouldPollServerSearchCoverage(
     state.queryValid &&
     state.hasPage &&
     !state.coverageComplete &&
+    !state.coveragePaused &&
     !state.coverageSettled &&
     !state.offline &&
     !state.requestError &&

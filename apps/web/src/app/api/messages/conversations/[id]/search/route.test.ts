@@ -210,6 +210,7 @@ describe("POST /api/messages/conversations/:id/search", () => {
     const body = (await response.json()) as {
       coverage: {
         complete: boolean;
+        paused: boolean;
         settled: boolean;
         snapshotSequence: number;
       };
@@ -217,6 +218,7 @@ describe("POST /api/messages/conversations/:id/search", () => {
     };
     expect(body.coverage).toMatchObject({
       complete: false,
+      paused: false,
       settled: false,
       snapshotSequence: 90,
     });
@@ -232,6 +234,28 @@ describe("POST /api/messages/conversations/:id/search", () => {
       snapshotSequence: 90,
       userId: "user-1",
     });
+  });
+
+  test("marks incomplete coverage paused when the backfill kill switch is off", async () => {
+    process.env.MESSAGE_SEARCH_BACKFILL_ENABLED = "0";
+    const response = await POST(request({ query: "needle" }), context);
+    const body = (await response.json()) as {
+      coverage: { complete: boolean; paused: boolean; settled: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.coverage).toEqual({
+      artifactsCommitted: 100,
+      complete: false,
+      completedChangeSequence: 89,
+      paused: true,
+      rowsTraversed: 100,
+      settled: false,
+      snapshotSequence: 90,
+      unrecoverableEpochs: 0,
+    });
+    expect(mockStartBackfill).not.toHaveBeenCalled();
+    expect(mockEnqueueBackfill).not.toHaveBeenCalled();
   });
 
   test("declares coverage complete only after the backfill and snapshot settle", async () => {

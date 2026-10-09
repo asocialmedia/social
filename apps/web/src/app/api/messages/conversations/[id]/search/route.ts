@@ -347,6 +347,7 @@ export async function POST(
         artifactsCommitted: coverage?.artifactsCommitted ?? 0,
         complete: coverageComplete,
         completedChangeSequence,
+        paused: !features.backfill && !coverageSettled,
         rowsTraversed: coverage?.rowsTraversed ?? 0,
         settled: coverageSettled,
         snapshotSequence: effectiveSnapshotSequence,

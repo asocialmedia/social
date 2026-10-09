@@ -142,6 +142,7 @@ const EMPTY_MATCH_IDS: string[] = [];
 
 interface ServerSearchPage {
   coverageComplete: boolean;
+  coveragePaused: boolean;
   coverageSettled: boolean;
   countToken: string | null;
   hits: MessageData[];
@@ -598,6 +599,7 @@ export function useConversationSearch(
           pages.push({
             countToken: null,
             coverageComplete: true,
+            coveragePaused: false,
             coverageSettled: true,
             hits: page.hits.map((record) =>
               offlineSearchRecordToMessageData(conversationId, record)
@@ -652,6 +654,7 @@ export function useConversationSearch(
                     {
                       countToken: null,
                       coverageComplete: true,
+                      coveragePaused: false,
                       coverageSettled: true,
                       hits: page.hits.map((record) =>
                         offlineSearchRecordToMessageData(conversationId, record)
@@ -667,6 +670,7 @@ export function useConversationSearch(
                     {
                       countToken: null,
                       coverageComplete: true,
+                      coveragePaused: false,
                       coverageSettled: true,
                       hits: page.hits.map((record) =>
                         offlineSearchRecordToMessageData(conversationId, record)
@@ -813,6 +817,7 @@ export function useConversationSearch(
         const coverageComplete = coverageState?.complete === true;
         const coverageSettled =
           coverageState?.settled === true || coverageComplete;
+        const coveragePaused = coverageState?.paused === true;
         const nextCursor =
           typeof body.nextCursor === "string" ? body.nextCursor : null;
         const countToken =
@@ -825,6 +830,7 @@ export function useConversationSearch(
             const nextPage = {
               countToken,
               coverageComplete,
+              coveragePaused,
               coverageSettled,
               hits,
               nextCursor,
@@ -1574,7 +1580,8 @@ export function useConversationSearch(
     serverMode &&
     enabled &&
     !serverOffline &&
-    serverPages[0]?.coverageSettled === true &&
+    (serverPages[0]?.coverageSettled === true ||
+      serverPages[0]?.coveragePaused === true) &&
     serverPages[0]?.coverageComplete === false;
   const serverCoverageIncomplete =
     serverMode &&
@@ -1606,6 +1613,7 @@ export function useConversationSearch(
     }
     const canPoll = shouldPollServerSearchCoverage({
       coverageComplete: serverPages[0]?.coverageComplete === true,
+      coveragePaused: serverPages[0]?.coveragePaused === true,
       coverageSettled: serverPages[0]?.coverageSettled === true,
       hasPage: serverPages.length > 0,
       offline: serverOffline,

@@ -10,6 +10,7 @@ import {
 
 const POLLABLE = {
   coverageComplete: false,
+  coveragePaused: false,
   coverageSettled: false,
   hasPage: true,
   offline: false,
@@ -72,6 +73,9 @@ describe("server search coverage refresh policy", () => {
     ).toBe(false);
     expect(
       shouldPollServerSearchCoverage({ ...POLLABLE, coverageSettled: true })
+    ).toBe(false);
+    expect(
+      shouldPollServerSearchCoverage({ ...POLLABLE, coveragePaused: true })
     ).toBe(false);
     expect(
       shouldPollServerSearchCoverage({ ...POLLABLE, hasPage: false })
