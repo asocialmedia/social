@@ -1,0 +1,69 @@
+import { describe, expect, test } from "bun:test";
+
+import { createRef } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { MessageSearchBar } from "./message-search-bar";
+import type { MessageSearchBarProps } from "./message-search-bar";
+
+function renderSearchBar(
+  overrides: Partial<MessageSearchBarProps> = {}
+): string {
+  const props: MessageSearchBarProps = {
+    activePosition: 0,
+    fullyCovered: false,
+    indexFailed: false,
+    indexing: false,
+    indexingOlder: false,
+    inputRef: createRef<HTMLInputElement>(),
+    jumpError: null,
+    listPageError: null,
+    listPageStale: false,
+    matchCount: 0,
+    onClose: () => {},
+    onNext: () => {},
+    onPage: () => {},
+    onPrevious: () => {},
+    onQueryChange: () => {},
+    onRetrySearch: () => {},
+    onSubmit: () => {},
+    onToggleView: () => {},
+    page: 0,
+    pageCount: 1,
+    query: "needle",
+    rangeEnd: 0,
+    rangeStart: 0,
+    resultCount: 0,
+    storageFull: false,
+    totalResults: 0,
+    view: "chat",
+    ...overrides,
+  };
+  return renderToStaticMarkup(<MessageSearchBar {...props} />);
+}
+
+describe("MessageSearchBar user-facing fallback states", () => {
+  test("shows incomplete history without manual indexing or technical counters", () => {
+    const markup = renderSearchBar();
+
+    expect(markup).toContain("Searching older messages…");
+    expect(markup).not.toContain("Index older messages");
+    expect(markup).not.toContain("indexed");
+    expect(markup).not.toContain("Storage full");
+  });
+
+  test("shows a plain retry action when local search cannot finish", () => {
+    const markup = renderSearchBar({ indexFailed: true });
+
+    expect(markup).toContain("Search couldn&#x27;t finish");
+    expect(markup).toContain(">Retry</button>");
+    expect(markup).not.toContain("Retry indexing");
+  });
+
+  test("shows a storage failure instead of incomplete-history progress", () => {
+    const markup = renderSearchBar({ storageFull: true });
+
+    expect(markup).toContain("Search couldn&#x27;t finish");
+    expect(markup).not.toContain("Searching older messages…</span>");
+  });
+});

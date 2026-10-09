@@ -216,67 +216,53 @@ describe("searchListStatus", () => {
 });
 
 describe("searchStorageStatus", () => {
-  // The point of surfacing this: a full disk used to be indistinguishable from a
-  // conversation with no matches, so results were silently narrower than the user
-  // believed.
-  test("says storage is full when a write was refused", () => {
-    expect(searchStorageStatus({ evictedCount: 0, storageFull: true })).toBe(
-      "Storage full"
+  test("uses an ordinary failure message when a local write is refused", () => {
+    expect(searchStorageStatus({ storageFull: true })).toBe(
+      "Search couldn't finish"
     );
   });
 
-  test("reports conversations dropped to stay inside the budget", () => {
-    expect(searchStorageStatus({ evictedCount: 3, storageFull: false })).toBe(
-      "Older indexes removed (3)"
-    );
-  });
-
-  test("says nothing when there is no pressure", () => {
-    expect(searchStorageStatus({ evictedCount: 0, storageFull: false })).toBe(
-      ""
-    );
-  });
-
-  test("a full disk outranks an eviction notice", () => {
-    expect(searchStorageStatus({ evictedCount: 2, storageFull: true })).toBe(
-      "Storage full"
-    );
+  test("says nothing when local storage is available", () => {
+    expect(searchStorageStatus({ storageFull: false })).toBe("");
   });
 });
 
 describe("searchCoverageLabel", () => {
-  test("offers the walk plainly when nothing is indexed yet", () => {
-    expect(searchCoverageLabel({ indexedCount: 0, indexingOlder: false })).toBe(
-      "Index older messages"
-    );
-  });
-
-  test("reports how much is already covered", () => {
-    expect(
-      searchCoverageLabel({ indexedCount: 12_480, indexingOlder: false })
-    ).toBe("Index older messages (12,480 indexed)");
-  });
-
-  test("reports progress while the walk runs", () => {
-    expect(
-      searchCoverageLabel({ indexedCount: 12_480, indexingOlder: true })
-    ).toBe("Indexing older messages (12,480 indexed)");
-  });
-
-  test("a fresh walk with nothing covered yet has no count to show", () => {
-    expect(searchCoverageLabel({ indexedCount: 0, indexingOlder: true })).toBe(
-      "Indexing older messages"
-    );
-  });
-
-  test("a failed run asks for a retry instead of looking done", () => {
+  test("describes automatic progress without exposing index counters", () => {
     expect(
       searchCoverageLabel({
-        indexFailed: true,
-        indexedCount: 12_480,
+        fullyCovered: false,
+        indexingOlder: true,
+      })
+    ).toBe("Searching older messages…");
+  });
+
+  test("declares incomplete history while the background walk is between pages", () => {
+    expect(
+      searchCoverageLabel({
+        fullyCovered: false,
         indexingOlder: false,
       })
-    ).toBe("Retry indexing older messages");
+    ).toBe("Searching older messages…");
+  });
+
+  test("uses ordinary retry copy after an incomplete search", () => {
+    expect(
+      searchCoverageLabel({
+        fullyCovered: false,
+        indexFailed: true,
+        indexingOlder: false,
+      })
+    ).toBe("Search couldn't finish");
+  });
+
+  test("does not show an index state when no work or failure exists", () => {
+    expect(
+      searchCoverageLabel({
+        fullyCovered: true,
+        indexingOlder: false,
+      })
+    ).toBe("");
   });
 });
 

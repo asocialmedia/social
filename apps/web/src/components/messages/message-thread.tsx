@@ -3296,6 +3296,16 @@ export function MessageThread({
   const searchWriterRef = useRef<ReturnType<
     typeof createMessageIndexWriter
   > | null>(null);
+  const [storageState, setStorageState] = useState(() => ({
+    conversationId,
+    full: false,
+  }));
+  const storageFull =
+    storageState.conversationId === conversationId && storageState.full;
+  const setStorageFull = useCallback(
+    (full: boolean) => setStorageState({ conversationId, full }),
+    [conversationId]
+  );
 
   // Bumping the token re-reads the posting lists and the row table, so newly
   // indexed history is findable without waiting for the next search session.
@@ -3348,20 +3358,7 @@ export function MessageThread({
     if (!searchIndexStore) {
       return;
     }
-    let cancelled = false;
-    const run = async () => {
-      const evicted = await enforceIndexBudget();
-      if (!cancelled && evicted > 0) {
-        setStoragePressure((current) => ({
-          evictedCount: current.evictedCount + evicted,
-          storageFull: current.storageFull,
-        }));
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
+    void enforceIndexBudget();
   }, [enforceIndexBudget, searchIndexStore]);
 
   useEffect(() => {
@@ -3381,16 +3378,12 @@ export function MessageThread({
         bumpSearchIndex();
       },
       onStorageFull: () => {
-        // A write was refused for lack of space. Evict first, then report: the
-        // walk can continue once something else has made room.
-        setStoragePressure((current) => ({ ...current, storageFull: true }));
+        // Retry after evicting a derived cache if the browser refused a write.
+        setStorageFull(true);
         void (async () => {
           const evicted = await enforceIndexBudget();
           if (evicted > 0) {
-            setStoragePressure((current) => ({
-              evictedCount: current.evictedCount + evicted,
-              storageFull: false,
-            }));
+            setStorageFull(false);
             bumpSearchIndex();
           }
         })();
@@ -3419,6 +3412,7 @@ export function MessageThread({
     conversationId,
     enforceIndexBudget,
     scheduleCoverageRefresh,
+    setStorageFull,
     searchIndexStore,
   ]);
 
@@ -3428,15 +3422,6 @@ export function MessageThread({
   // search (or hiding the tab) ends it. There is no manual stop: indexing is
   // automatic and stops itself.
   const [coverage, setCoverage] = useState<BackfillProgress | null>(null);
-  // Set when a write was refused for lack of storage, or when eviction had to drop
-  // a conversation to stay inside the budget. Surfaced rather than swallowed: a
-  // full disk used to look exactly like a conversation with no matches, with no
-  // way for the user to tell the difference or act on it.
-  const [storagePressure, setStoragePressure] = useState<{
-    evictedCount: number;
-    storageFull: boolean;
-  }>({ evictedCount: 0, storageFull: false });
-
   const backfillRef = useRef<ReturnType<
     typeof createMessageIndexBackfill
   > | null>(null);
@@ -3793,14 +3778,6 @@ export function MessageThread({
   const indexingOlder = SERVER_MESSAGE_SEARCH_ENABLED
     ? search.serverCoverageIncomplete && !search.searching
     : coverage?.state === "running";
-  // Offered only when there is genuinely older history this device has not
-  // indexed, and only with a store to index it into.
-  const canIndexOlder =
-    !SERVER_MESSAGE_SEARCH_ENABLED &&
-    Boolean(searchIndexStore) &&
-    (hasPreviousPage ?? false) &&
-    !fullyCovered;
-
   // The list's page and its active row.
   //
   // The pager is sized by the TOTAL, not by the rows on hand. That is the whole
@@ -5259,13 +5236,15 @@ export function MessageThread({
               searching={search.searching}
               searchError={search.searchError}
               searchHasMore={search.serverHasMore}
-              onRetrySearch={handleRetrySearch}
+              onRetrySearch={
+                SERVER_MESSAGE_SEARCH_ENABLED
+                  ? handleRetrySearch
+                  : startIndexingOlder
+              }
               // Jump in flight counts as work: the anchored read and the walk
               // behind it are the slowest requests this bar can be waiting on.
               indexing={transcriptFetching || jumpLoading}
-              canIndexOlder={canIndexOlder}
               fullyCovered={fullyCovered}
-              indexedCount={search.indexedTotal}
               indexFailed={coverage?.state === "failed"}
               indexingOlder={indexingOlder}
               inputRef={searchInputRef}
@@ -5274,7 +5253,6 @@ export function MessageThread({
               listPageStale={search.listPageStale}
               matchCount={search.totalMatches}
               onClose={dismissSearch}
-              onIndexOlder={startIndexingOlder}
               onNext={searchNext}
               onPage={changeSearchPage}
               onPrevious={searchPrevious}
@@ -5284,8 +5262,7 @@ export function MessageThread({
               page={searchPageSlice.page}
               pageCount={searchPageSlice.pageCount}
               query={search.query}
-              storageEvictedCount={storagePressure.evictedCount}
-              storageFull={storagePressure.storageFull}
+              storageFull={storageFull}
               rangeEnd={searchPageSlice.rangeEnd}
               rangeStart={searchPageSlice.rangeStart}
               resultCount={searchPageSlice.pageResults.length}

@@ -177,47 +177,19 @@ export function searchListEmptyState(
   return "No messages match this search.";
 }
 
-// Label for the coverage control. The count is what the user has actually
-// covered, which is the only number available and the only one that would let
-// them decide whether the walk is worth starting.
-// What the bar says when the device is out of index storage, or had to drop a
-// conversation to stay inside its budget. Said in the status line rather than a
-// toast because it is a standing condition, not an event: the user needs to know
-// their results are narrower than they think.
-export function searchStorageStatus(input: {
-  evictedCount: number;
-  storageFull: boolean;
-}): string {
-  const { evictedCount, storageFull } = input;
-  if (storageFull) {
-    return "Storage full";
-  }
-  if (evictedCount > 0) {
-    return `Older indexes removed (${evictedCount})`;
-  }
-  return "";
-}
-
 export function searchCoverageLabel(input: {
-  indexedCount: number;
+  fullyCovered: boolean;
   indexingOlder: boolean;
-  // A run ended in failure (throttled past its retries, storage refused, a
-  // request failed). The button must say so: an idle-looking bar after a
-  // failure reads as "done" and nobody retries, stranding coverage silently.
   indexFailed?: boolean;
 }): string {
-  const { indexedCount, indexingOlder, indexFailed = false } = input;
-  if (indexingOlder) {
-    // While the walk runs, the label carries the live count: hovering the
-    // spinner reads how much of the conversation is indexed so far.
-    return indexedCount > 0
-      ? `Indexing older messages (${indexedCount.toLocaleString()} indexed)`
-      : "Indexing older messages";
+  if (input.indexFailed) {
+    return "Search couldn't finish";
   }
-  if (indexFailed) {
-    return "Retry indexing older messages";
-  }
-  return indexedCount > 0
-    ? `Index older messages (${indexedCount.toLocaleString()} indexed)`
-    : "Index older messages";
+  return input.indexingOlder || !input.fullyCovered
+    ? "Searching older messages…"
+    : "";
+}
+
+export function searchStorageStatus(input: { storageFull: boolean }): string {
+  return input.storageFull ? "Search couldn't finish" : "";
 }

@@ -4,7 +4,6 @@ import { Input } from "@asm/ui/shadui/input";
 import {
   ChevronLeft,
   ChevronRight,
-  History,
   List,
   Loader2,
   MessageSquare,
@@ -44,21 +43,13 @@ export interface MessageSearchBarProps {
   activePosition: number;
   // A backfill walk is paging through older history right now.
   indexingOlder: boolean;
-  // Messages this device has covered with the index, for the coverage control.
-  indexedCount: number;
   // True while older history is still paging in for the transcript itself.
   indexing: boolean;
   // The last walk ended in failure. Rendered as a retry rather than an idle
   // offer, so a transient failure does not silently strand coverage.
   indexFailed: boolean;
-  // Conversations dropped to stay inside the index budget, or a write refused for
-  // lack of storage. Rendered in the status line so a narrower result set is
-  // never silent.
-  storageEvictedCount: number;
+  // A local write was refused for lack of storage. The status stays user-facing.
   storageFull: boolean;
-  // Older history exists that this device has not indexed. The bar offers to
-  // walk it rather than pretending the conversation has been fully searched.
-  canIndexOlder: boolean;
   // The whole conversation has been indexed, so counts are trustworthy.
   fullyCovered: boolean;
   // The last jump landed nowhere: anchor read and bounded walk both missed.
@@ -79,7 +70,6 @@ export interface MessageSearchBarProps {
   inputRef: React.RefObject<HTMLInputElement | null>;
   matchCount: number;
   onClose: () => void;
-  onIndexOlder: () => void;
   // ArrowDown / ArrowUp. In the chat view they step matches through the
   // transcript; in the list view they move the highlighted row.
   onNext: () => void;
@@ -109,9 +99,7 @@ export interface MessageSearchBarProps {
 
 export function MessageSearchBar({
   activePosition,
-  canIndexOlder,
   fullyCovered,
-  indexedCount,
   indexing,
   indexFailed,
   indexingOlder,
@@ -120,7 +108,6 @@ export function MessageSearchBar({
   listPageError,
   matchCount,
   onClose,
-  onIndexOlder,
   onNext,
   onPage,
   onPrevious,
@@ -130,7 +117,6 @@ export function MessageSearchBar({
   page,
   pageCount,
   query,
-  storageEvictedCount,
   storageFull,
   rangeEnd,
   rangeStart,
@@ -152,8 +138,8 @@ export function MessageSearchBar({
   const queryReady = query.trim().length >= MIN_SEARCH_QUERY_LENGTH;
   const queryTooLong = isMessageSearchQueryTooLong(query);
   const coverageLabel = searchCoverageLabel({
+    fullyCovered,
     indexFailed,
-    indexedCount,
     indexingOlder,
   });
 
@@ -246,10 +232,8 @@ export function MessageSearchBar({
     statusText =
       jumpError ??
       listPageError ??
-      (searchStorageStatus({
-        evictedCount: storageEvictedCount,
-        storageFull,
-      }) ||
+      (searchStorageStatus({ storageFull }) ||
+        coverageLabel ||
         (listView
           ? searchListStatus({
               fullyCovered,
@@ -341,7 +325,9 @@ export function MessageSearchBar({
       >
         {statusText}
       </span>
-      {serverManaged && searchError && onRetrySearch ? (
+      {((serverManaged && searchError) ||
+        (!serverManaged && (indexFailed || storageFull))) &&
+      onRetrySearch ? (
         <button
           className="text-xs font-medium text-[hsl(var(--primary))]"
           onClick={onRetrySearch}
@@ -405,30 +391,14 @@ export function MessageSearchBar({
         </button>
       )}
 
-      {/* Offered only when there is something older to cover. While the walk
-          runs it stays in place as a progress indicator -- hovering reads the
-          live indexed count -- in the row the user is already looking at
-          rather than in a toast. Indexing starts and stops itself, so the
-          indicator takes no clicks. */}
       {!serverManaged && indexingOlder ? (
         <span
-          aria-label={coverageLabel}
+          aria-label="Searching older messages"
           className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-          title={coverageLabel}
+          title="Searching older messages"
         >
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         </span>
-      ) : null}
-      {!serverManaged && !indexingOlder && canIndexOlder ? (
-        <button
-          aria-label={coverageLabel}
-          className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:pointer-events-none disabled:opacity-60"
-          onClick={onIndexOlder}
-          title={coverageLabel}
-          type="button"
-        >
-          <History className="h-3.5 w-3.5" />
-        </button>
       ) : null}
 
       {/* The one control that changes what search means: swap the body between
