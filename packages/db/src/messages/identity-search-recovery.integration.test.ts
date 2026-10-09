@@ -80,7 +80,9 @@ beforeAll(async () => {
       backfillThroughSequence: 7,
       completedChangeSeq: 7,
       conversationId: CONVERSATION_ID,
+      hasUnreadableMessages: true,
       rowsTraversed: 12,
+      unrecoverableEpochIds: [1, 2],
       unrecoverableEpochs: 2,
     });
   });
@@ -161,8 +163,10 @@ describe("commitMessageIdentityBackupRefresh", () => {
       backfillCursorMessageId: null,
       backfillThroughSequence: 8,
       completedChangeSeq: 7,
+      hasUnreadableMessages: true,
       rowsTraversed: 12,
-      unrecoverableEpochs: 0,
+      unrecoverableEpochIds: [1, 2],
+      unrecoverableEpochs: 2,
     });
     expect(coverage?.backfillStartedAt).toBeTruthy();
     expect(state?.recoveryGeneration).toBe(4);
@@ -181,13 +185,13 @@ describe("commitMessageIdentityBackupRefresh", () => {
         messageId: "previous-cursor-message",
       },
       finished: true,
+      messageOutcomes: [],
       nextPosition: {
         createdAt: CURSOR_CREATED_AT,
         messageId: "previous-cursor-message",
       },
       rowsTraversed: 0,
       throughSequence: 7,
-      unrecoverableEpochs: 0,
     });
     expect(staleBatch.committed).toBe(false);
   });

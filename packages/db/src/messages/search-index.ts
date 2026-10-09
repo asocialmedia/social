@@ -99,6 +99,7 @@ export async function commitMessageIdentityBackupRefresh(
             EXISTS (SELECT 1 FROM public.message_conversation_keys AS own_wrap
                      WHERE own_wrap."conversationId" = conversation.id AND own_wrap."ownerUserId" = $1) OR
             coverage."unrecoverableEpochs" > 0 OR
+            coverage."hasUnreadableMessages" OR
             (coverage."backfillStartedAt" IS NOT NULL AND
              coverage."backfillCompletedAt" IS NULL)
           )
@@ -192,8 +193,7 @@ export async function commitMessageIdentityBackupRefresh(
       // oxlint-disable-next-line no-await-in-loop -- Keep the coverage reset in the same transaction as its sequence bump.
       const resetCoverage = await client.query(
         `UPDATE public.message_search_coverage
-            SET "unrecoverableEpochs" = 0,
-                "backfillThroughSequence" = $2,
+            SET "backfillThroughSequence" = $2,
                 "backfillCursorCreatedAt" = NULL,
                 "backfillCursorMessageId" = NULL,
                 "backfillStartedAt" = now(),
@@ -267,6 +267,53 @@ async function lockMessageSearchCoverageRow(
   );
   if (locked.rowCount !== 1) {
     throw new Error("DM search coverage row could not be locked");
+  }
+}
+
+async function refreshUnreadableSearchCoverage(
+  client: PoolClient,
+  conversationId: string
+): Promise<void> {
+  const coverage = await client.query<{
+    hasUnreadableMessages: boolean;
+    unrecoverableEpochIds: number[];
+  }>(
+    `SELECT COALESCE(
+              array_agg(DISTINCT gap."keyEpoch" ORDER BY gap."keyEpoch")
+                FILTER (WHERE gap."unrecoverableEpoch" AND gap."keyEpoch" IS NOT NULL),
+              '{}'::int[]
+            ) AS "unrecoverableEpochIds",
+            EXISTS (
+              SELECT 1
+                FROM public.message_search_gaps AS gap
+                JOIN public.messages AS message
+                  ON message.id = gap."messageId"
+                 AND message."conversationId" = gap."conversationId"
+                 AND message.revision = gap.revision
+               WHERE gap."conversationId" = $1
+                 AND message."deletedAt" IS NULL
+            ) AS "hasUnreadableMessages"`,
+    [conversationId]
+  );
+  const [current] = coverage.rows;
+  if (!current) {
+    throw new Error("DM search coverage could not be recalculated");
+  }
+  const updated = await client.query(
+    `UPDATE public.message_search_coverage
+        SET "unrecoverableEpochIds" = $2::int[],
+            "unrecoverableEpochs" = cardinality($2::int[]),
+            "hasUnreadableMessages" = $3,
+            "updatedAt" = now()
+      WHERE "conversationId" = $1`,
+    [
+      conversationId,
+      current.unrecoverableEpochIds,
+      current.hasUnreadableMessages,
+    ]
+  );
+  if (updated.rowCount !== 1) {
+    throw new Error("DM search coverage disappeared during recalculation");
   }
 }
 
@@ -514,6 +561,14 @@ export interface MessageSearchBackfillArtifact {
   terms: readonly SearchTermArtifact[];
 }
 
+export interface MessageSearchBackfillOutcome {
+  keyEpoch: number | null;
+  messageId: string;
+  revision: number;
+  status: "deleted" | "indexed" | "unreadable";
+  unrecoverableEpoch: boolean;
+}
+
 function pgTimestamp(value: Date): string {
   return value.toISOString().replace("T", " ").replace("Z", "");
 }
@@ -754,6 +809,7 @@ export async function getMessageSearchCountRequestStatus(input: {
                  AND coverage."backfillCompletedAt" IS NOT NULL
                  AND coverage."completedChangeSeq" >= request."snapshotSequence"
                  AND coverage."unrecoverableEpochs" = 0
+                 AND NOT coverage."hasUnreadableMessages"
             )
           )`,
       [input.id, input.userId, input.conversationId]
@@ -795,6 +851,7 @@ export async function listRunnableMessageSearchCounts(
         AND coverage."backfillCompletedAt" IS NOT NULL
         AND coverage."completedChangeSeq" >= request."snapshotSequence"
         AND coverage."unrecoverableEpochs" = 0
+        AND NOT coverage."hasUnreadableMessages"
         AND conversation."changeSeq" = request."snapshotSequence"
         AND conversation."membershipSeq" = request."membershipSequence"
         AND COALESCE(account."recoveryGeneration", 0) = request."recoveryGeneration"
@@ -819,6 +876,7 @@ export async function expireStaleMessageSearchCounts(): Promise<void> {
                AND coverage."backfillCompletedAt" IS NOT NULL
                AND coverage."completedChangeSeq" >= request."snapshotSequence"
                AND coverage."unrecoverableEpochs" = 0
+               AND NOT coverage."hasUnreadableMessages"
           )
           OR EXISTS (
             SELECT 1
@@ -876,6 +934,7 @@ export async function claimMessageSearchCountRequest(
           AND coverage."backfillCompletedAt" IS NOT NULL
           AND coverage."completedChangeSeq" >= request."snapshotSequence"
           AND coverage."unrecoverableEpochs" = 0
+          AND NOT coverage."hasUnreadableMessages"
           AND conversation."changeSeq" = request."snapshotSequence"
           AND conversation."membershipSeq" = request."membershipSequence"
           AND COALESCE(account."recoveryGeneration", 0) = request."recoveryGeneration"
@@ -962,7 +1021,8 @@ export async function completeMessageSearchCountRequest(
                 AND COALESCE(account."recoveryGeneration", 0) = request."recoveryGeneration"
                 AND coverage."backfillCompletedAt" IS NOT NULL
                 AND coverage."completedChangeSeq" >= request."snapshotSequence"
-                AND coverage."unrecoverableEpochs" = 0 AS valid
+                AND coverage."unrecoverableEpochs" = 0
+                AND NOT coverage."hasUnreadableMessages" AS valid
          FROM public.message_search_count_requests AS request
          LEFT JOIN public.message_conversations AS conversation
            ON conversation.id = request."conversationId"
@@ -1154,6 +1214,7 @@ export async function commitMessageSearchMutation(
       await client.query("COMMIT");
       return { status: "not-found" };
     }
+    await lockMessageSearchCoverageRow(client, input.conversationId);
     const source = await client.query<{
       deletedAt: Date | null;
       revision: number;
@@ -1276,6 +1337,12 @@ export async function commitMessageSearchMutation(
         audienceUserIds,
       ]
     );
+    await client.query(
+      `DELETE FROM public.message_search_gaps
+        WHERE "conversationId" = $1 AND "messageId" = $2 AND revision < $3`,
+      [input.conversationId, input.messageId, updatedMessage.revision]
+    );
+    await refreshUnreadableSearchCoverage(client, input.conversationId);
     await client.query(
       `INSERT INTO public.message_conversation_changes
          (id, "conversationId", sequence, "messageId", revision, kind, "audienceUserIds")
@@ -1832,6 +1899,12 @@ export async function persistSearchDocument(
           WHERE id = $1 AND revision = $3 AND "keyEpoch" IS NULL`,
         [artifact.messageId, artifact.keyEpoch, artifact.revision]
       );
+      await client.query(
+        `DELETE FROM public.message_search_gaps
+          WHERE "conversationId" = $1 AND "messageId" = $2 AND revision <= $3`,
+        [artifact.conversationId, artifact.messageId, artifact.revision]
+      );
+      await refreshUnreadableSearchCoverage(client, artifact.conversationId);
       status = "indexed";
     } else {
       await client.query(
@@ -1844,6 +1917,14 @@ export async function persistSearchDocument(
           WHERE "messageId" = $1 AND revision <= $2`,
         [artifact.messageId, artifact.revision]
       );
+      if (!row || row.deletedAt) {
+        await client.query(
+          `DELETE FROM public.message_search_gaps
+            WHERE "conversationId" = $1 AND "messageId" = $2 AND revision <= $3`,
+          [artifact.conversationId, artifact.messageId, artifact.revision]
+        );
+        await refreshUnreadableSearchCoverage(client, artifact.conversationId);
+      }
       if (!row || row.deletedAt) {
         await client.query(
           `DELETE FROM public.message_search_terms
@@ -1932,7 +2013,11 @@ export async function startMessageSearchBackfill(
      WHERE public.message_search_coverage."backfillStartedAt" IS NULL
        AND public.message_search_coverage."backfillCompletedAt" IS NULL
        OR (public.message_search_coverage."backfillCompletedAt" IS NOT NULL
-           AND EXISTS (${UNVERIFIED_CONVERSATION_EPOCH_SQL}))`,
+           AND (
+             EXISTS (${UNVERIFIED_CONVERSATION_EPOCH_SQL}) OR
+             public.message_search_coverage."unrecoverableEpochs" >
+               cardinality(public.message_search_coverage."unrecoverableEpochIds")
+           ))`,
     [conversationId]
   );
   const result = await pool.query<{
@@ -2054,13 +2139,13 @@ export async function readNextMessageSearchBackfillBatch(
 export async function commitMessageSearchBackfillBatch(input: {
   artifacts: readonly MessageSearchBackfillArtifact[];
   epochProofs?: readonly MessageSearchEpochProof[];
+  messageOutcomes: readonly MessageSearchBackfillOutcome[];
   conversationId: string;
   expectedPosition: MessageSearchBackfillPosition;
   finished: boolean;
   nextPosition: MessageSearchBackfillPosition;
   rowsTraversed: number;
   throughSequence: number;
-  unrecoverableEpochs: number;
 }): Promise<{ committed: boolean }> {
   const pool = getSearchPool();
   const client = await pool.connect();
@@ -2092,8 +2177,9 @@ export async function commitMessageSearchBackfillBatch(input: {
       await client.query("ROLLBACK");
       return { committed: false };
     }
-
-    const messageIds = input.artifacts.map((artifact) => artifact.messageId);
+    const messageIds = input.messageOutcomes.map(
+      (message) => message.messageId
+    );
     const sourceRows = messageIds.length
       ? await client.query<{
           deletedAt: Date | null;
@@ -2116,6 +2202,15 @@ export async function commitMessageSearchBackfillBatch(input: {
     const currentRevisions = new Map(
       sourceRows.rows.map((row) => [row.id, row])
     );
+    const currentOutcomes = input.messageOutcomes.filter((outcome) => {
+      const current = currentRevisions.get(outcome.messageId);
+      return (
+        current?.revision === outcome.revision &&
+        (outcome.status === "deleted"
+          ? current.deletedAt !== null
+          : current.deletedAt === null)
+      );
+    });
     const currentArtifacts = input.artifacts.filter((artifact) => {
       const current = currentRevisions.get(artifact.messageId);
       return (
@@ -2126,6 +2221,54 @@ export async function commitMessageSearchBackfillBatch(input: {
       ...(input.epochProofs ?? []),
       ...currentArtifacts.flatMap((artifact) => artifact.epochProofs ?? []),
     ]);
+
+    const resolvedMessageIds = currentOutcomes
+      .filter((outcome) => outcome.status !== "unreadable")
+      .map((outcome) => outcome.messageId);
+    if (resolvedMessageIds.length > 0) {
+      await client.query(
+        `DELETE FROM public.message_search_gaps AS gap
+          USING unnest($2::text[], $3::int[]) AS resolved("messageId", revision)
+          WHERE gap."conversationId" = $1
+            AND gap."messageId" = resolved."messageId"
+            AND gap.revision <= resolved.revision`,
+        [
+          input.conversationId,
+          resolvedMessageIds,
+          currentOutcomes
+            .filter((outcome) => outcome.status !== "unreadable")
+            .map((outcome) => outcome.revision),
+        ]
+      );
+    }
+    const unreadableOutcomes = currentOutcomes.filter(
+      (outcome) => outcome.status === "unreadable"
+    );
+    if (unreadableOutcomes.length > 0) {
+      const gapValues: unknown[] = [];
+      const gapTuples = unreadableOutcomes.map((outcome, index) => {
+        const base = index * 5;
+        gapValues.push(
+          input.conversationId,
+          outcome.messageId,
+          outcome.revision,
+          outcome.keyEpoch,
+          outcome.unrecoverableEpoch
+        );
+        return `($${base + 1}::text, $${base + 2}::text, $${base + 3}::int4, $${base + 4}::int4, $${base + 5}::bool)`;
+      });
+      await client.query(
+        `INSERT INTO public.message_search_gaps
+           ("conversationId", "messageId", revision, "keyEpoch", "unrecoverableEpoch")
+         VALUES ${gapTuples.join(",")}
+         ON CONFLICT ("conversationId", "messageId") DO UPDATE
+           SET revision = EXCLUDED.revision,
+               "keyEpoch" = EXCLUDED."keyEpoch",
+               "unrecoverableEpoch" = EXCLUDED."unrecoverableEpoch"
+         WHERE public.message_search_gaps.revision <= EXCLUDED.revision`,
+        gapValues
+      );
+    }
     const terms = [
       ...new Map(
         currentArtifacts
@@ -2268,12 +2411,12 @@ export async function commitMessageSearchBackfillBatch(input: {
       );
     }
 
+    await refreshUnreadableSearchCoverage(client, input.conversationId);
     await client.query(
       `UPDATE public.message_search_coverage
           SET "rowsTraversed" = "rowsTraversed" + $2,
               "artifactsCommitted" = "artifactsCommitted" + $3,
-              "unrecoverableEpochs" = "unrecoverableEpochs" + $4,
-              "completedChangeSeq" = CASE WHEN $5
+              "completedChangeSeq" = CASE WHEN $4
                 THEN GREATEST(
                   "completedChangeSeq",
                   LEAST("backfillThroughSequence", COALESCE((
@@ -2290,7 +2433,6 @@ export async function commitMessageSearchBackfillBatch(input: {
         input.conversationId,
         input.rowsTraversed,
         currentArtifacts.length,
-        input.unrecoverableEpochs,
         input.finished,
       ]
     );
@@ -2309,22 +2451,39 @@ export async function markSearchOutboxUnreadable(input: {
   conversationId: string;
   outboxId: string;
   revision: number;
+  unrecoverableEpoch: number | null;
 }): Promise<void> {
   const pool = getSearchPool();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const pending = await client.query(
-      `SELECT 1
+    const pending = await client.query<{
+      messageId: string;
+      conversationId: string;
+      changeSequence: number;
+    }>(
+      `SELECT "messageId", "conversationId", "changeSequence"
          FROM public.message_search_outbox
         WHERE id = $1 AND revision = $2 AND "completedAt" IS NULL`,
       [input.outboxId, input.revision]
     );
-    if (pending.rowCount !== 1) {
+    const [outbox] = pending.rows;
+    if (!outbox || outbox.conversationId !== input.conversationId) {
       await client.query("COMMIT");
       return;
     }
     await lockMessageSearchCoverageRow(client, input.conversationId);
+    const source = await client.query<{
+      deletedAt: Date | null;
+      revision: number;
+    }>(
+      `SELECT revision, "deletedAt"
+         FROM public.messages
+        WHERE id = $1 AND "conversationId" = $2
+        FOR SHARE`,
+      [outbox.messageId, input.conversationId]
+    );
+    const [message] = source.rows;
     const completed = await client.query<{ conversationId: string }>(
       `UPDATE public.message_search_outbox
           SET "completedAt" = now()
@@ -2333,6 +2492,39 @@ export async function markSearchOutboxUnreadable(input: {
       [input.outboxId, input.revision]
     );
     if (completed.rows[0]) {
+      if (
+        message &&
+        !message.deletedAt &&
+        message.revision === input.revision
+      ) {
+        await client.query(
+          `INSERT INTO public.message_search_gaps
+             ("conversationId", "messageId", revision, "keyEpoch", "unrecoverableEpoch")
+           SELECT $1, message.id, message.revision, message."keyEpoch", $4
+             FROM public.messages AS message
+            WHERE message.id = $2
+              AND message."conversationId" = $1
+              AND message.revision = $3
+              AND message."deletedAt" IS NULL
+           ON CONFLICT ("conversationId", "messageId") DO UPDATE
+             SET revision = EXCLUDED.revision,
+                 "keyEpoch" = EXCLUDED."keyEpoch",
+                 "unrecoverableEpoch" = EXCLUDED."unrecoverableEpoch"
+           WHERE public.message_search_gaps.revision <= EXCLUDED.revision`,
+          [
+            input.conversationId,
+            outbox.messageId,
+            input.revision,
+            input.unrecoverableEpoch !== null,
+          ]
+        );
+      } else if (!message || message.deletedAt) {
+        await client.query(
+          `DELETE FROM public.message_search_gaps
+            WHERE "conversationId" = $1 AND "messageId" = $2 AND revision <= $3`,
+          [input.conversationId, outbox.messageId, input.revision]
+        );
+      }
       const coverage = await client.query<{
         maxSequence: number | null;
         pendingSequence: number | null;
@@ -2349,10 +2541,10 @@ export async function markSearchOutboxUnreadable(input: {
         coverageRow?.pendingSequence === undefined
           ? (coverageRow?.maxSequence ?? 0)
           : Math.max(0, coverageRow.pendingSequence - 1);
+      await refreshUnreadableSearchCoverage(client, input.conversationId);
       const updatedCoverage = await client.query(
         `UPDATE public.message_search_coverage
-            SET "unrecoverableEpochs" = "unrecoverableEpochs" + 1,
-                "completedChangeSeq" = GREATEST("completedChangeSeq", $2),
+            SET "completedChangeSeq" = GREATEST("completedChangeSeq", $2),
                 "updatedAt" = now()
           WHERE "conversationId" = $1`,
         [input.conversationId, settledSequence]

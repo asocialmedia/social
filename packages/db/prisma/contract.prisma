@@ -1052,6 +1052,8 @@ namespace public {
     rowsTraversed           Int          @default(0)
     artifactsCommitted      Int          @default(0)
     unrecoverableEpochs     Int          @default(0)
+    unrecoverableEpochIds   Int[]        @default([])
+    hasUnreadableMessages   Boolean      @default(false)
     completedChangeSeq      Int          @default(0)
     recoveryGeneration      Int          @default(0)
     backfillThroughSequence Int?
@@ -1064,6 +1066,18 @@ namespace public {
     @@index([backfillCompletedAt, backfillStartedAt], map: "message_search_coverage_backfill_idx")
 
     @@map("message_search_coverage")
+  }
+
+  model MessageSearchGap {
+    conversationId     String
+    messageId          String
+    revision            Int
+    keyEpoch            Int?
+    unrecoverableEpoch  Boolean @default(false)
+
+    @@id([conversationId, messageId], map: "message_search_gaps_pkey")
+    @@index([conversationId, keyEpoch], map: "message_search_gaps_epoch_idx")
+    @@map("message_search_gaps")
   }
 
   model MessageSearchAccountState {

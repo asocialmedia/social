@@ -12,6 +12,7 @@ import {
 } from "@asm/db";
 import type {
   MessageSearchBackfillArtifact,
+  MessageSearchBackfillOutcome,
   MessageSearchEpochProof,
   SearchReferenceArtifact,
   SearchTermArtifact,
@@ -361,15 +362,24 @@ async function decryptSearchableMessage(
     senderId: string;
   },
   context: ConversationSearchContext
-): Promise<{
-  epochProofs: MessageSearchEpochProof[];
-  keyEpoch: number;
-  references: SearchReferenceArtifact[];
-  terms: SearchTermArtifact[];
-} | null> {
+): Promise<
+  | {
+      status: "indexed";
+      epochProofs: MessageSearchEpochProof[];
+      keyEpoch: number;
+      references: SearchReferenceArtifact[];
+      terms: SearchTermArtifact[];
+    }
+  | {
+      hasUnreadableMessage: true;
+      status: "unreadable";
+      unrecoverableEpoch: number | null;
+    }
+> {
   const epochCandidates = context.wraps.filter(
     (wrap) => message.keyEpoch === null || wrap.version === message.keyEpoch
   );
+  let recoveredRootKey = false;
 
   // oxlint-disable no-await-in-loop -- authenticated wrap attempts stop at the first successful epoch
   for (const wrap of epochCandidates) {
@@ -377,6 +387,7 @@ async function decryptSearchableMessage(
     if (!rootKey) {
       continue;
     }
+    recoveredRootKey = true;
     try {
       const payload = await decryptMessage(
         rootKey,
@@ -409,13 +420,24 @@ async function decryptSearchableMessage(
         rootKey,
         context
       );
-      return { epochProofs, keyEpoch: wrap.version, references, terms };
+      return {
+        epochProofs,
+        keyEpoch: wrap.version,
+        references,
+        status: "indexed",
+        terms,
+      };
     } catch {
       // Another wrap may be the authenticated epoch for this message.
     }
   }
   // oxlint-enable no-await-in-loop
-  return null;
+  return {
+    hasUnreadableMessage: true,
+    status: "unreadable",
+    unrecoverableEpoch:
+      recoveredRootKey || message.keyEpoch === null ? null : message.keyEpoch,
+  };
 }
 
 export async function processMessageSearchOutbox(
@@ -466,7 +488,7 @@ export async function processMessageSearchOutbox(
       message,
       context
     );
-    if (result) {
+    if (result.status === "indexed") {
       const persisted = await persistSearchDocument({
         conversationId: outbox.conversationId,
         epochProofs: result.epochProofs,
@@ -485,6 +507,7 @@ export async function processMessageSearchOutbox(
       conversationId: outbox.conversationId,
       outboxId,
       revision: outbox.revision,
+      unrecoverableEpoch: result.unrecoverableEpoch,
     });
     logger.warn(
       { outboxId },
@@ -562,7 +585,7 @@ export async function processMessageSearchBackfill(
               representative,
               context
             );
-            if (authenticated) {
+            if (authenticated.status === "indexed") {
               return authenticated.epochProofs;
             }
           }
@@ -593,10 +616,10 @@ export async function processMessageSearchBackfill(
         epochProofs,
         expectedPosition: batch.expectedPosition,
         finished: true,
+        messageOutcomes: [],
         nextPosition: batch.expectedPosition,
         rowsTraversed: 0,
         throughSequence: batch.throughSequence,
-        unrecoverableEpochs: 0,
       });
       outcome = committed.committed ? "completed" : "superseded";
       return { finished: committed.committed, nextCursorMessageId: null };
@@ -615,8 +638,12 @@ export async function processMessageSearchBackfill(
           message,
           context
         );
-        if (!result) {
-          return { messageId: message.id, status: "unreadable" as const };
+        if (result.status === "unreadable") {
+          return {
+            messageId: message.id,
+            status: "unreadable" as const,
+            unrecoverableEpoch: result.unrecoverableEpoch,
+          };
         }
         return {
           artifact: {
@@ -639,7 +666,39 @@ export async function processMessageSearchBackfill(
       (decryptOutcome) => decryptOutcome?.status === "unreadable"
     );
     unreadableRows = unreadableMessages.length;
-    const unrecoverableEpochs = unreadableMessages.length;
+    const messageOutcomes = batch.messages.map<MessageSearchBackfillOutcome>(
+      (message, index) => {
+        const decryptOutcome = decryptOutcomes[index];
+        if (message.deletedAt) {
+          return {
+            keyEpoch: message.keyEpoch,
+            messageId: message.id,
+            revision: message.revision,
+            status: "deleted",
+            unrecoverableEpoch: false,
+          };
+        }
+        if (decryptOutcome?.status === "indexed") {
+          return {
+            keyEpoch: decryptOutcome.artifact.keyEpoch,
+            messageId: message.id,
+            revision: message.revision,
+            status: "indexed",
+            unrecoverableEpoch: false,
+          };
+        }
+        if (decryptOutcome?.status === "unreadable") {
+          return {
+            keyEpoch: message.keyEpoch,
+            messageId: message.id,
+            revision: message.revision,
+            status: "unreadable",
+            unrecoverableEpoch: decryptOutcome.unrecoverableEpoch !== null,
+          };
+        }
+        throw new Error("DM search backfill omitted a message outcome");
+      }
+    );
     for (const unreadableMessage of unreadableMessages) {
       logger.warn(
         { conversationId, messageId: unreadableMessage.messageId },
@@ -655,13 +714,13 @@ export async function processMessageSearchBackfill(
       conversationId,
       expectedPosition: batch.expectedPosition,
       finished: false,
+      messageOutcomes,
       nextPosition: {
         createdAt: lastMessage.createdAt,
         messageId: lastMessage.id,
       },
       rowsTraversed: batch.messages.length,
       throughSequence: batch.throughSequence,
-      unrecoverableEpochs,
     });
     if (!committed.committed) {
       outcome = "superseded";

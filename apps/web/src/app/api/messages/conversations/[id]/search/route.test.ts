@@ -47,6 +47,7 @@ const mockRecoveryState = mock(() => ({ recoveryGeneration: 2 }));
 const mockCoverage = mock(() => ({
   artifactsCommitted: 100,
   completedChangeSeq: 89,
+  hasUnreadableMessages: false,
   rowsTraversed: 100,
   unrecoverableEpochs: 0,
 }));
@@ -333,6 +334,27 @@ describe("POST /api/messages/conversations/:id/search", () => {
       settled: true,
       unrecoverableEpochs: 2,
     });
+  });
+
+  test("keeps unknown-epoch and corrupt-message gaps incomplete without inflating epoch counts", async () => {
+    mockCoverage.mockReturnValueOnce({
+      artifactsCommitted: 99,
+      backfillCompletedAt: new Date("2026-10-08T00:01:00.000Z"),
+      completedChangeSeq: 90,
+      hasUnreadableMessages: true,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+
+    const response = await POST(request({ query: "needle" }), context);
+    const body = await response.json();
+
+    expect(body.coverage).toMatchObject({
+      complete: false,
+      settled: true,
+      unrecoverableEpochs: 0,
+    });
+    expect(mockRequestCount).not.toHaveBeenCalled();
   });
 
   test("does not declare full coverage or queue exact counts before viewer epoch verification", async () => {

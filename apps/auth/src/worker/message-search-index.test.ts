@@ -18,6 +18,14 @@ const mockReadBackfill = mock(() => Promise.resolve(backfillBatch));
 const mockCommitBackfill = mock(() => Promise.resolve({ committed: true }));
 const mockLoggerWarn = mock();
 const mockLoggerError = mock();
+const mockDecryptMessage = mock(
+  (
+    _rootKey: unknown,
+    _senderId: string,
+    _conversationId: string,
+    payload: unknown
+  ) => Promise.resolve({ payload })
+);
 
 let outbox = {
   changeSequence: 8,
@@ -121,14 +129,7 @@ mock.module("@asm/db", () => ({
 }));
 
 mock.module("@asm/messages/crypto", () => ({
-  decryptMessage: mock(
-    (
-      _rootKey: unknown,
-      _senderId: string,
-      _conversationId: string,
-      payload: unknown
-    ) => Promise.resolve({ payload })
-  ),
+  decryptMessage: mockDecryptMessage,
   decryptWithMasterKey: mock(() =>
     Promise.resolve(
       '{"kty":"EC","crv":"P-256","d":"private-d","x":"public-x","y":"public-y"}'
@@ -231,6 +232,7 @@ describe("message search indexing worker", () => {
       mockCommitBackfill,
       mockLoggerWarn,
       mockLoggerError,
+      mockDecryptMessage,
     ]) {
       fn.mockReset();
     }
@@ -247,6 +249,14 @@ describe("message search indexing worker", () => {
     mockStartBackfill.mockReturnValue(Promise.resolve(backfillState));
     mockReadBackfill.mockReturnValue(Promise.resolve(backfillBatch));
     mockCommitBackfill.mockReturnValue(Promise.resolve({ committed: true }));
+    mockDecryptMessage.mockImplementation(
+      (
+        _rootKey: unknown,
+        _senderId: string,
+        _conversationId: string,
+        payload: unknown
+      ) => Promise.resolve({ payload })
+    );
   });
 
   test("decrypts transiently and atomically persists only normalized terms", async () => {
@@ -369,6 +379,7 @@ describe("message search indexing worker", () => {
       conversationId: "conversation-1",
       outboxId: "outbox-1",
       revision: 3,
+      unrecoverableEpoch: 1,
     });
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       { outboxId: "outbox-1" },
@@ -404,9 +415,15 @@ describe("message search indexing worker", () => {
     expect(mockCommitBackfill).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: "conversation-1",
+        messageOutcomes: [
+          expect.objectContaining({
+            messageId: "message-1",
+            status: "indexed",
+            unrecoverableEpoch: false,
+          }),
+        ],
         rowsTraversed: 1,
         throughSequence: 10,
-        unrecoverableEpochs: 0,
       })
     );
     expect(result).toEqual({
@@ -421,6 +438,79 @@ describe("message search indexing worker", () => {
         unreadableRows: 0,
       }),
     ]);
+  });
+
+  test("deduplicates unavailable key epochs and retains unknown-epoch gaps", async () => {
+    identity = {
+      ...identity,
+      masterKeyHash: null,
+      updatedAt: new Date("2026-10-02T00:00:00.000Z"),
+    };
+    mockLoadIdentities.mockReturnValue(Promise.resolve([identity]));
+    mockReadBackfill.mockReturnValue(
+      Promise.resolve({
+        ...backfillBatch,
+        messages: [
+          message,
+          { ...message, id: "message-2" },
+          { ...message, id: "message-legacy", keyEpoch: null },
+        ],
+      })
+    );
+    const { processMessageSearchBackfill } =
+      await import("./message-search-index");
+
+    await processMessageSearchBackfill("conversation-1", {
+      warn: mockLoggerWarn,
+    });
+
+    expect(mockCommitBackfill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageOutcomes: [
+          expect.objectContaining({
+            keyEpoch: 1,
+            messageId: "message-1",
+            status: "unreadable",
+            unrecoverableEpoch: true,
+          }),
+          expect.objectContaining({
+            keyEpoch: 1,
+            messageId: "message-2",
+            status: "unreadable",
+            unrecoverableEpoch: true,
+          }),
+          expect.objectContaining({
+            keyEpoch: null,
+            messageId: "message-legacy",
+            status: "unreadable",
+            unrecoverableEpoch: false,
+          }),
+        ],
+      })
+    );
+  });
+
+  test("does not misclassify authenticated but corrupt payloads as unavailable epochs", async () => {
+    mockDecryptMessage.mockRejectedValueOnce(new Error("invalid ciphertext"));
+    const { processMessageSearchBackfill } =
+      await import("./message-search-index");
+
+    await processMessageSearchBackfill("conversation-1", {
+      warn: mockLoggerWarn,
+    });
+
+    expect(mockCommitBackfill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageOutcomes: [
+          expect.objectContaining({
+            keyEpoch: 1,
+            messageId: "message-1",
+            status: "unreadable",
+            unrecoverableEpoch: false,
+          }),
+        ],
+      })
+    );
   });
 
   test("does not enqueue a successor when the backfill cursor compare-and-swap loses", async () => {

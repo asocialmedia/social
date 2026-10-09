@@ -17,9 +17,17 @@ const PEER_ID = `search-mutation-peer-${RUN_ID}`;
 const UNREADABLE_OWNER_ID = `search-mutation-unreadable-owner-${RUN_ID}`;
 const UNREADABLE_PEER_ID = `search-mutation-unreadable-peer-${RUN_ID}`;
 const MESSAGE_ID = crypto.randomUUID();
-const UNREADABLE_MESSAGE_ID = crypto.randomUUID();
-const UNREADABLE_OUTBOX_ID = crypto.randomUUID();
-const OUTBOX_IDS: string[] = [UNREADABLE_OUTBOX_ID];
+const UNREADABLE_MESSAGE_IDS = [
+  crypto.randomUUID(),
+  crypto.randomUUID(),
+  crypto.randomUUID(),
+];
+const UNREADABLE_OUTBOX_IDS = [
+  crypto.randomUUID(),
+  crypto.randomUUID(),
+  crypto.randomUUID(),
+];
+const OUTBOX_IDS: string[] = [...UNREADABLE_OUTBOX_IDS];
 
 function assertLocalTestDatabase(): void {
   const databaseUrl = new URL(keys.DATABASE_URL);
@@ -70,7 +78,7 @@ beforeAll(async () => {
         pairKey: [OWNER_ID, PEER_ID].toSorted().join(":"),
       },
       {
-        changeSeq: 1,
+        changeSeq: 3,
         id: UNREADABLE_CONVERSATION_ID,
         pairKey: [UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID].toSorted().join(":"),
       },
@@ -96,21 +104,43 @@ beforeAll(async () => {
         ciphertext: "unreadable-ciphertext",
         conversationId: UNREADABLE_CONVERSATION_ID,
         creationSequence: 1,
-        id: UNREADABLE_MESSAGE_ID,
+        id: UNREADABLE_MESSAGE_IDS[0],
         iv: "unreadable-iv",
+        keyEpoch: 1,
         ratchetIndex: 0,
         senderId: UNREADABLE_OWNER_ID,
       },
+      {
+        ciphertext: "unreadable-ciphertext-2",
+        conversationId: UNREADABLE_CONVERSATION_ID,
+        creationSequence: 2,
+        id: UNREADABLE_MESSAGE_IDS[1],
+        iv: "unreadable-iv-2",
+        keyEpoch: 1,
+        ratchetIndex: 1,
+        senderId: UNREADABLE_OWNER_ID,
+      },
+      {
+        ciphertext: "unreadable-ciphertext-3",
+        conversationId: UNREADABLE_CONVERSATION_ID,
+        creationSequence: 3,
+        id: UNREADABLE_MESSAGE_IDS[2],
+        iv: "unreadable-iv-3",
+        ratchetIndex: 2,
+        senderId: UNREADABLE_OWNER_ID,
+      },
     ]);
-    await tx.orm.public.MessageSearchOutbox.create({
-      audienceUserIds: [UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID],
-      changeSequence: 1,
-      conversationId: UNREADABLE_CONVERSATION_ID,
-      id: UNREADABLE_OUTBOX_ID,
-      kind: "upsert",
-      messageId: UNREADABLE_MESSAGE_ID,
-      revision: 1,
-    });
+    await tx.orm.public.MessageSearchOutbox.createAll(
+      UNREADABLE_OUTBOX_IDS.map((id, index) => ({
+        audienceUserIds: [UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID],
+        changeSequence: index + 1,
+        conversationId: UNREADABLE_CONVERSATION_ID,
+        id,
+        kind: "upsert" as const,
+        messageId: UNREADABLE_MESSAGE_IDS[index],
+        revision: 1,
+      }))
+    );
   });
 });
 
@@ -134,32 +164,45 @@ afterAll(async () => {
 
 describe("commitMessageSearchMutation", () => {
   test("settles an unreadable outbox item under the coverage lock", async () => {
+    await Promise.all(
+      UNREADABLE_OUTBOX_IDS.map((outboxId, index) =>
+        markSearchOutboxUnreadable({
+          changeSequence: index + 1,
+          conversationId: UNREADABLE_CONVERSATION_ID,
+          outboxId,
+          revision: 1,
+          unrecoverableEpoch: index < 2 ? 1 : null,
+        })
+      )
+    );
     await markSearchOutboxUnreadable({
       changeSequence: 1,
       conversationId: UNREADABLE_CONVERSATION_ID,
-      outboxId: UNREADABLE_OUTBOX_ID,
+      outboxId: UNREADABLE_OUTBOX_IDS[0],
       revision: 1,
-    });
-    await markSearchOutboxUnreadable({
-      changeSequence: 1,
-      conversationId: UNREADABLE_CONVERSATION_ID,
-      outboxId: crypto.randomUUID(),
-      revision: 1,
+      unrecoverableEpoch: 1,
     });
 
     const [outbox, coverage] = await Promise.all([
       prisma.orm.public.MessageSearchOutbox.select("completedAt")
-        .where({ id: UNREADABLE_OUTBOX_ID })
+        .where({ id: UNREADABLE_OUTBOX_IDS[0] })
         .first(),
       prisma.orm.public.MessageSearchCoverage.select(
         "completedChangeSeq",
-        "unrecoverableEpochs"
+        "unrecoverableEpochs",
+        "unrecoverableEpochIds",
+        "hasUnreadableMessages"
       )
         .where({ conversationId: UNREADABLE_CONVERSATION_ID })
         .first(),
     ]);
     expect(outbox?.completedAt).toBeTruthy();
-    expect(coverage).toEqual({ completedChangeSeq: 1, unrecoverableEpochs: 1 });
+    expect(coverage).toEqual({
+      completedChangeSeq: 3,
+      hasUnreadableMessages: true,
+      unrecoverableEpochIds: [1],
+      unrecoverableEpochs: 1,
+    });
   });
 
   test("commits the revision, sequence, and outbox event as one mutation", async () => {

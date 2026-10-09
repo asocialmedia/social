@@ -317,6 +317,7 @@ export async function POST(
     const coverageComplete =
       coverageSettled &&
       coverage?.unrecoverableEpochs === 0 &&
+      coverage?.hasUnreadableMessages !== true &&
       epochCoverage.unavailable === 0;
     let countToken: string | null = null;
     if (

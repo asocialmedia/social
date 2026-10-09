@@ -27,6 +27,7 @@ const mockCoverage = mock(() =>
   Promise.resolve({
     backfillCompletedAt: new Date("2026-10-08T11:00:00.000Z"),
     completedChangeSeq: 80,
+    hasUnreadableMessages: false,
     unrecoverableEpochs: 0,
   })
 );
@@ -242,6 +243,25 @@ describe("GET /api/messages/conversations/:id/shared", () => {
         backfillCompletedAt: new Date("2026-10-08T11:00:00.000Z"),
         completedChangeSeq: 80,
         unrecoverableEpochs: 2,
+      })
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(body).toMatchObject({
+      coverageComplete: false,
+      coverageSettled: true,
+    });
+  });
+
+  test("keeps shared coverage incomplete for unreadable rows with no known epoch", async () => {
+    mockCoverage.mockReturnValueOnce(
+      Promise.resolve({
+        backfillCompletedAt: new Date("2026-10-08T11:00:00.000Z"),
+        completedChangeSeq: 80,
+        hasUnreadableMessages: true,
+        unrecoverableEpochs: 0,
       })
     );
 

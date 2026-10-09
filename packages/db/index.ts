@@ -144,6 +144,7 @@ export type {
   MessageSearchBackfillArtifact,
   MessageSearchBackfillBatch,
   MessageSearchBackfillMessage,
+  MessageSearchBackfillOutcome,
   MessageSearchBackfillPosition,
   SearchCandidateQuery,
   SearchCandidateRow,

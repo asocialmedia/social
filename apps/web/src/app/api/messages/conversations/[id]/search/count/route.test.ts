@@ -25,6 +25,7 @@ const mockRecovery = mock(() => ({ recoveryGeneration: 2 }));
 const mockCoverage = mock(() => ({
   backfillCompletedAt: new Date("2026-10-08T00:00:00.000Z"),
   completedChangeSeq: 90,
+  hasUnreadableMessages: false,
   unrecoverableEpochs: 0,
 }));
 const mockGetCount = mock(() =>
@@ -120,6 +121,7 @@ describe("POST /api/messages/conversations/:id/search/count", () => {
     mockCoverage.mockReturnValue({
       backfillCompletedAt: new Date("2026-10-08T00:00:00.000Z"),
       completedChangeSeq: 90,
+      hasUnreadableMessages: false,
       unrecoverableEpochs: 0,
     });
     mockGetCount.mockReset();
@@ -175,6 +177,34 @@ describe("POST /api/messages/conversations/:id/search/count", () => {
   test("invalidates counts after a recovery or source sequence change", async () => {
     mockSequence.mockReturnValueOnce({ changeSeq: 91 });
     const response = await POST(request(createToken()), context);
+    expect(await response.json()).toEqual({ state: "unavailable" });
+  });
+
+  test("does not return an exact count when unreadable messages remain", async () => {
+    mockCoverage.mockReturnValueOnce({
+      backfillCompletedAt: new Date("2026-10-08T00:00:00.000Z"),
+      completedChangeSeq: 90,
+      hasUnreadableMessages: true,
+      unrecoverableEpochs: 0,
+    });
+    mockGetCount.mockReturnValueOnce(
+      Promise.resolve({
+        conversationId: "conversation-1",
+        exactCount: 321,
+        expiresAt: COUNT_TOKEN_EXPIRES_AT,
+        id: "request-1",
+        membershipSequence: 4,
+        normalizationVersion: 1,
+        queryHash: "query-hash",
+        recoveryGeneration: 2,
+        snapshotSequence: 90,
+        state: "exact",
+        userId: "user-1",
+      })
+    );
+
+    const response = await POST(request(createToken()), context);
+
     expect(await response.json()).toEqual({ state: "unavailable" });
   });
 });

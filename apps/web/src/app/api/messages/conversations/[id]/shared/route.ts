@@ -149,7 +149,8 @@ export async function GET(
         prisma.orm.public.MessageSearchCoverage.select(
           "backfillCompletedAt",
           "completedChangeSeq",
-          "unrecoverableEpochs"
+          "unrecoverableEpochs",
+          "hasUnreadableMessages"
         )
           .where({ conversationId })
           .first(),
@@ -198,6 +199,7 @@ export async function GET(
     const coverageComplete =
       coverageSettled &&
       coverage?.unrecoverableEpochs === 0 &&
+      coverage?.hasUnreadableMessages !== true &&
       epochCoverage.unavailable === 0;
     const coveragePaused = !flags.backfill && !coverageSettled;
     const membershipWindows = readerMessageWindows({

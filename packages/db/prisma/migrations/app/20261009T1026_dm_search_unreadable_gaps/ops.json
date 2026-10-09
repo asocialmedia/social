@@ -1,0 +1,72 @@
+[
+  {
+    "id": "table.message_search_gaps",
+    "label": "Create table \"message_search_gaps\"",
+    "summary": "Creates table \"message_search_gaps\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_search_gaps"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_search_gaps\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_gaps\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_search_gaps\"",
+        "sql": "CREATE TABLE \"public\".\"message_search_gaps\" (\n  \"conversationId\" text NOT NULL,\n  \"keyEpoch\" int4,\n  \"messageId\" text NOT NULL,\n  \"revision\" int4 NOT NULL,\n  \"unrecoverableEpoch\" bool DEFAULT false NOT NULL,\n  CONSTRAINT \"message_search_gaps_pkey\" PRIMARY KEY (\"conversationId\", \"messageId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_search_gaps\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_gaps\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_search_gaps.message_search_gaps_epoch_idx",
+    "label": "Create index \"message_search_gaps_epoch_idx\" on \"message_search_gaps\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_search_gaps_epoch_idx",
+        "table": "message_search_gaps"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_search_gaps_epoch_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_gaps_epoch_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_search_gaps_epoch_idx\"",
+        "sql": "CREATE INDEX \"message_search_gaps_epoch_idx\" ON \"public\".\"message_search_gaps\" (\"conversationId\", \"keyEpoch\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_search_gaps_epoch_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_search_gaps_epoch_idx\""]
+      }
+    ]
+  }
+]

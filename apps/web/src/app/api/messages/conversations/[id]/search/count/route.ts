@@ -112,7 +112,8 @@ export async function POST(
       prisma.orm.public.MessageSearchCoverage.select(
         "backfillCompletedAt",
         "completedChangeSeq",
-        "unrecoverableEpochs"
+        "unrecoverableEpochs",
+        "hasUnreadableMessages"
       )
         .where({ conversationId })
         .first(),
@@ -144,6 +145,7 @@ export async function POST(
       coverage?.backfillCompletedAt !== undefined &&
       coverage.completedChangeSeq >= token.snapshotSequence &&
       coverage.unrecoverableEpochs === 0 &&
+      !coverage.hasUnreadableMessages &&
       member?.leftAt === null;
     if (!currentScopeMatches) {
       return Response.json({ state: "unavailable" });

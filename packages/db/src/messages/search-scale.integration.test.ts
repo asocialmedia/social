@@ -583,13 +583,19 @@ async function commitConcurrentBackfillBatch(): Promise<boolean> {
     conversationId: CONVERSATION_ID,
     expectedPosition: batch.expectedPosition,
     finished: false,
+    messageOutcomes: batch.messages.map((message) => ({
+      keyEpoch: 1,
+      messageId: message.id,
+      revision: message.revision,
+      status: "indexed",
+      unrecoverableEpoch: false,
+    })),
     nextPosition: {
       createdAt: lastMessage.createdAt,
       messageId: lastMessage.id,
     },
     rowsTraversed: batch.messages.length,
     throughSequence: batch.throughSequence,
-    unrecoverableEpochs: 0,
   });
   return result.committed;
 }
