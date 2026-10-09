@@ -2,11 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import {
   closeMessageSearchPool,
+  commitMessageSearchBackfillBatch,
   listMessageConversationChanges,
   markSearchOutboxUnreadable,
   commitMessageSearchMutation,
   keys,
   prisma,
+  startMessageSearchBackfill,
 } from "@asm/db";
 
 const RUN_ID = crypto.randomUUID();
@@ -27,7 +29,12 @@ const UNREADABLE_OUTBOX_IDS = [
   crypto.randomUUID(),
   crypto.randomUUID(),
 ];
-const OUTBOX_IDS: string[] = [...UNREADABLE_OUTBOX_IDS];
+const GAP_CONVERSATION_ID = crypto.randomUUID();
+const GAP_OWNER_ID = `search-mutation-gap-owner-${RUN_ID}`;
+const GAP_PEER_ID = `search-mutation-gap-peer-${RUN_ID}`;
+const GAP_MESSAGE_IDS = [crypto.randomUUID(), crypto.randomUUID()];
+const GAP_OUTBOX_IDS = [crypto.randomUUID(), crypto.randomUUID()];
+const OUTBOX_IDS: string[] = [...UNREADABLE_OUTBOX_IDS, ...GAP_OUTBOX_IDS];
 
 function assertLocalTestDatabase(): void {
   const databaseUrl = new URL(keys.DATABASE_URL);
@@ -154,10 +161,21 @@ afterAll(async () => {
     conversationId: CONVERSATION_ID,
   }).deleteAndCount();
   await prisma.orm.public.MessageConversations.where((conversation) =>
-    conversation.id.in([CONVERSATION_ID, UNREADABLE_CONVERSATION_ID])
+    conversation.id.in([
+      CONVERSATION_ID,
+      UNREADABLE_CONVERSATION_ID,
+      GAP_CONVERSATION_ID,
+    ])
   ).deleteAndCount();
   await prisma.orm.public.Users.where((user) =>
-    user.id.in([OWNER_ID, PEER_ID, UNREADABLE_OWNER_ID, UNREADABLE_PEER_ID])
+    user.id.in([
+      OWNER_ID,
+      PEER_ID,
+      UNREADABLE_OWNER_ID,
+      UNREADABLE_PEER_ID,
+      GAP_OWNER_ID,
+      GAP_PEER_ID,
+    ])
   ).deleteAndCount();
   await closeMessageSearchPool();
 });
@@ -329,5 +347,188 @@ describe("commitMessageSearchMutation", () => {
     expect(replay.every((change) => change.hiddenForViewer === false)).toBe(
       true
     );
+  });
+});
+
+describe("refreshUnreadableSearchCoverage", () => {
+  test("excludes stale-revision and deleted gaps and clears on retry", async () => {
+    await prisma.transaction(async (tx) => {
+      await tx.orm.public.Users.createAll([
+        {
+          displayName: GAP_OWNER_ID,
+          email: `${GAP_OWNER_ID}@example.test`,
+          id: GAP_OWNER_ID,
+          username: GAP_OWNER_ID,
+        },
+        {
+          displayName: GAP_PEER_ID,
+          email: `${GAP_PEER_ID}@example.test`,
+          id: GAP_PEER_ID,
+          username: GAP_PEER_ID,
+        },
+      ]);
+      await tx.orm.public.MessageConversations.create({
+        id: GAP_CONVERSATION_ID,
+        pairKey: [GAP_OWNER_ID, GAP_PEER_ID].toSorted().join(":"),
+      });
+      await tx.orm.public.MessageConversationMembers.createAll([
+        { conversationId: GAP_CONVERSATION_ID, userId: GAP_OWNER_ID },
+        { conversationId: GAP_CONVERSATION_ID, userId: GAP_PEER_ID },
+      ]);
+      await tx.orm.public.Messages.createAll([
+        {
+          ciphertext: "gap-ciphertext-1",
+          conversationId: GAP_CONVERSATION_ID,
+          creationSequence: 1,
+          id: GAP_MESSAGE_IDS[0],
+          iv: "gap-iv-1",
+          keyEpoch: 7,
+          ratchetIndex: 0,
+          senderId: GAP_OWNER_ID,
+        },
+        {
+          ciphertext: "gap-ciphertext-2",
+          conversationId: GAP_CONVERSATION_ID,
+          creationSequence: 2,
+          id: GAP_MESSAGE_IDS[1],
+          iv: "gap-iv-2",
+          ratchetIndex: 1,
+          senderId: GAP_OWNER_ID,
+        },
+      ]);
+      await tx.orm.public.MessageSearchOutbox.createAll(
+        GAP_OUTBOX_IDS.map((id, index) => ({
+          audienceUserIds: [GAP_OWNER_ID, GAP_PEER_ID],
+          changeSequence: index + 1,
+          conversationId: GAP_CONVERSATION_ID,
+          id,
+          kind: "upsert" as const,
+          messageId: GAP_MESSAGE_IDS[index],
+          revision: 1,
+        }))
+      );
+    });
+
+    // One gap with a known unrecoverable epoch and one with an unknown
+    // epoch keeps scope honest without inventing an epoch number.
+    await markSearchOutboxUnreadable({
+      changeSequence: 1,
+      conversationId: GAP_CONVERSATION_ID,
+      outboxId: GAP_OUTBOX_IDS[0],
+      revision: 1,
+      unrecoverableEpoch: 7,
+    });
+    await markSearchOutboxUnreadable({
+      changeSequence: 2,
+      conversationId: GAP_CONVERSATION_ID,
+      outboxId: GAP_OUTBOX_IDS[1],
+      revision: 1,
+      unrecoverableEpoch: null,
+    });
+    const beforeRepair = await prisma.orm.public.MessageSearchCoverage.select(
+      "unrecoverableEpochs",
+      "unrecoverableEpochIds",
+      "hasUnreadableMessages"
+    )
+      .where({ conversationId: GAP_CONVERSATION_ID })
+      .first();
+    expect(beforeRepair).toEqual({
+      hasUnreadableMessages: true,
+      unrecoverableEpochIds: [7],
+      unrecoverableEpochs: 1,
+    });
+
+    // A new revision makes the first gap stale and deleting the second
+    // message removes its gap from readable coverage entirely.
+    const edited = await commitMessageSearchMutation({
+      ciphertext: "gap-rewrite",
+      conversationId: GAP_CONVERSATION_ID,
+      editWindowStart: new Date(Date.now() - 12 * 60 * 60 * 1000),
+      editedAt: new Date(),
+      expectedRevision: 1,
+      iv: "gap-rewrite-iv",
+      kind: "upsert",
+      messageId: GAP_MESSAGE_IDS[0],
+      senderId: GAP_OWNER_ID,
+    });
+    if (edited.status !== "updated") {
+      throw new Error("expected gap message edit to commit");
+    }
+    OUTBOX_IDS.push(edited.outboxId);
+    const deleted = await commitMessageSearchMutation({
+      conversationId: GAP_CONVERSATION_ID,
+      deletedAt: new Date(),
+      expectedRevision: 1,
+      kind: "delete",
+      messageId: GAP_MESSAGE_IDS[1],
+      senderId: GAP_OWNER_ID,
+    });
+    if (deleted.status !== "updated") {
+      throw new Error("expected gap message delete to commit");
+    }
+    OUTBOX_IDS.push(deleted.outboxId);
+
+    // A successful backfill retry for the edited revision resolves the
+    // stale gap and the delete resolves the second gap.
+    const started = await startMessageSearchBackfill(GAP_CONVERSATION_ID);
+    if (!started || started.throughSequence === null) {
+      throw new Error("expected gap backfill to start");
+    }
+    const committed = await commitMessageSearchBackfillBatch({
+      artifacts: [
+        {
+          createdAt: new Date(),
+          keyEpoch: 7,
+          messageId: GAP_MESSAGE_IDS[0],
+          references: [],
+          revision: 2,
+          terms: [{ gramKeys: ["gap"], normalized: "gaptest" }],
+        },
+      ],
+      conversationId: GAP_CONVERSATION_ID,
+      expectedPosition: started.expectedPosition,
+      finished: true,
+      messageOutcomes: [
+        {
+          keyEpoch: 7,
+          messageId: GAP_MESSAGE_IDS[0],
+          revision: 2,
+          status: "indexed",
+          unrecoverableEpoch: false,
+        },
+        {
+          keyEpoch: null,
+          messageId: GAP_MESSAGE_IDS[1],
+          revision: 2,
+          status: "deleted",
+          unrecoverableEpoch: false,
+        },
+      ],
+      nextPosition: started.expectedPosition,
+      rowsTraversed: 2,
+      throughSequence: started.throughSequence,
+    });
+    expect(committed).toEqual({ committed: true });
+
+    const [afterRepair, remainingGaps] = await Promise.all([
+      prisma.orm.public.MessageSearchCoverage.select(
+        "unrecoverableEpochs",
+        "unrecoverableEpochIds",
+        "hasUnreadableMessages"
+      )
+        .where({ conversationId: GAP_CONVERSATION_ID })
+        .first(),
+      prisma.orm.public.MessageSearchGap.select("messageId")
+        .where({
+          conversationId: GAP_CONVERSATION_ID,
+        })
+        .all(),
+    ]);
+    expect(afterRepair).toEqual({
+      hasUnreadableMessages: false,
+      unrecoverableEpochIds: [],
+      unrecoverableEpochs: 0,
+    });
+    expect(remainingGaps).toHaveLength(0);
   });
 });

@@ -278,21 +278,29 @@ async function refreshUnreadableSearchCoverage(
     hasUnreadableMessages: boolean;
     unrecoverableEpochIds: number[];
   }>(
-    `SELECT COALESCE(
-              array_agg(DISTINCT gap."keyEpoch" ORDER BY gap."keyEpoch")
-                FILTER (WHERE gap."unrecoverableEpoch" AND gap."keyEpoch" IS NOT NULL),
-              '{}'::int[]
-            ) AS "unrecoverableEpochIds",
-            EXISTS (
-              SELECT 1
-                FROM public.message_search_gaps AS gap
-                JOIN public.messages AS message
-                  ON message.id = gap."messageId"
-                 AND message."conversationId" = gap."conversationId"
-                 AND message.revision = gap.revision
-               WHERE gap."conversationId" = $1
-                 AND message."deletedAt" IS NULL
-            ) AS "hasUnreadableMessages"`,
+    `SELECT (SELECT COALESCE(
+               array_agg(DISTINCT gap."keyEpoch" ORDER BY gap."keyEpoch")
+                 FILTER (WHERE gap."unrecoverableEpoch" AND gap."keyEpoch" IS NOT NULL),
+               '{}'::int[]
+             )
+               FROM public.message_search_gaps AS gap
+               JOIN public.messages AS message
+                 ON message.id = gap."messageId"
+                AND message."conversationId" = gap."conversationId"
+                AND message.revision = gap.revision
+              WHERE gap."conversationId" = $1
+                AND message."deletedAt" IS NULL
+             ) AS "unrecoverableEpochIds",
+             EXISTS (
+               SELECT 1
+                 FROM public.message_search_gaps AS gap
+                 JOIN public.messages AS message
+                   ON message.id = gap."messageId"
+                  AND message."conversationId" = gap."conversationId"
+                  AND message.revision = gap.revision
+                WHERE gap."conversationId" = $1
+                  AND message."deletedAt" IS NULL
+             ) AS "hasUnreadableMessages"`,
     [conversationId]
   );
   const [current] = coverage.rows;
