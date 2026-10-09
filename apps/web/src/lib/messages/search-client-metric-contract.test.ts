@@ -10,12 +10,14 @@ describe("parseMessageSearchClientMetricBatch", () => {
           { durationMs: 23, event: "input-paint" },
           { durationMs: 281, event: "result-ready", outcome: "hits" },
           { durationMs: 79, event: "long-task" },
+          { durationMs: 16.7, event: "scroll-frame" },
         ],
       })
     ).toEqual([
       { durationMs: 23, event: "input-paint" },
       { durationMs: 281, event: "result-ready", outcome: "hits" },
       { durationMs: 79, event: "long-task" },
+      { durationMs: 16.7, event: "scroll-frame" },
     ]);
   });
 

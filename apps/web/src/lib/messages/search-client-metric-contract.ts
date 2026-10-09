@@ -2,6 +2,7 @@ export const MESSAGE_SEARCH_CLIENT_METRIC_EVENTS = [
   "input-paint",
   "result-ready",
   "long-task",
+  "scroll-frame",
 ] as const;
 
 export const MESSAGE_SEARCH_CLIENT_METRIC_OUTCOMES = [
@@ -17,7 +18,7 @@ export const MESSAGE_SEARCH_CLIENT_METRIC_DURATION_LIMIT_MS = 60_000;
 export type MessageSearchClientMetric =
   | {
       durationMs: number;
-      event: "input-paint" | "long-task";
+      event: "input-paint" | "long-task" | "scroll-frame";
     }
   | {
       durationMs: number;

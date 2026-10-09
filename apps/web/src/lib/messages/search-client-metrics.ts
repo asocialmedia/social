@@ -29,7 +29,7 @@ export function createMessageSearchClientMetricRecorder(
     try {
       histogram ??= createHistogram("messages.search.client.duration", {
         description:
-          "Sampled DM search input paint, result readiness, and main-thread long tasks",
+          "Sampled DM search responsiveness and transcript scroll frame intervals",
         unit: "ms",
       });
       for (const event of events) {

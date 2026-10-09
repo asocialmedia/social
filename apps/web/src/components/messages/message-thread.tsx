@@ -192,6 +192,7 @@ import {
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
 import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
+import { startMessageScrollFrameTelemetry } from "@/lib/messages/search-client-telemetry";
 import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
 import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
 import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
@@ -736,6 +737,7 @@ export function MessageThread({
   const jumpAbortRef = useRef<AbortController | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => startMessageScrollFrameTelemetry(scrollRef.current), []);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirrors `pinnedToBottom` for reads inside event callbacks without stale
   // closures. Kept in sync in one place (the scroll listener) so the two can
