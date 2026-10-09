@@ -4,6 +4,7 @@
 
 import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
 import { createMemorySearchIndexStore } from "./memory-search-index";
+import { clearAllSearchIndexScopes } from "./scoped-search-index";
 import type { SearchIndexStore } from "./search-index-format";
 
 export type SearchIndexBackend = "indexeddb" | "memory";
@@ -37,7 +38,34 @@ export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
     : { backend: "memory", store: createMemorySearchIndexStore() };
 }
 
-// Test seam; no cached state to clear.
+let legacySearchRetirement: Promise<boolean> | null = null;
+
+export function retireLegacySearchIndex(): Promise<boolean> {
+  if (legacySearchRetirement) {
+    return legacySearchRetirement;
+  }
+  const pending = (async () => {
+    try {
+      const resolved = await resolveSearchIndexStore();
+      if (resolved.backend !== "indexeddb") {
+        return false;
+      }
+      return await clearAllSearchIndexScopes(resolved.store);
+    } catch {
+      return false;
+    }
+  })();
+  legacySearchRetirement = pending;
+  void (async () => {
+    const succeeded = await pending;
+    if (!succeeded && legacySearchRetirement === pending) {
+      legacySearchRetirement = null;
+    }
+  })();
+  return pending;
+}
+
+// Test seam; reset the cutover cleanup so another test can exercise it.
 export function resetSearchIndexStoreForTests(): void {
-  // No cached state to clear.
+  legacySearchRetirement = null;
 }

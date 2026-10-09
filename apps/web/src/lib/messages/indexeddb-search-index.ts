@@ -1232,18 +1232,17 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
       );
     },
 
-    // A cursor over the meta store, which holds one small record per conversation.
-    // Deliberately not a scan of rows or postings: eviction must be cheap enough
-    // to run on every conversation open.
+    // Cursors over compact conversation metadata, including refs-only chats. This
+    // avoids scanning rows or postings during eviction and account-scope cleanup.
     listConversations() {
       if (storageUnavailable()) {
         return Promise.resolve([]);
       }
       return runTransaction(
-        [META_STORE, HEADER_STORE],
+        [META_STORE, HEADER_STORE, REFS_COUNTS_STORE],
         "readonly",
         async (tx) => {
-          const out: SearchIndexConversationSummary[] = [];
+          const summaries = new Map<string, SearchIndexConversationSummary>();
           await drainCursor(
             tx.objectStore(META_STORE).openCursor(),
             (key, value) => {
@@ -1256,13 +1255,32 @@ export function createIndexedDbSearchIndexStore(): SearchIndexStore {
               ) {
                 return;
               }
-              out.push({
+              summaries.set(value.conversationId, {
                 conversationId: value.conversationId,
                 indexedRowCount: 0,
                 lastAccessedAt: value.lastAccessedAt,
               });
             }
           );
+          await drainCursor(
+            tx.objectStore(REFS_COUNTS_STORE).openCursor(),
+            (key, value) => {
+              if (
+                !isConversationKey(key) ||
+                !isStoredRefsCounts(value) ||
+                value.conversationId !== key ||
+                summaries.has(key)
+              ) {
+                return;
+              }
+              summaries.set(key, {
+                conversationId: key,
+                indexedRowCount: 0,
+                lastAccessedAt: 0,
+              });
+            }
+          );
+          const out = [...summaries.values()];
           // Row counts come from the header's allocator, one point read each.
           // Small and bounded by conversation count, unlike walking every row.
           // Sequential because they share this transaction.

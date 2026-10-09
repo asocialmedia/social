@@ -417,6 +417,18 @@ describe("message decryptor", () => {
     expect(decryptor.get("a")).toEqual(TEXT);
   });
 
+  test("a recovery-generation change drops previously decrypted history", async () => {
+    const decryptor = createDecryptor({ decrypt: () => Promise.resolve(TEXT) });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.configureScope("account-a:recovery-1");
+    decryptor.request([item("old-history")], keys);
+    await settle();
+    expect(decryptor.get("old-history")).toEqual(TEXT);
+
+    decryptor.configureScope("account-a:recovery-2");
+    expect(decryptor.get("old-history")).toBeUndefined();
+  });
+
   test("clearKeys re-resolves base keys on the next request", async () => {
     // An identity reset changes the available epochs; the cached roots from the
     // previous identity must not survive it.

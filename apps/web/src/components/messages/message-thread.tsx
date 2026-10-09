@@ -185,6 +185,10 @@ import { messagesTrustNote } from "@/lib/messages/messages-trust";
 import { planOfflineSearchChangeEffects } from "@/lib/messages/offline-search-change-policy";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 import {
+  clearSearchIndexScopesExcept,
+  createScopedSearchIndexStore,
+} from "@/lib/messages/scoped-search-index";
+import {
   formatArrivalCount,
   isNearBottom,
   jumpBehavior,
@@ -193,7 +197,10 @@ import {
 } from "@/lib/messages/scroll-state";
 import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
 import { startMessageScrollFrameTelemetry } from "@/lib/messages/search-client-telemetry";
-import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
+import {
+  resolveSearchIndexStore,
+  retireLegacySearchIndex,
+} from "@/lib/messages/search-index-backend";
 import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
 import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
 import { resolveServerSharedRefsPage } from "@/lib/messages/server-shared-refs";
@@ -543,6 +550,12 @@ export function MessageThread({
         : null,
     [recoveryGeneration, user]
   );
+  const localSearchScopeKey = offlineSearchScope
+    ? JSON.stringify([
+        offlineSearchScope.userId,
+        offlineSearchScope.recoveryGeneration,
+      ])
+    : null;
   const queryClient = useQueryClient();
   const rootKeyStore = useRootKeyStore();
   const onlineUsers = usePresence(true);
@@ -632,6 +645,7 @@ export function MessageThread({
   // it resolves, and permanently null when IndexedDB is unavailable, in which
   // case search falls back to the rows loaded in this session.
   const [searchIndex, setSearchIndex] = useState<{
+    scopeKey: string;
     refreshToken: number;
     store: Awaited<ReturnType<typeof resolveSearchIndexStore>>["store"];
   } | null>(null);
@@ -1809,10 +1823,14 @@ export function MessageThread({
   );
 
   // The decryptor cache is scoped to this identity so a logout/login never
-  // serves another account's plaintext.
+  // serves another account's plaintext. A recovery reset changes which epochs
+  // this account can read, so cached payloads must leave scope with the old wraps.
+  const decryptorScope = userId
+    ? `${userId}\u0000${recoveryGeneration ?? "identity-pending"}`
+    : "anonymous";
   useEffect(() => {
-    messageDecryptor.configureScope(userId ?? "anonymous");
-  }, [userId]);
+    messageDecryptor.configureScope(decryptorScope);
+  }, [decryptorScope]);
 
   // Turns one wire message into a decrypt request item. Stable helper so the
   // request effect and row-level parent fetches share the exact shape.
@@ -3180,6 +3198,14 @@ export function MessageThread({
       setPersistedCovered(false);
       setPersistedChainVerified(false);
       setPersistedRefsCovered(false);
+      void retireLegacySearchIndex();
+      return;
+    }
+    if (!offlineSearchScope || !localSearchScopeKey) {
+      setSearchIndex(null);
+      setPersistedCovered(false);
+      setPersistedChainVerified(false);
+      setPersistedRefsCovered(false);
       return;
     }
     let cancelled = false;
@@ -3189,10 +3215,19 @@ export function MessageThread({
     const resolve = async () => {
       try {
         const resolved = await resolveSearchIndexStore();
+        const scopedStore = createScopedSearchIndexStore(
+          resolved.store,
+          offlineSearchScope
+        );
+        await clearSearchIndexScopesExcept(resolved.store, offlineSearchScope);
         if (cancelled) {
           return;
         }
-        setSearchIndex({ refreshToken: 0, store: resolved.store });
+        setSearchIndex({
+          refreshToken: 0,
+          scopeKey: localSearchScopeKey,
+          store: scopedStore,
+        });
         // Whether a previous walk already reached the start, so reopening
         // search on a covered conversation starts nothing -- not even the
         // one-request probe walk that would rediscover it. A persisted "done"
@@ -3200,7 +3235,7 @@ export function MessageThread({
         // cursor that pointed below uncovered history poisons the flag with it,
         // and trusting it would strand everything above forever.
         try {
-          const meta = await resolved.store.readMeta(conversationId);
+          const meta = await scopedStore.readMeta(conversationId);
           let covered = meta?.reachedStart === true;
           let chainVerified = meta?.cursorVerified === true;
           if (covered && !cancelled) {
@@ -3212,17 +3247,14 @@ export function MessageThread({
               );
               const topIds = peek.messages.map((row) => row.id);
               if (topIds.length > 0) {
-                const indexedTop = await resolved.store.hasIndexedMessages(
+                const indexedTop = await scopedStore.hasIndexedMessages(
                   conversationId,
                   topIds
                 );
                 let queued = new Set<string>();
                 try {
                   queued = new Set(
-                    await resolved.store.hasPendingMessages(
-                      conversationId,
-                      topIds
-                    )
+                    await scopedStore.hasPendingMessages(conversationId, topIds)
                   );
                 } catch {
                   // Unreadable queue: covered means indexed, below.
@@ -3239,9 +3271,9 @@ export function MessageThread({
               chainVerified = false;
               try {
                 const current =
-                  (await resolved.store.readMeta(conversationId)) ??
+                  (await scopedStore.readMeta(conversationId)) ??
                   emptySearchIndexMeta(conversationId);
-                await resolved.store.writeMeta({
+                await scopedStore.writeMeta({
                   ...current,
                   cursorVerified: false,
                   reachedStart: false,
@@ -3284,15 +3316,17 @@ export function MessageThread({
     return () => {
       cancelled = true;
     };
-  }, [conversationId]);
+  }, [conversationId, localSearchScopeKey, offlineSearchScope]);
 
   // The index writer for this conversation. Created once the store resolves and
   // torn down on conversation change so one thread never writes another
   // conversation's entries.
   // Destructured out of the state object so effect dependencies reference the
   // values themselves, which is what makes them valid dependencies.
-  const searchIndexStore = searchIndex?.store ?? null;
-  const searchIndexToken = searchIndex?.refreshToken ?? 0;
+  const searchIndexIsCurrent =
+    searchIndex !== null && searchIndex.scopeKey === localSearchScopeKey;
+  const searchIndexStore = searchIndexIsCurrent ? searchIndex.store : null;
+  const searchIndexToken = searchIndexIsCurrent ? searchIndex.refreshToken : 0;
   const searchWriterRef = useRef<ReturnType<
     typeof createMessageIndexWriter
   > | null>(null);

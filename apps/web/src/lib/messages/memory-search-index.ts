@@ -216,10 +216,21 @@ export function createMemorySearchIndexStore(): SearchIndexStore & {
 
     listConversations() {
       const out: SearchIndexConversationSummary[] = [];
-      for (const [conversationId, index] of byConversation) {
+      const conversationIds = new Set([
+        ...[...byConversation]
+          .filter(
+            ([_conversationId, index]) => index.table.messageIdByRow.length > 0
+          )
+          .map(([conversationId]) => conversationId),
+        ...metaByConversation.keys(),
+        ...pendingByConversation.keys(),
+        ...refsByConversation.keys(),
+      ]);
+      for (const conversationId of conversationIds) {
+        const index = byConversation.get(conversationId);
         out.push({
           conversationId,
-          indexedRowCount: index.table.messageIdByRow.length,
+          indexedRowCount: index?.table.messageIdByRow.length ?? 0,
           lastAccessedAt:
             metaByConversation.get(conversationId)?.lastAccessedAt ?? 0,
         });
