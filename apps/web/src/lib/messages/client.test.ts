@@ -8,6 +8,7 @@ import {
   ensureConversationKeys,
   fetchConversationDetail,
   fetchIdentity,
+  resetMessageIdentity,
   refreshIdentityBackup,
   isConversationSnapshotStale,
   markMessagesDeletedInPages,
@@ -60,6 +61,34 @@ describe("fetchIdentity recovery generation", () => {
       identity: null,
       recoveryGeneration: 0,
     });
+  });
+});
+
+describe("resetMessageIdentity", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("returns the new generation so other tabs can invalidate old scopes", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(Response.json({ ok: true, recoveryGeneration: 9 }))
+    ) as unknown as typeof fetch;
+
+    await expect(resetMessageIdentity()).resolves.toEqual({
+      recoveryGeneration: 9,
+    });
+  });
+
+  test("rejects a malformed generation instead of silently continuing", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(Response.json({ ok: true, recoveryGeneration: -1 }))
+    ) as unknown as typeof fetch;
+
+    await expect(resetMessageIdentity()).rejects.toThrow(
+      "Identity reset did not return a recovery generation"
+    );
   });
 });
 

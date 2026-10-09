@@ -497,7 +497,11 @@ describe("DELETE /api/messages/identity", () => {
   test("deletes only the caller's own key wraps, leaving the peer's intact", async () => {
     const res = await DELETE();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removedKeys: 2 });
+    expect(await res.json()).toEqual({
+      ok: true,
+      recoveryGeneration: 6,
+      removedKeys: 2,
+    });
     // Scoped by owner only. Any conversation-wide filter would delete the
     // peer's wraps and destroy their history, which the reset must never do.
     expect(keysWhere).toEqual({ ownerUserId: "user1" });
@@ -509,7 +513,7 @@ describe("DELETE /api/messages/identity", () => {
     expect(res.status).toBe(200);
     expect(searchStateWhere).toEqual({ userId: "user1" });
     expect(searchStateUpsertInput).toMatchObject({
-      create: { recoveryGeneration: 1, userId: "user1" },
+      create: { recoveryGeneration: 6, userId: "user1" },
       update: { recoveryGeneration: 6 },
     });
   });

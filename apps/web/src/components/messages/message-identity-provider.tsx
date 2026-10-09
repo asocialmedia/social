@@ -39,6 +39,8 @@ import {
   refreshLegacyIdentityBackup,
   unlockAndMigrateIdentityBackup,
 } from "@/lib/messages/identity-backup";
+import { createIdentityScopeBroadcast } from "@/lib/messages/identity-scope-broadcast";
+import type { IdentityScopeBroadcast } from "@/lib/messages/identity-scope-broadcast";
 import type { OfflineSearchCacheScope } from "@/lib/messages/indexeddb-offline-search-cache";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 
@@ -145,7 +147,23 @@ export function MessageIdentityProvider({
   const bootstrappingRef = useRef(false);
   const activeUserIdRef = useRef<string | null>(user?.id ?? null);
   const activeSearchScopeRef = useRef<OfflineSearchCacheScope | null>(null);
+  const activeRecoveryGenerationRef = useRef<number | null>(
+    user && recoveryScope?.userId === user.id
+      ? recoveryScope.recoveryGeneration
+      : null
+  );
+  const identityScopeBroadcastRef = useRef<IdentityScopeBroadcast | null>(null);
+  const identitySyncInFlightRef = useRef(false);
   const activeUserId = user?.id ?? null;
+
+  const updateRecoveryScope = useCallback(
+    (nextScope: SearchRecoveryScope | null) => {
+      activeRecoveryGenerationRef.current =
+        nextScope?.recoveryGeneration ?? null;
+      setRecoveryScope(nextScope);
+    },
+    []
+  );
 
   useEffect(() => {
     activeUserIdRef.current = activeUserId;
@@ -222,6 +240,13 @@ export function MessageIdentityProvider({
     await setStoredPrivateKey(user.id, privateKeyJwk);
     setPrivateKey(pair.privateKey);
     setStatus("ready");
+    const recoveryGeneration = activeRecoveryGenerationRef.current;
+    if (recoveryGeneration !== null) {
+      identityScopeBroadcastRef.current?.publish({
+        phase: "identity-ready",
+        recoveryGeneration,
+      });
+    }
   }, [user]);
 
   // Decrypts the backed-up private key and remembers it on this device.
@@ -276,7 +301,7 @@ export function MessageIdentityProvider({
     }
     const storedGeneration = getStoredRecoveryGeneration(user.id);
     if (storedGeneration !== null) {
-      setRecoveryScope({
+      updateRecoveryScope({
         recoveryGeneration: storedGeneration,
         userId: user.id,
       });
@@ -294,7 +319,7 @@ export function MessageIdentityProvider({
           if (activeUserIdRef.current !== user.id) {
             return;
           }
-          setRecoveryScope({
+          updateRecoveryScope({
             recoveryGeneration: data.recoveryGeneration,
             userId: user.id,
           });
@@ -317,7 +342,7 @@ export function MessageIdentityProvider({
 
     const data = await fetchIdentity();
     if (activeUserIdRef.current === user.id) {
-      setRecoveryScope({
+      updateRecoveryScope({
         recoveryGeneration: data.recoveryGeneration,
         userId: user.id,
       });
@@ -330,7 +355,7 @@ export function MessageIdentityProvider({
     }
     setIdentity(data.identity);
     await unlockIdentity(data.identity);
-  }, [enableIdentity, unlockIdentity, user]);
+  }, [enableIdentity, unlockIdentity, updateRecoveryScope, user]);
 
   const bootstrap = useCallback(async () => {
     if (typeof window === "undefined" || bootstrappingRef.current) {
@@ -374,18 +399,24 @@ export function MessageIdentityProvider({
     if (!user) {
       return;
     }
-    await resetMessageIdentity();
+    const { recoveryGeneration } = await resetMessageIdentity();
+    updateRecoveryScope({ recoveryGeneration, userId: user.id });
+    storeRecoveryGeneration(user.id, recoveryGeneration);
+    identityScopeBroadcastRef.current?.publish({
+      phase: "generation-changed",
+      recoveryGeneration,
+    });
     // Clear the cached private key and any leftover verifier-scheme secret so
     // the fresh identity starts from nothing.
     await clearStoredPrivateKey(user.id);
     setPrivateKey(null);
     setIdentity(null);
-    setRecoveryScope(null);
+    updateRecoveryScope(null);
     setIdentityError(null);
     // Provision the replacement. bootstrap sees no local key and no server
     // identity, so it mints a fresh keypair.
     await bootstrap();
-  }, [bootstrap, user]);
+  }, [bootstrap, updateRecoveryScope, user]);
 
   const refreshRecoveryGeneration = useCallback(async (): Promise<
     number | null
@@ -398,7 +429,7 @@ export function MessageIdentityProvider({
       if (activeUserIdRef.current !== user.id) {
         return null;
       }
-      setRecoveryScope({
+      updateRecoveryScope({
         recoveryGeneration: data.recoveryGeneration,
         userId: user.id,
       });
@@ -407,7 +438,98 @@ export function MessageIdentityProvider({
     } catch {
       return null;
     }
-  }, [user]);
+  }, [updateRecoveryScope, user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    const syncedUserId = user.id;
+    const broadcast = createIdentityScopeBroadcast({
+      onNotice: (notice) => {
+        if (activeUserIdRef.current !== syncedUserId) {
+          return;
+        }
+        const storedGeneration = getStoredRecoveryGeneration(syncedUserId);
+        if (
+          storedGeneration !== null &&
+          notice.recoveryGeneration < storedGeneration
+        ) {
+          return;
+        }
+        if (notice.phase === "generation-changed") {
+          if (
+            activeRecoveryGenerationRef.current === notice.recoveryGeneration
+          ) {
+            return;
+          }
+          updateRecoveryScope({
+            recoveryGeneration: notice.recoveryGeneration,
+            userId: syncedUserId,
+          });
+          storeRecoveryGeneration(syncedUserId, notice.recoveryGeneration);
+          setPrivateKey(null);
+          setIdentity(null);
+          setIdentityError(null);
+          setStatus("loading");
+          return;
+        }
+        if (identitySyncInFlightRef.current) {
+          return;
+        }
+        identitySyncInFlightRef.current = true;
+        void (async () => {
+          try {
+            const data = await fetchIdentity();
+            const canUnlock =
+              activeUserIdRef.current === syncedUserId &&
+              data.recoveryGeneration === notice.recoveryGeneration &&
+              activeRecoveryGenerationRef.current ===
+                notice.recoveryGeneration &&
+              data.identity !== null;
+            if (canUnlock && data.identity) {
+              setIdentity(data.identity);
+              await unlockIdentity(data.identity);
+              if (
+                activeUserIdRef.current === syncedUserId &&
+                activeRecoveryGenerationRef.current ===
+                  notice.recoveryGeneration
+              ) {
+                setIdentityError(null);
+                storeRecoveryGeneration(
+                  syncedUserId,
+                  notice.recoveryGeneration
+                );
+              } else if (activeUserIdRef.current === syncedUserId) {
+                setPrivateKey(null);
+                setIdentity(null);
+              }
+            }
+          } catch (error) {
+            if (activeUserIdRef.current === syncedUserId) {
+              setIdentityError(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to refresh message identity"
+              );
+              setStatus(
+                error instanceof MessageIdentityLockedError ? "locked" : "error"
+              );
+            }
+          }
+          identitySyncInFlightRef.current = false;
+        })();
+      },
+      userId: syncedUserId,
+    });
+    identityScopeBroadcastRef.current = broadcast;
+    return () => {
+      broadcast.close();
+      if (identityScopeBroadcastRef.current === broadcast) {
+        identityScopeBroadcastRef.current = null;
+      }
+    };
+  }, [unlockIdentity, updateRecoveryScope, user]);
 
   const value = useMemo(
     () => ({

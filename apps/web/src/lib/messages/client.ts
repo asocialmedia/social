@@ -355,7 +355,9 @@ export async function refreshIdentityBackup(payload: {
 // untouched: the caller's pre-reset history becomes unreadable to them, while
 // the peer's own wraps remain, so the peer keeps the full history. Callers must
 // confirm with the user before invoking this.
-export async function resetMessageIdentity(): Promise<void> {
+export async function resetMessageIdentity(): Promise<{
+  recoveryGeneration: number;
+}> {
   const response = await fetch("/api/messages/identity", {
     credentials: "same-origin",
     method: "DELETE",
@@ -363,6 +365,15 @@ export async function resetMessageIdentity(): Promise<void> {
   if (!response.ok) {
     throw await parseError(response);
   }
+  const body = (await response.json()) as { recoveryGeneration?: unknown };
+  if (
+    typeof body.recoveryGeneration !== "number" ||
+    !Number.isSafeInteger(body.recoveryGeneration) ||
+    body.recoveryGeneration < 0
+  ) {
+    throw new Error("Identity reset did not return a recovery generation");
+  }
+  return { recoveryGeneration: body.recoveryGeneration };
 }
 
 export async function createConversation(

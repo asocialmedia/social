@@ -274,7 +274,7 @@ export async function DELETE() {
   }
 
   try {
-    const removedKeys = await prisma.transaction(async (tx) => {
+    const reset = await prisma.transaction(async (tx) => {
       await tx.orm.public.MessageIdentities.where({ userId: user.id }).delete();
       // Both conditions are required: the owner filter keeps other members'
       // wraps, and the conversationId foreign key means a wrap without a live
@@ -286,19 +286,20 @@ export async function DELETE() {
       const searchState = await tx.orm.public.MessageSearchAccountState.where({
         userId: user.id,
       }).first();
+      const recoveryGeneration = (searchState?.recoveryGeneration ?? 0) + 1;
       await tx.orm.public.MessageSearchAccountState.where({
         userId: user.id,
       }).upsert({
-        create: { recoveryGeneration: 1, userId: user.id },
+        create: { recoveryGeneration, userId: user.id },
         update: {
-          recoveryGeneration: (searchState?.recoveryGeneration ?? 0) + 1,
+          recoveryGeneration,
           updatedAt: toPrismaDateTime(new Date()),
         },
       });
-      return deleted;
+      return { recoveryGeneration, removedKeys: deleted };
     });
 
-    return Response.json({ ok: true, removedKeys });
+    return Response.json({ ok: true, ...reset });
   } catch (error) {
     console.error("Failed to reset message identity:", error);
     return Response.json(
