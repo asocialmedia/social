@@ -181,8 +181,10 @@ async function request<T>(
       options.cookie
     ),
   };
+  // A cancellable history page owns its transport; aborting it must remain
+  // independent of shared screen reads.
   const response =
-    (init?.method ?? "GET") === "GET"
+    (init?.method ?? "GET") === "GET" && !init?.signal
       ? await getWithTimeout(url, requestInit, { baseFetch })
       : await baseFetch(url, requestInit);
   if (!response.ok) {

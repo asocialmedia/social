@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { fetchIdentity } from "./client";
+import { fetchIdentity, fetchMessages } from "./client";
 import { HistoryThrottledError } from "./history-throttle";
 
 describe("message reads", () => {
@@ -76,4 +76,41 @@ describe("message reads", () => {
     expect(await fetchIdentity(options)).toEqual({ identity: null });
     expect(calls).toBe(2);
   });
+});
+
+test("cancelling a history read still aborts its own transport", async () => {
+  const controller = new AbortController();
+  let transportAborted = false;
+  const baseFetch: typeof fetch = Object.assign(
+    (_input: RequestInfo | URL, init?: RequestInit) =>
+      // oxlint-disable-next-line promise/avoid-new -- this transport stays pending until its abort signal rejects it
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            transportAborted = true;
+            reject(
+              Object.assign(new Error("Cancelled history read"), {
+                name: "AbortError",
+              })
+            );
+          },
+          { once: true }
+        );
+      }),
+    { preconnect: fetch.preconnect }
+  );
+  const pending = fetchMessages(
+    "conversation",
+    undefined,
+    {
+      apiBase: "https://messages.invalid",
+      baseFetch,
+    },
+    30,
+    { signal: controller.signal }
+  );
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  expect(transportAborted).toBe(true);
 });
