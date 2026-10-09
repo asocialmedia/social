@@ -612,6 +612,14 @@ function requireFulfilled<T>(
   return result.value;
 }
 
+// Seeding 4M rows can take ~15 minutes on local hardware, leaving no room
+// for the load phase inside the default budget. The override exists only for
+// that profile on a machine that has already proven the smaller shapes.
+const SCALE_TIMEOUT_MS = (() => {
+  const override = Number(process.env.MESSAGE_SEARCH_SCALE_TIMEOUT_MS);
+  return Number.isSafeInteger(override) && override > 0 ? override : 900_000;
+})();
+
 test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
   `searches ${CONVERSATION_COUNT} DM(s) with ${MESSAGE_COUNT} messages each under broad and concurrent query load`,
   async () => {
@@ -937,5 +945,5 @@ test.skipIf(process.env.RUN_MESSAGE_SEARCH_SCALE !== "1")(
       }
     }
   },
-  900_000
+  SCALE_TIMEOUT_MS
 );
