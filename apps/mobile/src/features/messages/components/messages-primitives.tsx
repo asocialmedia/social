@@ -6,7 +6,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BellOff, Check, CheckCheck, Clock } from "lucide-react-native";
 import { useState } from "react";
 import type { ComponentType } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import type { BubbleCorners } from "@/features/messages/lib/message-bubble-shape";
 import { messageImageSource } from "@/features/messages/lib/message-image-source";
@@ -324,6 +330,7 @@ export function MessageImage({
     userId,
     mediaCookie
   );
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   return (
@@ -333,12 +340,34 @@ export function MessageImage({
         cachePolicy={request.privateMedia ? "memory" : imageCachePolicy(source)}
         contentFit={contentFit}
         onError={() => setFailedSource(source)}
-        onLoad={() => setFailedSource(null)}
+        onLoad={() => {
+          setFailedSource(null);
+          setLoadedSource(source);
+        }}
         recyclingKey={request.source?.cacheKey ?? source}
         source={request.source}
         style={StyleSheet.absoluteFill}
         transition={120}
       />
+      {loadedSource !== source && failedSource !== source ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              alignItems: "center",
+              backgroundColor: `${theme.dividerText}20`,
+              justifyContent: "center",
+            },
+          ]}
+        >
+          <ActivityIndicator
+            accessibilityLabel="Loading message image"
+            color={theme.dividerText}
+            size="small"
+          />
+        </View>
+      ) : null}
       {failedSource === source ? (
         <Pressable
           accessibilityRole="button"

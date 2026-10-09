@@ -60,6 +60,7 @@ export interface DecryptorOptions {
   concurrency?: number;
   decrypt?: DecryptImpl;
   scheduleFlush?: (flush: () => void) => void;
+  scheduleWork?: (work: () => void) => void;
 }
 
 const DEFAULT_CONCURRENCY = 4;
@@ -127,6 +128,9 @@ export function createDecryptor(
     ((flush: () => void) => {
       queueMicrotask(flush);
     });
+
+  const scheduleWork = options.scheduleWork ?? ((work: () => void) => work());
+  let pumpScheduled = false;
 
   let scopeKey: string | null = null;
   let generation = 0;
@@ -255,6 +259,21 @@ export function createDecryptor(
     }
   }
 
+  function continueWork(): void {
+    if (pumpScheduled) {
+      return;
+    }
+    pumpScheduled = true;
+    const scheduledGeneration = generation;
+    scheduleWork(() => {
+      if (scheduledGeneration !== generation) {
+        return;
+      }
+      pumpScheduled = false;
+      pump();
+    });
+  }
+
   // Claims a batch as pending and enqueues it in the background lane.
   function enqueue(items: DecryptItem[]): boolean {
     let marked = false;
@@ -296,7 +315,7 @@ export function createDecryptor(
       active -= 1;
       evictIfNeeded();
       scheduleNotify();
-      pump();
+      continueWork();
       return;
     }
     entries.set(id, payload ?? "error");
@@ -311,7 +330,7 @@ export function createDecryptor(
     active -= 1;
     evictIfNeeded();
     scheduleNotify();
-    pump();
+    continueWork();
   }
 
   // Resolves the conversation's cached candidate base keys, then decrypts with the
@@ -406,6 +425,7 @@ export function createDecryptor(
       }
       scopeKey = key;
       generation += 1;
+      pumpScheduled = false;
       entries.clear();
       erroredByConversation.clear();
       conversationById.clear();
@@ -457,8 +477,8 @@ export function createDecryptor(
       }
       if (enqueue(items)) {
         notify();
+        pump();
       }
-      pump();
     },
 
     requestUrgent(items: DecryptItem[], keys: DecryptorKeySource): void {
@@ -525,4 +545,9 @@ export function createDecryptor(
 
 // Session singleton used by message threads. Scoped by user id (plus the identity
 // generation) so a logout/login never serves another account's plaintext.
-export const messageDecryptor = createDecryptor();
+// Yield between small decrypt batches so long histories never monopolize Hermes.
+export const messageDecryptor = createDecryptor({
+  scheduleWork: (work) => {
+    setTimeout(work, 0);
+  },
+});

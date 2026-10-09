@@ -56,6 +56,32 @@ const keys = {
 };
 
 describe("decryptor", () => {
+  test("large decrypt windows yield between batches and ignore stale scheduled work", async () => {
+    const scheduled: (() => void)[] = [];
+    const decryptor = createDecryptor({
+      concurrency: 2,
+      decrypt: (entry) => payload(entry.message.id),
+      scheduleWork: (work) => {
+        scheduled.push(work);
+      },
+    });
+    decryptor.configureScope("first");
+    decryptor.request(
+      [item("one"), item("two"), item("three"), item("four")],
+      keys
+    );
+    await settle(30);
+    expect(decryptor.get("one")).toEqual(payload("one"));
+    expect(decryptor.get("three")).toBe("pending");
+    expect(scheduled).toHaveLength(1);
+    scheduled.shift()?.();
+    await settle(30);
+    expect(decryptor.get("three")).toEqual(payload("three"));
+    decryptor.configureScope("next");
+    scheduled.shift()?.();
+    expect(decryptor.get("three")).toBeUndefined();
+  });
+
   test("queued conversations retain their own key source", async () => {
     const gate = createGate();
     const decryptor = createDecryptor({

@@ -12,6 +12,7 @@ import {
   albumTileFrames,
   ALBUM_LAYOUTS,
   getAlbumLayout,
+  singleMessageImageHeight,
   isWellFormedAlbumLayout,
 } from "./message-album-layout";
 import {
@@ -722,4 +723,10 @@ const makeMessage = (id: string, createdAt: string): MessageData => ({
   iv: "opaque",
   ratchetIndex: 0,
   senderId: "peer",
+});
+
+test("single message media preserves landscape and portrait proportions without cropping", () => {
+  expect(singleMessageImageHeight(320, { height: 360, width: 640 })).toBe(180);
+  expect(singleMessageImageHeight(320, { height: 640, width: 320 })).toBe(640);
+  expect(singleMessageImageHeight(320, {})).toBe(240);
 });

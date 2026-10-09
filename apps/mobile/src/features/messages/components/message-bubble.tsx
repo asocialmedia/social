@@ -25,6 +25,7 @@ import {
   albumHeightForWidth,
   albumTileFrames,
   getAlbumLayout,
+  singleMessageImageHeight,
 } from "@/features/messages/lib/message-album-layout";
 import {
   bubbleCorners,
@@ -50,7 +51,7 @@ import {
 
 // The album's rendered width. Web caps the collage at 384px; on a phone the bubble
 // itself is the cap, and this is the ceiling inside it.
-const ALBUM_MAX_WIDTH = 260;
+const ALBUM_MAX_WIDTH = 384;
 const MAX_BUBBLE_WIDTH_RATIO = 0.85;
 
 export interface MessageBubbleProps {
@@ -154,7 +155,10 @@ function MessageBubbleInner({
     const images = getMediaImages(payload);
     const layout = getAlbumLayout(images.length);
     const albumWidth = Math.min(ALBUM_MAX_WIDTH, bubbleWidth);
-    const albumHeight = albumHeightForWidth(layout, albumWidth);
+    const albumHeight =
+      images.length === 1
+        ? singleMessageImageHeight(albumWidth, images[0])
+        : albumHeightForWidth(layout, albumWidth);
     return (
       <View
         style={[
@@ -168,6 +172,7 @@ function MessageBubbleInner({
         >
           <View
             style={{
+              borderRadius: 16,
               height: albumHeight,
               overflow: "hidden",
               width: albumWidth,
@@ -197,6 +202,7 @@ function MessageBubbleInner({
                   ]}
                 >
                   <MessageImage
+                    contentFit={images.length === 1 ? "contain" : "cover"}
                     source={mediaUrl(image.url)}
                     style={StyleSheet.absoluteFill}
                   />
