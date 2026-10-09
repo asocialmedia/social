@@ -352,6 +352,20 @@ describe("POST /api/messages/conversations/:id/search", () => {
     expect(refreshedBody.snapshotToken).toBe(firstBody.snapshotToken);
   });
 
+  test("rejects a first-page refresh after the recovery scope changes", async () => {
+    const first = await POST(request({ query: "needle" }), context);
+    const firstBody = (await first.json()) as { snapshotToken: string };
+    mockRecoveryState.mockReturnValueOnce({ recoveryGeneration: 3 });
+
+    const refreshed = await POST(
+      request({ query: "needle", snapshot: firstBody.snapshotToken }),
+      context
+    );
+
+    expect(refreshed.status).toBe(409);
+    expect(mockSearchCandidates).toHaveBeenCalledTimes(1);
+  });
+
   test("rejects invalid and ambiguous page boundaries", async () => {
     const response = await POST(
       request({ cursor: "cursor", query: "needle", snapshot: "snapshot" }),

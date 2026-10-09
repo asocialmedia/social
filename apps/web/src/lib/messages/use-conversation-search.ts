@@ -717,6 +717,8 @@ export function useConversationSearch(
                 )
               ) {
                 serverScopeRestartKeyRef.current = requestKey;
+                serverCoveragePollAttemptRef.current = 0;
+                setServerCount(null);
                 setServerPageState({
                   key: requestKey,
                   pages: [],
