@@ -101,12 +101,13 @@ describe("refreshIdentityBackup", () => {
 
   test("uses the identity revision compare-and-swap endpoint", async () => {
     const updatedAt = "2026-01-02T00:00:00.001Z";
+    const recoveryGeneration = 4;
     let requestUrl = "";
     let requestInit: RequestInit | undefined;
     globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
       requestUrl = String(input);
       requestInit = init;
-      return Promise.resolve(Response.json({ updatedAt }));
+      return Promise.resolve(Response.json({ recoveryGeneration, updatedAt }));
     }) as unknown as typeof fetch;
 
     await expect(
@@ -118,7 +119,7 @@ describe("refreshIdentityBackup", () => {
         publicKey: "stored-public-key",
         salt: "salt",
       })
-    ).resolves.toEqual({ updatedAt });
+    ).resolves.toEqual({ recoveryGeneration, updatedAt });
 
     expect(requestUrl).toBe("/api/messages/identity");
     expect(requestInit?.method).toBe("PATCH");

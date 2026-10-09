@@ -28,7 +28,7 @@ export interface UnlockedIdentityBackup {
 
 export type RefreshIdentityBackup = (
   input: IdentityBackupRefreshInput
-) => Promise<{ updatedAt: string }>;
+) => Promise<{ recoveryGeneration: number; updatedAt: string }>;
 
 function isPrivateKeyJwk(value: unknown): value is JsonWebKey {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -156,7 +156,7 @@ export async function refreshLegacyIdentityBackup(
   deviceSecret: string | null,
   privateKeyJwk: JsonWebKey,
   refresh: RefreshIdentityBackup
-): Promise<MessageIdentityPayload | null> {
+): Promise<(MessageIdentityPayload & { recoveryGeneration: number }) | null> {
   if (!deviceSecret) {
     return null;
   }
@@ -170,7 +170,12 @@ export async function refreshLegacyIdentityBackup(
       privateKeyJwk
     );
     const result = await refresh(payload);
-    return { ...identity, ...payload, updatedAt: result.updatedAt };
+    return {
+      ...identity,
+      ...payload,
+      recoveryGeneration: result.recoveryGeneration,
+      updatedAt: result.updatedAt,
+    };
   } catch {
     return null;
   }
@@ -188,7 +193,9 @@ export async function unlockAndMigrateIdentityBackup(
   }
 ): Promise<
   UnlockedIdentityBackup & {
-    refreshedIdentity: MessageIdentityPayload | null;
+    refreshedIdentity:
+      | (MessageIdentityPayload & { recoveryGeneration: number })
+      | null;
   }
 > {
   const unlocked = await unlockIdentityBackup(identity, deviceSecret);

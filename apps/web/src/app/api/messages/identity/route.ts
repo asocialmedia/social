@@ -1,4 +1,10 @@
-import { fromPrismaDateTime, prisma, toPrismaDateTime } from "@asm/db";
+import {
+  commitMessageIdentityBackupRefresh,
+  enqueueMessageSearchBackfill,
+  fromPrismaDateTime,
+  prisma,
+  toPrismaDateTime,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
@@ -226,24 +232,36 @@ export async function PATCH(request: Request) {
     Math.max(Date.now(), expectedUpdatedAt.getTime() + 1)
   );
   try {
-    const updated = await prisma.orm.public.MessageIdentities.where({
-      publicKey: parsed.publicKey,
-      updatedAt: toPrismaDateTime(expectedUpdatedAt),
-      userId: user.id,
-    }).updateAndCount({
+    const refreshed = await commitMessageIdentityBackupRefresh({
       encryptedPrivateKey: parsed.encryptedPrivateKey,
+      expectedUpdatedAt,
       kdfIterations: parsed.kdfIterations,
       masterKeyHash: parsed.masterKeyHash,
+      nextUpdatedAt,
+      publicKey: parsed.publicKey,
       salt: parsed.salt,
-      updatedAt: toPrismaDateTime(nextUpdatedAt),
+      userId: user.id,
     });
-    if (updated !== 1) {
+    if (refreshed.status !== "updated") {
       return Response.json(
         { error: "Identity changed; reload messages to continue" },
         { status: 409 }
       );
     }
-    return Response.json({ updatedAt: nextUpdatedAt.toISOString() });
+    for (const conversationId of refreshed.repairConversationIds) {
+      void (async () => {
+        try {
+          await enqueueMessageSearchBackfill(conversationId, null);
+        } catch {
+          // The durable coverage row lets the worker sweep retry after Redis recovers.
+          console.error("Failed to enqueue recovered DM search history");
+        }
+      })();
+    }
+    return Response.json({
+      recoveryGeneration: refreshed.recoveryGeneration,
+      updatedAt: nextUpdatedAt.toISOString(),
+    });
   } catch (error) {
     console.error("Failed to refresh message identity backup:", error);
     return Response.json(

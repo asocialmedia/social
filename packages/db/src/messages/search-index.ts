@@ -25,6 +25,225 @@ function getSearchPool(): Pool {
   return searchPool;
 }
 
+export interface MessageIdentityBackupRefreshInput {
+  encryptedPrivateKey: string;
+  expectedUpdatedAt: Date;
+  kdfIterations: number;
+  masterKeyHash: string;
+  nextUpdatedAt: Date;
+  publicKey: string;
+  salt: string;
+  userId: string;
+}
+
+export type MessageIdentityBackupRefreshResult =
+  | { status: "conflict" }
+  | {
+      recoveryGeneration: number;
+      repairConversationIds: string[];
+      status: "updated";
+    };
+
+export async function commitMessageIdentityBackupRefresh(
+  input: MessageIdentityBackupRefreshInput
+): Promise<MessageIdentityBackupRefreshResult> {
+  const client = await getSearchPool().connect();
+  try {
+    await client.query("BEGIN");
+    const identity = await client.query<{ userId: string }>(
+      `UPDATE public.message_identities
+          SET "encryptedPrivateKey" = $4,
+              "masterKeyHash" = $5,
+              salt = $6,
+              "kdfIterations" = $7,
+              "updatedAt" = $8
+        WHERE "userId" = $1
+          AND "publicKey" = $2
+          AND "updatedAt" = $3::timestamp
+        RETURNING "userId"`,
+      [
+        input.userId,
+        input.publicKey,
+        input.expectedUpdatedAt,
+        input.encryptedPrivateKey,
+        input.masterKeyHash,
+        input.salt,
+        input.kdfIterations,
+        input.nextUpdatedAt,
+      ]
+    );
+    if (identity.rowCount !== 1) {
+      await client.query("COMMIT");
+      return { status: "conflict" };
+    }
+
+    const affected = await client.query<{
+      changeSeq: number;
+      conversationId: string;
+    }>(
+      `SELECT conversation.id AS "conversationId", conversation."changeSeq"
+         FROM public.message_conversation_members AS member
+         JOIN public.message_conversations AS conversation
+           ON conversation.id = member."conversationId"
+         JOIN public.message_search_coverage AS coverage
+           ON coverage."conversationId" = conversation.id
+        WHERE member."userId" = $1
+          AND (
+            coverage."unrecoverableEpochs" > 0 OR
+            (coverage."backfillStartedAt" IS NOT NULL AND
+             coverage."backfillCompletedAt" IS NULL)
+          )
+        ORDER BY conversation.id
+        FOR UPDATE OF conversation`,
+      [input.userId]
+    );
+    const conversationIds = affected.rows.map((row) => row.conversationId);
+    if (conversationIds.length === 0) {
+      const accountState = await client.query<{ recoveryGeneration: number }>(
+        `SELECT "recoveryGeneration"
+           FROM public.message_search_account_state
+          WHERE "userId" = $1`,
+        [input.userId]
+      );
+      await client.query("COMMIT");
+      return {
+        recoveryGeneration: accountState.rows[0]?.recoveryGeneration ?? 0,
+        repairConversationIds: [],
+        status: "updated",
+      };
+    }
+
+    await client.query(
+      `SELECT "conversationId"
+         FROM public.message_search_coverage
+        WHERE "conversationId" = ANY($1::text[])
+        ORDER BY "conversationId"
+        FOR UPDATE`,
+      [conversationIds]
+    );
+    await client.query(
+      `INSERT INTO public.message_search_account_state ("userId", "recoveryGeneration")
+       VALUES ($1, 0)
+       ON CONFLICT ("userId") DO NOTHING`,
+      [input.userId]
+    );
+    const accountState = await client.query<{ recoveryGeneration: number }>(
+      `SELECT "recoveryGeneration"
+         FROM public.message_search_account_state
+        WHERE "userId" = $1
+        FOR UPDATE`,
+      [input.userId]
+    );
+    const [lockedAccountState] = accountState.rows;
+    if (!lockedAccountState) {
+      throw new Error(
+        "Message recovery state disappeared during history repair"
+      );
+    }
+    const currentRecoveryGeneration = lockedAccountState.recoveryGeneration;
+    if (currentRecoveryGeneration >= 2_147_483_647) {
+      throw new Error(
+        "Message recovery generation is outside the supported range"
+      );
+    }
+    const recoveryGeneration = currentRecoveryGeneration + 1;
+    const repairConversationIds: string[] = [];
+
+    for (const conversationId of conversationIds) {
+      // oxlint-disable-next-line no-await-in-loop -- Recovery repairs lock and advance conversations in stable order.
+      const coverageState = await client.query<{
+        backfillCompletedAt: Date | null;
+        backfillStartedAt: Date | null;
+        unrecoverableEpochs: number;
+      }>(
+        `SELECT "backfillCompletedAt", "backfillStartedAt", "unrecoverableEpochs"
+           FROM public.message_search_coverage
+          WHERE "conversationId" = $1`,
+        [conversationId]
+      );
+      const [coverage] = coverageState.rows;
+      if (
+        !coverage ||
+        (coverage.unrecoverableEpochs === 0 &&
+          (coverage.backfillStartedAt === null ||
+            coverage.backfillCompletedAt !== null))
+      ) {
+        continue;
+      }
+
+      // oxlint-disable-next-line no-await-in-loop -- Each durable sequence depends on its locked conversation row.
+      const bumpedConversation = await client.query<{ changeSeq: number }>(
+        `UPDATE public.message_conversations
+            SET "changeSeq" = "changeSeq" + 1
+          WHERE id = $1
+          RETURNING "changeSeq"`,
+        [conversationId]
+      );
+      const changeSequence = bumpedConversation.rows[0]?.changeSeq;
+      if (changeSequence === undefined) {
+        throw new Error(
+          "Message conversation disappeared during recovery repair"
+        );
+      }
+      // oxlint-disable-next-line no-await-in-loop -- Keep the coverage reset in the same transaction as its sequence bump.
+      const resetCoverage = await client.query(
+        `UPDATE public.message_search_coverage
+            SET "unrecoverableEpochs" = 0,
+                "backfillThroughSequence" = $2,
+                "backfillCursorCreatedAt" = NULL,
+                "backfillCursorMessageId" = NULL,
+                "backfillStartedAt" = now(),
+                "backfillCompletedAt" = NULL,
+                "updatedAt" = now()
+          WHERE "conversationId" = $1`,
+        [conversationId, changeSequence]
+      );
+      if (resetCoverage.rowCount !== 1) {
+        throw new Error(
+          "DM search coverage disappeared during recovery repair"
+        );
+      }
+      // oxlint-disable-next-line no-await-in-loop -- Insert the matching durable change before releasing its conversation lock.
+      await client.query(
+        `INSERT INTO public.message_conversation_changes
+           (id, "conversationId", sequence, "messageId", revision, kind, "audienceUserIds")
+         VALUES ($1, $2, $3, NULL, NULL, 'recovery.changed', ARRAY[$4::text])`,
+        [randomUUID(), conversationId, changeSequence, input.userId]
+      );
+      repairConversationIds.push(conversationId);
+    }
+
+    let finalRecoveryGeneration = currentRecoveryGeneration;
+    if (repairConversationIds.length > 0) {
+      const updatedState = await client.query<{ recoveryGeneration: number }>(
+        `UPDATE public.message_search_account_state
+            SET "recoveryGeneration" = $2,
+                "updatedAt" = now()
+          WHERE "userId" = $1
+          RETURNING "recoveryGeneration"`,
+        [input.userId, recoveryGeneration]
+      );
+      const [savedAccountState] = updatedState.rows;
+      if (!savedAccountState) {
+        throw new Error("Message recovery state disappeared during refresh");
+      }
+      finalRecoveryGeneration = savedAccountState.recoveryGeneration;
+    }
+
+    await client.query("COMMIT");
+    return {
+      recoveryGeneration: finalRecoveryGeneration,
+      repairConversationIds,
+      status: "updated",
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function lockMessageSearchCoverageRow(
   client: PoolClient,
   conversationId: string

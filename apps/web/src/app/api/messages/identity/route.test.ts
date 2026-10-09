@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type {
+  MessageIdentityBackupRefreshInput,
+  MessageIdentityBackupRefreshResult,
+} from "@asm/db";
+
 import { DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT } from "@/lib/messages/den-rate-limit";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
@@ -20,9 +25,19 @@ type IdentityRow = {
 } | null;
 const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
 const mockCreate = mock(() => ({}));
-const mockIdentityUpdate = mock(() => 1);
-let identityUpdateWhere: Record<string, unknown> | null = null;
-let identityUpdateInput: Record<string, unknown> | null = null;
+const mockCommitIdentityBackupRefresh = mock(
+  (
+    _input: MessageIdentityBackupRefreshInput
+  ): Promise<MessageIdentityBackupRefreshResult> =>
+    Promise.resolve({
+      recoveryGeneration: 6,
+      repairConversationIds: ["conversation-1"],
+      status: "updated",
+    })
+);
+const mockEnqueueSearchBackfill = mock(
+  (_conversationId: string, _cursorKey: string | null) => Promise.resolve()
+);
 
 // Reset path: the route runs both deletes inside one transaction callback.
 // Recorded so the tests can assert each delete stayed self-scoped.
@@ -93,24 +108,17 @@ mock.module("@/lib/auth/session", () => ({
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
+  commitMessageIdentityBackupRefresh: mockCommitIdentityBackupRefresh,
   consumeRateLimit: mockConsumeRateLimit,
   consumeRateLimitSliding: mockConsumeRateLimit,
+  enqueueMessageSearchBackfill: mockEnqueueSearchBackfill,
   prisma: {
     orm: {
       public: {
         MessageIdentities: {
           create: mockCreate,
           select: () => ({ where: () => ({ first: mockFindUnique }) }),
-          where: (where: Record<string, unknown>) => {
-            identityUpdateWhere = where;
-            return {
-              first: mockFindUnique,
-              updateAndCount: (input: Record<string, unknown>) => {
-                identityUpdateInput = input;
-                return mockIdentityUpdate();
-              },
-            };
-          },
+          where: () => ({ first: mockFindUnique }),
         },
         MessageSearchAccountState: {
           select: () => ({
@@ -332,10 +340,14 @@ describe("PATCH /api/messages/identity", () => {
     mockConsumeRateLimit.mockClear();
     mockGetSession.mockReset();
     mockGetSession.mockReturnValue({ user: { id: "user1" } });
-    mockIdentityUpdate.mockReset();
-    mockIdentityUpdate.mockReturnValue(1);
-    identityUpdateWhere = null;
-    identityUpdateInput = null;
+    mockCommitIdentityBackupRefresh.mockReset();
+    mockCommitIdentityBackupRefresh.mockReturnValue({
+      recoveryGeneration: 6,
+      repairConversationIds: ["conversation-1"],
+      status: "updated",
+    });
+    mockEnqueueSearchBackfill.mockReset();
+    mockEnqueueSearchBackfill.mockImplementation(() => Promise.resolve());
   });
 
   test("requires auth", async () => {
@@ -348,7 +360,7 @@ describe("PATCH /api/messages/identity", () => {
       })
     );
     expect(response.status).toBe(401);
-    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+    expect(mockCommitIdentityBackupRefresh).not.toHaveBeenCalled();
     expect(mockConsumeRateLimit).not.toHaveBeenCalled();
   });
 
@@ -370,7 +382,7 @@ describe("PATCH /api/messages/identity", () => {
         identifier: "user1",
       })
     );
-    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+    expect(mockCommitIdentityBackupRefresh).not.toHaveBeenCalled();
   });
 
   test("validates refresh fields before updating the row", async () => {
@@ -382,7 +394,7 @@ describe("PATCH /api/messages/identity", () => {
       })
     );
     expect(response.status).toBe(400);
-    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+    expect(mockCommitIdentityBackupRefresh).not.toHaveBeenCalled();
     expect(mockConsumeRateLimit).toHaveBeenCalledWith(
       expect.objectContaining({
         bucket: DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT.bucket,
@@ -403,10 +415,10 @@ describe("PATCH /api/messages/identity", () => {
       })
     );
     expect(response.status).toBe(413);
-    expect(mockIdentityUpdate).not.toHaveBeenCalled();
+    expect(mockCommitIdentityBackupRefresh).not.toHaveBeenCalled();
   });
 
-  test("updates only the matching identity revision and preserves its keypair", async () => {
+  test("updates the matching identity and durably restarts unreadable history", async () => {
     const response = await PATCH(
       new Request("http://localhost:3000/api/messages/identity", {
         body: JSON.stringify(validBody),
@@ -421,18 +433,21 @@ describe("PATCH /api/messages/identity", () => {
         identifier: "user1",
       })
     );
-    expect(identityUpdateWhere).toEqual({
-      publicKey: "pub-key",
-      updatedAt: new Date(expectedUpdatedAt),
-      userId: "user1",
-    });
-    expect(identityUpdateInput).toMatchObject({
+    expect(mockCommitIdentityBackupRefresh).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedUpdatedAt: new Date(expectedUpdatedAt),
+        publicKey: "pub-key",
+        userId: "user1",
+      })
+    );
+    const input = mockCommitIdentityBackupRefresh.mock.calls[0]?.[0];
+    expect(input).toMatchObject({
       encryptedPrivateKey: validBody.encryptedPrivateKey,
       kdfIterations: validBody.kdfIterations,
       masterKeyHash: validBody.masterKeyHash,
       salt: validBody.salt,
     });
-    const updatedAt = identityUpdateInput?.updatedAt;
+    const updatedAt = input?.nextUpdatedAt;
     expect(updatedAt).toBeInstanceOf(Date);
     if (!(updatedAt instanceof Date)) {
       throw new Error("The identity revision timestamp must be a Date");
@@ -441,12 +456,17 @@ describe("PATCH /api/messages/identity", () => {
       new Date(expectedUpdatedAt).getTime()
     );
     expect(await response.json()).toMatchObject({
+      recoveryGeneration: 6,
       updatedAt: expect.any(String),
     });
+    expect(mockEnqueueSearchBackfill).toHaveBeenCalledWith(
+      "conversation-1",
+      null
+    );
   });
 
   test("returns a conflict when reset or another refresh wins the compare-and-swap", async () => {
-    mockIdentityUpdate.mockReturnValueOnce(0);
+    mockCommitIdentityBackupRefresh.mockReturnValueOnce({ status: "conflict" });
     const response = await PATCH(
       new Request("http://localhost:3000/api/messages/identity", {
         body: JSON.stringify(validBody),
@@ -458,6 +478,7 @@ describe("PATCH /api/messages/identity", () => {
     expect(await response.json()).toMatchObject({
       error: expect.any(String),
     });
+    expect(mockEnqueueSearchBackfill).not.toHaveBeenCalled();
   });
 });
 

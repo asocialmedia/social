@@ -109,6 +109,7 @@ export {
   claimMessageSearchCountRequest,
   completeMessageSearchCountRequest,
   countMessageSearchCandidates,
+  commitMessageIdentityBackupRefresh,
   hydrateSearchMessageCandidates,
   listMessageSearchReferences,
   listRunnableMessageUnreadCounters,
@@ -127,6 +128,8 @@ export {
   startMessageSearchBackfill,
 } from "./src/messages/search-index";
 export type {
+  MessageIdentityBackupRefreshInput,
+  MessageIdentityBackupRefreshResult,
   MessageConversationChange,
   MessageHideCommitResult,
   MessageReadCommitResult,

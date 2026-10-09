@@ -165,6 +165,32 @@ export function MessageIdentityProvider({
     []
   );
 
+  const acceptRecoveryGeneration = useCallback(
+    (nextGeneration: number) => {
+      if (!user || activeUserIdRef.current !== user.id) {
+        return;
+      }
+      const previousGeneration = activeRecoveryGenerationRef.current;
+      updateRecoveryScope({
+        recoveryGeneration: nextGeneration,
+        userId: user.id,
+      });
+      storeRecoveryGeneration(user.id, nextGeneration);
+      if (previousGeneration === nextGeneration) {
+        return;
+      }
+      identityScopeBroadcastRef.current?.publish({
+        phase: "generation-changed",
+        recoveryGeneration: nextGeneration,
+      });
+      identityScopeBroadcastRef.current?.publish({
+        phase: "identity-ready",
+        recoveryGeneration: nextGeneration,
+      });
+    },
+    [updateRecoveryScope, user]
+  );
+
   useEffect(() => {
     activeUserIdRef.current = activeUserId;
   }, [activeUserId]);
@@ -279,6 +305,7 @@ export function MessageIdentityProvider({
       }
       setStatus("ready");
       if (unlocked.refreshedIdentity && activeUserIdRef.current === user.id) {
+        acceptRecoveryGeneration(unlocked.refreshedIdentity.recoveryGeneration);
         setIdentity((current) =>
           current?.publicKey === identityToUnlock.publicKey &&
           current.updatedAt === identityToUnlock.updatedAt
@@ -287,7 +314,7 @@ export function MessageIdentityProvider({
         );
       }
     },
-    [persistUnlockedKey, user]
+    [acceptRecoveryGeneration, persistUnlockedKey, user]
   );
 
   // The bootstrap body, split out so the caller can reset its in-flight guard
@@ -325,12 +352,15 @@ export function MessageIdentityProvider({
           });
           storeRecoveryGeneration(user.id, data.recoveryGeneration);
           if (data.identity) {
-            await refreshLegacyIdentityBackup(
+            const refreshedIdentity = await refreshLegacyIdentityBackup(
               data.identity,
               getStoredAccountSecret(user.id),
               stored,
               refreshIdentityBackup
             );
+            if (refreshedIdentity) {
+              acceptRecoveryGeneration(refreshedIdentity.recoveryGeneration);
+            }
           }
         } catch {
           // Keep the last locally verified recovery generation for offline use.
@@ -355,7 +385,13 @@ export function MessageIdentityProvider({
     }
     setIdentity(data.identity);
     await unlockIdentity(data.identity);
-  }, [enableIdentity, unlockIdentity, updateRecoveryScope, user]);
+  }, [
+    acceptRecoveryGeneration,
+    enableIdentity,
+    unlockIdentity,
+    updateRecoveryScope,
+    user,
+  ]);
 
   const bootstrap = useCallback(async () => {
     if (typeof window === "undefined" || bootstrappingRef.current) {

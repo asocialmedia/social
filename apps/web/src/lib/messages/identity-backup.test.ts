@@ -182,7 +182,7 @@ describe("identity backup recovery and refresh", () => {
         refresh: (payload) => {
           expect(payload.publicKey).toBe(identity.publicKey);
           expect(payload.expectedUpdatedAt).toBe(identity.updatedAt);
-          return { updatedAt: nextUpdatedAt };
+          return { recoveryGeneration: 9, updatedAt: nextUpdatedAt };
         },
       }
     );
@@ -244,7 +244,10 @@ describe("identity backup recovery and refresh", () => {
       (payload) => {
         refreshCalls += 1;
         expect(payload.expectedUpdatedAt).toBe(identity.updatedAt);
-        return { updatedAt: "2026-01-02T00:00:00.001Z" };
+        return {
+          recoveryGeneration: 9,
+          updatedAt: "2026-01-02T00:00:00.001Z",
+        };
       }
     );
 

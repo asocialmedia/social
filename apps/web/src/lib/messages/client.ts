@@ -320,7 +320,7 @@ export async function refreshIdentityBackup(payload: {
   masterKeyHash: string;
   publicKey: string;
   salt: string;
-}): Promise<{ updatedAt: string }> {
+}): Promise<{ recoveryGeneration: number; updatedAt: string }> {
   const response = await fetch("/api/messages/identity", {
     body: JSON.stringify(payload),
     credentials: "same-origin",
@@ -335,7 +335,11 @@ export async function refreshIdentityBackup(payload: {
     typeof body !== "object" ||
     body === null ||
     !("updatedAt" in body) ||
-    typeof body.updatedAt !== "string"
+    typeof body.updatedAt !== "string" ||
+    !("recoveryGeneration" in body) ||
+    typeof body.recoveryGeneration !== "number" ||
+    !Number.isSafeInteger(body.recoveryGeneration) ||
+    body.recoveryGeneration < 0
   ) {
     throw new Error("Identity backup could not be refreshed");
   }
@@ -346,7 +350,10 @@ export async function refreshIdentityBackup(payload: {
   ) {
     throw new Error("Identity backup could not be refreshed");
   }
-  return { updatedAt: body.updatedAt };
+  return {
+    recoveryGeneration: body.recoveryGeneration,
+    updatedAt: body.updatedAt,
+  };
 }
 
 // Drops this account's server-side identity and its own conversation-key wraps
