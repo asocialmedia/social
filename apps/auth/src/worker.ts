@@ -116,6 +116,8 @@ if (import.meta.main) {
     processMessageSearchBackfill,
     processMessageSearchOutbox,
   } = await import("./worker/message-search-index");
+  const { dispatchMessageSearchBackfillJob } =
+    await import("./worker/message-search-queue");
   const { processMessageSearchCount } =
     await import("./worker/message-search-count");
   const { closeMessageSearchPool, closePrisma, reconcileMessageUnreadCounter } =
@@ -284,41 +286,25 @@ if (import.meta.main) {
         const backfillSearchWorker = new QueueWorker(
           "message-search-backfill",
           (job) =>
-            runMessageSearchJob(async () => {
-              if (job.name === "index-message-outbox") {
-                const outboxId =
-                  typeof job.data.outboxId === "string"
-                    ? job.data.outboxId
-                    : null;
-                if (!outboxId) {
-                  throw new Error("Invalid DM search outbox job payload");
-                }
-                await processMessageSearchOutbox(
-                  outboxId,
-                  logger,
-                  messageSearchMetrics
-                );
-                return;
-              }
-              const conversationId =
-                typeof job.data.conversationId === "string"
-                  ? job.data.conversationId
-                  : null;
-              if (!conversationId) {
-                throw new Error("Invalid DM search backfill job payload");
-              }
-              const result = await processMessageSearchBackfill(
-                conversationId,
-                logger,
-                messageSearchMetrics
-              );
-              if (result.nextCursorMessageId) {
-                await enqueueMessageSearchBackfill(
-                  conversationId,
-                  result.nextCursorMessageId
-                );
-              }
-            }),
+            runMessageSearchJob(() =>
+              dispatchMessageSearchBackfillJob(job, {
+                enqueueConversationBackfill: enqueueMessageSearchBackfill,
+                indexOutbox: (outboxId) =>
+                  processMessageSearchOutbox(
+                    outboxId,
+                    logger,
+                    messageSearchMetrics
+                  ),
+                processConversationBackfill: async (conversationId) => {
+                  const result = await processMessageSearchBackfill(
+                    conversationId,
+                    logger,
+                    messageSearchMetrics
+                  );
+                  return result.nextCursorMessageId;
+                },
+              })
+            ),
           { concurrency: 1, connection }
         );
         trackOutboxFailures(backfillSearchWorker);
