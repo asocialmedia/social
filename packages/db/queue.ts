@@ -435,7 +435,7 @@ async function addWithFreshId(
       });
     }
   }
-  await queue.add(name, data, options);
+  await queue.add(name, data, { ...options, jobId });
 }
 
 export async function enqueueMessageSearchOutbox(
