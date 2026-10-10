@@ -10,7 +10,14 @@
 
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
-import { createContext, useCallback, useContext, useMemo } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import type { ReactNode } from "react";
 
 import { authClient, hasNativePasskey } from "@/features/auth/lib/auth-client";
@@ -27,20 +34,26 @@ import {
   hasNativeGoogle,
   signInWithGoogleNative,
 } from "@/features/auth/lib/google-native";
+import { classifySessionRefresh } from "@/features/auth/lib/session-connection";
+import type { SessionRefreshResult } from "@/features/auth/lib/session-connection";
 import { useInstall } from "@/features/auth/state/install";
 import { engagementStore } from "@/features/feed/lib/engagement-store";
 import { feedCache } from "@/features/feed/state/feed-store";
 import { sleep } from "@/features/media-upload/lib/retry";
+import { clearMessageSession } from "@/features/messages/state/clear-message-session";
 import { unregisterPushNotifications } from "@/features/notifications/lib/push";
 import { supportsPasskeyOrigin } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { createExpoPoller } from "@/lib/expo-poller";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
 
 export interface SessionUser {
   email: string;
+  emailVerified?: boolean;
   id: string;
   image?: string | null;
   name: string;
+  twoFactorEnabled?: boolean;
   username?: string | null;
 }
 
@@ -79,7 +92,7 @@ export interface SessionContextValue {
   // outside the sign-in flows (a username or email change in settings, an
   // unlinked provider) has to call this, or every surface that reads `user`
   // keeps rendering the old identity until the app restarts.
-  refresh: () => Promise<void>;
+  refresh: () => Promise<SessionRefreshResult>;
   signOut: (options?: SignOutOptions) => Promise<void>;
   user: SessionUser | null;
 }
@@ -124,20 +137,56 @@ async function withRedirectCapture<T>(
   }
 }
 
+async function refreshNativeSession(
+  refetch: ReturnType<typeof authClient.useSession>["refetch"]
+): Promise<SessionRefreshResult> {
+  try {
+    await refetch({ query: { disableCookieCache: true } });
+    return classifySessionRefresh(authClient.$store.atoms.session.get());
+  } catch (error) {
+    logError("auth.session_refresh_failed", error);
+    return { status: "unavailable" };
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { data, isPending, refetch } = authClient.useSession();
   const { runWithInstallToken } = useInstall();
 
-  const refresh = useCallback(async () => {
-    try {
-      await refetch();
-    } catch (error) {
-      // A failed revalidation leaves the previous identity in place, which is
-      // better than signing the user out over a transient network error.
-      logError("auth.session_refresh_failed", error);
+  const refreshFlight = useRef<Promise<SessionRefreshResult> | null>(null);
+  const refresh = useCallback((): Promise<SessionRefreshResult> => {
+    if (refreshFlight.current) {
+      return refreshFlight.current;
     }
+    const flight = refreshNativeSession(refetch);
+    refreshFlight.current = flight;
+    // oxlint-disable-next-line promise/prefer-await-to-then -- observe completion without awaiting the shared promise in this synchronous callback
+    void flight.then(() => {
+      refreshFlight.current = null;
+    });
+    return flight;
   }, [refetch]);
+
+  // Sliding server expiry only renews when get-session is requested. Keep
+  // active sessions current, pausing all polling while offline/backgrounded.
+  const { user: authenticatedUser } = data ?? {};
+  const authenticatedUserId = (authenticatedUser as SessionUser | undefined)
+    ?.id;
+  useEffect(() => {
+    if (!authenticatedUserId) {
+      return;
+    }
+    const poller = createExpoPoller({
+      intervalMs: 5 * 60 * 1000,
+      onPoll: async () => {
+        await refresh();
+      },
+      skipInitialPoll: true,
+    });
+    poller.start();
+    return () => poller.stop();
+  }, [authenticatedUserId, refresh]);
 
   const signIn = useCallback(
     async (identifier: string, password: string): Promise<SignInResult> => {
@@ -342,6 +391,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // viewer's highlights.
       engagementStore.clear();
       feedCache.clear();
+      clearMessageSession();
       if (options?.reason) {
         router.replace(
           `/(auth)/login?reason=${encodeURIComponent(options.reason)}`

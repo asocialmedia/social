@@ -10,7 +10,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePathname, useRouter } from "expo-router";
-import { Bell, Search } from "lucide-react-native";
+import { Bell, Search, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   Animated,
@@ -28,13 +28,17 @@ import {
 
 import asmLogo from "@/assets/images/asm.png";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  ORANGE_GRADIENT,
+  ORANGE_PRESSED_GRADIENT,
+} from "@/components/surface/recipes";
 import {
   HEADER_BAR_HEIGHT,
   subscribeHeaderVisibility,
 } from "@/features/feed/lib/header-visibility";
 import { useSearchStore } from "@/features/search/state/search-store";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
 import { logWarn } from "@/lib/telemetry";
 import {
   AVATAR_RING_SHADOWS,
@@ -42,7 +46,9 @@ import {
   ICON_BUTTON_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_LIGHT,
   LOGIN_BUTTON_PRESSED_SHADOWS,
+  LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,
   LOGIN_BUTTON_SHADOWS,
+  LOGIN_BUTTON_SHADOWS_LIGHT,
   useAppTheme,
 } from "@/theme";
 
@@ -57,6 +63,8 @@ export const headerSlide = new Animated.Value(0);
 
 interface MobileHeaderProps {
   onSearchPress?: () => void;
+  searchOpen?: boolean;
+  searchLabel?: string;
   unreadCount?: number;
   user?: {
     avatarUrl?: string | null;
@@ -68,6 +76,8 @@ interface MobileHeaderProps {
 
 export function MobileHeader({
   onSearchPress,
+  searchOpen = false,
+  searchLabel = "Search",
   unreadCount = 0,
   user = null,
 }: MobileHeaderProps) {
@@ -113,14 +123,29 @@ export function MobileHeader({
   const iconShadows = isDark
     ? ICON_BUTTON_SHADOWS_DARK
     : ICON_BUTTON_SHADOWS_LIGHT;
+  // The guest pill is web's `.btn-3d` resting and `:active`. It rides a
+  // Gradient3D, not a View wrapping a LinearGradient: React Native paints inset
+  // shadows on the view's own background, so a gradient child covering the pill
+  // hides the bright inner lip and the dual border collapses to one ring.
+  // Light mode needs its own recipe; the base `.btn-3d` stack is the dark one.
+  const loginShadows = isDark
+    ? LOGIN_BUTTON_SHADOWS
+    : LOGIN_BUTTON_SHADOWS_LIGHT;
+  const loginPressedShadows = isDark
+    ? LOGIN_BUTTON_PRESSED_SHADOWS
+    : LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT;
   // Web MobileTopBar reads user.avatarUrl ?? user.image: custom uploads live
   // in avatarUrl while the session's image only covers OAuth providers. The
   // popup profile (cache-first, shared with the popup itself) carries the
   // DB avatarUrl, so the header resolves the same precedence.
-  const popupState = usePopupProfile(user?.id ?? null).state;
+  const { hydrated: profileHydrated, state: popupState } = usePopupProfile(
+    user?.id ?? null
+  );
   const profileAvatar =
     popupState.status === "ready" ? popupState.profile.avatarUrl : null;
-  const rawAvatar = profileAvatar ?? user?.avatarUrl ?? user?.image ?? null;
+  const rawAvatar = profileHydrated
+    ? (profileAvatar ?? user?.avatarUrl ?? user?.image ?? null)
+    : null;
   const avatarUri = rawAvatar
     ? resolveProfileImageUrl(rawAvatar, getApiBaseUrl())
     : null;
@@ -154,7 +179,7 @@ export function MobileHeader({
               >
                 <View style={styles.avatarFrame}>
                   <Image
-                    cachePolicy={imageCachePolicy(avatarUri)}
+                    cachePolicy="memory-disk"
                     contentFit="cover"
                     key={avatarUri ?? "placeholder"}
                     onError={() => {
@@ -191,7 +216,14 @@ export function MobileHeader({
             no matter how wide the side columns are (same as web). Touches
             pass through everywhere except the logo itself. */}
           <View style={[styles.centerOverlay, { pointerEvents: "box-none" }]}>
-            <Pressable hitSlop={6} onPress={() => router.push("/")}>
+            <Pressable
+              hitSlop={6}
+              onPress={() => {
+                if (pathname !== "/") {
+                  router.dismissTo("/");
+                }
+              }}
+            >
               <Image
                 accessibilityLabel="asocialmedia"
                 contentFit="contain"
@@ -232,6 +264,11 @@ export function MobileHeader({
                             ? "#ff9500"
                             : theme.passkeyIcon
                         }
+                        fill={
+                          pathname.startsWith("/notifications")
+                            ? "#ff9500"
+                            : "none"
+                        }
                         size={20}
                       />
                       {unreadCount > 0 ? (
@@ -257,7 +294,7 @@ export function MobileHeader({
                   )}
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Search"
+                  accessibilityLabel={searchOpen ? "Close search" : searchLabel}
                   accessibilityRole="button"
                   hitSlop={6}
                   onPress={
@@ -275,34 +312,35 @@ export function MobileHeader({
                         pressed && styles.pressedShift,
                       ]}
                     >
-                      <Search color={theme.passkeyIcon} size={20} />
+                      {searchOpen ? (
+                        <X color={theme.passkeyIcon} size={20} />
+                      ) : (
+                        <Search color={theme.passkeyIcon} size={20} />
+                      )}
                     </View>
                   )}
                 </Pressable>
               </>
             ) : (
-              <Pressable onPress={() => router.push("/(auth)/login")}>
+              <Pressable
+                accessibilityLabel="Log in"
+                accessibilityRole="button"
+                onPress={() => {
+                  router.push("/(auth)/login");
+                }}
+              >
                 {({ pressed }) => (
-                  <View
+                  <Gradient3D
+                    colors={pressed ? ORANGE_PRESSED_GRADIENT : ORANGE_GRADIENT}
+                    radius={9999}
+                    shadows={pressed ? loginPressedShadows : loginShadows}
                     style={[
                       styles.loginPill,
-                      {
-                        boxShadow: pressed
-                          ? LOGIN_BUTTON_PRESSED_SHADOWS
-                          : LOGIN_BUTTON_SHADOWS,
-                      },
-                      pressed && styles.pressedShift,
+                      pressed && styles.loginPillPressed,
                     ]}
                   >
-                    <LinearGradient
-                      colors={["#ff9500", "#e65500"]}
-                      end={{ x: 0.5, y: 1 }}
-                      start={{ x: 0.5, y: 0 }}
-                      style={styles.loginPillGradient}
-                    >
-                      <Text style={styles.loginPillText}>Log in</Text>
-                    </LinearGradient>
-                  </View>
+                    <Text style={styles.loginPillText}>Log in</Text>
+                  </Gradient3D>
                 )}
               </Pressable>
             )}
@@ -383,14 +421,13 @@ const styles = StyleSheet.create({
     width: 36,
   },
   loginPill: {
-    borderRadius: 9999,
-  },
-  loginPillGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
     height: 32,
-    justifyContent: "center",
     paddingHorizontal: 14,
+  },
+  // Web's `.btn-3d:active` sinks the pill 1px with no opacity step; the ghost
+  // icon buttons keep the opacity fade in `pressedShift`.
+  loginPillPressed: {
+    transform: [{ translateY: 1 }],
   },
   loginPillText: {
     color: "#ffffff",

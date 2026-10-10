@@ -1,12 +1,16 @@
 {
   "name": "@asm/auth",
-  "version": "1.1.94",
+  "version": "1.1.95",
   "private": true,
   "description": "asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./validation": {
+      "types": "./src/validation/index.ts",
+      "default": "./src/validation/index.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
@@ -14,10 +18,6 @@
     "./core": {
       "types": "./src/core/index.ts",
       "default": "./src/core/index.ts"
-    },
-    "./validation": {
-      "types": "./src/validation/index.ts",
-      "default": "./src/validation/index.ts"
     }
   },
   "scripts": {
@@ -28,7 +28,7 @@
     "@asm/logger": "workspace:*",
     "@better-auth/expo": "^1.7.5",
     "@better-auth/passkey": "^1.7.3",
-    "@prisma/orm-postgres": "8.0.0-rc.11",
+    "@prisma/orm-postgres": "8.0.0-rc.14",
     "@simplewebauthn/server": "^13.3.1",
     "@t3-oss/env-core": "^0.13.11",
     "better-auth": "^1.7.3",
@@ -36,7 +36,7 @@
     "email-validator": "^2.0.4",
     "jose": "^6.2.8",
     "pg": "8.18.0",
-    "react": "^19.2.8",
+    "react": "19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {

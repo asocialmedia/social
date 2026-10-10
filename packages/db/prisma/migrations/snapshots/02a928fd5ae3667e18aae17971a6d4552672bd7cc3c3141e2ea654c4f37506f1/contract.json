@@ -11481,9 +11481,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "accounts"
+            "entry": "accounts",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11492,9 +11492,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "aura_logs"
+            "entry": "aura_logs",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11503,9 +11503,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "bookmarks"
+            "entry": "bookmarks",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11514,9 +11514,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "comments"
+            "entry": "comments",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11525,9 +11525,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "communities"
+            "entry": "communities",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11536,9 +11536,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "community_join_bonuses"
+            "entry": "community_join_bonuses",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11547,9 +11547,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "community_members"
+            "entry": "community_members",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11558,9 +11558,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "community_post_shares"
+            "entry": "community_post_shares",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11569,9 +11569,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "community_subscriptions"
+            "entry": "community_subscriptions",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11580,9 +11580,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "community_visits"
+            "entry": "community_visits",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11591,9 +11591,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "device_push_tokens"
+            "entry": "device_push_tokens",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11602,9 +11602,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "hn_story_shares"
+            "entry": "hn_story_shares",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11613,9 +11613,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "HNBookmark"
+            "entry": "HNBookmark",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11624,9 +11624,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "jwks"
+            "entry": "jwks",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11635,9 +11635,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "mentions"
+            "entry": "mentions",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11646,9 +11646,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "message_conversation_keys"
+            "entry": "message_conversation_keys",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11657,9 +11657,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "message_conversations"
+            "entry": "message_conversations",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11668,9 +11668,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "messages"
+            "entry": "messages",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11679,9 +11679,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "notifications"
+            "entry": "notifications",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11690,9 +11690,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "passkey"
+            "entry": "passkey",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11701,9 +11701,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "password_reset_tokens"
+            "entry": "password_reset_tokens",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11712,9 +11712,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "post_media"
+            "entry": "post_media",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11723,9 +11723,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "post_media_derivatives"
+            "entry": "post_media_derivatives",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11734,9 +11734,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "post_visits"
+            "entry": "post_visits",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11745,9 +11745,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "posts"
+            "entry": "posts",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11756,9 +11756,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "push_subscriptions"
+            "entry": "push_subscriptions",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11767,9 +11767,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "recommendation_events"
+            "entry": "recommendation_events",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11778,9 +11778,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "sessions"
+            "entry": "sessions",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11789,9 +11789,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "share_stats"
+            "entry": "share_stats",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11800,9 +11800,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "twoFactor"
+            "entry": "twoFactor",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11811,9 +11811,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "username_aliases"
+            "entry": "username_aliases",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11822,9 +11822,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "users"
+            "entry": "users",
+            "field": "id",
+            "namespace": "public"
           }
         },
         {
@@ -11833,9 +11833,9 @@
             "kind": "generator"
           },
           "ref": {
-            "column": "id",
-            "namespace": "public",
-            "table": "verification"
+            "entry": "verification",
+            "field": "id",
+            "namespace": "public"
           }
         }
       ]

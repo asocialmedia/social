@@ -3,6 +3,7 @@ import { fromPrismaDateTime, getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
+import { avatarInitial, canSatoriRenderAvatar } from "@/lib/seo/og-avatar";
 import { getOgFontOptions } from "@/lib/seo/og-fonts";
 import { excerpt, toAbsoluteUrl } from "@/lib/seo/seo";
 
@@ -22,10 +23,9 @@ async function getUserForCard(username: string) {
 
   const user = await prisma.orm.public.Users.select(
     "aura",
-    "avatarUrl",
+    "avatarKey",
     "badge",
     "badges",
-    "bannerUrl",
     "bio",
     "createdAt",
     "displayName",
@@ -87,7 +87,10 @@ export default async function Image({
   }
 
   const bio = user.bio ? excerpt(user.bio, BIO_MAX) : null;
-  const avatarUrl = user.avatarUrl
+  // Satori cannot decode the WebP avatars the media pipeline publishes, and a
+  // failed image load is memoised by source URL for the life of the process.
+  // Draw the initial disc instead of asking for bytes Satori will drop.
+  const avatarUrl = canSatoriRenderAvatar(user.avatarKey)
     ? toAbsoluteUrl(`/api/users/avatar/${user.id}/image`)
     : null;
   const joinedDate = formatDate(user.createdAt);
@@ -222,7 +225,7 @@ export default async function Image({
               width: 140,
             }}
           >
-            {(user.displayName || user.username)[0]?.toUpperCase()}
+            {avatarInitial(user.displayName, user.username)}
           </div>
         )}
 
@@ -338,7 +341,7 @@ export default async function Image({
           </span>
           <span>posts</span>
         </div>
-        <div style={{ color: "#71717a", marginLeft: "auto" }}>
+        <div style={{ color: "#71717a", display: "flex", marginLeft: "auto" }}>
           Joined {joinedDate}
         </div>
       </div>

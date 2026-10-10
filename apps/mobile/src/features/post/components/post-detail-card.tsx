@@ -455,6 +455,7 @@ function DetailBody({
                   <View style={styles.mediaColumn}>
                     {list.length > 0 ? (
                       <MediaGallery
+                        post={post}
                         apiBase={apiBase}
                         attachments={list}
                         onPressMedia={onOpenMedia}
@@ -468,6 +469,7 @@ function DetailBody({
                 <View style={styles.mediaColumn}>
                   {list.length > 0 ? (
                     <MediaGallery
+                      post={post}
                       apiBase={apiBase}
                       attachments={list}
                       onPressMedia={onOpenMedia}
@@ -497,6 +499,9 @@ function DetailBody({
       <View style={styles.actions}>
         <VoteCluster
           aura={post.aura ?? 0}
+          authorName={
+            post.user?.displayName || post.user?.username || "unknown"
+          }
           onRequireLogin={requireLogin}
           postId={post.id}
           userVote={getUserVote(post)}

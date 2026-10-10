@@ -7,9 +7,29 @@ import {
   setVisiblePostIds,
   subscribeAutoplayPost,
   subscribePostVisibility,
+  isFeedMediaActive,
+  setFeedMediaActive,
+  subscribeFeedMediaActivity,
 } from "./visible-posts";
 
 describe("visible posts", () => {
+  test("feed activity is scoped even when two tabs contain the same post", () => {
+    let latestChanges = 0;
+    const stop = subscribeFeedMediaActivity(
+      "latest",
+      () => (latestChanges += 1)
+    );
+    setFeedMediaActive("latest", true);
+    setFeedMediaActive("latest", true);
+    setFeedMediaActive("trending", true);
+    setFeedMediaActive("trending", false);
+    expect(isFeedMediaActive("latest")).toBe(true);
+    expect(isFeedMediaActive("trending")).toBe(false);
+    expect(latestChanges).toBe(1);
+    setFeedMediaActive("latest", false);
+    expect(latestChanges).toBe(2);
+    stop();
+  });
   test("publishes membership and notifies only on change", () => {
     const seen: boolean[] = [];
     const unsubscribe = subscribePostVisibility("p1", (visible) => {

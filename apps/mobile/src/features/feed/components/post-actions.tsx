@@ -1,4 +1,3 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 // Post action bar pieces, ported from web's posts/actions cluster
 // (aura-vote-button, bookmark-button) plus the presentational buttons
@@ -10,6 +9,8 @@ import {
   ArrowBigDown,
   ArrowBigUp,
   Bookmark,
+  BookmarkCheck,
+  BookmarkX,
   CornerDownRight,
   Eye,
   Flame,
@@ -21,7 +22,16 @@ import { useRef } from "react";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  BOOKMARK_ACTIVE_SHADOWS,
+  BOOKMARK_GRADIENT,
+  VOTE_DOWN_SHADOWS,
+  VOTE_DOWN_SHADOWS_DARK,
+  VOTE_UP_SHADOWS,
+  VOTE_UP_SHADOWS_DARK,
+} from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   replyTargetFromPost,
@@ -37,44 +47,64 @@ import type { FeedPost } from "../lib/feed-types";
 import { usePostEngagement } from "../state/use-post-engagement";
 import type { MenuAnchor } from "./more-menu";
 
-// `.vote-btn-up` / `.vote-btn-down` 3D dual-border shadows, light + dark.
-// Resting vote buttons are bare (web's idle state); the gradient + ring only
-// applies while the vote is active.
-const VOTE_UP_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
-const VOTE_UP_SHADOWS_DARK =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
-const VOTE_DOWN_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(70, 40, 170, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
-const VOTE_DOWN_SHADOWS_DARK =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
-
-function ActionLabel({ children }: { children: string }) {
+function ActionLabel({
+  children,
+  color,
+  fontSize = 12,
+}: {
+  children: string;
+  color?: string;
+  fontSize?: number;
+}) {
   const { theme } = useAppTheme();
   return (
-    <Text style={[styles.label, { color: theme.dividerText }]}>{children}</Text>
+    <Text
+      style={[styles.label, { color: color ?? theme.dividerText, fontSize }]}
+    >
+      {children}
+    </Text>
   );
 }
 
 interface VoteClusterProps {
   aura: number;
+  // Web passes this down from its post card
+  // (`apps/web/src/components/posts/actions/aura-vote-button.tsx`) and names the
+  // author in the amplify and mute messages.
+  authorName: string;
   // When set, the vote targets a comment eddie instead of a post, sharing
   // the optimistic flow against /api/comments/:id/vote like web.
   commentId?: string;
+  // Override for surfaces that sit on black (media viewer). Defaults to the
+  // theme divider tone used on feed cards.
+  inactiveColor?: string;
+  labelColor?: string;
   onRequireLogin: () => void;
   postId: string;
+  // Button diameter and glyph size. The feed card keeps web's h-7 (28); the
+  // media panel uses a smaller step-up so the row stays level without the
+  // vote buttons dwarfing the eddie chip.
+  size?: number;
   userVote: number;
   viewerId: string | null;
 }
 
 export function VoteCluster({
   aura: initialAura,
+  authorName,
   commentId,
+  inactiveColor,
+  labelColor,
   onRequireLogin,
   postId,
+  size = 28,
   userVote: initialVote,
   viewerId,
 }: VoteClusterProps) {
+  // Web's ratios at h-7: size-4 icon (16) and text-xs (12). Keep them
+  // proportional so a larger cluster scales the glyph and the aura count too.
+  const glyph = Math.round(size * 0.57);
+  const labelSize = Math.round(size * 0.43);
   const { isDark, theme } = useAppTheme();
   // The payload already carries the viewer's own vote, so this renders the
   // right number on first paint. The old version fired GET /votes on every
@@ -94,11 +124,53 @@ export function VoteCluster({
       onRequireLogin();
       return;
     }
+    // Web's copy names the target ("post" or "eddie") in three of the six
+    // messages, so the noun is resolved here rather than baked into the strings.
+    const noun = commentId ? "eddie" : "post";
+    let previousVote = 0;
     try {
-      await vote(value);
+      previousVote = engagement.userVote;
+      const info = await vote(value);
+      // `null` means a newer vote superseded this one: nothing landed, so there
+      // is nothing to announce.
+      if (!info) {
+        return;
+      }
+      // Same four branches as web's `onMutate`, keyed off the server's resolved
+      // vote rather than the optimistic one.
+      if (info.userVote === 1) {
+        toast({
+          description: `Amplified ${authorName}'s ${noun}, nice boost!`,
+          icon: <Flame color="#ff7a00" fill="#ff7a00" />,
+          title: "+1 Aura",
+        });
+      } else if (info.userVote === -1) {
+        toast({
+          description: `You muted ${authorName}'s ${noun}, we'll show you fewer like this`,
+          icon: <ArrowBigDown color="#7c5cff" fill="#7c5cff" />,
+          title: "Muted",
+        });
+      } else if (previousVote === 1) {
+        toast({
+          description: "You can always amplify it again later",
+          icon: <Flame color="#ff7a00" fill="#ff7a00" />,
+          title: "Amplification Removed",
+        });
+      } else if (previousVote === -1) {
+        toast({
+          description: "It'll show up normally again",
+          icon: <ArrowBigUp color="#7c5cff" fill="#7c5cff" />,
+          title: "Mute Removed",
+        });
+      }
     } catch {
-      // The hook already rolled the optimistic value back and logged why;
-      // nothing left for the button to do.
+      // The hook already rolled the optimistic value back and logged why. Web
+      // still says so out loud, because a vote that silently reverts reads as the
+      // app ignoring the tap.
+      toast({
+        description: "That didn't go through, give it another try?",
+        variant: "destructive",
+      });
     }
   };
 
@@ -106,40 +178,47 @@ export function VoteCluster({
   const flame = getAuraFlameStyle(aura);
   const upActive = userVote === 1;
   const downActive = userVote === -1;
+  const idleColor = inactiveColor ?? theme.dividerText;
   return (
     <View style={styles.voteCluster}>
-      <VoteButton
-        active={upActive}
-        colors={["#ff9500", "#e65500"]}
-        label="Amplify"
-        onPress={() => cast(1)}
-        shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
-      >
-        <ArrowBigUp
-          color={upActive ? "#ffffff" : theme.dividerText}
-          fill={upActive ? "#ffffff" : "none"}
-          size={16}
-        />
-      </VoteButton>
+      <View style={styles.votePair}>
+        <VoteButton
+          active={upActive}
+          colors={["#ff9500", "#e65500"]}
+          label="Amplify"
+          onPress={() => cast(1)}
+          shadows={isDark ? VOTE_UP_SHADOWS_DARK : VOTE_UP_SHADOWS}
+          size={size}
+        >
+          <ArrowBigUp
+            color={upActive ? "#ffffff" : idleColor}
+            fill={upActive ? "#ffffff" : "none"}
+            size={glyph}
+          />
+        </VoteButton>
+        <VoteButton
+          active={downActive}
+          colors={["#7c5cff", "#5a3ae0"]}
+          label="Mute"
+          onPress={() => cast(-1)}
+          shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
+          size={size}
+        >
+          <ArrowBigDown
+            color={downActive ? "#ffffff" : idleColor}
+            fill={downActive ? "#ffffff" : "none"}
+            size={glyph}
+          />
+        </VoteButton>
+      </View>
       <Flame
         color={flame.color}
         fill={flame.filled ? flame.color : "none"}
-        size={16}
+        size={glyph}
       />
-      <ActionLabel>{formatNumber(aura)}</ActionLabel>
-      <VoteButton
-        active={downActive}
-        colors={["#7c5cff", "#5a3ae0"]}
-        label="Mute"
-        onPress={() => cast(-1)}
-        shadows={isDark ? VOTE_DOWN_SHADOWS_DARK : VOTE_DOWN_SHADOWS}
-      >
-        <ArrowBigDown
-          color={downActive ? "#ffffff" : theme.dividerText}
-          fill={downActive ? "#ffffff" : "none"}
-          size={16}
-        />
-      </VoteButton>
+      <ActionLabel color={labelColor} fontSize={labelSize}>
+        {formatNumber(aura)}
+      </ActionLabel>
     </View>
   );
 }
@@ -151,6 +230,7 @@ function VoteButton({
   label,
   onPress,
   shadows,
+  size,
 }: {
   active: boolean;
   children: ReactNode;
@@ -158,7 +238,9 @@ function VoteButton({
   label: string;
   onPress: () => void;
   shadows: string;
+  size: number;
 }) {
+  const buttonStyle = { borderRadius: 9999, height: size, width: size };
   if (!active) {
     return (
       <Pressable
@@ -166,18 +248,24 @@ function VoteButton({
         accessibilityRole="button"
         hitSlop={6}
         onPress={onPress}
-        style={styles.voteBtn}
+        style={[styles.voteBtn, buttonStyle]}
       >
         {children}
       </Pressable>
     );
   }
+  // Web's `.vote-btn-up` / `.vote-btn-down` paint the gradient as the button
+  // background and the box-shadow's inset layers above it. A bare
+  // LinearGradient with `boxShadow` collapses that to the outer ring, because
+  // RN draws an inset shadow on the view's own background and the gradient
+  // covers it. Gradient3D stacks outer ring, gradient, inset lip, then content,
+  // which is the web recipe exactly.
   return (
-    <LinearGradient
+    <Gradient3D
       colors={colors}
-      end={{ x: 0.5, y: 1 }}
-      start={{ x: 0.5, y: 0 }}
-      style={[styles.voteBtn, { boxShadow: shadows }]}
+      radius={9999}
+      shadows={shadows}
+      style={[styles.voteBtn, buttonStyle]}
     >
       <Pressable
         accessibilityLabel={label}
@@ -188,21 +276,28 @@ function VoteButton({
       >
         {children}
       </Pressable>
-    </LinearGradient>
+    </Gradient3D>
   );
 }
 
 interface BookmarkToggleProps {
+  inactiveColor?: string;
   initialBookmarked: boolean;
   onRequireLogin: () => void;
   postId: string;
+  // Web's media panel downs the bookmark at h-9 w-9 (36) to match the share
+  // button beside it, while the feed card keeps h-7 (28). The default matches
+  // the feed; the media screen opts up so the two right-cluster buttons agree.
+  size?: number;
   viewerId: string | null;
 }
 
 export function BookmarkToggle({
+  inactiveColor,
   initialBookmarked,
   onRequireLogin,
   postId,
+  size = 28,
   viewerId,
 }: BookmarkToggleProps) {
   const { theme } = useAppTheme();
@@ -223,8 +318,26 @@ export function BookmarkToggle({
     }
     try {
       await toggleBookmark();
+      // Web's `onMutate` (`apps/web/src/components/posts/actions/bookmark-button.tsx`)
+      // announces both directions, with the icon matching the outcome.
+      toast({
+        description: bookmarked
+          ? "Removed from your bookmarks"
+          : "Post saved, find it anytime in your bookmarks",
+        icon: bookmarked ? (
+          <BookmarkX color="#ffffff" />
+        ) : (
+          <BookmarkCheck color="#ffffff" />
+        ),
+        title: bookmarked ? "Bookmark Removed" : "Bookmarked",
+      });
     } catch {
-      // Rolled back and logged by the hook.
+      // Rolled back and logged by the hook, but web still tells the reader: the
+      // bookmark icon springs back with no explanation otherwise.
+      toast({
+        description: "That didn't go through, give it another try?",
+        variant: "destructive",
+      });
     }
   };
 
@@ -234,14 +347,34 @@ export function BookmarkToggle({
       accessibilityRole="button"
       hitSlop={6}
       onPress={toggle}
-      style={styles.iconHit}
+      style={[styles.iconHit, { height: size, width: size }]}
     >
-      <Bookmark
-        color={bookmarked ? "#ffffff" : theme.dividerText}
-        fill={bookmarked ? "#ffffff" : "none"}
-        size={16}
-        style={bookmarked ? styles.bookmarkActive : undefined}
-      />
+      {bookmarked ? (
+        // Web's active bookmark fills the button with a full-strength amber
+        // gradient plus the same dual-border recipe as the vote buttons
+        // (gradient background, inset lip above it, matching ring). The previous
+        // port tinted only the glyph and padded it into a smaller bubble, which
+        // read as a flat dot rather than the raised, gradient-filled pill web
+        // shows. Gradient3D keeps that stack intact on RN.
+        <Gradient3D
+          colors={BOOKMARK_GRADIENT}
+          radius={9999}
+          shadows={BOOKMARK_ACTIVE_SHADOWS}
+          style={[styles.bookmarkActive, { height: size, width: size }]}
+        >
+          <Bookmark
+            color="#ffffff"
+            fill="#ffffff"
+            size={Math.round(size * 0.57)}
+          />
+        </Gradient3D>
+      ) : (
+        <Bookmark
+          color={inactiveColor ?? theme.dividerText}
+          fill="none"
+          size={Math.round(size * 0.57)}
+        />
+      )}
     </Pressable>
   );
 }
@@ -427,9 +560,8 @@ const TRIGGER_PRESSED_DARK = {
 
 const styles = StyleSheet.create({
   bookmarkActive: {
-    backgroundColor: "#f59e0b",
-    borderRadius: 9999,
-    padding: 2,
+    alignItems: "center",
+    justifyContent: "center",
   },
   countBtn: {
     alignItems: "center",
@@ -475,6 +607,11 @@ const styles = StyleSheet.create({
     width: 28,
   },
   voteCluster: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  votePair: {
     alignItems: "center",
     flexDirection: "row",
     gap: 2,

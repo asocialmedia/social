@@ -1,3 +1,4 @@
+import { Shield } from "lucide-react-native";
 // Native port of web's `settings/tabs/privacy-settings.tsx`.
 //
 // One setting, because that is all Privacy has yet: who may put this account in
@@ -10,7 +11,9 @@
 // rendering: the setting is a read and a write against the same server route the
 // web tab uses, and the greying-out of rows lives on the web only.
 import { useCallback, useEffect, useState } from "react";
+import type { RefObject } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import type { ScrollView as ScrollViewType } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -53,7 +56,13 @@ const GROUP_ADD_OPTIONS: GroupAddOption[] = [
   },
 ];
 
-export function PrivacyTab({ onChanged }: { onChanged: () => void }) {
+export function PrivacyTab({
+  onChanged,
+  scrollRef,
+}: {
+  onChanged: () => void;
+  scrollRef?: RefObject<ScrollViewType | null>;
+}) {
   const { isDark, theme } = useAppTheme();
   const { runWithInstallToken } = useInstall();
   const [selected, setSelected] = useState<GroupAddPolicy>("FOLLOWING_ONLY");
@@ -115,24 +124,20 @@ export function PrivacyTab({ onChanged }: { onChanged: () => void }) {
   return (
     <ScrollView
       contentContainerStyle={styles.content}
+      ref={scrollRef}
       showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
     >
       <SettingsSectionHeader
         description="Who can reach you, and who can put you in a group"
+        icon={Shield}
         title="Privacy"
       />
       <SettingsCard>
-        {/* Children rather than description/title props, which is this repo's
-            native shape for the in-card heading. Web's takes props; the two are
-            ported by hand and are not the same component. */}
-        <SettingsCardHeading>
-          <Text style={[styles.cardTitle, { color: theme.inputText }]}>
-            Who can add me to a group
-          </Text>
-          <Text style={[styles.note, { color: theme.dividerText }]}>
-            Applies to new groups. It never changes a group you are already in.
-          </Text>
-        </SettingsCardHeading>
+        <SettingsCardHeading
+          description="Applies to new groups. It never changes a group you are already in."
+          icon={Shield}
+          title="Who can add me to a group"
+        />
         <View accessibilityRole="radiogroup" style={styles.options}>
           {GROUP_ADD_OPTIONS.map((option) => {
             const checked = selected === option.value;
@@ -198,7 +203,6 @@ export function PrivacyTab({ onChanged }: { onChanged: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  cardTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
   content: { gap: 14, padding: 16, paddingBottom: 40 },
   marker: {
     borderCurve: "continuous",

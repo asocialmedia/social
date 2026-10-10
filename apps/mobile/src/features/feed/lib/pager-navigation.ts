@@ -28,6 +28,7 @@ export const DIRECTION_LOCK = 10;
 export const HANDOFF_DISTANCE = 20;
 
 export function clampIndex(index: number, pageCount: number): number {
+  "worklet";
   return Math.min(Math.max(0, index), Math.max(0, pageCount - 1));
 }
 
@@ -40,6 +41,7 @@ export function handoffIndex(
   dx: number,
   pageCount: number
 ): number {
+  "worklet";
   if (dx <= -HANDOFF_DISTANCE) {
     return clampIndex(origin + 1, pageCount);
   }
@@ -57,6 +59,7 @@ export function settleIndex(
   vx: number,
   pageCount: number
 ): number {
+  "worklet";
   if (dx <= -SWIPE_DISTANCE || vx <= -FLICK_VELOCITY) {
     return clampIndex(origin + 1, pageCount);
   }
@@ -64,4 +67,28 @@ export function settleIndex(
     return clampIndex(origin - 1, pageCount);
   }
   return clampIndex(origin, pageCount);
+}
+
+export interface MountedPageRange {
+  first: number;
+  last: number;
+}
+
+// Preload neighbours once and retain mounted pages across tab detours. Bounds
+// stay within the pager, and an unchanged range keeps its state identity.
+export function retainPagerPages(
+  activeIndex: number,
+  pageCount: number,
+  previous?: MountedPageRange
+): MountedPageRange {
+  const active = clampIndex(activeIndex, pageCount);
+  const first = Math.max(0, Math.min(previous?.first ?? active, active - 1));
+  const last = Math.min(
+    pageCount - 1,
+    Math.max(previous?.last ?? active, active + 1)
+  );
+  if (previous?.first === first && previous.last === last) {
+    return previous;
+  }
+  return { first, last };
 }

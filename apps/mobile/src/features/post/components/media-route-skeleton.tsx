@@ -1,11 +1,15 @@
-// Loading skeleton for the fullscreen media screen: 1:1 native port of
-// web's MediaRouteSkeleton (components/layouts/skeletons/media-route-skeleton.tsx),
+// Loading skeleton for the fullscreen media screen: native port of web's
+// MediaRouteSkeleton (components/layouts/skeletons/media-route-skeleton.tsx),
 // mobile layout. Same black stage: the mobile header (close circle + avatar
-// with two lines), the full-bleed media frame, and the bottom action bar
-// (three circles + views line). Web's desktop prev/next, close button and
-// post-details aside are desktop chrome and stay out, like the screen
-// itself. Blocks use white-on-black shimmer (white/15 + white/10) exactly
-// like web; pulse treatment matches the feed skeleton.
+// with two lines), the full-bleed media frame, and a bottom action bar that
+// mirrors the real row (eddie pill + vote pair + aura count on the left,
+// share + bookmark on the right). Blocks use white-on-black shimmer
+// (white/15 + white/10) exactly like web; pulse treatment matches the feed
+// skeleton.
+//
+// The pulse wrapper owns flex:1, not just opacity. Without it the stage's
+// flex:1 resolves inside an auto-height parent and collapses to zero, which
+// bunched the header and the action bar at the top over a black void.
 import { useEffect, useMemo } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,7 +39,11 @@ function Pulse({ children }: { children: React.ReactNode }) {
       loop.stop();
     };
   }, [pulse]);
-  return <Animated.View style={{ opacity: pulse }}>{children}</Animated.View>;
+  return (
+    <Animated.View style={[styles.pulse, { opacity: pulse }]}>
+      {children}
+    </Animated.View>
+  );
 }
 
 function Block({
@@ -77,14 +85,20 @@ export function MediaRouteSkeleton() {
           <View style={styles.frameFill} />
         </View>
 
-        {/* Action bar */}
+        {/* Action bar: mirrors the real row, not three generic circles. Left
+            is the eddie pill + vote pair + aura count, right is share +
+            bookmark, exactly like the loaded panel below the scrim. */}
         <View style={styles.actions}>
           <View style={styles.actionGroup}>
-            <Block borderRadius={9999} color={STRONG} height={36} width={36} />
-            <Block borderRadius={9999} color={FAINT} height={36} width={36} />
-            <Block borderRadius={9999} color={FAINT} height={36} width={36} />
+            <Block borderRadius={9999} color={STRONG} height={36} width={92} />
+            <Block borderRadius={9999} color={FAINT} height={32} width={32} />
+            <Block borderRadius={9999} color={FAINT} height={32} width={32} />
+            <Block color={FAINT} height={14} width={36} />
           </View>
-          <Block color={FAINT} height={16} width={64} />
+          <View style={styles.actionGroup}>
+            <Block borderRadius={9999} color={FAINT} height={32} width={32} />
+            <Block borderRadius={9999} color={FAINT} height={32} width={32} />
+          </View>
         </View>
       </Pulse>
     </View>
@@ -101,7 +115,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 12,
   },
   frameFill: {
@@ -126,6 +140,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     marginLeft: 12,
+  },
+  pulse: {
+    flex: 1,
   },
   root: {
     backgroundColor: "#000000",

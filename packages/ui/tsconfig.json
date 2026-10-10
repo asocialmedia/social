@@ -13,5 +13,8 @@
     "strictNullChecks": true
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  // `native/` holds React Native code and has its own tsconfig rooted on the
+  // Expo base config. Excluded here so the web project never typechecks RN
+  // files under the `next` plugin and DOM libs.
+  "exclude": ["node_modules", "native"]
 }

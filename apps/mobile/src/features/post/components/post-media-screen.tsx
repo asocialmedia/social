@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Pause,
   Play,
+  Sparkles,
   Speech,
   Subtitles,
   Volume2,
@@ -30,9 +31,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
-  Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -44,13 +43,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import errorImage from "@/assets/images/error.png";
 import notFoundImage from "@/assets/images/notfound.png";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  ALT_BADGE_GRADIENT,
+  ALT_BADGE_SHADOWS,
+  AI_BADGE_SHADOWS,
+  DARK_CHIP_GRADIENT,
+  ORANGE_BUTTON_SHADOWS as ACCENT_CHIP_SHADOWS,
+  ORANGE_GRADIENT,
+  PURPLE_GRADIENT,
+} from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   BookmarkToggle,
   VoteCluster,
 } from "@/features/feed/components/post-actions";
-import { PostComments } from "@/features/feed/components/post-comments";
 import {
   AudioRow,
   ExplicitGate,
@@ -78,7 +86,10 @@ import {
   splitTranscriptIntoTimedLines,
 } from "@/features/feed/lib/transcript-cues";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
+import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { useVideoMuteStore } from "@/features/feed/state/video-mute-store";
+import { GustEddiesSheet } from "@/features/gusts/components/gust-eddies-sheet";
+import { TranscriptDrawer } from "@/features/gusts/components/transcript-drawer";
 import { BioContent } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
@@ -89,13 +100,43 @@ import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import { fetchPostDetail } from "../lib/post-api";
+import { postDetailCache, postDetailKey } from "../lib/post-cache";
+import { resolvePostMediaIndex } from "../lib/post-path";
 import { MediaRouteSkeleton } from "./media-route-skeleton";
 
-// Dark 3D chip for the viewer chrome, same recipe as the feed video pills.
-const DARK_CHIP_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.35)";
-const ACCENT_CHIP_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+// Every chrome surface below is web's dark slate `MOBILE_CHIP_3D`, imported from
+// recipes.ts so the media viewer, the feed video pills and web's viewer stay the
+// same recipe.
+//
+// They ride a Gradient3D rather than a View wrapping a LinearGradient: React
+// Native paints inset shadows on the view's own background, so a gradient child
+// covering the surface hides the bright inner lip and the dual border collapses
+// to a single ring.
+//
+// Web's chip lip is only rgba(255,255,255,0.15), and this screen's media stage
+// is pure black - the worst possible ground for a 15% white edge, which leaves
+// the controls reading flat. The viewer's own chrome therefore keeps web's
+// colours and geometry but lifts the lip and adds a faint outer ring. Scoped to
+// this file on purpose: every other surface keeps web's exact value.
+const VIEWER_CHIP_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.28), inset 0 1px 2px rgba(255, 255, 255, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.45)";
+
+// Bottom action row sizing. Web's panel mixes h-11 (44 eddie) with h-7 (28
+// vote) and h-9 (36 share/bookmark), which reads mismatched on a phone. The
+// last pass forced everything to 36, which flipped the problem: the bare vote
+// buttons (36 + 21px glyphs in divider grey) dwarfed the eddie chip. Split
+// the difference: the eddie pill keeps a 36px height with an 18px glyph so it
+// stays the primary target, while the bare icon buttons drop to 32px visual
+// (44px touch via hitSlop) with matching 18px glyphs in white. Same glyph,
+// same white, level baseline.
+const MEDIA_EDDIE_HEIGHT = 36;
+const MEDIA_ICON_SIZE = 32;
+const MEDIA_ACTION_GLYPH = 18;
+
+// Web marks the live captions/transcript toggles with `border-orange-500/60`,
+// which on native is the chip's outer ring.
+const VIEWER_CHIP_ACTIVE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.28), inset 0 1px 2px rgba(255, 255, 255, 0.3), 0 0 0 1px rgba(249, 115, 22, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45)";
 
 function formatPlaybackTime(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
@@ -108,49 +149,41 @@ function formatPlaybackTime(totalSeconds: number): string {
 
 function AiBadge({ label = "AI Generated" }: { label?: string }) {
   return (
-    <View
-      accessibilityLabel="AI-generated content"
-      accessibilityRole="text"
-      pointerEvents="none"
-      style={[styles.aiBadge, { boxShadow: ACCENT_CHIP_SHADOWS }]}
+    <Gradient3D
+      colors={PURPLE_GRADIENT}
+      radius={9999}
+      shadows={AI_BADGE_SHADOWS}
+      style={styles.aiBadge}
     >
-      <LinearGradient
-        colors={["#7c5cff", "#5a3ae0"]}
-        end={{ x: 0.5, y: 1 }}
-        start={{ x: 0.5, y: 0 }}
-        style={styles.aiGradient}
-      >
-        <Text style={styles.aiText}>{label}</Text>
-      </LinearGradient>
-    </View>
+      <Sparkles color="#ffffff" size={12} />
+      <Text style={styles.aiText}>{label}</Text>
+    </Gradient3D>
   );
 }
 
 function AltBadge({ text }: { text: string }) {
   const repost = text.startsWith("originally from @");
   return (
-    <View style={[styles.altBadge, { boxShadow: DARK_CHIP_SHADOWS }]}>
-      <LinearGradient
-        colors={["#71717a", "#3f3f46"]}
-        end={{ x: 0.5, y: 1 }}
-        start={{ x: 0.5, y: 0 }}
-        style={styles.altGradient}
-      >
-        <Text style={styles.altKind}>{repost ? "REPOST" : "ALT"}</Text>
-        <Text numberOfLines={3} style={styles.altText}>
-          {text}
-        </Text>
-      </LinearGradient>
-    </View>
+    <Gradient3D
+      colors={ALT_BADGE_GRADIENT}
+      radius={9999}
+      shadows={ALT_BADGE_SHADOWS}
+      style={styles.altBadge}
+    >
+      <Text style={styles.altKind}>{repost ? "REPOST" : "ALT"}</Text>
+      <Text style={styles.altText}>{text}</Text>
+    </Gradient3D>
   );
 }
 
 function ChipButton({
+  active = false,
   children,
   label,
   onPress,
   style,
 }: {
+  active?: boolean;
   children: React.ReactNode;
   label: string;
   onPress: () => void;
@@ -160,18 +193,19 @@ function ChipButton({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       hitSlop={6}
       onPress={onPress}
-      style={[styles.chip, { boxShadow: DARK_CHIP_SHADOWS }, style]}
+      style={style}
     >
-      <LinearGradient
-        colors={["#3a3f4a", "#23262e"]}
-        end={{ x: 0.5, y: 1 }}
-        start={{ x: 0.5, y: 0 }}
-        style={[styles.chipFill, styles.chipFillFluid]}
+      <Gradient3D
+        colors={DARK_CHIP_GRADIENT}
+        radius={9999}
+        shadows={active ? VIEWER_CHIP_ACTIVE_SHADOWS : VIEWER_CHIP_SHADOWS}
+        style={styles.chip}
       >
         {children}
-      </LinearGradient>
+      </Gradient3D>
     </Pressable>
   );
 }
@@ -182,6 +216,8 @@ function ChipButton({
 export interface VideoHandle {
   cycleSpeed: () => void;
   enterFullscreen: () => void;
+  // The transcript drawer seeks by cue start time, like web's onSeek.
+  seek: (seconds: number) => void;
   toggleMute: () => void;
   togglePlay: () => void;
 }
@@ -202,6 +238,7 @@ function VideoSurface({
   apiBase,
   captionsEnabled,
   media,
+  onCues,
   onSnapshot,
   registerHandle,
 }: {
@@ -209,6 +246,10 @@ function VideoSurface({
   apiBase: string;
   captionsEnabled: boolean;
   media: FeedMedia;
+  // The resolved cue list (VTT when the media has one, otherwise the stored
+  // transcript) is lifted so the transcript sheet reads the same source the
+  // caption overlay does. Keyed by media id because every surface stays mounted.
+  onCues: (mediaId: string, cues: TranscriptCue[]) => void;
   onSnapshot: (snapshot: VideoSnapshot) => void;
   registerHandle: (mediaId: string, handle: VideoHandle | null) => void;
 }) {
@@ -222,7 +263,7 @@ function VideoSurface({
     created.timeUpdateEventInterval = 0.25;
   });
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(() => player.duration);
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
   const [failed, setFailed] = useState(false);
@@ -268,6 +309,20 @@ function VideoSurface({
           }
         })();
       },
+      seek: (seconds: number) => {
+        try {
+          // oxlint-disable-next-line react/immutability -- expo-video's documented player API
+          player.currentTime = seconds;
+        } catch {
+          // Older runtimes reject a seek before the first frame; the rejected
+          // seek leaves the playhead where it was.
+        }
+        // Resume rather than toggle: tapping a cue in a paused video should
+        // play it, and toggling would pause a video that was already playing.
+        // Same as the gust card's transcript seek. Kept outside the try so a
+        // rejected seek never strands a paused video.
+        player.play();
+      },
       toggleMute: () => {
         setMuted(!useVideoMuteStore.getState().isMuted);
       },
@@ -289,9 +344,10 @@ function VideoSurface({
     const subs = [
       player.addListener("timeUpdate", (payload) => {
         setCurrentTime(payload.currentTime);
-        const next = player.duration;
-        if (Number.isFinite(next) && next > 0) {
-          setDuration(next);
+      }),
+      player.addListener("sourceLoad", (payload) => {
+        if (Number.isFinite(payload.duration) && payload.duration > 0) {
+          setDuration(payload.duration);
         }
       }),
       player.addListener("playingChange", (payload) => {
@@ -308,7 +364,8 @@ function VideoSurface({
       for (const sub of subs) {
         sub.remove();
       }
-      player.pause();
+      // useVideoPlayer releases playback before this effect's cleanup runs.
+      // Calling pause here would touch an already-released native object.
     };
   }, [player]);
 
@@ -347,6 +404,10 @@ function VideoSurface({
   );
   const cues = fetchedCues.length > 0 ? fetchedCues : directCues;
   const activeCue = captionsEnabled ? findActiveCue(cues, currentTime) : null;
+
+  useEffect(() => {
+    onCues(media.id, cues);
+  }, [cues, media.id, onCues]);
 
   if (failed) {
     return (
@@ -387,41 +448,50 @@ function VideoControlsRow({
   captionsEnabled,
   onToggleCaptions,
   onToggleTranscript,
+  showTranscript,
   snapshot,
   video,
 }: {
   captionsEnabled: boolean;
   onToggleCaptions: () => void;
   onToggleTranscript: () => void;
+  showTranscript: boolean;
   snapshot: VideoSnapshot;
   video: VideoHandle | null;
 }) {
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   return (
     <View style={styles.videoControls}>
-      <Pressable
-        accessibilityLabel={snapshot.playing ? "Pause video" : "Play video"}
-        accessibilityRole="button"
-        onPress={() => video?.togglePlay()}
-        style={[styles.playBtn, { boxShadow: ACCENT_CHIP_SHADOWS }]}
-      >
-        <LinearGradient
-          colors={["#ff9500", "#e65500"]}
-          end={{ x: 0.5, y: 1 }}
-          start={{ x: 0.5, y: 0 }}
-          style={styles.playFill}
-        >
-          {snapshot.playing ? (
-            <Pause color="#ffffff" fill="#ffffff" size={20} />
-          ) : (
-            <Play color="#ffffff" fill="#ffffff" size={20} />
-          )}
-        </LinearGradient>
-      </Pressable>
-      <Text style={styles.videoTime}>
-        {formatPlaybackTime(snapshot.currentTime)} /{" "}
-        {formatPlaybackTime(snapshot.duration)}
-      </Text>
+      {
+        // Web groups the play button and the clock in one left cluster, so the
+        // clock keeps its natural width. Flat in the row it was the only
+        // flexing child, and `minWidth: 0` let it shrink below its content and
+        // break "0:10 / 0:10" onto two lines.
+        <View style={styles.videoControlsLeft}>
+          <Pressable
+            accessibilityLabel={snapshot.playing ? "Pause video" : "Play video"}
+            accessibilityRole="button"
+            onPress={() => video?.togglePlay()}
+          >
+            <Gradient3D
+              colors={ORANGE_GRADIENT}
+              radius={9999}
+              shadows={ACCENT_CHIP_SHADOWS}
+              style={styles.playBtn}
+            >
+              {snapshot.playing ? (
+                <Pause color="#ffffff" fill="#ffffff" size={20} />
+              ) : (
+                <Play color="#ffffff" fill="#ffffff" size={20} />
+              )}
+            </Gradient3D>
+          </Pressable>
+          <Text numberOfLines={1} style={styles.videoTime}>
+            {formatPlaybackTime(snapshot.currentTime)} /{" "}
+            {formatPlaybackTime(snapshot.duration)}
+          </Text>
+        </View>
+      }
       <View style={styles.videoBtns}>
         <ChipButton
           label={isMuted ? "Unmute" : "Mute"}
@@ -440,14 +510,22 @@ function VideoControlsRow({
         >
           <Text style={styles.speedText}>{snapshot.rate}x</Text>
         </ChipButton>
-        <ChipButton label="Toggle captions" onPress={onToggleCaptions}>
+        <ChipButton
+          active={captionsEnabled}
+          label={captionsEnabled ? "Disable captions" : "Enable captions"}
+          onPress={onToggleCaptions}
+        >
           <Subtitles
             color={captionsEnabled ? "#ff9500" : "#ffffff"}
             size={20}
           />
         </ChipButton>
-        <ChipButton label="Transcript" onPress={onToggleTranscript}>
-          <Speech color="#ffffff" size={20} />
+        <ChipButton
+          active={showTranscript}
+          label={showTranscript ? "Hide transcript" : "Transcript"}
+          onPress={onToggleTranscript}
+        >
+          <Speech color={showTranscript ? "#ff9500" : "#ffffff"} size={20} />
         </ChipButton>
         <ChipButton label="Fullscreen" onPress={() => video?.enterFullscreen()}>
           <Maximize color="#ffffff" size={20} />
@@ -501,13 +579,30 @@ export function PostMediaScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mediaId?: string }>();
-  const { isPending, user } = useSessionContext();
+  const { user } = useSessionContext();
   const viewerId = user?.id;
   const { width } = useWindowDimensions();
 
-  const [status, setStatus] = useState<MediaStatus>("loading");
-  const [post, setPost] = useState<FeedPost | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const cacheKey = postDetailKey(postId, viewerId, getApiBaseUrl());
+  if (!postDetailCache.read(cacheKey)) {
+    const preview = findCachedFeedPost(postId, viewerId);
+    if (preview) {
+      postDetailCache.seed(cacheKey, preview);
+    }
+  }
+  const cachedPost = postDetailCache.read(cacheKey)?.post;
+  const cachedIndex = resolvePostMediaIndex(
+    cachedPost?.attachments,
+    initialIndex,
+    params.mediaId
+  );
+  const [status, setStatus] = useState<MediaStatus>(() =>
+    cachedIndex === null ? "loading" : "ready"
+  );
+  const [post, setPost] = useState<FeedPost | null>(() => cachedPost ?? null);
+  const [currentIndex, setCurrentIndex] = useState(
+    () => cachedIndex ?? initialIndex
+  );
   const [uiVisible, setUiVisible] = useState(true);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -550,35 +645,42 @@ export function PostMediaScreen({
 
   useEffect(() => {
     let cancelled = false;
-    // oxlint-disable-next-line react/set-state-in-effect -- media reload enters loading here; steady state is fetch-driven
-    setStatus("loading");
+    const cached = postDetailCache.read(cacheKey)?.post;
+    const index = resolvePostMediaIndex(
+      cached?.attachments,
+      initialIndex,
+      params.mediaId
+    );
+    // oxlint-disable-next-line react/set-state-in-effect -- a route/account change restores that viewer's cached media
+    setPost(cached ?? null);
+    // oxlint-disable-next-line react/set-state-in-effect -- restore the selected attachment when the route changes
+    setCurrentIndex(index ?? initialIndex);
+    // oxlint-disable-next-line react/set-state-in-effect -- a cache hit paints immediately while revalidation runs
+    setStatus(index === null ? "loading" : "ready");
     void (async () => {
       try {
         const apiBase = getApiBaseUrl();
         const cookie = await authClient.getCookie();
-        const detail = await fetchPostDetail(postId, { apiBase, cookie });
+        const detail = await postDetailCache.load(cacheKey, () =>
+          fetchPostDetail(postId, { apiBase, cookie })
+        );
         if (cancelled) {
           return;
         }
         // ?mediaId= (profile-gallery deep link) wins over the URL segment,
         // like web's resolveCanonicalMedia.
-        let resolved = initialIndex;
-        const mediaIdParam = params.mediaId;
-        if (typeof mediaIdParam === "string" && mediaIdParam) {
-          const found = detail.post.attachments?.findIndex(
-            (entry) => entry.id === mediaIdParam
-          );
-          if (found !== undefined && found >= 0) {
-            resolved = found;
-          }
-        }
-        const count = detail.post.attachments?.length ?? 0;
-        if (count === 0) {
+        const resolved = resolvePostMediaIndex(
+          detail.post.attachments,
+          initialIndex,
+          params.mediaId
+        );
+        if (resolved === null) {
+          setPost(null);
           setStatus("not-found");
           return;
         }
         setPost(detail.post);
-        setCurrentIndex(Math.min(resolved, count - 1));
+        setCurrentIndex(resolved);
         setStatus("ready");
       } catch (error) {
         if (cancelled) {
@@ -588,10 +690,11 @@ export function PostMediaScreen({
           error && typeof error === "object" && "status" in error
             ? Number((error as { status: unknown }).status)
             : 0;
-        if (code === 404) {
+        if (code === 404 || code === 401 || code === 403) {
+          setPost(null);
           setStatus("not-found");
         } else {
-          setStatus("error");
+          setStatus(index === null ? "error" : "ready");
         }
         logWarn("post.media_failed", {
           reason: error instanceof Error ? error.message : String(error),
@@ -602,8 +705,7 @@ export function PostMediaScreen({
       cancelled = true;
     };
     // Initial load only; index changes stay local (no remount, like web).
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional media load keyed by post
-  }, [postId, params.mediaId, initialIndex]);
+  }, [cacheKey, postId, params.mediaId, initialIndex]);
 
   const apiBase = getApiBaseUrl();
   const media = useMemo(
@@ -646,12 +748,28 @@ export function PostMediaScreen({
     : null;
   const [avatarFailed, setAvatarFailed] = useState(false);
 
+  // Resolved transcript cues per media id. The sheet has to read these rather
+  // than `currentMedia.transcript` on its own: a video whose transcript only
+  // exists as a VTT track renders captions from the fetch and would otherwise
+  // report no transcript at all.
+  const [cuesByMedia, setCuesByMedia] = useState<
+    Record<string, TranscriptCue[]>
+  >({});
+  const publishCues = useCallback((mediaId: string, cues: TranscriptCue[]) => {
+    setCuesByMedia((previous) =>
+      previous[mediaId] === cues ? previous : { ...previous, [mediaId]: cues }
+    );
+  }, []);
+
   const transcriptCues = useMemo(() => {
-    if (!currentMedia?.transcript) {
+    if (!currentMedia) {
       return [];
     }
-    return cuesFromTranscript(currentMedia.transcript);
-  }, [currentMedia]);
+    return (
+      cuesByMedia[currentMedia.id] ??
+      cuesFromTranscript(currentMedia.transcript)
+    );
+  }, [cuesByMedia, currentMedia]);
 
   // Paging keeps every surface mounted, so re-mirror the visible handle on
   // index change (registration fires only on mount/unmount).
@@ -684,10 +802,18 @@ export function PostMediaScreen({
         <Pressable
           accessibilityLabel="Back to post"
           accessibilityRole="button"
+          hitSlop={6}
           onPress={handleClose}
-          style={styles.loginBtn}
+          style={({ pressed }) => [pressed && styles.circleBtnPressed]}
         >
-          <Text style={styles.loginText}>Back to post</Text>
+          <Gradient3D
+            colors={ORANGE_GRADIENT}
+            radius={9999}
+            shadows={ACCENT_CHIP_SHADOWS}
+            style={styles.loginBtn}
+          >
+            <Text style={styles.loginText}>Back to post</Text>
+          </Gradient3D>
         </Pressable>
       </View>
     );
@@ -722,6 +848,7 @@ export function PostMediaScreen({
             apiBase={apiBase}
             captionsEnabled={captionsEnabled}
             media={item}
+            onCues={publishCues}
             onSnapshot={publishVideoSnap}
             registerHandle={registerVideoHandle}
           />
@@ -768,7 +895,13 @@ export function PostMediaScreen({
   };
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    // Full-bleed stage: no top padding, so the media centres in the true
+    // viewport the way web's viewer does. Insetting the root by insets.top
+    // shrank the stage and pushed the image's centre down by half the inset,
+    // which is what read as "not vertically centred". The close/share buttons
+    // already offset themselves by insets.top, so they stay clear of the
+    // status bar.
+    <View style={styles.root}>
       <FlatList
         data={media}
         getItemLayout={(_, index) => ({
@@ -800,18 +933,18 @@ export function PostMediaScreen({
             onPress={handleClose}
             style={({ pressed }) => [
               styles.closeBtn,
-              { boxShadow: DARK_CHIP_SHADOWS, top: insets.top + 12 },
+              { top: insets.top + 12 },
               pressed && styles.circleBtnPressed,
             ]}
           >
-            <LinearGradient
-              colors={["#3a3f4a", "#23262e"]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={styles.chromeFill}
+            <Gradient3D
+              colors={DARK_CHIP_GRADIENT}
+              radius={9999}
+              shadows={VIEWER_CHIP_SHADOWS}
+              style={styles.chromeBtn}
             >
               <X color="#ffffff" size={20} />
-            </LinearGradient>
+            </Gradient3D>
           </Pressable>
           <Pressable
             accessibilityLabel="Share this media"
@@ -819,18 +952,18 @@ export function PostMediaScreen({
             onPress={() => setShareOpen(true)}
             style={({ pressed }) => [
               styles.moreBtn,
-              { boxShadow: DARK_CHIP_SHADOWS, top: insets.top + 12 },
+              { top: insets.top + 12 },
               pressed && styles.circleBtnPressed,
             ]}
           >
-            <LinearGradient
-              colors={["#3a3f4a", "#23262e"]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={styles.chromeFill}
+            <Gradient3D
+              colors={DARK_CHIP_GRADIENT}
+              radius={9999}
+              shadows={VIEWER_CHIP_SHADOWS}
+              style={styles.chromeBtn}
             >
               <Share2 color="#ffffff" size={18} />
-            </LinearGradient>
+            </Gradient3D>
           </Pressable>
           {media.length > 1 ? (
             <>
@@ -947,36 +1080,37 @@ export function PostMediaScreen({
                 <Pressable
                   accessibilityLabel="View eddies"
                   accessibilityRole="button"
-                  onPress={() =>
-                    router.push({
-                      params: { postId: post.id },
-                      pathname: "/posts/[postId]",
-                    })
-                  }
-                  style={[styles.eddiesChip, { boxShadow: DARK_CHIP_SHADOWS }]}
+                  onPress={() => {
+                    setShowEddies(true);
+                  }}
+                  style={styles.eddiesBtn}
                 >
-                  <LinearGradient
-                    colors={["#3a3f4a", "#23262e"]}
-                    end={{ x: 0.5, y: 1 }}
-                    start={{ x: 0.5, y: 0 }}
-                    style={styles.eddiesFill}
+                  <Gradient3D
+                    colors={DARK_CHIP_GRADIENT}
+                    radius={9999}
+                    shadows={VIEWER_CHIP_SHADOWS}
+                    style={styles.eddiesChip}
                   >
                     <MessageSquare
                       color="#ffffff"
                       fill={
                         (post._count?.comments ?? 0) > 0 ? "#ffffff" : "none"
                       }
-                      size={18}
+                      size={MEDIA_ACTION_GLYPH}
                     />
                     <Text style={styles.eddiesText}>
                       {post._count?.comments ?? 0}
                     </Text>
-                  </LinearGradient>
+                  </Gradient3D>
                 </Pressable>
                 <VoteCluster
                   aura={post.aura ?? 0}
+                  authorName={displayName}
+                  inactiveColor="#ffffff"
+                  labelColor="#ffffff"
                   onRequireLogin={requireLogin}
                   postId={post.id}
+                  size={MEDIA_ICON_SIZE}
                   userVote={getUserVote(post)}
                   viewerId={viewerId ?? null}
                 />
@@ -985,15 +1119,18 @@ export function PostMediaScreen({
                 <Pressable
                   accessibilityLabel="Share this media"
                   accessibilityRole="button"
+                  hitSlop={6}
                   onPress={() => setShareOpen(true)}
-                  style={styles.iconHit}
+                  style={styles.mediaActionHit}
                 >
-                  <Share2 color="#ffffff" size={18} />
+                  <Share2 color="#ffffff" size={MEDIA_ACTION_GLYPH} />
                 </Pressable>
                 <BookmarkToggle
+                  inactiveColor="#ffffff"
                   initialBookmarked={isBookmarkedByUser(post, viewerId)}
                   onRequireLogin={requireLogin}
                   postId={post.id}
+                  size={MEDIA_ICON_SIZE}
                   viewerId={viewerId ?? null}
                 />
               </View>
@@ -1003,6 +1140,7 @@ export function PostMediaScreen({
                 captionsEnabled={captionsEnabled}
                 onToggleCaptions={() => setCaptionsEnabled((value) => !value)}
                 onToggleTranscript={() => setShowTranscript((value) => !value)}
+                showTranscript={showTranscript}
                 snapshot={videoSnap}
                 video={activeVideoHandle}
               />
@@ -1011,65 +1149,43 @@ export function PostMediaScreen({
         </View>
       ) : null}
 
-      {showEddies && !isPending ? (
-        <Modal
-          animationType="slide"
-          onRequestClose={() => setShowEddies(false)}
-          transparent
-          visible
-        >
-          <Pressable
-            onPress={() => setShowEddies(false)}
-            style={styles.sheetBackdrop}
-          >
-            <Pressable style={styles.sheet}>
-              <ScrollView showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}>
-                <PostComments postId={post.id} viewerId={viewerId} />
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
-      ) : null}
+      {
+        // Web's phone eddies drawer, the same component the gusts page uses.
+        // This was an unreachable bare Modal - nothing ever set showEddies - so
+        // the comments surface here was a flat grey sheet instead of the reels
+        // panel with its close row, spring slide-up and keyboard avoidance.
+        <GustEddiesSheet
+          onClose={() => {
+            setShowEddies(false);
+          }}
+          postId={showEddies ? post.id : null}
+          viewerId={viewerId}
+        />
+      }
 
-      {showTranscript ? (
-        <Modal
-          animationType="slide"
-          onRequestClose={() => setShowTranscript(false)}
-          transparent
-          visible
-        >
-          <Pressable
-            onPress={() => setShowTranscript(false)}
-            style={styles.sheetBackdrop}
-          >
-            <Pressable style={styles.sheet}>
-              <Text style={styles.sheetTitle}>Transcript</Text>
-              <ScrollView
-                style={styles.transcriptList}
-                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-              >
-                {transcriptCues.length === 0 ? (
-                  <Text style={styles.transcriptEmpty}>
-                    No transcript for this video.
-                  </Text>
-                ) : (
-                  transcriptCues.map((cue, index) => (
-                    <Text key={index} style={styles.transcriptLine}>
-                      {cue.text}
-                    </Text>
-                  ))
-                )}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
-      ) : null}
+      {
+        // Web's VideoTranscriptDrawer, the same component the gust card uses.
+        // The page had a bare title over plain text lines: no grab handle, no
+        // Zeph header, no copy, no search, no cue timestamps and no tap to
+        // seek. Reusing the shared drawer is what keeps the two in parity.
+        showTranscript && isVideoMedia(currentMedia) ? (
+          <TranscriptDrawer
+            cues={transcriptCues}
+            currentTime={videoSnap.currentTime}
+            loading={false}
+            onClose={() => setShowTranscript(false)}
+            onSeek={(seconds) => {
+              activeVideoHandle?.seek(seconds);
+            }}
+            rawTranscript={currentMedia.transcript}
+          />
+        ) : null
+      }
 
       <ShareSheet
         onClose={() => setShareOpen(false)}
         post={shareOpen ? post : null}
       />
-      {isPending ? null : null}
     </View>
   );
 }
@@ -1095,14 +1211,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   aiBadge: {
-    borderRadius: 9999,
-  },
-  aiGradient: {
     alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
+    gap: 4,
     height: 24,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
   },
   aiText: {
     color: "#ffffff",
@@ -1111,17 +1224,14 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
   },
   altBadge: {
-    borderRadius: 12,
-    flex: 1,
-    minWidth: 0,
-  },
-  altGradient: {
     alignItems: "center",
-    borderRadius: 12,
+    flex: 1,
     flexDirection: "row",
     gap: 6,
+    minHeight: 24,
+    minWidth: 0,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   altKind: {
     color: "#ffffff",
@@ -1176,26 +1286,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   chip: {
-    borderRadius: 9999,
     height: 44,
     width: 44,
   },
-  chipFill: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  chipFillFluid: {
-    height: "100%",
-    width: "100%",
-  },
-  chromeFill: {
-    alignItems: "center",
-    borderRadius: 9999,
+  chromeBtn: {
     height: 40,
-    justifyContent: "center",
     width: 40,
   },
   circleBtnPressed: {
@@ -1221,7 +1316,7 @@ const styles = StyleSheet.create({
   counterText: {
     color: "#ffffff",
     fontFamily: "SofiaProMed",
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "normal",
   },
   counterWrap: {
@@ -1231,16 +1326,16 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 30,
   },
-  eddiesChip: {
+  eddiesBtn: {
     borderRadius: 9999,
-    height: 44,
   },
-  eddiesFill: {
+  eddiesChip: {
     alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
     gap: 6,
-    height: 44,
+    height: MEDIA_EDDIE_HEIGHT,
+    justifyContent: "center",
+    minWidth: MEDIA_EDDIE_HEIGHT,
     paddingHorizontal: 14,
   },
   eddiesText: {
@@ -1249,6 +1344,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontVariant: ["tabular-nums"],
     fontWeight: "normal",
+    lineHeight: 18,
   },
   handle: {
     color: "rgba(255, 255, 255, 0.7)",
@@ -1272,11 +1368,11 @@ const styles = StyleSheet.create({
   },
   loginBtn: {
     alignItems: "center",
-    backgroundColor: "#ff9500",
-    borderRadius: 9999,
+    flexDirection: "row",
+    height: 44,
+    justifyContent: "center",
     marginTop: 8,
     paddingHorizontal: 24,
-    paddingVertical: 10,
   },
   loginText: {
     color: "#ffffff",
@@ -1287,6 +1383,12 @@ const styles = StyleSheet.create({
   media: {
     height: "100%",
     width: "100%",
+  },
+  mediaActionHit: {
+    alignItems: "center",
+    height: MEDIA_ICON_SIZE,
+    justifyContent: "center",
+    width: MEDIA_ICON_SIZE,
   },
   moderatedWrap: {
     paddingHorizontal: 24,
@@ -1346,15 +1448,7 @@ const styles = StyleSheet.create({
     paddingTop: 64,
   },
   playBtn: {
-    borderRadius: 9999,
     height: 48,
-    width: 48,
-  },
-  playFill: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 48,
-    justifyContent: "center",
     width: 48,
   },
   prevBtn: {
@@ -1378,25 +1472,6 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  sheet: {
-    backgroundColor: "#171717",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "80%",
-    padding: 16,
-  },
-  sheetBackdrop: {
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheetTitle: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 16,
-    fontWeight: "normal",
-    marginBottom: 12,
-  },
   speedChip: {
     height: 44,
     minWidth: 44,
@@ -1418,22 +1493,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "normal",
     textAlign: "center",
-  },
-  transcriptEmpty: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontFamily: "SofiaProReg",
-    fontSize: 13,
-    fontWeight: "normal",
-  },
-  transcriptLine: {
-    color: "#ffffff",
-    fontFamily: "SofiaProReg",
-    fontSize: 14,
-    fontWeight: "normal",
-    marginBottom: 8,
-  },
-  transcriptList: {
-    maxHeight: 320,
   },
   userRow: {
     alignItems: "center",
@@ -1464,6 +1523,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     width: "100%",
   },
+  videoControlsLeft: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
   videoFailed: {
     alignItems: "center",
     justifyContent: "center",
@@ -1477,12 +1541,10 @@ const styles = StyleSheet.create({
   },
   videoTime: {
     color: "#ffffff",
-    flex: 1,
     fontFamily: "SofiaProMed",
     fontSize: 14,
     fontVariant: ["tabular-nums"],
     fontWeight: "normal",
-    minWidth: 0,
   },
   videoWrap: {
     alignItems: "center",

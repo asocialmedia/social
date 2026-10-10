@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.2.53",
+  "version": "1.2.55",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -11,10 +11,6 @@
       "types": "./index.ts",
       "default": "./index.ts"
     },
-    "./communities": {
-      "types": "./src/communities/shared.ts",
-      "default": "./src/communities/shared.ts"
-    },
     "./dates": {
       "types": "./src/dates.ts",
       "default": "./src/dates.ts"
@@ -23,25 +19,29 @@
       "types": "./src/messages/dens.ts",
       "default": "./src/messages/dens.ts"
     },
+    "./communities": {
+      "types": "./src/communities/shared.ts",
+      "default": "./src/communities/shared.ts"
+    },
     "./recommendation/trending-snapshot": {
       "types": "./src/recommendation/trending-snapshot.ts",
       "default": "./src/recommendation/trending-snapshot.ts"
     }
   },
   "scripts": {
-    "check-types": "tsc --noEmit",
-    "db:gen": "prisma contract emit",
-    "db:migrate": "prisma db migrate --advance-ref db",
     "db:status": "prisma migration status",
+    "db:migrate": "prisma db migrate --advance-ref db",
     "db:sign": "prisma db sign --no-advance-ref",
-    "db:verify": "prisma db verify"
+    "db:verify": "prisma db verify",
+    "check-types": "tsc --noEmit",
+    "db:gen": "prisma contract emit"
   },
   "dependencies": {
     "@asm/config": "workspace:*",
     "@asm/logger": "workspace:*",
     "@asm/notifications": "workspace:*",
     "@aws-sdk/client-s3": "^3.1109.0",
-    "@prisma/orm-postgres": "8.0.0-rc.11",
+    "@prisma/orm-postgres": "8.0.0-rc.14",
     "@smithy/node-http-handler": "^4.10.0",
     "@t3-oss/env-nextjs": "^0.13.11",
     "bullmq": "^6.1.0",
@@ -57,7 +57,7 @@
     "@types/bun": "^1.4.0",
     "@types/pg": "^8.21.0",
     "bun-types": "^1.4.0",
-    "prisma": "8.0.0-rc.15",
+    "prisma": "8.0.0-rc.20",
     "typescript": "^7.0.2"
   }
 }

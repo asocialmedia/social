@@ -53,7 +53,7 @@ function textOf(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function parseProfile(payload: unknown): PopupProfile | null {
+export function parsePopupProfile(payload: unknown): PopupProfile | null {
   if (typeof payload !== "object" || payload === null) {
     return null;
   }
@@ -124,7 +124,7 @@ async function authedGet(
   }
 }
 
-/** Loads the full profile projection web's popover renders (UserData). */
+// Loads the full profile projection web's popover renders (UserData).
 export async function fetchPopupProfile(
   options: ProfileFetchOptions
 ): Promise<PopupProfile> {
@@ -135,7 +135,7 @@ export async function fetchPopupProfile(
   if (!response.ok) {
     throw new Error(`Profile request failed (${response.status})`);
   }
-  const profile = parseProfile(
+  const profile = parsePopupProfile(
     (await response.json().catch(() => null)) as unknown
   );
   if (!profile) {
@@ -144,7 +144,7 @@ export async function fetchPopupProfile(
   return profile;
 }
 
-/** Loads the sidebar bookmark total web shows in the compact bookmarks row. */
+// Loads the sidebar bookmark total web shows in the compact bookmarks row.
 export async function fetchBookmarkTotal(
   options: AuthedGetOptions
 ): Promise<number> {
@@ -158,7 +158,7 @@ export async function fetchBookmarkTotal(
   return countOf(payload?.totalCount);
 }
 
-/** Resolves a bio link's preview (title for the pill), or null. */
+// Resolves a bio link's preview (title for the pill), or null.
 export async function fetchLinkPreview(
   url: string,
   options: AuthedGetOptions

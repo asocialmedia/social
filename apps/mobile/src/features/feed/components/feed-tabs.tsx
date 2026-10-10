@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 
+import { haptic } from "@/lib/haptics";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -58,6 +59,9 @@ export function FeedTabs<T extends string = HomeTab>({
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
   const indicatorX = useMemo(() => new Animated.Value(0), []);
+  // First placement is the mount, not a tab switch: set without animating
+  // so the bar never slides in from the left edge.
+  const firstPlaced = useRef(true);
   const scrollRef = useRef<ScrollView>(null);
 
   const activeIndex = Math.max(
@@ -73,11 +77,16 @@ export function FeedTabs<T extends string = HomeTab>({
     }
     // Center the 24px bar under the active label, like web's justify-center.
     const left = layout.x + (layout.width - 24) / 2;
-    Animated.timing(indicatorX, {
-      duration: 220,
-      toValue: left,
-      useNativeDriver: Platform.OS !== "web",
-    }).start();
+    if (firstPlaced.current) {
+      firstPlaced.current = false;
+      indicatorX.setValue(left);
+    } else {
+      Animated.timing(indicatorX, {
+        duration: 220,
+        toValue: left,
+        useNativeDriver: Platform.OS !== "web",
+      }).start();
+    }
 
     // Scroll to reveal the active tab when scrollable is active.
     if (scrollable && scrollRef.current) {
@@ -114,6 +123,7 @@ export function FeedTabs<T extends string = HomeTab>({
             }}
             onPress={() => {
               if (!selected) {
+                haptic();
                 onChange(tab.value);
               }
             }}

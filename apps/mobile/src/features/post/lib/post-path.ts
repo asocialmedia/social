@@ -1,7 +1,9 @@
 // Native route helpers for the post detail + media screens.
 // Mirrors web lib/posts/post-url short-id behavior: native routes accept
-// either the full id or the 8-char short prefix, and always link with the
-// short form (/posts/<shortId> + /media/<index>).
+// either the full id or the 8-char short prefix. In-app navigation always
+// uses the full id (the backend 404s a prefix that matches more than one
+// post); the short form is only for external share URLs, which web
+// resolves the same way.
 
 export function getShortPostId(id: string): string {
   if (!id) {
@@ -32,4 +34,20 @@ export function parseMediaIndexParam(value: unknown): number | null {
   }
   const parsed = Math.trunc(Number(value));
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function resolvePostMediaIndex(
+  attachments: readonly { id: string }[] | undefined,
+  initialIndex: number,
+  mediaId?: string
+): number | null {
+  if (!attachments?.length) {
+    return null;
+  }
+  const matched = mediaId
+    ? attachments.findIndex((entry) => entry.id === mediaId)
+    : -1;
+  return matched >= 0
+    ? matched
+    : Math.min(Math.max(0, initialIndex), attachments.length - 1);
 }

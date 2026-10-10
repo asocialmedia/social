@@ -47,3 +47,4 @@ re/
 *service-account*.json
 *serviceAccount*.json
 google-services.json
+.agents/

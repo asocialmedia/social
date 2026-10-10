@@ -158,3 +158,48 @@ describe("readSseStream", () => {
     expect(statuses).toEqual(["connecting", "closed"]);
   });
 });
+
+test("SSE retries a revalidated 401 with the renewed cookie", async () => {
+  const controller = new AbortController();
+  const cookies: string[] = [];
+  let cookie = "session=old";
+  let retry: (() => void) | undefined;
+  const seen: unknown[] = [];
+  await readSseStream({
+    baseFetch: (_url, init) => {
+      cookies.push(init.headers.cookie ?? "");
+      return Promise.resolve(
+        cookies.length === 1
+          ? new Response("unauthorized", { status: 401 })
+          : new Response(
+              streamOf(['event: session-revoked\ndata: {"ok":true}\n\n'])
+            )
+      );
+    },
+    clearTimeoutFn: (() => {}) as typeof clearTimeout,
+    eventName: "session-revoked",
+    getCookie: () => Promise.resolve(cookie),
+    onEvent: (_name, data) => {
+      seen.push(data);
+      controller.abort();
+    },
+    onUnauthorized: () => {
+      cookie = "session=renewed";
+      return Promise.resolve(true);
+    },
+    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- the injected timer API is callback based
+    setTimeoutFn: ((callback: () => void) => {
+      retry = callback;
+      return 1;
+    }) as unknown as typeof setTimeout,
+    signal: controller.signal,
+    url: "https://api.test/session-events",
+  });
+  expect(cookies).toEqual(["session=old"]);
+  expect(retry).toBeDefined();
+  retry?.();
+  // Drain the asynchronous reader without real retry timers.
+  await Bun.sleep(0);
+  expect(cookies).toEqual(["session=old", "session=renewed"]);
+  expect(seen).toEqual([{ ok: true }]);
+});

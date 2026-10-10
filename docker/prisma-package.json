@@ -3,10 +3,10 @@
   "version": "0.3.0",
   "private": true,
   "dependencies": {
-    "@prisma/orm-postgres": "8.0.0-rc.11",
+    "@prisma/orm-postgres": "8.0.0-rc.14",
     "@t3-oss/env-nextjs": "^0.13.11",
     "pg": "8.18.0",
-    "prisma": "8.0.0-rc.15",
+    "prisma": "8.0.0-rc.20",
     "tsx": "^4.20.6",
     "typescript": "^7.0.2",
     "zod": "^4.3.6"

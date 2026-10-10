@@ -12,6 +12,16 @@ export const SETTINGS_TABS = [
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
+// Ordered for the tab strip (web's mobile settings strip reads Profile,
+// Account, Security), matching FeedTabs' `{ label, value }` shape so the
+// settings strip is literally the same component as every other tabbed page.
+export const SETTINGS_TAB_DEFS = [
+  { label: "Profile", value: "profile" },
+  { label: "Account", value: "account" },
+  { label: "Privacy", value: "privacy" },
+  { label: "Security", value: "security" },
+] as const satisfies readonly { label: string; value: SettingsTab }[];
+
 export interface SettingsTabMeta {
   description: string;
   label: string;

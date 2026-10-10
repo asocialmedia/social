@@ -34,6 +34,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
 import loginBgImage from "@/assets/images/login-image.jpg";
+import { toast } from "@/components/feedback/toast";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
@@ -52,8 +53,6 @@ import {
   INPUT_ERROR_SHADOWS,
   INPUT_FOCUS_SHADOWS,
   INPUT_SHADOWS,
-  LOGIN_BUTTON_PRESSED_SHADOWS,
-  LOGIN_BUTTON_SHADOWS,
   SOCIAL_PRESSED_SHADOWS,
   SOCIAL_SHADOWS,
   useAppTheme,
@@ -146,6 +145,17 @@ export default function LoginScreen() {
     const result = await signIn(username, password);
     setIsLoading(false);
     if (result.ok) {
+      // Web raises the welcome toast before `window.location.assign("/")`, and
+      // the order matters here too: the toaster is mounted at the app root so it
+      // outlives this screen, but raising first is what keeps the toast from
+      // racing the unmount.
+      toast({
+        description: "You're in! Let's get this bread!",
+        duration: 3000,
+        title: `Welcome back, ${
+          username.includes("@") ? username.split("@")[0] : username
+        }!`,
+      });
       router.replace("/");
       return;
     }
@@ -160,6 +170,16 @@ export default function LoginScreen() {
     }
     setError(result.error);
     triggerShake();
+    // Web raises this from `handleLoginError`
+    // (`apps/web/src/components/auth/forms/login-form.tsx`), which also marks
+    // both fields when the credentials are what failed. The inline error alone
+    // leaves a wrong password looking like a static label.
+    toast({
+      description: result.error,
+      duration: 5000,
+      title: "Login Failed",
+      variant: "destructive",
+    });
   }, [router, signIn, password, triggerShake, username]);
 
   const handleSendEmailCode = useCallback(async () => {
@@ -176,6 +196,10 @@ export default function LoginScreen() {
         );
       } else {
         setEmailSent(true);
+        toast({
+          description: "Check your inbox for your six-digit security code.",
+          title: "Security code sent",
+        });
       }
     } catch {
       setError("We couldn't send a security code. Try again.");
@@ -203,19 +227,32 @@ export default function LoginScreen() {
                 trustDevice: false,
               });
         if (result.error) {
-          setError(
-            describeAuthError(
-              result.error,
-              "That code could not be verified. Try again."
-            ).message
+          const described = describeAuthError(
+            result.error,
+            "That code could not be verified. Try again."
           );
+          setError(described.message);
           triggerShake();
+          // Web's two branches here: the server's own message when it sends one,
+          // the generic copy when it does not.
+          toast({
+            description:
+              result.error.message ||
+              "That code could not be verified. Try again.",
+            title: "Couldn’t verify code",
+            variant: "destructive",
+          });
         } else {
           router.replace("/");
         }
       } catch {
         setError("We couldn't verify that code. Try again.");
         triggerShake();
+        toast({
+          description: "We couldn’t verify that code. Try again.",
+          title: "Couldn’t verify code",
+          variant: "destructive",
+        });
       }
       setIsVerifying(false);
     },
@@ -265,6 +302,16 @@ export default function LoginScreen() {
     }
     setError(result.error);
     triggerShake();
+    // Web raises this from `handlePasskeyError` in
+    // `apps/web/src/components/auth/shell/auth-card.tsx`. A passkey failure is
+    // otherwise invisible here: the native sheet closes and the only trace is the
+    // inline error the user may already have looked away from.
+    toast({
+      description: result.error,
+      duration: 5000,
+      title: "Passkey sign-in failed",
+      variant: "destructive",
+    });
   }, [router, signInPasskey, triggerShake]);
 
   return (
@@ -785,48 +832,19 @@ export default function LoginScreen() {
 
                     {/* Actions Row: 3D Log in + 3D Passkey Button */}
                     <View className="flex-row items-center gap-2">
-                      {/* 3D Log in Button (btn-3d) */}
-                      <Pressable
-                        className="flex-1"
-                        disabled={isLoading}
-                        onPress={() => {
-                          void handleLogin();
-                        }}
-                      >
-                        {({ pressed }) => (
-                          <View
-                            style={[
-                              styles.loginBtn3d,
-                              {
-                                boxShadow: pressed
-                                  ? LOGIN_BUTTON_PRESSED_SHADOWS
-                                  : LOGIN_BUTTON_SHADOWS,
-                              },
-                              pressed && styles.pressedShift,
-                            ]}
-                          >
-                            <LinearGradient
-                              colors={["#ff9500", "#e65500"]}
-                              end={{ x: 0.5, y: 1 }}
-                              start={{ x: 0.5, y: 0 }}
-                              style={styles.loginBtnGradient}
-                            >
-                              {isLoading ? (
-                                <ActivityIndicator
-                                  color="#ffffff"
-                                  size="small"
-                                />
-                              ) : null}
-                              <Text
-                                className="text-base tracking-tight text-white"
-                                style={styles.loginBtnText}
-                              >
-                                Log in
-                              </Text>
-                            </LinearGradient>
-                          </View>
-                        )}
-                      </Pressable>
+                      {/* 3D Log in Button (btn-3d). AuthPrimaryButton owns the
+                          dual border; a View wrapping a LinearGradient would
+                          hide the inset lip under the gradient. It fills this
+                          flex-1 wrapper to share the row with the passkey chip. */}
+                      <View className="flex-1">
+                        <AuthPrimaryButton
+                          label="Log in"
+                          loading={isLoading}
+                          onPress={() => {
+                            void handleLogin();
+                          }}
+                        />
+                      </View>
 
                       {/* 3D Passkey Button (icon-btn-3d) */}
                       <Pressable
@@ -948,28 +966,6 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     flex: 1,
-  },
-  loginBtn3d: {
-    borderRadius: 9999,
-  },
-  loginBtnGradient: {
-    alignItems: "center",
-    borderRadius: 9999,
-    flexDirection: "row",
-    gap: 8,
-    height: 44,
-    justifyContent: "center",
-    paddingHorizontal: 16,
-    position: "relative",
-  },
-  loginBtnText: {
-    fontFamily: "SofiaProBold",
-    fontWeight: "normal",
-    letterSpacing: -0.3,
-    ...({ textShadow: "0 1px 1px rgba(0, 0, 0, 0.2)" } as Record<
-      string,
-      string
-    >),
   },
   methodChip: {
     alignItems: "center",

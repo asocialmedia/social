@@ -173,6 +173,9 @@ export function ExplorePostCard({
           <View style={styles.footer}>
             <VoteCluster
               aura={post.aura ?? 0}
+              authorName={
+                post.user?.displayName ?? post.user?.username ?? "unknown"
+              }
               onRequireLogin={onRequireLogin}
               postId={post.id}
               userVote={post.vote?.[0]?.value ?? 0}

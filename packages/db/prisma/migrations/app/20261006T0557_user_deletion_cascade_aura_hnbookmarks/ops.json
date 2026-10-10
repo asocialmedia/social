@@ -1,0 +1,254 @@
+[
+  {
+    "id": "dropConstraint.aura_logs.aura_logs_userId_fkey",
+    "label": "Drop constraint \"aura_logs_userId_fkey\" on \"aura_logs\"",
+    "operationClass": "destructive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "aura_logs_userId_fkey",
+        "table": "aura_logs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"aura_logs_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_userId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop constraint \"aura_logs_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"aura_logs\" DROP CONSTRAINT \"aura_logs_userId_fkey\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"aura_logs_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_userId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dropConstraint.aura_logs.aura_logs_issuerId_fkey",
+    "label": "Drop constraint \"aura_logs_issuerId_fkey\" on \"aura_logs\"",
+    "operationClass": "destructive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "aura_logs_issuerId_fkey",
+        "table": "aura_logs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"aura_logs_issuerId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_issuerId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop constraint \"aura_logs_issuerId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"aura_logs\" DROP CONSTRAINT \"aura_logs_issuerId_fkey\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"aura_logs_issuerId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_issuerId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dropConstraint.HNBookmark.HNBookmark_userId_fkey",
+    "label": "Drop constraint \"HNBookmark_userId_fkey\" on \"HNBookmark\"",
+    "operationClass": "destructive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "HNBookmark_userId_fkey",
+        "table": "HNBookmark"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"HNBookmark_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "HNBookmark_userId_fkey",
+          "public",
+          "\"public\".\"HNBookmark\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop constraint \"HNBookmark_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"HNBookmark\" DROP CONSTRAINT \"HNBookmark_userId_fkey\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"HNBookmark_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "HNBookmark_userId_fkey",
+          "public",
+          "\"public\".\"HNBookmark\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.aura_logs.aura_logs_userId_fkey",
+    "label": "Add foreign key \"aura_logs_userId_fkey\" on \"aura_logs\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "aura_logs_userId_fkey",
+        "table": "aura_logs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"aura_logs_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_userId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"aura_logs_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"aura_logs\"\nADD CONSTRAINT \"aura_logs_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"aura_logs_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_userId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.aura_logs.aura_logs_issuerId_fkey",
+    "label": "Add foreign key \"aura_logs_issuerId_fkey\" on \"aura_logs\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "aura_logs_issuerId_fkey",
+        "table": "aura_logs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"aura_logs_issuerId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_issuerId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"aura_logs_issuerId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"aura_logs\"\nADD CONSTRAINT \"aura_logs_issuerId_fkey\"\nFOREIGN KEY (\"issuerId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"aura_logs_issuerId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "aura_logs_issuerId_fkey",
+          "public",
+          "\"public\".\"aura_logs\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.HNBookmark.HNBookmark_userId_fkey",
+    "label": "Add foreign key \"HNBookmark_userId_fkey\" on \"HNBookmark\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "HNBookmark_userId_fkey",
+        "table": "HNBookmark"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"HNBookmark_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "HNBookmark_userId_fkey",
+          "public",
+          "\"public\".\"HNBookmark\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"HNBookmark_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"HNBookmark\"\nADD CONSTRAINT \"HNBookmark_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"HNBookmark_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "HNBookmark_userId_fkey",
+          "public",
+          "\"public\".\"HNBookmark\""
+        ]
+      }
+    ]
+  }
+]

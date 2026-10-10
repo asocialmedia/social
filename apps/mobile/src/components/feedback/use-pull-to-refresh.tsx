@@ -43,7 +43,12 @@ const PULL_PARK = 64;
 // up and continuing into a pull works like iOS. Horizontal drags fail it and
 // stay with whatever horizontal gesture the screen owns (a pager, a
 // swipe-back). Built once; the handlers only read refs.
+function createNativeScrollGesture() {
+  return Gesture.Native();
+}
+
 function createPullGestures(refs: {
+  nativeScroll: ReturnType<typeof createNativeScrollGesture>;
   enabled: boolean;
   // The list's slide: follows the pull, parks under the loader while
   // refreshing, springs home otherwise.
@@ -60,7 +65,7 @@ function createPullGestures(refs: {
     refs.pullRef.current = 0;
     refs.pullUpdateRef.current?.(0);
   };
-  const nativeScroll = Gesture.Native();
+  const { nativeScroll } = refs;
   const pull = Gesture.Pan()
     .enabled(refs.enabled)
     .runOnJS(true)
@@ -108,6 +113,8 @@ export interface PullToRefresh {
   nativeScrollGesture: ReturnType<typeof createPullGestures>["nativeScroll"];
   // Hand to the scrollable's onScroll; it also feeds the iOS bounce path.
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  // UI-thread lists forward only top-edge crossings and bounce distances.
+  onScrollOffset: (offsetY: number) => void;
   // Hand to the scrollable's onScrollEndDrag to fire the iOS trigger.
   onScrollEndDrag: () => void;
   // Applied as translateY on the view wrapping the scrollable.
@@ -150,6 +157,9 @@ export function usePullToRefresh({
   const refreshRef = useRef(onRefresh);
   const [isAtTop, setIsAtTop] = useState(true);
   const isAtTopRef = useRef(true);
+  // Crossing the top edge changes pull eligibility, but must never replace
+  // the recognizer that currently owns the native scroll/fling.
+  const nativeScroll = useMemo(() => createNativeScrollGesture(), []);
 
   // The gesture is built once, so it cannot close over these directly. An
   // effect mirrors them into refs, which is safe here precisely because the
@@ -167,6 +177,7 @@ export function usePullToRefresh({
       // oxlint-disable-next-line react/refs -- gesture creation retains refs for touch callbacks, never reads them during render
       createPullGestures({
         enabled: Platform.OS === "android" && isAtTop,
+        nativeScroll,
         pullRef,
         pullShift,
         pullUpdateRef,
@@ -176,6 +187,7 @@ export function usePullToRefresh({
       }),
     [
       isAtTop,
+      nativeScroll,
       pullRef,
       pullShift,
       pullUpdateRef,
@@ -188,9 +200,8 @@ export function usePullToRefresh({
   // iOS: the native bounce carries the distance, so the scroll handler is the
   // pull handler. Progress stays local to PullLoader via the ref: no
   // re-render.
-  const onScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const offsetY = event.nativeEvent.contentOffset.y;
+  const onScrollOffset = useCallback(
+    (offsetY: number) => {
       scrollOffsetRef.current = offsetY;
       const atTop = offsetY <= 0;
       if (atTop !== isAtTopRef.current) {
@@ -209,6 +220,12 @@ export function usePullToRefresh({
       }
     },
     [pullRef, pullUpdateRef, refreshing, scrollOffsetRef]
+  );
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      onScrollOffset(event.nativeEvent.contentOffset.y);
+    },
+    [onScrollOffset]
   );
 
   const onScrollEndDrag = useCallback(() => {
@@ -260,6 +277,7 @@ export function usePullToRefresh({
     nativeScrollGesture: gestures.nativeScroll,
     onScroll,
     onScrollEndDrag,
+    onScrollOffset,
     pullShift,
   };
 }

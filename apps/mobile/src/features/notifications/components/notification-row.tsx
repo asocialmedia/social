@@ -25,7 +25,6 @@ import {
   Sparkles,
   UserPlus,
   Users,
-  X,
 } from "lucide-react-native";
 import type { ComponentType } from "react";
 import { useState } from "react";
@@ -66,7 +65,6 @@ const ICONS: Record<
 
 interface NotificationRowProps {
   notification: GroupedNotificationItem;
-  onDismiss: (notification: GroupedNotificationItem) => void;
   onOpen: (target: NotificationTarget) => void;
 }
 
@@ -252,7 +250,6 @@ function NotificationAvatars({
 
 export function NotificationRow({
   notification,
-  onDismiss,
   onOpen,
 }: NotificationRowProps) {
   const { isDark, theme } = useAppTheme();
@@ -269,11 +266,11 @@ export function NotificationRow({
     // land on the feed or the notifications list rather than a dead route.
     // Post targets open the detail screen, which the app already ships.
     if (presentation.target.kind === "post") {
-      const shortId =
-        presentation.target.postId.length > 8
-          ? presentation.target.postId.slice(0, 8)
-          : presentation.target.postId;
-      router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+      // Full id: truncated prefixes 404 when they match more than one post.
+      router.push({
+        params: { postId: presentation.target.postId },
+        pathname: "/posts/[postId]",
+      });
       onOpen(presentation.target);
       return;
     }
@@ -337,22 +334,6 @@ export function NotificationRow({
           </Text>
         </View>
       </Pressable>
-
-      <Pressable
-        accessibilityLabel="Dismiss notification"
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={() => onDismiss(notification)}
-        style={({ pressed }) => [
-          styles.dismiss,
-          {
-            backgroundColor: theme.passkeyBg,
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-      >
-        <X color={theme.passkeyIcon} size={14} />
-      </Pressable>
     </View>
   );
 }
@@ -376,14 +357,6 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     minWidth: 0,
-  },
-  dismiss: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 28,
-    justifyContent: "center",
-    marginTop: 4,
-    width: 28,
   },
   headline: {
     fontFamily: "SofiaProReg",

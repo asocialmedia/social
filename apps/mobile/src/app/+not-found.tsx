@@ -2,9 +2,9 @@
 // deep link here, so a stale /hashtag/x or /a/slug link opens a real screen
 // instead of the framework's bare default.
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text } from "react-native";
 
 import errorImage from "@/assets/images/error.png";
+import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { StatusScreen } from "@/components/feedback/status-screen";
 
 export default function NotFound() {
@@ -12,19 +12,12 @@ export default function NotFound() {
   return (
     <StatusScreen
       action={
-        <Pressable
-          accessibilityLabel="Return home"
-          accessibilityRole="button"
+        <StatusActionButton
+          label="Return Home"
           onPress={() => {
             router.replace("/");
           }}
-          style={({ pressed }) => [
-            styles.action,
-            { opacity: pressed ? 0.82 : 1 },
-          ]}
-        >
-          <Text style={styles.actionText}>Return Home</Text>
-        </Pressable>
+        />
       }
       description="The page you're looking for doesn't exist or has been moved."
       image={errorImage}
@@ -32,14 +25,3 @@ export default function NotFound() {
     />
   );
 }
-
-const styles = StyleSheet.create({
-  action: {
-    backgroundColor: "#f97316",
-    borderCurve: "continuous",
-    borderRadius: 9999,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  actionText: { color: "#ffffff", fontFamily: "SofiaProBold", fontSize: 15 },
-});

@@ -35,6 +35,11 @@ export const LOGIN_BUTTON_SHADOWS_LIGHT =
 export const LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.3), inset 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.08)";
 
+// `.btn-3d:disabled` (web has no light-mode override here, so one recipe covers
+// both schemes). A gated action desaturates rather than fading.
+export const LOGIN_BUTTON_DISABLED_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.2), inset 0 1px 2px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(170, 60, 0, 0.4), 0 1px 1px rgba(255, 255, 255, 0.5), 0 2px 4px rgba(0, 0, 0, 0.05)";
+
 // `.dark .icon-btn-3d`
 export const ICON_BUTTON_SHADOWS_DARK =
   "inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 1px rgba(255, 255, 255, 0.04)";
@@ -94,6 +99,27 @@ export const BTN_3D_GRAY_SHADOWS =
 
 export const BTN_3D_GRAY_SHADOWS_DARK =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1.5px 2px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 1px rgba(255, 255, 255, 0.35), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+// `.btn-3d-danger` resting, light + dark (apps/web/src/app/globals.css).
+export const BTN_3D_DANGER_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1.5px 2px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(185, 28, 28, 0.28), 0 1px 1px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.08)";
+
+export const BTN_3D_DANGER_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1.5px 2px rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 1px rgba(255, 255, 255, 0.06), 0 3px 5px rgba(0, 0, 0, 0.25)";
+
+// `.btn-3d-danger:hover` / `:active`, light + dark.
+export const BTN_3D_DANGER_PRESSED_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.75), inset 0 2px 3px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(185, 28, 28, 0.4), 0 2px 3px rgba(0, 0, 0, 0.06), 0 4px 8px -2px rgba(185, 28, 28, 0.16)";
+
+export const BTN_3D_DANGER_PRESSED_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 2px 3px rgba(255, 255, 255, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.6), 0 2px 3px rgba(255, 255, 255, 0.06), 0 5px 10px -2px rgba(0, 0, 0, 0.35)";
+
+// `.premium-switch` track, light + dark (packages/ui/styles/globals.css).
+export const SWITCH_TRACK_SHADOWS =
+  "inset 0 2px 3px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(255, 255, 255, 0.05)";
+
+export const SWITCH_TRACK_SHADOWS_LIGHT =
+  "inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 1px rgba(0, 0, 0, 0.03)";
 
 // `.premium-error`
 export const ERROR_SHADOWS =

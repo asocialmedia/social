@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { PrismaClient } from "@asm/db";
 import type { BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins";
+import { jwt, username } from "better-auth/plugins";
 
 import { prismaAdapter } from "./prisma-adapter";
 
@@ -56,18 +56,60 @@ const query: FakeQuery = {
   },
 };
 
+// Records which comparison each identity field received, so a regression test
+// can assert that username/email lookups are case-insensitive.
+interface ProbeCalls {
+  username: string[];
+  email: string[];
+}
+
+let probeCalls: ProbeCalls = { email: [], username: [] };
+
+function probeField(field: keyof ProbeCalls) {
+  const record = (method: string, value: unknown) => {
+    probeCalls[field].push(`${method}:${String(value)}`);
+  };
+  return {
+    eq: (value: unknown) => record("eq", value),
+    gt: (value: unknown) => record("gt", value),
+    gte: (value: unknown) => record("gte", value),
+    ilike: (value: unknown) => record("ilike", value),
+    in: (values: unknown) => record("in", values),
+    isNotNull: () => record("isNotNull", ""),
+    isNull: () => record("isNull", ""),
+    like: (value: unknown) => record("like", value),
+    lt: (value: unknown) => record("lt", value),
+    lte: (value: unknown) => record("lte", value),
+    neq: (value: unknown) => record("neq", value),
+    notIn: (values: unknown) => record("notIn", values),
+  };
+}
+
+let capturedPredicate: ((model: object) => unknown) | null = null;
+
+const usersQuery: FakeQuery = {
+  ...query,
+  where: (predicate: (model: object) => unknown) => {
+    capturedPredicate = predicate;
+    state.whereCalls += 1;
+    return usersQuery;
+  },
+};
+
 const fakeClient = {
-  orm: { public: { Jwks: query } },
+  orm: { public: { Jwks: query, Users: usersQuery } },
   transaction: () => {},
 } as unknown as PrismaClient;
 const adapter = prismaAdapter(fakeClient)({
-  plugins: [jwt()],
+  plugins: [jwt(), username()],
 } as BetterAuthOptions);
 
 beforeEach(() => {
   state.limit = undefined;
   state.offset = 0;
   state.whereCalls = 0;
+  probeCalls = { email: [], username: [] };
+  capturedPredicate = null;
 });
 
 describe("Prisma 8 Better Auth adapter", () => {
@@ -138,5 +180,44 @@ describe("Prisma 8 Better Auth adapter", () => {
       expect.objectContaining({ publicKey: "adapter-or-a2" }),
     ]);
     expect(state.whereCalls).toBe(2);
+  });
+
+  test("resolves username equality case-insensitively", async () => {
+    // better-auth's username plugin lowercases the typed handle before an
+    // exact-match lookup, but signup stores it verbatim. A case-sensitive eq
+    // made mixed-case handles invisible at sign-in (401 "User not found").
+    await adapter.findOne({
+      model: "user",
+      where: [{ field: "username", value: "MixedCaseHandle" }],
+    });
+
+    expect(capturedPredicate).not.toBeNull();
+    capturedPredicate?.({ username: probeField("username") });
+
+    expect(probeCalls.username).toEqual(["ilike:MixedCaseHandle"]);
+  });
+
+  test("resolves email equality case-insensitively", async () => {
+    await adapter.findOne({
+      model: "user",
+      where: [{ field: "email", value: "Person@Example.com" }],
+    });
+
+    expect(capturedPredicate).not.toBeNull();
+    capturedPredicate?.({ email: probeField("email") });
+
+    expect(probeCalls.email).toEqual(["ilike:Person@Example.com"]);
+  });
+
+  test("keeps a null equality check as isNull", async () => {
+    await adapter.findOne({
+      model: "user",
+      where: [{ field: "username", value: null }],
+    });
+
+    expect(capturedPredicate).not.toBeNull();
+    capturedPredicate?.({ username: probeField("username") });
+
+    expect(probeCalls.username).toEqual(["isNull:"]);
   });
 });

@@ -7,14 +7,14 @@
 // dock always sits at the bottom edge; guests see the login banner docked
 // directly above it, like web (the banner measures this dock's height).
 //
-// Wiring notes: active state reads expo-router's pathname (only "/" exists
-// on mobile yet, so Home is the live tab); auth-gated tabs send guests to
+// Wiring notes: active state reads expo-router's pathname; auth-gated tabs send guests to
 // login like web's goToLogin; destinations with no mobile screen yet render
 // as disabled stubs, and the centre action opens the post composer. The
 // hide signal is the shared feed scroll store, so the dock moves in lockstep
 // with the top bar. The pending-navigation spinner has no expo-router
 // equivalent (navigation is instant), so tabs always show their icon.
 import { LinearGradient } from "expo-linear-gradient";
+import type { Href } from "expo-router";
 import { usePathname, useRouter } from "expo-router";
 import {
   Clapperboard,
@@ -42,14 +42,20 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
+import { useUnreadMessageCount } from "@/features/messages/state/use-unread-message-count";
+import { haptic } from "@/lib/haptics";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
   useAppTheme,
 } from "@/theme";
 
+// The typed router's href, not a bare string. The dock pushes these straight
+// into `router.push`, and a plain `string` forced an `as "/"` cast at the call
+// site, which is exactly what let a href no route matched (the old "/messages")
+// ship without a type error and dead-end on the not-found screen.
 interface MobileNavItem {
-  href: string;
+  href: Href;
   icon: ComponentType<{ color?: string; size?: number }>;
   label: string;
   requiresAuth?: boolean;
@@ -80,15 +86,17 @@ const RIGHT_ITEMS: MobileNavItem[] = [
   },
 ];
 
-// Routes with a mobile screen behind them. Everything else renders as a
-// disabled stub until its screen lands - no dead-feeling fake navigation.
-// /messages is the only one still stubbed; HackerNews now has a screen.
-const LIVE_ROUTES = new Set([
+// Routes with a mobile screen behind them. Everything else renders as a disabled
+// stub until its screen lands - no dead-feeling fake navigation.
+// Typed as Hrefs so the membership check accepts the nav items' typed
+// hrefs; every entry is a static route the dock can land on.
+const LIVE_ROUTES = new Set<Href>([
   "/",
   "/gusts",
   "/discover",
   "/communities",
   "/hackernews",
+  "/messages",
 ]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
@@ -180,9 +188,17 @@ function DockTab({
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled ?? false, selected: active }}
+      accessibilityHint={
+        badge && badge > 0 ? `${badge} unread messages` : undefined
+      }
       disabled={disabled}
       hitSlop={2}
-      onPress={onPress}
+      onPress={() => {
+        if (!active) {
+          haptic();
+        }
+        onPress?.();
+      }}
       style={styles.tab}
     >
       {({ pressed }) => {
@@ -235,7 +251,6 @@ export function MobileBottomNav({
   hidden: hiddenOverride,
   onHeightChange,
   onHiddenChange,
-  unreadCount = 0,
 }: {
   // Extra lift above the bottom edge. Guests keep this at 0: the dock sits
   // at the bottom edge and the login banner docks above it, like web.
@@ -249,8 +264,8 @@ export function MobileBottomNav({
   // Reports the scroll-hide state so the guest banner can drop back to the
   // bottom edge while the dock is hidden instead of floating over a gap.
   onHiddenChange?: (hidden: boolean) => void;
-  unreadCount?: number;
 }) {
+  const unreadCount = useUnreadMessageCount();
   const { isDark } = useAppTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -298,7 +313,9 @@ export function MobileBottomNav({
     router.push("/(auth)/login");
   };
 
-  const isActive = (href: string) => {
+  // A thread keeps its tab lit, so the check is a prefix match rather than an
+  // equality one: /messages/<id> is still the Messages tab.
+  const isActive = (href: Href) => {
     if (href === "/") {
       return pathname === "/" || pathname.startsWith("/?");
     }
@@ -313,7 +330,9 @@ export function MobileBottomNav({
           active={false}
           badge={item.href === "/messages" ? unreadCount : undefined}
           icon={item.icon}
-          key={item.href}
+          // Labels are unique per tab and always strings; the typed href's
+          // object arm is not a valid React key.
+          key={item.label}
           label={item.label}
           onPress={goToLogin}
         />
@@ -325,7 +344,7 @@ export function MobileBottomNav({
           active={false}
           disabled
           icon={item.icon}
-          key={item.href}
+          key={item.label}
           label={item.label}
         />
       );
@@ -335,9 +354,17 @@ export function MobileBottomNav({
         active={isActive(item.href)}
         badge={item.href === "/messages" ? unreadCount : undefined}
         icon={item.icon}
-        key={item.href}
+        key={item.label}
         label={item.label}
-        onPress={() => router.push(item.href as "/")}
+        onPress={() => {
+          if (!isActive(item.href)) {
+            if (item.href === "/") {
+              router.dismissTo("/");
+            } else {
+              router.navigate(item.href);
+            }
+          }
+        }}
       />
     );
   };

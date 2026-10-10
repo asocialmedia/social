@@ -141,4 +141,14 @@ describe("queue notification cleanup jobs and schedulers", () => {
       }),
     ]);
   });
+
+  test("registerMaintenanceSchedulers registers the credential-account heal", async () => {
+    const { registerMaintenanceSchedulers } = await import("./queue");
+
+    await registerMaintenanceSchedulers();
+
+    expect(mockSchedulers.get("maintenance:heal-credential-accounts")).toEqual({
+      every: 60 * 60 * 1000,
+    });
+  });
 });

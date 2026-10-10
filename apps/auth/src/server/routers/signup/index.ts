@@ -959,16 +959,35 @@ export const signupRouter = router({
             );
             debugLog.api("pendingSignupVerify:account-created");
           } catch (error) {
+            // Never return success with a user row but no credential account:
+            // that orphan passes every "already exists" check yet fails every
+            // login with 401. Roll the user back so a retry can recreate both
+            // rows atomically, and report a retryable error instead.
             logger.error(
               {
                 error: error instanceof Error ? error.message : String(error),
                 userId: user.id,
               },
-              "credential account provisioning failed - sign-in will 401 until repaired"
+              "credential account provisioning failed - user rolled back"
             );
             debugLog.api("pendingSignupVerify:account-create-error", {
               message: error instanceof Error ? error.message : String(error),
             });
+            try {
+              await prisma.orm.public.Users.where({ id: user.id }).delete();
+            } catch (rollbackError) {
+              logger.error(
+                {
+                  error:
+                    rollbackError instanceof Error
+                      ? rollbackError.message
+                      : String(rollbackError),
+                  userId: user.id,
+                },
+                "orphan user rollback failed - manual repair needed"
+              );
+            }
+            return { error: "server-error", success: false } as const;
           }
 
           await redis.del(pendingKey);
@@ -1051,16 +1070,33 @@ export const signupRouter = router({
         );
         debugLog.api("pendingSignupVerify:account-created");
       } catch (error) {
+        // Same orphan guard as the OTP branch: never report success without
+        // the credential row that sign-in actually verifies.
         logger.error(
           {
             error: error instanceof Error ? error.message : String(error),
             userId: user.id,
           },
-          "credential account provisioning failed - sign-in will 401 until repaired"
+          "credential account provisioning failed - user rolled back"
         );
         debugLog.api("pendingSignupVerify:account-exists-or-error", {
           message: error instanceof Error ? error.message : String(error),
         });
+        try {
+          await prisma.orm.public.Users.where({ id: user.id }).delete();
+        } catch (rollbackError) {
+          logger.error(
+            {
+              error:
+                rollbackError instanceof Error
+                  ? rollbackError.message
+                  : String(rollbackError),
+              userId: user.id,
+            },
+            "orphan user rollback failed - manual repair needed"
+          );
+        }
+        return { error: "server-error", success: false } as const;
       }
 
       await redis.del(key);

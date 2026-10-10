@@ -11,11 +11,10 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
-  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -26,7 +25,8 @@ import type {
   NativeSyntheticEvent,
   ViewStyle,
 } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { scheduleOnRN } from "react-native-worklets";
 
 import noMediaImage from "@/assets/images/nomedia.png";
 import noSearchImage from "@/assets/images/nosearch.png";
@@ -69,6 +69,7 @@ import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { formatNumber } from "@/lib/format-number";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -109,8 +110,8 @@ function openPostRoute(
   router: ReturnType<typeof useRouter>,
   postId: string
 ): void {
-  const shortId = postId.length > 8 ? postId.slice(0, 8) : postId;
-  router.push({ params: { postId: shortId }, pathname: "/posts/[postId]" });
+  // Full id: truncated prefixes 404 when they match more than one post.
+  router.push({ params: { postId }, pathname: "/posts/[postId]" });
 }
 
 function ProfileTabState({
@@ -240,84 +241,83 @@ function EmptyProfileTab({
 // Web's profile Gusts tab is a 9:16 poster grid (two columns): each tile
 // carries the Gust chip, a two-line content clamp over a bottom scrim, and the
 // view and aura counts. Tapping opens the reel viewer at that gust.
-function GustGridTile({
-  onOpen,
-  post,
-}: {
-  onOpen: (post: FeedPost) => void;
-  post: FeedPost;
-}) {
-  const apiBase = getApiBaseUrl();
-  const video = post.attachments?.find(
-    (attachment) => attachment.type === "VIDEO"
-  );
-  const image = post.attachments?.find(
-    (attachment) => attachment.type !== "VIDEO"
-  );
-  const flame = getAuraFlameStyle(post.aura ?? 0);
-  const author = post.user?.displayName || post.user?.username || "this Gust";
-  let source: { uri: string } | null = null;
-  if (video) {
-    source = { uri: mediaPosterUrl(apiBase, video.id) };
-  } else if (image) {
-    source = { uri: mediaImageUrl(apiBase, image) };
-  }
-  return (
-    <Pressable
-      accessibilityLabel={`Open Gust by ${author}`}
-      accessibilityRole="button"
-      onPress={() => onOpen(post)}
-      style={styles.gustGridTile}
-    >
-      {source ? (
-        <Image
-          contentFit="cover"
-          source={source}
-          style={[
-            styles.gustGridImage,
-            post.explicitContent ? styles.mediaBlurred : null,
-          ]}
-        />
-      ) : (
-        <View style={[styles.gustGridImage, styles.gustGridFallback]} />
-      )}
-      <View style={styles.gustGridChip}>
-        <Clapperboard color="#f97316" size={10} />
-        <Text style={styles.gustGridChipText}>Gust</Text>
-      </View>
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
-        locations={[0, 0.4, 1]}
-        pointerEvents="none"
-        style={styles.gustGridScrim}
+// Memoized: grids re-render on scroll and tab switches, and unmemoized tiles
+// were a large share of profile tab jank.
+const GustGridTile = memo(
+  ({ onOpen, post }: { onOpen: (post: FeedPost) => void; post: FeedPost }) => {
+    const apiBase = getApiBaseUrl();
+    const video = post.attachments?.find(
+      (attachment) => attachment.type === "VIDEO"
+    );
+    const image = post.attachments?.find(
+      (attachment) => attachment.type !== "VIDEO"
+    );
+    const flame = getAuraFlameStyle(post.aura ?? 0);
+    const author = post.user?.displayName || post.user?.username || "this Gust";
+    let source: { uri: string } | null = null;
+    if (video) {
+      source = { uri: mediaPosterUrl(apiBase, video.id) };
+    } else if (image) {
+      source = { uri: mediaImageUrl(apiBase, image) };
+    }
+    return (
+      <Pressable
+        accessibilityLabel={`Open Gust by ${author}`}
+        accessibilityRole="button"
+        onPress={() => onOpen(post)}
+        style={styles.gustGridTile}
       >
-        {post.content ? (
-          <Text numberOfLines={2} style={styles.gustGridContent}>
-            {post.content}
-          </Text>
-        ) : null}
-        <View style={styles.gustGridMetrics}>
-          <View style={styles.gustGridMetric}>
-            <Eye color="rgba(255,255,255,0.85)" size={11} />
-            <Text style={styles.gustGridMetricText}>
-              {formatNumber(post.viewCount ?? 0)}
-            </Text>
-          </View>
-          <View style={styles.gustGridMetric}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "none"}
-              size={11}
-            />
-            <Text style={styles.gustGridMetricText}>
-              {formatNumber(post.aura ?? 0)}
-            </Text>
-          </View>
+        {source ? (
+          <Image
+            contentFit="cover"
+            source={source}
+            style={[
+              styles.gustGridImage,
+              post.explicitContent ? styles.mediaBlurred : null,
+            ]}
+          />
+        ) : (
+          <View style={[styles.gustGridImage, styles.gustGridFallback]} />
+        )}
+        <View style={styles.gustGridChip}>
+          <Clapperboard color="#f97316" size={10} />
+          <Text style={styles.gustGridChipText}>Gust</Text>
         </View>
-      </LinearGradient>
-    </Pressable>
-  );
-}
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
+          locations={[0, 0.4, 1]}
+          pointerEvents="none"
+          style={styles.gustGridScrim}
+        >
+          {post.content ? (
+            <Text numberOfLines={2} style={styles.gustGridContent}>
+              {post.content}
+            </Text>
+          ) : null}
+          <View style={styles.gustGridMetrics}>
+            <View style={styles.gustGridMetric}>
+              <Eye color="rgba(255,255,255,0.85)" size={11} />
+              <Text style={styles.gustGridMetricText}>
+                {formatNumber(post.viewCount ?? 0)}
+              </Text>
+            </View>
+            <View style={styles.gustGridMetric}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "none"}
+                size={11}
+              />
+              <Text style={styles.gustGridMetricText}>
+                {formatNumber(post.aura ?? 0)}
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+      </Pressable>
+    );
+  }
+);
+GustGridTile.displayName = "GustGridTile";
 
 function renderMediaContent({
   fallbackText,
@@ -408,298 +408,309 @@ function renderMediaContent({
 // Media tile with 1:1 parity with web's media-gallery. Video items display the
 // 3D orange play button badge, audio items show waveform visualizer bars, and
 // the tile frame uses rounded corners matching web's responsive layout.
-function MediaTile({
-  item,
-  onOpen,
-}: {
-  item: ProfileMedia;
-  onOpen: (item: ProfileMedia) => void;
-}) {
-  const { theme } = useAppTheme();
-  const apiBase = getApiBaseUrl();
-  const aspectRatio = mediaTileAspect(item);
-  const isImage = item.type === "IMAGE";
-  const isVideo = isVideoMedia(item);
-  const isAudio = isAudioMedia(item);
-  const isGenericFile = !isImage && !isVideo && !isAudio;
+// Memoized for grid scroll performance.
+const MediaTile = memo(
+  ({
+    item,
+    onOpen,
+  }: {
+    item: ProfileMedia;
+    onOpen: (item: ProfileMedia) => void;
+  }) => {
+    const { theme } = useAppTheme();
+    const apiBase = getApiBaseUrl();
+    const aspectRatio = mediaTileAspect(item);
+    const isImage = item.type === "IMAGE";
+    const isVideo = isVideoMedia(item);
+    const isAudio = isAudioMedia(item);
+    const isGenericFile = !isImage && !isVideo && !isAudio;
 
-  let source: { uri: string } | null = null;
-  if (isVideo) {
-    source = { uri: mediaPosterUrl(apiBase, item.id) };
-  } else if (isAudio || isImage) {
-    source = { uri: mediaImageUrl(apiBase, item) };
-  }
-
-  const moderated = item.post?.moderated === true;
-  const showFallback = moderated || isGenericFile || !source;
-  const kind = item.post?.isGust ? "gust" : "post";
-  let fallbackLabel = "profile media";
-  if (isAudio) {
-    fallbackLabel = "post for audio";
-  }
-  const label = moderated
-    ? `Open moderated ${kind}`
-    : (item.altText ?? `Open ${fallbackLabel}`);
-  let fallbackText = item.mimeType ?? "File";
-  if (moderated) {
-    fallbackText = item.post?.isGust ? "Moderated gust" : "Moderated post";
-  }
-
-  return (
-    <View style={styles.mediaTileWrap}>
-      <Pressable
-        accessibilityLabel={label}
-        accessibilityRole="link"
-        onPress={() => onOpen(item)}
-        style={[
-          styles.mediaTile,
-          {
-            aspectRatio,
-            backgroundColor: theme.cardBg,
-            borderColor: theme.cardBorder,
-          },
-        ]}
-      >
-        {renderMediaContent({
-          fallbackText,
-          isAudio,
-          isGenericFile,
-          item,
-          moderated,
-          showFallback,
-          source,
-          theme,
-        })}
-
-        {isVideo && !moderated ? (
-          <View style={styles.mediaVideoBadge}>
-            <LinearGradient
-              colors={["#ff9500", "#e65500"]}
-              end={{ x: 0.5, y: 1 }}
-              start={{ x: 0.5, y: 0 }}
-              style={styles.mediaBadgeGradient}
-            >
-              <Play
-                color="#ffffff"
-                fill="#ffffff"
-                size={11}
-                style={styles.playIconOffset}
-              />
-            </LinearGradient>
-          </View>
-        ) : null}
-      </Pressable>
-
-      <Text
-        numberOfLines={1}
-        style={[styles.mediaFooterLink, { color: theme.dividerText }]}
-      >
-        View {item.post?.isGust ? "gust" : "post"}
-      </Text>
-    </View>
-  );
-}
-
-// Web's profile Eddies tab features a 2-column layout (avatar left, content right),
-// relative timestamp, highlighted reply recipient, inline attachments, embeds,
-// aura rating pill, and a tactile reply button.
-function ReplyRow({
-  item,
-  onDeleted,
-  onOpenPost,
-  viewerId,
-}: {
-  item: ProfileReply;
-  onDeleted: () => void;
-  onOpenPost: (post: FeedPost) => void;
-  viewerId: string | null;
-}) {
-  const { theme } = useAppTheme();
-  const author = item.user;
-  const displayName = author?.displayName || author?.username || "Unknown";
-  const repliedToUsername =
-    item.parent?.user?.username ?? item.post?.user?.username ?? "someone";
-  const { embeds } = useLinkPreviews(item.content);
-  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const ownEddie = Boolean(viewerId) && author?.id === viewerId;
-
-  const replyAura =
-    item.votes?.reduce((acc, vote) => acc + (vote.value ?? 0), 0) ?? 0;
-  const flame = getAuraFlameStyle(replyAura);
-
-  const confirmDelete = async () => {
-    setDeleting(true);
-    const ok = await deleteEddie(item.id).then(
-      () => true,
-      () => false
-    );
-    setDeleting(false);
-    if (ok) {
-      setDeleteOpen(false);
-      onDeleted();
-      return;
+    let source: { uri: string } | null = null;
+    if (isVideo) {
+      source = { uri: mediaPosterUrl(apiBase, item.id) };
+    } else if (isAudio || isImage) {
+      source = { uri: mediaImageUrl(apiBase, item) };
     }
-    toast({
-      description: "We couldn't delete that. Try again in a moment.",
-      title: "Delete failed",
-    });
-  };
 
-  return (
-    <View style={[styles.replyRow, { borderBottomColor: theme.cardBorder }]}>
-      {/* Left: author avatar */}
-      <Pressable
-        accessibilityLabel={`View @${author?.username ?? "user"}'s profile`}
-        onPress={() => onOpenPost(item.post)}
-        style={styles.replyAvatarCol}
-      >
-        <UserAvatar
-          radius={12}
-          seed={author?.username ?? author?.id}
-          size={38}
-          url={author?.avatarUrl ?? null}
-          userId={author?.id}
-          username={author?.username}
-        />
-      </Pressable>
-      {/* Right: header, context, body, embeds, and actions */}
-      <View style={styles.replyMainCol}>
-        <View style={styles.replyHeaderLine}>
-          <Text
-            numberOfLines={1}
-            style={[styles.replyName, { color: theme.inputText }]}
-          >
-            {displayName}
-          </Text>
-          {author ? (
-            <UserBadge badge={author.badge} badges={author.badges} />
-          ) : null}
-          {author?.username ? (
-            <Text
-              numberOfLines={1}
-              style={[styles.replyHandle, { color: theme.dividerText }]}
-            >
-              @{author.username}
-            </Text>
-          ) : null}
-          <Text style={[styles.replyDot, { color: theme.dividerText }]}>·</Text>
-          <Text style={[styles.replyDate, { color: theme.dividerText }]}>
-            {formatRelativeDate(item.createdAt)}
-          </Text>
-          {ownEddie ? (
-            <View style={styles.replyMenuButtonWrap}>
-              <MoreButton onPress={(anchor) => setMenuAnchor(anchor)} />
-            </View>
-          ) : null}
-        </View>
-        <Text style={[styles.replyContext, { color: theme.dividerText }]}>
-          Replying to{" "}
-          <Text style={{ color: "#f97316" }}>@{repliedToUsername}</Text>
-        </Text>
+    const moderated = item.post?.moderated === true;
+    const showFallback = moderated || isGenericFile || !source;
+    const kind = item.post?.isGust ? "gust" : "post";
+    let fallbackLabel = "profile media";
+    if (isAudio) {
+      fallbackLabel = "post for audio";
+    }
+    const label = moderated
+      ? `Open moderated ${kind}`
+      : (item.altText ?? `Open ${fallbackLabel}`);
+    let fallbackText = item.mimeType ?? "File";
+    if (moderated) {
+      fallbackText = item.post?.isGust ? "Moderated gust" : "Moderated post";
+    }
+
+    return (
+      <View style={styles.mediaTileWrap}>
         <Pressable
-          accessibilityLabel={`Open post for eddie by ${displayName}`}
-          onPress={() => onOpenPost(item.post)}
-          style={styles.replyBodyPressable}
+          accessibilityLabel={label}
+          accessibilityRole="link"
+          onPress={() => onOpen(item)}
+          style={[
+            styles.mediaTile,
+            {
+              aspectRatio,
+              backgroundColor: theme.cardBg,
+              borderColor: theme.cardBorder,
+            },
+          ]}
         >
-          {item.content ? (
-            <BioContent
-              apiBase={getApiBaseUrl()}
-              bio={item.content}
-              textSize={{ fontSize: 14, lineHeight: 20 }}
-            />
-          ) : null}
+          {renderMediaContent({
+            fallbackText,
+            isAudio,
+            isGenericFile,
+            item,
+            moderated,
+            showFallback,
+            source,
+            theme,
+          })}
 
-          {item.attachments.length > 0 ? (
-            <View style={styles.replyAttachments}>
-              {item.attachments.map((attachment) => (
-                <Image
-                  contentFit="cover"
-                  key={attachment.id}
-                  source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
-                  style={styles.replyAttachment}
+          {isVideo && !moderated ? (
+            <View style={styles.mediaVideoBadge}>
+              <LinearGradient
+                colors={["#ff9500", "#e65500"]}
+                end={{ x: 0.5, y: 1 }}
+                start={{ x: 0.5, y: 0 }}
+                style={styles.mediaBadgeGradient}
+              >
+                <Play
+                  color="#ffffff"
+                  fill="#ffffff"
+                  size={11}
+                  style={styles.playIconOffset}
                 />
-              ))}
-            </View>
-          ) : null}
-
-          {embeds.length > 0 ? (
-            <View style={styles.replyEmbeds}>
-              <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
+              </LinearGradient>
             </View>
           ) : null}
         </Pressable>
-        {/* Actions: Aura indicator and Reply button */}
-        <View style={styles.replyActionsRow}>
-          <View style={styles.replyAuraPill}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "none"}
-              size={12}
-            />
-            <Text style={[styles.replyAuraText, { color: theme.dividerText }]}>
-              {formatNumber(replyAura)}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Reply to eddie"
-            accessibilityRole="button"
-            onPress={() => onOpenPost(item.post)}
-            style={[
-              styles.replyActionButton,
-              {
-                backgroundColor: theme.containerBg,
-                borderColor: theme.cardBorder,
-              },
-            ]}
-          >
-            <CornerDownRight color={theme.dividerText} size={13} />
-            <Text
-              style={[styles.replyActionText, { color: theme.dividerText }]}
-            >
-              Reply
-            </Text>
-          </Pressable>
-        </View>
+
+        <Text
+          numberOfLines={1}
+          style={[styles.mediaFooterLink, { color: theme.dividerText }]}
+        >
+          View {item.post?.isGust ? "gust" : "post"}
+        </Text>
       </View>
-      {ownEddie ? (
-        <>
-          <MoreMenu
-            anchor={menuAnchor}
-            entries={
-              menuAnchor
-                ? [
-                    {
-                      action: { type: "delete" },
-                      destructive: true,
-                      icon: Trash2,
-                      label: "Delete",
-                    },
-                  ]
-                : []
-            }
-            onAction={(action) => {
-              setMenuAnchor(null);
-              if (action.type === "delete") {
-                setDeleteOpen(true);
+    );
+  }
+);
+MediaTile.displayName = "MediaTile";
+
+// Web's profile Eddies tab features a 2-column layout (avatar left, content right),
+// relative timestamp, highlighted reply recipient, inline attachments, embeds,
+// aura rating pill, and a tactile reply button. Memoized for list scroll.
+const ReplyRow = memo(
+  ({
+    item,
+    onDeleted,
+    onOpenPost,
+    viewerId,
+  }: {
+    item: ProfileReply;
+    onDeleted: () => void;
+    onOpenPost: (post: FeedPost) => void;
+    viewerId: string | null;
+  }) => {
+    const { theme } = useAppTheme();
+    const author = item.user;
+    const displayName = author?.displayName || author?.username || "Unknown";
+    const repliedToUsername =
+      item.parent?.user?.username ?? item.post?.user?.username ?? "someone";
+    const { embeds } = useLinkPreviews(item.content);
+    const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const ownEddie = Boolean(viewerId) && author?.id === viewerId;
+
+    const replyAura =
+      item.votes?.reduce((acc, vote) => acc + (vote.value ?? 0), 0) ?? 0;
+    const flame = getAuraFlameStyle(replyAura);
+
+    const confirmDelete = async () => {
+      setDeleting(true);
+      const ok = await deleteEddie(item.id).then(
+        () => true,
+        () => false
+      );
+      setDeleting(false);
+      if (ok) {
+        setDeleteOpen(false);
+        onDeleted();
+        return;
+      }
+      toast({
+        description: "We couldn't delete that. Try again in a moment.",
+        title: "Delete failed",
+      });
+    };
+
+    return (
+      <View style={[styles.replyRow, { borderBottomColor: theme.cardBorder }]}>
+        {/* Left: author avatar */}
+        <Pressable
+          accessibilityLabel={`View @${author?.username ?? "user"}'s profile`}
+          onPress={() => onOpenPost(item.post)}
+          style={styles.replyAvatarCol}
+        >
+          <UserAvatar
+            radius={12}
+            seed={author?.username ?? author?.id}
+            size={38}
+            url={author?.avatarUrl ?? null}
+            userId={author?.id}
+            username={author?.username}
+          />
+        </Pressable>
+        {/* Right: header, context, body, embeds, and actions */}
+        <View style={styles.replyMainCol}>
+          <View style={styles.replyHeaderLine}>
+            <Text
+              numberOfLines={1}
+              style={[styles.replyName, { color: theme.inputText }]}
+            >
+              {displayName}
+            </Text>
+            {author ? (
+              <UserBadge badge={author.badge} badges={author.badges} />
+            ) : null}
+            {author?.username ? (
+              <Text
+                numberOfLines={1}
+                style={[styles.replyHandle, { color: theme.dividerText }]}
+              >
+                @{author.username}
+              </Text>
+            ) : null}
+            <Text style={[styles.replyDot, { color: theme.dividerText }]}>
+              ·
+            </Text>
+            <Text style={[styles.replyDate, { color: theme.dividerText }]}>
+              {formatRelativeDate(item.createdAt)}
+            </Text>
+            {ownEddie ? (
+              <View style={styles.replyMenuButtonWrap}>
+                <MoreButton onPress={(anchor) => setMenuAnchor(anchor)} />
+              </View>
+            ) : null}
+          </View>
+          <Text style={[styles.replyContext, { color: theme.dividerText }]}>
+            Replying to{" "}
+            <Text style={{ color: "#f97316" }}>@{repliedToUsername}</Text>
+          </Text>
+          <Pressable
+            accessibilityLabel={`Open post for eddie by ${displayName}`}
+            onPress={() => onOpenPost(item.post)}
+            style={styles.replyBodyPressable}
+          >
+            {item.content ? (
+              <BioContent
+                apiBase={getApiBaseUrl()}
+                bio={item.content}
+                textSize={{ fontSize: 14, lineHeight: 20 }}
+              />
+            ) : null}
+
+            {item.attachments.length > 0 ? (
+              <View style={styles.replyAttachments}>
+                {item.attachments.map((attachment) => (
+                  <Image
+                    contentFit="cover"
+                    key={attachment.id}
+                    source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
+                    style={styles.replyAttachment}
+                  />
+                ))}
+              </View>
+            ) : null}
+
+            {embeds.length > 0 ? (
+              <View style={styles.replyEmbeds}>
+                <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
+              </View>
+            ) : null}
+          </Pressable>
+          {/* Actions: Aura indicator and Reply button */}
+          <View style={styles.replyActionsRow}>
+            <View style={styles.replyAuraPill}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "none"}
+                size={12}
+              />
+              <Text
+                style={[styles.replyAuraText, { color: theme.dividerText }]}
+              >
+                {formatNumber(replyAura)}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Reply to eddie"
+              accessibilityRole="button"
+              onPress={() => onOpenPost(item.post)}
+              style={[
+                styles.replyActionButton,
+                {
+                  backgroundColor: theme.containerBg,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+            >
+              <CornerDownRight color={theme.dividerText} size={13} />
+              <Text
+                style={[styles.replyActionText, { color: theme.dividerText }]}
+              >
+                Reply
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+        {ownEddie ? (
+          <>
+            <MoreMenu
+              anchor={menuAnchor}
+              entries={
+                menuAnchor
+                  ? [
+                      {
+                        action: { type: "delete" },
+                        destructive: true,
+                        icon: Trash2,
+                        label: "Delete",
+                      },
+                    ]
+                  : []
               }
-            }}
-            onClose={() => setMenuAnchor(null)}
-          />
-          <DeleteEddieDialog
-            deleting={deleting}
-            onCancel={() => setDeleteOpen(false)}
-            onConfirm={() => {
-              void confirmDelete();
-            }}
-            open={deleteOpen}
-          />
-        </>
-      ) : null}
-    </View>
-  );
-}
+              onAction={(action) => {
+                setMenuAnchor(null);
+                if (action.type === "delete") {
+                  setDeleteOpen(true);
+                }
+              }}
+              onClose={() => setMenuAnchor(null)}
+            />
+            <DeleteEddieDialog
+              deleting={deleting}
+              onCancel={() => setDeleteOpen(false)}
+              onConfirm={() => {
+                void confirmDelete();
+              }}
+              open={deleteOpen}
+            />
+          </>
+        ) : null}
+      </View>
+    );
+  }
+);
+ReplyRow.displayName = "ReplyRow";
 
 export function ProfileFeed({
   feed,
@@ -813,29 +824,37 @@ export function ProfileFeed({
   // content holds still. The header keeps scrolling away normally on swipe,
   // which is what the sticky tab bar is for.
 
-  // Swipe navigation PanResponder tracking horizontal gestures
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) => {
-          if (gesture.numberActiveTouches !== 1) {
-            return false;
-          }
-          const absDx = Math.abs(gesture.dx);
-          const absDy = Math.abs(gesture.dy);
-          return absDx > 12 && absDx > absDy * 1.35;
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          const { dx, vx } = gesture;
-          if (dx <= -48 || vx <= -0.45) {
-            onSwipeNavigate?.(1);
-          } else if (dx >= 48 || vx >= 0.45) {
-            onSwipeNavigate?.(-1);
-          }
-        },
-      }),
+  // Swipe navigation on the UI thread. The old PanResponder ran on the JS
+  // thread and fought the vertical list for every touch, which is why slides
+  // felt sticky. Gesture Handler locks direction natively and only the commit
+  // hops back to JS, once per swipe. The commit reads no refs so the worklet
+  // never captures a JS object (Worklets forbids touching `.current` from the
+  // UI thread, even through a scheduled callback's closure).
+  const commitSwipe = useCallback(
+    (direction: -1 | 1): void => {
+      onSwipeNavigate?.(direction);
+    },
     [onSwipeNavigate]
   );
+  /* eslint-disable react/capitalized-calls -- Gesture.Pan is a factory, not a component */
+  const swipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-12, 12])
+        .onEnd((event) => {
+          const dx = event.translationX;
+          // Gesture velocity is px/sec; old thresholds were px/ms.
+          const vx = event.velocityX / 1000;
+          if (dx <= -48 || vx <= -0.45) {
+            scheduleOnRN(commitSwipe, 1);
+          } else if (dx >= 48 || vx >= 0.45) {
+            scheduleOnRN(commitSwipe, -1);
+          }
+        }),
+    [commitSwipe]
+  );
+  /* eslint-enable react/capitalized-calls */
 
   const openPost = useCallback(
     (post: FeedPost) => openPostRoute(router, post.id),
@@ -855,22 +874,16 @@ export function ProfileFeed({
         router.push({ params: { id: item.post.id }, pathname: "/gusts" });
         return;
       }
+      // Full id: truncated prefixes 404 when they match more than one post.
       if (isAudioMedia(item)) {
         router.push({
-          params: {
-            postId:
-              item.post.id.length > 8 ? item.post.id.slice(0, 8) : item.post.id,
-          },
+          params: { postId: item.post.id },
           pathname: "/posts/[postId]",
         });
         return;
       }
       router.push({
-        params: {
-          index: "0",
-          postId:
-            item.post.id.length > 8 ? item.post.id.slice(0, 8) : item.post.id,
-        },
+        params: { index: "0", postId: item.post.id },
         pathname: "/posts/[postId]/media/[index]",
       });
     },
@@ -1118,9 +1131,18 @@ export function ProfileFeed({
     return <FeedCaughtUp note={note} />;
   };
 
+  // Pull (vertical) and swipe (horizontal) run simultaneously: direction
+  // locks decide the winner natively, so a vertical pull never triggers a tab
+  // switch and a horizontal swipe never starts a refresh.
+  /* eslint-disable react/capitalized-calls -- Gesture.Simultaneous is a factory, not a component */
+  const outerGestures = useMemo(
+    () => Gesture.Simultaneous(pull.gesture, swipeGesture),
+    [pull.gesture, swipeGesture]
+  );
+  /* eslint-enable react/capitalized-calls */
   return (
-    <GestureDetector gesture={pull.gesture}>
-      <View style={styles.rootContainer} {...panResponder.panHandlers}>
+    <GestureDetector gesture={outerGestures}>
+      <View style={styles.rootContainer}>
         <GestureDetector gesture={pull.nativeScrollGesture}>
           <FlatList
             ItemSeparatorComponent={renderSeparator}
@@ -1145,6 +1167,7 @@ export function ProfileFeed({
             contentContainerStyle={styles.list}
             data={items}
             keyExtractor={keyExtractor}
+            {...LIST_VIRTUALIZATION_PROPS}
             onEndReached={feed.hasMore ? feed.fetchNext : undefined}
             onEndReachedThreshold={0.6}
             onScroll={handleContentScroll}

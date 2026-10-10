@@ -11,7 +11,11 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
+import { getApiBaseUrl } from "@/lib/api-env";
 import { logError } from "@/lib/telemetry";
+
+import { resolveGoogleWebClientId } from "./google-config";
+import { isGoogleConfigurationError } from "./google-errors";
 
 // Type-only view of the SDK so the plugin's types are kept without a runtime
 // import of the native module (same trick as the passkey bridge).
@@ -20,7 +24,11 @@ type GoogleSdk = typeof import("@react-native-google-signin/google-signin");
 
 // Public OAuth client id of the auth server (its GOOGLE_CLIENT_ID). Not a
 // secret; the SDK uses it as the ID token audience.
-const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim();
+const WEB_CLIENT_ID = resolveGoogleWebClientId({
+  apiBaseUrl: getApiBaseUrl(),
+  configuredClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  development: __DEV__,
+});
 
 // iOS OAuth client id. There is none yet (no reversed
 // `com.googleusercontent.apps.*` scheme is registered in app.json), so the
@@ -42,7 +50,7 @@ function loadGoogleModule(): GoogleSdk | null {
 
 const googleModule = loadGoogleModule();
 
-/** True when the native SDK is present AND a web client id is configured. */
+// True when the native SDK is present and a web client id is configured.
 export const hasNativeGoogle =
   googleModule !== null &&
   Boolean(WEB_CLIENT_ID) &&
@@ -76,7 +84,7 @@ export type NativeGoogleResult =
 export const GOOGLE_UNAVAILABLE_ERROR = "Google sign-in isn't available yet.";
 export const GOOGLE_GENERIC_ERROR = "Error connecting with social provider.";
 
-/** Runs the native account picker and returns Google's tokens. */
+// Runs the native account picker and returns Google's tokens.
 export async function signInWithGoogleNative(): Promise<NativeGoogleResult> {
   if (!(googleModule && hasNativeGoogle)) {
     return { error: GOOGLE_UNAVAILABLE_ERROR };
@@ -107,7 +115,7 @@ export async function signInWithGoogleNative(): Promise<NativeGoogleResult> {
       if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         return { error: "Google Play services are needed for this." };
       }
-      if (error.code === "DEVELOPER_ERROR") {
+      if (isGoogleConfigurationError(error.code)) {
         // The Android OAuth client (package + signing SHA-1) is missing in
         // Google Cloud for this build's keystore. See .env.development.
         logError("auth.google_native_developer_error", error);

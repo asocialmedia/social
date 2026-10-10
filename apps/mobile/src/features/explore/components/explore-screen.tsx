@@ -87,6 +87,10 @@ import {
 } from "../lib/explore-api";
 import type { ExploreCommunityResult, ExploreUser } from "../lib/explore-api";
 import { ExplorePostCard } from "./explore-post-card";
+import {
+  ExplorePeopleSkeleton,
+  ExploreMasonrySkeleton,
+} from "./explore-skeleton";
 import { ExploreUserCard } from "./explore-user-card";
 
 // Matches web's useNewContentProbe cadence on the Explore feeds.
@@ -788,7 +792,12 @@ export function ExploreScreen() {
 
   let empty: React.ReactNode = null;
   if (status === "loading") {
-    empty = <ExploreLoadingState />;
+    empty =
+      activeTab === "people" ? (
+        <ExplorePeopleSkeleton />
+      ) : (
+        <ExploreMasonrySkeleton />
+      );
   } else if (status === "error") {
     const message = errorMessageFor(activeTab);
     empty = (
@@ -992,26 +1001,6 @@ function ExploreGustTile({
         </View>
       </LinearGradient>
     </Pressable>
-  );
-}
-
-function ExploreLoadingState() {
-  const { theme } = useAppTheme();
-  return (
-    <View style={styles.loadingState}>
-      <View
-        style={[styles.loadingTile, { backgroundColor: theme.dividerLine }]}
-      />
-      <View
-        style={[styles.loadingTile, { backgroundColor: theme.dividerLine }]}
-      />
-      <View
-        style={[styles.loadingTile, { backgroundColor: theme.dividerLine }]}
-      />
-      <View
-        style={[styles.loadingTile, { backgroundColor: theme.dividerLine }]}
-      />
-    </View>
   );
 }
 
@@ -1407,13 +1396,6 @@ const styles = StyleSheet.create({
     flex: 1,
     position: "relative",
   },
-  loadingState: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-    padding: 16,
-  },
-  loadingTile: { aspectRatio: 4 / 5, borderRadius: 16, width: "47%" },
   masonryColumn: {
     flex: 1,
   },

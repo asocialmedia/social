@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, jest, mock, test } from "bun:test";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { POST } from "./route";
 
 const createEvent = mock(() => Promise.resolve({}));
+const upsertEvent = mock(() => Promise.resolve({}));
 const mockGetSession = mock(() =>
   Promise.resolve<{ user: { id: string } } | null>({ user: { id: "user-1" } })
 );
@@ -34,7 +35,7 @@ mock.module("@asm/db", () => ({
             },
           }),
         },
-        RecommendationEvents: { create: createEvent },
+        RecommendationEvents: { create: createEvent, upsert: upsertEvent },
       },
     },
   },
@@ -56,6 +57,7 @@ describe("POST /api/recommendations/events", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     createEvent.mockClear();
+    upsertEvent.mockClear();
     findPosts.mockClear();
     existingPosts = [{ id: "post-1" }];
   });
@@ -67,6 +69,7 @@ describe("POST /api/recommendations/events", () => {
 
     expect(response.status).toBe(401);
     expect(createEvent).not.toHaveBeenCalled();
+    expect(upsertEvent).not.toHaveBeenCalled();
   });
 
   test("rejects malformed or unsupported events", async () => {
@@ -76,45 +79,78 @@ describe("POST /api/recommendations/events", () => {
 
     expect(response.status).toBe(400);
     expect(createEvent).not.toHaveBeenCalled();
+    expect(upsertEvent).not.toHaveBeenCalled();
   });
 
   test("stores bounded behavioral events for known posts", async () => {
+    // Freeze the clock so the expected dedupeKey's UTC day matches whatever
+    // `new Date()` the route calls inside POST.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+    try {
+      const response = await POST(
+        request({
+          events: [
+            { eventType: "IMPRESSION", postId: "post-1" },
+            { durationMs: 999_999_999, eventType: "DWELL", postId: "post-1" },
+          ],
+        })
+      );
+
+      expect(response.status).toBe(200);
+      // Impressions go through an atomic upsert on the dedupeKey (ON CONFLICT
+      // DO NOTHING) so repeats never raise a duplicate-key ERROR in Postgres.
+      expect(upsertEvent).toHaveBeenCalledTimes(1);
+      expect(upsertEvent).toHaveBeenCalledWith({
+        conflictOn: {
+          dedupeKey: `impression:user-1:post-1:2026-10-06`,
+        },
+        create: {
+          dedupeKey: `impression:user-1:post-1:2026-10-06`,
+          durationMs: null,
+          eventType: "IMPRESSION",
+          postId: "post-1",
+          sessionId: null,
+          userId: "user-1",
+          value: null,
+        },
+        update: {},
+      });
+      expect(createEvent).toHaveBeenCalledTimes(1);
+      expect(createEvent).toHaveBeenCalledWith({
+        dedupeKey: null,
+        durationMs: 1_800_000,
+        eventType: "DWELL",
+        postId: "post-1",
+        sessionId: null,
+        userId: "user-1",
+        value: null,
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("dedupes repeated impressions inside one batch to a single write", async () => {
     const response = await POST(
       request({
         events: [
           { eventType: "IMPRESSION", postId: "post-1" },
-          { durationMs: 999_999_999, eventType: "DWELL", postId: "post-1" },
+          { eventType: "IMPRESSION", postId: "post-1" },
         ],
       })
     );
 
     expect(response.status).toBe(200);
-    expect(createEvent).toHaveBeenCalledTimes(2);
-    expect(createEvent).toHaveBeenNthCalledWith(1, {
-      dedupeKey: `impression:user-1:post-1:${new Date().toISOString().slice(0, 10)}`,
-      durationMs: null,
-      eventType: "IMPRESSION",
-      postId: "post-1",
-      sessionId: null,
-      userId: "user-1",
-      value: null,
-    });
-    expect(createEvent).toHaveBeenNthCalledWith(2, {
-      dedupeKey: null,
-      durationMs: 1_800_000,
-      eventType: "DWELL",
-      postId: "post-1",
-      sessionId: null,
-      userId: "user-1",
-      value: null,
-    });
+    await expect(response.json()).resolves.toEqual({ accepted: 2 });
+    expect(upsertEvent).toHaveBeenCalledTimes(1);
+    expect(createEvent).not.toHaveBeenCalled();
   });
 
-  test("accepts duplicate impression retries idempotently", async () => {
-    createEvent.mockRejectedValueOnce({
-      constraint: "recommendation_events_dedupeKey_key",
-      sqlState: "23505",
-    });
+  test("swallows duplicate-key errors from the impression upsert", async () => {
+    upsertEvent.mockRejectedValueOnce(
+      Object.assign(new Error("P2002"), { code: "P2002" })
+    );
 
     const response = await POST(
       request({ events: [{ eventType: "IMPRESSION", postId: "post-1" }] })
@@ -122,7 +158,7 @@ describe("POST /api/recommendations/events", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ accepted: 1 });
-    expect(createEvent).toHaveBeenCalledTimes(1);
+    expect(createEvent).not.toHaveBeenCalled();
   });
 
   test("drops events for a deleted post but still records the rest", async () => {

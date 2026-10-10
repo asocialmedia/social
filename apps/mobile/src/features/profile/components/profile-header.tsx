@@ -30,6 +30,7 @@ import {
 } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { imageCachePolicy } from "@/lib/image-cache";
 import {
   BTN_3D_GRAY_SHADOWS,
   BTN_3D_GRAY_SHADOWS_DARK,
@@ -54,6 +55,7 @@ function BannerContent({
   if (banner) {
     return (
       <Image
+        cachePolicy={imageCachePolicy(banner)}
         contentFit="cover"
         source={{ uri: banner }}
         style={styles.banner}
@@ -64,6 +66,7 @@ function BannerContent({
     return (
       <Image
         blurRadius={10}
+        cachePolicy={imageCachePolicy(avatar)}
         contentFit="cover"
         source={{ uri: avatar }}
         style={[styles.banner, styles.blurred]}

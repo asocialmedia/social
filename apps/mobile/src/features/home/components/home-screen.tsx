@@ -1,3 +1,4 @@
+import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 // Root home page: mobile header, the four-tab feed (For you / Latest /
 // Trending / Following) with swipe navigation, and the guest auth bar docked
@@ -5,7 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
 // keeps its own cached pages and scroll position.
-import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Platform,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
@@ -22,6 +30,7 @@ import {
 } from "@/features/feed/state/tab-store-native";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useSearchStore } from "@/features/search/state/search-store";
+import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
@@ -30,12 +39,11 @@ import { headerSlide, MobileHeader } from "./mobile-header";
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();
+  const isFocused = useIsFocused();
 
   const { isPending, user } = useSessionContext();
-  // While the session is still resolving, `user` is null for everyone. Treating
-  // that as "guest" flashes the Log in pill at signed-in users, so neither the
-  // avatar nor the guest bar renders until the answer is known.
-  const showUser = !isPending && Boolean(user);
+  // A background session refresh keeps the cached account and layout visible.
+  const showUser = Boolean(user);
   const isLoggedIn = showUser;
   const memoryReady = useHomeTabMemoryReady();
   const storedHome = useTabStore((state) =>
@@ -54,7 +62,8 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [dockHeight, setDockHeight] = useState(56);
   const [dockHidden, setDockHidden] = useState(false);
-  const [bannerHeight, setBannerHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [bannerHeight, setBannerHeight] = useState(90);
   const showGuestBar = !isPending && !user;
   const dockLift = dockHeight + insets.bottom + 20;
   // A transform, never a layout prop: tweening `bottom` or a margin runs on
@@ -83,7 +92,7 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: [0, -dockLift],
   });
-  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : 0;
+  const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : dockLift;
   const activeIndex = Math.max(
     0,
     HOME_TAB_DEFS.findIndex((entry) => entry.value === tab)
@@ -100,6 +109,7 @@ export default function HomeScreen() {
     (index: number) => {
       const def = HOME_TAB_DEFS[index];
       if (def && def.value !== tab) {
+        haptic();
         setHomeTab(def.value, user?.id);
       }
     },
@@ -132,6 +142,22 @@ export default function HomeScreen() {
     [isLoggedIn]
   );
 
+  // Wait for tab memory before mounting the pager: mounting on the default
+  // tab and then jumping to the remembered one slides the whole pager over,
+  // which reads as a glitch.
+  //
+  // The splash does NOT cover this beat -- StartupGate returns null and hides
+  // the native splash as soon as fonts settle, well before the persisted tab
+  // finishes rehydrating. An empty View here is a blank screen, so show the
+  // themed spinner until the flag flips.
+  if (!memoryReady) {
+    return (
+      <View style={[styles.memoryWait, { backgroundColor: theme.containerBg }]}>
+        <ActivityIndicator color={theme.inputText} />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
@@ -162,16 +188,18 @@ export default function HomeScreen() {
         <FeedTabs active={tab} onChange={handleTabChange} />
         <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
           {HOME_TAB_DEFS.map((def, index) => (
-            // Only the visible tab fetches and probes: four parallel loops
-            // would burn mobile data and backend capacity for hidden tabs.
-            // Caches make switching back instant without refetching.
+            // Neighbour tabs preload their data in the background so
+            // switching lands on cached rows instead of a skeleton; only
+            // the visible tab autoplays video and publishes viewability.
             // Public tabs fetch immediately as guest instead of waiting for
             // the session: first paint wins, and the session upgrade
             // re-keys (guest to user) and refetches with identity.
             <FeedList
+              active={isFocused && index === activeIndex}
               bottomInset={feedBottomPad}
               enabled={
-                index === activeIndex &&
+                isFocused &&
+                Math.abs(index - activeIndex) <= 1 &&
                 // For you and Following are account-only; a guest sees the
                 // sign-in prompt in FeedList instead, and nothing is fetched.
                 (def.value === "following" || def.value === "personalized"
@@ -181,7 +209,9 @@ export default function HomeScreen() {
               // Only the visible tab carries the composer, so exactly one is
               // ever mounted.
               header={index === activeIndex ? composerHeader : undefined}
-              key={def.value}
+              headerHeight={isLoggedIn ? composerHeight : 0}
+              onHeaderHeight={setComposerHeight}
+              key={`${def.value}:${user?.id ?? "guest"}`}
               userId={user?.id}
               variant={def.value}
             />
@@ -218,6 +248,11 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   content: {
     flex: 1,
+  },
+  memoryWait: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
   },
   root: {
     flex: 1,

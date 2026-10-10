@@ -1,12 +1,14 @@
-import "../global.css";
 import { useFonts } from "expo-font";
+
+import "../global.css";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import { useEffect } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { enableFreeze } from "react-native-screens";
 
 import { ErrorBoundary } from "@/components/feedback/error-boundary";
 import { StartupGate } from "@/components/feedback/startup-splash";
@@ -15,13 +17,14 @@ import { InstallVerificationGate } from "@/features/auth/components/install-veri
 import { SessionRevocationGuard } from "@/features/auth/components/session-revocation-guard";
 import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
-import { ComposerModal } from "@/features/composer/components/composer-modal";
+import { MediaPreviewLauncher } from "@/features/feed/components/media-preview-launcher";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
-import { SpotlightModal } from "@/features/search/components/spotlight-modal";
-import { SupportGate } from "@/features/support/components/support-gate";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
+import { ResumeGate, ResumeSaver } from "@/lib/resume-gate";
+import { StartupPresentedContext } from "@/lib/startup-context";
+import { prepareNativeStartup } from "@/lib/startup-native";
 import { initTelemetry } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -29,10 +32,67 @@ import sofiaProBold from "../../assets/fonts/SofiaProSoftBold.ttf";
 import sofiaProMed from "../../assets/fonts/SofiaProSoftMed.ttf";
 import sofiaProReg from "../../assets/fonts/SofiaProSoftReg.ttf";
 
+// Defer module evaluation as well as mounting. These overlays are not needed
+// to display the restored screen and otherwise load their dependencies at boot.
+const ComposerModal = lazy(async () => {
+  const composerModule =
+    await import("@/features/composer/components/composer-modal");
+  return { default: composerModule.ComposerModal };
+});
+const SpotlightModal = lazy(async () => {
+  const searchModule =
+    await import("@/features/search/components/spotlight-modal");
+  return { default: searchModule.SpotlightModal };
+});
+const UnreadMessageObserver = lazy(async () => {
+  const observerModule =
+    await import("@/features/messages/state/unread-message-observer");
+  return { default: observerModule.UnreadMessageObserver };
+});
+const SupportGate = lazy(async () => {
+  const supportModule =
+    await import("@/features/support/components/support-gate");
+  return { default: supportModule.SupportGate };
+});
+
 void SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({ duration: 180, fade: true });
+// Freeze off-screen native screens so backgrounded routes stop re-rendering
+// while the foreground animates. Best-effort: never break launch.
+try {
+  enableFreeze(true);
+} catch {
+  // react-native-screens not ready; navigation still works unfrozen.
+}
+
+// Defers non-critical launch work past first paint. InteractionManager is
+// deprecated in RN 0.86 (it warns on every launch), so this uses
+// requestIdleCallback with a setTimeout fallback instead.
+function runAfterIdle(work: () => void): () => void {
+  const idle = (
+    globalThis as unknown as {
+      cancelIdleCallback?: (handle: number) => void;
+      requestIdleCallback?: (callback: () => void) => number;
+    }
+  ).requestIdleCallback;
+  if (typeof idle === "function") {
+    const handle = idle(work);
+    return () => {
+      (
+        globalThis as unknown as {
+          cancelIdleCallback?: (handle: number) => void;
+        }
+      ).cancelIdleCallback?.(handle);
+    };
+  }
+  const timer = setTimeout(work, 0);
+  return () => clearTimeout(timer);
+}
 
 export default function RootLayout() {
   const { isDark, theme } = useAppTheme();
+  const navigationAnimation =
+    Platform.OS === "ios" ? "default" : "slide_from_right";
 
   const [loaded, error] = useFonts({
     SofiaPro: sofiaProReg,
@@ -48,26 +108,54 @@ export default function RootLayout() {
     void SystemUI.setBackgroundColorAsync(theme.containerBg);
   }, [theme.containerBg]);
 
-  useEffect(() => {
-    initTelemetry();
-  }, []);
-
-  // Attach the install token to every same-origin request, then hydrate it from
-  // SecureStore. The interceptor is installed first (synchronously) so no early
-  // request escapes without it; the token is attached from the next tick on,
-  // which is why callers must tolerate the header being absent for the first
-  // moments after launch.
+  // Non-critical init runs after the first paint so the bundle evaluates
+  // and the navigator mounts before telemetry or SecureStore IO contend for
+  // the JS thread. The fetch interceptor itself stays synchronous so no early
+  // request escapes without it.
   useEffect(() => {
     installFetchInterceptor(getApiBaseUrl());
-    void loadInstallToken();
+    return runAfterIdle(() => {
+      initTelemetry();
+      void loadInstallToken();
+    });
   }, []);
 
-  // Hiding the native splash is the StartupGate's job: it waits for the
-  // session as well as the fonts, so the home screen's first paint already
-  // knows whether the viewer is signed in and the inline composer arrives with
-  // the feed instead of after it.
+  const [localReady, setLocalReady] = useState(false);
+  const [fontFallback, setFontFallback] = useState(false);
+  const [routeReady, setRouteReady] = useState(false);
+  const [presented, setPresented] = useState(false);
+  const markRouteReady = useCallback(() => setRouteReady(true), []);
+  const markPresented = useCallback(() => setPresented(true), []);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await prepareNativeStartup();
+      if (!cancelled) {
+        setLocalReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (loaded || error) {
+      return;
+    }
+    const timer = setTimeout(() => setFontFallback(true), 2500);
+    return () => clearTimeout(timer);
+  }, [error, loaded]);
 
-  if (!loaded && !error) {
+  // Mount non-critical overlays only after the actual startup handoff.
+  const [deferredReady, setDeferredReady] = useState(false);
+  useEffect(() => {
+    if (!presented) {
+      return;
+    }
+    return runAfterIdle(() => setDeferredReady(true));
+  }, [presented]);
+
+  if (!localReady || (!loaded && !error && !fontFallback)) {
     return null;
   }
 
@@ -85,79 +173,103 @@ export default function RootLayout() {
             auth call in it, so a fresh install is verified before signing in. */}
           <InstallProvider>
             <SessionProvider>
-              {/* Launch-time support check. The app it replaced downloaded a
+              <StartupPresentedContext.Provider value={presented}>
+                <ResumeGate onReady={markRouteReady} />
+                <ResumeSaver />
+                {/* Launch-time support check. The app it replaced downloaded a
                 release APK and launched the system installer, which Play Store
                 policy forbids; this asks the server whether the running build is
                 still served and hands an out-of-date one to the store. Inside
-                the session provider so the check shares the API base. */}
-              <SupportGate />
-              {/* Native push registration + tap routing. Inside the session
+                the session provider so the check shares the API base. Deferred
+                past first paint: it is not needed to show cached content. */}
+                <Suspense fallback={null}>
+                  {deferredReady ? <SupportGate /> : null}
+                  {deferredReady ? <UnreadMessageObserver /> : null}
+                </Suspense>
+                {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
-              <PushRegistrar />
-              {/* Real-time session revocation listener (SSE stream). Terminates
+                <PushRegistrar />
+                {/* Real-time session revocation listener (SSE stream). Terminates
                 the local session immediately if revoked remotely or on 401. */}
-              <SessionRevocationGuard />
-              <Stack
-                screenOptions={{
-                  animation:
-                    Platform.OS === "ios" ? "default" : "slide_from_right",
-                  contentStyle: { backgroundColor: theme.containerBg },
-                  headerShown: false,
-                }}
-              >
-                <Stack.Screen name="index" options={{ animation: "none" }} />
-                <Stack.Screen name="posts" />
-                <Stack.Screen name="notifications" />
-                <Stack.Screen name="bookmarks" />
-                <Stack.Screen
-                  name="gusts"
-                  options={{
-                    animation: "fade_from_bottom",
-                    animationDuration: 250,
-                    contentStyle: { backgroundColor: "#000000" },
-                    presentation: "fullScreenModal",
-                  }}
-                />
-                <Stack.Screen name="users/[username]" />
-                <Stack.Screen name="users/[username]/followers" />
-                <Stack.Screen name="users/[username]/following" />
-                <Stack.Screen name="discover" />
-                <Stack.Screen name="communities" />
-                <Stack.Screen
-                  name="communities/create"
-                  options={{
-                    animation: "slide_from_bottom",
-                    presentation: "modal",
-                  }}
-                />
-                <Stack.Screen name="a/[slug]" />
-                <Stack.Screen name="legal/[document]" />
-                <Stack.Screen name="hashtag/[tag]" />
-                <Stack.Screen name="hackernews" />
-                <Stack.Screen name="settings" />
-                <Stack.Screen
-                  name="(auth)"
-                  options={{
-                    animation: "fade",
+                <SessionRevocationGuard />
+                <Stack
+                  screenOptions={{
+                    animation: presented ? navigationAnimation : "none",
+                    // Keep later page transitions short; the restored route
+                    // itself is committed without animation beneath the splash.
                     animationDuration: 200,
+                    contentStyle: { backgroundColor: theme.containerBg },
+                    // Frozen off-screen routes stop re-rendering while the
+                    // foreground animates, which is the main home-to-profile
+                    // jank source on low-end Android.
+                    freezeOnBlur: true,
+                    headerShown: false,
                   }}
-                />
-              </Stack>
-              {/* Shown only when a mutating request needs the install credential
+                >
+                  <Stack.Screen name="index" options={{ animation: "none" }} />
+                  <Stack.Screen name="posts" />
+                  <Stack.Screen name="notifications" />
+                  <Stack.Screen name="bookmarks" />
+                  {/* Messages is a nested stack of its own (see messages/_layout.tsx):
+                    the conversation list, then one thread per conversation. Only
+                    the group is registered here -- the thread lives inside that
+                    layout, so naming it at this level would match no child. */}
+                  <Stack.Screen name="messages" />
+                  <Stack.Screen
+                    name="gusts"
+                    options={{
+                      animation: "fade_from_bottom",
+                      animationDuration: 250,
+                      contentStyle: { backgroundColor: "#000000" },
+                      presentation: "fullScreenModal",
+                    }}
+                  />
+                  <Stack.Screen
+                    name="users/[username]"
+                    options={{ animationDuration: 200 }}
+                  />
+                  <Stack.Screen name="users/[username]/followers" />
+                  <Stack.Screen name="users/[username]/following" />
+                  <Stack.Screen name="discover" />
+                  <Stack.Screen name="communities" />
+                  <Stack.Screen
+                    name="communities/create"
+                    options={{
+                      animation: "slide_from_bottom",
+                      presentation: "modal",
+                    }}
+                  />
+                  <Stack.Screen name="a/[slug]" />
+                  <Stack.Screen name="legal/[document]" />
+                  <Stack.Screen name="hashtag/[tag]" />
+                  <Stack.Screen name="hackernews" />
+                  <Stack.Screen name="settings" />
+                  <Stack.Screen
+                    name="(auth)"
+                    options={{
+                      animation: "fade",
+                      animationDuration: 200,
+                    }}
+                  />
+                </Stack>
+                {/* Shown only when a mutating request needs the install credential
                 and none is stored yet, so browsing never pays the cost. */}
-              <InstallVerificationGate
-                sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
-              />
-              {/* The post composer (opened from the dock's + and Respond) and
-                  the app-wide toast stack. */}
-              <ComposerModal />
-              {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
-              <SpotlightModal />
-              <Toaster />
-              {/* Last so it covers the navigator and every overlay above: it
-                  holds the platform splash until the session is known, then
-                  dissolves into the app. */}
-              <StartupGate fontsReady={loaded || Boolean(error)} />
+                <InstallVerificationGate
+                  sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
+                />
+                {/* The post composer (opened from the dock's + and Respond) and
+                  the app-wide toast stack. Deferred past first paint. */}
+                <Suspense fallback={null}>
+                  {deferredReady ? <ComposerModal /> : null}
+                </Suspense>
+                {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
+                <Suspense fallback={null}>
+                  {deferredReady ? <SpotlightModal /> : null}
+                </Suspense>
+                <MediaPreviewLauncher />
+                <Toaster />
+                <StartupGate ready={routeReady} onPresented={markPresented} />
+              </StartupPresentedContext.Provider>
             </SessionProvider>
           </InstallProvider>
         </ThemeProvider>

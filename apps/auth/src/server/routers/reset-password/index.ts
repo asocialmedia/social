@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { and, prisma, toPrismaDateTime } from "@asm/db";
+import {
+  and,
+  exactInsensitivePattern,
+  prisma,
+  toPrismaDateTime,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
@@ -33,6 +38,12 @@ function redactIdentifier(value: string): string {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
+
+// better-auth 1.7 credential contract: the password that sign-in verifies
+// lives on the credential account row (providerId "credential",
+// issuer "local:credential", accountId = user id). Users.passwordHash is a
+// legacy mirror. Every password write must update BOTH or login diverges.
+const LOCAL_CREDENTIAL_ISSUER = "local:credential";
 
 const requestResetSchema = z
   .object({
@@ -86,15 +97,19 @@ export const resetPasswordRouter = router({
           };
         }
 
+        // Email and username lookups are case-insensitive everywhere else
+        // (signup uses ilike). An exact-match here would miss Foo@Bar.com
+        // when the reset is requested as foo@bar.com, returning a fake
+        // success with no email ever sent.
         const user = await prisma.orm.public.Users.select(
           "email",
           "id",
           "username"
         )
-          .where(
+          .where((candidate) =>
             EMAIL_REGEX.test(identifier)
-              ? { email: identifier }
-              : { username: identifier }
+              ? candidate.email.ilike(exactInsensitivePattern(identifier))
+              : candidate.username.ilike(exactInsensitivePattern(identifier))
           )
           .first();
 
@@ -194,6 +209,37 @@ export const resetPasswordRouter = router({
           await tx.orm.public.Users.where({ id: userId }).update({
             passwordHash: hashedPassword,
           });
+
+          // Sign-in verifies Accounts.password on the canonical credential row
+          // (providerId "credential", accountId = userId), NOT Users.passwordHash.
+          // Selecting by (providerId, userId) alone could match a legacy
+          // credential row whose accountId is the email, so the reset wrote the
+          // new hash to one row while sign-in read another - reset returned 200
+          // but login still 401'd. Match better-auth's own selector exactly:
+          // (userId, providerId="credential", accountId=userId).
+          const credential = await tx.orm.public.Accounts.select("id")
+            .where((account) =>
+              and(
+                account.providerId.eq("credential"),
+                account.accountId.eq(userId),
+                account.userId.eq(userId)
+              )
+            )
+            .first();
+          await (credential
+            ? tx.orm.public.Accounts.where({
+                id: credential.id,
+              }).update({
+                issuer: LOCAL_CREDENTIAL_ISSUER,
+                password: hashedPassword,
+              })
+            : tx.orm.public.Accounts.create({
+                accountId: userId,
+                issuer: LOCAL_CREDENTIAL_ISSUER,
+                password: hashedPassword,
+                providerId: "credential",
+                userId,
+              }));
 
           await tx.orm.public.Verification.where({
             id: verification.id,

@@ -111,6 +111,7 @@ if (import.meta.main) {
     processBadgeSweep,
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
+  const { healCredentialAccounts } = await import("./worker/account-heal");
   const {
     clearMessageSearchKeyCache,
     processMessageSearchBackfill,
@@ -141,10 +142,19 @@ if (import.meta.main) {
     return worker;
   };
 
+  const healCredentialAccountsBestEffort = async () => {
+    try {
+      await healCredentialAccounts(logger);
+    } catch (error) {
+      logger.error({ error }, "boot credential-account heal failed");
+    }
+  };
+
   const start = async () => {
     if (!messageSearchWorkerRole.only) {
       await ensureStreamGroups();
       await registerMaintenanceSchedulers();
+      void healCredentialAccountsBestEffort();
     }
 
     if (!messageSearchWorkerRole.only) {
@@ -433,6 +443,9 @@ if (import.meta.main) {
               }
               case "badge-sweep": {
                 return processBadgeSweep(logger);
+              }
+              case "heal-credential-accounts": {
+                return healCredentialAccounts(logger);
               }
               case "trending-scores": {
                 const startedAtMs = Date.now();

@@ -1,5 +1,5 @@
 import { config, withStreamConfig } from "@asm/next";
-import type { NextConfig } from "next";
+import type { NextConfig } from "@asm/next";
 
 const nextConfig: NextConfig = withStreamConfig({
   ...config,

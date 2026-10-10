@@ -17,6 +17,31 @@ export const APPLE_PANEL_TOKENS = {
   },
 } as const;
 
+// `.panel-3d`: floating surfaces share the same hairline and inset lip.
+export function panel3d(isDark: boolean) {
+  return isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
+}
+
+// `.vote-btn-up` / `.vote-btn-down` 3D dual-border shadows, light + dark.
+// Resting vote buttons are bare (web's idle state); the gradient + ring only
+// applies while the vote is active.
+export const VOTE_UP_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(170, 60, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+export const VOTE_UP_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+export const VOTE_DOWN_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1.5px 2px rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(70, 40, 170, 0.45), 0 1px 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.1)";
+export const VOTE_DOWN_SHADOWS_DARK =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+// Web's bookmark-button active `shadow-[...]`: same dual-border construction as
+// the vote buttons, tuned to the amber fill. One recipe for both themes, as on
+// web (no separate light/dark variant there).
+export const BOOKMARK_ACTIVE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(150, 90, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
+
+export const BOOKMARK_GRADIENT = ["#fbbf24", "#d97706"] as const;
+
 // `.premium-input` (+ :focus) light + dark.
 export function premiumInput(isDark: boolean, focused: boolean) {
   if (isDark) {
@@ -44,10 +69,24 @@ export const ORANGE_BUTTON_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
 export const ORANGE_GRADIENT = ["#ff9500", "#e65500"] as const;
 export const ORANGE_PRESSED_GRADIENT = ["#e65500", "#d44a00"] as const;
+// `.btn-3d:disabled`: web desaturates a gated pill instead of fading it, so the
+// action stays legible rather than dropping to a low-opacity wash.
+export const ORANGE_DISABLED_GRADIENT = ["#ffc480", "#ffab66"] as const;
 export const PURPLE_GRADIENT = ["#7c5cff", "#5a3ae0"] as const;
 export const DARK_CHIP_GRADIENT = ["#3a3f4a", "#23262e"] as const;
 export const DARK_CHIP_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.35)";
+
+// Web's AiGeneratedBadge: the violet dual-border chip. Its outer ring is violet,
+// so it must not borrow the orange primary's ring (ACCENT_CHIP_SHADOWS).
+export const AI_BADGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
+
+// Web's media-viewer ALT badge: zinc (from-zinc-500 to-zinc-700), not the slate
+// DARK_CHIP_GRADIENT chrome chip, and it carries its own stronger ring.
+export const ALT_BADGE_GRADIENT = ["#71717a", "#3f3f46"] as const;
+export const ALT_BADGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(35, 35, 40, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.25)";
 
 // `.orange-3d-surface` (mode toggle active segment) light + dark.
 export function orangeSurfaceShadows(isDark: boolean): string {

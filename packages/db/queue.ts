@@ -633,6 +633,15 @@ export async function registerMaintenanceSchedulers(): Promise<void> {
   await queue.upsertJobScheduler("badge-sweep", {
     every: 5 * 60 * 1000,
   });
+  // Converges historical credential-account shapes onto the canonical
+  // (providerId="credential", accountId=userId) row sign-in actually reads.
+  // Legacy writers stored the credential row keyed by email, so a password
+  // reset could land on a row sign-in never saw - reset returned 200 but login
+  // still 401'd. Idempotent (no-op once canonical), so the interval is just a
+  // safety net that also heals rows created by older deployments.
+  await queue.upsertJobScheduler("heal-credential-accounts", {
+    every: 60 * 60 * 1000,
+  });
 }
 
 export function createBullConnection() {

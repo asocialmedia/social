@@ -15,9 +15,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { createConversation } from "@/features/messages/lib/client";
 import { useProfile, useProfileFeed } from "@/features/profile";
 import { PROD_API_URL } from "@/lib/api-base";
+import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -58,6 +61,10 @@ export function ProfileScreen() {
     useProfile(username);
   const [tab, setTab] = useState<ProfileViewTab>("posts");
   const [editing, setEditing] = useState(false);
+  // Set while the conversation is being created, so a second tap cannot open a
+  // duplicate thread. The server is idempotent per pair, but two pushes would
+  // still stack two identical screens.
+  const [startingChat, setStartingChat] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -210,6 +217,44 @@ export function ProfileScreen() {
       });
     }
   };
+  // Opening a thread from a profile. Web resolves this through its
+  // `messages:new-conversation` custom event into the conversation list; a phone
+  // has no single pane to switch, so it creates the conversation and pushes the
+  // thread route directly. The key wrap is NOT done here: the thread screen runs
+  // `ensureConversationKeys` on mount, which is what guarantees a wrapped key
+  // exists for both members before the first send, and doing it here as well
+  // would be a second implementation that could disagree about the epoch.
+  const handleMessage = async () => {
+    if (!user) {
+      router.push("/(auth)/login");
+      return;
+    }
+    if (!profile || startingChat) {
+      return;
+    }
+    setStartingChat(true);
+    // The guard is released on both the success and the failure path rather than
+    // in a `finally`: the React Compiler cannot lower a `finally`, which makes it
+    // silently skip optimizing the whole screen.
+    try {
+      const cookie = (await authClient.getCookie()) ?? undefined;
+      const { conversation } = await createConversation(profile.id, {
+        apiBase: getApiBaseUrl(),
+        baseFetch: fetch,
+        cookie,
+      });
+      router.push(`/messages/${conversation.id}`);
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't start chat",
+        title: "Can't message",
+        variant: "destructive",
+      });
+    }
+    setStartingChat(false);
+  };
+
   const handleFollow = async () => {
     if (!user) {
       router.push("/(auth)/login");
@@ -300,19 +345,7 @@ export function ProfileScreen() {
           void handleFollow();
         }}
         onMessage={() => {
-          if (!user) {
-            router.push("/(auth)/login");
-            return;
-          }
-          // Honest about the shape of the gap rather than promising a release.
-          // Dens are the same story: they are a web feature today, so "coming
-          // soon" on the Message button has to mean "not in this app" and not
-          // "the server is thinking about it".
-          toast({
-            description:
-              "Messages and dens aren't in this app yet. Open asocialmedia.cc to chat.",
-            title: "Not in this app yet",
-          });
+          void handleMessage();
         }}
         onShare={() => {
           void shareProfile();

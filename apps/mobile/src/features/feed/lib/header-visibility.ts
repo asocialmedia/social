@@ -8,42 +8,67 @@
 // needs no measuring.
 export const HEADER_BAR_HEIGHT = 56;
 let hidden = false;
-let lastOffset = 0;
+// Track the furthest offset in the current direction, so reversing anywhere
+// in a long feed reveals the controls after the same small upward travel.
+let baseline = 0;
 const listeners = new Set<(isHidden: boolean) => void>();
 
-const HIDE_SLIP = 4;
-const HIDE_AFTER = 64;
+// Hysteresis: hiding takes a deliberate push down, showing takes a
+// deliberate pull up. The old 4px slip flipped on touch jitter and momentum
+// bounce, so a tad up/down around the threshold flickered both bars.
+const HIDE_SLIP = 12;
+const SHOW_SLIP = 12;
+const HIDE_AFTER = 100;
 
-function notify(next: boolean): void {
+export function setHeaderHidden(next: boolean): void {
+  if (hidden === next) {
+    return;
+  }
   hidden = next;
   for (const listener of listeners) {
     listener(next);
   }
 }
 
-export function reportFeedScroll(offsetY: number): void {
-  const previous = lastOffset;
-  lastOffset = offsetY;
+export interface HeaderScrollState {
+  baseline: number;
+  hidden: boolean;
+}
+
+// Shared by the UI-thread feed handler and other screens' JS scroll handlers.
+export function advanceHeaderScroll(
+  state: HeaderScrollState,
+  offsetY: number
+): void {
+  "worklet";
   if (offsetY <= 0) {
-    if (hidden) {
-      notify(false);
+    state.baseline = 0;
+    state.hidden = false;
+  } else if (state.hidden) {
+    state.baseline = Math.max(state.baseline, offsetY);
+    if (state.baseline - offsetY > SHOW_SLIP) {
+      state.baseline = offsetY;
+      state.hidden = false;
     }
-    return;
-  }
-  if (!hidden && offsetY - previous > HIDE_SLIP && offsetY > HIDE_AFTER) {
-    notify(true);
-    return;
-  }
-  if (hidden && previous - offsetY > HIDE_SLIP) {
-    notify(false);
+  } else {
+    state.baseline = Math.min(state.baseline, offsetY);
+    if (offsetY - state.baseline > HIDE_SLIP && offsetY > HIDE_AFTER) {
+      state.baseline = offsetY;
+      state.hidden = true;
+    }
   }
 }
 
-export function resetHeaderScroll(): void {
-  lastOffset = 0;
-  if (hidden) {
-    notify(false);
-  }
+export function reportFeedScroll(offsetY: number): void {
+  const next = { baseline, hidden };
+  advanceHeaderScroll(next, offsetY);
+  ({ baseline } = next);
+  setHeaderHidden(next.hidden);
+}
+
+export function resetHeaderScroll(offsetY = 0): void {
+  baseline = Math.max(0, offsetY);
+  setHeaderHidden(false);
 }
 
 export function subscribeHeaderVisibility(

@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -83,6 +84,9 @@ export function BookmarksScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const viewerId = user?.id ?? null;
+
+  const insets = useSafeAreaInsets();
+  const [dockHeight, setDockHeight] = useState(56);
 
   // Every request is numbered, and the view it was issued for is remembered.
   // A response may only land if it is still the newest request *and* the tab
@@ -206,7 +210,12 @@ export function BookmarksScreen() {
         </View>
       ) : null}
       {error ? (
-        <View style={styles.state}>
+        <View
+          style={[
+            styles.state,
+            { paddingBottom: dockHeight + insets.bottom + 12 },
+          ]}
+        >
           <Text style={[styles.stateTitle, { color: theme.inputText }]}>
             {error}
           </Text>
@@ -220,7 +229,12 @@ export function BookmarksScreen() {
           </Pressable>
         </View>
       ) : !loading && data.length === 0 ? (
-        <View style={styles.state}>
+        <View
+          style={[
+            styles.state,
+            { paddingBottom: dockHeight + insets.bottom + 12 },
+          ]}
+        >
           {tab === "gusts" ? (
             <Clapperboard color={theme.dividerText} size={34} />
           ) : tab === "hackernews" ? (
@@ -240,7 +254,10 @@ export function BookmarksScreen() {
       ) : loading ? null : (
         <FlatList<FeedPost | HnStory>
           {...LIST_VIRTUALIZATION_PROPS}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            { paddingBottom: dockHeight + insets.bottom + 12 },
+          ]}
           data={data}
           keyExtractor={(item) =>
             isHnStory(item) ? `hn-${item.id}` : `post-${item.id}`
@@ -271,7 +288,7 @@ export function BookmarksScreen() {
           showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         />
       )}
-      <MobileBottomNav />
+      <MobileBottomNav onHeightChange={setDockHeight} />
     </View>
   );
 }
