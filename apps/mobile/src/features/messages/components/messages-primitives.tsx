@@ -9,6 +9,7 @@ import type { ComponentType } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
+import noMediaImage from "@/assets/images/nomedia.png";
 import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import type { BubbleCorners } from "@/features/messages/lib/message-bubble-shape";
 import {
@@ -341,7 +342,7 @@ function MessageImageContent({
   style: object;
   contentFit: "cover" | "contain";
 }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   const [displayed, setDisplayed] = useState(false);
   const [failed, setFailed] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -366,6 +367,8 @@ function MessageImageContent({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Retry image"
+          accessibilityHint="Image unavailable. Tap to retry loading it."
+          testID="message-image-unavailable"
           onPress={() => {
             setFailed(false);
             setDisplayed(false);
@@ -373,22 +376,22 @@ function MessageImageContent({
           }}
           style={[
             StyleSheet.absoluteFill,
-            {
-              alignItems: "center",
-              backgroundColor: theme.containerBg,
-              justifyContent: "center",
-              padding: 12,
-            },
+            styles.imageUnavailable,
+            { backgroundColor: isDark ? "#242424" : "#e6e8eb" },
           ]}
         >
+          <Image
+            contentFit="contain"
+            source={noMediaImage}
+            style={styles.imageUnavailableArt}
+          />
           <Text
-            style={{
-              color: theme.dividerText,
-              fontFamily: "SofiaProReg",
-              fontSize: 12,
-            }}
+            style={[styles.imageUnavailableText, { color: theme.inputText }]}
           >
-            Image unavailable. Tap to retry.
+            Image unavailable
+          </Text>
+          <Text style={[styles.imageRetryText, { color: theme.dividerText }]}>
+            Tap to retry
           </Text>
         </Pressable>
       ) : null}
@@ -467,6 +470,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 9999,
     justifyContent: "center",
+  },
+  imageRetryText: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  imageUnavailable: {
+    alignItems: "center",
+    gap: 4,
+    justifyContent: "center",
+    padding: 12,
+  },
+  imageUnavailableArt: {
+    aspectRatio: 1.5,
+    flexShrink: 1,
+    maxHeight: "55%",
+    maxWidth: 120,
+    width: "65%",
+  },
+  imageUnavailableText: {
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+    textAlign: "center",
   },
   presence: {
     borderColor: "#00000055",
