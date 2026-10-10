@@ -100,6 +100,12 @@ export function MessageComposer({
 }) {
   const { isDark, theme } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const fieldRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (replyTo?.id) {
+      fieldRef.current?.focus();
+    }
+  }, [replyTo?.id]);
   const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
   const [gifOpen, setGifOpen] = useState(false);
   useEffect(() => {
@@ -296,7 +302,7 @@ export function MessageComposer({
         styles.root,
         {
           borderTopColor: theme.dividerLine,
-          paddingBottom: 12 + (keyboardVisible ? 0 : insets.bottom),
+          paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom),
         },
       ]}
     >
@@ -336,6 +342,7 @@ export function MessageComposer({
         ]}
       >
         <TextInput
+          ref={fieldRef}
           accessibilityLabel="Message"
           editable={!disabled}
           multiline
@@ -795,18 +802,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 8,
-    minHeight: 56,
+    minHeight: 48,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 5,
   },
   fieldInput: {
     flex: 1,
     fontFamily: "SofiaProReg",
     fontSize: 14,
     maxHeight: 128,
-    minHeight: 40,
+    minHeight: 32,
     paddingHorizontal: 0,
-    paddingVertical: 6,
+    paddingVertical: 4,
     textAlignVertical: "center",
   },
   inputRow: {
@@ -831,7 +838,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     paddingBottom: 12,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 10,
   },
   send: {
     alignItems: "center",

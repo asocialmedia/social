@@ -20,7 +20,17 @@
 // wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
 // is retried once silently instead of surfaced as an error.
 
-import { ArrowLeft, Search, ShieldCheck, Users, X } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
+import {
+  ArrowLeft,
+  Copy,
+  ListChecks,
+  Reply,
+  Search,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react-native";
 import {
   useCallback,
   useEffect,
@@ -31,6 +41,7 @@ import {
 } from "react";
 import {
   Alert,
+  BackHandler,
   Dimensions,
   FlatList,
   useWindowDimensions,
@@ -41,6 +52,8 @@ import {
   View,
   Pressable,
 } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Animated, { createAnimatedComponent } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -88,6 +101,7 @@ import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
@@ -102,7 +116,9 @@ import { MessagePeoplePanel } from "./message-people-panel";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
+import { SelectableMessageRow } from "./selectable-message-row";
 import { TypingDots } from "./typing-dots";
+import { useTranscriptGestures } from "./use-transcript-gestures";
 
 // The widest a bubble may be. On web this is a percentage of the transcript; here
 // it is a point value the screen passes in, because a phone's width is the thing
@@ -110,6 +126,10 @@ import { TypingDots } from "./typing-dots";
 
 // A row that is no longer in the loaded window (a stale index during a trim)
 // renders as a self-contained group rather than throwing.
+const AnimatedTranscriptList = createAnimatedComponent(
+  FlatList<TranscriptItem>
+);
+
 const SELF_GROUP = {
   isFirstInGroup: true,
   isLastInGroup: true,
@@ -597,17 +617,93 @@ export function MessageThreadScreen({
     transcript.loadOlder();
   }, [transcript]);
 
-  const threadListRef = useRef<FlatList<TranscriptItem>>(null);
-  const scrollToSearchIndex = useCallback((index: number) => {
-    threadListRef.current?.scrollToIndex({
-      animated: false,
-      index,
-      viewPosition: 0.5,
+  const handleReply = useCallback(
+    (id: string) => {
+      const message = transcriptStore
+        .getSnapshot(conversationId)
+        .messages.find((row) => row.id === id);
+      const payload = messageDecryptor.get(id);
+      if (!message || message.deletedAt || !isPayload(payload)) {
+        return;
+      }
+      setEditing(null);
+      setReplyTo({
+        id,
+        senderId: message.senderId,
+        text: messageSummary(payload),
+      });
+      haptic();
+    },
+    [conversationId]
+  );
+  const onLiveEndChange = useCallback(
+    (atLatest: boolean) => {
+      if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
+        scheduleRead();
+      }
+      atLiveEnd.current = atLatest;
+    },
+    [foreground, scheduleRead, searchOpen]
+  );
+  const {
+    CellRenderer,
+    clearSelection,
+    gesture,
+    listRef: threadListRef,
+    handleViewportLayout,
+    nativeScroll,
+    handleContentSizeChange,
+    handleScroll,
+    handleSelectAll,
+    selectedIds,
+    swipeId,
+    swipeX,
+    toggleSelected,
+    viewportRef: transcriptViewportRef,
+  } = useTranscriptGestures({
+    messages,
+    onLiveEndChange,
+    onReply: handleReply,
+  });
+  const selectionActive = selectedIds.size > 0;
+  useEffect(() => {
+    if (!selectionActive) {
+      return;
+    }
+    const listener = BackHandler.addEventListener("hardwareBackPress", () => {
+      clearSelection();
+      return true;
     });
-  }, []);
-  const scrollToSearchOffset = useCallback((offset: number) => {
-    threadListRef.current?.scrollToOffset({ animated: false, offset });
-  }, []);
+    return () => listener.remove();
+  }, [clearSelection, selectionActive]);
+  const copySelected = useCallback(() => {
+    const text = messages
+      .filter((message) => selectedIds.has(message.id) && !message.deletedAt)
+      .map((message) => messageDecryptor.get(message.id))
+      .filter(isPayload)
+      .map(messageSummary)
+      .join("\n");
+    if (text) {
+      void Clipboard.setStringAsync(text);
+      haptic();
+    }
+  }, [messages, selectedIds]);
+  const scrollToSearchIndex = useCallback(
+    (index: number) => {
+      threadListRef.current?.scrollToIndex({
+        animated: false,
+        index,
+        viewPosition: 0.5,
+      });
+    },
+    [threadListRef]
+  );
+  const scrollToSearchOffset = useCallback(
+    (offset: number) => {
+      threadListRef.current?.scrollToOffset({ animated: false, offset });
+    },
+    [threadListRef]
+  );
   const search = useMessageSearch({
     decrypted,
     foreground,
@@ -647,28 +743,60 @@ export function MessageThreadScreen({
       const { message } = item;
       const mine = message.senderId === userId;
       const entry = decrypted.get(message.id);
+      const replyId = isPayload(entry) ? entry.replyToId : undefined;
+      const quoted = replyId ? decrypted.get(replyId) : undefined;
+      const quotedMessage = replyId
+        ? messages.find((row) => row.id === replyId)
+        : undefined;
+      let quoteText = "Message";
+      if (quotedMessage?.deletedAt) {
+        quoteText = "Message deleted";
+      } else if (isPayload(quoted)) {
+        quoteText = messageSummary(quoted);
+      }
       const receipt = getMessageReceipt({
         createdAt: message.createdAt,
         mine,
         watermarks: transcript.snapshot.peerWatermarks,
       });
       return (
-        <MessageBubble
-          searchJump={search.activeId === message.id ? search.jump : 0}
-          deleted={Boolean(message.deletedAt)}
-          edited={Boolean(message.editedAt)}
-          failed={entry === "error"}
-          group={groupMetaFor(message.id)}
-          maxBubbleWidth={width - 32}
-          mine={mine}
-          onPressImage={(index) => openViewer(message, entry, index)}
-          onRetry={() => retryRow(message)}
-          payload={isPayload(entry) ? entry : null}
-          peerAvatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
-          receipt={receipt}
-          showReceipt={groupMetaFor(message.id).isLastInGroup}
-          theme={chatTheme}
-        />
+        <SelectableMessageRow
+          id={message.id}
+          selected={selectedIds.has(message.id)}
+          selectionActive={selectionActive}
+          onToggle={toggleSelected}
+          swipeId={swipeId}
+          swipeX={swipeX}
+        >
+          <MessageBubble
+            searchJump={search.activeId === message.id ? search.jump : 0}
+            deleted={Boolean(message.deletedAt)}
+            edited={Boolean(message.editedAt)}
+            failed={entry === "error"}
+            group={groupMetaFor(message.id)}
+            maxBubbleWidth={width - 32}
+            mine={mine}
+            onPressImage={(index) =>
+              selectionActive
+                ? toggleSelected(message.id)
+                : openViewer(message, entry, index)
+            }
+            onRetry={() => retryRow(message)}
+            payload={isPayload(entry) ? entry : null}
+            peerAvatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+            receipt={receipt}
+            replyPreview={
+              replyId
+                ? {
+                    senderId: quotedMessage?.senderId ?? "",
+                    text: quoteText,
+                  }
+                : null
+            }
+            showReceipt={groupMetaFor(message.id).isLastInGroup}
+            theme={chatTheme}
+          />
+        </SelectableMessageRow>
       );
     },
     [
@@ -685,6 +813,12 @@ export function MessageThreadScreen({
       theme.dividerText,
       transcript.snapshot.peerWatermarks,
       userId,
+      selectedIds,
+      selectionActive,
+      toggleSelected,
+      swipeId,
+      swipeX,
+      messages,
     ]
   );
 
@@ -712,22 +846,68 @@ export function MessageThreadScreen({
         },
       ]}
     >
-      <ThreadHeader
-        avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
-        displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
-        fingerprint={fingerprint}
-        onBack={onBack}
-        onSearch={() => {
-          if (searchOpen) {
-            search.handleClose();
-          } else {
-            setSearchOpen(true);
-          }
-        }}
-        onFriends={() => setFriendsOpen((open) => !open)}
-        username={cachedPeer?.peerUsername ?? null}
-        typing={transcript.snapshot.peerTyping}
-      />
+      {selectionActive ? (
+        <View style={[styles.header, { borderBottomColor: theme.dividerLine }]}>
+          <MessagesIconButton
+            icon={X}
+            label="Cancel selection"
+            onPress={clearSelection}
+            size={32}
+          />
+          <Text
+            style={[
+              styles.headerName,
+              styles.selectionCount,
+              { color: theme.dividerText },
+            ]}
+          >
+            {selectedIds.size} selected
+          </Text>
+          {selectedIds.size === 1 ? (
+            <MessagesIconButton
+              icon={Reply}
+              label="Reply to selected message"
+              onPress={() => {
+                const [id] = selectedIds;
+                clearSelection();
+                if (id) {
+                  handleReply(id);
+                }
+              }}
+              size={32}
+            />
+          ) : null}
+          <MessagesIconButton
+            icon={Copy}
+            label="Copy selected messages"
+            onPress={copySelected}
+            size={32}
+          />
+          <MessagesIconButton
+            icon={ListChecks}
+            label="Select all loaded messages"
+            onPress={handleSelectAll}
+            size={32}
+          />
+        </View>
+      ) : (
+        <ThreadHeader
+          avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+          displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
+          fingerprint={fingerprint}
+          onBack={onBack}
+          onSearch={() => {
+            if (searchOpen) {
+              search.handleClose();
+            } else {
+              setSearchOpen(true);
+            }
+          }}
+          onFriends={() => setFriendsOpen((open) => !open)}
+          username={cachedPeer?.peerUsername ?? null}
+          typing={transcript.snapshot.peerTyping}
+        />
+      )}
       {friendsOpen ? (
         <MessagePeoplePanel
           mode="online"
@@ -777,34 +957,41 @@ export function MessageThreadScreen({
           </Text>
         </Pressable>
       ) : null}
-      <View style={{ flex: 1 }}>
+      <View
+        ref={transcriptViewportRef}
+        onLayout={handleViewportLayout}
+        style={{ flex: 1 }}
+      >
         {transcript.snapshot.loading && messages.length === 0 ? (
           <ThreadSkeleton />
         ) : (
-          <FlatList
-            contentContainerStyle={styles.listContent}
-            ref={threadListRef}
-            data={items}
-            onScrollToIndexFailed={search.handleScrollToIndexFailed}
-            style={{ flex: 1 }}
-            inverted
-            scrollEventThrottle={128}
-            onScroll={(event) => {
-              const atLatest = event.nativeEvent.contentOffset.y <= 60;
-              if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
-                scheduleRead();
-              }
-              atLiveEnd.current = atLatest;
-            }}
-            keyboardDismissMode="interactive"
-            keyExtractor={(row) => row.key}
-            // Inversion turns "keep loading as the reader scrolls back" into the same
-            // endReached the list already knows about, with no scroll-position maths.
-            onEndReached={searchOpen ? undefined : handleLoadOlder}
-            onEndReachedThreshold={0.5}
-            renderItem={renderItem}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          />
+          <GestureDetector gesture={gesture}>
+            <Animated.View style={{ flex: 1 }}>
+              <GestureDetector gesture={nativeScroll}>
+                <AnimatedTranscriptList
+                  contentContainerStyle={styles.listContent}
+                  ref={threadListRef}
+                  data={items}
+                  onScrollToIndexFailed={search.handleScrollToIndexFailed}
+                  style={{ flex: 1 }}
+                  inverted
+                  CellRendererComponent={CellRenderer}
+                  extraData={selectedIds}
+                  onContentSizeChange={handleContentSizeChange}
+                  scrollEventThrottle={16}
+                  onScroll={handleScroll}
+                  keyboardDismissMode="interactive"
+                  keyExtractor={(row) => row.key}
+                  // Inversion turns "keep loading as the reader scrolls back" into the same
+                  // endReached the list already knows about, with no scroll-position maths.
+                  onEndReached={searchOpen ? undefined : handleLoadOlder}
+                  onEndReachedThreshold={0.5}
+                  renderItem={renderItem}
+                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                />
+              </GestureDetector>
+            </Animated.View>
+          </GestureDetector>
         )}
         {searchOpen && search.listView ? (
           <MessageSearchResults
@@ -848,6 +1035,16 @@ export function MessageThreadScreen({
 
 function isPayload(entry: DecryptEntry | undefined): entry is MessagePayload {
   return typeof entry === "object" && entry !== null;
+}
+
+function messageSummary(payload: MessagePayload): string {
+  if (payload.content?.trim()) {
+    return payload.content;
+  }
+  if (payload.type === "media") {
+    return payload.kind === "gif" ? "GIF" : "Photo";
+  }
+  return "Shared a post";
 }
 
 // Reads decrypted rows and re-renders when the decryptor flushes, so a bubble
@@ -1042,6 +1239,9 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   root: {
+    flex: 1,
+  },
+  selectionCount: {
     flex: 1,
   },
   skeleton: {
