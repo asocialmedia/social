@@ -9,7 +9,10 @@ import {
 import { buildAnchoredMessageWindow } from "@/lib/messages/anchored-window";
 import type { MessageData } from "@/lib/messages/types";
 
-import { conversationHistoryOptions } from "./use-conversation-history";
+import {
+  conversationHistoryOptions,
+  evictInactiveConversationHistories,
+} from "./use-conversation-history";
 
 const originalFetch = globalThis.fetch;
 const clients: QueryClient[] = [];
@@ -94,6 +97,38 @@ describe("conversation history controller integration", () => {
       unsubscribe();
       observer.destroy();
     }
+  });
+
+  test("releases inactive conversation windows across repeated switches", async () => {
+    const queryClient = client();
+    globalThis.fetch = (() =>
+      Response.json({
+        messages: [row(1)],
+        nextCursor: null,
+        previousCursor: null,
+      })) as typeof fetch;
+
+    for (let index = 0; index < 100; index += 1) {
+      evictInactiveConversationHistories(queryClient, `conversation-${index}`);
+      const options = conversationHistoryOptions(`conversation-${index}`);
+      const observer = new InfiniteQueryObserver(queryClient, options);
+      const unsubscribe = observer.subscribe(() => {});
+      // oxlint-disable-next-line no-await-in-loop -- each switch must release before testing the next inactive cache
+      await observer.refetch();
+      expect(queryClient.getQueryData(options.queryKey)).toBeDefined();
+      unsubscribe();
+      observer.destroy();
+      // oxlint-disable-next-line no-await-in-loop -- gcTime zero uses the query client's scheduled cleanup
+      await Bun.sleep(0);
+      expect(
+        queryClient.getQueryCache().findAll({ queryKey: ["messages"] })
+      ).toHaveLength(1);
+    }
+
+    evictInactiveConversationHistories(queryClient, "no-active-conversation");
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ["messages"] })
+    ).toHaveLength(0);
   });
 
   test("refetches the selected around-message window rather than replacing it with the tail", async () => {
