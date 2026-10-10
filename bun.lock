@@ -27,7 +27,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.1.96",
+      "version": "1.1.97",
       "dependencies": {
         "@asm/notifications": "workspace:*",
         "@trpc/server": "^11.18.0",
@@ -165,7 +165,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.4",
+      "version": "1.7.5",
       "dependencies": {
         "react-cropper": "^2.3.3",
         "@asm/next": "workspace:*",
@@ -261,7 +261,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.1.95",
+      "version": "1.1.96",
       "dependencies": {
         "@asm/db": "workspace:*",
         "react": "19.2.8",
@@ -356,7 +356,7 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "dependencies": {
         "@asm/media": "workspace:*"
       }

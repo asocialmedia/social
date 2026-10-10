@@ -190,6 +190,21 @@ describe("POST /api/messages/conversations/:id/search", () => {
     expect(mockGetConversation).not.toHaveBeenCalled();
   });
 
+  test("returns a retryable unavailable state when server search is disabled", async () => {
+    process.env.MESSAGE_SEARCH_SERVER_ENABLED = "0";
+
+    const response = await POST(request({ query: "needle" }), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toEqual({
+      code: "MESSAGE_SEARCH_UNAVAILABLE",
+      error: "Search is temporarily unavailable. Please try again.",
+    });
+    expect(mockGetConversation).not.toHaveBeenCalled();
+    expect(mockSearchCandidates).not.toHaveBeenCalled();
+  });
+
   test("checks current conversation access before searching", async () => {
     mockGetConversation.mockReturnValueOnce(null);
     const response = await POST(request({ query: "needle" }), context);
