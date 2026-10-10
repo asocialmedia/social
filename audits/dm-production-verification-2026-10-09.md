@@ -1,5 +1,7 @@
 # DM history and search: independent completion review
 
+This is the historical baseline review. Its findings were addressed and re-verified on 2026-10-10; see the [current production verification](./dm-production-verification-2026-10-10.md) for the updated verdict and remaining release gates.
+
 Review date: 2026-10-09. Repository: `/home/haze/repos/social`. Reviewed commit: `08365b06` on `feat/messages-wallpaper-prisma8`, including the existing working tree.
 
 ## Verdict
