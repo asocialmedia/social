@@ -21,6 +21,13 @@ const mockCreate = mock((args: Record<string, unknown>) => {
   return message;
 });
 const mockFindMany = mock(() => []);
+const cursorTime = new Date("2026-10-10T00:00:00.000Z");
+const mockCursor = mock(
+  (id: string): { id: string; createdAt: Date } | null => ({
+    createdAt: cursorTime,
+    id,
+  })
+);
 const mockMessageFirst = mock(() => mockMessages.at(-1) ?? null);
 const mockIncrement = mock(() => 1);
 const mockPublishCreated = mock(() => Promise.resolve());
@@ -104,21 +111,23 @@ function buildMessageQuery() {
       return mockFindMany();
     },
     cursor: () => query,
-    first: () => mockMessageFirst(),
+    first: () => {
+      const id = (state.where.id as { eq?: string } | undefined)?.eq;
+      return id && id !== "msg-1" ? mockCursor(id) : mockMessageFirst();
+    },
     limit: (n: number) => {
       state.limit = n;
       return query;
     },
-    orderBy: (predicate: (accessor: unknown) => unknown) => {
-      const built = predicate(recordingAccessor());
-      if (typeof built === "string") {
-        const [column, direction] = built.split(":");
-        state.orderBy = { [column ?? ""]: direction ?? "asc" };
-      } else if (Array.isArray(built)) {
-        state.orderBy = Object.fromEntries(
-          built.filter((entry) => typeof entry === "string")
-        );
-      }
+    orderBy: (
+      predicate:
+        | ((accessor: unknown) => unknown)
+        | ((accessor: unknown) => unknown)[]
+    ) => {
+      const predicates = Array.isArray(predicate) ? predicate : [predicate];
+      state.orderBy = Object.fromEntries(
+        predicates.map((part) => String(part(recordingAccessor())).split(":"))
+      );
       return query;
     },
     where: applyWhere,
@@ -181,7 +190,7 @@ mock.module("@asm/db", () => ({
   consumeRateLimit: mockConsumeRateLimit,
   fromPrismaDateTime: (value: Date) => value,
   getMessageDataQuery: buildMessageQuery,
-  or: (...conditions: unknown[]) => conditions,
+  or: (...conditions: unknown[]) => ({ $or: conditions }),
   prisma: {
     orm: {
       public: {
@@ -391,6 +400,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
 
 describe("GET /api/messages/conversations/:id/messages", () => {
   beforeEach(() => {
+    mockCursor.mockImplementation((id) => ({ createdAt: cursorTime, id }));
     mockFindMany.mockClear();
     recordedQueries = [];
     recorded = { where: {} };
@@ -449,7 +459,7 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     expect(mockFindMany).toHaveBeenCalledTimes(1);
   });
 
-  test("passes the cursor through as an id.lt filter", async () => {
+  test("seeks with a timestamp and ID rather than the random UUID alone", async () => {
     mockFindMany.mockReturnValueOnce([{ id: "m-010" }]);
     const req = new Request(convoUrl("messages?cursor=m-020"), {
       method: "GET",
@@ -555,10 +565,16 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // Odd page: 4 older + 3 newer, each with one probe row.
     expect(olderQuery?.limit).toBe(5);
     expect(newerQuery?.limit).toBe(4);
-    expect(olderQuery?.orderBy?.id).toBe("desc");
-    expect(newerQuery?.orderBy?.id).toBe("asc");
-    expect(olderQuery?.where.id).toEqual({ lte: "m-1" });
-    expect(newerQuery?.where.id).toEqual({ gt: "m-1" });
+    expect(olderQuery?.orderBy).toEqual({ createdAt: "desc", id: "desc" });
+    expect(newerQuery?.orderBy).toEqual({ createdAt: "asc", id: "asc" });
+    expect(olderQuery?.where.$or).toEqual([
+      { createdAt: { lt: cursorTime } },
+      { createdAt: { eq: cursorTime }, id: { lte: "m-1" } },
+    ]);
+    expect(newerQuery?.where.$or).toEqual([
+      { createdAt: { gt: cursorTime } },
+      { createdAt: { eq: cursorTime }, id: { gt: "m-1" } },
+    ]);
   });
 
   test("anchored read excludes messages hidden for the caller", async () => {
@@ -597,7 +613,11 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // auto-loader can keep paging down.
     expect(body.previousCursor).toBe("m-31");
     expect(recorded.orderBy?.id).toBe("asc");
-    expect(recorded.where.id).toEqual({ gt: "m-30" });
+    expect(recorded.orderBy?.createdAt).toBe("asc");
+    expect(recorded.where.$or).toEqual([
+      { createdAt: { gt: cursorTime } },
+      { createdAt: { eq: cursorTime }, id: { gt: "m-30" } },
+    ]);
   });
 
   test("newer paging reports no next cursor on the last page", async () => {
@@ -732,4 +752,12 @@ describe("history request budgets", () => {
     expect(res.status).toBe(401);
     expect(mockConsumeRateLimit).not.toHaveBeenCalled();
   });
+});
+
+test("missing cursor is rejected instead of returning an unrelated UUID window", async () => {
+  mockCursor.mockImplementationOnce(() => null);
+  const response = await GET(new Request(convoUrl("messages?cursor=missing")), {
+    params: Promise.resolve({ id: "convo-1" }),
+  });
+  expect(response.status).toBe(404);
 });

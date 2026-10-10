@@ -21,6 +21,7 @@ import type { SseStatus } from "@/lib/sse-stream";
 
 export const MESSAGES_INITIAL_RETRY_MS = 1000;
 export const MESSAGES_MAX_RETRY_MS = 30_000;
+export const MESSAGES_STREAM_IDLE_MS = 45_000;
 
 export interface MessageStreamEvent {
   conversationId: string;
@@ -189,6 +190,7 @@ export async function readMessageStream({
   let stopped = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let retryDelay = MESSAGES_INITIAL_RETRY_MS;
   let currentStatus: SseStatus | null = null;
   let connectedOnce = false;
@@ -207,6 +209,9 @@ export async function readMessageStream({
     }
     stopped = true;
     controller?.abort();
+    if (idleTimer !== null) {
+      clearTimeoutFn(idleTimer);
+    }
     if (retryTimer !== null) {
       clearTimeoutFn(retryTimer);
     }
@@ -219,10 +224,24 @@ export async function readMessageStream({
     }
     updateStatus("connecting");
     controller = new AbortController();
+    const connection = controller;
+    const watchConnection = () => {
+      if (idleTimer !== null) {
+        clearTimeoutFn(idleTimer);
+      }
+      idleTimer = setTimeoutFn(
+        () => connection.abort(),
+        MESSAGES_STREAM_IDLE_MS
+      );
+    };
+    watchConnection();
     const onAbort = () => controller?.abort();
     signal?.addEventListener("abort", onAbort);
     try {
-      const headers = withAuthHeaders({ accept: "text/event-stream" }, cookie);
+      const headers = withAuthHeaders(
+        { accept: "text/event-stream", "x-asm-client": "mobile" },
+        cookie
+      );
       const response = await baseFetch(url, {
         headers,
         signal: controller.signal,
@@ -241,8 +260,6 @@ export async function readMessageStream({
       if (!response.ok || !response.body) {
         throw new Error(`Message stream returned ${response.status}`);
       }
-      updateStatus("live");
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -252,7 +269,11 @@ export async function readMessageStream({
         if (done) {
           break;
         }
+        watchConnection();
         buffer += decoder.decode(value, { stream: true });
+        if (buffer.length > 262_144) {
+          throw new Error("Message stream frame is too large");
+        }
         const drained = drainSseFrames(buffer);
         buffer = drained.rest;
         for (const frame of drained.frames) {
@@ -260,6 +281,7 @@ export async function readMessageStream({
           // only it -- resets the backoff.
           if (frame.event === "connected") {
             retryDelay = MESSAGES_INITIAL_RETRY_MS;
+            updateStatus("live");
             onConnect?.(connectedOnce);
             connectedOnce = true;
             continue;
@@ -279,12 +301,17 @@ export async function readMessageStream({
       }
       updateStatus("reconnecting");
     } finally {
+      if (idleTimer !== null) {
+        clearTimeoutFn(idleTimer);
+        idleTimer = null;
+      }
       signal?.removeEventListener("abort", onAbort);
     }
 
     if (stopped) {
       return;
     }
+    updateStatus("reconnecting");
     const delay = retryDelay;
     retryDelay = Math.min(retryDelay * 2, MESSAGES_MAX_RETRY_MS);
     retryTimer = setTimeoutFn(() => {
@@ -313,13 +340,20 @@ export async function readMessageActivityStream(options: {
   cookie?: string | null;
   baseFetch?: MessageStreamFetch;
   onActivity: (event: MessageActivityEvent) => void;
+  onConnect?: (isReconnect: boolean) => void;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
   onStatusChange?: (status: SseStatus) => void;
   onUnauthorized?: () => void;
   signal?: AbortSignal;
 }): Promise<void> {
+  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+  const clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
+  let connectedOnce = false;
   let stopped = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let retryDelay = MESSAGES_INITIAL_RETRY_MS;
   let currentStatus: SseStatus | null = null;
 
@@ -337,8 +371,11 @@ export async function readMessageActivityStream(options: {
     }
     stopped = true;
     controller?.abort();
+    if (idleTimer !== null) {
+      clearTimeoutFn(idleTimer);
+    }
     if (retryTimer !== null) {
-      clearTimeout(retryTimer);
+      clearTimeoutFn(retryTimer);
     }
     updateStatus("closed");
   };
@@ -349,11 +386,22 @@ export async function readMessageActivityStream(options: {
     }
     updateStatus("connecting");
     controller = new AbortController();
+    const connection = controller;
+    const watchConnection = () => {
+      if (idleTimer !== null) {
+        clearTimeoutFn(idleTimer);
+      }
+      idleTimer = setTimeoutFn(
+        () => connection.abort(),
+        MESSAGES_STREAM_IDLE_MS
+      );
+    };
+    watchConnection();
     const onAbort = () => controller?.abort();
     options.signal?.addEventListener("abort", onAbort);
     try {
       const headers = withAuthHeaders(
-        { accept: "text/event-stream" },
+        { accept: "text/event-stream", "x-asm-client": "mobile" },
         options.cookie
       );
       const response = await (options.baseFetch ?? fetch)(options.url, {
@@ -374,8 +422,6 @@ export async function readMessageActivityStream(options: {
       if (!response.ok || !response.body) {
         throw new Error(`Activity stream returned ${response.status}`);
       }
-      retryDelay = MESSAGES_INITIAL_RETRY_MS;
-      updateStatus("live");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -385,10 +431,21 @@ export async function readMessageActivityStream(options: {
         if (done) {
           break;
         }
+        watchConnection();
         buffer += decoder.decode(value, { stream: true });
+        if (buffer.length > 262_144) {
+          throw new Error("Activity stream frame is too large");
+        }
         const drained = drainSseFrames(buffer);
         buffer = drained.rest;
         for (const frame of drained.frames) {
+          if (frame.event === "connected") {
+            retryDelay = MESSAGES_INITIAL_RETRY_MS;
+            updateStatus("live");
+            options.onConnect?.(connectedOnce);
+            connectedOnce = true;
+            continue;
+          }
           if (frame.event !== "message-activity") {
             continue;
           }
@@ -404,15 +461,20 @@ export async function readMessageActivityStream(options: {
       }
       updateStatus("reconnecting");
     } finally {
+      if (idleTimer !== null) {
+        clearTimeoutFn(idleTimer);
+        idleTimer = null;
+      }
       options.signal?.removeEventListener("abort", onAbort);
     }
 
     if (stopped) {
       return;
     }
+    updateStatus("reconnecting");
     const delay = retryDelay;
     retryDelay = Math.min(retryDelay * 2, MESSAGES_MAX_RETRY_MS);
-    retryTimer = setTimeout(() => {
+    retryTimer = setTimeoutFn(() => {
       void connect();
     }, delay);
   };

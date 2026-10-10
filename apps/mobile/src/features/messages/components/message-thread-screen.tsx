@@ -62,7 +62,6 @@ import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import {
-  MessagesApiError,
   ackMessageDelivered,
   ensureConversationKeys,
   fetchConversationDetail,
@@ -97,6 +96,7 @@ import {
   unreadBoundaryId,
 } from "@/features/messages/state/transcript-store";
 import { unreadMessageStore } from "@/features/messages/state/unread-message-store";
+import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
@@ -201,11 +201,14 @@ export function MessageThreadScreen({
   } = useMessagesIdentity();
   const userId = user?.id ?? null;
   const transcript = useTranscript(conversationId);
+  const presence = useMessagePresence();
 
   const [peer, setPeer] = useState<{
     avatarUrl: string | null;
     displayName: string;
     publicKey: string | null;
+    id: string | null;
+    username: string | null;
   } | null>(null);
   const [themeKey, setThemeKey] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
@@ -269,7 +272,9 @@ export function MessageThreadScreen({
           avatarUrl: peerMember?.user.avatarUrl ?? null,
           displayName:
             peerMember?.user.displayName || peerMember?.user.username || "Chat",
+          id: peerMember?.userId ?? null,
           publicKey: peerMember?.user.messageIdentity?.publicKey ?? null,
+          username: peerMember?.user.username ?? null,
         });
         setThemeKey(mine?.themeKey ?? null);
         setKeySignature(
@@ -424,7 +429,7 @@ export function MessageThreadScreen({
   const send = useCallback(
     async (payload: MessagePayload) => {
       if (!privateKey || !userId) {
-        return;
+        throw new Error("Message keys aren’t ready yet. Please retry shortly.");
       }
       const options = await apiOptions();
       const keys = await getBaseKeys(conversationId);
@@ -440,53 +445,37 @@ export function MessageThreadScreen({
       }
       // The newest epoch is where new messages belong, and the ratchet index counts
       // what this sender has already sent in it.
-      const baseIndex = transcriptStore
-        .getSnapshot(conversationId)
-        .messages.filter((row) => row.senderId === userId).length;
-
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          // oxlint-disable-next-line no-await-in-loop -- an ordered retry against the server's own index; the second attempt must not run unless the first 409'd
-          const sent = await sendEncryptedMessage(
-            conversationId,
-            rootKey,
-            userId,
-            baseIndex + attempt,
-            payload,
-            options
-          );
-          transcriptStore.appendMessage(conversationId, sent);
-          return;
-        } catch (error) {
-          if (
-            error instanceof MessagesApiError &&
-            error.status === 409 &&
-            typeof error.expectedIndex === "number"
-          ) {
-            logWarn("ratchet index retry", { step: "send" });
-            continue;
-          }
-          throw error;
+      let baseIndex = 0;
+      for (const row of transcriptStore.getSnapshot(conversationId).messages) {
+        if (row.senderId === userId) {
+          baseIndex = Math.max(baseIndex, row.ratchetIndex + 1);
         }
       }
+      const sent = await sendEncryptedMessage(
+        conversationId,
+        rootKey,
+        userId,
+        baseIndex,
+        payload,
+        options
+      );
+      transcriptStore.appendMessage(conversationId, sent);
     },
     [apiOptions, conversationId, getBaseKeys, privateKey, userId]
   );
 
   const handleSend = useCallback(
     async (payload: MessagePayload) => {
-      // runWithInstallToken resolves null when the user dismisses the Turnstile
-      // gate, so its result is not the send's result: the draft stays in the
-      // composer either way, and a real failure has already been logged in `send`.
-      await runWithInstallToken(
+      const acknowledged = await runWithInstallToken(
         async () => {
           await send(payload);
           return true;
         },
-        // The send reports nothing for a stale install token, so the answer is
-        // whatever the inner call returned: true means it landed.
         () => false
       );
+      if (!acknowledged) {
+        throw new Error("Message wasn’t sent. Your draft has been kept.");
+      }
     },
     [runWithInstallToken, send]
   );
@@ -904,7 +893,12 @@ export function MessageThreadScreen({
             }
           }}
           onFriends={() => setFriendsOpen((open) => !open)}
-          username={cachedPeer?.peerUsername ?? null}
+          username={peer?.username ?? cachedPeer?.peerUsername ?? null}
+          presence={
+            presence.find(
+              (entry) => entry.id === (peer?.id ?? cachedPeer?.peerId)
+            )?.status ?? null
+          }
           typing={transcript.snapshot.peerTyping}
         />
       )}
@@ -1093,6 +1087,7 @@ function ThreadHeader({
   onFriends,
   username,
   typing,
+  presence,
 }: {
   avatarUrl: string | null;
   displayName: string;
@@ -1102,8 +1097,16 @@ function ThreadHeader({
   onFriends: () => void;
   username: string | null;
   typing: boolean;
+  presence: "online" | "idle" | null;
 }) {
   const { isDark, theme } = useAppTheme();
+  let statusText = username ? `@${username}` : "";
+  if (presence === "online") {
+    statusText = "Online";
+  }
+  if (presence === "idle") {
+    statusText = "Idle";
+  }
   return (
     <View
       style={[
@@ -1120,7 +1123,25 @@ function ThreadHeader({
         onPress={onBack}
         size={32}
       />
-      <UserAvatar size={32} url={avatarUrl} />
+      <View>
+        <UserAvatar size={32} url={avatarUrl} />
+        {presence ? (
+          <View
+            accessibilityLabel={presence === "online" ? "Online" : "Idle"}
+            style={{
+              backgroundColor: presence === "online" ? "#22c55e" : "#f59e0b",
+              borderColor: theme.containerBg,
+              borderRadius: 5,
+              borderWidth: 2,
+              bottom: -1,
+              height: 10,
+              position: "absolute",
+              right: -1,
+              width: 10,
+            }}
+          />
+        ) : null}
+      </View>
       <View style={styles.headerIdentity}>
         <Text
           numberOfLines={1}
@@ -1137,7 +1158,7 @@ function ThreadHeader({
             numberOfLines={1}
             style={[styles.headerSub, { color: theme.dividerText }]}
           >
-            {username ? `@${username}` : ""}
+            {statusText}
           </Text>
         )}
       </View>

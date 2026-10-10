@@ -3,7 +3,7 @@
 // like a list of inline style arrays.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { BellOff, Check, CheckCheck, Clock } from "lucide-react-native";
+import { BellOff, Check, CheckCheck } from "lucide-react-native";
 import { useState } from "react";
 import type { ComponentType } from "react";
 import {
@@ -180,23 +180,15 @@ export function StatusChip({
   );
 }
 
-// "Sent" is a clock, "Delivered" one tick, "Read" two: the same progression a
-// person expects from every other messenger. Returned as elements rather than
-// component references, because selecting a component during render would make it
-// a fresh component type each pass.
+// A row exists only after server acknowledgement: one tick for sent, two for delivery/read.
 function receiptGlyph(label: MessageReceipt, color: string) {
-  if (label === "read") {
-    return <CheckCheck color={color} size={12} />;
-  }
-  if (label === "delivered") {
-    return <Check color={color} size={12} />;
-  }
-  return <Clock color={color} size={12} />;
+  return label === "sent" ? (
+    <Check color={color} size={12} />
+  ) : (
+    <CheckCheck color={color} size={12} />
+  );
 }
 
-// The receipt line under an own message. "Sent" is a clock, "Delivered" one tick,
-// "Read" two -- the same progression a person expects from every other messenger,
-// and the timestamp the watermark carries, not the message's own clock.
 export function ReceiptLine({
   label,
   at,

@@ -50,6 +50,7 @@ import {
   reelsInput,
   sendButton,
 } from "@/features/messages/lib/message-recipes";
+import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -130,6 +131,8 @@ export function MessageComposer({
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const typingSent = useRef(false);
+  const lastTypedAt = useRef(0);
+  const foreground = useMessagesForeground();
   const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const aborts = useRef(new Map<string, AbortController>());
   const [discardBase, setDiscardBase] = useState<{
@@ -196,17 +199,27 @@ export function MessageComposer({
   }, []);
 
   useEffect(() => stopTyping, [stopTyping]);
+  useEffect(() => {
+    if (!foreground) {
+      stopTyping();
+    }
+  }, [foreground, stopTyping]);
 
   const noteTyping = useCallback(() => {
+    lastTypedAt.current = Date.now();
     if (typingSent.current) {
       return;
     }
     typingSent.current = true;
     onTyping();
     typingTimer.current = setInterval(() => {
+      if (Date.now() - lastTypedAt.current > 4000) {
+        stopTyping();
+        return;
+      }
       onTyping();
     }, TYPING_HEARTBEAT_MS);
-  }, [onTyping]);
+  }, [onTyping, stopTyping]);
 
   const update = useCallback((id: string, patch: Partial<StagedAttachment>) => {
     setAttachments((current) =>

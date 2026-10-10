@@ -27,18 +27,17 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { changedMessageIds } from "@/features/messages/lib/changed-message-ids";
 import {
+  ackMessageDelivered,
   fetchConversationDetail,
   fetchConversationList,
   fetchMessages,
 } from "@/features/messages/lib/client";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
+import { DeliveryAcknowledger } from "@/features/messages/lib/delivery-acknowledger";
 import { peerWatermarks } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
-import {
-  readMessageStream,
-  shouldCatchUp,
-} from "@/features/messages/lib/realtime";
+import { readMessageStream } from "@/features/messages/lib/realtime";
 import type { MessageStreamEvent } from "@/features/messages/lib/realtime";
 import type { MessageData } from "@/features/messages/lib/types";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
@@ -214,7 +213,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
   const [nonce, setNonce] = useState(0);
   const [reload, setReload] = useState(0);
   const newestFetching = useRef(false);
-  const newestUpdatedAt = useRef(0);
+  const catchUpPending = useRef(false);
   const newestRetries = useRef(0);
   const loadedRequest = useRef("");
 
@@ -291,6 +290,16 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     newestFetching.current = true;
     transcriptStore.setSnapshotLoading(conversationId, true);
+    const finishNewestRequest = () => {
+      if (cancelled) {
+        return;
+      }
+      newestFetching.current = false;
+      if (catchUpPending.current) {
+        catchUpPending.current = false;
+        setNonce((value) => value + 1);
+      }
+    };
     const fetchNewestPage = async () => {
       try {
         await hydrateMessageCache(apiBase, userId, identityKey);
@@ -303,7 +312,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           (loadedRequest.current === "" || loadedRequest.current === request) &&
           Date.now() - currentUpdatedAt < 30_000
         ) {
-          newestFetching.current = false;
+          finishNewestRequest();
           return;
         }
         loadedRequest.current = request;
@@ -323,7 +332,6 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           messageDecryptor.invalidate(id);
         }
         transcriptStore.setPages(conversationId, page);
-        newestUpdatedAt.current = Date.now();
         // Seed the read/delivered watermarks from the detail call, so a receipt
         // drawn before the first stream event is still correct.
         const detail = await fetchConversationDetail(conversationId, {
@@ -362,9 +370,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           }, delay);
         }
       }
-      if (!cancelled) {
-        newestFetching.current = false;
-      }
+      finishNewestRequest();
     };
     void fetchNewestPage();
     return () => {
@@ -388,15 +394,44 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     userId,
   ]);
 
+  // Receipt of ciphertext is independent of whether the reader is at the live end.
+  useEffect(() => {
+    if (!userId || !cookie || !foreground) {
+      return;
+    }
+    const delivery = new DeliveryAcknowledger((id, messageId) =>
+      ackMessageDelivered(id, messageId, { apiBase, cookie })
+    );
+    const acknowledgeNewest = () => {
+      const { messages } = transcriptStore.getSnapshot(conversationId);
+      let newest: MessageData | undefined;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message?.senderId !== userId) {
+          newest = message;
+          break;
+        }
+      }
+      if (newest) {
+        void delivery.receive(conversationId, newest, userId);
+      }
+    };
+    const unsubscribe = transcriptStore.subscribe(acknowledgeNewest);
+    acknowledgeNewest();
+    return unsubscribe;
+  }, [apiBase, conversationId, cookie, foreground, userId]);
+
   // The per-conversation stream.
   useEffect(() => {
     if (!userId || !cookie || !foreground || !identityKey) {
       return;
     }
     const controller = new AbortController();
-    let lastUpdatedAt = 0;
 
     const handleEvent = (event: MessageStreamEvent) => {
+      if (event.conversationId !== conversationId) {
+        return;
+      }
       switch (event.kind) {
         case "message.created": {
           const message = event.message as MessageData | undefined;
@@ -442,12 +477,18 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           return;
         }
         case "conversation.read": {
+          if (event.userId === userId) {
+            return;
+          }
           transcriptStore.advancePeerWatermark(conversationId, {
             readAt: event.readAt ?? null,
           });
           return;
         }
         case "conversation.delivered": {
+          if (event.userId === userId) {
+            return;
+          }
           transcriptStore.advancePeerWatermark(conversationId, {
             deliveredAt: event.deliveredAt ?? null,
           });
@@ -483,26 +524,16 @@ export function useTranscript(conversationId: string): TranscriptBinding {
       await readMessageStream({
         baseFetch: streamingFetch,
         cookie,
-        onConnect: (isReconnect) => {
-          // A reconnect may have missed anything at all: the stream has no replay
-          // cursor. The initial connect only reconciles a cold or stale cache.
-          if (
-            shouldCatchUp({
-              dataUpdatedAt: Math.max(
-                lastUpdatedAt,
-                newestUpdatedAt.current,
-                transcriptStore.getUpdatedAt(conversationId)
-              ),
-              isFetching: newestFetching.current,
-              isReconnect,
-              now: Date.now(),
-            })
-          ) {
+        onConnect: () => {
+          // Subscribe before catch-up so a fresh cache cannot hide an arrival during background/blur.
+          // An older in-flight read must settle before this post-subscription read begins.
+          if (newestFetching.current) {
+            catchUpPending.current = true;
+          } else {
             setNonce((value) => value + 1);
           }
         },
         onEvent: (event) => {
-          lastUpdatedAt = Date.now();
           handleEvent(event);
         },
         onUnauthorized: () => {

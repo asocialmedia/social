@@ -418,6 +418,42 @@ export async function sendEncryptedMessage(
   payload: MessagePayload,
   options: ApiCallOptions
 ): Promise<MessageData> {
+  let index = ratchetIndex;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- a conflict must be re-encrypted at the authoritative index before retrying
+      return await sendEncryptedMessageAtIndex(
+        conversationId,
+        rootKey,
+        senderId,
+        index,
+        payload,
+        options
+      );
+    } catch (error) {
+      if (
+        attempt >= 2 ||
+        !(error instanceof MessagesApiError) ||
+        error.status !== 409 ||
+        !Number.isSafeInteger(error.expectedIndex) ||
+        error.expectedIndex === undefined ||
+        error.expectedIndex < 0
+      ) {
+        throw error;
+      }
+      index = error.expectedIndex;
+    }
+  }
+}
+
+async function sendEncryptedMessageAtIndex(
+  conversationId: string,
+  rootKey: Uint8Array,
+  senderId: string,
+  ratchetIndex: number,
+  payload: MessagePayload,
+  options: ApiCallOptions
+): Promise<MessageData> {
   const encrypted = await encryptMessage(
     rootKey,
     senderId,
@@ -437,6 +473,11 @@ export async function sendEncryptedMessage(
       method: "POST",
     }
   );
+  if (!body.message?.id) {
+    throw new Error(
+      "The server did not acknowledge this message. Please retry."
+    );
+  }
   return body.message;
 }
 
@@ -561,17 +602,11 @@ export async function heartbeatPresence(
 export async function fetchUnreadMessageCount(
   options: ApiCallOptions
 ): Promise<number> {
-  try {
-    const json = await request<{ unreadCount: number }>(
-      "/api/messages/unread-count",
-      options
-    );
-    return json.unreadCount;
-  } catch {
-    // A dropped badge poll must never surface as an error state on a screen
-    // whose whole job is reading messages.
-    return 0;
-  }
+  const json = await request<{ unreadCount: number }>(
+    "/api/messages/unread-count",
+    options
+  );
+  return json.unreadCount;
 }
 
 // ---- cache reducers -----------------------------------------------------------

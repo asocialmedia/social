@@ -186,6 +186,7 @@ export function useTranscriptGestures({
       .blocksExternalGesture(nativeScroll)
       // oxlint-disable-next-line react/refs -- registers a worklet for native events; its captured refs are only read after a touch
       .onStart((event) => {
+        "worklet";
         const bounds = viewport.get();
         const id = messageAtPoint(
           frames.get(),
@@ -203,10 +204,12 @@ export function useTranscriptGestures({
         }
       })
       .onUpdate((event) => {
+        "worklet";
         fingerY.set(event.absoluteY);
       })
       // oxlint-disable-next-line react/refs -- registers touch cleanup; no captured ref is read while creating the recognizer
       .onFinalize(() => {
+        "worklet";
         dragging.set(false);
         scheduleOnRN(finishSelection);
       });
@@ -218,6 +221,7 @@ export function useTranscriptGestures({
       .blocksExternalGesture(nativeScroll)
       // oxlint-disable-next-line react/refs -- registers a worklet for native events; its captured refs are only read after a touch
       .onStart((event) => {
+        "worklet";
         if (selectionMode.get()) {
           return;
         }
@@ -236,17 +240,20 @@ export function useTranscriptGestures({
         swipeId.set(id ?? "");
       })
       .onUpdate((event) => {
+        "worklet";
         if (swipeId.get()) {
           swipeX.set(replyOffset(event.translationX));
         }
       })
       .onEnd((event) => {
+        "worklet";
         const id = swipeId.get();
         if (id && shouldReply(event.translationX, event.velocityX)) {
           scheduleOnRN(onReply, id);
         }
       })
       .onFinalize(() => {
+        "worklet";
         if (reduceMotion) {
           swipeX.set(0);
           swipeId.set("");
@@ -347,11 +354,12 @@ function MessageCell({
   useEffect(
     () => () => {
       if (id) {
-        frames.set((previous) =>
-          Object.fromEntries(
+        frames.modify((previous) => {
+          "worklet";
+          return Object.fromEntries(
             Object.entries(previous).filter(([key]) => key !== id)
-          )
-        );
+          );
+        });
       }
     },
     [frames, id]
@@ -363,7 +371,10 @@ function MessageCell({
         onLayout?.(event);
         if (id) {
           const { y, height } = event.nativeEvent.layout;
-          frames.set((previous) => ({ ...previous, [id]: { height, y } }));
+          frames.modify((previous) => {
+            "worklet";
+            return { ...previous, [id]: { height, y } };
+          });
         }
       }}
     >

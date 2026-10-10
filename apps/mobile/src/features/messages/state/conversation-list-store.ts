@@ -329,7 +329,12 @@ export function startPresenceHeartbeat(options: {
       void beat(options);
     }, 30_000);
   }
+  let stopped = false;
   return () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
     presenceRefs -= 1;
     if (presenceRefs > 0 || !presenceTimer) {
       return;
