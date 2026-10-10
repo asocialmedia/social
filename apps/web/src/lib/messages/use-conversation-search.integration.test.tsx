@@ -134,11 +134,16 @@ async function settle(predicate: () => boolean) {
 function searchResponse(
   page: number,
   query = "needle",
-  countToken: string | null = null
+  countToken: string | null = null,
+  coverageComplete = true
 ): Response {
   return Response.json({
     countToken,
-    coverage: { complete: true, paused: false, settled: true },
+    coverage: {
+      complete: coverageComplete,
+      paused: false,
+      settled: true,
+    },
     hits: Array.from({ length: 20 }, (_, index) => ({
       createdAt: new Date(
         1_700_000_000_000 - (page * 20 + index) * 1000
@@ -268,6 +273,39 @@ afterEach(async () => {
 });
 
 describe("conversation search hook cutover", () => {
+  test("paginates readable matches when settled coverage is partial", async () => {
+    fetchHandler = (input, init) => {
+      if (String(input).endsWith("/search/count")) {
+        return Response.json({ state: "pending" });
+      }
+      const body = JSON.parse(String(init?.body)) as {
+        cursor?: string;
+        query: string;
+      };
+      const page = body.cursor?.startsWith("older-")
+        ? Number(body.cursor.slice(6)) + 1
+        : 0;
+      return searchResponse(page, body.query, null, false);
+    };
+
+    await render();
+    await act(() => {
+      currentSearch().setQuery("needle");
+    });
+    await settle(() => currentSearch().results.length === 20);
+
+    expect(currentSearch().serverCoverageUnavailable).toBe(true);
+    expect(currentSearch().serverHasMore).toBe(true);
+    expect(fetchCalls).toHaveLength(1);
+
+    await render({ listPage: 1 });
+    await settle(() => currentSearch().results[0]?.id === "needle-1-0");
+
+    expect(currentSearch().serverCoverageUnavailable).toBe(true);
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls[1]?.body.cursor).toBe("older-0");
+  });
+
   test("disabled-server pagination reads only the next saved page and reuses adjacent cached pages", async () => {
     offlineSearch.mockResolvedValueOnce(savedSearchPage(0));
     offlineSearch.mockResolvedValueOnce(savedSearchPage(1));

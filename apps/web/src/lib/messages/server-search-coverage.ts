@@ -29,10 +29,9 @@ export function shouldPollServerSearchCoverage(
 }
 
 export function serverSearchHasMore(input: {
-  coverageComplete: boolean;
   nextCursor: string | null;
 }): boolean {
-  return input.coverageComplete && input.nextCursor !== null;
+  return input.nextCursor !== null;
 }
 
 export function isServerSearchScopeChanged(

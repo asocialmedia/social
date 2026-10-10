@@ -49,16 +49,9 @@ describe("server search coverage refresh policy", () => {
     ).toBe(false);
   });
 
-  test("holds pagination until coverage is complete and a cursor exists", () => {
-    expect(
-      serverSearchHasMore({ coverageComplete: false, nextCursor: "cursor" })
-    ).toBe(false);
-    expect(
-      serverSearchHasMore({ coverageComplete: true, nextCursor: null })
-    ).toBe(false);
-    expect(
-      serverSearchHasMore({ coverageComplete: true, nextCursor: "cursor" })
-    ).toBe(true);
+  test("keeps available-result pagination when settled history is incomplete", () => {
+    expect(serverSearchHasMore({ nextCursor: null })).toBe(false);
+    expect(serverSearchHasMore({ nextCursor: "cursor" })).toBe(true);
   });
 
   test("recognizes only explicit scope conflicts and retries once per query", () => {

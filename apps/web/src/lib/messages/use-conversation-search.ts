@@ -971,7 +971,6 @@ export function useConversationSearch(
     !serverCoverageUnavailable &&
     (serverPages.length === 0 || serverSummary?.coverageSettled !== true);
   const serverHasMore = serverSearchHasMore({
-    coverageComplete: lastServerPage?.coverageComplete === true,
     nextCursor: lastServerPage?.nextCursor ?? null,
   });
   const serverExactCount =
