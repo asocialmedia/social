@@ -4,13 +4,13 @@
 
 This handoff records the merge of the DM history/search implementation with the latest `dev` changes, the conflict resolutions, the validation completed, and the work that remains before release.
 
-- PR title requested: `Daddy's Dream`
+- Pull request: [#161 — Daddy's Dream](https://github.com/asocialmedia/social/pull/161)
 - PR target: `dev`
 - Working branch: `codex/daddys-dream`
 - Upstream snapshot merged: `origin/dev` at `afe83979`
 - Feature branch head before the merge: `0710c7c4`
 - The merge commit and generated declaration follow-up are committed; the branch is pushed to `origin/codex/daddys-dream`.
-- The PR has not been created. The GitHub connector returned `403 Resource not accessible by integration`, the local `gh` CLI reports its token is invalid, and the available GitHub browser session is signed out. After GitHub write access is restored, create the PR with title `Daddy's Dream` and base `dev` from [this compare page](https://github.com/asocialmedia/social/compare/dev...codex/daddys-dream?expand=1).
+- The PR was created with the system `gh` CLI after confirming its authenticated `repo` scope. The earlier GitHub connector permission failure did not block creation.
 - The ignored `/context` directory was removed as requested.
 
 This branch carries the accumulated DM history/search work together with the latest `dev` changes, so the PR is broad (hundreds of files) rather than a small isolated patch. Review the combined application changes, mobile changes, dependency graph, and database contract as one integration.
