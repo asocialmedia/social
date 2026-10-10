@@ -31,9 +31,10 @@ import {
 } from "react";
 import {
   Alert,
+  Dimensions,
   FlatList,
   useWindowDimensions,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
@@ -87,6 +88,7 @@ import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -124,6 +126,48 @@ export function MessageThreadScreen({
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const viewportRef = useRef<View>(null);
+  const [viewportBottom, setViewportBottom] = useState(
+    () => Dimensions.get("window").height
+  );
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const restingBottomInset = useRef(insets.bottom);
+  const measureViewport = useCallback(() => {
+    viewportRef.current?.measureInWindow((_x, y, _width, height) => {
+      setViewportBottom(y + height);
+    });
+  }, []);
+  useEffect(() => {
+    if (keyboardTop === null) {
+      restingBottomInset.current = insets.bottom;
+    }
+  }, [insets.bottom, keyboardTop]);
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (event) => {
+      Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardTop(
+        keyboardScreenTop({
+          bottomInset: restingBottomInset.current,
+          height: event.endCoordinates.height,
+          platform: Platform.OS,
+          screenHeight: Dimensions.get("screen").height,
+          screenY: event.endCoordinates.screenY,
+        })
+      );
+    });
+    const hide = Keyboard.addListener(hideEvent, (event) => {
+      Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardTop(null);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const { user } = useSessionContext();
   const { runWithInstallToken } = useInstall();
   const {
@@ -654,13 +698,14 @@ export function MessageThreadScreen({
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top}
+    <View
+      ref={viewportRef}
+      onLayout={measureViewport}
       style={[
         styles.root,
         {
           backgroundColor: theme.containerBg,
+          paddingBottom: keyboardOverlap(viewportBottom, keyboardTop),
           paddingLeft: insets.left,
           paddingRight: insets.right,
           paddingTop: insets.top,
@@ -797,7 +842,7 @@ export function MessageThreadScreen({
           onClose={() => setViewer(null)}
         />
       ) : null}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
