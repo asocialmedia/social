@@ -751,6 +751,7 @@ export function MessageThreadScreen({
       return (
         <SelectableMessageRow
           id={message.id}
+          mine={mine}
           selected={selectedIds.has(message.id)}
           selectionActive={selectionActive}
           onToggle={toggleSelected}

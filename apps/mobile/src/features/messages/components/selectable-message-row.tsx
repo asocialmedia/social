@@ -5,12 +5,17 @@ import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import type { SharedValue } from "react-native-reanimated";
 
+import {
+  iconButton3d,
+  sendButton,
+} from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
 
 export const SelectableMessageRow = memo(
   ({
     children,
     id,
+    mine,
     selected,
     selectionActive,
     onToggle,
@@ -19,6 +24,7 @@ export const SelectableMessageRow = memo(
   }: {
     children: ReactNode;
     id: string;
+    mine: boolean;
     selected: boolean;
     selectionActive: boolean;
     onToggle: (id: string) => void;
@@ -26,7 +32,10 @@ export const SelectableMessageRow = memo(
     swipeX: SharedValue<number>;
   }) => {
     const { isDark } = useAppTheme();
-    const neutralBorder = isDark ? "#666666" : "#aaaaaa";
+    const neutral = iconButton3d(isDark);
+    const accent = sendButton(isDark);
+    const neutralBorder = isDark ? "#ffffff26" : "#0000001f";
+    const selectionSpacing = mine ? styles.ownSelection : styles.peerSelection;
 
     const movement = useAnimatedStyle(() => ({
       transform: [{ translateX: swipeId.get() === id ? swipeX.get() : 0 }],
@@ -48,23 +57,32 @@ export const SelectableMessageRow = memo(
               selectionActive ? { checked: selected } : undefined
             }
             onPress={selectionActive ? () => onToggle(id) : undefined}
+            style={selectionActive ? selectionSpacing : undefined}
           >
             {children}
           </Pressable>
         </Animated.View>
         {selectionActive ? (
-          <View pointerEvents="none" style={styles.tickPosition}>
+          <View
+            pointerEvents="none"
+            testID={mine ? "message-selection-right" : "message-selection-left"}
+            style={[
+              styles.tickPosition,
+              mine ? styles.tickRight : styles.tickLeft,
+            ]}
+          >
             <View
               style={[
                 styles.tick,
                 {
-                  backgroundColor: selected ? "#ff9500" : "transparent",
-                  borderColor: selected ? "#ff9500" : neutralBorder,
+                  backgroundColor: selected ? "#ff9500" : neutral.background,
+                  borderColor: selected ? "#aa3c00" : neutralBorder,
+                  boxShadow: selected ? accent.shadows : neutral.shadows,
                 },
               ]}
             >
               {selected ? (
-                <Check size={12} color="#ffffff" strokeWidth={3} />
+                <Check size={13} color="#ffffff" strokeWidth={3} />
               ) : null}
             </View>
           </View>
@@ -77,15 +95,19 @@ export const SelectableMessageRow = memo(
 SelectableMessageRow.displayName = "SelectableMessageRow";
 
 const styles = StyleSheet.create({
+  ownSelection: { paddingRight: 16 },
+  peerSelection: { paddingLeft: 16 },
   reply: { left: 24, marginTop: -10, position: "absolute", top: "50%" },
   selected: { backgroundColor: "rgba(255,149,0,0.10)" },
   tick: {
     alignItems: "center",
-    borderRadius: 9,
-    borderWidth: 1,
-    height: 18,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 22,
     justifyContent: "center",
-    width: 18,
+    width: 22,
   },
-  tickPosition: { left: 2, marginTop: -9, position: "absolute", top: "50%" },
+  tickLeft: { left: 4 },
+  tickPosition: { marginTop: -11, position: "absolute", top: "50%" },
+  tickRight: { right: 4 },
 });

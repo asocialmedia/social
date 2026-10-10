@@ -4,18 +4,17 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { BellOff, Check, CheckCheck } from "lucide-react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ComponentType } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
+import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import type { BubbleCorners } from "@/features/messages/lib/message-bubble-shape";
-import { messageImageSource } from "@/features/messages/lib/message-image-source";
+import {
+  MESSAGE_IMAGE_CACHE_POLICY,
+  messageImageSource,
+} from "@/features/messages/lib/message-image-source";
 import type { MessageReceipt } from "@/features/messages/lib/message-receipts";
 import { receiptLabel } from "@/features/messages/lib/message-receipts";
 import {
@@ -27,7 +26,6 @@ import {
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
-import { imageCachePolicy } from "@/lib/image-cache";
 import { useAppTheme } from "@/theme";
 
 // The destructive ink, or undefined for a default button.
@@ -308,8 +306,7 @@ export function mediaUrl(path: string): string {
   return `${getApiBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// An image in a message, with the same cache policy the feed uses so a GIF in a
-// transcript does not get evicted like a thumbnail would.
+// Both the album and fullscreen viewer share the same account-scoped disk key.
 export function MessageImage({
   source,
   style,
@@ -320,57 +317,58 @@ export function MessageImage({
   contentFit?: "cover" | "contain";
 }) {
   const { mediaCookie, userId } = useMessagesIdentity();
-  const { theme } = useAppTheme();
-  const request = messageImageSource(
-    source,
-    getApiBaseUrl(),
-    userId,
-    mediaCookie
+  const request = useMemo(
+    () => messageImageSource(source, getApiBaseUrl(), userId, mediaCookie),
+    [source, userId, mediaCookie]
   );
-  const [loadedSource, setLoadedSource] = useState<string | null>(null);
-  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const identity = request.source?.cacheKey ?? request.source?.uri ?? "waiting";
+  return (
+    <MessageImageContent
+      key={identity}
+      contentFit={contentFit}
+      request={request}
+      style={style}
+    />
+  );
+}
+
+function MessageImageContent({
+  request,
+  style,
+  contentFit,
+}: {
+  request: ReturnType<typeof messageImageSource>;
+  style: object;
+  contentFit: "cover" | "contain";
+}) {
+  const { theme } = useAppTheme();
+  const [displayed, setDisplayed] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [revision, setRevision] = useState(0);
   return (
     <View style={[style, { overflow: "hidden" }]}>
+      {!displayed && !failed ? <MessageImageSkeleton /> : null}
       <Image
-        key={`${source}:${revision}`}
-        cachePolicy={request.privateMedia ? "memory" : imageCachePolicy(source)}
+        key={revision}
+        cachePolicy={MESSAGE_IMAGE_CACHE_POLICY}
         contentFit={contentFit}
-        onError={() => setFailedSource(source)}
-        onLoad={() => {
-          setFailedSource(null);
-          setLoadedSource(source);
+        onError={() => setFailed(true)}
+        onDisplay={() => {
+          setFailed(false);
+          setDisplayed(true);
         }}
-        recyclingKey={request.source?.cacheKey ?? source}
+        recyclingKey={request.source?.cacheKey ?? request.source?.uri}
         source={request.source}
         style={StyleSheet.absoluteFill}
-        transition={120}
+        transition={0}
       />
-      {loadedSource !== source && failedSource !== source ? (
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              alignItems: "center",
-              backgroundColor: `${theme.dividerText}20`,
-              justifyContent: "center",
-            },
-          ]}
-        >
-          <ActivityIndicator
-            accessibilityLabel="Loading message image"
-            color={theme.dividerText}
-            size="small"
-          />
-        </View>
-      ) : null}
-      {failedSource === source ? (
+      {failed ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Retry image"
           onPress={() => {
-            setFailedSource(null);
+            setFailed(false);
+            setDisplayed(false);
             setRevision((value) => value + 1);
           }}
           style={[
@@ -394,6 +392,33 @@ export function MessageImage({
           </Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+// The image paints over this fixed-size placeholder, including on an instant cache hit.
+// Only a genuinely pending image keeps a pulse mounted; cached rows have no idle loop.
+function MessageImageSkeleton() {
+  const { isDark } = useAppTheme();
+  const pulse = useSkeletonPulse();
+  const animated = useAnimatedStyle(() => ({ opacity: pulse.get() }));
+  return (
+    <View
+      accessibilityLabel="Loading message image"
+      pointerEvents="none"
+      style={[
+        StyleSheet.absoluteFill,
+        { backgroundColor: isDark ? "#242424" : "#e6e8eb" },
+      ]}
+    >
+      <Animated.View
+        testID="message-image-skeleton"
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: isDark ? "#34373b" : "#f1f2f4" },
+          animated,
+        ]}
+      />
     </View>
   );
 }

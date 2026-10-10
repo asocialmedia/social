@@ -53,3 +53,45 @@ test("private image loading waits for the signed-in account and its credentials"
     ).source
   ).toBeNull();
 });
+
+test("session rotation preserves the disk key while updating authentication", () => {
+  const before = messageImageSource(
+    "/api/media/image-id",
+    origin,
+    "alice",
+    "session_token=old"
+  );
+  const after = messageImageSource(
+    "/api/media/image-id",
+    origin,
+    "alice",
+    "session_token=new"
+  );
+  expect(after.source?.cacheKey).toBe(before.source?.cacheKey);
+  expect(after.source?.headers?.authorization).toBe("Bearer new");
+  expect(after.source?.cacheKey).not.toContain("new");
+});
+
+test("album and fullscreen absolute URLs resolve to the same disk entry", () => {
+  const album = messageImageSource(
+    "/api/media/image-id",
+    origin,
+    "alice",
+    "session_token=opaque"
+  );
+  const viewer = messageImageSource(
+    `${origin}/api/media/image-id`,
+    origin,
+    "alice",
+    "session_token=opaque"
+  );
+  expect(viewer.source).toEqual(album.source);
+  expect(
+    messageImageSource(
+      "/api/media/different-id",
+      origin,
+      "alice",
+      "session_token=opaque"
+    ).source?.cacheKey
+  ).not.toBe(album.source?.cacheKey);
+});
