@@ -5,7 +5,7 @@ import type { VoteInfo } from "@asm/db";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
@@ -37,9 +37,10 @@ export function useGustVote({
   postId,
 }: UseGustVoteOptions) {
   const { toast } = useToast();
+  const forcedPending = useRef(false);
   const queryClient = useQueryClient();
   const { isLoggedIn, goToLogin } = useRequireAuth();
-  const queryKey: QueryKey = ["vote-info", postId];
+  const queryKey = useMemo<QueryKey>(() => ["vote-info", postId], [postId]);
   const voteEndpoint = `/api/posts/${postId}/votes`;
 
   const { data } = useQuery({
@@ -116,6 +117,11 @@ export function useGustVote({
       });
       return { previousState };
     },
+    onSettled: (_result, _error, variables) => {
+      if (variables.force) {
+        forcedPending.current = false;
+      }
+    },
     // oxlint-disable-next-line react/no-unstable-nested-components
     onSuccess: (result, variables) => {
       const { serverResponse } = result;
@@ -188,8 +194,17 @@ export function useGustVote({
       goToLogin();
       return;
     }
-    mutate({ force: true, previousVote: data.userVote, vote: 1 });
-  }, [data.userVote, goToLogin, isLoggedIn, mutate]);
+    const current = queryClient.getQueryData<VoteInfo>(queryKey);
+    if (forcedPending.current || current?.userVote === 1) {
+      return;
+    }
+    forcedPending.current = true;
+    mutate({
+      force: true,
+      previousVote: current?.userVote ?? data.userVote,
+      vote: 1,
+    });
+  }, [data.userVote, goToLogin, isLoggedIn, mutate, queryClient, queryKey]);
 
   return {
     amplify,

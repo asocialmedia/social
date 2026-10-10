@@ -917,6 +917,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     paddingBottom: 6,
+    paddingLeft: 16,
     paddingTop: 10,
     position: "relative",
   },

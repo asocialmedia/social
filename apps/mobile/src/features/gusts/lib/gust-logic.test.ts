@@ -79,9 +79,9 @@ describe("reel gestures", () => {
 
   test("bursts fan out and cap at seven", () => {
     expect([0, 1, 2, 3, 4].map(burstRotation)).toEqual([-16, -8, 0, 8, 16]);
-    let bursts = addBurst([], { id: 0, x: 0, y: 0 });
+    let bursts = addBurst([], { durationMs: 1200, id: 0, x: 0, y: 0 });
     for (let id = 1; id < 10; id += 1) {
-      bursts = addBurst(bursts, { id, x: id, y: id });
+      bursts = addBurst(bursts, { durationMs: 1200, id, x: id, y: id });
     }
     expect(bursts).toHaveLength(MAX_BURSTS);
     expect(bursts[0]?.id).toBe(3);

@@ -1,4 +1,30 @@
-export type HapticFeedback = "selection" | "hold" | "success" | "error";
+export type HapticFeedback =
+  | "selection"
+  | "hold"
+  | "success"
+  | "error"
+  | "zoom-reset";
+
+export async function performHapticPattern(
+  feedback: HapticFeedback,
+  pulse: (feedback: Exclude<HapticFeedback, "zoom-reset">) => Promise<void>,
+  pause: (ms: number) => Promise<void> = (ms) =>
+    // oxlint-disable-next-line promise/avoid-new -- React Native has no promise-based timer API
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+  now: () => number = Date.now
+): Promise<void> {
+  await pulse(feedback === "zoom-reset" ? "selection" : feedback);
+  if (feedback === "zoom-reset") {
+    const started = now();
+    await pause(65);
+    // Don't replay the second tick after an app suspension or a blocked runtime.
+    if (now() - started <= 120) {
+      await pulse("selection");
+    }
+  }
+}
 
 // Drop overlapping and delayed pulses instead of replaying a burst after loading.
 export function createHapticController(

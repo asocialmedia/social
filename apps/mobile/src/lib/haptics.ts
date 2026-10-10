@@ -1,6 +1,9 @@
 import type * as Haptics from "expo-haptics";
 
-import { createHapticController } from "./haptic-controller";
+import {
+  createHapticController,
+  performHapticPattern,
+} from "./haptic-controller";
 import type { HapticFeedback } from "./haptic-controller";
 
 export type { HapticFeedback } from "./haptic-controller";
@@ -19,19 +22,21 @@ async function performFeedback(feedback: HapticFeedback): Promise<void> {
   try {
     modules ??= loadModules();
     const { haptics, platform } = await modules;
-    if (platform === "android") {
-      const effects = {
-        error: haptics.AndroidHaptics.Context_Click,
-        hold: haptics.AndroidHaptics.Segment_Frequent_Tick,
-        selection: haptics.AndroidHaptics.Segment_Frequent_Tick,
-        success: haptics.AndroidHaptics.Segment_Frequent_Tick,
-      };
-      await haptics.performAndroidHapticsAsync(effects[feedback]);
-    } else if (feedback === "selection") {
-      await haptics.selectionAsync();
-    } else {
-      await haptics.impactAsync(haptics.ImpactFeedbackStyle.Soft);
-    }
+    await performHapticPattern(feedback, async (tick) => {
+      if (platform === "android") {
+        const effects = {
+          error: haptics.AndroidHaptics.Context_Click,
+          hold: haptics.AndroidHaptics.Segment_Frequent_Tick,
+          selection: haptics.AndroidHaptics.Segment_Frequent_Tick,
+          success: haptics.AndroidHaptics.Segment_Frequent_Tick,
+        };
+        await haptics.performAndroidHapticsAsync(effects[tick]);
+      } else if (tick === "selection") {
+        await haptics.selectionAsync();
+      } else {
+        await haptics.impactAsync(haptics.ImpactFeedbackStyle.Soft);
+      }
+    });
   } catch {
     // Unavailable hardware or disabled feedback must never interrupt an action.
   }

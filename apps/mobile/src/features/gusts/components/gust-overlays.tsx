@@ -2,10 +2,12 @@
 // block: the centered play/pause pulse, the double-tap flame bursts, the
 // orange seek line (tap or drag to scrub), the live caption banner and the
 // full-bleed explicit gate.
+import { auraParticles, nextAuraBurstTiming } from "@asm/ui/lib/aura-burst";
+import type { AuraBurstTiming } from "@asm/ui/lib/aura-burst";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Flame, Pause, Play } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState } from "react";
+import type { Ref } from "react";
 import {
   Animated,
   Easing,
@@ -14,11 +16,21 @@ import {
   Text,
   View,
 } from "react-native";
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  ReduceMotion,
+  interpolate,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { APPLE_PANEL_TOKENS } from "@/components/surface/recipes";
 import { explicitBlurSupported } from "@/features/feed/components/post-media";
+import { haptic } from "@/lib/haptics";
 import {
   LOGIN_BUTTON_PRESSED_SHADOWS,
   LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,
@@ -27,7 +39,7 @@ import {
   useAppTheme,
 } from "@/theme";
 
-import { BURST_DURATION_MS } from "../lib/reel-gestures";
+import { addBurst } from "../lib/reel-gestures";
 import type { FlameBurst } from "../lib/reel-gestures";
 
 // Web: pops in over 0.2s (opacity 0 -> 1, scale 0.5 -> 1), holds, and
@@ -90,110 +102,123 @@ export function PlayPulse({
   );
 }
 
-// Web keyframes over 0.85s easeOut: opacity [0, 1, 1, 0], scale
-// [0.4, 1.1, 0.9], y [0, -90], rotating from (tilt - 4) to the tilt.
-export function FlameBurstView({ burst }: { burst: FlameBurst }) {
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
-  const [progress] = useState(() => new Animated.Value(0));
+function AuraParticle({
+  burst,
+  particle,
+}: {
+  burst: FlameBurst;
+  particle: ReturnType<typeof auraParticles>[number];
+}) {
+  const progress = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
   useEffect(() => {
-    const run = Animated.timing(progress, {
-      duration: BURST_DURATION_MS,
-      easing: Easing.out(Easing.quad),
-      toValue: 1,
-      useNativeDriver: true,
-    });
-    run.start();
-    return () => run.stop();
-  }, [progress]);
+    progress.set(
+      withTiming(1, {
+        duration: burst.durationMs,
+        easing: ReanimatedEasing.linear,
+        reduceMotion: ReduceMotion.Never,
+      })
+    );
+  }, [burst.durationMs, progress]);
+  const animated = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      progress.get(),
+      [0, 0.08, 0.72, 1],
+      [0, particle.opacity, particle.opacity, 0]
+    ),
+    transform: reducedMotion
+      ? []
+      : [
+          { translateX: particle.drift * progress.get() },
+          { translateY: -particle.lift * progress.get() },
+          { rotate: `${particle.rotation * progress.get()}deg` },
+          {
+            scale: interpolate(progress.get(), [0, 0.2, 1], [0.95, 1.18, 0.8]),
+          },
+        ],
+  }));
   return (
-    <Animated.View
+    <Reanimated.View
       pointerEvents="none"
       style={[
         styles.burst,
         {
-          left: burst.x,
-          opacity: progress.interpolate({
-            inputRange: [0, 0.33, 0.66, 1],
-            outputRange: [0, 1, 1, 0],
-          }),
-          top: burst.y,
-          transform: [
-            {
-              translateY: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, -90],
-              }),
-            },
-            {
-              rotate: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [`${burst.rotate - 4}deg`, `${burst.rotate}deg`],
-              }),
-            },
-            {
-              scale: progress.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0.4, 1.1, 0.9],
-              }),
-            },
-          ],
+          height: particle.size,
+          left: burst.x - particle.size / 2,
+          top: burst.y - particle.size / 2,
+          width: particle.size,
         },
+        animated,
       ]}
     >
-      <View style={styles.flameGlow}>
-        <Flame color="#f66b15" fill="#f66b15" size={44} />
-      </View>
-      <Text style={styles.burstText}>+1</Text>
-    </Animated.View>
+      <Flame
+        color={particle.edge}
+        fill={particle.fill}
+        size={particle.size}
+        strokeWidth={1.5}
+      />
+      <Flame
+        color={particle.light}
+        fill={particle.light}
+        size={particle.size * 0.4}
+        strokeWidth={1}
+        style={{ bottom: particle.size * 0.15, position: "absolute" }}
+      />
+    </Reanimated.View>
   );
 }
 
-// The bottom seek line: a 4px white/20 track with the orange fill, and an
-// invisible 16px strip over it that scrubs on tap or drag.
-export function SeekBar({
-  duration,
-  onSeek,
-  progress,
-}: {
-  duration: number;
-  onSeek: (seconds: number) => void;
-  progress: number;
-}) {
-  const [width, setWidth] = useState(0);
-  const seekTo = (x: number) => {
-    if (width <= 0 || duration <= 0) {
-      return;
-    }
-    const ratio = Math.min(1, Math.max(0, x / width));
-    onSeek(ratio * duration);
-  };
-  const percent = Math.min(100, Math.max(0, progress * 100));
-  return (
-    <View style={styles.seekWrap}>
-      <View
-        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-        style={styles.seekTrack}
-      >
-        <LinearGradient
-          colors={["#ff9500", "#e65500"]}
-          end={{ x: 1, y: 0.5 }}
-          start={{ x: 0, y: 0.5 }}
-          style={[styles.seekFill, { width: `${percent}%` }]}
-        />
-      </View>
-      <View
-        accessibilityLabel="Seek video"
-        accessibilityRole="adjustable"
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(event) => seekTo(event.nativeEvent.locationX)}
-        onResponderMove={(event) => seekTo(event.nativeEvent.locationX)}
-        onResponderTerminationRequest={() => false}
-        onStartShouldSetResponder={() => true}
-        style={styles.seekHit}
-      />
-    </View>
-  );
+export interface AuraBurstHandle {
+  spawn: (x: number, y: number) => void;
 }
+
+export function AuraBurstLayer({ ref }: { ref: Ref<AuraBurstHandle> }) {
+  const [bursts, setBursts] = useState<FlameBurst[]>([]);
+  const nextId = useRef(0);
+  const timing = useRef<AuraBurstTiming | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      spawn(x, y) {
+        nextId.current += 1;
+        const id = nextId.current;
+        const next = nextAuraBurstTiming(Date.now(), timing.current);
+        timing.current = next;
+        haptic("selection");
+        setBursts((current) =>
+          addBurst(current, { durationMs: next.durationMs, id, x, y })
+        );
+        if (timer.current) {
+          clearTimeout(timer.current);
+        }
+        timer.current = setTimeout(() => setBursts([]), next.durationMs + 150);
+      },
+    }),
+    []
+  );
+  useEffect(
+    () => () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+      }
+    },
+    []
+  );
+  return bursts.map((burst) => <FlameBurstView burst={burst} key={burst.id} />);
+}
+
+export function FlameBurstView({ burst }: { burst: FlameBurst }) {
+  return auraParticles(burst.id).map((particle, index) => (
+    <AuraParticle
+      burst={burst}
+      key={`${burst.id}-${index}`}
+      particle={particle}
+    />
+  ));
+}
+
+export { SeekBar } from "./gust-seek-bar";
 
 // Web's caption banner, animated in per cue (0.12s from scale 0.96, y 4);
 // the parent keys it by cue so every cue remounts.
@@ -336,16 +361,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     zIndex: 10,
   },
-  burstText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 14,
-    fontWeight: "normal",
-    ...({ textShadow: "0 1px 3px rgba(0, 0, 0, 0.5)" } as Record<
-      string,
-      string
-    >),
-  },
   captionBox: {
     backgroundColor: "rgba(0, 0, 0, 0.85)",
     borderColor: "rgba(255, 255, 255, 0.15)",
@@ -389,19 +404,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
-  },
-  flameGlow: {
-    // drop-shadow-[0_0_18px_rgba(255,149,0,0.9)]; Android 12+ renders it.
-    filter: [
-      {
-        dropShadow: {
-          color: "rgba(255, 149, 0, 0.9)",
-          offsetX: 0,
-          offsetY: 0,
-          standardDeviation: 9,
-        },
-      },
-    ],
   },
   gate: {
     bottom: 0,
@@ -477,31 +479,5 @@ const styles = StyleSheet.create({
     height: 64,
     justifyContent: "center",
     width: 64,
-  },
-  seekFill: {
-    borderRadius: 9999,
-    height: 4,
-  },
-  seekHit: {
-    height: 16,
-    left: 4,
-    position: "absolute",
-    right: 4,
-    top: -6,
-  },
-  seekTrack: {
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderRadius: 9999,
-    height: 4,
-    overflow: "hidden",
-  },
-  seekWrap: {
-    bottom: 0,
-    left: 0,
-    paddingBottom: 4,
-    paddingHorizontal: 4,
-    position: "absolute",
-    right: 0,
-    zIndex: 30,
   },
 });

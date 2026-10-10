@@ -1,3 +1,4 @@
+import { NavigationBar } from "expo-navigation-bar";
 // The Gusts reel: a 1:1 native port of web's /gusts page (client-gusts.tsx)
 // at phone size. A full-screen vertical pager snaps one gust per screen;
 // the gust at least 60% on screen is active and plays, its neighbours mount
@@ -21,10 +22,16 @@ import {
   Subtitles,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ViewToken } from "react-native";
-import { FlatList, StyleSheet, View } from "react-native";
+import type { FlatList, ViewToken } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -186,7 +193,11 @@ export function GustsScreen() {
   const [pageHeight, setPageHeight] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [focused, setFocused] = useState(true);
-  const [pull, setPull] = useState(0);
+  const pull = useSharedValue(0);
+  const scrollOffset = useSharedValue(0);
+  const pullBaseline = useSharedValue<number | null>(null);
+  const refreshing = useSharedValue(false);
+  const eddiePreviewProgress = useSharedValue(0);
   const [eddiesPostId, setEddiesPostId] = useState<string | null>(null);
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const [moreTarget, setMoreTarget] = useState<{
@@ -198,9 +209,6 @@ export function GustsScreen() {
   );
   const [transcriptPostId, setTranscriptPostId] = useState<string | null>(null);
   const listRef = useRef<FlatList<FeedPost>>(null);
-  const scrollOffsetRef = useRef(0);
-  const pullRef = useRef(0);
-  const refreshingRef = useRef(false);
   const refreshRef = useRef<() => void>(() => {
     // Replaced once the feed hook is ready.
   });
@@ -231,11 +239,11 @@ export function GustsScreen() {
   }, [isPending, openComposer, params.create, router, viewerId]);
 
   useEffect(() => {
-    refreshingRef.current = feed.refreshing;
+    refreshing.set(feed.refreshing);
     refreshRef.current = () => {
       void feed.refresh();
     };
-  }, [feed]);
+  }, [feed, refreshing]);
 
   // Keep the active index inside the list when it shrinks (a hide).
   const safeIndex = Math.min(activeIndex, Math.max(0, posts.length - 1));
@@ -421,43 +429,39 @@ export function GustsScreen() {
     }
   };
 
-  // Pull to refresh at the top of the reel, on gesture-handler so the
-  // native pager's scroll never cancels it.
-  // oxlint-disable-next-line react/hook-use-state, react/refs -- single stable gesture pair created once; no setter is ever needed and no ref value is read here
+  const refreshFromPull = useCallback(() => refreshRef.current(), []);
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollOffset.set(event.contentOffset.y);
+  });
+  // The pager and pull feedback never enter React or the JS runtime during a drag.
+  // oxlint-disable-next-line react/hook-use-state, react/refs -- the gesture retains a callback and only invokes its ref on release; only shared values change during recognition
   const [gestures] = useState(() => {
-    let baseline: number | null = null;
-    const reset = () => {
-      baseline = null;
-      pullRef.current = 0;
-      setPull(0);
-    };
     const nativeScroll = Gesture.Native();
     const pan = Gesture.Pan()
-      .runOnJS(true)
       .activeOffsetY(PULL_CAPTURE_SLOP)
       .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
       .simultaneousWithExternalGesture(nativeScroll)
+      .onBegin(() => pullBaseline.set(null))
       .onUpdate((event) => {
-        if (refreshingRef.current || scrollOffsetRef.current > 0) {
-          if (pullRef.current > 0) {
-            reset();
-          }
+        if (refreshing.get() || scrollOffset.get() > 1) {
+          pull.set(0);
           return;
         }
-        if (baseline === null) {
-          baseline = event.translationY;
+        if (pullBaseline.get() === null) {
+          pullBaseline.set(event.translationY);
         }
-        const distance = pullDistance(event.translationY - baseline);
-        if (Math.abs(distance - pullRef.current) > 1) {
-          pullRef.current = distance;
-          setPull(distance);
-        }
+        pull.set(
+          pullDistance(
+            event.translationY - (pullBaseline.get() ?? event.translationY)
+          )
+        );
       })
       .onFinalize(() => {
-        if (!refreshingRef.current && pullTriggers(pullRef.current)) {
-          refreshRef.current();
+        if (!refreshing.get() && pullTriggers(pull.get())) {
+          scheduleOnRN(refreshFromPull);
         }
-        reset();
+        pull.set(withTiming(0, { duration: 150 }));
+        pullBaseline.set(null);
       });
     return { nativeScroll, pan };
   });
@@ -468,6 +472,10 @@ export function GustsScreen() {
         <GustCard
           apiBase={apiBase}
           captionsOn={captionsOn}
+          eddiesOpen={eddiesPostId === item.id}
+          previewProgress={eddiePreviewProgress}
+          pageHeight={pageHeight}
+          pagerGestures={[gestures.nativeScroll, gestures.pan]}
           isActive={index === safeIndex}
           mountVideo={shouldMountVideo(index, safeIndex)}
           onCloseTranscript={() => setTranscriptPostId(null)}
@@ -497,7 +505,10 @@ export function GustsScreen() {
       altVisibleIds,
       apiBase,
       captionsOn,
+      eddiePreviewProgress,
+      eddiesPostId,
       focused,
+      gestures,
       pageHeight,
       safeIndex,
       transcriptPostId,
@@ -551,9 +562,9 @@ export function GustsScreen() {
     body = (
       <GestureDetector gesture={gestures.pan}>
         <GestureDetector gesture={gestures.nativeScroll}>
-          <FlatList
+          <Animated.FlatList
             data={posts}
-            decelerationRate="fast"
+            decelerationRate={0.985}
             disableIntervalMomentum
             getItemLayout={(_, index) => ({
               index,
@@ -577,15 +588,13 @@ export function GustsScreen() {
                 }
               }
             }}
-            onScroll={(event) => {
-              scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
-            }}
+            onScroll={onScroll}
             onViewableItemsChanged={onViewableItemsChanged}
             overScrollMode="never"
-            pagingEnabled
             ref={listRef}
             removeClippedSubviews
             renderItem={renderItem}
+            scrollEnabled={eddiesPostId === null}
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             snapToAlignment="start"
@@ -614,57 +623,63 @@ export function GustsScreen() {
       style={[styles.root, { backgroundColor: onVideo ? "#000000" : panelBg }]}
     >
       <StatusBar style={onVideo || isDark ? "light" : "dark"} />
+      {focused ? <NavigationBar hidden /> : null}
       {body}
 
-      <PullIndicator
-        distance={pull}
-        refreshing={feed.refreshing}
-        top={insets.top + 56}
-      />
-
-      <View
-        pointerEvents="box-none"
-        style={[styles.tabsRow, { top: chromeTop }]}
-      >
-        <GustTabs active={tab} onChange={changeTab} />
-      </View>
-      <RailButton
-        accessibilityLabel="Go back"
-        onPress={goBack}
-        size={40}
-        style={[styles.back, { top: chromeTop }]}
-      >
-        <ChevronLeft color={RAIL_ICON_COLOR} size={20} />
-      </RailButton>
-      {/* Web opens Spotlight search; native has no search screen yet, so
-          the button holds its place disabled, like the dock's stubs. */}
-      <RailButton
-        accessibilityLabel="Search"
-        disabled
-        size={40}
-        style={[styles.search, { top: chromeTop }]}
-      >
-        <Search color={RAIL_ICON_COLOR} size={20} />
-      </RailButton>
-
-      {feed.newItems.length > 0 && !initialId ? (
-        <View
-          pointerEvents="box-none"
-          style={[styles.pillRow, { top: insets.top + 64 }]}
-        >
-          <NewGustsPill
-            apiBase={apiBase}
-            items={feed.newItems}
-            onPress={showNew}
+      {eddiesPostId === null ? (
+        <>
+          <PullIndicator
+            distance={pull}
+            refreshing={feed.refreshing}
+            top={insets.top + 56}
           />
-        </View>
-      ) : null}
 
-      {feed.fetchingNext && safeIndex >= posts.length - 1 ? (
-        <PagingSpinner />
-      ) : null}
+          <View
+            pointerEvents="box-none"
+            style={[styles.tabsRow, { top: chromeTop }]}
+          >
+            <GustTabs active={tab} onChange={changeTab} />
+          </View>
+          <RailButton
+            accessibilityLabel="Go back"
+            onPress={goBack}
+            size={40}
+            style={[styles.back, { top: chromeTop }]}
+          >
+            <ChevronLeft color={RAIL_ICON_COLOR} size={20} />
+          </RailButton>
+          {/* Web opens Spotlight search; native has no search screen yet, so
+          the button holds its place disabled, like the dock's stubs. */}
+          <RailButton
+            accessibilityLabel="Search"
+            disabled
+            size={40}
+            style={[styles.search, { top: chromeTop }]}
+          >
+            <Search color={RAIL_ICON_COLOR} size={20} />
+          </RailButton>
 
+          {feed.newItems.length > 0 && !initialId ? (
+            <View
+              pointerEvents="box-none"
+              style={[styles.pillRow, { top: insets.top + 64 }]}
+            >
+              <NewGustsPill
+                apiBase={apiBase}
+                items={feed.newItems}
+                onPress={showNew}
+              />
+            </View>
+          ) : null}
+
+          {feed.fetchingNext && safeIndex >= posts.length - 1 ? (
+            <PagingSpinner />
+          ) : null}
+        </>
+      ) : null}
       <GustEddiesSheet
+        previewProgress={eddiePreviewProgress}
+        viewportHeight={pageHeight}
         onClose={() => setEddiesPostId(null)}
         postId={eddiesPostId}
         viewerId={viewerId ?? undefined}

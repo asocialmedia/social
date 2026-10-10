@@ -1,10 +1,10 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
+import { isRapidGustTap } from "@asm/ui/lib/aura-burst";
 import { DropdownMenuItem } from "@asm/ui/shadui/dropdown-menu";
 import {
   Eye,
-  Flame,
   MessageSquare,
   Pause,
   Play,
@@ -45,16 +45,21 @@ import ViewTracker from "@/components/posts/effects/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import { getPostAttachments } from "@/lib/posts/post-normalize";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
+import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
+import { AuraBurstLayer } from "./aura-burst-layer";
+import type { AuraBurstHandle } from "./aura-burst-layer";
 import GustVoteButton from "./gust-vote-button";
+import { useGustPinchZoom } from "./use-gust-pinch-zoom";
 import { useGustVote } from "./use-gust-vote";
 
 interface GustCardProps {
   interactive?: boolean;
+  commentsOpen?: boolean;
   isActive: boolean;
   isMuted: boolean;
   onOpenComments: () => void;
@@ -69,6 +74,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   isMuted,
   onToggleMute,
   onOpenComments,
+  commentsOpen = false,
   interactive = true,
   shouldMountVideo = true,
 }) => {
@@ -78,6 +84,7 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
+  const [videoAspectRatio, setVideoAspectRatio] = useState(9 / 16);
   const [currentTime, setCurrentTime] = useState(0);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<
     "play" | "pause" | null
@@ -86,6 +93,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   // Tracks whether the explicit-content gate has been dismissed so the video
   // only starts once the viewer chooses to continue.
   const [explicitRevealed, setExplicitRevealed] = useState(false);
+  const sharedExplicitRevealed = useExplicitRevealed(post.id);
   // True while the clip is stalled waiting for more data (network delay /
   // buffering), so a spinner can float over the video. Not the initial load.
   const [isBuffering, setIsBuffering] = useState(false);
@@ -185,17 +193,59 @@ export const GustCard: React.FC<GustCardProps> = ({
     [setShowTranscript]
   );
 
-  const lastTapRef = useRef<number>(0);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({
+    height: 0,
+    topInset: 0,
+    width: 0,
+  });
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element) {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) {
+        setViewport({
+          height: entry.contentRect.height,
+          topInset:
+            Number(
+              getComputedStyle(element)
+                .getPropertyValue("--gust-safe-top")
+                .replace(/px$/, "")
+            ) || 0,
+          width: entry.contentRect.width,
+        });
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const lastTapRef = useRef<number | null>(null);
+  const auraLayer = useRef<AuraBurstHandle>(null);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
-  // flame that drifts up and fades; ids keep them unique so many can be on
-  // screen at once.
-  const [auraBursts, setAuraBursts] = useState<
-    { id: number; x: number; y: number }[]
-  >([]);
-  const burstIdRef = useRef(0);
-  const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelTapForPinch = useCallback(() => {
+    lastTapRef.current = null;
+    if (singleTapTimerRef.current) {
+      clearTimeout(singleTapTimerRef.current);
+      singleTapTimerRef.current = null;
+    }
+  }, []);
+  const { style: zoomStyle, suppressTapUntil } = useGustPinchZoom({
+    enabled:
+      isActive &&
+      interactive &&
+      !commentsOpen &&
+      !post.moderated &&
+      (!post.explicitContent || explicitRevealed || sharedExplicitRevealed),
+    onPinchStart: cancelTapForPinch,
+    targetRef: frameRef,
+    videoAspectRatio,
+    viewportHeight: viewport.height,
+    viewportWidth: viewport.width,
+  });
   // Tracks the previous active flag so leaving playback resets the progress
   // bar and buffering spinner during render instead of from a cascading effect.
   const [prevIsActive, setPrevIsActive] = useState(isActive);
@@ -240,7 +290,11 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
 
     if (isActive) {
-      if (post.explicitContent && !explicitRevealed) {
+      if (
+        post.explicitContent &&
+        !explicitRevealed &&
+        !sharedExplicitRevealed
+      ) {
         // Keep the clip paused behind the blur until the viewer taps Continue.
         video.pause();
         return;
@@ -267,7 +321,12 @@ export const GustCard: React.FC<GustCardProps> = ({
         // Ignore aborts
       }
     };
-  }, [explicitRevealed, isActive, post.explicitContent]);
+  }, [
+    explicitRevealed,
+    isActive,
+    post.explicitContent,
+    sharedExplicitRevealed,
+  ]);
 
   const wasPlayingBeforeHideRef = useRef(false);
 
@@ -314,9 +373,6 @@ export const GustCard: React.FC<GustCardProps> = ({
       }
       if (singleTapTimerRef.current) {
         clearTimeout(singleTapTimerRef.current);
-      }
-      if (burstTimerRef.current) {
-        clearTimeout(burstTimerRef.current);
       }
       if (iconTimerRef.current) {
         clearTimeout(iconTimerRef.current);
@@ -383,21 +439,6 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
   }, [triggerPlayPauseIcon]);
 
-  const spawnAuraBurst = useCallback((clientX: number, clientY: number) => {
-    const nextId = burstIdRef.current + 1;
-    burstIdRef.current = nextId;
-    setAuraBursts((prev) => [
-      ...prev.slice(-6),
-      { id: nextId, x: clientX, y: clientY },
-    ]);
-    if (burstTimerRef.current) {
-      clearTimeout(burstTimerRef.current);
-    }
-    burstTimerRef.current = setTimeout(() => {
-      setAuraBursts([]);
-    }, 900);
-  }, []);
-
   const handleCardClick = useCallback(
     (e: React.MouseEvent) => {
       // The duplicate feed copy is a pixel mirror for the infinite wrap; it
@@ -411,9 +452,12 @@ export const GustCard: React.FC<GustCardProps> = ({
         return;
       }
       const now = Date.now();
+      if (now < suppressTapUntil.current) {
+        return;
+      }
       const DOUBLE_TAP_DELAY = 280;
 
-      if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      if (isRapidGustTap(now, lastTapRef.current)) {
         // Double tap -> cancel pending single tap togglePlay and amplify
         if (singleTapTimerRef.current) {
           clearTimeout(singleTapTimerRef.current);
@@ -421,8 +465,8 @@ export const GustCard: React.FC<GustCardProps> = ({
         }
         amplify();
         const rect = e.currentTarget.getBoundingClientRect();
-        spawnAuraBurst(e.clientX - rect.left, e.clientY - rect.top);
-        lastTapRef.current = 0;
+        auraLayer.current?.spawn(e.clientX - rect.left, e.clientY - rect.top);
+        lastTapRef.current = now;
       } else {
         lastTapRef.current = now;
         if (singleTapTimerRef.current) {
@@ -434,7 +478,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         }, DOUBLE_TAP_DELAY);
       }
     },
-    [amplify, interactive, post.moderated, spawnAuraBurst, togglePlay]
+    [amplify, interactive, post.moderated, togglePlay, suppressTapUntil]
   );
 
   if (!videoMedia) {
@@ -467,61 +511,134 @@ export const GustCard: React.FC<GustCardProps> = ({
     preloadMode = "metadata";
   }
 
+  const fittedWidth = Math.min(
+    viewport.width,
+    viewport.height * videoAspectRatio
+  );
+  const fittedHeight = fittedWidth / videoAspectRatio;
+  const availableHeight = Math.max(
+    0,
+    viewport.height / 2 - viewport.topInset - 16
+  );
+  const previewWidth = Math.min(
+    Math.max(0, viewport.width - 16),
+    availableHeight * videoAspectRatio
+  );
+  const previewHeight = previewWidth / videoAspectRatio;
+  const previewTop =
+    viewport.topInset + 8 + (availableHeight - previewHeight) / 2;
+  const previewScale =
+    fittedWidth > 0 ? Math.max(0.001, previewWidth / fittedWidth) : 1;
+
   return (
-    <div className="relative flex h-full w-full items-center justify-center">
-      <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-9/16 sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
-        {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
-        {(() => {
-          if (post.moderated) {
-            return (
-              <div className="flex h-full w-full items-center justify-center bg-black/40">
-                <ModeratedNotice className="mx-4 max-w-xs" kind="gust" />
-              </div>
-            );
-          }
-          // One shared video element; wrapped with the explicit-content gate
-          // only when the gust is flagged explicit.
-          const video = (
-            <video
-              className="h-full w-full object-contain"
-              loop
-              muted={isMuted}
-              onCanPlay={handleCanPlay}
-              onPlaying={handlePlaying}
-              onTimeUpdate={handleTimeUpdate}
-              onWaiting={handleWaiting}
-              playsInline
-              poster={thumbUrl}
-              preload={preloadMode}
-              ref={videoRef}
-              src={shouldMountVideo ? videoUrl : undefined}
-            >
-              {shouldMountVideo ? (
-                <track
-                  default={captionsEnabled}
-                  kind="subtitles"
-                  label="Captions"
-                  src={`/api/media/${videoMedia.id}?captions=1`}
-                  srcLang="en"
-                />
-              ) : null}
-            </video>
-          );
-          return post.explicitContent ? (
-            <ExplicitContentGate
-              revealKey={post.id}
-              blurClassName="rounded-2xl lg:rounded-3xl"
-              className="h-full w-full"
-              label="This gust has explicit media."
-              onReveal={() => setExplicitRevealed(true)}
-            >
-              {video}
-            </ExplicitContentGate>
-          ) : (
-            video
-          );
-        })()}
-        {/* oxlint-enable jsx-a11y/media-has-caption */}
+    <div className="relative flex h-full w-full items-start justify-center">
+      <div
+        data-eddies-open={commentsOpen}
+        ref={frameRef}
+        className="group relative h-full w-full overflow-hidden bg-black select-none [--gust-safe-top:env(safe-area-inset-top)] sm:aspect-9/16 sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl"
+      >
+        <motion.div
+          className="absolute inset-0"
+          data-gust-zoom
+          style={{
+            ...zoomStyle,
+            zIndex:
+              post.explicitContent &&
+              !explicitRevealed &&
+              !sharedExplicitRevealed
+                ? 1
+                : 0,
+          }}
+        >
+          <div
+            className="absolute overflow-hidden transition-[transform,border-radius] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+            data-gust-preview
+            style={
+              viewport.width > 0
+                ? {
+                    borderRadius: commentsOpen ? 20 / previewScale : 0,
+                    height: fittedHeight,
+                    left: (viewport.width - fittedWidth) / 2,
+                    top: (viewport.height - fittedHeight) / 2,
+                    transform: commentsOpen
+                      ? `translateY(${previewTop + previewHeight / 2 - viewport.height / 2}px) scale(${previewScale})`
+                      : "translateY(0px) scale(1)",
+                    width: fittedWidth,
+                    zIndex:
+                      post.explicitContent &&
+                      !explicitRevealed &&
+                      !sharedExplicitRevealed
+                        ? 1
+                        : 0,
+                  }
+                : { height: "100%", width: "100%" }
+            }
+          >
+            {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
+            {(() => {
+              if (post.moderated) {
+                return (
+                  <div className="flex h-full w-full items-center justify-center bg-black/40">
+                    <ModeratedNotice className="mx-4 max-w-xs" kind="gust" />
+                  </div>
+                );
+              }
+              // One shared video element; wrapped with the explicit-content gate
+              // only when the gust is flagged explicit.
+              const video = (
+                <video
+                  className="h-full w-full object-contain"
+                  loop
+                  muted={isMuted}
+                  onLoadedMetadata={(event) => {
+                    const loadedVideo = event.currentTarget;
+                    if (
+                      loadedVideo.videoWidth > 0 &&
+                      loadedVideo.videoHeight > 0
+                    ) {
+                      setVideoAspectRatio(
+                        loadedVideo.videoWidth / loadedVideo.videoHeight
+                      );
+                    }
+                  }}
+                  onCanPlay={handleCanPlay}
+                  onPlaying={handlePlaying}
+                  onTimeUpdate={handleTimeUpdate}
+                  onWaiting={handleWaiting}
+                  playsInline
+                  poster={thumbUrl}
+                  preload={preloadMode}
+                  ref={videoRef}
+                  src={shouldMountVideo ? videoUrl : undefined}
+                >
+                  {shouldMountVideo ? (
+                    <track
+                      default={captionsEnabled}
+                      kind="subtitles"
+                      label="Captions"
+                      src={`/api/media/${videoMedia.id}?captions=1`}
+                      srcLang="en"
+                    />
+                  ) : null}
+                </video>
+              );
+              return post.explicitContent ? (
+                <ExplicitContentGate
+                  revealKey={post.id}
+                  blurClassName="rounded-2xl lg:rounded-3xl"
+                  className="h-full w-full"
+                  label="This gust has explicit media."
+                  onReveal={() => setExplicitRevealed(true)}
+                >
+                  {video}
+                </ExplicitContentGate>
+              ) : (
+                video
+              );
+            })()}
+            {/* oxlint-enable jsx-a11y/media-has-caption */}
+          </div>
+        </motion.div>
 
         {/* Clickable transparent backdrop for play/pause & double tap. Not
             mounted on moderated gusts (no clip to control). */}
@@ -564,44 +681,14 @@ export const GustCard: React.FC<GustCardProps> = ({
         ) : null}
 
         {/* Repeated-tap Aura Bursts: TikTok-style floating flames that tilt by sequence id */}
-        <AnimatePresence>
-          {auraBursts.map((burst) => {
-            // Each burst tilts slightly based on its sequence id so repeated
-            // taps feel connected rather than identical stamps.
-            const rotation = ((burst.id % 5) - 2) * 8;
-            return (
-              <motion.div
-                animate={{
-                  opacity: [0, 1, 1, 0],
-                  rotate: rotation,
-                  scale: [0.4, 1.1, 0.9],
-                  y: [0, -90],
-                }}
-                className="pointer-events-none absolute z-10 flex flex-col items-center"
-                exit={{ opacity: 0 }}
-                initial={{ opacity: 0, rotate: rotation - 4, scale: 0.4 }}
-                key={burst.id}
-                style={{ left: burst.x, top: burst.y }}
-                transition={{ duration: 0.85, ease: "easeOut" }}
-              >
-                <Flame
-                  className="text-primary fill-primary drop-shadow-[0_0_18px_rgba(255,149,0,0.9)]"
-                  size={44}
-                />
-                <span className="text-sm font-black text-white drop-shadow-md">
-                  +1
-                </span>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+        <AuraBurstLayer ref={auraLayer} />
 
         {/* Floating captions banner positioned cleanly in center-lower zone above author stack */}
         <AnimatePresence>
-          {captionsEnabled && activeCue ? (
+          {captionsEnabled && activeCue && !commentsOpen ? (
             <motion.div
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="pointer-events-none absolute inset-x-4 bottom-52 z-25 flex justify-center text-center sm:bottom-56"
+              className="pointer-events-none absolute inset-x-4 bottom-52 z-25 flex justify-center text-center group-data-[eddies-open=true]:bottom-12 sm:bottom-56"
               exit={{ opacity: 0, scale: 0.96, y: 2 }}
               initial={{ opacity: 0, scale: 0.96, y: 4 }}
               key={`${activeCue.start}-${activeCue.text}`}
@@ -615,10 +702,10 @@ export const GustCard: React.FC<GustCardProps> = ({
         </AnimatePresence>
 
         {/* Bottom scrim so the overlay text stays readable */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-56 bg-linear-to-t from-black/85 via-black/35 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-56 bg-linear-to-t from-black/85 via-black/35 to-transparent group-data-[eddies-open=true]:hidden" />
 
         {/* Bottom-left: author info + follow (like the post card) + caption */}
-        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pr-24 pb-8">
+        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pr-24 pb-16 group-data-[eddies-open=true]:hidden">
           {/* First row of the info stack: sits bottom-left above the author
               block, where every other surface shows the provenance badge. */}
           <div>
@@ -731,7 +818,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         </div>
 
         {/* Right action rail */}
-        <div className="absolute right-3 bottom-24 z-20 flex flex-col items-center gap-4">
+        <div className="absolute right-3 bottom-24 z-20 flex flex-col items-center gap-4 group-data-[eddies-open=true]:hidden">
           {/* Amplify (upvote) */}
           <GustVoteButton
             authorName={authorName}
@@ -871,16 +958,16 @@ export const GustCard: React.FC<GustCardProps> = ({
 
         {/* Seek bar - hidden native thumb, click or drag anywhere to seek. Not
             shown for moderated gusts (no clip to seek). */}
-        {post.moderated ? null : (
-          <div className="absolute inset-x-0 bottom-0 z-30 px-1 pb-1">
-            <div className="group relative h-1 w-full rounded-full bg-white/20 transition-all group-hover:h-1.5">
+        {post.moderated || commentsOpen ? null : (
+          <div className="absolute inset-x-0 bottom-3 z-30 px-3 pb-[env(safe-area-inset-bottom)]">
+            <div className="group relative h-1 w-full rounded-full bg-white/20 transition-all has-[:active]:h-2 has-[:focus-visible]:h-2">
               <div
                 className="h-full rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500]"
                 style={{ width: `${progress}%` }}
               />
               <input
                 aria-label="Seek video progress"
-                className="seek-slider absolute -top-1.5 right-0 bottom-0 left-0 h-4 w-full cursor-pointer opacity-0"
+                className="seek-slider absolute -top-5 right-0 bottom-0 left-0 h-11 w-full cursor-pointer touch-none opacity-0"
                 max="100"
                 min="0"
                 onChange={handleProgressBarChange}

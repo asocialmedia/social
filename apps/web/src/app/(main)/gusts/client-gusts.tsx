@@ -31,10 +31,12 @@ import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
+import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import kyInstance from "@/lib/ky";
 import {
   FEED_QUERY_BEHAVIOR,
@@ -135,6 +137,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 767px)");
   const [hiddenPostIds, setHiddenPostIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -614,7 +617,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     return (
       <div className="flex h-full w-full max-w-6xl items-center justify-center gap-4 py-0 sm:px-2 sm:py-3 md:px-6">
         <div className="relative h-full w-full max-w-4xl transition-[width] duration-300 ease-out">
-          <div className="pointer-events-none absolute inset-x-0 top-1 z-30 flex h-10 items-center justify-center md:top-2">
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-0 top-1 z-30 flex h-10 items-center justify-center md:top-2",
+              isCommentsOpen && isMobile && "hidden"
+            )}
+          >
             <div className="pointer-events-auto flex items-center gap-2">
               <GustTab
                 active={gustTab === "latest"}
@@ -631,6 +639,9 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           {/* Vertical Snap Stream */}
           <div
             className="hide-native-scrollbar h-full w-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
+            style={{
+              overflowY: isCommentsOpen && isMobile ? "hidden" : undefined,
+            }}
             ref={containerRef}
           >
             {posts.map((post, idx) => {
@@ -652,6 +663,9 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                     postId={post.id}
                   >
                     <GustCard
+                      commentsOpen={
+                        isCommentsOpen && isMobile && isCurrentActive
+                      }
                       interactive
                       isActive={isCurrentActive}
                       isMuted={isMuted}
@@ -698,7 +712,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"
-          className="rail-3d-btn absolute top-4 left-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden"
+          className={cn(
+            "rail-3d-btn absolute top-4 left-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden",
+            isCommentsOpen && "hidden"
+          )}
           onClick={() => router.back()}
           type="button"
         >
@@ -720,7 +737,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         {/* Floating search button (mobile) */}
         <button
           aria-label="Search"
-          className="rail-3d-btn absolute top-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden"
+          className={cn(
+            "rail-3d-btn absolute top-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden",
+            isCommentsOpen && "hidden"
+          )}
           onClick={() => openSpotlight()}
           type="button"
         >
@@ -752,7 +772,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
         {/* New gust pill */}
         <AnimatePresence>
-          {newGusts.length > 0 ? (
+          {newGusts.length > 0 && !(isCommentsOpen && isMobile) ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
               className="absolute top-16 left-1/2 z-30 -translate-x-1/2"
@@ -803,32 +823,13 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           </div>
         ) : null}
 
-        {/* Mobile slide-up comments drawer */}
-        <AnimatePresence>
-          {isCommentsOpen && posts[activeIndex] ? (
-            <>
-              <motion.div
-                animate={{ opacity: 1 }}
-                className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs md:hidden"
-                exit={{ opacity: 0 }}
-                initial={{ opacity: 0 }}
-                onClick={() => setIsCommentsOpen(false)}
-              />
-              <motion.div
-                animate={{ y: 0 }}
-                className="reels-panel fixed inset-x-0 bottom-0 z-50 flex h-[75vh] flex-col overflow-hidden rounded-t-3xl md:hidden"
-                exit={{ y: "100%" }}
-                initial={{ y: "100%" }}
-                transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
-              >
-                <GustsCommentsDrawer
-                  onClose={() => setIsCommentsOpen(false)}
-                  post={posts[activeIndex]}
-                />
-              </motion.div>
-            </>
-          ) : null}
-        </AnimatePresence>
+        {posts[activeIndex] ? (
+          <MobileGustEddies
+            onClose={() => setIsCommentsOpen(false)}
+            open={isCommentsOpen}
+            post={posts[activeIndex]}
+          />
+        ) : null}
       </div>
     </>
   );

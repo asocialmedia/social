@@ -64,6 +64,7 @@ export function useGustVote(
     viewerId,
   });
   const stateRef = useRef(engagement);
+  const forcedPending = useRef(false);
 
   useEffect(() => {
     stateRef.current = engagement;
@@ -85,10 +86,16 @@ export function useGustVote(
       router.push("/(auth)/login");
       return;
     }
-    const previous = stateRef.current;
+    const previous = engagementStore.read(post.id, stateRef.current);
+    if (forced && forcedPending.current) {
+      return;
+    }
     const plan = planGustVote(previous, value, forced);
     if (plan.noop) {
       return;
+    }
+    if (forced) {
+      forcedPending.current = true;
     }
     try {
       await vote(value);
@@ -106,6 +113,9 @@ export function useGustVote(
         title: "Vote Failed",
         variant: "destructive",
       });
+    }
+    if (forced) {
+      forcedPending.current = false;
     }
   };
 

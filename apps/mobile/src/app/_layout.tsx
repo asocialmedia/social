@@ -1,6 +1,7 @@
 import { useFonts } from "expo-font";
 
 import "../global.css";
+import { NavigationBar } from "expo-navigation-bar";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -172,6 +173,8 @@ export default function RootLayout() {
       <ErrorBoundary>
         <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
           <StatusBar style={isDark ? "light" : "dark"} />
+          {/* Keep an explicit base entry so immersive routes restore the bar on blur. */}
+          <NavigationBar hidden={false} style={isDark ? "light" : "dark"} />
           {/* Install credential first: the session provider wraps every mutating
             auth call in it, so a fresh install is verified before signing in. */}
           <InstallProvider>

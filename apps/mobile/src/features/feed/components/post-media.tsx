@@ -1439,9 +1439,7 @@ export function ExplicitGate({
         style={[
           styles.gateMask,
           {
-            backgroundColor: blurSupported
-              ? "rgba(0, 0, 0, 0.4)"
-              : theme.containerBg,
+            backgroundColor: blurSupported ? "transparent" : theme.containerBg,
           },
         ]}
       />
@@ -2055,6 +2053,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 12,
+    marginTop: 5,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },

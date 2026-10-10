@@ -29,9 +29,21 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  AppState,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import type { GestureType } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import type { SharedValue } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
@@ -67,23 +79,23 @@ import { UserBadge } from "@/features/home/components/user-badge";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import { gustVideo, gustVideoUrl } from "../lib/gusts-api";
+import { gustPreviewGeometry } from "../lib/preview-geometry";
 import {
-  addBurst,
-  BURST_CLEAR_MS,
   captionNeedsToggle,
   classifyTap,
   DOUBLE_TAP_MS,
 } from "../lib/reel-gestures";
-import type { FlameBurst } from "../lib/reel-gestures";
 import { useGustMuteStore } from "../state/gust-mute-store";
 import {
   useGustBookmark,
   useGustFollow,
   useGustVote,
 } from "../state/use-gust-actions";
+import { useGustPinchZoom } from "../state/use-gust-pinch-zoom";
 import { FollowButton } from "./follow-button";
+import type { AuraBurstHandle } from "./gust-overlays";
 import {
-  FlameBurstView,
+  AuraBurstLayer,
   GustExplicitGate,
   LiveCaption,
   PlayPulse,
@@ -103,6 +115,10 @@ const AI_BADGE_SHADOWS =
 export interface GustCardProps {
   apiBase: string;
   captionsOn: boolean;
+  eddiesOpen: boolean;
+  previewProgress: SharedValue<number>;
+  pageHeight: number;
+  pagerGestures: readonly GestureType[];
   isActive: boolean;
   mountVideo: boolean;
   onCloseTranscript: () => void;
@@ -126,6 +142,10 @@ function reason(error: unknown): string {
 export function GustCard({
   apiBase,
   captionsOn,
+  eddiesOpen,
+  previewProgress,
+  pageHeight,
+  pagerGestures,
   isActive,
   mountVideo,
   onCloseTranscript,
@@ -139,6 +159,8 @@ export function GustCard({
   transcriptOpen,
   viewerId,
 }: GustCardProps) {
+  const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const video = gustVideo(post);
   const source = mountVideo && video ? gustVideoUrl(apiBase, video.id) : null;
   const isMuted = useGustMuteStore((state) => state.isMuted);
@@ -159,6 +181,9 @@ export function GustCard({
   });
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [videoAspectRatio, setVideoAspectRatio] = useState(() =>
+    video?.width && video?.height ? video.width / video.height : 9 / 16
+  );
   // The source whose first frame is on screen; the poster covers until then.
   const [frameSource, setFrameSource] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(
@@ -171,7 +196,7 @@ export function GustCard({
     icon: "pause" | "play";
     id: number;
   } | null>(null);
-  const [bursts, setBursts] = useState<FlameBurst[]>([]);
+  const auraLayer = useRef<AuraBurstHandle>(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [eddieCount, setEddieCount] = useState(post._count?.comments ?? 0);
   const [fetchedCues, setFetchedCues] = useState<TranscriptCue[] | null>(null);
@@ -181,8 +206,6 @@ export function GustCard({
   const wasPlayingRef = useRef(false);
   const lastTapRef = useRef<number | null>(null);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const burstClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const burstIdRef = useRef(0);
   const moreRef = useRef<View>(null);
 
   const router = useRouter();
@@ -195,16 +218,32 @@ export function GustCard({
 
   useEventListener(player, "timeUpdate", (payload) => {
     setCurrentTime(payload.currentTime);
-    const next = player.duration;
-    if (Number.isFinite(next) && next > 0) {
-      setDuration((previous) => (previous === next ? previous : next));
-    }
   });
   useEventListener(player, "sourceLoad", (payload) => {
+    const size = payload.availableVideoTracks.find(
+      (track) => track.size.width > 0 && track.size.height > 0
+    )?.size;
+    if (size) {
+      setVideoAspectRatio(size.width / size.height);
+    }
     if (Number.isFinite(payload.duration) && payload.duration > 0) {
       setDuration(payload.duration);
     }
   });
+  useEventListener(player, "videoTrackChange", (payload) => {
+    const size = payload.videoTrack?.size;
+    if (size && size.width > 0 && size.height > 0) {
+      setVideoAspectRatio(size.width / size.height);
+    }
+  });
+  useEffect(() => {
+    // A disk-cached source can resolve before event subscriptions mount.
+    const size = player.videoTrack?.size;
+    if (size && size.width > 0 && size.height > 0) {
+      // oxlint-disable-next-line react/set-state-in-effect -- synchronize a mounted native player whose cached track predates subscriptions
+      setVideoAspectRatio(size.width / size.height);
+    }
+  }, [player]);
   useEventListener(player, "statusChange", (payload) => {
     if (payload.status === "error") {
       logWarn("gusts.playback_failed", {
@@ -275,9 +314,6 @@ export function GustCard({
     () => () => {
       if (singleTapTimer.current) {
         clearTimeout(singleTapTimer.current);
-      }
-      if (burstClearTimer.current) {
-        clearTimeout(burstClearTimer.current);
       }
     },
     []
@@ -352,30 +388,20 @@ export function GustCard({
     setPulse({ icon: "play", id: Date.now() });
   };
 
-  const spawnBurst = (x: number, y: number) => {
-    burstIdRef.current += 1;
-    const id = burstIdRef.current;
-    setBursts((current) => addBurst(current, { id, x, y }));
-    if (burstClearTimer.current) {
-      clearTimeout(burstClearTimer.current);
-    }
-    burstClearTimer.current = setTimeout(() => {
-      burstClearTimer.current = null;
-      setBursts([]);
-    }, BURST_CLEAR_MS);
-  };
-
   const handleTap = (event: GestureResponderEvent) => {
     const now = Date.now();
+    if (now < suppressTapUntil.current) {
+      return;
+    }
     const { locationX, locationY } = event.nativeEvent;
     if (classifyTap(now, lastTapRef.current) === "double") {
       if (singleTapTimer.current) {
         clearTimeout(singleTapTimer.current);
         singleTapTimer.current = null;
       }
-      lastTapRef.current = null;
+      lastTapRef.current = now;
       vote.amplify();
-      spawnBurst(locationX, locationY);
+      auraLayer.current?.spawn(locationX, locationY);
       return;
     }
     lastTapRef.current = now;
@@ -440,325 +466,409 @@ export function GustCard({
   const showBuffering =
     isActive && revealed && source !== null && status === "loading";
 
+  const preview = gustPreviewGeometry(
+    window.width,
+    pageHeight,
+    insets.top,
+    videoAspectRatio
+  );
+
+  const fullVideoWidth = Math.min(window.width, pageHeight * videoAspectRatio);
+  const fullVideoHeight = fullVideoWidth / videoAspectRatio;
+  const suppressTapUntil = useRef(0);
+  const handlePinchState = useCallback((active: boolean) => {
+    suppressTapUntil.current = active ? Infinity : Date.now() + DOUBLE_TAP_MS;
+    if (active) {
+      lastTapRef.current = null;
+      if (singleTapTimer.current) {
+        clearTimeout(singleTapTimer.current);
+        singleTapTimer.current = null;
+      }
+    }
+  }, []);
+  const zoom = useGustPinchZoom({
+    enabled: isActive && !suspended && revealed && !eddiesOpen,
+    mediaHeight: fullVideoHeight,
+    mediaWidth: fullVideoWidth,
+    onPinchStateChange: handlePinchState,
+    pagerGestures,
+    viewportHeight: pageHeight,
+    viewportWidth: window.width,
+  });
+  const videoFrame = useAnimatedStyle(() => {
+    const previewFraction = eddiesOpen ? previewProgress.get() : 0;
+    const scale = Math.max(
+      0.001,
+      1 + (preview.width / fullVideoWidth - 1) * previewFraction
+    );
+    return {
+      borderRadius: (20 * previewFraction) / scale,
+      transform: [
+        {
+          translateY:
+            (preview.marginTop + preview.height / 2 - pageHeight / 2) *
+            previewFraction,
+        },
+        { scale },
+      ],
+    };
+  });
+
   return (
-    <View style={styles.card}>
-      {source ? (
-        <VideoView
-          contentFit="contain"
-          nativeControls={false}
-          onFirstFrameRender={() => setFrameSource(source)}
-          player={player}
-          pointerEvents="none"
+    <GestureDetector gesture={zoom.pinch}>
+      <View style={[styles.card, { height: pageHeight }]}>
+        <Animated.View pointerEvents="none" style={[styles.fill, zoom.style]}>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                height: fullVideoHeight,
+                left: (window.width - fullVideoWidth) / 2,
+                overflow: "hidden",
+                position: "absolute",
+                top: (pageHeight - fullVideoHeight) / 2,
+                width: fullVideoWidth,
+              },
+              videoFrame,
+            ]}
+          >
+            {source ? (
+              <VideoView
+                contentFit="contain"
+                nativeControls={false}
+                onFirstFrameRender={() => setFrameSource(source)}
+                player={player}
+                pointerEvents="none"
+                style={styles.fill}
+                surfaceType="textureView"
+              />
+            ) : null}
+            {hasFrame || !posterUri ? null : (
+              <Image
+                accessibilityLabel=""
+                contentFit="contain"
+                source={{ uri: posterUri }}
+                style={[styles.fill, styles.poster]}
+              />
+            )}
+          </Animated.View>
+        </Animated.View>
+
+        <Pressable
+          accessibilityHint="Double tap to amplify. Pinch to zoom in or out."
+          accessibilityLabel={isPlaying ? "Pause gust" : "Play gust"}
+          onPress={handleTap}
           style={styles.fill}
-          surfaceType="textureView"
         />
-      ) : null}
-      {hasFrame || !posterUri ? null : (
-        <Image
-          accessibilityLabel=""
-          contentFit="contain"
-          source={{ uri: posterUri }}
-          style={[styles.fill, styles.poster]}
-        />
-      )}
 
-      <Pressable
-        accessibilityHint="Double tap to amplify"
-        accessibilityLabel={isPlaying ? "Pause gust" : "Play gust"}
-        onPress={handleTap}
-        style={styles.fill}
-      />
-
-      {pulse ? (
-        <PlayPulse
-          icon={pulse.icon}
-          key={pulse.id}
-          onDone={() => setPulse(null)}
-        />
-      ) : null}
-      {showBuffering ? (
-        <View pointerEvents="none" style={styles.center}>
-          <Spinner3D size={48} />
-        </View>
-      ) : null}
-      {bursts.map((burst) => (
-        <FlameBurstView burst={burst} key={burst.id} />
-      ))}
-      {activeCue ? (
-        <LiveCaption key={`${activeCue.start}`} text={activeCue.text} />
-      ) : null}
-      {revealed ? null : (
-        <GustExplicitGate onContinue={continueExplicit} posterUri={posterUri} />
-      )}
-
-      <LinearGradient
-        colors={[
-          "rgba(0, 0, 0, 0)",
-          "rgba(0, 0, 0, 0.35)",
-          "rgba(0, 0, 0, 0.85)",
-        ]}
-        end={{ x: 0.5, y: 1 }}
-        pointerEvents="none"
-        start={{ x: 0.5, y: 0 }}
-        style={styles.scrim}
-      />
-
-      <View pointerEvents="box-none" style={styles.info}>
-        {aiGenerated ? (
-          <View style={styles.aiRow}>
-            <View
-              accessibilityLabel="AI-generated content"
-              style={[styles.aiBadge, { boxShadow: AI_BADGE_SHADOWS }]}
-            >
-              <LinearGradient
-                colors={["#7c5cff", "#5a3ae0"]}
-                end={{ x: 0.5, y: 1 }}
-                start={{ x: 0.5, y: 0 }}
-                style={styles.aiFill}
-              >
-                <Sparkles color="#ffffff" size={12} />
-                <Text style={styles.aiText}>AI Generated</Text>
-              </LinearGradient>
-            </View>
+        {pulse ? (
+          <PlayPulse
+            icon={pulse.icon}
+            key={pulse.id}
+            onDone={() => setPulse(null)}
+          />
+        ) : null}
+        {showBuffering ? (
+          <View pointerEvents="none" style={styles.center}>
+            <Spinner3D size={48} />
           </View>
         ) : null}
+        <AuraBurstLayer ref={auraLayer} />
+        {activeCue && !eddiesOpen ? (
+          <LiveCaption key={`${activeCue.start}`} text={activeCue.text} />
+        ) : null}
+        {revealed ? null : (
+          <GustExplicitGate
+            onContinue={continueExplicit}
+            posterUri={posterUri}
+          />
+        )}
 
-        <View style={styles.authorRow}>
-          <Pressable
-            accessibilityLabel={`Open ${name}'s profile`}
-            accessibilityRole="link"
-            disabled={!user?.username}
-            onPress={openAuthor}
-          >
-            <Image
-              accessibilityLabel={`${name}'s avatar`}
-              contentFit="cover"
-              source={avatarUri ? { uri: avatarUri } : avatarPlaceholder}
-              style={styles.avatar}
-            />
-          </Pressable>
-          <View style={styles.authorCopy}>
-            <View style={styles.nameRow}>
-              <Pressable
-                accessibilityLabel={`Open ${name}'s profile`}
-                accessibilityRole="link"
-                disabled={!user?.username}
-                onPress={openAuthor}
-                style={styles.authorIdentity}
+        {eddiesOpen ? null : (
+          <LinearGradient
+            colors={[
+              "rgba(0, 0, 0, 0)",
+              "rgba(0, 0, 0, 0.35)",
+              "rgba(0, 0, 0, 0.85)",
+            ]}
+            end={{ x: 0.5, y: 1 }}
+            pointerEvents="none"
+            start={{ x: 0.5, y: 0 }}
+            style={styles.scrim}
+          />
+        )}
+
+        <View
+          pointerEvents={eddiesOpen ? "none" : "box-none"}
+          style={[styles.info, eddiesOpen && styles.hidden]}
+        >
+          {aiGenerated ? (
+            <View style={styles.aiRow}>
+              <View
+                accessibilityLabel="AI-generated content"
+                style={[styles.aiBadge, { boxShadow: AI_BADGE_SHADOWS }]}
               >
-                <Text numberOfLines={1} style={styles.name}>
-                  {name}
-                </Text>
-                <UserBadge
-                  badge={user?.badge ?? null}
-                  badges={user?.badges ?? null}
-                  communityRoles={user?.communityMemberships ?? null}
-                />
-                {user?.username ? (
+                <LinearGradient
+                  colors={["#7c5cff", "#5a3ae0"]}
+                  end={{ x: 0.5, y: 1 }}
+                  start={{ x: 0.5, y: 0 }}
+                  style={styles.aiFill}
+                >
+                  <Sparkles color="#ffffff" size={12} />
+                  <Text style={styles.aiText}>AI Generated</Text>
+                </LinearGradient>
+              </View>
+            </View>
+          ) : null}
+
+          <View style={styles.authorRow}>
+            <Pressable
+              accessibilityLabel={`Open ${name}'s profile`}
+              accessibilityRole="link"
+              disabled={!user?.username}
+              onPress={openAuthor}
+            >
+              <Image
+                accessibilityLabel={`${name}'s avatar`}
+                contentFit="cover"
+                source={avatarUri ? { uri: avatarUri } : avatarPlaceholder}
+                style={styles.avatar}
+              />
+            </Pressable>
+            <View style={styles.authorCopy}>
+              <View style={styles.nameRow}>
+                <Pressable
+                  accessibilityLabel={`Open ${name}'s profile`}
+                  accessibilityRole="link"
+                  disabled={!user?.username}
+                  onPress={openAuthor}
+                  style={styles.authorIdentity}
+                >
+                  <Text numberOfLines={1} style={styles.name}>
+                    {name}
+                  </Text>
+                  <UserBadge
+                    badge={user?.badge ?? null}
+                    badges={user?.badges ?? null}
+                    communityRoles={user?.communityMemberships ?? null}
+                  />
+                </Pressable>
+                {follow.visible ? (
+                  <FollowButton
+                    following={follow.following}
+                    onPress={() => follow.toggle()}
+                    pending={follow.pending}
+                  />
+                ) : null}
+              </View>
+              {user?.username ? (
+                <Pressable
+                  accessibilityLabel={`Open @${user.username}'s profile`}
+                  accessibilityRole="link"
+                  onPress={openAuthor}
+                >
                   <Text numberOfLines={1} style={styles.handle}>
                     @{user.username}
                   </Text>
-                ) : null}
-              </Pressable>
-              {follow.visible ? (
-                <FollowButton
-                  following={follow.following}
-                  onPress={() => follow.toggle()}
-                  pending={follow.pending}
-                />
+                </Pressable>
               ) : null}
             </View>
           </View>
-        </View>
 
-        {content ? (
-          <View style={styles.captionWrap}>
-            <View
-              style={
-                needsToggle && !captionExpanded ? styles.captionClamp : null
-              }
-            >
-              <BioContent
-                apiBase={apiBase}
-                bio={content}
-                textColor="rgba(255, 255, 255, 0.95)"
-                textSize={{ fontSize: 12, lineHeight: CAPTION_LINE }}
-              />
+          {content ? (
+            <View style={styles.captionWrap}>
+              <View
+                style={
+                  needsToggle && !captionExpanded ? styles.captionClamp : null
+                }
+              >
+                <BioContent
+                  apiBase={apiBase}
+                  bio={content}
+                  textColor="rgba(255, 255, 255, 0.95)"
+                  textSize={{ fontSize: 12, lineHeight: CAPTION_LINE }}
+                />
+              </View>
+              {needsToggle ? (
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => setCaptionExpanded((value) => !value)}
+                >
+                  <Text style={styles.toggleText}>
+                    {captionExpanded ? "Show less" : "More"}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
-            {needsToggle ? (
+          ) : null}
+
+          {extraTags.length > 0 || extraMentions.length > 0 ? (
+            <View style={styles.metaRow}>
+              {extraTags.map((tag) => (
+                <TagChip key={tag.id} tag={tag.name} />
+              ))}
+              {extraMentions.map((mention) => (
+                <MentionChip
+                  avatarUrl={
+                    mention.user.avatarUrl
+                      ? resolveProfileImageUrl(mention.user.avatarUrl, apiBase)
+                      : null
+                  }
+                  key={mention.user.id}
+                  username={mention.user.username ?? ""}
+                />
+              ))}
+            </View>
+          ) : null}
+
+          {altText ? (
+            <View>
               <Pressable
                 accessibilityRole="button"
                 hitSlop={6}
-                onPress={() => setCaptionExpanded((value) => !value)}
+                onPress={onToggleAlt}
               >
                 <Text style={styles.toggleText}>
-                  {captionExpanded ? "Show less" : "More"}
+                  {showAlt ? "Hide alt" : "Show alt"}
                 </Text>
               </Pressable>
-            ) : null}
-          </View>
-        ) : null}
+              {showAlt ? (
+                <View style={styles.altPanel}>
+                  <Text style={styles.altText}>{altText}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
-        {extraTags.length > 0 || extraMentions.length > 0 ? (
-          <View style={styles.metaRow}>
-            {extraTags.map((tag) => (
-              <TagChip key={tag.id} tag={tag.name} />
-            ))}
-            {extraMentions.map((mention) => (
-              <MentionChip
-                avatarUrl={
-                  mention.user.avatarUrl
-                    ? resolveProfileImageUrl(mention.user.avatarUrl, apiBase)
-                    : null
-                }
-                key={mention.user.id}
-                username={mention.user.username ?? ""}
-              />
-            ))}
+          <View style={styles.viewsRow}>
+            <Eye color="rgba(255, 255, 255, 0.85)" size={16} />
+            <Text style={styles.views}>
+              {formatNumber(post.viewCount ?? 0)}
+              <Text style={styles.viewsLabel}> views</Text>
+            </Text>
           </View>
-        ) : null}
-
-        {altText ? (
-          <View>
-            <Pressable
-              accessibilityRole="button"
-              hitSlop={6}
-              onPress={onToggleAlt}
-            >
-              <Text style={styles.toggleText}>
-                {showAlt ? "Hide alt" : "Show alt"}
-              </Text>
-            </Pressable>
-            {showAlt ? (
-              <View style={styles.altPanel}>
-                <Text style={styles.altText}>{altText}</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        <View style={styles.viewsRow}>
-          <Eye color="rgba(255, 255, 255, 0.85)" size={16} />
-          <Text style={styles.views}>
-            {formatNumber(post.viewCount ?? 0)}
-            <Text style={styles.viewsLabel}> views</Text>
-          </Text>
         </View>
-      </View>
 
-      <View pointerEvents="box-none" style={styles.rail}>
-        <View style={styles.railItem}>
+        <View
+          pointerEvents={eddiesOpen ? "none" : "box-none"}
+          style={[styles.rail, eddiesOpen && styles.hidden]}
+        >
+          <View style={styles.railItem}>
+            <RailButton
+              accessibilityLabel={
+                vote.userVote === 1 ? "Remove amplification" : "Amplify gust"
+              }
+              active={vote.userVote === 1}
+              onPress={() => vote.toggleVote(1)}
+              tone="orange"
+            >
+              <ArrowBigUp
+                color={RAIL_ICON_COLOR}
+                fill={vote.userVote === 1 ? "#ffffff" : "none"}
+                size={20}
+              />
+            </RailButton>
+            <View style={styles.auraRow}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "none"}
+                size={20}
+              />
+              <Text style={styles.auraText}>{formatNumber(vote.aura)}</Text>
+            </View>
+          </View>
           <RailButton
             accessibilityLabel={
-              vote.userVote === 1 ? "Remove amplification" : "Amplify gust"
+              vote.userVote === -1 ? "Remove mute" : "Mute author's gust"
             }
-            active={vote.userVote === 1}
-            onPress={() => vote.toggleVote(1)}
-            tone="orange"
+            active={vote.userVote === -1}
+            onPress={() => vote.toggleVote(-1)}
+            tone="purple"
           >
-            <ArrowBigUp
+            <ArrowBigDown
               color={RAIL_ICON_COLOR}
-              fill={vote.userVote === 1 ? "#ffffff" : "none"}
+              fill={vote.userVote === -1 ? "#ffffff" : "none"}
               size={20}
             />
           </RailButton>
-          <View style={styles.auraRow}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "none"}
-              size={20}
-            />
-            <Text style={styles.auraText}>{formatNumber(vote.aura)}</Text>
+          <View style={styles.railItem}>
+            <RailButton
+              accessibilityLabel="Open eddies"
+              onPress={() => onOpenEddies(post)}
+            >
+              <MessageSquare
+                color={RAIL_ICON_COLOR}
+                fill={eddieCount > 0 ? RAIL_ICON_COLOR : "none"}
+                size={20}
+              />
+            </RailButton>
+            <Text style={styles.countText}>{formatNumber(eddieCount)}</Text>
           </View>
-        </View>
-        <RailButton
-          accessibilityLabel={
-            vote.userVote === -1 ? "Remove mute" : "Mute author's gust"
-          }
-          active={vote.userVote === -1}
-          onPress={() => vote.toggleVote(-1)}
-          tone="purple"
-        >
-          <ArrowBigDown
-            color={RAIL_ICON_COLOR}
-            fill={vote.userVote === -1 ? "#ffffff" : "none"}
-            size={20}
-          />
-        </RailButton>
-        <View style={styles.railItem}>
           <RailButton
-            accessibilityLabel="Open eddies"
-            onPress={() => onOpenEddies(post)}
+            accessibilityLabel="Share gust"
+            onPress={() => onShare(post)}
           >
-            <MessageSquare
+            <Share2 color={RAIL_ICON_COLOR} size={16} />
+          </RailButton>
+          <RailButton
+            accessibilityLabel={
+              bookmark.bookmarked ? "Remove bookmark" : "Bookmark gust"
+            }
+            active={bookmark.bookmarked}
+            onPress={() => bookmark.toggle()}
+            tone="gold"
+          >
+            <Bookmark
               color={RAIL_ICON_COLOR}
-              fill={eddieCount > 0 ? RAIL_ICON_COLOR : "none"}
-              size={20}
+              fill={bookmark.bookmarked ? "#ffffff" : "none"}
+              size={16}
             />
           </RailButton>
-          <Text style={styles.countText}>{formatNumber(eddieCount)}</Text>
-        </View>
-        <RailButton
-          accessibilityLabel="Share gust"
-          onPress={() => onShare(post)}
-        >
-          <Share2 color={RAIL_ICON_COLOR} size={16} />
-        </RailButton>
-        <RailButton
-          accessibilityLabel={
-            bookmark.bookmarked ? "Remove bookmark" : "Bookmark gust"
-          }
-          active={bookmark.bookmarked}
-          onPress={() => bookmark.toggle()}
-          tone="gold"
-        >
-          <Bookmark
-            color={RAIL_ICON_COLOR}
-            fill={bookmark.bookmarked ? "#ffffff" : "none"}
-            size={16}
-          />
-        </RailButton>
-        <View collapsable={false} ref={moreRef}>
+          <View collapsable={false} ref={moreRef}>
+            <RailButton
+              accessibilityLabel="Gust options"
+              onPress={() => {
+                moreRef.current?.measureInWindow((x, y, width, height) => {
+                  onMore(post, { height, width, x, y });
+                });
+              }}
+            >
+              <MoreHorizontal color={RAIL_ICON_COLOR} size={16} />
+            </RailButton>
+          </View>
           <RailButton
-            accessibilityLabel="Gust options"
-            onPress={() => {
-              moreRef.current?.measureInWindow((x, y, width, height) => {
-                onMore(post, { height, width, x, y });
-              });
-            }}
+            accessibilityLabel={isMuted ? "Unmute video" : "Mute video"}
+            onPress={toggleMuted}
           >
-            <MoreHorizontal color={RAIL_ICON_COLOR} size={16} />
+            {isMuted ? (
+              <VolumeX color={RAIL_ICON_COLOR} size={20} />
+            ) : (
+              <Volume2 color={RAIL_ICON_COLOR} size={20} />
+            )}
           </RailButton>
         </View>
-        <RailButton
-          accessibilityLabel={isMuted ? "Unmute video" : "Mute video"}
-          onPress={toggleMuted}
-        >
-          {isMuted ? (
-            <VolumeX color={RAIL_ICON_COLOR} size={20} />
-          ) : (
-            <Volume2 color={RAIL_ICON_COLOR} size={20} />
-          )}
-        </RailButton>
+
+        {eddiesOpen ? null : (
+          <SeekBar duration={duration} onSeek={seek} progress={progress} />
+        )}
+
+        {transcriptOpen && isActive ? (
+          <TranscriptDrawer
+            cues={cues}
+            currentTime={currentTime}
+            loading={cuesLoading && fetchedCues === null}
+            onClose={onCloseTranscript}
+            onSeek={(seconds) => {
+              seek(seconds);
+              userPausedRef.current = false;
+              player.play();
+            }}
+            rawTranscript={video?.transcript}
+          />
+        ) : null}
       </View>
-
-      <SeekBar duration={duration} onSeek={seek} progress={progress} />
-
-      {transcriptOpen && isActive ? (
-        <TranscriptDrawer
-          cues={cues}
-          currentTime={currentTime}
-          loading={cuesLoading && fetchedCues === null}
-          onClose={onCloseTranscript}
-          onSeek={(seconds) => {
-            seek(seconds);
-            userPausedRef.current = false;
-            player.play();
-          }}
-          rawTranscript={video?.transcript}
-        />
-      ) : null}
-    </View>
+    </GestureDetector>
   );
 }
 
@@ -848,7 +958,6 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#000000",
-    flex: 1,
     overflow: "hidden",
   },
   center: {
@@ -882,11 +991,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "normal",
   },
+  hidden: { display: "none" },
   info: {
     bottom: 0,
     gap: 12,
     left: 0,
-    paddingBottom: 32,
+    paddingBottom: 64,
     paddingLeft: 16,
     paddingRight: 96,
     position: "absolute",

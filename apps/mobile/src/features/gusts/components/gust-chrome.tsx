@@ -16,6 +16,11 @@ import {
   Text,
   View,
 } from "react-native";
+import Reanimated, {
+  useAnimatedStyle,
+  withTiming,
+} from "react-native-reanimated";
+import type { SharedValue } from "react-native-reanimated";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import noMediaImage from "@/assets/images/nomedia.png";
@@ -244,26 +249,36 @@ export function PullIndicator({
   refreshing,
   top,
 }: {
-  distance: number;
+  distance: SharedValue<number>;
   refreshing: boolean;
   top: number;
 }) {
-  const height = refreshing ? Math.max(distance, 56) : distance;
-  if (height <= 0) {
-    return null;
-  }
+  const animated = useAnimatedStyle(() => ({
+    opacity: withTiming(refreshing || distance.get() > 0 ? 1 : 0, {
+      duration: 100,
+    }),
+    transform: [
+      { translateY: Math.min(refreshing ? 56 : distance.get(), 96) - 44 },
+    ],
+  }));
+  const rotation = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${distance.get() * 2}deg` }],
+  }));
   return (
-    <View pointerEvents="none" style={[styles.pull, { height, top }]}>
+    <Reanimated.View
+      pointerEvents="none"
+      style={[styles.pull, { height: 44, top }, animated]}
+    >
       <RailButton accessibilityLabel="Refreshing gusts" size={40}>
         {refreshing ? (
           <SpinningLoader size={20} />
         ) : (
-          <View style={{ transform: [{ rotate: `${distance * 2}deg` }] }}>
+          <Reanimated.View style={rotation}>
             <Loader2 color={PRIMARY} size={20} />
-          </View>
+          </Reanimated.View>
         )}
       </RailButton>
-    </View>
+    </Reanimated.View>
   );
 }
 
