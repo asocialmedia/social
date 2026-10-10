@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import type { PostsPage } from "@/features/feed/lib/feed-types";
 import { getApiBaseUrl } from "@/lib/api-env";
 
-import { fetchGustsPage } from "../lib/gusts-api";
+import { fetchFollowingGustPreview } from "../lib/following-gust-preview";
+import type { FollowingGustPreview } from "../lib/following-gust-preview";
 
-const previewCache = new Map<string, { data: PostsPage; fetchedAt: number }>();
+const previewCache = new Map<
+  string,
+  { preview: FollowingGustPreview; fetchedAt: number }
+>();
 
 export function useFollowingGustPreview(
   userId: string | null,
@@ -14,9 +17,13 @@ export function useFollowingGustPreview(
 ) {
   const apiBase = getApiBaseUrl();
   const key = `${apiBase}:${userId ?? "guest"}`;
-  const [result, setResult] = useState<{ data: PostsPage; key: string } | null>(
-    null
-  );
+  const [result, setResult] = useState<{
+    preview: FollowingGustPreview;
+    key: string;
+  } | null>(() => {
+    const cached = previewCache.get(key);
+    return cached ? { key, preview: cached.preview } : null;
+  });
   useEffect(() => {
     if (!userId || !enabled) {
       return;
@@ -25,22 +32,24 @@ export function useFollowingGustPreview(
     void (async () => {
       try {
         const cached = previewCache.get(key);
-        const data =
-          cached && Date.now() - cached.fetchedAt < 60_000
-            ? cached.data
-            : await fetchGustsPage(
-                { following: true, personalized: false, take: 5 },
-                { apiBase, cookie: await authClient.getCookie() }
-              );
+        const fresh = cached && Date.now() - cached.fetchedAt < 60_000;
+        const preview = fresh
+          ? cached.preview
+          : await fetchFollowingGustPreview(userId, {
+              apiBase,
+              cookie: await authClient.getCookie(),
+            });
         if (!cancelled) {
-          previewCache.set(key, { data, fetchedAt: Date.now() });
+          if (!fresh) {
+            previewCache.set(key, { fetchedAt: Date.now(), preview });
+          }
           if (previewCache.size > 4) {
             const oldest = previewCache.keys().next().value;
             if (oldest) {
               previewCache.delete(oldest);
             }
           }
-          setResult({ data, key });
+          setResult({ key, preview });
         }
       } catch {
         // The feed owns retry/error UI; an unavailable avatar preview stays empty.
@@ -50,5 +59,9 @@ export function useFollowingGustPreview(
       cancelled = true;
     };
   }, [apiBase, enabled, key, userId]);
-  return { data: result?.key === key ? result.data : undefined };
+  const preview = result?.key === key ? result.preview : undefined;
+  return {
+    data: preview?.data,
+    fallbackAvatars: preview?.fallbackAvatars ?? [],
+  };
 }

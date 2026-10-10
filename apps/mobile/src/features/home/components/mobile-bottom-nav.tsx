@@ -370,7 +370,15 @@ export function MobileBottomNav({
   };
 
   const openComposer = useComposerStore((state) => state.open);
-  const handleCompose = () => {
+  const openCamera = () => {
+    if (!isLoggedIn) {
+      goToLogin();
+      return;
+    }
+    haptic();
+    router.navigate("/camera");
+  };
+  const handleComposeLongPress = () => {
     if (!isLoggedIn) {
       goToLogin();
       return;
@@ -419,10 +427,13 @@ export function MobileBottomNav({
         >
           <View style={styles.side}>{LEFT_ITEMS.map(renderTab)}</View>
           <Pressable
+            accessibilityHint="Tap for camera, hold for text post"
             accessibilityLabel="Create Post"
             accessibilityRole="button"
+            delayLongPress={450}
             hitSlop={6}
-            onPress={handleCompose}
+            onLongPress={handleComposeLongPress}
+            onPress={openCamera}
             style={styles.composeWrap}
           >
             {({ pressed }) => (

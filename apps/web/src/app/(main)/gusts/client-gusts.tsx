@@ -290,10 +290,27 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     queryKey: ["following-gust-preview", user?.id ?? "guest"],
     staleTime: 60_000,
   });
-  const followingAvatars = followingGustAvatars(
+  const orderedFollowingAvatars = followingGustAvatars(
     gustTab === "following" ? posts : (followingPreview.data?.posts ?? []),
     gustTab === "following" ? activeIndex : 0
   );
+  const followingPeople = useQuery({
+    enabled:
+      isLoggedIn &&
+      orderedFollowingAvatars.length === 0 &&
+      (gustTab === "following"
+        ? data !== undefined
+        : followingPreview.isSuccess || followingPreview.isError),
+    queryFn: () =>
+      kyInstance
+        .get(`/api/users/${encodeURIComponent(user?.id ?? "")}/following-list`)
+        .json<{ avatarUrl: string | null; id: string; username: string }[]>(),
+    queryKey: ["gust-header-following-people", user?.id ?? "guest"],
+    staleTime: 60_000,
+  });
+  const followingAvatars = orderedFollowingAvatars.length
+    ? orderedFollowingAvatars
+    : (followingPeople.data?.slice(0, 3) ?? []);
   const headerShown = headerVisible && !(isCommentsOpen && isMobile);
 
   // Head-only probe: new clips collect in `newGusts` and surface as an avatar
@@ -772,7 +789,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           inert={!headerShown}
           data-gust-header
           className={cn(
-            "absolute top-3 right-2 left-16 z-30 flex min-h-11 justify-center transition-[opacity,transform] duration-200 motion-reduce:transform-none md:left-14",
+            "absolute top-3.5 right-16 left-16 z-30 flex min-h-11 justify-center transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-2.5",
             !headerShown && "pointer-events-none -translate-y-4 opacity-0"
           )}
         >

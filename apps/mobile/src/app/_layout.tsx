@@ -244,6 +244,15 @@ export default function RootLayout() {
                     }}
                   />
                   <Stack.Screen
+                    name="camera"
+                    options={{
+                      animation: "fade_from_bottom",
+                      animationDuration: 250,
+                      contentStyle: { backgroundColor: "#000000" },
+                      presentation: "fullScreenModal",
+                    }}
+                  />
+                  <Stack.Screen
                     name="users/[username]"
                     options={{ animationDuration: 200 }}
                   />

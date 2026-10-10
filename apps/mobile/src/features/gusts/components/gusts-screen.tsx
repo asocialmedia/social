@@ -202,12 +202,15 @@ export function GustsScreen() {
   const [focused, setFocused] = useState(true);
   const followingPreview = useFollowingGustPreview(
     viewerId,
-    tab !== "following" && focused
+    focused && (tab !== "following" || posts.length === 0)
   );
-  const followingAvatars = followingGustAvatars(
+  const orderedFollowingAvatars = followingGustAvatars(
     tab === "following" ? posts : (followingPreview.data?.posts ?? []),
     tab === "following" ? activeIndex : 0
   );
+  const followingAvatars = orderedFollowingAvatars.length
+    ? orderedFollowingAvatars
+    : followingPreview.fallbackAvatars;
   const headerScroll = useSharedValue({ anchor: 0, visible: true });
   const headerVisibility = useSharedValue(1);
   const headerStyle = useAnimatedStyle(() => ({
@@ -676,7 +679,6 @@ export function GustsScreen() {
               {viewerId ? (
                 <GustFeedControls
                   active={tab}
-                  apiBase={apiBase}
                   avatars={followingAvatars}
                   onChange={changeTab}
                 />
@@ -684,6 +686,7 @@ export function GustsScreen() {
                 <GustTabs active={tab} onChange={changeTab} />
               )}
             </View>
+            <View pointerEvents="none" style={styles.backBalance} />
           </Animated.View>
 
           {feed.newItems.length > 0 && !initialId ? (
@@ -729,13 +732,15 @@ export function GustsScreen() {
 }
 
 const styles = StyleSheet.create({
-  controls: { alignItems: "center", flex: 1, paddingRight: 16 },
+  backBalance: { width: 40 },
+  controls: { alignItems: "center", flex: 1 },
   header: {
     alignItems: "center",
     flexDirection: "row",
+    height: 44,
     left: 16,
     position: "absolute",
-    right: 8,
+    right: 16,
     zIndex: 30,
   },
   pillRow: {

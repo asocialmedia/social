@@ -1,4 +1,4 @@
-import { X } from "lucide-react-native";
+import { Volume2, VolumeX, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   BackHandler,
@@ -31,8 +31,18 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { eddieSheetDetent } from "../lib/eddie-sheet-detent";
+import {
+  EDDIE_MUTE_CLEARANCE,
+  eddieSheetMuteOpacity,
+} from "../lib/eddie-sheet-mute-opacity";
+import { useGustMuteStore } from "../state/gust-mute-store";
+import { RAIL_ICON_COLOR, RailButton } from "./rail-button";
 
 const SPRING = { dampingRatio: 1, duration: 280, overshootClamping: true };
+
+function dismissKeyboard() {
+  Keyboard.dismiss();
+}
 
 interface SheetProps {
   onClose: () => void;
@@ -67,6 +77,8 @@ function OpenGustEddiesSheet({
   const insets = useSafeAreaInsets();
   const panel = reelsPanel(isDark);
   const { muted } = themeText(isDark);
+  const isMuted = useGustMuteStore((state) => state.isMuted);
+  const toggleMuted = useGustMuteStore((state) => state.toggleMuted);
   const [expanded, setExpanded] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const height = Math.min(viewportHeight, keyboardTop ?? viewportHeight);
@@ -90,16 +102,23 @@ function OpenGustEddiesSheet({
     }
   );
 
-  const dismiss = () => {
-    Keyboard.dismiss();
+  const animateClose = (velocity = 0) => {
+    "worklet";
+    if (closing.get()) {
+      return;
+    }
     closing.set(true);
     position.set(
-      withSpring(viewportHeight, SPRING, (finished) => {
+      withSpring(viewportHeight, { ...SPRING, velocity }, (finished) => {
         if (finished) {
           scheduleOnRN(onClose);
         }
       })
     );
+  };
+  const dismiss = () => {
+    dismissKeyboard();
+    animateClose();
   };
   const settle = (full: boolean) => {
     setExpanded(full);
@@ -162,8 +181,8 @@ function OpenGustEddiesSheet({
         halfOffset
       );
       if (detent === "closed") {
-        closing.set(true);
-        scheduleOnRN(dismiss);
+        animateClose(event.velocityY);
+        scheduleOnRN(dismissKeyboard);
       } else {
         position.set(
           withSpring(detent === "full" ? 0 : halfOffset, {
@@ -182,76 +201,108 @@ function OpenGustEddiesSheet({
   const animated = useAnimatedStyle(() => ({
     transform: [{ translateY: position.get() }],
   }));
+  const muteStyle = useAnimatedStyle(() => {
+    const opacity = eddieSheetMuteOpacity(position.get(), viewportHeight, top);
+    return {
+      opacity,
+      pointerEvents: closing.get() || opacity === 0 ? "none" : "box-none",
+      transform: [{ translateY: position.get() }],
+    };
+  });
 
   return (
-    <Animated.View
-      accessibilityViewIsModal
-      style={[
-        styles.sheet,
-        {
-          backgroundColor: panel.background,
-          borderColor: panel.border,
-          boxShadow: panel.shadows,
-          height: sheetHeight,
-          top,
-        },
-        animated,
-      ]}
-      testID="gust-eddies-sheet"
-    >
-      <View
-        style={{
-          height: expanded ? sheetHeight : height / 2,
-          paddingBottom: keyboardTop === null ? Math.max(insets.bottom, 12) : 8,
-        }}
+    <>
+      <Animated.View
+        accessibilityElementsHidden={expanded}
+        style={[
+          styles.previewMute,
+          { top: top - EDDIE_MUTE_CLEARANCE },
+          muteStyle,
+        ]}
+        testID="gust-eddies-mute"
       >
-        <View style={styles.header}>
-          <GestureDetector gesture={pan}>
-            <Animated.View>
-              <Pressable
-                accessibilityLabel={
-                  expanded ? "Collapse eddies" : "Expand eddies"
-                }
-                accessibilityRole="button"
-                accessibilityState={{ expanded }}
-                onPress={() => settle(!expanded)}
-                style={styles.gripTouchTarget}
-              >
-                <View
-                  style={[
-                    styles.grip,
-                    {
-                      backgroundColor: isDark ? "#353638" : "#dedfe2",
-                      borderColor: isDark ? "#111112" : "#bec1c8",
-                      boxShadow: isDark
-                        ? "inset 0 1px 1px rgba(255,255,255,0.32), inset 0 -1px 1px rgba(0,0,0,0.45)"
-                        : "inset 0 1px 1px #ffffff, inset 0 -1px 1px rgba(0,0,0,0.12)",
-                    },
-                  ]}
-                />
-              </Pressable>
-            </Animated.View>
-          </GestureDetector>
-          <Pressable
-            accessibilityLabel="Close eddies"
-            accessibilityRole="button"
-            hitSlop={6}
-            onPress={dismiss}
-            style={styles.closeBtn}
-          >
-            <X color={muted} size={16} />
-          </Pressable>
-        </View>
-        <ScrollView
-          contentContainerStyle={styles.body}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          style={styles.scroll}
+        <RailButton
+          accessibilityLabel={isMuted ? "Unmute video" : "Mute video"}
+          onPress={toggleMuted}
+          size={40}
         >
-          <EddieThread postId={postId} variant="reels" viewerId={viewerId} />
-        </ScrollView>
-      </View>
-    </Animated.View>
+          {isMuted ? (
+            <VolumeX color={RAIL_ICON_COLOR} size={20} />
+          ) : (
+            <Volume2 color={RAIL_ICON_COLOR} size={20} />
+          )}
+        </RailButton>
+      </Animated.View>
+      <Animated.View
+        accessibilityViewIsModal
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: panel.background,
+            borderColor: panel.border,
+            boxShadow: panel.shadows,
+            height: sheetHeight,
+            top,
+          },
+          animated,
+        ]}
+        testID="gust-eddies-sheet"
+      >
+        <View
+          style={{
+            height: expanded ? sheetHeight : height / 2,
+            paddingBottom:
+              keyboardTop === null ? Math.max(insets.bottom, 12) : 8,
+          }}
+        >
+          <View style={styles.header}>
+            <GestureDetector gesture={pan}>
+              <Animated.View>
+                <Pressable
+                  accessibilityLabel={
+                    expanded ? "Collapse eddies" : "Expand eddies"
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded }}
+                  onPress={() => settle(!expanded)}
+                  style={styles.gripTouchTarget}
+                >
+                  <View
+                    style={[
+                      styles.grip,
+                      {
+                        backgroundColor: isDark ? "#353638" : "#dedfe2",
+                        borderColor: isDark ? "#111112" : "#bec1c8",
+                        boxShadow: isDark
+                          ? "inset 0 1px 1px rgba(255,255,255,0.32), inset 0 -1px 1px rgba(0,0,0,0.45)"
+                          : "inset 0 1px 1px #ffffff, inset 0 -1px 1px rgba(0,0,0,0.12)",
+                      },
+                    ]}
+                  />
+                </Pressable>
+              </Animated.View>
+            </GestureDetector>
+            <Pressable
+              accessibilityLabel="Close eddies"
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={dismiss}
+              style={styles.closeBtn}
+            >
+              <X color={muted} size={16} />
+            </Pressable>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.body}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            style={styles.scroll}
+          >
+            <EddieThread postId={postId} variant="reels" viewerId={viewerId} />
+          </ScrollView>
+        </View>
+      </Animated.View>
+    </>
   );
 }
 
@@ -275,6 +326,7 @@ const styles = StyleSheet.create({
     width: 88,
   },
   header: { alignItems: "center", height: 44, justifyContent: "center" },
+  previewMute: { position: "absolute", right: 16, zIndex: 60 },
   scroll: { flex: 1 },
   sheet: {
     borderTopLeftRadius: 24,

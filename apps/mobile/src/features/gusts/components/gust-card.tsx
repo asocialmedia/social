@@ -77,6 +77,7 @@ import {
   resolveProfileImageUrl,
 } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { haptic } from "@/lib/haptics";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import { gustVideo, gustVideoUrl } from "../lib/gusts-api";
@@ -92,6 +93,7 @@ import {
   useGustFollow,
   useGustVote,
 } from "../state/use-gust-actions";
+import { useGustMediaGestures } from "../state/use-gust-media-gestures";
 import { useGustPinchZoom } from "../state/use-gust-pinch-zoom";
 import { FollowButton } from "./follow-button";
 import type { AuraBurstHandle } from "./gust-overlays";
@@ -389,12 +391,11 @@ export function GustCard({
     setPulse({ icon: "play", id: Date.now() });
   };
 
-  const handleTap = (event: GestureResponderEvent) => {
+  const handleTap = (locationX: number, locationY: number) => {
     const now = Date.now();
     if (now < suppressTapUntil.current) {
       return;
     }
-    const { locationX, locationY } = event.nativeEvent;
     if (classifyTap(now, lastTapRef.current) === "double") {
       if (singleTapTimer.current) {
         clearTimeout(singleTapTimer.current);
@@ -432,15 +433,31 @@ export function GustCard({
 
   const { user } = post;
   const name = user?.displayName || user?.username || "Unknown";
-  const openAuthor = (event: GestureResponderEvent) => {
-    event.stopPropagation();
-    if (!user?.username) {
+  const authorNavigationPending = useRef(false);
+  useEffect(() => {
+    if (!suspended) {
+      authorNavigationPending.current = false;
+    }
+  }, [suspended]);
+  const openAuthorProfile = () => {
+    if (
+      !isActive ||
+      suspended ||
+      !user?.username ||
+      authorNavigationPending.current
+    ) {
       return;
     }
+    authorNavigationPending.current = true;
+    haptic("selection");
     router.push({
       params: { username: user.username },
       pathname: "/users/[username]",
     });
+  };
+  const openAuthor = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    openAuthorProfile();
   };
   const avatarUri = user?.avatarUrl
     ? resolveProfileImageUrl(user.avatarUrl, apiBase)
@@ -478,7 +495,7 @@ export function GustCard({
   const fullVideoWidth = Math.min(window.width, pageHeight * videoAspectRatio);
   const fullVideoHeight = fullVideoWidth / videoAspectRatio;
   const suppressTapUntil = useRef(0);
-  const handlePinchState = useCallback((active: boolean) => {
+  const handleMediaGestureState = useCallback((active: boolean) => {
     suppressTapUntil.current = active ? Infinity : Date.now() + DOUBLE_TAP_MS;
     if (active) {
       lastTapRef.current = null;
@@ -492,9 +509,25 @@ export function GustCard({
     enabled: isActive && !suspended && revealed && !eddiesOpen,
     mediaHeight: fullVideoHeight,
     mediaWidth: fullVideoWidth,
-    onPinchStateChange: handlePinchState,
+    onPinchStateChange: handleMediaGestureState,
     pagerGestures,
     viewportHeight: pageHeight,
+    viewportWidth: window.width,
+  });
+  const mediaGestures = useGustMediaGestures({
+    onInteractionState: handleMediaGestureState,
+    onOpenAuthor: openAuthorProfile,
+    onTap: handleTap,
+    pagerGestures,
+    pinch: zoom.pinch,
+    profileEnabled:
+      isActive &&
+      !suspended &&
+      revealed &&
+      !eddiesOpen &&
+      !transcriptOpen &&
+      Boolean(user?.username),
+    tapEnabled: isActive && !suspended && revealed,
     viewportWidth: window.width,
   });
   const videoFrame = useAnimatedStyle(() => {
@@ -578,32 +611,23 @@ export function GustCard({
           </Animated.View>
         </Animated.View>
 
-        <Pressable
-          accessibilityHint="Double tap to amplify. Pinch to zoom in or out."
-          accessibilityLabel={isPlaying ? "Pause gust" : "Play gust"}
-          onPress={handleTap}
-          style={styles.fill}
-        />
-
-        {eddiesOpen ? (
-          <RailButton
-            accessibilityLabel={isMuted ? "Unmute video" : "Mute video"}
-            onPress={toggleMuted}
-            size={40}
-            style={{
-              position: "absolute",
-              right: 16,
-              top: pageHeight / 2 - 56,
-              zIndex: 20,
+        <GestureDetector gesture={mediaGestures}>
+          <View
+            accessible
+            accessibilityActions={[
+              { label: "Toggle playback", name: "activate" },
+            ]}
+            accessibilityHint="Double tap to amplify. Pinch to zoom in or out. Swipe left to open the author's profile."
+            accessibilityLabel={isPlaying ? "Pause gust" : "Play gust"}
+            accessibilityRole="button"
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === "activate") {
+                handleTap(window.width / 2, pageHeight / 2);
+              }
             }}
-          >
-            {isMuted ? (
-              <VolumeX color={RAIL_ICON_COLOR} size={20} />
-            ) : (
-              <Volume2 color={RAIL_ICON_COLOR} size={20} />
-            )}
-          </RailButton>
-        ) : null}
+            style={styles.fill}
+          />
+        </GestureDetector>
 
         {pulse ? (
           <PlayPulse
