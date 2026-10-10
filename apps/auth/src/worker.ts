@@ -68,8 +68,10 @@ if (import.meta.main) {
     version: "1.0.0",
   });
   const logger = createLogger({ serviceName: workerServiceName });
-  const { createMessageSearchWorkerMetricSink } =
-    await import("./worker/message-search-metrics");
+  const {
+    createMessageSearchWorkerMetricSink,
+    safelyRecordMessageSearchWorkerMetric,
+  } = await import("./worker/message-search-metrics");
   const messageSearchMetrics = createMessageSearchWorkerMetricSink();
 
   const {
@@ -83,8 +85,11 @@ if (import.meta.main) {
     listRunnableMessageSearchCounts,
     listRunnableMessageSearchBackfills,
     listRunnableMessageUnreadCounters,
+    listRunnableMessageSearchOutbox,
     registerMaintenanceSchedulers,
     createBullConnection,
+    MESSAGE_SEARCH_MAX_ATTEMPTS,
+    recordMessageSearchOutboxFailure,
     NOTIFICATIONS_QUEUE,
     MESSAGE_UNREAD_COUNTER_QUEUE,
   } = await import("@asm/db");
@@ -113,12 +118,8 @@ if (import.meta.main) {
   } = await import("./worker/message-search-index");
   const { processMessageSearchCount } =
     await import("./worker/message-search-count");
-  const {
-    closeMessageSearchPool,
-    closePrisma,
-    prisma,
-    reconcileMessageUnreadCounter,
-  } = await import("@asm/db");
+  const { closeMessageSearchPool, closePrisma, reconcileMessageUnreadCounter } =
+    await import("@asm/db");
 
   const workers: QueueWorkerType[] = [];
   let viewLoopPromise: Promise<void> | undefined;
@@ -217,19 +218,12 @@ if (import.meta.main) {
         enqueueUnreadCounter: (task) =>
           enqueueMessageUnreadCounter(task.conversationId, task.userId),
         expireStaleCounts: expireStaleMessageSearchCounts,
-        listPendingOutbox: async (limit, includeBackfill) => {
-          const baseQuery = prisma.orm.public.MessageSearchOutbox.select(
-            "id",
-            "kind"
-          ).where({ completedAt: null });
-          const pendingQuery = includeBackfill
-            ? baseQuery
-            : baseQuery.where((row) => row.kind.notIn(["backfill"]));
-          return await pendingQuery
-            .orderBy((row) => row.createdAt.asc())
-            .limit(limit)
-            .all();
-        },
+        listPendingOutbox: (limit, includeBackfill) =>
+          listRunnableMessageSearchOutbox({
+            includeBackfill,
+            limit,
+            maxAttempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
+          }),
         listRunnableBackfills: listRunnableMessageSearchBackfills,
         listRunnableCounts: listRunnableMessageSearchCounts,
         listRunnableUnreadCounters: listRunnableMessageUnreadCounters,
@@ -237,41 +231,98 @@ if (import.meta.main) {
     };
 
     if (messageSearchWorkerRole.enabled) {
-      registerQueueWorker(
-        new QueueWorker(
-          "message-search-live",
-          (job) =>
-            runMessageSearchJob(() =>
-              processMessageSearchOutbox(
-                job.data.outboxId,
-                logger,
-                messageSearchMetrics
-              )
-            ),
-          { concurrency: 2, connection }
-        )
+      const recordOutboxFailure = async (outboxId: string): Promise<void> => {
+        try {
+          const attempts = await recordMessageSearchOutboxFailure(
+            outboxId,
+            MESSAGE_SEARCH_MAX_ATTEMPTS
+          );
+          if (attempts !== MESSAGE_SEARCH_MAX_ATTEMPTS) {
+            return;
+          }
+          safelyRecordMessageSearchWorkerMetric(messageSearchMetrics, {
+            durationMs: 0,
+            job: "live-index",
+            outcome: "repair",
+          });
+          logger.error(
+            { attempts, outboxId },
+            "DM search outbox item moved to the durable repair backlog"
+          );
+        } catch {
+          logger.error(
+            { outboxId },
+            "Failed to persist a DM search outbox retry"
+          );
+        }
+      };
+      const trackOutboxFailures = (worker: Worker) => {
+        worker.on("failed", (job) => {
+          const outboxId =
+            typeof job?.data?.outboxId === "string" ? job.data.outboxId : null;
+          if (!outboxId) {
+            return;
+          }
+          void recordOutboxFailure(outboxId);
+        });
+      };
+      const liveSearchWorker = new QueueWorker(
+        "message-search-live",
+        (job) =>
+          runMessageSearchJob(() =>
+            processMessageSearchOutbox(
+              job.data.outboxId,
+              logger,
+              messageSearchMetrics
+            )
+          ),
+        { concurrency: 2, connection }
       );
+      trackOutboxFailures(liveSearchWorker);
+      registerQueueWorker(liveSearchWorker);
       if (messageSearchFeatures.backfill) {
-        registerQueueWorker(
-          new QueueWorker(
-            "message-search-backfill",
-            (job) =>
-              runMessageSearchJob(async () => {
-                const result = await processMessageSearchBackfill(
-                  job.data.conversationId,
+        const backfillSearchWorker = new QueueWorker(
+          "message-search-backfill",
+          (job) =>
+            runMessageSearchJob(async () => {
+              if (job.name === "index-message-outbox") {
+                const outboxId =
+                  typeof job.data.outboxId === "string"
+                    ? job.data.outboxId
+                    : null;
+                if (!outboxId) {
+                  throw new Error("Invalid DM search outbox job payload");
+                }
+                await processMessageSearchOutbox(
+                  outboxId,
                   logger,
                   messageSearchMetrics
                 );
-                if (result.nextCursorMessageId) {
-                  await enqueueMessageSearchBackfill(
-                    job.data.conversationId,
-                    result.nextCursorMessageId
-                  );
-                }
-              }),
-            { concurrency: 1, connection }
-          )
+                return;
+              }
+              const conversationId =
+                typeof job.data.conversationId === "string"
+                  ? job.data.conversationId
+                  : null;
+              if (!conversationId) {
+                throw new Error("Invalid DM search backfill job payload");
+              }
+              const result = await processMessageSearchBackfill(
+                conversationId,
+                logger,
+                messageSearchMetrics
+              );
+              if (result.nextCursorMessageId) {
+                await enqueueMessageSearchBackfill(
+                  conversationId,
+                  result.nextCursorMessageId
+                );
+              }
+            }),
+          { concurrency: 1, connection }
         );
+        trackOutboxFailures(backfillSearchWorker);
+        registerQueueWorker(backfillSearchWorker);
       }
       if (messageSearchFeatures.counts) {
         registerQueueWorker(

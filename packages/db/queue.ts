@@ -73,6 +73,7 @@ export const MESSAGE_SEARCH_LIVE_QUEUE = "message-search-live";
 export const MESSAGE_SEARCH_BACKFILL_QUEUE = "message-search-backfill";
 export const MESSAGE_SEARCH_COUNT_QUEUE = "message-search-count";
 export const MESSAGE_UNREAD_COUNTER_QUEUE = "message-unread-counter";
+export const MESSAGE_SEARCH_MAX_ATTEMPTS = 8;
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -447,7 +448,7 @@ export async function enqueueMessageSearchOutbox(
     `dm-search-${outboxId}`,
     { outboxId },
     {
-      attempts: 8,
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
       backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
       removeOnComplete: 1000,
       removeOnFail: 5000,
@@ -464,7 +465,7 @@ export async function enqueueMessageSearchBackfillOutbox(
     `dm-search-backfill-${outboxId}`,
     { outboxId },
     {
-      attempts: 8,
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
       backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
       removeOnComplete: 1000,
       removeOnFail: 5000,
@@ -482,7 +483,7 @@ export async function enqueueMessageSearchBackfill(
     `dm-search-backfill-${conversationId}-${cursorKey}`,
     { conversationId },
     {
-      attempts: 8,
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
       backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
       removeOnComplete: 1000,
       removeOnFail: 5000,
@@ -499,7 +500,7 @@ export async function enqueueMessageSearchCount(
     `dm-search-count-${requestId}`,
     { requestId },
     {
-      attempts: 8,
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
       backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
       priority: 20,
       removeOnComplete: 1000,

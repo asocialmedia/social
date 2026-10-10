@@ -76,6 +76,22 @@ describe("createMessageSearchWorkerMetricSink", () => {
       { attributes: { job: "backfill" }, value: 80 },
     ]);
   });
+
+  test("counts durable repair transitions separately from transient retries", () => {
+    const harness = createMetricHarness();
+    const sink = messageSearchWorkerMetrics.createMessageSearchWorkerMetricSink(
+      () => harness.meter
+    );
+    sink.record({
+      durationMs: 0,
+      job: "live-index",
+      outcome: "repair",
+    });
+
+    expect(harness.counters.get("messages.search.worker.jobs")).toEqual([
+      { attributes: { job: "live-index", outcome: "repair" }, value: 1 },
+    ]);
+  });
 });
 
 describe("safelyRecordMessageSearchWorkerMetric", () => {

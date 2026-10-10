@@ -7,7 +7,8 @@ export type MessageSearchWorkerOutcome =
   | "retry"
   | "skipped"
   | "superseded"
-  | "unreadable";
+  | "unreadable"
+  | "repair";
 
 export interface MessageSearchWorkerMetricEvent {
   durationMs: number;

@@ -1997,6 +1997,54 @@ export async function persistSearchDocument(
   }
 }
 
+export async function listRunnableMessageSearchOutbox(input: {
+  includeBackfill: boolean;
+  limit: number;
+  maxAttempts: number;
+}): Promise<{ id: string; kind: string }[]> {
+  const limit = Math.min(
+    Math.max(Number.isFinite(input.limit) ? Math.trunc(input.limit) : 1, 1),
+    100
+  );
+  const maxAttempts = Math.max(
+    Number.isFinite(input.maxAttempts) ? Math.trunc(input.maxAttempts) : 1,
+    1
+  );
+  const result = await getSearchPool().query<{ id: string; kind: string }>(
+    `SELECT id, kind
+       FROM public.message_search_outbox
+      WHERE "completedAt" IS NULL
+        AND attempts < $1
+        AND ($2::boolean OR kind <> 'backfill')
+      ORDER BY "createdAt" ASC
+      LIMIT $3`,
+    [maxAttempts, input.includeBackfill, limit]
+  );
+  return result.rows;
+}
+
+export async function recordMessageSearchOutboxFailure(
+  outboxId: string,
+  maxAttempts: number
+): Promise<number | null> {
+  const cappedAttempts = Math.max(Math.trunc(maxAttempts), 1);
+  const client = await getSearchPool().connect();
+  try {
+    const result = await client.query<{ attempts: number }>(
+      `UPDATE public.message_search_outbox
+          SET attempts = attempts + 1
+        WHERE id = $1
+          AND "completedAt" IS NULL
+          AND attempts < $2
+        RETURNING attempts`,
+      [outboxId, cappedAttempts]
+    );
+    return result.rows[0]?.attempts ?? null;
+  } finally {
+    client.release();
+  }
+}
+
 export async function startMessageSearchBackfill(
   conversationId: string
 ): Promise<{

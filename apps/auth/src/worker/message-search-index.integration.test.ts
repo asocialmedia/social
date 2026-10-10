@@ -7,11 +7,14 @@ import {
   countMessageSearchCandidates,
   hydrateSearchMessageCandidates,
   keys,
+  listRunnableMessageSearchOutbox,
   listMessageSearchReferences,
   persistSearchDocument,
   prisma,
+  recordMessageSearchOutboxFailure,
   readMessageSearchViewerEpochCoverage,
   searchMessageCandidates,
+  toPrismaDateTime,
 } from "@asm/db";
 import {
   KDF_ITERATIONS,
@@ -521,6 +524,57 @@ describe("authenticated viewer epoch indexing", () => {
       }).all()
     ).toEqual([]);
     expect(await searchIds(ownerId)).toEqual([messageId]);
+  });
+
+  test("caps failing outbox retries and keeps later work runnable", async () => {
+    const repairIds = Array.from({ length: 100 }, () => crypto.randomUUID());
+    await prisma.orm.public.MessageSearchOutbox.createAll(
+      repairIds.map((id, index) => ({
+        attempts: 8,
+        changeSequence: 1,
+        conversationId,
+        createdAt: toPrismaDateTime(
+          new Date(Date.UTC(2020, 0, 1, 0, 0, index))
+        ),
+        id,
+        kind: "upsert",
+        messageId,
+        revision: 1,
+      }))
+    );
+    const runnableId = crypto.randomUUID();
+    await prisma.orm.public.MessageSearchOutbox.create({
+      changeSequence: 1,
+      conversationId,
+      createdAt: toPrismaDateTime(new Date("2026-10-10T00:00:00.000Z")),
+      id: runnableId,
+      kind: "upsert",
+      messageId,
+      revision: 1,
+    });
+
+    const runnable = await listRunnableMessageSearchOutbox({
+      includeBackfill: true,
+      limit: 100,
+      maxAttempts: 8,
+    });
+    expect(runnable.map((row) => row.id)).toContain(runnableId);
+    expect(runnable.map((row) => row.id)).not.toContain(repairIds[0]);
+
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        recordMessageSearchOutboxFailure(runnableId, 8)
+      )
+    );
+    expect(
+      attempts.toSorted((left, right) => (left ?? 0) - (right ?? 0))
+    ).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(await recordMessageSearchOutboxFailure(runnableId, 8)).toBeNull();
+    expect(
+      await prisma.orm.public.MessageSearchOutbox.where({ id: runnableId })
+        .select("attempts", "completedAt")
+        .first()
+    ).toEqual({ attempts: 8, completedAt: null });
   });
 
   test("removing the resetting member's wraps leaves the peer's old epoch searchable", async () => {
