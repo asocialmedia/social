@@ -32,6 +32,22 @@ function makeRequest(
 }
 
 describe("proxy middleware", () => {
+  test("permits same-origin camera capture after client navigation from Home", async () => {
+    const responses = await Promise.all(
+      ["/", "/camera"].map((pathname) =>
+        proxy(
+          makeRequest(`http://localhost:3000${pathname}`, {
+            host: "localhost:3000",
+          })
+        )
+      )
+    );
+    for (const response of responses) {
+      expect(response.headers.get("permissions-policy")).toBe(
+        "camera=(self), microphone=(self), geolocation=()"
+      );
+    }
+  });
   test("does not redirect loopback requests even with x-forwarded-proto http", async () => {
     const originalEnv = process.env.NODE_ENV;
     try {

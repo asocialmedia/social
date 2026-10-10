@@ -399,9 +399,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   stackBadge: {
-    bottom: -4,
     position: "absolute",
     right: -4,
+    top: 36,
+    zIndex: 999,
   },
   stackItem: {
     position: "absolute",

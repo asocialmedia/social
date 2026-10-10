@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type { FeedPost } from "../lib/feed-types";
 import {
   FeedCache,
+  reconcileFeedHead,
+  feedFetchStatus,
   clearFeedTopRequest,
   consumeFeedTop,
   flattenUniquePosts,
@@ -412,4 +414,32 @@ test("next-day launch paints stale disk rows with their original age until refre
     restoreFeedCache({ future: { ...saved, fetchedAt: Date.now() + 60_000 } })
   ).toBe(0);
   feedCache.clear();
+});
+
+test("silent startup revalidation updates counts and retains deep feed history", () => {
+  const old = post("old");
+  const updated = { ...old, _count: { ...old._count, vote: 9 } };
+  const cache = new FeedCache();
+  cache.applyPage("feed", [old], "older-page", {}, false);
+  cache.applyPage("feed", [post("deep")], "next-page", {}, true);
+  cache.patch("feed", {
+    pages: reconcileFeedHead(cache.get("feed").pages, [
+      post("arrival"),
+      updated,
+    ]),
+    status: "success",
+  });
+  expect(
+    flattenUniquePosts(cache.get("feed").pages).map((item) => item.id)
+  ).toEqual(["arrival", "old", "deep"]);
+  expect(flattenUniquePosts(cache.get("feed").pages)[1]?._count?.vote).toBe(9);
+  expect(cache.get("feed").cursor).toBe("next-page");
+  expect(cache.get("feed").status).toBe("success");
+});
+
+test("only an explicit pull refresh drives the refresh indicator", () => {
+  expect(feedFetchStatus("replace", true, false)).toBe("success");
+  expect(feedFetchStatus("replace", true, true)).toBe("refreshing");
+  expect(feedFetchStatus("replace", false, false)).toBe("loading");
+  expect(feedFetchStatus("append", true, false)).toBe("loading-more");
 });

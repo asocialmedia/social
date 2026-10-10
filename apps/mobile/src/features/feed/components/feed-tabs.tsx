@@ -5,6 +5,7 @@
 // (h-1 w-6 rounded-full, orange gradient), labels are inactive-muted and
 // active semibold-ink.
 import { LinearGradient } from "expo-linear-gradient";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -41,6 +42,8 @@ interface FeedTabsProps<T extends string = HomeTab> {
   fill?: boolean;
   onChange: (tab: T) => void;
   scrollable?: boolean;
+  renderLabel?: (tab: FeedTabDef<T>, selected: boolean) => ReactNode;
+  onPressActive?: boolean;
   tabs?: readonly FeedTabDef<T>[];
 }
 
@@ -54,6 +57,8 @@ export function FeedTabs<T extends string = HomeTab>({
   fill = false,
   onChange,
   scrollable = false,
+  renderLabel,
+  onPressActive = false,
   tabs = HOME_TAB_DEFS as unknown as readonly FeedTabDef<T>[],
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
@@ -122,7 +127,7 @@ export function FeedTabs<T extends string = HomeTab>({
               );
             }}
             onPress={() => {
-              if (!selected) {
+              if (!selected || onPressActive) {
                 haptic();
                 onChange(tab.value);
               }
@@ -133,17 +138,21 @@ export function FeedTabs<T extends string = HomeTab>({
               fill ? styles.triggerFill : null,
             ]}
           >
-            <Text
-              style={[
-                styles.label,
-                {
-                  color: selected ? theme.inputText : theme.dividerText,
-                  fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
-                },
-              ]}
-            >
-              {tab.label}
-            </Text>
+            {renderLabel ? (
+              renderLabel(tab, selected)
+            ) : (
+              <Text
+                style={[
+                  styles.label,
+                  {
+                    color: selected ? theme.inputText : theme.dividerText,
+                    fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
+                  },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            )}
           </Pressable>
         );
       })}

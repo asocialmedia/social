@@ -40,6 +40,7 @@ describe("tabs", () => {
   });
 
   test("parses only known tabs", () => {
+    expect(parseGustTab("following")).toBe("following");
     expect(parseGustTab("latest")).toBe("latest");
     expect(parseGustTab("personalized")).toBe("personalized");
     expect(parseGustTab("trending")).toBeNull();
@@ -198,4 +199,41 @@ test("gust share links use the full id on /gusts", () => {
   expect(gustShareUrl("https://asocial.media/", "abc-123")).toBe(
     "https://asocial.media/gusts?id=abc-123"
   );
+});
+
+test("Following uses its own feed mode and leaves deep links chronological", () => {
+  expect(buildGustsPath({ following: true, personalized: false })).toBe(
+    "/api/gusts?mode=following&excludeModerated=1"
+  );
+  expect(
+    buildGustsPath({ following: true, initialId: "lead", personalized: false })
+  ).toBe("/api/gusts?initialId=lead&excludeModerated=1");
+});
+
+test("an older server cannot silently serve global Gusts as Following", async () => {
+  const unsupported = mock(() =>
+    Promise.resolve(Response.json({ posts: [gust("unrelated")] }))
+  );
+  await expect(
+    fetchGustsPage(
+      { following: true, personalized: false },
+      {
+        apiBase: "",
+        baseFetch: unsupported as unknown as typeof fetch,
+      }
+    )
+  ).rejects.toThrow("Following Gusts requires the updated web service.");
+  const supported = mock(() =>
+    Promise.resolve(
+      Response.json({ mode: "following", posts: [gust("followed")] })
+    )
+  );
+  const page = await fetchGustsPage(
+    { following: true, personalized: false },
+    {
+      apiBase: "",
+      baseFetch: supported as unknown as typeof fetch,
+    }
+  );
+  expect(page.posts[0]?.id).toBe("followed");
 });

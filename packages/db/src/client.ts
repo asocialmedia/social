@@ -86,6 +86,26 @@ export function getUserDataQuery(orm: PrismaOrm, loggedInUserId: string) {
   return getPublicUserQuery(orm, loggedInUserId);
 }
 
+// Profile counts are totals, not the viewer-filtered follow relation above.
+export async function getUserProfileCounts(orm: PrismaOrm, userId: string) {
+  const [followers, following, posts] = await Promise.all([
+    orm.public.Follows.where({ followingId: userId }).aggregate(
+      (aggregate) => ({ count: aggregate.count() })
+    ),
+    orm.public.Follows.where({ followerId: userId }).aggregate((aggregate) => ({
+      count: aggregate.count(),
+    })),
+    orm.public.Posts.where({ userId }).aggregate((aggregate) => ({
+      count: aggregate.count(),
+    })),
+  ]);
+  return {
+    followers: followers.count,
+    following: following.count,
+    posts: posts.count,
+  };
+}
+
 export function getPrivateUserQuery(orm: PrismaOrm, loggedInUserId: string) {
   return orm.public.Users.select(
     "aura",
@@ -359,6 +379,17 @@ export function mapPostData(post: PostQueryData): PostData {
     user: mapUserData(user),
     vote: votes,
   };
+}
+
+export interface GustFollowingSource {
+  avatarUrl: string | null;
+  id: string;
+  username: string;
+}
+
+export interface GustsPage {
+  nextCursor: string | null;
+  posts: (PostData & { followingSources?: GustFollowingSource[] })[];
 }
 
 export interface PostsPage {

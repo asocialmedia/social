@@ -229,6 +229,7 @@ export function unlinkProvider(
 // --- Security ----------------------------------------------------------------
 
 export interface SecuritySession {
+  city?: string | null;
   country: string | null;
   createdAt: string;
   current: boolean;
@@ -257,6 +258,7 @@ export function parseSecuritySessions(payload: unknown): SecuritySession[] {
     }
     return [
       {
+        city: textOf(body.city),
         country: textOf(body.country),
         createdAt: textOf(body.createdAt) ?? "",
         current: boolOf(body.current),

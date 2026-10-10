@@ -18,6 +18,7 @@ import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FollowingFeed from "@/components/home/feedview/following";
 import HomeFeed from "@/components/home/home-feed";
+import { HomeFeedControls } from "@/components/home/home-feed-controls";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
@@ -132,7 +133,12 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
               <MobileTopBar />
             </CollapsibleTopBar>
             <div className="border-border/60 relative flex items-center border-b py-1.5">
-              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+              <HomeFeedControls
+                active={tab}
+                onChange={handleTabChange}
+                userId={user?.id}
+              />
+              <TabsList className="hidden h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:flex md:justify-start">
                 <AnimatedTabTrigger
                   active={tab === "personalized"}
                   layoutId="home-tab-indicator"

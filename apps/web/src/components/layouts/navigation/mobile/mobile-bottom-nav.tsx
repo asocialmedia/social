@@ -10,8 +10,9 @@ import {
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link, { useLinkStatus } from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
+import { useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
@@ -88,7 +89,10 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
   hidden: hiddenOverride,
 }) => {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const holdTimer = useRef<number | null>(null);
+  const holdFired = useRef(false);
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
@@ -165,7 +169,30 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
       goToLogin();
       return;
     }
-    openComposer();
+    // Tap opens the camera, hold opens the text composer directly.
+    router.push("/camera");
+  };
+
+  const handleComposeDown = () => {
+    holdFired.current = false;
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current);
+    }
+    holdTimer.current = window.setTimeout(() => {
+      holdFired.current = true;
+      if (!isLoggedIn) {
+        goToLogin();
+        return;
+      }
+      openComposer();
+    }, 450);
+  };
+
+  const clearComposeHold = () => {
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
   };
 
   return (
@@ -198,7 +225,19 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
           <button
             aria-label="Create Post"
             className="follow-btn-3d -my-1.5 flex size-13 shrink-0 items-center justify-center"
-            onClick={handleCompose}
+            onClick={() => {
+              // Suppress the click that follows a hold-to-compose gesture.
+              if (holdFired.current) {
+                holdFired.current = false;
+                return;
+              }
+              handleCompose();
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            onPointerDown={handleComposeDown}
+            onPointerLeave={clearComposeHold}
+            onPointerUp={clearComposeHold}
+            title="Tap for camera, hold for text post"
             type="button"
           >
             <FilledPlus className="size-6" />

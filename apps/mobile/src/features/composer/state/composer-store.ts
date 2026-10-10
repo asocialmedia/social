@@ -38,6 +38,8 @@ export interface HnShareDraft {
 }
 
 export interface ComposerDraft {
+  gustMentions?: MentionPick[];
+  gustTags?: string[];
   // Set when the composer was opened by "Share to feed". The publish carries
   // communitySharePostId so the server records the share side row, and a pure
   // reshare is allowed to have no caption of its own.

@@ -125,7 +125,7 @@ export function InlineSuggestions({
         accessibilityLabel={`Mention @${user.username}`}
         accessibilityRole="button"
         key={user.id}
-        onPress={() => onPickUser({ id: user.id, username: user.username })}
+        onPress={() => onPickUser(user)}
         style={({ pressed }) => [
           styles.row,
           pressed && { backgroundColor: "rgba(246, 107, 21, 0.1)" },

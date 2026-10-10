@@ -20,7 +20,15 @@
 // wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
 // is retried once silently instead of surfaced as an error.
 
-import { ArrowLeft, Search, ShieldCheck, Users, X } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
+import {
+  ArrowLeft,
+  Copy,
+  ListChecks,
+  Reply,
+  Search,
+  X,
+} from "lucide-react-native";
 import {
   useCallback,
   useEffect,
@@ -30,16 +38,19 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  Alert,
+  BackHandler,
+  Dimensions,
   FlatList,
   useWindowDimensions,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
   View,
   Pressable,
 } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Animated, { createAnimatedComponent } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -47,8 +58,8 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { UserBadge } from "@/features/home/components/user-badge";
 import {
-  MessagesApiError,
   ackMessageDelivered,
   ensureConversationKeys,
   fetchConversationDetail,
@@ -58,11 +69,7 @@ import {
   sendTypingIndicator,
 } from "@/features/messages/lib/client";
 import { resolveConversationTheme } from "@/features/messages/lib/conversation-theme";
-import {
-  derivePublicKeyFromPrivate,
-  generateFingerprint,
-  getMediaImages,
-} from "@/features/messages/lib/crypto";
+import { getMediaImages } from "@/features/messages/lib/crypto";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type {
@@ -74,7 +81,7 @@ import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { buildTranscriptRows } from "@/features/messages/lib/transcript-rows";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
-import type { MessageData } from "@/features/messages/lib/types";
+import type { MessageData, MessageSender } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
@@ -83,10 +90,13 @@ import {
   unreadBoundaryId,
 } from "@/features/messages/state/transcript-store";
 import { unreadMessageStore } from "@/features/messages/state/unread-message-store";
+import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
+import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -96,11 +106,13 @@ import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
-import { MessagePeoplePanel } from "./message-people-panel";
+import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
+import { SelectableMessageRow } from "./selectable-message-row";
 import { TypingDots } from "./typing-dots";
+import { useTranscriptGestures } from "./use-transcript-gestures";
 
 // The widest a bubble may be. On web this is a percentage of the transcript; here
 // it is a point value the screen passes in, because a phone's width is the thing
@@ -108,6 +120,10 @@ import { TypingDots } from "./typing-dots";
 
 // A row that is no longer in the loaded window (a stale index during a trim)
 // renders as a self-contained group rather than throwing.
+const AnimatedTranscriptList = createAnimatedComponent(
+  FlatList<TranscriptItem>
+);
+
 const SELF_GROUP = {
   isFirstInGroup: true,
   isLastInGroup: true,
@@ -124,6 +140,48 @@ export function MessageThreadScreen({
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const viewportRef = useRef<View>(null);
+  const [viewportBottom, setViewportBottom] = useState(
+    () => Dimensions.get("window").height
+  );
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const restingBottomInset = useRef(insets.bottom);
+  const measureViewport = useCallback(() => {
+    viewportRef.current?.measureInWindow((_x, y, _width, height) => {
+      setViewportBottom(y + height);
+    });
+  }, []);
+  useEffect(() => {
+    if (keyboardTop === null) {
+      restingBottomInset.current = insets.bottom;
+    }
+  }, [insets.bottom, keyboardTop]);
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (event) => {
+      Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardTop(
+        keyboardScreenTop({
+          bottomInset: restingBottomInset.current,
+          height: event.endCoordinates.height,
+          platform: Platform.OS,
+          screenHeight: Dimensions.get("screen").height,
+          screenY: event.endCoordinates.screenY,
+        })
+      );
+    });
+    const hide = Keyboard.addListener(hideEvent, (event) => {
+      Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardTop(null);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const { user } = useSessionContext();
   const { runWithInstallToken } = useInstall();
   const {
@@ -137,12 +195,17 @@ export function MessageThreadScreen({
   } = useMessagesIdentity();
   const userId = user?.id ?? null;
   const transcript = useTranscript(conversationId);
+  const presence = useMessagePresence();
 
-  const [peer, setPeer] = useState<{
-    avatarUrl: string | null;
-    displayName: string;
-    publicKey: string | null;
-  } | null>(null);
+  const [peer, setPeer] = useState<
+    | ({
+        avatarUrl: string | null;
+        displayName: string;
+        id: string | null;
+        username: string | null;
+      } & Pick<MessageSender, "badge" | "badges" | "communityMemberships">)
+    | null
+  >(null);
   const [themeKey, setThemeKey] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
   const [editing, setEditing] = useState<ComposerTarget | null>(null);
@@ -154,7 +217,6 @@ export function MessageThreadScreen({
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [readyKey, setReadyKey] = useState<typeof privateKey>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [friendsOpen, setFriendsOpen] = useState(false);
   const [keySignature, setKeySignature] = useState("");
   const healedSignature = useRef<string | null>(null);
   const chatTheme = useMemo(
@@ -169,6 +231,9 @@ export function MessageThreadScreen({
   const cachedPeer = conversationListStore
     .getSnapshot()
     .rows.find((row) => row.conversation.id === conversationId);
+  const cachedPeerUser = cachedPeer?.conversation.members.find(
+    (member) => member.userId === cachedPeer.peerId
+  )?.user;
 
   const apiOptions = useCallback(async (): Promise<ApiCallOptions> => {
     const cookie = await authClient.getCookie();
@@ -203,9 +268,13 @@ export function MessageThreadScreen({
         setDetailError(false);
         setPeer({
           avatarUrl: peerMember?.user.avatarUrl ?? null,
+          badge: peerMember?.user.badge ?? null,
+          badges: peerMember?.user.badges ?? [],
+          communityMemberships: peerMember?.user.communityMemberships ?? [],
           displayName:
             peerMember?.user.displayName || peerMember?.user.username || "Chat",
-          publicKey: peerMember?.user.messageIdentity?.publicKey ?? null,
+          id: peerMember?.userId ?? null,
+          username: peerMember?.user.username ?? null,
         });
         setThemeKey(mine?.themeKey ?? null);
         setKeySignature(
@@ -360,7 +429,7 @@ export function MessageThreadScreen({
   const send = useCallback(
     async (payload: MessagePayload) => {
       if (!privateKey || !userId) {
-        return;
+        throw new Error("Message keys aren’t ready yet. Please retry shortly.");
       }
       const options = await apiOptions();
       const keys = await getBaseKeys(conversationId);
@@ -376,53 +445,37 @@ export function MessageThreadScreen({
       }
       // The newest epoch is where new messages belong, and the ratchet index counts
       // what this sender has already sent in it.
-      const baseIndex = transcriptStore
-        .getSnapshot(conversationId)
-        .messages.filter((row) => row.senderId === userId).length;
-
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          // oxlint-disable-next-line no-await-in-loop -- an ordered retry against the server's own index; the second attempt must not run unless the first 409'd
-          const sent = await sendEncryptedMessage(
-            conversationId,
-            rootKey,
-            userId,
-            baseIndex + attempt,
-            payload,
-            options
-          );
-          transcriptStore.appendMessage(conversationId, sent);
-          return;
-        } catch (error) {
-          if (
-            error instanceof MessagesApiError &&
-            error.status === 409 &&
-            typeof error.expectedIndex === "number"
-          ) {
-            logWarn("ratchet index retry", { step: "send" });
-            continue;
-          }
-          throw error;
+      let baseIndex = 0;
+      for (const row of transcriptStore.getSnapshot(conversationId).messages) {
+        if (row.senderId === userId) {
+          baseIndex = Math.max(baseIndex, row.ratchetIndex + 1);
         }
       }
+      const sent = await sendEncryptedMessage(
+        conversationId,
+        rootKey,
+        userId,
+        baseIndex,
+        payload,
+        options
+      );
+      transcriptStore.appendMessage(conversationId, sent);
     },
     [apiOptions, conversationId, getBaseKeys, privateKey, userId]
   );
 
   const handleSend = useCallback(
     async (payload: MessagePayload) => {
-      // runWithInstallToken resolves null when the user dismisses the Turnstile
-      // gate, so its result is not the send's result: the draft stays in the
-      // composer either way, and a real failure has already been logged in `send`.
-      await runWithInstallToken(
+      const acknowledged = await runWithInstallToken(
         async () => {
           await send(payload);
           return true;
         },
-        // The send reports nothing for a stale install token, so the answer is
-        // whatever the inner call returned: true means it landed.
         () => false
       );
+      if (!acknowledged) {
+        throw new Error("Message wasn’t sent. Your draft has been kept.");
+      }
     },
     [runWithInstallToken, send]
   );
@@ -538,32 +591,97 @@ export function MessageThreadScreen({
     [conversationId, getBaseKeys]
   );
 
-  const peerPublicKey = peer?.publicKey ?? null;
-  const fingerprint = useMemo(() => {
-    if (!privateKey || !peerPublicKey) {
-      return null;
-    }
-    return generateFingerprint(
-      derivePublicKeyFromPrivate(privateKey),
-      peerPublicKey
-    );
-  }, [privateKey, peerPublicKey]);
-
   const handleLoadOlder = useCallback(() => {
     transcript.loadOlder();
   }, [transcript]);
 
-  const threadListRef = useRef<FlatList<TranscriptItem>>(null);
-  const scrollToSearchIndex = useCallback((index: number) => {
-    threadListRef.current?.scrollToIndex({
-      animated: false,
-      index,
-      viewPosition: 0.5,
+  const handleReply = useCallback(
+    (id: string) => {
+      const message = transcriptStore
+        .getSnapshot(conversationId)
+        .messages.find((row) => row.id === id);
+      const payload = messageDecryptor.get(id);
+      if (!message || message.deletedAt || !isPayload(payload)) {
+        return;
+      }
+      setEditing(null);
+      setReplyTo({
+        id,
+        senderId: message.senderId,
+        text: messageSummary(payload),
+      });
+      haptic();
+    },
+    [conversationId]
+  );
+  const onLiveEndChange = useCallback(
+    (atLatest: boolean) => {
+      if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
+        scheduleRead();
+      }
+      atLiveEnd.current = atLatest;
+    },
+    [foreground, scheduleRead, searchOpen]
+  );
+  const {
+    CellRenderer,
+    clearSelection,
+    gesture,
+    listRef: threadListRef,
+    handleViewportLayout,
+    nativeScroll,
+    handleContentSizeChange,
+    handleScroll,
+    handleSelectAll,
+    selectedIds,
+    swipeId,
+    swipeX,
+    toggleSelected,
+    viewportRef: transcriptViewportRef,
+  } = useTranscriptGestures({
+    messages,
+    onLiveEndChange,
+    onReply: handleReply,
+  });
+  const selectionActive = selectedIds.size > 0;
+  useEffect(() => {
+    if (!selectionActive) {
+      return;
+    }
+    const listener = BackHandler.addEventListener("hardwareBackPress", () => {
+      clearSelection();
+      return true;
     });
-  }, []);
-  const scrollToSearchOffset = useCallback((offset: number) => {
-    threadListRef.current?.scrollToOffset({ animated: false, offset });
-  }, []);
+    return () => listener.remove();
+  }, [clearSelection, selectionActive]);
+  const copySelected = useCallback(() => {
+    const text = messages
+      .filter((message) => selectedIds.has(message.id) && !message.deletedAt)
+      .map((message) => messageDecryptor.get(message.id))
+      .filter(isPayload)
+      .map(messageSummary)
+      .join("\n");
+    if (text) {
+      void Clipboard.setStringAsync(text);
+      haptic();
+    }
+  }, [messages, selectedIds]);
+  const scrollToSearchIndex = useCallback(
+    (index: number) => {
+      threadListRef.current?.scrollToIndex({
+        animated: false,
+        index,
+        viewPosition: 0.5,
+      });
+    },
+    [threadListRef]
+  );
+  const scrollToSearchOffset = useCallback(
+    (offset: number) => {
+      threadListRef.current?.scrollToOffset({ animated: false, offset });
+    },
+    [threadListRef]
+  );
   const search = useMessageSearch({
     decrypted,
     foreground,
@@ -603,28 +721,61 @@ export function MessageThreadScreen({
       const { message } = item;
       const mine = message.senderId === userId;
       const entry = decrypted.get(message.id);
+      const replyId = isPayload(entry) ? entry.replyToId : undefined;
+      const quoted = replyId ? decrypted.get(replyId) : undefined;
+      const quotedMessage = replyId
+        ? messages.find((row) => row.id === replyId)
+        : undefined;
+      let quoteText = "Message";
+      if (quotedMessage?.deletedAt) {
+        quoteText = "Message deleted";
+      } else if (isPayload(quoted)) {
+        quoteText = messageSummary(quoted);
+      }
       const receipt = getMessageReceipt({
         createdAt: message.createdAt,
         mine,
         watermarks: transcript.snapshot.peerWatermarks,
       });
       return (
-        <MessageBubble
-          searchJump={search.activeId === message.id ? search.jump : 0}
-          deleted={Boolean(message.deletedAt)}
-          edited={Boolean(message.editedAt)}
-          failed={entry === "error"}
-          group={groupMetaFor(message.id)}
-          maxBubbleWidth={width - 32}
+        <SelectableMessageRow
+          id={message.id}
           mine={mine}
-          onPressImage={(index) => openViewer(message, entry, index)}
-          onRetry={() => retryRow(message)}
-          payload={isPayload(entry) ? entry : null}
-          peerAvatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
-          receipt={receipt}
-          showReceipt={groupMetaFor(message.id).isLastInGroup}
-          theme={chatTheme}
-        />
+          selected={selectedIds.has(message.id)}
+          selectionActive={selectionActive}
+          onToggle={toggleSelected}
+          swipeId={swipeId}
+          swipeX={swipeX}
+        >
+          <MessageBubble
+            searchJump={search.activeId === message.id ? search.jump : 0}
+            deleted={Boolean(message.deletedAt)}
+            edited={Boolean(message.editedAt)}
+            failed={entry === "error"}
+            group={groupMetaFor(message.id)}
+            maxBubbleWidth={width - 32}
+            mine={mine}
+            onPressImage={(index) =>
+              selectionActive
+                ? toggleSelected(message.id)
+                : openViewer(message, entry, index)
+            }
+            onRetry={() => retryRow(message)}
+            payload={isPayload(entry) ? entry : null}
+            peerAvatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+            receipt={receipt}
+            replyPreview={
+              replyId
+                ? {
+                    senderId: quotedMessage?.senderId ?? "",
+                    text: quoteText,
+                  }
+                : null
+            }
+            showReceipt={groupMetaFor(message.id).isLastInGroup}
+            theme={chatTheme}
+          />
+        </SelectableMessageRow>
       );
     },
     [
@@ -641,6 +792,12 @@ export function MessageThreadScreen({
       theme.dividerText,
       transcript.snapshot.peerWatermarks,
       userId,
+      selectedIds,
+      selectionActive,
+      toggleSelected,
+      swipeId,
+      swipeX,
+      messages,
     ]
   );
 
@@ -654,41 +811,90 @@ export function MessageThreadScreen({
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top}
+    <View
+      ref={viewportRef}
+      onLayout={measureViewport}
       style={[
         styles.root,
         {
           backgroundColor: theme.containerBg,
+          paddingBottom: keyboardOverlap(viewportBottom, keyboardTop),
           paddingLeft: insets.left,
           paddingRight: insets.right,
           paddingTop: insets.top,
         },
       ]}
     >
-      <ThreadHeader
-        avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
-        displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
-        fingerprint={fingerprint}
-        onBack={onBack}
-        onSearch={() => {
-          if (searchOpen) {
-            search.handleClose();
-          } else {
-            setSearchOpen(true);
+      {selectionActive ? (
+        <View style={[styles.header, { borderBottomColor: theme.dividerLine }]}>
+          <MessagesIconButton
+            icon={X}
+            label="Cancel selection"
+            onPress={clearSelection}
+            size={32}
+          />
+          <Text
+            style={[
+              styles.headerName,
+              styles.selectionCount,
+              { color: theme.dividerText },
+            ]}
+          >
+            {selectedIds.size} selected
+          </Text>
+          {selectedIds.size === 1 ? (
+            <MessagesIconButton
+              icon={Reply}
+              label="Reply to selected message"
+              onPress={() => {
+                const [id] = selectedIds;
+                clearSelection();
+                if (id) {
+                  handleReply(id);
+                }
+              }}
+              size={32}
+            />
+          ) : null}
+          <MessagesIconButton
+            icon={Copy}
+            label="Copy selected messages"
+            onPress={copySelected}
+            size={32}
+          />
+          <MessagesIconButton
+            icon={ListChecks}
+            label="Select all loaded messages"
+            onPress={handleSelectAll}
+            size={32}
+          />
+        </View>
+      ) : (
+        <ThreadHeader
+          avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+          displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
+          badge={peer?.badge ?? cachedPeerUser?.badge}
+          badges={peer?.badges ?? cachedPeerUser?.badges}
+          communityRoles={
+            peer?.communityMemberships ?? cachedPeerUser?.communityMemberships
           }
-        }}
-        onFriends={() => setFriendsOpen((open) => !open)}
-        username={cachedPeer?.peerUsername ?? null}
-        typing={transcript.snapshot.peerTyping}
-      />
-      {friendsOpen ? (
-        <MessagePeoplePanel
-          mode="online"
-          onClose={() => setFriendsOpen(false)}
+          onBack={onBack}
+          onSearch={() => {
+            if (searchOpen) {
+              search.handleClose();
+            } else {
+              setSearchOpen(true);
+            }
+          }}
+          username={peer?.username ?? cachedPeer?.peerUsername ?? null}
+          presence={
+            presence.find(
+              (entry) => entry.id === (peer?.id ?? cachedPeer?.peerId)
+            )?.status ?? null
+          }
+          typing={transcript.snapshot.peerTyping}
         />
-      ) : null}
+      )}
       {searchOpen ? (
         <MessageSearchBar
           query={search.query}
@@ -732,34 +938,41 @@ export function MessageThreadScreen({
           </Text>
         </Pressable>
       ) : null}
-      <View style={{ flex: 1 }}>
+      <View
+        ref={transcriptViewportRef}
+        onLayout={handleViewportLayout}
+        style={{ flex: 1 }}
+      >
         {transcript.snapshot.loading && messages.length === 0 ? (
           <ThreadSkeleton />
         ) : (
-          <FlatList
-            contentContainerStyle={styles.listContent}
-            ref={threadListRef}
-            data={items}
-            onScrollToIndexFailed={search.handleScrollToIndexFailed}
-            style={{ flex: 1 }}
-            inverted
-            scrollEventThrottle={128}
-            onScroll={(event) => {
-              const atLatest = event.nativeEvent.contentOffset.y <= 60;
-              if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
-                scheduleRead();
-              }
-              atLiveEnd.current = atLatest;
-            }}
-            keyboardDismissMode="interactive"
-            keyExtractor={(row) => row.key}
-            // Inversion turns "keep loading as the reader scrolls back" into the same
-            // endReached the list already knows about, with no scroll-position maths.
-            onEndReached={searchOpen ? undefined : handleLoadOlder}
-            onEndReachedThreshold={0.5}
-            renderItem={renderItem}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          />
+          <GestureDetector gesture={gesture}>
+            <Animated.View style={{ flex: 1 }}>
+              <GestureDetector gesture={nativeScroll}>
+                <AnimatedTranscriptList
+                  contentContainerStyle={styles.listContent}
+                  ref={threadListRef}
+                  data={items}
+                  onScrollToIndexFailed={search.handleScrollToIndexFailed}
+                  style={{ flex: 1 }}
+                  inverted
+                  CellRendererComponent={CellRenderer}
+                  extraData={selectedIds}
+                  onContentSizeChange={handleContentSizeChange}
+                  scrollEventThrottle={16}
+                  onScroll={handleScroll}
+                  keyboardDismissMode="interactive"
+                  keyExtractor={(row) => row.key}
+                  // Inversion turns "keep loading as the reader scrolls back" into the same
+                  // endReached the list already knows about, with no scroll-position maths.
+                  onEndReached={searchOpen ? undefined : handleLoadOlder}
+                  onEndReachedThreshold={0.5}
+                  renderItem={renderItem}
+                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                />
+              </GestureDetector>
+            </Animated.View>
+          </GestureDetector>
         )}
         {searchOpen && search.listView ? (
           <MessageSearchResults
@@ -797,12 +1010,22 @@ export function MessageThreadScreen({
           onClose={() => setViewer(null)}
         />
       ) : null}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 function isPayload(entry: DecryptEntry | undefined): entry is MessagePayload {
   return typeof entry === "object" && entry !== null;
+}
+
+function messageSummary(payload: MessagePayload): string {
+  if (payload.content?.trim()) {
+    return payload.content;
+  }
+  if (payload.type === "media") {
+    return payload.kind === "gif" ? "GIF" : "Photo";
+  }
+  return "Shared a post";
 }
 
 // Reads decrypted rows and re-renders when the decryptor flushes, so a bubble
@@ -840,28 +1063,38 @@ function readDecryptedRows(
   return map;
 }
 
-// The header: peer identity, typing state, and the fingerprint two people can
-// compare out of band.
+// The header keeps the peer's badges and presence beside their identity.
 function ThreadHeader({
   avatarUrl,
   displayName,
-  fingerprint,
+  badge,
+  badges,
+  communityRoles,
   onBack,
   onSearch,
-  onFriends,
   username,
   typing,
+  presence,
 }: {
   avatarUrl: string | null;
   displayName: string;
-  fingerprint: string | null;
+  badge?: string | null;
+  badges?: string[];
+  communityRoles?: MessageSender["communityMemberships"];
   onBack: () => void;
   onSearch: () => void;
-  onFriends: () => void;
   username: string | null;
   typing: boolean;
+  presence: "online" | "idle" | null;
 }) {
   const { isDark, theme } = useAppTheme();
+  let statusText = username ? `@${username}` : "";
+  if (presence === "online") {
+    statusText = "Online";
+  }
+  if (presence === "idle") {
+    statusText = "Idle";
+  }
   return (
     <View
       style={[
@@ -878,14 +1111,30 @@ function ThreadHeader({
         onPress={onBack}
         size={32}
       />
-      <UserAvatar size={32} url={avatarUrl} />
+      <View style={styles.headerAvatar}>
+        <UserAvatar size={32} url={avatarUrl} />
+        <MessagePresenceIndicator
+          status={presence}
+          testID="chat-header-presence"
+        />
+      </View>
       <View style={styles.headerIdentity}>
-        <Text
-          numberOfLines={1}
-          style={[styles.headerName, { color: isDark ? "#eeeeee" : "#202020" }]}
-        >
-          {displayName}
-        </Text>
+        <View style={styles.headerNameRow}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.headerName,
+              { color: isDark ? "#eeeeee" : "#202020" },
+            ]}
+          >
+            {displayName}
+          </Text>
+          <UserBadge
+            badge={badge}
+            badges={badges}
+            communityRoles={communityRoles}
+          />
+        </View>
         {typing ? (
           <Text style={[styles.headerSub, { color: theme.dividerText }]}>
             typing...
@@ -895,33 +1144,14 @@ function ThreadHeader({
             numberOfLines={1}
             style={[styles.headerSub, { color: theme.dividerText }]}
           >
-            {username ? `@${username}` : ""}
+            {statusText}
           </Text>
         )}
       </View>
-      {fingerprint ? (
-        <MessagesIconButton
-          icon={ShieldCheck}
-          label="Safety number"
-          size={32}
-          onPress={() =>
-            Alert.alert(
-              "Safety number",
-              `${fingerprint}\n\nMessages are encrypted in transit and at rest. Your account automatically recovers its keys on new devices.`
-            )
-          }
-        />
-      ) : null}
       <MessagesIconButton
         icon={Search}
         label="Search in conversation"
         onPress={onSearch}
-        size={32}
-      />
-      <MessagesIconButton
-        icon={Users}
-        label="Online friends"
-        onPress={onFriends}
         size={32}
       />
       <MessagesIconButton
@@ -964,15 +1194,6 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProReg",
     fontSize: 11,
   },
-  fingerprint: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-  },
-  fingerprintText: {
-    fontFamily: "SofiaProReg",
-    fontSize: 10,
-  },
   header: {
     alignItems: "center",
     borderBottomWidth: 1,
@@ -981,13 +1202,17 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: 12,
   },
+  headerAvatar: { height: 32, width: 32 },
   headerIdentity: {
     flex: 1,
+    minWidth: 0,
   },
   headerName: {
+    flexShrink: 1,
     fontFamily: "SofiaProMed",
     fontSize: 14,
   },
+  headerNameRow: { alignItems: "center", flexDirection: "row", gap: 5 },
   headerSub: {
     fontFamily: "SofiaProReg",
     fontSize: 12,
@@ -997,6 +1222,9 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   root: {
+    flex: 1,
+  },
+  selectionCount: {
     flex: 1,
   },
   skeleton: {

@@ -45,6 +45,7 @@ import {
 } from "../../home/components/profile-utils";
 import type { FeedPost } from "../lib/feed-types";
 import { usePostEngagement } from "../state/use-post-engagement";
+import { usePostViews } from "../state/use-post-views";
 import type { MenuAnchor } from "./more-menu";
 
 function ActionLabel({
@@ -325,9 +326,9 @@ export function BookmarkToggle({
           ? "Removed from your bookmarks"
           : "Post saved, find it anytime in your bookmarks",
         icon: bookmarked ? (
-          <BookmarkX color="#ffffff" />
+          <BookmarkX color="#fbbf24" fill="#fbbf24" />
         ) : (
-          <BookmarkCheck color="#ffffff" />
+          <BookmarkCheck color="#fbbf24" fill="#fbbf24" />
         ),
         title: bookmarked ? "Bookmark Removed" : "Bookmarked",
       });
@@ -470,13 +471,20 @@ export function RespondButton({
   );
 }
 
-export function ViewsBadge({ count }: { count: number }) {
+export function ViewsBadge({
+  count,
+  postId,
+}: {
+  count: number;
+  postId: string;
+}) {
+  const views = usePostViews(postId, count);
   const { theme } = useAppTheme();
   return (
     <View accessibilityLabel="Views" accessibilityRole="text">
       <View style={styles.countBtn}>
         <Eye color={theme.dividerText} size={16} />
-        <ActionLabel>{formatNumber(count)}</ActionLabel>
+        <ActionLabel>{formatNumber(views)}</ActionLabel>
       </View>
     </View>
   );

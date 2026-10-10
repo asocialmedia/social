@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.1.72",
+    "version": "0.1.99",
     "description": "The social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -53,6 +53,14 @@
           "cameraPermission": "Allow asocialmedia to use your camera to capture photos and videos for your posts.",
           "microphonePermission": "Allow asocialmedia to record audio when you capture videos for your posts.",
           "photosPermission": "Allow asocialmedia to access your photos and videos so you can attach them to posts."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow asocialmedia to use your camera to capture photos and videos for your posts.",
+          "microphonePermission": "Allow asocialmedia to record audio when you capture videos for your posts.",
+          "recordAudioAndroid": true
         }
       ],
       [

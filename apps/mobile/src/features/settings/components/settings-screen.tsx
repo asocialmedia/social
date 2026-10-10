@@ -185,6 +185,8 @@ export function SettingsScreen() {
         />
         {securityReady ? (
           <SecurityTab
+            active={tab === "security"}
+            key={user?.id ?? "guest"}
             email={facts.email}
             emailVerified={facts.emailVerified}
             hasAuthenticatorApp={hasAuthenticatorApp}

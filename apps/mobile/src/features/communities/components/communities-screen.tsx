@@ -71,29 +71,13 @@ function number(value: number): string {
   return value.toLocaleString();
 }
 
-function headingFor(
-  search: string,
-  category: CommunityCategory,
-  categoryLabel: string
-): string {
-  if (search) {
-    return `Results for “${search}”`;
-  }
-  if (category === "all") {
-    return "All communities";
-  }
-  return categoryLabel;
-}
-
 export function CommunitiesScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ search?: string | string[] }>();
   const { isPending, user } = useSessionContext();
   const insets = useSafeAreaInsets();
   const { isDark, theme } = useAppTheme();
-  const mobileHeaderUser = user
-    ? { ...user, username: user.username ?? "unknown" }
-    : null;
+
   const initialSearch = Array.isArray(params.search)
     ? params.search[0]
     : params.search;
@@ -213,69 +197,85 @@ export function CommunitiesScreen() {
   const activeLabel =
     COMMUNITY_DISCOVERY_CATEGORIES.find((item) => item.key === category)
       ?.label ?? "All";
-  const heading = headingFor(deferredSearch, category, activeLabel);
   const stats = page?.stats ?? { communities: 0, members: 0, posts: 0 };
   const counts = page?.counts ?? {};
 
-  const header = (
-    <View>
-      <MobileHeader user={mobileHeaderUser} />
-      <View
-        style={[
-          styles.categoryBar,
-          {
-            backgroundColor: theme.containerBg,
-            borderBottomColor: theme.cardBorder,
-          },
-        ]}
+  const categoryBar = (
+    <View
+      style={[
+        styles.categoryBar,
+        {
+          backgroundColor: theme.containerBg,
+          borderBottomColor: theme.cardBorder,
+        },
+      ]}
+    >
+      <ScrollView
+        contentContainerStyle={styles.categoryRow}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       >
-        <ScrollView
-          contentContainerStyle={styles.categoryRow}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-        >
-          {COMMUNITY_DISCOVERY_CATEGORIES.map((item) => {
-            const active = item.key === category;
-            const count = counts[item.key];
-            return (
-              <Pressable
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                key={item.key}
-                onPress={() => setCategory(item.key)}
+        {COMMUNITY_DISCOVERY_CATEGORIES.map((item) => {
+          const active = item.key === category;
+          const count = counts[item.key];
+          return (
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              key={item.key}
+              onPress={() => setCategory(item.key)}
+              style={[
+                styles.category,
+                styles.categoryInactive,
+                active && {
+                  backgroundColor: "#f973261a",
+                  borderColor: "#f9732640",
+                  boxShadow: isDark
+                    ? NAV_ACTIVE_SHADOWS_DARK
+                    : NAV_ACTIVE_SHADOWS,
+                },
+              ]}
+            >
+              <Text
                 style={[
-                  styles.category,
-                  active && {
-                    backgroundColor: "#f973261a",
-                    borderColor: "#f9732640",
-                    boxShadow: isDark
-                      ? NAV_ACTIVE_SHADOWS_DARK
-                      : NAV_ACTIVE_SHADOWS,
+                  styles.categoryText,
+                  { color: active ? "#f97316" : theme.dividerText },
+                ]}
+              >
+                {item.label}
+              </Text>
+              <Text
+                style={[
+                  styles.categoryCount,
+                  {
+                    color: active ? "#f97316" : theme.dividerText,
+                    opacity: 0.7,
                   },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.categoryText,
-                    { color: active ? "#f97316" : theme.dividerText },
-                  ]}
-                >
-                  {item.label}
-                </Text>
-                <Text
-                  style={[
-                    styles.categoryCount,
-                    { color: active ? "#f97316" : theme.dividerText },
-                  ]}
-                >
-                  {count === undefined ? "—" : number(count)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+                {count === undefined ? "—" : number(count)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+
+  const empty: React.ReactNode =
+    status === "loading" ? (
+      <CommunityLoadingState />
+    ) : (
+      <CommunityEmptyState
+        activeLabel={activeLabel}
+        onCreate={handleCreate}
+        searching={Boolean(deferredSearch)}
+      />
+    );
+
+  const scrollHeader = (
+    <View>
       <View style={styles.hero}>
         <Image
           pointerEvents="none"
@@ -332,25 +332,49 @@ export function CommunitiesScreen() {
               },
             ]}
           >
-            <Stat
-              icon={<Users color="#f97316" fill="#f97316" size={14} />}
-              label="Communities"
-              value={stats.communities}
-            />
-            <Stat
-              icon={<UserRound color="#f97316" fill="#f97316" size={14} />}
-              label="Members"
-              value={stats.members}
-            />
-            <Stat
-              icon={<FileText color="#f97316" fill="#f97316" size={14} />}
-              label="Posts"
-              value={stats.posts}
-            />
+            <View style={styles.stat}>
+              <View style={styles.statLabel}>
+                <Users color="#f97316" fill="#f97316" size={14} />
+                <Text
+                  style={[styles.statLabelText, { color: theme.dividerText }]}
+                >
+                  Communities
+                </Text>
+              </View>
+              <Text style={[styles.statValue, { color: theme.inputText }]}>
+                {number(stats.communities)}
+              </Text>
+            </View>
+            <View style={styles.stat}>
+              <View style={styles.statLabel}>
+                <UserRound color="#f97316" fill="#f97316" size={14} />
+                <Text
+                  style={[styles.statLabelText, { color: theme.dividerText }]}
+                >
+                  Members
+                </Text>
+              </View>
+              <Text style={[styles.statValue, { color: theme.inputText }]}>
+                {number(stats.members)}
+              </Text>
+            </View>
+            <View style={styles.stat}>
+              <View style={styles.statLabel}>
+                <FileText color="#f97316" fill="#f97316" size={14} />
+                <Text
+                  style={[styles.statLabelText, { color: theme.dividerText }]}
+                >
+                  Posts
+                </Text>
+              </View>
+              <Text style={[styles.statValue, { color: theme.inputText }]}>
+                {number(stats.posts)}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
-      <View style={[styles.searchBand, { backgroundColor: theme.containerBg }]}>
+      <View style={styles.searchBand}>
         <View
           style={[
             styles.search,
@@ -363,21 +387,22 @@ export function CommunitiesScreen() {
             },
           ]}
         >
-          <Search color={theme.dividerText} size={17} />
+          <Search color={theme.dividerText} size={16} />
           <TextInput
             accessibilityLabel="Search communities"
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setSearch}
             placeholder="Search communities"
-            placeholderTextColor={theme.inputPlaceholder}
-            style={[styles.searchInput, { color: theme.inputText }]}
+            placeholderTextColor={theme.dividerText}
+            style={styles.searchInput}
             value={search}
           />
           {search ? (
             <Pressable
               accessibilityLabel="Clear search"
               accessibilityRole="button"
+              hitSlop={6}
               onPress={() => setSearch("")}
             >
               <X color={theme.dividerText} size={16} />
@@ -421,7 +446,7 @@ export function CommunitiesScreen() {
       <View style={styles.browseHeading}>
         <LayoutGrid color="#f97316" fill="#f97316" size={20} />
         <Text style={[styles.browseTitle, { color: theme.inputText }]}>
-          {heading}
+          {activeLabel}
         </Text>
       </View>
       <View style={styles.browseCountRow}>
@@ -435,17 +460,6 @@ export function CommunitiesScreen() {
       </View>
     </View>
   );
-
-  const empty: React.ReactNode =
-    status === "loading" ? (
-      <CommunityLoadingState />
-    ) : (
-      <CommunityEmptyState
-        activeLabel={activeLabel}
-        onCreate={handleCreate}
-        searching={Boolean(deferredSearch)}
-      />
-    );
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
@@ -466,7 +480,19 @@ export function CommunitiesScreen() {
                     <ActivityIndicator color="#f97316" style={styles.footer} />
                   ) : null
                 }
-                ListHeaderComponent={header}
+                ListHeaderComponent={
+                  <>
+                    <MobileHeader
+                      user={
+                        user
+                          ? { ...user, username: user.username ?? user.name }
+                          : null
+                      }
+                    />
+                    {categoryBar}
+                    {scrollHeader}
+                  </>
+                }
                 contentContainerStyle={[
                   styles.content,
                   { paddingBottom: showGuestBar ? 176 : 96 },
@@ -488,6 +514,7 @@ export function CommunitiesScreen() {
                   </View>
                 )}
                 showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                stickyHeaderIndices={[1]}
               />
             </GestureDetector>
           </Animated.View>
@@ -573,31 +600,7 @@ function CommunityEmptyState({
   );
 }
 
-function Stat({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
-  const { theme } = useAppTheme();
-  return (
-    <View style={styles.stat}>
-      <View style={styles.statLabel}>
-        {icon}
-        <Text style={[styles.statLabelText, { color: theme.dividerText }]}>
-          {label}
-        </Text>
-      </View>
-      <Text style={[styles.statValue, { color: theme.inputText }]}>
-        {number(value)}
-      </Text>
-    </View>
-  );
-}
-
+// eslint-disable-next-line sort-keys
 const styles = StyleSheet.create({
   authDock: {
     left: 0,
@@ -608,19 +611,19 @@ const styles = StyleSheet.create({
   browseCountRow: {
     alignItems: "center",
     flexDirection: "row",
-    paddingBottom: 12,
-    paddingHorizontal: 32,
-    paddingTop: 16,
+    paddingBottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   browseHeading: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 32,
-    paddingTop: 33,
+    paddingHorizontal: 16,
+    paddingTop: 32,
   },
   browseTitle: { fontFamily: "SofiaProBold", fontSize: 18 },
-  cardWrap: { paddingHorizontal: 32 },
+  cardWrap: { paddingHorizontal: 16, paddingTop: 0 },
   category: {
     alignItems: "center",
     borderCurve: "continuous",
@@ -628,16 +631,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
   },
-  categoryBar: { borderBottomWidth: 1, paddingVertical: 6 },
+  categoryBar: {
+    borderBottomWidth: 1,
+    paddingHorizontal: 32,
+    paddingVertical: 6,
+  },
+  categoryInactive: {
+    borderColor: "transparent",
+  },
   categoryCount: {
     fontFamily: "SofiaProReg",
     fontSize: 11,
     fontVariant: ["tabular-nums"],
   },
-  categoryRow: { gap: 6, paddingHorizontal: 32 },
+  categoryRow: { gap: 6 },
   categoryText: { fontFamily: "SofiaProMed", fontSize: 13 },
   content: { paddingTop: 0 },
   countLabel: { fontFamily: "SofiaProReg", fontSize: 12 },
@@ -709,7 +719,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     maxWidth: 310,
   },
-  heroContent: { gap: 4, paddingHorizontal: 32, paddingTop: 23 },
+  heroContent: { gap: 4, paddingHorizontal: 16, paddingTop: 32 },
   heroMark: { height: 30, width: 38 },
   heroTitle: { fontFamily: "SofiaProBold", fontSize: 30, lineHeight: 32 },
   heroTitleRow: { alignItems: "center", flexDirection: "row", gap: 7 },
@@ -733,7 +743,7 @@ const styles = StyleSheet.create({
   },
   loadingCard: { borderRadius: 16, height: 280 },
   loadingState: { gap: 16, padding: 32 },
-  rail: { paddingTop: 24 },
+  rail: { paddingTop: 28 },
   root: { flex: 1 },
   search: {
     alignItems: "center",
@@ -741,12 +751,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 10,
-    marginHorizontal: 32,
+    gap: 12,
+    marginHorizontal: 16,
     minHeight: 48,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
   },
-  searchBand: { paddingBottom: 10, paddingTop: 27 },
+  searchBand: { paddingBottom: 8, paddingTop: 8 },
   searchInput: {
     flex: 1,
     fontFamily: "SofiaProReg",

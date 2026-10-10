@@ -5,7 +5,14 @@
 import { Image } from "expo-image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import type { ViewToken, FlatList } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
@@ -495,7 +502,8 @@ export const FeedList = memo(
     const listHeader = useMemo(
       () => (
         <View
-          style={{ minHeight: headerHeight }}
+          // Only inactive pages need a placeholder; a live composer must also shrink.
+          style={header ? undefined : { height: headerHeight }}
           onLayout={
             header
               ? (event) => {
@@ -682,10 +690,9 @@ export const FeedList = memo(
                   onEndReachedThreshold={0.5}
                   onScroll={handleScroll}
                   onViewableItemsChanged={handleViewableItemsChanged}
-                  // Android detaches list children that scroll out of the
-                  // viewport, which cuts a row's thread rail off where it bleeds
-                  // past the card's own bounds.
-                  removeClippedSubviews={false}
+                  // Detach native rows outside the viewport while retaining
+                  // their React state, measured heights and complete content.
+                  removeClippedSubviews={Platform.OS === "android"}
                   ref={listRef}
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

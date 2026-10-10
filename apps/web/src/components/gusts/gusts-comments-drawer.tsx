@@ -23,7 +23,7 @@ export const GustsCommentsDrawer: React.FC<GustsCommentsDrawerProps> = ({
     <div className="flex shrink-0 items-center justify-end px-3 pt-2 pb-1">
       <button
         aria-label="Close comments"
-        className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded-full transition-colors"
+        className="icon-btn-3d text-muted-foreground hover:text-foreground flex h-8 w-8 items-center justify-center rounded-full transition-colors"
         onClick={onClose}
         type="button"
       >

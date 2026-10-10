@@ -26,6 +26,7 @@ export type UploadPurpose =
   | "post";
 
 export interface InitiateRequest {
+  audioOverlayId?: string;
   // Binds the row to a DM thread. The server REQUIRES this for
   // `purpose: "message"`: the serving route admits a peer only through this
   // binding, so an attachment uploaded without it 404s for the recipient. Every

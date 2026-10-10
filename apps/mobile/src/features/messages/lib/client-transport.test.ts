@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { fetchIdentity, fetchMessages } from "./client";
+import {
+  fetchIdentity,
+  fetchMessages,
+  fetchUnreadMessageCount,
+} from "./client";
 import { HistoryThrottledError } from "./history-throttle";
 
 describe("message reads", () => {
@@ -113,4 +117,15 @@ test("cancelling a history read still aborts its own transport", async () => {
   controller.abort();
   await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   expect(transportAborted).toBe(true);
+});
+
+test("a failed unread-count request cannot masquerade as an authoritative zero badge", async () => {
+  const baseFetch: typeof fetch = Object.assign(
+    () =>
+      Promise.resolve(Response.json({ error: "Unavailable" }, { status: 503 })),
+    { preconnect: fetch.preconnect }
+  );
+  await expect(
+    fetchUnreadMessageCount({ apiBase: "https://messages.invalid", baseFetch })
+  ).rejects.toMatchObject({ status: 503 });
 });

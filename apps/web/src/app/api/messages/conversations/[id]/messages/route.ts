@@ -1,8 +1,10 @@
 import {
   and,
   consumeRateLimit,
+  enqueueMessagePush,
   fromPrismaDateTime,
   getMessageDataQuery,
+  or,
   prisma,
   publishMessageActivity,
   publishMessageCreated,
@@ -215,6 +217,21 @@ export async function GET(
     }
   }
 
+  // UUIDs are random: seek by the creation timestamp, with the ID as a stable tie-breaker.
+  const seekId = cursor || aroundParam || afterParam;
+  const anchor = seekId
+    ? await getMessageDataQuery(prisma.orm)
+        .where((message) =>
+          and(message.conversationId.eq(id), message.id.eq(seekId))
+        )
+        .first()
+    : null;
+  if (seekId && !anchor) {
+    return Response.json(
+      { error: "Message cursor not found" },
+      { status: 404 }
+    );
+  }
   const visible = visibleToUser(user.id);
 
   // Anchored window: a page centered on one message, so a search hit or a
@@ -222,7 +239,7 @@ export async function GET(
   // between the newest message and the target. Two index range scans (older and
   // newer of the anchor) rather than one OFFSET, so cost is O(limit) no matter
   // how deep in history the anchor sits.
-  if (aroundParam.length > 0) {
+  if (aroundParam.length > 0 && anchor) {
     const olderCount = Math.ceil(pageSize / 2);
     const newerCount = pageSize - olderCount;
     const [older, newer] = await Promise.all([
@@ -230,22 +247,40 @@ export async function GET(
         .where((message) =>
           and(
             message.conversationId.eq(id),
-            message.id.lte(aroundParam),
+            or(
+              message.createdAt.lt(anchor.createdAt),
+              and(
+                message.createdAt.eq(anchor.createdAt),
+                message.id.lte(aroundParam)
+              )
+            ),
             visible(message)
           )
         )
-        .orderBy((message) => message.id.desc())
+        .orderBy([
+          (message) => message.createdAt.desc(),
+          (message) => message.id.desc(),
+        ])
         .limit(olderCount + 1)
         .all(),
       getMessageDataQuery(prisma.orm)
         .where((message) =>
           and(
             message.conversationId.eq(id),
-            message.id.gt(aroundParam),
+            or(
+              message.createdAt.gt(anchor.createdAt),
+              and(
+                message.createdAt.eq(anchor.createdAt),
+                message.id.gt(aroundParam)
+              )
+            ),
             visible(message)
           )
         )
-        .orderBy((message) => message.id.asc())
+        .orderBy([
+          (message) => message.createdAt.asc(),
+          (message) => message.id.asc(),
+        ])
         .limit(newerCount + 1)
         .all(),
     ]);
@@ -273,16 +308,25 @@ export async function GET(
 
   // Newer paging. Only reachable after an anchored read, when the transcript
   // sits in the middle of history and the user scrolls upward past the window.
-  if (afterParam.length > 0) {
+  if (afterParam.length > 0 && anchor) {
     const rows = await getMessageDataQuery(prisma.orm)
       .where((message) =>
         and(
           message.conversationId.eq(id),
-          message.id.gt(afterParam),
+          or(
+            message.createdAt.gt(anchor.createdAt),
+            and(
+              message.createdAt.eq(anchor.createdAt),
+              message.id.gt(afterParam)
+            )
+          ),
           visible(message)
         )
       )
-      .orderBy((message) => message.id.asc())
+      .orderBy([
+        (message) => message.createdAt.asc(),
+        (message) => message.id.asc(),
+      ])
       .limit(pageSize + 1)
       .all();
     const messages = rows.map(mapMessage);
@@ -302,22 +346,31 @@ export async function GET(
     return Response.json(response);
   }
 
-  // Newest first from the cursor, then reversed so the client gets oldest-first.
-  // The cursor is a message id, so ordering by id keeps the cursor and the sort
-  // in the same total order - sorting by createdAt with an id cursor would skip
-  // or duplicate messages on long threads where many share a timestamp.
-  // (Prisma cuids are time-ordered, so id desc is still newest-first.)
+  // Creation time determines chronology; random UUIDs only break timestamp ties.
   // "Delete for me": a hidden message never appears in this user's thread,
   // even on a cursor page that predates the hide.
   const messageQuery = getMessageDataQuery(prisma.orm)
     .where((message) =>
       and(
         message.conversationId.eq(id),
-        ...(cursor ? [message.id.lt(cursor)] : []),
+        ...(cursor && anchor
+          ? [
+              or(
+                message.createdAt.lt(anchor.createdAt),
+                and(
+                  message.createdAt.eq(anchor.createdAt),
+                  message.id.lt(cursor)
+                )
+              ),
+            ]
+          : []),
         visible(message)
       )
     )
-    .orderBy((message) => message.id.desc())
+    .orderBy([
+      (message) => message.createdAt.desc(),
+      (message) => message.id.desc(),
+    ])
     .limit(pageSize + 1);
   const messageRows = await messageQuery.all();
   const messages = messageRows.map(mapMessage);
@@ -458,6 +511,11 @@ export async function POST(
       await unreadMessageCache.increment(otherMember.userId);
     } catch (error) {
       console.error("Failed to increment unread message count:", error);
+    }
+    try {
+      await enqueueMessagePush(createdMessageId, otherMember.userId);
+    } catch (error) {
+      console.error("Failed to queue message push:", error);
     }
   }
   try {

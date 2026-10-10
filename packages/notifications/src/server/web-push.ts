@@ -13,11 +13,10 @@ import type { PushSubscription } from "web-push";
 import webpush from "web-push";
 
 import { isAllowedPushEndpoint } from "../shared/push-endpoint";
-import type { NotificationRecord } from "../shared/types";
 import { describePushError, endpointHost } from "./log";
 import type { PushLogger } from "./log";
+import type { PushDelivery, PushPayload } from "./payload";
 import { buildPushPayload } from "./payload";
-import type { PushPayload } from "./payload";
 
 export interface VapidConfig {
   privateKey: string;
@@ -135,7 +134,7 @@ const PUSH_BATCH_BUDGET_MS = 30_000;
 const MAX_SUBSCRIPTIONS_PER_USER = 20;
 
 export async function sendWebPush(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   subscriptions: StoredSubscription[],
   options: SendWebPushOptions
 ): Promise<WebPushResult> {

@@ -25,6 +25,8 @@ Drawer.displayName = "Drawer";
 const DrawerTrigger = DrawerPrimitive.Trigger;
 
 const DrawerPortal = DrawerPrimitive.Portal;
+const DrawerSurface = DrawerPrimitive.Content;
+const DrawerHandle = DrawerPrimitive.Handle;
 
 const DrawerClose = DrawerPrimitive.Close;
 
@@ -130,6 +132,8 @@ export {
   DrawerDescription,
   DrawerFooter,
   DrawerHeader,
+  DrawerHandle,
+  DrawerSurface,
   DrawerOverlay,
   DrawerPortal,
   DrawerTitle,

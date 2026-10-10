@@ -8,6 +8,11 @@
 const GUST_ID_PATTERN = /^\/gusts\/?\?(?:[^#]*&)?id=(?<id>[^&#]+)/;
 
 export function pathToNativeRoute(path: string): string {
+  const conversationId = /^\/messages\?c=(?<id>[a-zA-Z0-9_-]+)$/.exec(path)
+    ?.groups?.id;
+  if (conversationId) {
+    return `/messages/${conversationId}`;
+  }
   const gustId = GUST_ID_PATTERN.exec(path)?.groups?.id;
   if (gustId) {
     return `/gusts?id=${gustId}`;

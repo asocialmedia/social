@@ -26,6 +26,20 @@ export interface TabFeed {
     | "success";
 }
 
+export function feedFetchStatus(
+  mode: "append" | "replace",
+  hasPages: boolean,
+  manual: boolean
+): TabFeed["status"] {
+  if (mode === "append") {
+    return "loading-more";
+  }
+  if (!hasPages) {
+    return "loading";
+  }
+  return manual ? "refreshing" : "success";
+}
+
 function emptyFeed(): TabFeed {
   return {
     cursor: null,
@@ -43,6 +57,22 @@ function emptyFeed(): TabFeed {
 export function flattenUniquePosts(pages: FeedPost[][]): FeedPost[] {
   const list = pages.flat().filter(Boolean);
   return [...new Map(list.map((post) => [post.id, post])).values()];
+}
+
+// Silent revalidation keeps the reader's older pages and pagination cursor.
+export function reconcileFeedHead(
+  pages: FeedPost[][],
+  head: FeedPost[]
+): FeedPost[][] {
+  const fresh = new Map(head.map((post) => [post.id, post]));
+  const retained = pages.map((page) =>
+    page.map((post) => fresh.get(post.id) ?? post)
+  );
+  const first = retained[0] ?? [];
+  return [
+    [...head, ...first.filter((post) => !fresh.has(post.id))],
+    ...retained.slice(1),
+  ];
 }
 
 // A published post belongs at the head of the Latest tab, and the reader should

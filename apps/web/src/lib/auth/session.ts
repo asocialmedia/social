@@ -39,16 +39,25 @@ export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
   await connection();
   return fetchSession({
     authorization: hasBearer ? authHeader : undefined,
+    client: hdrs.get("x-asm-client") === "mobile" ? "mobile" : "web",
     cookie: hasCookie ? cookie : undefined,
+    requestId: hdrs.get("x-request-id") ?? undefined,
   });
 });
 
 async function fetchSession(options: {
+  client: "mobile" | "web";
+  requestId?: string;
   authorization?: string;
   cookie?: string;
 }): Promise<SessionResponse> {
   const sessionUrl = `${getAuthBaseUrl()}/api/auth/get-session`;
-  const forwardHeaders: Record<string, string> = {};
+  const forwardHeaders: Record<string, string> = {
+    "x-asm-client": options.client,
+  };
+  if (options.requestId) {
+    forwardHeaders["x-request-id"] = options.requestId;
+  }
   if (options.cookie) {
     forwardHeaders.cookie = options.cookie;
   }

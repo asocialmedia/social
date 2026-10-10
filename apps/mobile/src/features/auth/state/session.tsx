@@ -38,6 +38,7 @@ import { classifySessionRefresh } from "@/features/auth/lib/session-connection";
 import type { SessionRefreshResult } from "@/features/auth/lib/session-connection";
 import { useInstall } from "@/features/auth/state/install";
 import { engagementStore } from "@/features/feed/lib/engagement-store";
+import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { feedCache } from "@/features/feed/state/feed-store";
 import { sleep } from "@/features/media-upload/lib/retry";
 import { clearMessageSession } from "@/features/messages/state/clear-message-session";
@@ -390,6 +391,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // account, or the next sign-in would briefly render the previous
       // viewer's highlights.
       engagementStore.clear();
+      viewBatcher.reset();
       feedCache.clear();
       clearMessageSession();
       if (options?.reason) {

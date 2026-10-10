@@ -509,7 +509,7 @@ function DetailBody({
         />
         <CommentButton count={commentCount} onPress={onToggleEddies} />
         <RespondButton count={responseCount} post={post} />
-        <ViewsBadge count={post.viewCount ?? 0} />
+        <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
         <View style={styles.actionCluster}>
           <ShareButton onPress={() => onShare(post)} />
           {hideBookmark ? null : (

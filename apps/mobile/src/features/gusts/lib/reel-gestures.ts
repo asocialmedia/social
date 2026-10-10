@@ -1,3 +1,5 @@
+import { isRapidGustTap } from "@asm/ui/lib/aura-burst";
+
 // Reel gesture math, ported from web's client-gusts + gust-card so the
 // native pager behaves the same and the numbers are unit-tested:
 // - pull to refresh: 0.45 resistance, capped at 96, fires past 56
@@ -11,6 +13,7 @@ export const PULL_MAX = 96;
 export const PULL_TRIGGER = 56;
 
 export function pullDistance(dragDelta: number): number {
+  "worklet";
   if (dragDelta <= 0) {
     return 0;
   }
@@ -18,6 +21,7 @@ export function pullDistance(dragDelta: number): number {
 }
 
 export function pullTriggers(distance: number): boolean {
+  "worklet";
   return distance >= PULL_TRIGGER;
 }
 
@@ -28,12 +32,11 @@ export type TapKind = "double" | "single-pending";
 // Classifies a tap given the previous tap's time; the caller commits a
 // pending single after DOUBLE_TAP_MS unless a double cancels it.
 export function classifyTap(now: number, lastTapAt: number | null): TapKind {
-  return lastTapAt !== null && now - lastTapAt < DOUBLE_TAP_MS
-    ? "double"
-    : "single-pending";
+  return isRapidGustTap(now, lastTapAt) ? "double" : "single-pending";
 }
 
 export interface FlameBurst {
+  durationMs: number;
   id: number;
   rotate: number;
   x: number;
@@ -41,8 +44,6 @@ export interface FlameBurst {
 }
 
 export const MAX_BURSTS = 7;
-export const BURST_CLEAR_MS = 900;
-export const BURST_DURATION_MS = 850;
 
 // Web: rotate ((id % 5) - 2) * 8 degrees, so bursts fan out instead of
 // stacking perfectly.

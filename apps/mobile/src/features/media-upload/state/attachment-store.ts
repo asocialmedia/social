@@ -42,6 +42,7 @@ export interface PickedMedia {
 }
 
 export interface DraftAttachment {
+  audioOverlayId?: string;
   altText: string;
   bytesPercent: number;
   durationMs: number | null;
@@ -223,6 +224,7 @@ async function run(
               },
               {
                 ...callbacks,
+                audioOverlayId: item.audioOverlayId,
                 purpose: item.purpose,
                 waitForProcessing: item.waitForProcessing,
               }
@@ -268,6 +270,7 @@ export const attachmentActions = {
     scope: string,
     picked: PickedMedia[],
     options: {
+      audioOverlayId?: string;
       gust?: boolean;
       max: number;
       purpose: UploadPurpose;
@@ -296,6 +299,7 @@ export const attachmentActions = {
       }
       accepted.push({
         altText: "",
+        audioOverlayId: options.audioOverlayId,
         bytesPercent: 0,
         durationMs: file.durationMs ?? null,
         error: null,

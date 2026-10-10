@@ -1,7 +1,12 @@
 import type * as Haptics from "expo-haptics";
 
-export type HapticFeedback = "selection" | "hold" | "success" | "error";
-let lastFeedbackAt = 0;
+import {
+  createHapticController,
+  performHapticPattern,
+} from "./haptic-controller";
+import type { HapticFeedback } from "./haptic-controller";
+
+export type { HapticFeedback } from "./haptic-controller";
 let modules: Promise<{ haptics: typeof Haptics; platform: string }> | null =
   null;
 
@@ -17,36 +22,29 @@ async function performFeedback(feedback: HapticFeedback): Promise<void> {
   try {
     modules ??= loadModules();
     const { haptics, platform } = await modules;
-    if (platform === "android") {
-      const effects = {
-        error: haptics.AndroidHaptics.Reject,
-        hold: haptics.AndroidHaptics.Long_Press,
-        selection: haptics.AndroidHaptics.Segment_Tick,
-        success: haptics.AndroidHaptics.Confirm,
-      };
-      await haptics.performAndroidHapticsAsync(effects[feedback]);
-    } else if (feedback === "selection") {
-      await haptics.selectionAsync();
-    } else if (feedback === "hold") {
-      await haptics.impactAsync(haptics.ImpactFeedbackStyle.Medium);
-    } else {
-      await haptics.notificationAsync(
-        feedback === "success"
-          ? haptics.NotificationFeedbackType.Success
-          : haptics.NotificationFeedbackType.Error
-      );
-    }
+    await performHapticPattern(feedback, async (tick) => {
+      if (platform === "android") {
+        const effects = {
+          error: haptics.AndroidHaptics.Context_Click,
+          hold: haptics.AndroidHaptics.Segment_Frequent_Tick,
+          selection: haptics.AndroidHaptics.Segment_Frequent_Tick,
+          success: haptics.AndroidHaptics.Segment_Frequent_Tick,
+        };
+        await haptics.performAndroidHapticsAsync(effects[tick]);
+      } else if (tick === "selection") {
+        await haptics.selectionAsync();
+      } else {
+        await haptics.impactAsync(haptics.ImpactFeedbackStyle.Soft);
+      }
+    });
   } catch {
     // Unavailable hardware or disabled feedback must never interrupt an action.
   }
 }
 
 // Lazy loading keeps native modules out of startup and pure store tests.
-export function haptic(feedback: HapticFeedback = "selection"): void {
-  const now = Date.now();
-  if (now - lastFeedbackAt < 40) {
-    return;
-  }
-  lastFeedbackAt = now;
-  void performFeedback(feedback);
-}
+export const haptic = createHapticController(async () => {
+  modules ??= loadModules();
+  await modules;
+  return performFeedback;
+});

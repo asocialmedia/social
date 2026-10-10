@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -109,8 +110,23 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   // wander off mid-argument. Web's mobile post page does the same. The guest
   // auth bar therefore sits flat on the bottom edge with no dock to clear.
   const [bannerHeight, setBannerHeight] = useState(0);
-  const feedBottomPad = showGuestBar ? bannerHeight + insets.bottom + 12 : 0;
+  const [eddieBarHeight, setEddieBarHeight] = useState(0);
+  let feedBottomPad = insets.bottom;
+  if (showGuestBar) {
+    feedBottomPad = bannerHeight + insets.bottom + 12;
+  } else if (showEddies && viewerId) {
+    feedBottomPad = eddieBarHeight + 12;
+  }
   const scrollRef = useRef<ScrollView>(null);
+  const viewportRef = useRef<View>(null);
+  const [viewportBottom, setViewportBottom] = useState(
+    () => Dimensions.get("window").height
+  );
+  const measureViewport = useCallback(() => {
+    viewportRef.current?.measureInWindow((_x, y, _width, height) => {
+      setViewportBottom(y + height);
+    });
+  }, []);
   // Web's ?comment= deep scroll: the thread reports where the eddie sits
   // inside itself, and the thread's own offset inside this scroll view turns
   // that into a scroll position. Both are measured, never guessed, so a
@@ -238,10 +254,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
             });
           }
         })();
-        // Visit + view, logged-in only (guests have no visit history).
+        // Views include guests; visit history belongs only to a signed-in account.
+        viewBatcher.mark(detail.post.id, {
+          apiBase,
+          getCookie: authClient.getCookie,
+        });
         if (viewerId) {
           void recordPostVisit(detail.post.id, { apiBase, cookie });
-          viewBatcher.mark(detail.post.id, { apiBase, cookie });
         }
       } catch (error) {
         if (cancelled) {
@@ -504,7 +523,11 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
+    <View
+      onLayout={measureViewport}
+      ref={viewportRef}
+      style={[styles.root, { backgroundColor: theme.containerBg }]}
+    >
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable
           accessibilityLabel="Go back"
@@ -575,8 +598,6 @@ export function PostDetailScreen({ postId }: { postId: string }) {
           </View>
         ))}
         <View style={styles.endPad} />
-        {/* Room for the floating eddie bar so it never covers the tail. */}
-        {showEddies && viewerId ? <View style={styles.eddieBarPad} /> : null}
       </ScrollView>
       {showGuestBar ? (
         <Animated.View
@@ -589,7 +610,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
           <GuestAuthBar />
         </Animated.View>
       ) : null}
-      {showEddies && viewerId ? <FloatingEddieBar postId={post.id} /> : null}
+      {showEddies && viewerId ? (
+        <FloatingEddieBar
+          onHeightChange={setEddieBarHeight}
+          postId={post.id}
+          viewportBottom={viewportBottom}
+        />
+      ) : null}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
       <MoreMenu
         anchor={menuAnchor}
@@ -665,9 +692,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
-  },
-  eddieBarPad: {
-    height: 72,
   },
   emptyArt: {
     height: 160,

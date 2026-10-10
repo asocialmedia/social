@@ -36,6 +36,8 @@ import {
   flattenUniquePosts,
   prependPosts,
   hydrateFeedCache,
+  reconcileFeedHead,
+  feedFetchStatus,
 } from "./feed-store";
 
 // Head probe interval, mirroring web useNewContentProbe.
@@ -219,19 +221,20 @@ export function useFeedTab({
   );
 
   const runFetch = useCallback(
-    async (mode: "append" | "replace", headCursor: string | null) => {
+    async (
+      mode: "append" | "replace",
+      headCursor: string | null,
+      manual = false
+    ) => {
       if (inflightKey.current === cacheKey) {
         return;
       }
       inflightKey.current = cacheKey;
-      // Replacement over existing pages is a refresh; the very first load
-      // (no pages yet) stays "loading" so the skeleton renders.
-      let opening: "loading" | "loading-more" | "refreshing" = "refreshing";
-      if (mode === "append") {
-        opening = "loading-more";
-      } else if (feedCache.get(cacheKey).pages.length === 0) {
-        opening = "loading";
-      }
+      const opening = feedFetchStatus(
+        mode,
+        feedCache.get(cacheKey).pages.length > 0,
+        manual
+      );
       feedCache.patch(cacheKey, {
         error: null,
         status: opening,
@@ -243,13 +246,27 @@ export function useFeedTab({
           apiBase,
           cookie,
         });
-        feedCache.applyPage(
-          cacheKey,
-          page.posts,
-          page.nextCursor,
-          { dismissedIds: undefined },
-          mode === "append"
-        );
+        const current = feedCache.get(cacheKey);
+        if (mode === "replace" && !manual && current.pages.length > 0) {
+          feedCache.patch(cacheKey, {
+            error: null,
+            fetchedAt: Date.now(),
+            pages: reconcileFeedHead(
+              current.pages,
+              normalizePostsData(page.posts)
+            ),
+            stale: false,
+            status: "success",
+          });
+        } else {
+          feedCache.applyPage(
+            cacheKey,
+            page.posts,
+            page.nextCursor,
+            { dismissedIds: undefined },
+            mode === "append"
+          );
+        }
         // First paint landed: the head probe may start now (it never races
         // the first page on cold start). Only when this replace still owns
         // the active key; a stale guest fetch settling after a re-key must
@@ -361,7 +378,7 @@ export function useFeedTab({
     setIncomingIds(new Set());
     setNewItems([]);
     feedCache.invalidate(cacheKey);
-    void runFetch("replace", null);
+    void runFetch("replace", null, true);
   }, [cacheKey, enabled, runFetch, stopProbe]);
 
   const clearNewItems = useCallback(() => {

@@ -558,7 +558,7 @@ export const PostCard = memo(
                     onPress={() => setShowComments((value) => !value)}
                   />
                   <RespondButton count={responseCount} post={post} />
-                  <ViewsBadge count={post.viewCount ?? 0} />
+                  <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
                   <View style={styles.actionCluster}>
                     <ShareButton onPress={() => onShare(post)} />
                     <BookmarkToggle
@@ -751,23 +751,23 @@ const styles = StyleSheet.create({
     width: 36,
   },
   railFull: {
-    bottom: -9,
+    bottom: -8,
     left: "50%",
     marginLeft: -1,
     position: "absolute",
-    top: -9,
+    top: -8,
     width: 2,
   },
   railStub: {
-    height: 27,
+    height: 26,
     left: "50%",
     marginLeft: -1,
     position: "absolute",
-    top: -9,
+    top: -8,
     width: 2,
   },
   railTail: {
-    bottom: -9,
+    bottom: -8,
     left: "50%",
     marginLeft: -1,
     position: "absolute",

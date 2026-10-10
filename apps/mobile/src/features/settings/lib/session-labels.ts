@@ -3,6 +3,7 @@
 // without a renderer or a network.
 
 export interface SecuritySession {
+  city?: string | null;
   country: string | null;
   createdAt: string;
   current: boolean;
@@ -18,13 +19,18 @@ export interface SessionDevice {
   device: string;
 }
 
-/**
- * Web's `getSessionDevice`. The browser and the device are reported separately
- * rather than joined here, because the sessions list shows them as one label
- * while other surfaces use them apart.
- */
+// Web's `getSessionDevice`. The browser and the device are reported separately
+// rather than joined here, because the sessions list shows them as one label
+// while other surfaces use them apart.
 export function getSessionDevice(agent: string | null = null): SessionDevice {
   const value = agent ?? "";
+  const native =
+    /^Asocialmedia\/[^ ]+ \((?:Android|iOS|iPhone OS) [^;]*; (?<model>[^)]+)\)/.exec(
+      value
+    );
+  if (native?.groups?.model) {
+    return { browser: "Asocialmedia", device: native.groups.model.trim() };
+  }
   let browser = "Unknown browser";
   if (value.includes("Edg/")) {
     browser = "Microsoft Edge";
@@ -54,7 +60,7 @@ export function getSessionDevice(agent: string | null = null): SessionDevice {
   return { browser, device };
 }
 
-/** The joined label the sessions list shows. */
+// The joined label the sessions list shows.
 export function sessionDeviceLabel(agent: string | null): string {
   const { browser, device } = getSessionDevice(agent);
   if (browser === "Unknown browser") {
@@ -66,20 +72,21 @@ export function sessionDeviceLabel(agent: string | null): string {
   return `${browser} on ${device}`;
 }
 
-/**
- * Web's `getSessionLocation`: the country name plus the address, degrading to
- * whichever half is present and then to an honest "unavailable" rather than
- * printing "null" or an empty row.
- */
+// Show the coarse city and country, without displaying a legacy IP address.
 export function getSessionLocation(
   country: string | null,
-  ipAddress: string | null
+  city: string | null
 ): string {
   const name = resolveCountryName(country);
-  if (name && ipAddress) {
-    return `${name} · ${ipAddress}`;
-  }
-  return name || ipAddress || "Location unavailable";
+  const trimmedCity = city?.trim();
+  const isAddress =
+    trimmedCity &&
+    (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(trimmedCity) ||
+      /^[\da-f]*:[\da-f:]+$/i.test(trimmedCity));
+  const locationCity = trimmedCity && !isAddress ? trimmedCity : null;
+  return locationCity && name
+    ? `${locationCity}, ${name}`
+    : locationCity || name || "Location unavailable";
 }
 
 function resolveCountryName(country: string | null): string | undefined {
@@ -94,7 +101,7 @@ function resolveCountryName(country: string | null): string | undefined {
   }
 }
 
-/** "Last active", matching the phrasing the sessions card uses. */
+// "Last active", matching the phrasing the sessions card uses.
 export function formatLastActive(iso: string | null, now: number): string {
   if (!iso) {
     return "unknown";

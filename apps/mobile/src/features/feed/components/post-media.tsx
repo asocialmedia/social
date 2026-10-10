@@ -11,14 +11,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { VideoPlayer } from "expo-video";
-import {
-  Pause,
-  Play,
-  ShieldAlert,
-  Sparkles,
-  Volume2,
-  VolumeX,
-} from "lucide-react-native";
+import { Pause, Play, Sparkles, Volume2, VolumeX } from "lucide-react-native";
 import {
   createContext,
   useCallback,
@@ -42,6 +35,7 @@ import {
 } from "react-native";
 import type { ViewStyle } from "react-native";
 
+import errorImage from "@/assets/images/error.png";
 import noMediaImage from "@/assets/images/nomedia.png";
 import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
@@ -1310,22 +1304,34 @@ function OverflowTile({
 }
 
 export function ModeratedNotice() {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   return (
     <View
       style={[
         styles.moderated,
         {
-          backgroundColor: theme.errorBannerBg,
-          borderColor: theme.errorBannerBorder,
+          backgroundColor: theme.cardBg,
+          borderColor: theme.cardBorder,
+          boxShadow: isDark
+            ? "inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 2px rgba(255, 255, 255, 0.04)"
+            : "inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(255, 255, 255, 0.05)",
         },
       ]}
     >
-      <ShieldAlert color={theme.errorBannerText} size={24} />
-      <Text style={[styles.moderatedText, { color: theme.errorBannerText }]}>
-        This post seemed harmful, so it&apos;s been tucked away while it&apos;s
-        reviewed.
-      </Text>
+      <Image
+        contentFit="contain"
+        source={errorImage}
+        style={styles.moderatedIcon}
+      />
+      <View style={styles.moderatedContent}>
+        <Text style={[styles.moderatedTitle, { color: theme.inputText }]}>
+          This post seemed harmful
+        </Text>
+        <Text style={[styles.moderatedBody, { color: theme.dividerText }]}>
+          So it&apos;s been tucked away to keep the feed a good place. No harm
+          meant, and everyone&apos;s welcome back.
+        </Text>
+      </View>
     </View>
   );
 }
@@ -1380,9 +1386,13 @@ export function ExplicitGate({
   const cover = attachments.find((media) => !isAudioMedia(media));
   let coverUri: string | null = null;
   if (cover) {
-    coverUri = isVideoMedia(cover)
-      ? mediaPosterUrl(apiBase, cover.id)
-      : mediaGridImageUrl(apiBase, cover);
+    if (isVideoMedia(cover)) {
+      coverUri = mediaPosterUrl(apiBase, cover.id);
+    } else if (isGifMedia(cover)) {
+      coverUri = mediaImageUrl(apiBase, cover);
+    } else {
+      coverUri = mediaGridImageUrl(apiBase, cover);
+    }
   }
   const coverAspect =
     cover && cover.width && cover.height && cover.height > 0
@@ -1404,7 +1414,11 @@ export function ExplicitGate({
       {coverUri ? (
         <Image
           accessibilityLabel=""
-          blurRadius={blurSupported ? 24 : 0}
+          // A concealed cover stays still until consent; the revealed gallery
+          // owns viewport-scoped animation and playback.
+          autoplay={false}
+          blurRadius={blurSupported ? 40 : 0}
+          cachePolicy="memory-disk"
           contentFit="cover"
           source={{ uri: coverUri }}
           style={[
@@ -1425,9 +1439,7 @@ export function ExplicitGate({
         style={[
           styles.gateMask,
           {
-            backgroundColor: blurSupported
-              ? "rgba(0, 0, 0, 0.4)"
-              : theme.containerBg,
+            backgroundColor: blurSupported ? "transparent" : theme.containerBg,
           },
         ]}
       />
@@ -2040,16 +2052,31 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
+    gap: 12,
+    marginTop: 5,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  moderatedText: {
-    flex: 1,
+  moderatedBody: {
     fontFamily: "SofiaProReg",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "normal",
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  moderatedContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  moderatedIcon: {
+    height: 48,
+    width: 48,
+  },
+  moderatedTitle: {
+    fontFamily: "SofiaProBold",
+    fontSize: 14,
+    fontWeight: "normal",
+    lineHeight: 16,
   },
   muteGradient: {
     alignItems: "center",

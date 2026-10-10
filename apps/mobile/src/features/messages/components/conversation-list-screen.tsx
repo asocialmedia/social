@@ -8,43 +8,36 @@
 // last message is decrypted through the same scheduler the thread uses, so opening
 // a conversation later is instant.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
-import type { PresenceUser } from "@/features/messages/lib/client";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
 import {
   formatArrivalCount,
   formatListTimestamp,
 } from "@/features/messages/lib/message-grouping";
-import {
-  conversationListStore,
-  loadPresence,
-  startPresenceHeartbeat,
-} from "@/features/messages/state/conversation-list-store";
+import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import type { ConversationRowView } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
+import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useConversationList } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
-import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MessagePeoplePanel } from "./message-people-panel";
+import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MutedGlyph, PressableRow } from "./messages-primitives";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
-
-const PRESENCE_POLL_MS = 30_000;
 
 export function ConversationListScreen({
   onOpen,
@@ -58,55 +51,7 @@ export function ConversationListScreen({
   const list = useConversationList();
   const foreground = useMessagesForeground();
   const unreadCount = useUnreadNotificationCount(userId, foreground);
-  const [presence, setPresence] = useState<PresenceUser[]>([]);
-  const stopHeartbeatRef = useRef<(() => void) | null>(null);
-
-  // Presence keeps the reader's online rail honest. The heartbeat is refcounted, so
-  // the list, the thread header and the nav rail share one POST.
-  useEffect(() => {
-    if (!userId || !foreground) {
-      return;
-    }
-    let cancelled = false;
-
-    const refresh = async () => {
-      try {
-        const users = await loadPresence({
-          apiBase: getApiBaseUrl(),
-          cookie: await authClient.getCookie(),
-        });
-        if (!cancelled) {
-          setPresence(users);
-        }
-      } catch {
-        // A failed presence read is not worth telling anyone about; the dots just
-        // stay as they were.
-      }
-    };
-
-    void refresh();
-    // One cookie read for both the heartbeat and the first poll; a second read
-    // here would race the one inside `refresh`.
-    void (async () => {
-      const cookie = await authClient.getCookie();
-      if (cancelled) {
-        return;
-      }
-      stopHeartbeatRef.current = startPresenceHeartbeat({
-        apiBase: getApiBaseUrl(),
-        cookie: cookie ?? undefined,
-      });
-    })();
-    const timer = setInterval(() => {
-      void refresh();
-    }, PRESENCE_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      stopHeartbeatRef.current?.();
-      stopHeartbeatRef.current = null;
-    };
-  }, [foreground, userId]);
+  const presence = useMessagePresence();
 
   const presenceById = useMemo(
     () => new Map(presence.map((entry) => [entry.id, entry.status])),
@@ -267,16 +212,10 @@ function ConversationRow({
           userId={row.peerId}
           username={row.peerUsername}
         />
-        {presence === "offline" ? null : (
-          <View
-            style={[
-              styles.presence,
-              {
-                backgroundColor: presence === "online" ? "#22c55e" : "#f59e0b",
-              },
-            ]}
-          />
-        )}
+        <MessagePresenceIndicator
+          status={presence}
+          testID="conversation-list-presence"
+        />
       </View>
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
@@ -394,16 +333,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 120,
     paddingHorizontal: 8,
-  },
-  presence: {
-    borderColor: "#00000066",
-    borderRadius: 9999,
-    borderWidth: 2,
-    bottom: 0,
-    height: 13,
-    position: "absolute",
-    right: 0,
-    width: 13,
   },
   root: {
     flex: 1,

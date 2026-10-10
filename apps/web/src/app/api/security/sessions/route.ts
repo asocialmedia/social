@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { getSessionLocation } from "@/lib/security/session-location";
 
 const sessionActionSchema = z
   .object({
@@ -37,7 +38,7 @@ function noStoreJson(data: unknown, status = 200): Response {
 // built-in list endpoint requires a fresh session, which wrongly turns this
 // read-only dashboard into a 403 after its default 24-hour freshness window.
 // Keep the destructive controls behind Better Auth's own fresh-session guard.
-export async function GET(): Promise<Response> {
+export async function GET(request?: Request): Promise<Response> {
   const currentSession = await getSessionFromApi();
   if (!currentSession?.user) {
     return noStoreJson({ error: "Unauthorized" }, 401);
@@ -69,7 +70,41 @@ export async function GET(): Promise<Response> {
           updatedAt: fromPrismaDateTime(session.updatedAt),
         }))
       );
-    return noStoreJson(sessions);
+    const nativeAgent = request?.headers.get("user-agent");
+    const deviceAgent =
+      request?.headers.get("x-asm-client") === "mobile" &&
+      nativeAgent &&
+      /^Asocialmedia\/[^ ]+ \((?:Android|iOS|iPhone OS) [^;]*; [^)]+\)$/.test(
+        nativeAgent
+      ) &&
+      nativeAgent.length <= 256
+        ? nativeAgent
+        : null;
+    const current = sessions.find(
+      (session) => session.id === currentSession.session.id
+    );
+    if (current && deviceAgent && current.userAgent !== deviceAgent) {
+      await prisma.orm.public.Sessions.where({
+        id: current.id,
+        userId: currentSession.user.id,
+      }).update({ userAgent: deviceAgent });
+    }
+    const locations = await Promise.all(
+      sessions.map(async (session) => {
+        const location = await getSessionLocation(session.ipAddress);
+        return {
+          ...session,
+          city: location?.city ?? null,
+          country: location?.country ?? session.country,
+          current: session.id === currentSession.session.id,
+          userAgent:
+            session.id === currentSession.session.id && deviceAgent
+              ? deviceAgent
+              : session.userAgent,
+        };
+      })
+    );
+    return noStoreJson(locations);
   } catch (error) {
     console.error("Failed to list active sessions", error);
     return noStoreJson({ error: "Couldn’t load active sessions" }, 500);

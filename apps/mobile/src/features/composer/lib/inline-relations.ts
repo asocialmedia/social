@@ -42,6 +42,8 @@ export function applySuggestion(
 }
 
 export interface MentionPick {
+  avatarUrl?: string | null;
+  displayName?: string | null;
   id: string;
   username: string;
 }

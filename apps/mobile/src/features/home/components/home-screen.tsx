@@ -18,9 +18,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import { PostEditor } from "@/features/composer/components/post-editor";
+import { useComposerStore } from "@/features/composer/state/composer-store";
 import { FeedList } from "@/features/feed/components/feed-list";
 import { FeedPager } from "@/features/feed/components/feed-pager";
-import { FeedTabs, HOME_TAB_DEFS } from "@/features/feed/components/feed-tabs";
+import { HOME_TAB_DEFS } from "@/features/feed/components/feed-tabs";
 import { HEADER_BAR_HEIGHT } from "@/features/feed/lib/header-visibility";
 import type { HomeTab } from "@/features/feed/state/tab-store";
 import { resolveHomeTab } from "@/features/feed/state/tab-store";
@@ -34,6 +35,7 @@ import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
+import { HomeFeedControls } from "./home-feed-controls";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { headerSlide, MobileHeader } from "./mobile-header";
 
@@ -63,6 +65,7 @@ export default function HomeScreen() {
   const [dockHeight, setDockHeight] = useState(56);
   const [dockHidden, setDockHidden] = useState(false);
   const [composerHeight, setComposerHeight] = useState(0);
+  const composerOpen = useComposerStore((state) => state.isOpen);
   const [bannerHeight, setBannerHeight] = useState(90);
   const showGuestBar = !isPending && !user;
   const dockLift = dockHeight + insets.bottom + 20;
@@ -137,10 +140,17 @@ export default function HomeScreen() {
   // another on every tab switch; this way exactly one exists at a time.
   // Memoized so the element is stable across renders and the list is not asked
   // to re-render its header on every parent update.
-  const composerHeader = useMemo(
-    () => (isLoggedIn ? <PostEditor variant="feed" /> : null),
-    [isLoggedIn]
-  );
+  const composerHeader = useMemo(() => {
+    if (!isLoggedIn) {
+      return null;
+    }
+    // The modal owns the draft while open; do not decode its video twice underneath it.
+    return composerOpen ? (
+      <View style={{ height: composerHeight }} />
+    ) : (
+      <PostEditor variant="feed" />
+    );
+  }, [composerHeight, composerOpen, isLoggedIn]);
 
   // Wait for tab memory before mounting the pager: mounting on the default
   // tab and then jumping to the remembered one slides the whole pager over,
@@ -185,7 +195,11 @@ export default function HomeScreen() {
           },
         ]}
       >
-        <FeedTabs active={tab} onChange={handleTabChange} />
+        <HomeFeedControls
+          active={tab}
+          onChange={handleTabChange}
+          userId={user?.id}
+        />
         <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
           {HOME_TAB_DEFS.map((def, index) => (
             // Neighbour tabs preload their data in the background so

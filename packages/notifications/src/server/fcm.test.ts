@@ -113,6 +113,15 @@ describe("FCM token detection", () => {
 });
 
 describe("service account parsing", () => {
+  test("accepts a PEM expanded into literal newlines by the container env parser", () => {
+    const raw = JSON.stringify(TEST_SERVICE_ACCOUNT).replaceAll("\\n", "\n");
+    expect(parseServiceAccount(raw)?.privateKey).toBe(TEST_PRIVATE_KEY);
+    expect(parseServiceAccount(`'${raw}'`)?.privateKey).toBe(TEST_PRIVATE_KEY);
+    expect(
+      parseServiceAccount(JSON.stringify(JSON.stringify(TEST_SERVICE_ACCOUNT)))
+        ?.projectId
+    ).toBe("test-project");
+  });
   test("parses the Firebase JSON shape and unescapes newlines", () => {
     const account = parseServiceAccount(JSON.stringify(TEST_SERVICE_ACCOUNT));
     expect(account).not.toBeNull();
@@ -150,6 +159,28 @@ describe("service account parsing", () => {
 });
 
 describe("buildFcmMessage", () => {
+  test("delivers a private DM alert with a conversation destination", () => {
+    const message = buildFcmMessage(
+      {
+        id: "dm-1",
+        payload: {
+          body: "Sent you a message",
+          path: "/messages?c=conversation-1",
+          tag: "message:conversation-1",
+          title: "Alice",
+        },
+        recipientId: "bob",
+      },
+      "token-1"
+    );
+    expect(message.notification).toEqual({
+      body: "Sent you a message",
+      title: "Alice",
+    });
+    expect(message.data.path).toBe("/messages?c=conversation-1");
+    expect(message.android.priority).toBe("HIGH");
+    expect(message.android.notification.tag).toBe("message:conversation-1");
+  });
   test("maps the payload to FCM's string-only data shape", () => {
     const message = buildFcmMessage(base(), "token-1");
     expect(message.token).toBe("token-1");
@@ -172,13 +203,13 @@ describe("sendFcmPush", () => {
     projectId: "test-project",
   };
 
-  test("is a no-op without a service account", async () => {
+  test("reports undeliverable devices when the service account is unavailable", async () => {
     const result = await sendFcmPush(
       base(),
       [{ platform: "android", provider: "fcm", token: "token-1" }],
       { serviceAccount: null }
     );
-    expect(result).toEqual({ failed: 0, sent: 0, unregistered: [] });
+    expect(result).toEqual({ failed: 1, sent: 0, unregistered: [] });
   });
 
   test("skips tokens belonging to another provider", async () => {
@@ -299,6 +330,7 @@ describe("sendFcmPush", () => {
     );
     expect(result.failed).toBe(1);
     expect(result.sent).toBe(0);
+    expect(result.retryable).toBe(true);
   });
 
   test("does NOT prune on a 400 INVALID_ARGUMENT (payload errors share that status)", async () => {

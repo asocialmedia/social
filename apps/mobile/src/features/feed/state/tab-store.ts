@@ -18,7 +18,7 @@ export type ProfileTab =
   | "posts"
   | "replies"
   | "responses";
-export type GustResumeTab = "latest" | "personalized";
+export type GustResumeTab = "following" | "latest" | "personalized";
 
 // Remembered tabs expire after 7 days of being set, like web.
 export const TAB_MEMORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -30,6 +30,7 @@ export const HOME_TABS: ReadonlySet<HomeTab> = new Set([
   "trending",
 ]);
 export const GUST_RESUME_TABS: ReadonlySet<GustResumeTab> = new Set([
+  "following",
   "latest",
   "personalized",
 ]);

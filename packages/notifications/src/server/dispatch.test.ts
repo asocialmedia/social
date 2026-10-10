@@ -131,3 +131,24 @@ describe("push dispatch", () => {
     expect(result.device.sent).toBe(1);
   });
 });
+
+test("transient FCM outages propagate to the bounded durable notification queue", async () => {
+  const result = await dispatchNotificationPush(base(), {
+    listDeviceTokens: () =>
+      Promise.resolve([
+        { platform: "android", provider: "fcm", token: "test" },
+      ]),
+    listSubscriptions: () => Promise.resolve([]),
+    pruneDeviceTokens: () => Promise.resolve(),
+    pruneSubscriptions: () => Promise.resolve(),
+    sendDevice: () =>
+      Promise.resolve({
+        failed: 1,
+        retryable: true,
+        sent: 0,
+        unregistered: [],
+      }),
+    vapid: null,
+  });
+  expect(result.retryable).toBe(true);
+});

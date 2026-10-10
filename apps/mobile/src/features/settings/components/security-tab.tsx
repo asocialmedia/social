@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   Modal,
@@ -172,12 +172,14 @@ function isFreshSession(error: { message?: string; status?: number }): boolean {
 }
 
 export function SecurityTab({
+  active,
   email,
   emailVerified,
   hasAuthenticatorApp: initialHasAuthenticator,
   scrollRef,
   twoFactorEnabled: initialTwoFactorEnabled,
 }: {
+  active: boolean;
   email: string | null;
   emailVerified: boolean;
   hasAuthenticatorApp: boolean;
@@ -197,6 +199,9 @@ export function SecurityTab({
   );
   const [passkeys, setPasskeys] = useState<PasskeyEntry[]>([]);
   const [passkeysLoaded, setPasskeysLoaded] = useState(false);
+  const [passkeysError, setPasskeysError] = useState(false);
+  const [passkeysPending, setPasskeysPending] = useState(false);
+  const passkeysInFlight = useRef(false);
   const [twoFactorAction, setTwoFactorAction] =
     useState<TwoFactorAction | null>(null);
   const [totpSetup, setTotpSetup] = useState<TotpSetup | null>(null);
@@ -229,23 +234,34 @@ export function SecurityTab({
   );
 
   const refreshPasskeys = useCallback(async () => {
-    const result = await fetchPasskeys(await options());
-    if (result === null) {
-      toast({
-        description: "Please reload and try again.",
-        title: "Couldn't refresh passkeys",
-        variant: "destructive",
-      });
+    if (!user?.id || passkeysInFlight.current) {
       return;
     }
-    setPasskeys(result);
-    setPasskeysLoaded(true);
-  }, [options]);
+    passkeysInFlight.current = true;
+    setPasskeysPending(true);
+    setPasskeysError(false);
+    try {
+      const result = await fetchPasskeys(await options());
+      if (result === null) {
+        setPasskeysError(true);
+      } else {
+        setPasskeys(result);
+        setPasskeysLoaded(true);
+      }
+    } catch {
+      setPasskeysError(true);
+    }
+    passkeysInFlight.current = false;
+    setPasskeysPending(false);
+  }, [options, user?.id]);
 
   useEffect(() => {
-    // oxlint-disable-next-line react/set-state-in-effect -- refreshPasskeys awaits the fetch before touching state
+    if (!active || passkeysLoaded) {
+      return;
+    }
+    // oxlint-disable-next-line react/set-state-in-effect -- start the guarded asynchronous load when Security becomes visible
     void refreshPasskeys();
-  }, [refreshPasskeys]);
+  }, [active, passkeysLoaded, refreshPasskeys]);
 
   const onPasswordResetSubmit = async () => {
     const value = identifier.trim();
@@ -678,6 +694,23 @@ export function SecurityTab({
               size="sm"
             />
           </View>
+          {passkeysError ? (
+            <View style={styles.passkeyLoadError}>
+              <Text
+                style={[styles.passkeyErrorText, { color: theme.dividerText }]}
+              >
+                Couldn't load passkeys. You can try again here.
+              </Text>
+              <SettingsButton
+                label="Retry passkeys"
+                loading={passkeysPending}
+                onPress={() => {
+                  void refreshPasskeys();
+                }}
+                size="sm"
+              />
+            </View>
+          ) : null}
           {passkeysLoaded ? (
             <PasskeysList
               onRemove={(id) => {
@@ -685,8 +718,16 @@ export function SecurityTab({
               }}
               passkeys={passkeys}
             />
-          ) : (
+          ) : null}
+          {!passkeysLoaded && user && !passkeysError ? (
             <SettingsRowsSkeleton rows={1} />
+          ) : null}
+          {user ? null : (
+            <Text
+              style={[styles.passkeyErrorText, { color: theme.dividerText }]}
+            >
+              Sign in to manage your passkeys.
+            </Text>
           )}
         </SettingsCard>
       </SectionAnchor>
@@ -901,7 +942,7 @@ function SessionsBody({
               ) : null}
             </View>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
-              {getSessionLocation(session.country, session.ipAddress)}
+              {getSessionLocation(session.country, session.city ?? null)}
             </Text>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
               Last active {formatLastActive(session.updatedAt, currentTimeMs())}
@@ -1563,6 +1604,8 @@ const styles = StyleSheet.create({
   },
   minWidthZero: { flexShrink: 1, minWidth: 0 },
   note: { fontFamily: "SofiaProReg", fontSize: 12, lineHeight: 17 },
+  passkeyErrorText: { fontFamily: "SofiaProReg", fontSize: 13 },
+  passkeyLoadError: { alignItems: "flex-start", gap: 10 },
   passkeyName: { fontFamily: "SofiaProMed", fontSize: 14 },
   passkeyRow: {
     alignItems: "center",

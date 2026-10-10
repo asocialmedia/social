@@ -46,7 +46,7 @@ export function CommunityRail({
             community={community}
             key={community.id}
             onPress={() => onOpen(community)}
-            width={Math.max(260, width - 64)}
+            width={Math.max(260, width - 32)}
           />
         ))}
       </ScrollView>
@@ -69,9 +69,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 32,
+    paddingHorizontal: 16,
   },
   root: { gap: 10 },
   title: { fontFamily: "SofiaProBold", fontSize: 17 },
-  track: { gap: 16, paddingBottom: 4, paddingHorizontal: 32, paddingTop: 10 },
+  track: { gap: 16, paddingBottom: 4, paddingHorizontal: 16, paddingTop: 10 },
 });

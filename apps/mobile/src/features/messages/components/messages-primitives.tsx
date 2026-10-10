@@ -3,19 +3,19 @@
 // like a list of inline style arrays.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { BellOff, Check, CheckCheck, Clock } from "lucide-react-native";
-import { useState } from "react";
+import { BellOff, Check, CheckCheck } from "lucide-react-native";
+import { useMemo, useState } from "react";
 import type { ComponentType } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
+import noMediaImage from "@/assets/images/nomedia.png";
+import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import type { BubbleCorners } from "@/features/messages/lib/message-bubble-shape";
-import { messageImageSource } from "@/features/messages/lib/message-image-source";
+import {
+  MESSAGE_IMAGE_CACHE_POLICY,
+  messageImageSource,
+} from "@/features/messages/lib/message-image-source";
 import type { MessageReceipt } from "@/features/messages/lib/message-receipts";
 import { receiptLabel } from "@/features/messages/lib/message-receipts";
 import {
@@ -23,11 +23,11 @@ import {
   chip3d,
   iconButton3d,
   pillHover,
+  surface3d,
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
-import { imageCachePolicy } from "@/lib/image-cache";
 import { useAppTheme } from "@/theme";
 
 // The destructive ink, or undefined for a default button.
@@ -180,23 +180,15 @@ export function StatusChip({
   );
 }
 
-// "Sent" is a clock, "Delivered" one tick, "Read" two: the same progression a
-// person expects from every other messenger. Returned as elements rather than
-// component references, because selecting a component during render would make it
-// a fresh component type each pass.
+// A row exists only after server acknowledgement: one tick for sent, two for delivery/read.
 function receiptGlyph(label: MessageReceipt, color: string) {
-  if (label === "read") {
-    return <CheckCheck color={color} size={12} />;
-  }
-  if (label === "delivered") {
-    return <Check color={color} size={12} />;
-  }
-  return <Clock color={color} size={12} />;
+  return label === "sent" ? (
+    <Check color={color} size={12} />
+  ) : (
+    <CheckCheck color={color} size={12} />
+  );
 }
 
-// The receipt line under an own message. "Sent" is a clock, "Delivered" one tick,
-// "Read" two -- the same progression a person expects from every other messenger,
-// and the timestamp the watermark carries, not the message's own clock.
 export function ReceiptLine({
   label,
   at,
@@ -254,14 +246,26 @@ export function ReceivedBubbleSurface({
   );
 }
 
-// The "This message was deleted" tombstone: dashed border, italic, no fill.
-export function DeletedBubble({ mine }: { mine: boolean }) {
-  const { theme } = useAppTheme();
+// Deleted messages keep a bounded neutral surface with the app's inner lip.
+export function DeletedBubble({
+  maxWidth,
+  mine,
+}: {
+  maxWidth: number;
+  mine: boolean;
+}) {
+  const { isDark, theme } = useAppTheme();
+  const surface = surface3d(isDark);
   return (
     <View
       style={[
         styles.deleted,
-        { borderColor: `${theme.dividerText}66` },
+        {
+          backgroundColor: surface.background,
+          borderColor: surface.border,
+          boxShadow: surface.shadows,
+          maxWidth,
+        },
         mine ? styles.deletedMine : styles.deletedTheirs,
       ]}
     >
@@ -316,8 +320,7 @@ export function mediaUrl(path: string): string {
   return `${getApiBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// An image in a message, with the same cache policy the feed uses so a GIF in a
-// transcript does not get evicted like a thumbnail would.
+// Both the album and fullscreen viewer share the same account-scoped disk key.
 export function MessageImage({
   source,
   style,
@@ -328,80 +331,110 @@ export function MessageImage({
   contentFit?: "cover" | "contain";
 }) {
   const { mediaCookie, userId } = useMessagesIdentity();
-  const { theme } = useAppTheme();
-  const request = messageImageSource(
-    source,
-    getApiBaseUrl(),
-    userId,
-    mediaCookie
+  const request = useMemo(
+    () => messageImageSource(source, getApiBaseUrl(), userId, mediaCookie),
+    [source, userId, mediaCookie]
   );
-  const [loadedSource, setLoadedSource] = useState<string | null>(null);
-  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const identity = request.source?.cacheKey ?? request.source?.uri ?? "waiting";
+  return (
+    <MessageImageContent
+      key={identity}
+      contentFit={contentFit}
+      request={request}
+      style={style}
+    />
+  );
+}
+
+function MessageImageContent({
+  request,
+  style,
+  contentFit,
+}: {
+  request: ReturnType<typeof messageImageSource>;
+  style: object;
+  contentFit: "cover" | "contain";
+}) {
+  const { isDark, theme } = useAppTheme();
+  const [displayed, setDisplayed] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [revision, setRevision] = useState(0);
   return (
     <View style={[style, { overflow: "hidden" }]}>
+      {!displayed && !failed ? <MessageImageSkeleton /> : null}
       <Image
-        key={`${source}:${revision}`}
-        cachePolicy={request.privateMedia ? "memory" : imageCachePolicy(source)}
+        key={revision}
+        cachePolicy={MESSAGE_IMAGE_CACHE_POLICY}
         contentFit={contentFit}
-        onError={() => setFailedSource(source)}
-        onLoad={() => {
-          setFailedSource(null);
-          setLoadedSource(source);
+        onError={() => setFailed(true)}
+        onDisplay={() => {
+          setFailed(false);
+          setDisplayed(true);
         }}
-        recyclingKey={request.source?.cacheKey ?? source}
+        recyclingKey={request.source?.cacheKey ?? request.source?.uri}
         source={request.source}
         style={StyleSheet.absoluteFill}
-        transition={120}
+        transition={0}
       />
-      {loadedSource !== source && failedSource !== source ? (
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              alignItems: "center",
-              backgroundColor: `${theme.dividerText}20`,
-              justifyContent: "center",
-            },
-          ]}
-        >
-          <ActivityIndicator
-            accessibilityLabel="Loading message image"
-            color={theme.dividerText}
-            size="small"
-          />
-        </View>
-      ) : null}
-      {failedSource === source ? (
+      {failed ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Retry image"
+          accessibilityHint="Image unavailable. Tap to retry loading it."
+          testID="message-image-unavailable"
           onPress={() => {
-            setFailedSource(null);
+            setFailed(false);
+            setDisplayed(false);
             setRevision((value) => value + 1);
           }}
           style={[
             StyleSheet.absoluteFill,
-            {
-              alignItems: "center",
-              backgroundColor: theme.containerBg,
-              justifyContent: "center",
-              padding: 12,
-            },
+            styles.imageUnavailable,
+            { backgroundColor: isDark ? "#242424" : "#e6e8eb" },
           ]}
         >
+          <Image
+            contentFit="contain"
+            source={noMediaImage}
+            style={styles.imageUnavailableArt}
+          />
           <Text
-            style={{
-              color: theme.dividerText,
-              fontFamily: "SofiaProReg",
-              fontSize: 12,
-            }}
+            style={[styles.imageUnavailableText, { color: theme.inputText }]}
           >
-            Image unavailable. Tap to retry.
+            Image unavailable
+          </Text>
+          <Text style={[styles.imageRetryText, { color: theme.dividerText }]}>
+            Tap to retry
           </Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+// The image paints over this fixed-size placeholder, including on an instant cache hit.
+// Only a genuinely pending image keeps a pulse mounted; cached rows have no idle loop.
+function MessageImageSkeleton() {
+  const { isDark } = useAppTheme();
+  const pulse = useSkeletonPulse();
+  const animated = useAnimatedStyle(() => ({ opacity: pulse.get() }));
+  return (
+    <View
+      accessibilityLabel="Loading message image"
+      pointerEvents="none"
+      style={[
+        StyleSheet.absoluteFill,
+        { backgroundColor: isDark ? "#242424" : "#e6e8eb" },
+      ]}
+    >
+      <Animated.View
+        testID="message-image-skeleton"
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: isDark ? "#34373b" : "#f1f2f4" },
+          animated,
+        ]}
+      />
     </View>
   );
 }
@@ -428,14 +461,12 @@ const styles = StyleSheet.create({
   },
   deleted: {
     borderRadius: 16,
-    borderStyle: "dashed",
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   deletedMine: {
     alignSelf: "flex-end",
-    maxWidth: "78%",
   },
   deletedText: {
     fontFamily: "SofiaProReg",
@@ -444,12 +475,34 @@ const styles = StyleSheet.create({
   },
   deletedTheirs: {
     alignSelf: "flex-start",
-    maxWidth: "78%",
   },
   iconButton: {
     alignItems: "center",
     borderRadius: 9999,
     justifyContent: "center",
+  },
+  imageRetryText: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  imageUnavailable: {
+    alignItems: "center",
+    gap: 4,
+    justifyContent: "center",
+    padding: 12,
+  },
+  imageUnavailableArt: {
+    flexShrink: 1,
+    height: 80,
+    maxHeight: "55%",
+    maxWidth: "65%",
+    width: 120,
+  },
+  imageUnavailableText: {
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+    textAlign: "center",
   },
   presence: {
     borderColor: "#00000055",
