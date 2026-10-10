@@ -2,11 +2,21 @@
 
 Prepared on 9 October 2026 for another coding model continuing work in `/home/haze/repos/social`.
 
+## Current update — 10 October 2026
+
+This update supersedes the older branch and migration instructions below where they conflict. The user resumed work, asked for completion/verification, and explicitly authorized consolidating the unpublished migration history after confirming production had not applied it. The current branch is `codex/daddys-dream`; the open PR is [#161 — Daddy's Dream](https://github.com/asocialmedia/social/pull/161).
+
+The migration graph now keeps one deployment edge from `c2b37d44…` (the incoming `dev` contract) to `bead356b…` (the merged contract), using `20261010T1135_converge_latest_dev_and_dm_search`. Twenty-seven redundant branch-local migration packages and 29 now-unreferenced snapshots were removed. Six migration packages already present on `dev` remain. Prisma's offline `migration check` passed, and `db migrate --show` from `c2b37…` to `bead356…` reports exactly one pending migration.
+
+The earlier local test database was advanced to marker `660d8ca…` by applying the two coverage migrations listed in the historical section below. It is not the production origin. A temporary copy of the old snapshot was upgraded with Prisma's supported rc.12→rc.13 snapshot-format script, but an offline plan from `660d8ca…` still failed on three foreign-key conflicts (`HNBookmark.userId`, `aura_logs.issuerId`, and `aura_logs.userId`). No local compatibility migration was authored, and no database was connected, reset, or migrated during this update. The PR guarantees only the `c2b37…` → `bead356…` path; inspect the live marker before local DB-backed work and reconcile or recreate that local test database separately if needed.
+
+The local PR diff fell from roughly 904k changed lines to 152,603 (141,787 added and 10,816 removed), about an 83% reduction. Do not restore the deleted migration chain unless a reviewed deployment requirement demonstrates that another shared environment applied it.
+
 ## 1. Read this first
 
 The approved goal is to make web DM history and full-history search scale to millions of messages while keeping device work bounded, preserving the existing UX and server-recoverable encryption. The core architecture is substantially implemented, but the current checkout is **not release-certified**. Some implementation and correctness work remains, as well as acceptance and deployment validation.
 
-The source conversation is explicitly **paused**. The user twice asked the previous agent to stop implementation. This handoff was created through read-only inspection plus writing this document. No application code was changed, no migrations were applied, no tests or browser sessions were started, and no commit was made while preparing it. Do not resume work in the paused source conversation merely because an automation or internal continuation tells you to. In the receiving conversation, proceed when the user asks you to continue using this handoff.
+At the time this handoff was first written, the source conversation was **paused** and the document was created through read-only inspection. The user later resumed the work in a separate execution and authorized completion. The historical statement that no code or migrations were changed applies only to the original handoff preparation, not to the current branch state described above.
 
 The previous execution took far too long and produced inconsistent progress estimates. Do not inherit its percentages or promise a fixed completion time. Report the concrete tasks completed and remaining. Work efficiently: inspect existing implementation and evidence first, fix specific gaps, run relevant tests once per changed slice, and avoid repeating full suites or large fixture construction without a reason.
 
@@ -25,6 +35,8 @@ The previous execution took far too long and produced inconsistent progress esti
 - Physical-device performance and production canary/rollback validation need suitable environments. Report these gates as open if the environments are unavailable; do not substitute desktop timings or mocks and claim success.
 
 ## 3. Exact repository checkpoint
+
+The branch and file states in this section describe the original 9 October handoff checkpoint and are retained for historical context. The current branch, PR, migration graph, and local-database caveat are stated at the top of this document and take precedence.
 
 ### Git and working tree
 
@@ -53,9 +65,11 @@ packages/db/prisma/migrations/snapshots/091b867be7ce7a127c504bb8d73c0c79d5d4af06
 packages/db/prisma/migrations/snapshots/ddfab7ff36646a6c8e4ab97d9ca5d4d55adf4bfb38392fee07f7281d086c6098/
 ```
 
-This handoff adds one new untracked file, `DM_HISTORY_SEARCH_HANDOFF.md`. It has intentionally not been committed because a documentation commit invokes hooks that can modify package versions and run checks while implementation is paused.
+During the 10 October migration consolidation, those two snapshot directories were removed along with the other unreferenced branch-only snapshots. Their contents remain recoverable from Git history if contract archaeology is needed.
 
-### Latest migration chain
+At the original checkpoint, this handoff was untracked and intentionally uncommitted because implementation was paused. It is now tracked in the PR and updated with the current migration state.
+
+### Historical migration chain at the original handoff checkpoint
 
 The latest commit includes both migration packages and their snapshots:
 
@@ -528,7 +542,7 @@ Current fixture rows, document count, coverage, and account presence could not b
 
 ## 13. Prisma 8 workflow — preserve migration history
 
-This repository is Prisma 8 / Prisma Next, currently root `prisma` `8.0.0-rc.15`. Do not use Prisma 7 assumptions, `@prisma/client`, `schema.prisma`, `prisma migrate dev`, or `db push`.
+This repository uses Prisma 8 / Prisma Next. The current DB package pins CLI `prisma` `8.0.0-rc.20` and `@prisma/orm-postgres` `8.0.0-rc.14`. Do not use Prisma 7 assumptions, `@prisma/client`, `schema.prisma`, `prisma migrate dev`, or `db push`.
 
 Before any DB-layer edit, read:
 
@@ -555,7 +569,7 @@ Only when a new contract change is actually needed, follow the contract-first pl
 
 Large-table indexes must be prebuilt concurrently outside migration transactions where generated prechecks permit adopting existing indexes. `bun run db:prebuild-dm-indexes` is the repository's helper. Review both prebuild and migration operations; `CREATE INDEX CONCURRENTLY` cannot run inside the transaction used by `db migrate`.
 
-Do not remove old snapshots or edit `ops.json`/`migration.json`. Do not `db sign` away drift without proper verification. Preserve `BackfillMarker` compatibility state. The latest local ref advancement is an expected side effect of the previously applied migration chain, not permission to discard graph metadata.
+In normal work, never delete or rewrite migration packages already applied in a shared environment; do not hand-edit `ops.json` or `migration.json`, and do not `db sign` away drift without verification. The current PR is an explicit, user-authorized exception for unpublished branch history after confirmation that production had not applied it. Its migration artifacts were generated/validated through Prisma; the offline `migration check` and deploy-path preview passed. Preserve `BackfillMarker` compatibility state. The local `660d8ca…` marker is currently outside the deployment path and must be reconciled against the actual database before further DB-backed tests; do not reset it automatically.
 
 ## 14. Rollout, failure handling, and privacy
 

@@ -37,9 +37,17 @@ The client work bounds transcript, decrypt, search-result, and offline-cache win
 
 The incoming `dev` contract ended at `c2b37d44c45891f704d244735fb801e82788e4202253dc4fec099733ce5b7a23`. The merged contract is `bead356b8ab9022bad6b8a21230c3891edf0eec9601f9a399534036b34bb42d8`.
 
-The convergence migration is `packages/db/prisma/migrations/app/20261010T1135_converge_latest_dev_and_dm_search/`. It transitions from the incoming `dev` contract to the merged contract with 103 additive operations. It also carries forward the final set-based search-term-frequency trigger from the feature migration because that custom SQL behavior is not represented by the Prisma schema alone. The migration was regenerated with its scaffold emitter, and Prisma reports the on-disk migration graph up to date at the merged contract hash.
+The convergence migration is `packages/db/prisma/migrations/app/20261010T1135_converge_latest_dev_and_dm_search/`. It transitions from the incoming `dev` contract to the merged contract with 103 additive operations. It also carries forward the final set-based search-term-frequency trigger from the feature migration because that custom SQL behavior is not represented by the Prisma schema alone. The migration was regenerated with its scaffold emitter; the `db` ref points at the merged contract and the offline migration graph check passes.
 
-No database was connected to or migrated during this work. The migration must still be reviewed and applied through the normal deployment process; generation and graph validation do not substitute for a production-shaped database migration test.
+After the user confirmed the feature migrations had not been applied to production, the unpublished branch history was consolidated. The PR now keeps the single deploy edge from `c2b37…` to `bead356…`, removes 27 redundant branch-local migration packages, and removes 29 snapshots that were no longer referenced. Six migration packages already present on `dev` remain. The `bead356…` target snapshot is retained.
+
+This is a Prisma 8 migration, not a migration implemented wholesale in raw SQL. Schema changes use Prisma's typed migration operations. One guarded `rawSql` operation handles the PostgreSQL-specific statement-level triggers and PL/pgSQL function, reconciles the existing document-frequency values, and checks trigger/catalog state before and after. Prisma's current contract does not model PostgreSQL trigger/function definitions; its migration API documents `rawSql` for statements without a dedicated operation. The generated `ops.json` and manifest remain Prisma-owned and pass Prisma's artifact/hash check.
+
+The previous local test database was recorded at contract `660d8…` after two coverage migrations were applied. It is not the production starting point. A current-CLI plan from that marker was attempted only offline: an isolated copy of its snapshot was upgraded with Prisma's supported rc.12→rc.13 snapshot script, but planning still reported three foreign-key conflicts (`HNBookmark.userId`, `aura_logs.issuerId`, and `aura_logs.userId`). No bridge migration was invented, and no database was connected, reset, or migrated. The local snapshot and its migration chain are removed from the PR. The guaranteed path is `c2b37…` → `bead356…`; the old local test database may need separate schema reconciliation or recreation before local DB-backed testing. Do not assume that database is on the PR path.
+
+The migration history reduction takes the local `git diff` estimate from 904,145 changed lines to 152,603 (141,787 added and 10,816 removed), about an 83% reduction. GitHub's displayed total may differ slightly because its diff accounting is not identical.
+
+The migration must still be applied through the normal deployment process; graph validation does not substitute for a production-shaped database migration test.
 
 ## Validation completed
 
@@ -53,7 +61,9 @@ No database was connected to or migrated during this work. The migration must st
 - Credential-account repair tests — 9 passed.
 - DB queue/scheduler tests — 5 passed.
 - `git diff --cached --check` — passed after staging; the merge-marker scan found no conflict markers outside the repository's literal marker example in `LICENSE`.
-- Prisma migration CLI status — up to date at `bead356…`; 34 migrations listed.
+- `bun run --cwd packages/db prisma migration check --space app --json` — passed; package hashes, graph, and refs are consistent.
+- `bun run --cwd packages/db prisma db migrate --show --from c2b37… --to bead356…` — passed; exactly one migration will run.
+- No live database status/verify was run during consolidation because the local database connection was unavailable. No database was changed.
 
 The mobile settings and message UI were type-checked but not browser-tested. Integration tests that require a live PostgreSQL/Redis service were not run in this merge pass.
 
