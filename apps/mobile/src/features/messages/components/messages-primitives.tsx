@@ -23,6 +23,7 @@ import {
   chip3d,
   iconButton3d,
   pillHover,
+  surface3d,
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -245,14 +246,26 @@ export function ReceivedBubbleSurface({
   );
 }
 
-// The "This message was deleted" tombstone: dashed border, italic, no fill.
-export function DeletedBubble({ mine }: { mine: boolean }) {
-  const { theme } = useAppTheme();
+// Deleted messages keep a bounded neutral surface with the app's inner lip.
+export function DeletedBubble({
+  maxWidth,
+  mine,
+}: {
+  maxWidth: number;
+  mine: boolean;
+}) {
+  const { isDark, theme } = useAppTheme();
+  const surface = surface3d(isDark);
   return (
     <View
       style={[
         styles.deleted,
-        { borderColor: `${theme.dividerText}66` },
+        {
+          backgroundColor: surface.background,
+          borderColor: surface.border,
+          boxShadow: surface.shadows,
+          maxWidth,
+        },
         mine ? styles.deletedMine : styles.deletedTheirs,
       ]}
     >
@@ -448,14 +461,12 @@ const styles = StyleSheet.create({
   },
   deleted: {
     borderRadius: 16,
-    borderStyle: "dashed",
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   deletedMine: {
     alignSelf: "flex-end",
-    maxWidth: "78%",
   },
   deletedText: {
     fontFamily: "SofiaProReg",
@@ -464,7 +475,6 @@ const styles = StyleSheet.create({
   },
   deletedTheirs: {
     alignSelf: "flex-start",
-    maxWidth: "78%",
   },
   iconButton: {
     alignItems: "center",
@@ -483,11 +493,11 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   imageUnavailableArt: {
-    aspectRatio: 1.5,
     flexShrink: 1,
+    height: 80,
     maxHeight: "55%",
-    maxWidth: 120,
-    width: "65%",
+    maxWidth: "65%",
+    width: 120,
   },
   imageUnavailableText: {
     fontFamily: "SofiaProMed",

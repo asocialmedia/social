@@ -110,7 +110,10 @@ function MessageBubbleInner({
           { marginTop: group.isFirstInGroup ? 8 : 2 },
         ]}
       >
-        <DeletedBubble mine={mine} />
+        <DeletedBubble
+          maxWidth={Math.round(maxBubbleWidth * MAX_BUBBLE_WIDTH_RATIO)}
+          mine={mine}
+        />
       </View>
     );
   }
@@ -516,7 +519,7 @@ const styles = StyleSheet.create({
   },
   quoteText: {
     color: "#646464",
-    flex: 1,
+    flexShrink: 1,
     fontFamily: "SofiaProReg",
     fontSize: 12,
   },

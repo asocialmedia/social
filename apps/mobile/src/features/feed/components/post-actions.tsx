@@ -325,9 +325,9 @@ export function BookmarkToggle({
           ? "Removed from your bookmarks"
           : "Post saved, find it anytime in your bookmarks",
         icon: bookmarked ? (
-          <BookmarkX color="#ffffff" />
+          <BookmarkX color="#fbbf24" fill="#fbbf24" />
         ) : (
-          <BookmarkCheck color="#ffffff" />
+          <BookmarkCheck color="#fbbf24" fill="#fbbf24" />
         ),
         title: bookmarked ? "Bookmark Removed" : "Bookmarked",
       });
