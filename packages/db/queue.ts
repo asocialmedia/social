@@ -288,6 +288,20 @@ export async function enqueueNotificationDeleted(
   });
 }
 
+export async function enqueueMessagePush(
+  messageId: string,
+  recipientId: string
+): Promise<void> {
+  const jobId = `message-push-${messageId}-${recipientId}`;
+  await addNotificationJob(
+    getQueue(NOTIFICATIONS_QUEUE),
+    "message-push",
+    jobId,
+    { messageId, recipientId },
+    { ...NOTIFICATION_JOB_DEFAULTS, jobId }
+  );
+}
+
 // Checks whether a user has earned the shitposter badge. Deduplicated per user
 // with a stable jobId so a burst of posts enqueues a single check. Completed
 // jobs are removed immediately so the jobId frees up for the next burst; failed

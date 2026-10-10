@@ -20,9 +20,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import { SignJWT, importPKCS8 } from "jose";
 
-import type { NotificationRecord } from "../shared/types";
 import { describePushError } from "./log";
 import type { PushLogger } from "./log";
+import type { PushDelivery } from "./payload";
 import { buildPushPayload } from "./payload";
 
 export const FCM_OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -284,7 +284,7 @@ interface FcmMessage {
 
 // FCM's `data` payload is string-to-string only.
 export function buildFcmMessage(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   token: string
 ): FcmMessage {
   const payload = buildPushPayload(notification);
@@ -349,7 +349,7 @@ type FcmSendOutcome =
 async function sendFcmMessage(
   endpoint: string,
   accessToken: string,
-  notification: NotificationRecord,
+  notification: PushDelivery,
   token: string,
   fetchImpl: typeof fetch
 ): Promise<FcmSendOutcome> {
@@ -400,7 +400,7 @@ function isRetryableFcmStatus(status: number | null): boolean {
 async function sendFcmMessageWithRetry(
   endpoint: string,
   accessToken: string,
-  notification: NotificationRecord,
+  notification: PushDelivery,
   token: string,
   fetchImpl: typeof fetch,
   attempt = 1
@@ -435,7 +435,7 @@ async function sendFcmMessageWithRetry(
 // Sends sequentially because each message is a separate HTTP call and a user
 // holds few devices; the access token is fetched once for the whole batch.
 export async function sendFcmPush(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   targets: FcmTarget[],
   options: SendFcmOptions
 ): Promise<FcmPushResult> {

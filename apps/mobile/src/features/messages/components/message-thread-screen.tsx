@@ -106,6 +106,7 @@ import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
+import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
@@ -1087,18 +1088,12 @@ function ThreadHeader({
   presence: "online" | "idle" | null;
 }) {
   const { isDark, theme } = useAppTheme();
-  let presenceColor = "#8e8e93";
-  let presenceLabel = "Offline";
   let statusText = username ? `@${username}` : "";
   if (presence === "online") {
     statusText = "Online";
-    presenceColor = "#22c55e";
-    presenceLabel = "Online";
   }
   if (presence === "idle") {
     statusText = "Idle";
-    presenceColor = "#f59e0b";
-    presenceLabel = "Idle";
   }
   return (
     <View
@@ -1118,14 +1113,9 @@ function ThreadHeader({
       />
       <View style={styles.headerAvatar}>
         <UserAvatar size={32} url={avatarUrl} />
-        <View
-          accessible
-          accessibilityLabel={presenceLabel}
+        <MessagePresenceIndicator
+          status={presence}
           testID="chat-header-presence"
-          style={[
-            styles.headerPresence,
-            { backgroundColor: presenceColor, borderColor: theme.containerBg },
-          ]}
         />
       </View>
       <View style={styles.headerIdentity}>
@@ -1223,15 +1213,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   headerNameRow: { alignItems: "center", flexDirection: "row", gap: 5 },
-  headerPresence: {
-    borderRadius: 6,
-    borderWidth: 2,
-    bottom: -2,
-    height: 12,
-    position: "absolute",
-    right: -2,
-    width: 12,
-  },
   headerSub: {
     fontFamily: "SofiaProReg",
     fontSize: 12,

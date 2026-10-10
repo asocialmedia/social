@@ -34,6 +34,7 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { MessagePeoplePanel } from "./message-people-panel";
+import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MutedGlyph, PressableRow } from "./messages-primitives";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
@@ -211,16 +212,10 @@ function ConversationRow({
           userId={row.peerId}
           username={row.peerUsername}
         />
-        {presence === "offline" ? null : (
-          <View
-            style={[
-              styles.presence,
-              {
-                backgroundColor: presence === "online" ? "#22c55e" : "#f59e0b",
-              },
-            ]}
-          />
-        )}
+        <MessagePresenceIndicator
+          status={presence}
+          testID="conversation-list-presence"
+        />
       </View>
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
@@ -338,16 +333,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 120,
     paddingHorizontal: 8,
-  },
-  presence: {
-    borderColor: "#00000066",
-    borderRadius: 9999,
-    borderWidth: 2,
-    bottom: 0,
-    height: 13,
-    position: "absolute",
-    right: 0,
-    width: 13,
   },
   root: {
     flex: 1,

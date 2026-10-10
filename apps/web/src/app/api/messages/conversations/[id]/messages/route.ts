@@ -1,6 +1,7 @@
 import {
   and,
   consumeRateLimit,
+  enqueueMessagePush,
   fromPrismaDateTime,
   getMessageDataQuery,
   or,
@@ -510,6 +511,11 @@ export async function POST(
       await unreadMessageCache.increment(otherMember.userId);
     } catch (error) {
       console.error("Failed to increment unread message count:", error);
+    }
+    try {
+      await enqueueMessagePush(createdMessageId, otherMember.userId);
+    } catch (error) {
+      console.error("Failed to queue message push:", error);
     }
   }
   try {

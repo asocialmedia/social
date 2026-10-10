@@ -20,6 +20,10 @@ export interface PushPayload {
   title: string;
 }
 
+export type PushDelivery =
+  | NotificationRecord
+  | { id: string; recipientId: string; payload: PushPayload };
+
 // The post's path. Mirrors web getPostPath's community nesting and short-id
 // convention; duplicated here (rather than imported from apps/web, which the
 // worker cannot reach) because the worker needs the same address the feed link
@@ -90,9 +94,10 @@ function issuerName(notification: NotificationRecord): string {
   );
 }
 
-export function buildPushPayload(
-  notification: NotificationRecord
-): PushPayload {
+export function buildPushPayload(notification: PushDelivery): PushPayload {
+  if ("payload" in notification) {
+    return notification.payload;
+  }
   const { action } = presentNotification(notification);
   const community = notificationCommunitySlug(notification);
   // The action already names the community for a community post ("posted a new

@@ -159,6 +159,28 @@ describe("service account parsing", () => {
 });
 
 describe("buildFcmMessage", () => {
+  test("delivers a private DM alert with a conversation destination", () => {
+    const message = buildFcmMessage(
+      {
+        id: "dm-1",
+        payload: {
+          body: "Sent you a message",
+          path: "/messages?c=conversation-1",
+          tag: "message:conversation-1",
+          title: "Alice",
+        },
+        recipientId: "bob",
+      },
+      "token-1"
+    );
+    expect(message.notification).toEqual({
+      body: "Sent you a message",
+      title: "Alice",
+    });
+    expect(message.data.path).toBe("/messages?c=conversation-1");
+    expect(message.android.priority).toBe("HIGH");
+    expect(message.android.notification.tag).toBe("message:conversation-1");
+  });
   test("maps the payload to FCM's string-only data shape", () => {
     const message = buildFcmMessage(base(), "token-1");
     expect(message.token).toBe("token-1");
