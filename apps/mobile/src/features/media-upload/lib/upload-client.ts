@@ -73,6 +73,7 @@ export interface UploadCallbacks {
 }
 
 export interface UploadOptions extends UploadCallbacks {
+  audioOverlayId?: string;
   // Required for `purpose: "message"`. See InitiateRequest.conversationId.
   conversationId?: string;
   purpose: UploadPurpose;
@@ -340,6 +341,7 @@ export async function uploadMedia(
       () =>
         initiateUpload(
           {
+            audioOverlayId: options.audioOverlayId,
             conversationId: options.conversationId,
             height: source.height,
             name: source.name,

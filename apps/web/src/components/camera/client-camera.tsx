@@ -1,11 +1,5 @@
 "use client";
 
-// Full-screen web capture page. Live preview via getUserMedia (front by
-// default, requested only on mount), tracks stopped on unmount so nothing
-// leaks after close. Tap the orange shutter for a photo, press-and-hold for
-// video (MediaRecorder, manual stop, no cap). Captures feed the floating
-// composer with the selected fleet / gust / community target. File picker is
-// the fallback when no camera exists and the gallery entry point otherwise.
 import { clientLog } from "@asm/config/debug";
 import { Images, RefreshCw, X, Zap, ZapOff } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -16,6 +10,17 @@ import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 import { useComposerStore } from "@/store/composer-store";
 
+// Full-screen web capture page. Live preview via getUserMedia (front by
+// default, requested only on mount), tracks stopped on unmount so nothing
+// leaks after close. Tap the orange shutter for a photo, press-and-hold for
+// video (MediaRecorder, manual stop, no cap). Captures feed the floating
+// composer with the selected fleet / gust / community target. File picker is
+// the fallback when no camera exists and the gallery entry point otherwise.
+import {
+  capturePhoto,
+  recordingMimeType,
+  saveCameraDownload,
+} from "./camera-capture";
 import {
   CAMERA_TARGETS,
   composerModeForTarget,
@@ -26,8 +31,8 @@ import type { CameraTarget } from "./camera-target";
 type Facing = "environment" | "user";
 
 const TARGET_LABEL: Record<CameraTarget, string> = {
-  community: "Community",
-  fleet: "Fleet",
+  community: "Communities",
+  fleet: "Fleets",
   gust: "Gusts",
 };
 
@@ -49,8 +54,24 @@ export default function ClientCamera() {
   >("loading");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const captureBusy = useRef(false);
+  const deliverRecording = useRef(false);
+  const streamRequest = useRef(0);
+  const active = useRef(true);
+  useEffect(() => {
+    if (!recording) {
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(
+      () => setRecordSeconds(Math.floor((Date.now() - started) / 1000)),
+      250
+    );
+    return () => window.clearInterval(timer);
+  }, [recording]);
   const [capturing, setCapturing] = useState(false);
-  const [lastThumb, setLastThumb] = useState<string | null>(null);
+
   const openComposer = useComposerStore((s) => s.openComposer);
   const openInCommunity = useComposerStore((s) => s.openComposerInCommunity);
   const setMode = useComposerStore((s) => s.setMode);
@@ -59,6 +80,12 @@ export default function ClientCamera() {
   const canPost = useActiveCommunityStore((s) => s.canPost);
 
   const stopStream = useCallback(() => {
+    streamRequest.current += 1;
+    deliverRecording.current = false;
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
     try {
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
@@ -92,11 +119,19 @@ export default function ClientCamera() {
       setStatus("loading");
       setCameraError(null);
       stopStream();
+      streamRequest.current += 1;
+      const request = streamRequest.current;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: { facingMode: { ideal: nextFacing } },
         });
+        if (!active.current || request !== streamRequest.current) {
+          for (const track of stream.getTracks()) {
+            track.stop();
+          }
+          return;
+        }
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -146,22 +181,26 @@ export default function ClientCamera() {
   // Requested only here, never before open. Cleanup stops every track so the
   // indicator dies the moment the page closes or the tab hides.
   useEffect(() => {
+    active.current = true;
     // oxlint-disable-next-line react/set-state-in-effect -- effect syncs with camera hardware, the external system
-    void startStream("user");
+    void startStream(facing);
     const onHide = () => {
       if (document.visibilityState === "hidden") {
         stopStream();
+      } else {
+        void startStream(facing);
       }
     };
     const onPageHide = () => stopStream();
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onPageHide);
     return () => {
+      active.current = false;
       document.removeEventListener("visibilitychange", onHide);
       window.removeEventListener("pagehide", onPageHide);
       stopStream();
     };
-  }, [startStream, stopStream]);
+  }, [facing, startStream, stopStream]);
 
   const close = useCallback(() => {
     stopStream();
@@ -169,14 +208,13 @@ export default function ClientCamera() {
   }, [router, stopStream]);
 
   const flip = useCallback(() => {
-    if (recording) {
+    if (recording || capturing || captureBusy.current) {
       return;
     }
     const next: Facing = facing === "user" ? "environment" : "user";
     setFacing(next);
     clientLog.info("camera.flip");
-    void startStream(next);
-  }, [facing, recording, startStream]);
+  }, [facing, recording, capturing]);
 
   const toggleFlash = useCallback(async () => {
     const [track] = streamRef.current?.getVideoTracks() ?? [];
@@ -200,13 +238,6 @@ export default function ClientCamera() {
       const mode = composerModeForTarget(target);
       const effective =
         !targetAllowsKind(target, kind) && kind === "photo" ? "post" : mode;
-      // Preview thumb for the gallery button (object URL, revoked on replace).
-      setLastThumb((prev) => {
-        if (prev?.startsWith("blob:")) {
-          URL.revokeObjectURL(prev);
-        }
-        return kind === "photo" ? URL.createObjectURL(file) : prev;
-      });
       if (target === "community" && community && canPost) {
         openInCommunity(community);
       } else {
@@ -233,88 +264,136 @@ export default function ClientCamera() {
 
   const takePhoto = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || status !== "ready" || capturing || recording) {
+    if (
+      !video ||
+      status !== "ready" ||
+      capturing ||
+      recording ||
+      captureBusy.current
+    ) {
       return;
     }
+    captureBusy.current = true;
     setCapturing(true);
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      setCameraError("Canvas unavailable on this browser.");
+    setCameraError(null);
+    try {
+      const file = await capturePhoto(video, facing === "user");
+      clientLog.info("camera.photo");
+      saveCameraDownload(file);
+      if (active.current) {
+        await deliver(file, "photo");
+      }
+    } catch (error) {
+      clientLog.error("camera.photo_failed:", error);
+      setCameraError("Couldn't finish that capture. Try again.");
+    }
+    captureBusy.current = false;
+    if (active.current) {
       setCapturing(false);
-      return;
     }
-    // Mirror front-camera stills so they match the preview.
-    if (facing === "user") {
-      ctx.translate(width, 0);
-      ctx.scale(-1, 1);
-    }
-    ctx.drawImage(video, 0, 0, width, height);
-    // oxlint-disable-next-line promise/avoid-new -- canvas.toBlob is callback-only, no async alternative exists
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(
-        (b) => {
-          resolve(b);
-        },
-        "image/jpeg",
-        0.92
-      );
-    });
-    if (!blob) {
-      setCameraError("Couldn't encode that photo.");
-      setCapturing(false);
-      return;
-    }
-    const file = new File([blob], `fleet-${Date.now()}.jpg`, {
-      type: "image/jpeg",
-    });
-    clientLog.info("camera.photo");
-    await deliver(file, "photo");
-    setCapturing(false);
   }, [capturing, deliver, facing, recording, status]);
+
+  const finishVideo = useCallback(
+    async (file: File) => {
+      try {
+        saveCameraDownload(file);
+        await deliver(file, "video");
+      } catch (error) {
+        clientLog.error("camera.handoff_failed:", error);
+        if (active.current) {
+          setCameraError(
+            "Video saved to Downloads. Couldn't attach it; choose it from files to retry."
+          );
+        }
+      }
+      captureBusy.current = false;
+      if (active.current) {
+        setCapturing(false);
+      }
+    },
+    [deliver]
+  );
 
   const startVideo = useCallback(() => {
     const stream = streamRef.current;
-    if (!stream || status !== "ready" || recording) {
+    if (!stream || status !== "ready" || recording || captureBusy.current) {
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setCameraError(
+        "Video recording isn't supported by this browser. You can choose a video from files."
+      );
       return;
     }
     try {
-      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-        ? "video/webm;codecs=vp9"
-        : "video/webm";
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      const mime = recordingMimeType((type) =>
+        MediaRecorder.isTypeSupported(type)
+      );
+      const recorder = new MediaRecorder(
+        stream,
+        mime ? { mimeType: mime } : undefined
+      );
+      captureBusy.current = true;
+      deliverRecording.current = true;
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
         }
       };
+      recorder.addEventListener("error", () => {
+        deliverRecording.current = false;
+        captureBusy.current = false;
+        if (active.current) {
+          setRecording(false);
+          setCapturing(false);
+          setCameraError(
+            "Recording interrupted. Hold the shutter to try again."
+          );
+        }
+      });
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        const type = recorder.mimeType || mime || "video/webm";
+        const blob = new Blob(chunksRef.current, { type });
         chunksRef.current = [];
-        setRecording(false);
-        if (blob.size === 0) {
+        recorderRef.current = null;
+        if (!deliverRecording.current || !active.current) {
+          captureBusy.current = false;
           return;
         }
-        const file = new File([blob], `gust-${Date.now()}.webm`, {
-          type: "video/webm",
-        });
-        clientLog.info("camera.record_stop");
-        void deliver(file, "video");
+        deliverRecording.current = false;
+        setRecording(false);
+        setCapturing(true);
+        if (blob.size === 0) {
+          captureBusy.current = false;
+          setCapturing(false);
+          setCameraError(
+            "No video was recorded. Hold the shutter a little longer."
+          );
+          return;
+        }
+        const file = new File(
+          [blob],
+          `gust-${Date.now()}.${type.startsWith("video/mp4") ? "mp4" : "webm"}`,
+          { type }
+        );
+        void finishVideo(file);
       };
       recorderRef.current = recorder;
       // No timeslice cap: manual stop on release.
       recorder.start();
+      setRecordSeconds(0);
+      setCameraError(null);
       setRecording(true);
       clientLog.info("camera.record_start");
     } catch (error) {
+      captureBusy.current = false;
+      setCameraError(
+        error instanceof Error ? error.message : "Couldn't start recording."
+      );
       clientLog.error("camera.record_failed:", error);
     }
-  }, [deliver, recording, status]);
+  }, [finishVideo, recording, status]);
 
   const stopVideo = useCallback(() => {
     try {
@@ -340,7 +419,7 @@ export default function ClientCamera() {
       window.clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
-    if (recording) {
+    if (recorderRef.current?.state === "recording") {
       stopVideo();
       return;
     }
@@ -348,7 +427,7 @@ export default function ClientCamera() {
       void takePhoto();
     }
     holdFired.current = false;
-  }, [recording, stopVideo, takePhoto]);
+  }, [stopVideo, takePhoto]);
 
   const onFiles = useCallback(
     (files: FileList | null) => {
@@ -361,6 +440,22 @@ export default function ClientCamera() {
     },
     [deliver]
   );
+
+  let captureStatus = "Tap for photo · Hold for video";
+  if (capturing) {
+    captureStatus = "Saving capture…";
+  }
+  if (recording) {
+    captureStatus = `● ${Math.floor(recordSeconds / 60)
+      .toString()
+      .padStart(
+        2,
+        "0"
+      )}:${(recordSeconds % 60).toString().padStart(2, "0")} · Release to stop`;
+  }
+  if (cameraError && status === "ready") {
+    captureStatus = cameraError;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black text-white">
@@ -423,7 +518,7 @@ export default function ClientCamera() {
               <button
                 className="follow-btn-3d rounded-full px-5 py-2.5 text-sm font-semibold"
                 onClick={() => {
-                  /* empty */
+                  void startStream(facing);
                 }}
                 type="button"
               >
@@ -440,117 +535,117 @@ export default function ClientCamera() {
           </div>
         </div>
       ) : null}
-      <div className="absolute right-0 bottom-0 left-0 z-10 flex flex-col items-center gap-4">
-        <button
-          aria-label={
-            recording
-              ? "Release to stop recording"
-              : "Take photo, hold for video"
-          }
-          className="group relative flex size-[96px] items-center justify-center rounded-full transition-transform active:scale-95"
-          onPointerDown={onShutterDown}
-          onPointerLeave={() => {
-            if (recording) {
-              stopVideo();
-            }
-          }}
-          onPointerUp={onShutterUp}
-          type="button"
-        >
-          <span className="flex size-[82px] items-center justify-center rounded-full bg-[#0b0b0b] shadow-[inset_0_2px_5px_rgba(0,0,0,0.8),inset_0_-1px_2px_rgba(255,255,255,0.1)]">
-            <span
-              className={cn(
-                "flex items-center justify-center rounded-full border transition-all duration-150",
-                recording
-                  ? "size-[70px] border-black/25 bg-red-500 shadow-[inset_0_-3px_6px_rgba(0,0,0,0.35),inset_0_3px_5px_rgba(255,255,255,0.35),0_1px_4px_rgba(255,59,48,0.6)]"
-                  : "size-[70px] border-black/15 bg-white shadow-[inset_0_-2px_3px_rgba(0,0,0,0.18),inset_0_2px_2px_rgba(255,255,255,0.9),0_1px_2px_rgba(0,0,0,0.3)]"
-              )}
-            >
-              {capturing && !recording ? (
-                <span className="size-5 animate-spin rounded-full border-2 border-neutral-400 border-t-transparent" />
-              ) : null}
-            </span>
-          </span>
-          {recording ? (
-            <svg
-              aria-hidden
-              className="absolute inset-0 animate-spin"
-              fill="none"
-              style={{ animationDuration: "1.1s" }}
-              viewBox="0 0 104 104"
-            >
-              <circle
-                cx="52"
-                cy="52"
-                r="50"
-                stroke="#ff453a"
-                strokeDasharray="88 314"
-                strokeLinecap="round"
-                strokeWidth="4"
-              />
-            </svg>
-          ) : null}
-        </button>
-        {recording ? (
-          <p className="text-xs text-white/85">Release to stop</p>
-        ) : null}
-        <div className="flex w-full items-center justify-between px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <div className="flex w-14 items-center justify-center">
-            <button
-              aria-label="Open gallery"
-              className="flex size-10 items-center justify-center overflow-hidden rounded-[10px] border border-white/20 bg-white/10"
-              onClick={() => fileRef.current?.click()}
-              type="button"
-            >
-              {lastThumb ? (
-                // oxlint-disable-next-line next/no-img-element -- blob preview URL, next/image cannot optimize object URLs
-                <img
-                  alt=""
-                  className="h-full w-full object-cover"
-                  src={lastThumb}
-                />
-              ) : (
-                <Images className="size-4.5 text-white/90" />
-              )}
-            </button>
-          </div>
-          <div
-            className="flex flex-1 items-center justify-center gap-7"
-            role="tablist"
-            aria-label="Post target"
+      <div className="absolute right-0 bottom-0 left-0 z-10 flex flex-col items-center gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <output className="flex min-h-6 items-center justify-center px-6 text-center text-xs text-white/90 tabular-nums">
+          {captureStatus}
+        </output>
+        <div className="grid w-full grid-cols-[56px_1fr_56px] items-center justify-items-center px-5">
+          <button
+            aria-label="Open gallery"
+            className="rail-3d-btn flex size-8.5 items-center justify-center overflow-hidden rounded-[10px]"
+            disabled={capturing || recording}
+            onClick={() => fileRef.current?.click()}
+            type="button"
           >
-            {CAMERA_TARGETS.map((item) => {
-              const active = item === target;
-              return (
-                <button
-                  aria-selected={active}
-                  className={cn(
-                    "px-1 py-2 text-sm",
-                    active
-                      ? "font-bold text-white"
-                      : "font-medium text-white/55"
-                  )}
-                  key={item}
-                  onClick={() => setTarget(item)}
-                  role="tab"
-                  type="button"
-                >
-                  {TARGET_LABEL[item]}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex w-14 items-center justify-center">
+            <Images className="size-4 text-white/90" />
+          </button>
+          <button
+            aria-label={
+              recording
+                ? "Release to stop recording"
+                : "Take photo, hold for video"
+            }
+            disabled={capturing || status !== "ready"}
+            className="relative flex size-24 touch-none items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-60"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              onShutterDown();
+            }}
+            onPointerUp={onShutterUp}
+            onPointerCancel={() => {
+              if (holdTimer.current !== null) {
+                window.clearTimeout(holdTimer.current);
+              }
+              holdTimer.current = null;
+              holdFired.current = false;
+              stopVideo();
+            }}
+            onClick={(event) => {
+              if (event.detail === 0) {
+                void takePhoto();
+              }
+            }}
+            type="button"
+          >
+            <span className="flex size-[82px] items-center justify-center">
+              <span className="btn-3d flex size-[70px] items-center justify-center rounded-full!">
+                {recording ? (
+                  <span className="size-6 rounded-md bg-white shadow-sm" />
+                ) : null}
+                {capturing && !recording ? (
+                  <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : null}
+              </span>
+            </span>
+            {recording ? (
+              <svg
+                aria-hidden
+                className="pointer-events-none absolute -inset-1 size-[104px] animate-spin motion-reduce:animate-none"
+                fill="none"
+                style={{ animationDuration: "2s" }}
+                viewBox="0 0 104 104"
+              >
+                <circle
+                  cx="52"
+                  cy="52"
+                  r="50"
+                  stroke="#ff9500"
+                  strokeDasharray="88 314"
+                  strokeLinecap="round"
+                  strokeWidth="3"
+                />
+              </svg>
+            ) : null}
+          </button>
+          <button
+            aria-label="Flip camera"
+            className="rail-3d-btn flex size-10 items-center justify-center rounded-full"
+            disabled={recording || capturing || status !== "ready"}
+            onClick={flip}
+            type="button"
+          >
+            <RefreshCw className="size-4.5" />
+          </button>
+        </div>
+        <div
+          className="flex items-center justify-center gap-6"
+          role="tablist"
+          aria-label="Post target"
+        >
+          {CAMERA_TARGETS.map((item) => (
             <button
-              aria-label="Flip camera"
-              className="rail-3d-btn flex size-10 items-center justify-center rounded-full"
-              disabled={recording}
-              onClick={flip}
+              aria-selected={item === target}
+              className={cn(
+                "relative px-1 py-3 text-sm",
+                item === target
+                  ? "font-bold text-white"
+                  : "font-medium text-white/55"
+              )}
+              disabled={recording || capturing}
+              key={item}
+              onClick={() => setTarget(item)}
+              role="tab"
               type="button"
             >
-              <RefreshCw className="size-4.5" />
+              {TARGET_LABEL[item]}
+              {item === target ? (
+                <span
+                  aria-hidden
+                  className="absolute bottom-0.5 left-1/2 h-0.5 w-5 -translate-x-1/2 rounded-full bg-[#ff9500]"
+                />
+              ) : null}
             </button>
-          </div>
+          ))}
         </div>
         <input
           accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.mp4,.mov,.webm"

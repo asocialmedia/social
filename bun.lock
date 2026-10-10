@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.1.98",
+      "version": "0.1.99",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/media": "workspace:*",
@@ -166,7 +166,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.5.55",
+      "version": "1.5.56",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -386,7 +386,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.51",
+      "version": "1.0.52",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

@@ -64,7 +64,10 @@ export function GustFeedControls({
               onChange(alternative);
             }}
           >
-            <AlternativeIcon className="size-4" />
+            <AlternativeIcon
+              className="size-4"
+              fill={alternative === "personalized" ? "currentColor" : "none"}
+            />
             {alternative === "latest" ? "Latest" : "For you"}
           </DropdownMenuItem>
         </DropdownMenuContent>

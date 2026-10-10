@@ -98,7 +98,13 @@ function RailChip({
   );
 }
 
-function VideoPreview({ attachment }: { attachment: DraftAttachment }) {
+function VideoPreview({
+  attachment,
+  gust = false,
+}: {
+  attachment: DraftAttachment;
+  gust?: boolean;
+}) {
   const [muted, setMuted] = useState(true);
   const [firstFrame, setFirstFrame] = useState(false);
   const player = useVideoPlayer(attachment.uri, (created) => {
@@ -123,14 +129,19 @@ function VideoPreview({ attachment }: { attachment: DraftAttachment }) {
       ? attachment.width / attachment.height
       : 16 / 9;
   const portrait = ratio <= 1;
-  const frame: ViewStyle = portrait
-    ? {
-        alignSelf: "flex-start",
-        aspectRatio: ratio,
-        height: 380,
-        maxWidth: "100%",
-      }
-    : { aspectRatio: ratio, maxHeight: 380, width: "100%" };
+  let frame: ViewStyle;
+  if (gust) {
+    frame = { aspectRatio: 9 / 16, width: "100%" };
+  } else if (portrait) {
+    frame = {
+      alignSelf: "flex-start",
+      aspectRatio: ratio,
+      height: 380,
+      maxWidth: "100%",
+    };
+  } else {
+    frame = { aspectRatio: ratio, maxHeight: 380, width: "100%" };
+  }
   return (
     <View style={[styles.mediaFrame, frame]}>
       {firstFrame ? null : (
@@ -312,11 +323,15 @@ function ImagePreview({
 
 export function AttachmentTile({
   attachment,
+  gust = false,
+  onChangeVideo,
   onEditAlt,
   onRemove,
   onRetry,
 }: {
   attachment: DraftAttachment;
+  gust?: boolean;
+  onChangeVideo?: () => void;
   onEditAlt?: () => void;
   onRemove: () => void;
   onRetry: () => void;
@@ -342,7 +357,7 @@ export function AttachmentTile({
       </View>
     );
   } else if (attachment.family === "VIDEO") {
-    preview = <VideoPreview attachment={attachment} />;
+    preview = <VideoPreview attachment={attachment} gust={gust} />;
   } else if (attachment.family === "AUDIO") {
     preview = <AudioPreview attachment={attachment} />;
   } else {
@@ -361,10 +376,11 @@ export function AttachmentTile({
       attachment.bytesPercent
     );
     actionBar = (
-      <View style={styles.progressRow}>
+      <View style={[styles.progressRow, gust && { flexWrap: "wrap", gap: 6 }]}>
         <View
           style={[
             styles.progressTrack,
+            gust && { flexBasis: "100%", minWidth: "100%" },
             {
               backgroundColor: isDark
                 ? "rgba(255, 255, 255, 0.1)"
@@ -501,10 +517,16 @@ export function AttachmentTile({
   return (
     <View style={styles.tile}>
       <Pressable
-        accessibilityHint="Opens the alt text editor"
+        accessibilityHint={
+          onChangeVideo ? "Change the Gust video" : "Opens the alt text editor"
+        }
         accessibilityLabel={formatFileName(attachment.name)}
-        disabled={hasError || !onEditAlt || attachment.family === "VIDEO"}
-        onPress={onEditAlt}
+        disabled={
+          hasError ||
+          isUploading ||
+          (!onChangeVideo && (!onEditAlt || attachment.family === "VIDEO"))
+        }
+        onPress={onChangeVideo ?? onEditAlt}
         style={(isUploading || hasError) && styles.dimmed}
       >
         {preview}

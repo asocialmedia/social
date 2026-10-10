@@ -9,8 +9,8 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from "expo-camera";
+import { File } from "expo-file-system";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import * as NavigationBar from "expo-navigation-bar";
 import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -30,13 +30,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Circle, Svg } from "react-native-svg";
 
 import { toast } from "@/components/feedback/toast";
+import { Gradient3D } from "@/components/surface/gradient-3d";
 import { POST_SCOPE } from "@/features/composer/components/post-editor";
+import { pickPhotosAndVideos } from "@/features/composer/lib/pick-media";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { RailButton } from "@/features/gusts/components/rail-button";
 import { MAX_POST_ATTACHMENTS } from "@/features/media-upload/lib/upload-policy";
+import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
 import { attachmentActions } from "@/features/media-upload/state/attachment-store";
 import { haptic } from "@/lib/haptics";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
+import { LOGIN_BUTTON_SHADOWS } from "@/theme";
 
 import {
   CAMERA_TARGETS,
@@ -49,8 +53,8 @@ import { latestGalleryThumb, saveCaptureToGallery } from "../lib/camera-save";
 type Facing = "back" | "front";
 
 const TARGET_LABEL: Record<string, string> = {
-  community: "Community",
-  fleet: "Fleet",
+  community: "Communities",
+  fleet: "Fleets",
   gust: "Gusts",
 };
 
@@ -79,6 +83,24 @@ export function CameraScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [cameraMode, setCameraMode] = useState<"picture" | "video">("picture");
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [capturePreview, setCapturePreview] = useState<string | null>(null);
+  const holding = useRef(false);
+  const videoRequested = useRef(false);
+  const captureBusy = useRef(false);
+  const routeActive = useRef(true);
+  useEffect(() => {
+    if (!recording) {
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(
+      () => setRecordSeconds(Math.floor((Date.now() - started) / 1000)),
+      250
+    );
+    return () => clearInterval(timer);
+  }, [recording]);
   const [thumb, setThumb] = useState<string | null>(null);
   const longPressFired = useRef(false);
   const recordPromise = useRef<Promise<{ uri: string } | undefined> | null>(
@@ -110,11 +132,15 @@ export function CameraScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      routeActive.current = true;
       setFocused(true);
       setFacing("front");
       logInfo("camera.opened", { facing: "front" });
       void NavigationBar.setVisibilityAsync("hidden");
       return () => {
+        routeActive.current = false;
+        holding.current = false;
+        videoRequested.current = false;
         setFocused(false);
         // Stop any in-flight recording before the view unmounts so the mic
         // and camera sessions never outlive the page.
@@ -143,7 +169,7 @@ export function CameraScreen() {
   useEffect(() => {
     if (
       !cameraPermission ||
-      cameraPermission.granted ||
+      cameraPermission.status !== "undetermined" ||
       !cameraPermission.canAskAgain
     ) {
       return;
@@ -161,18 +187,6 @@ export function CameraScreen() {
       }
     })();
   }, [cameraPermission, requestCameraPermission]);
-
-  useEffect(() => {
-    if (micPermission && !micPermission.granted && micPermission.canAskAgain) {
-      void (async () => {
-        try {
-          await requestMicPermission();
-        } catch {
-          // Mic stays denied, video records muted.
-        }
-      })();
-    }
-  }, [micPermission, requestMicPermission]);
 
   useEffect(() => {
     if (!focused || !cameraPermission?.granted) {
@@ -201,20 +215,27 @@ export function CameraScreen() {
   }, []);
 
   const flip = useCallback(() => {
-    if (recording) {
+    if (
+      recording ||
+      capturing ||
+      captureBusy.current ||
+      videoRequested.current
+    ) {
       return;
     }
     haptic();
+    setCameraReady(false);
     setFacing((prev) => {
       const next = prev === "front" ? "back" : "front";
       logInfo("camera.flip", { facing: next });
       return next;
     });
-  }, [recording]);
+  }, [recording, capturing]);
 
   const openComposerWith = useCallback(
-    (uri: string, kind: "photo" | "video") => {
-      const picked = pickedFromCapture(uri, kind);
+    (uri: string, kind: "photo" | "video", selected?: PickedMedia) => {
+      const picked =
+        selected ?? pickedFromCapture(uri, kind, { size: new File(uri).size });
       const mode = composerModeForTarget(target);
       // A photo while gust is selected cannot publish as a gust (video-only),
       // so fall back to fleet instead of stranding the draft.
@@ -246,114 +267,190 @@ export function CameraScreen() {
     [router, target]
   );
 
+  const finishCapture = useCallback(
+    async (uri: string, kind: "photo" | "video") => {
+      if (mounted.current) {
+        setCapturing(true);
+        if (kind === "photo") {
+          setCapturePreview(uri);
+        }
+      }
+      const result = await saveCaptureToGallery(uri);
+      if (!mounted.current || !routeActive.current) {
+        return;
+      }
+      if (!result.saved) {
+        toast({
+          description:
+            result.reason === "denied"
+              ? "Allow photo library access in Settings to save captures to your gallery."
+              : "Couldn't save to your gallery. The capture is still attached to your draft.",
+          title: "Capture kept in your draft",
+          variant: "destructive",
+        });
+      }
+      if (kind === "photo") {
+        setThumb(uri);
+      }
+      openComposerWith(uri, kind);
+    },
+    [openComposerWith]
+  );
+
   const takePhoto = useCallback(async () => {
-    if (!cameraReady || capturing || recording) {
+    if (
+      !cameraReady ||
+      captureBusy.current ||
+      recording ||
+      cameraMode !== "picture"
+    ) {
       return;
     }
+    captureBusy.current = true;
     setCapturing(true);
-    haptic();
+    haptic("selection");
     try {
       const photo = await cameraRef.current?.takePictureAsync({
         exif: false,
         quality: 1,
       });
-      if (!photo?.uri) {
-        logError("camera.photo_failed", "empty photo uri");
+      if (photo?.uri) {
+        logInfo("camera.photo", { facing, flash });
+        await finishCapture(photo.uri, "photo");
+      } else {
+        toast({
+          description: "The camera returned no photo. Try again.",
+          title: "Capture Failed",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      logError("camera.photo_failed", error);
+      if (mounted.current && routeActive.current) {
         toast({
           description: "Couldn't take that photo, try again?",
           title: "Capture Failed",
           variant: "destructive",
         });
-        if (mounted.current) {
-          setCapturing(false);
-        }
-        return;
       }
-      logInfo("camera.photo", { facing, flash });
-      void saveCaptureToGallery(photo.uri);
-      const fresh = await latestGalleryThumb();
-      if (mounted.current && fresh) {
-        setThumb(fresh);
-      }
-      openComposerWith(photo.uri, "photo");
-    } catch (error) {
-      logError("camera.photo_failed", error);
-      toast({
-        description: "Couldn't take that photo, try again?",
-        title: "Capture Failed",
-        variant: "destructive",
-      });
     }
+    captureBusy.current = false;
     if (mounted.current) {
       setCapturing(false);
+      setCapturePreview(null);
     }
-  }, [cameraReady, capturing, recording, facing, flash, openComposerWith]);
+  }, [cameraReady, recording, cameraMode, facing, flash, finishCapture]);
 
   const startVideo = useCallback(async () => {
-    if (!cameraReady || capturing || recording) {
+    if (!videoRequested.current || !holding.current || captureBusy.current) {
       return;
     }
+    videoRequested.current = false;
+    captureBusy.current = true;
+    setRecordSeconds(0);
     setRecording(true);
-    haptic();
-    logInfo("camera.record_start", { facing });
+    haptic("selection");
     try {
-      // No maxDuration: manual stop on release, per product call.
       const promise = cameraRef.current?.recordAsync();
       if (promise) {
         recordPromise.current = promise;
         const result = await promise;
         recordPromise.current = null;
-        if (!mounted.current) {
-          return;
+        if (mounted.current) {
+          setRecording(false);
+          setCapturing(true);
         }
-        setRecording(false);
-        if (result?.uri) {
-          logInfo("camera.record_stop", {});
-          void saveCaptureToGallery(result.uri);
-          openComposerWith(result.uri, "video");
+        if (result?.uri && routeActive.current) {
+          await finishCapture(result.uri, "video");
+        } else if (routeActive.current) {
+          toast({
+            description:
+              "No video was recorded. Hold the shutter a little longer.",
+            title: "Recording failed",
+            variant: "destructive",
+          });
         }
       } else {
-        setRecording(false);
+        toast({
+          description: "The camera isn't ready to record. Try again.",
+          title: "Recording failed",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       logError("camera.record_failed", error);
-      if (mounted.current) {
-        setRecording(false);
+      if (mounted.current && routeActive.current) {
+        toast({
+          description:
+            "Couldn't record that video. Hold the shutter to try again.",
+          title: "Recording failed",
+          variant: "destructive",
+        });
       }
     }
-  }, [cameraReady, capturing, recording, facing, openComposerWith]);
+    recordPromise.current = null;
+    captureBusy.current = false;
+    if (mounted.current) {
+      setRecording(false);
+      setCapturing(false);
+      setCameraReady(false);
+      setCameraMode("picture");
+    }
+  }, [finishCapture]);
 
-  const stopVideo = useCallback(() => {
-    if (!recording) {
+  const requestVideo = useCallback(async () => {
+    if (!cameraReady || captureBusy.current || recording) {
       return;
     }
+    const permission = micPermission?.granted
+      ? micPermission
+      : await requestMicPermission();
+    if (!holding.current || !routeActive.current) {
+      return;
+    }
+    if (!permission.granted) {
+      toast({
+        description: "Allow microphone access in Settings to include audio.",
+        title: "Recording without sound",
+      });
+    }
+    videoRequested.current = true;
+    setCameraReady(false);
+    setCameraMode("video");
+  }, [cameraReady, recording, micPermission, requestMicPermission]);
+
+  const stopVideo = useCallback(() => {
+    holding.current = false;
+    if (videoRequested.current) {
+      videoRequested.current = false;
+      setCameraReady(false);
+      setCameraMode("picture");
+      return;
+    }
+    if (!recordPromise.current) {
+      return;
+    }
+    setCapturing(true);
     try {
       cameraRef.current?.stopRecording();
     } catch (error) {
-      logWarn("camera.stop_failed", {
-        reason: error instanceof Error ? error.message : "unknown",
-      });
-      setRecording(false);
+      logError("camera.stop_failed", error);
     }
-  }, [recording]);
+  }, []);
 
   const openGallery = useCallback(async () => {
+    if (captureBusy.current || videoRequested.current) {
+      return;
+    }
     haptic();
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsMultipleSelection: false,
-        mediaTypes: ["images", "videos"],
-        quality: 1,
-      });
-      if (result.canceled) {
-        return;
-      }
-      const [asset] = result.assets;
+      const [asset] = await pickPhotosAndVideos({ remaining: 1 });
       if (!asset) {
         return;
       }
-      logInfo("camera.gallery_pick", { type: asset.type ?? "unknown" });
-      openComposerWith(asset.uri, asset.type === "video" ? "video" : "photo");
+      const kind = asset.mimeType.startsWith("video/") ? "video" : "photo";
+      logInfo("camera.gallery_pick", { kind });
+      openComposerWith(asset.uri, kind, asset);
     } catch (error) {
       logError("camera.gallery_failed", error);
       toast({
@@ -371,16 +468,44 @@ export function CameraScreen() {
   const showDock = permissionLoading === false && cameraGranted === true;
   const showCaptureSpinner = capturing === true && recording === false;
 
+  let captureStatus = "Tap for photo · Hold for video";
+  if (cameraMode === "video") {
+    captureStatus = "Preparing video…";
+  }
+  if (capturing) {
+    captureStatus = "Saving capture…";
+  }
+  if (recording && !capturing) {
+    captureStatus = `● ${Math.floor(recordSeconds / 60)
+      .toString()
+      .padStart(
+        2,
+        "0"
+      )}:${(recordSeconds % 60).toString().padStart(2, "0")} · Release to stop`;
+  }
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       {cameraActive ? (
         <CameraView
           active
+          key={`${facing}:${cameraMode}`}
+          mode={cameraMode}
+          mute={!micPermission?.granted}
           facing={facing}
           flash={flash}
           mirror={facing === "front"}
-          onCameraReady={() => setCameraReady(true)}
+          onCameraReady={() => {
+            setCameraReady(true);
+            if (
+              cameraMode === "video" &&
+              videoRequested.current &&
+              holding.current
+            ) {
+              void startVideo();
+            }
+          }}
           onMountError={(event) => {
             logError("camera.mount", new Error(event.message));
             toast({
@@ -395,6 +520,13 @@ export function CameraScreen() {
       ) : (
         <View style={styles.previewFallback} />
       )}
+      {capturePreview ? (
+        <Image
+          source={{ uri: capturePreview }}
+          contentFit="cover"
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
       <View
         style={[styles.topRow, { paddingTop: Math.max(insets.top, 12) + 8 }]}
       >
@@ -461,7 +593,28 @@ export function CameraScreen() {
       ) : null}
       {showDock ? (
         <View style={styles.bottomDock}>
+          <View style={styles.recordStatus} pointerEvents="none">
+            <Text style={styles.recHint}>{captureStatus} </Text>
+          </View>
           <View style={styles.shutterRow}>
+            <View style={styles.modeSide}>
+              <Pressable
+                accessibilityLabel="Open gallery"
+                accessibilityRole="button"
+                hitSlop={10}
+                disabled={capturing || recording || cameraMode === "video"}
+                onPress={openGallery}
+                style={styles.thumbWrap}
+              >
+                {thumb ? (
+                  <Image source={{ uri: thumb }} style={styles.thumb} />
+                ) : (
+                  <View style={styles.thumbFallback}>
+                    <Images color="rgba(255,255,255,0.9)" size={16} />
+                  </View>
+                )}
+              </Pressable>
+            </View>
             <Pressable
               accessibilityLabel={
                 recording
@@ -470,9 +623,14 @@ export function CameraScreen() {
               }
               accessibilityRole="button"
               delayLongPress={350}
+              disabled={capturing}
+              onPressIn={() => {
+                holding.current = true;
+                longPressFired.current = false;
+              }}
               onLongPress={() => {
                 longPressFired.current = true;
-                void startVideo();
+                void requestVideo();
               }}
               onPress={() => {
                 // Suppress the tap that fires after a hold-to-record gesture.
@@ -482,11 +640,7 @@ export function CameraScreen() {
                 }
                 void takePhoto();
               }}
-              onPressOut={() => {
-                if (recording) {
-                  stopVideo();
-                }
-              }}
+              onPressOut={stopVideo}
               style={styles.shutterWrap}
             >
               {({ pressed }) => (
@@ -496,27 +650,23 @@ export function CameraScreen() {
                     pressed && !recording && styles.shutterPressed,
                   ]}
                 >
-                  {/* Recessed track: the dark ring the white core sits in. */}
-                  <View
-                    style={[
-                      styles.shutterTrack,
-                      recording && styles.shutterTrackRecording,
-                    ]}
-                  >
-                    {/* Core: glass fill that turns solid red while recording. */}
-                    <View
-                      style={[
-                        styles.shutterCore,
-                        recording && styles.shutterCoreRecording,
-                      ]}
+                  <View>
+                    <Gradient3D
+                      colors={
+                        recording
+                          ? ["#ff594c", "#d92319"]
+                          : ["#ffad20", "#f06b00"]
+                      }
+                      shadows={LOGIN_BUTTON_SHADOWS}
+                      radius={9999}
+                      style={styles.shutterCore}
                     >
+                      {recording ? <View style={styles.stopMark} /> : null}
                       {showCaptureSpinner ? (
-                        <ActivityIndicator color="#8a8a8a" />
+                        <ActivityIndicator color="#ffffff" />
                       ) : null}
-                    </View>
+                    </Gradient3D>
                   </View>
-                  {/* Recording progress: a dash that laps the shutter, drawn
-                      above the bezel so it reads as a lit running track. */}
                   {recording ? (
                     <Animated.View
                       pointerEvents="none"
@@ -555,32 +705,22 @@ export function CameraScreen() {
                 </View>
               )}
             </Pressable>
+            <View style={styles.modeSide}>
+              <RailButton
+                accessibilityLabel="Flip camera"
+                onPress={flip}
+                size={40}
+              >
+                <RefreshCw color="rgba(255,255,255,0.95)" size={18} />
+              </RailButton>
+            </View>
           </View>
-          {recording ? (
-            <Text style={styles.recHint}>Release to stop</Text>
-          ) : null}
           <View
             style={[
               styles.modeRow,
               { paddingBottom: Math.max(insets.bottom, 10) },
             ]}
           >
-            <View style={styles.modeSide}>
-              <Pressable
-                accessibilityLabel="Open gallery"
-                accessibilityRole="button"
-                onPress={openGallery}
-                style={styles.thumbWrap}
-              >
-                {thumb ? (
-                  <Image source={{ uri: thumb }} style={styles.thumb} />
-                ) : (
-                  <View style={styles.thumbFallback}>
-                    <Images color="rgba(255,255,255,0.9)" size={17} />
-                  </View>
-                )}
-              </Pressable>
-            </View>
             <View style={styles.targetRow}>
               {CAMERA_TARGETS.map((item) => {
                 const active = item === target;
@@ -588,6 +728,7 @@ export function CameraScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
+                    disabled={capturing || recording || cameraMode === "video"}
                     hitSlop={8}
                     key={item}
                     onPress={() => {
@@ -607,15 +748,6 @@ export function CameraScreen() {
                   </Pressable>
                 );
               })}
-            </View>
-            <View style={styles.modeSide}>
-              <RailButton
-                accessibilityLabel="Flip camera"
-                onPress={flip}
-                size={40}
-              >
-                <RefreshCw color="rgba(255,255,255,0.95)" size={18} />
-              </RailButton>
             </View>
           </View>
         </View>
@@ -696,6 +828,11 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProMed",
     fontSize: 12,
   },
+  recordStatus: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 22,
+  },
   ring: {
     alignItems: "center",
     height: RING_SIZE,
@@ -709,34 +846,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
     flex: 1,
   },
-  shutterCore: {
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderColor: "rgba(0, 0, 0, 0.14)",
-    borderRadius: 9999,
-    borderWidth: 1,
-    boxShadow:
-      "inset 0 -2px 3px rgba(0, 0, 0, 0.18), inset 0 2px 2px rgba(255, 255, 255, 0.9), 0 1px 2px rgba(0, 0, 0, 0.3)",
-    height: 70,
-    justifyContent: "center",
-    width: 70,
-  },
-  shutterCoreRecording: {
-    backgroundColor: "#ff3b30",
-    borderColor: "rgba(0, 0, 0, 0.25)",
-    borderRadius: 9999,
-    boxShadow:
-      "inset 0 -3px 6px rgba(0, 0, 0, 0.35), inset 0 3px 5px rgba(255, 255, 255, 0.35), 0 1px 4px rgba(255, 59, 48, 0.6)",
-    height: 70,
-    width: 70,
-  },
+  shutterCore: { height: 70, width: 70 },
   shutterPressed: {
     transform: [{ scale: 0.95 }],
   },
   shutterRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    width: "100%",
   },
   shutterStage: {
     alignItems: "center",
@@ -744,22 +863,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: SHUTTER_SIZE,
   },
-  shutterTrack: {
-    alignItems: "center",
-    backgroundColor: "#0b0b0b",
-    borderRadius: 9999,
-    boxShadow:
-      "inset 0 2px 5px rgba(0, 0, 0, 0.8), inset 0 -1px 2px rgba(255, 255, 255, 0.1)",
-    height: 82,
-    justifyContent: "center",
-    width: 82,
-  },
-  shutterTrackRecording: {
-    boxShadow:
-      "inset 0 2px 5px rgba(0, 0, 0, 0.8), inset 0 -1px 2px rgba(255, 59, 48, 0.3)",
-  },
   shutterWrap: {
     borderRadius: 9999,
+  },
+  stopMark: {
+    backgroundColor: "#ffffff",
+    borderRadius: 7,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+    height: 25,
+    width: 25,
   },
   targetHit: {
     paddingHorizontal: 4,
@@ -769,7 +881,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
     flexDirection: "row",
-    gap: 26,
+    gap: 22,
     justifyContent: "center",
   },
   targetText: {
@@ -784,22 +896,22 @@ const styles = StyleSheet.create({
   },
   thumb: {
     borderRadius: 10,
-    height: 40,
-    width: 40,
+    height: 34,
+    width: 34,
   },
   thumbFallback: {
     alignItems: "center",
     backgroundColor: "rgba(18,20,24,0.55)",
     borderRadius: 10,
-    height: 40,
+    height: 34,
     justifyContent: "center",
-    width: 40,
+    width: 34,
   },
   thumbWrap: {
     borderRadius: 10,
-    height: 40,
+    height: 34,
     overflow: "hidden",
-    width: 40,
+    width: 34,
   },
   topRow: {
     flexDirection: "row",

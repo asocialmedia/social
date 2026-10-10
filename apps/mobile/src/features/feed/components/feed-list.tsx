@@ -502,7 +502,8 @@ export const FeedList = memo(
     const listHeader = useMemo(
       () => (
         <View
-          style={{ minHeight: headerHeight }}
+          // Only inactive pages need a placeholder; a live composer must also shrink.
+          style={header ? undefined : { height: headerHeight }}
           onLayout={
             header
               ? (event) => {

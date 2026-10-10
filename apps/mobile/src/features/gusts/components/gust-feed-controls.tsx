@@ -1,4 +1,5 @@
 import type { GustFollowingAvatar } from "@asm/ui/lib/gust-header";
+import type { LucideProps } from "lucide-react-native";
 import { ChevronDown, Clock3, Sparkles } from "lucide-react-native";
 import { useRef, useState } from "react";
 import {
@@ -15,6 +16,10 @@ import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import { haptic } from "@/lib/haptics";
 
 import type { GustTab } from "../lib/gusts-api";
+
+function FilledSparkles(props: LucideProps) {
+  return <Sparkles {...props} fill={props.color ?? "currentColor"} />;
+}
 
 export function GustFeedControls({
   active,
@@ -66,7 +71,7 @@ export function GustFeedControls({
         entries={[
           {
             action: { type: alternative },
-            icon: alternative === "latest" ? Clock3 : Sparkles,
+            icon: alternative === "latest" ? Clock3 : FilledSparkles,
             label: alternative === "latest" ? "Latest" : "For you",
           },
         ]}

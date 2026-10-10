@@ -13,6 +13,7 @@
 // uploading; nothing errored; gust caption within limits) and posts through
 // POST /api/posts with an idempotency key, so a retried publish can never
 // double-post.
+import { useRouter } from "expo-router";
 import {
   Clapperboard,
   FileAudio,
@@ -70,6 +71,7 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import { gustRelations } from "../lib/gust-options";
 import {
   activeTrigger,
   applySuggestion,
@@ -84,8 +86,14 @@ import {
 import type { KlipyGif } from "../lib/pick-media";
 import { newIdempotencyKey, publishPost } from "../lib/publish-api";
 import { useComposerStore } from "../state/composer-store";
+import {
+  clearGustOptions,
+  flushGustAlt,
+  useGustOptions,
+} from "../state/gust-options-store";
 import { AltTextPanel } from "./alt-text-panel";
 import { AttachmentTile } from "./attachment-tile";
+import { GustEditor } from "./gust-editor";
 import { InlineSuggestions } from "./inline-suggestions";
 import { ResponsePreview } from "./response-preview";
 
@@ -269,6 +277,7 @@ export function PostEditor({
   // would pop the keyboard over the feed on every visit.
   variant?: "feed" | "modal";
 }) {
+  const router = useRouter();
   const { isDark, theme } = useAppTheme();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -287,6 +296,8 @@ export function PostEditor({
   const setDraft = useComposerStore((state) => state.setDraft);
   const clearDraft = useComposerStore((state) => state.clearDraft);
   const attachments = useScopeAttachments(POST_SCOPE);
+  const gustVideo = attachments.find((item) => item.family === "VIDEO");
+  const gustOptions = useGustOptions(gustVideo?.localId ?? "");
 
   const [focused, setFocused] = useState(false);
   const [selection, setSelection] = useState({ end: 0, start: 0 });
@@ -352,6 +363,7 @@ export function PostEditor({
   const exclusiveLocked = hasAudioOrGif;
   const hasVideo = attachments.some((item) => item.family === "VIDEO");
   const modeLocked =
+    gustOptions.busy ||
     isResponse ||
     attachments.length > 1 ||
     hasAudioOrGif ||
@@ -370,7 +382,12 @@ export function PostEditor({
     (isGust ? hasVideo : trimmed.length > 0 || mediaIds.length > 0) &&
     !isBusy &&
     !hasError &&
-    !gustExceeded;
+    !gustExceeded &&
+    !gustOptions.busy &&
+    (!isGust ||
+      (!gustOptions.error &&
+        gustOptions.sound?.status !== "error" &&
+        gustOptions.thumbnail?.status !== "error"));
 
   const trigger: ActiveTrigger | null = focused
     ? activeTrigger(draft.text, selection.start)
@@ -480,11 +497,20 @@ export function PostEditor({
     if (idempotencyKeyRef.current === null) {
       idempotencyKeyRef.current = newIdempotencyKey();
     }
-    const relations = collectRelations(draft.text, {
+    const inlineRelations = collectRelations(draft.text, {
       mentions: draft.mentions,
       tags: draft.tags,
     });
+    const relations = isGust
+      ? gustRelations(inlineRelations, {
+          mentions: draft.gustMentions,
+          tags: draft.gustTags,
+        })
+      : inlineRelations;
     try {
+      if (isGust && gustVideo) {
+        await flushGustAlt(gustVideo.localId);
+      }
       const result = await publishPost(
         {
           // A pure community reshare has no caption of its own: the server
@@ -502,14 +528,14 @@ export function PostEditor({
         idempotencyKeyRef.current
       );
       idempotencyKeyRef.current = null;
+      for (const item of attachments) {
+        clearGustOptions(item.localId);
+      }
       attachmentActions.clear(POST_SCOPE, { discard: false });
       clearDraft();
       setAltTarget(null);
       setGifOpen(false);
-      // A plain fleet is a home-feed post, so the feed is switched to Latest
-      // with the new post already at its head. A gust belongs to the reels
-      // feed and a response to the thread it was written in, so neither is
-      // revealed here - the caller routes those.
+      // Reveal fleets in Home; Gusts open their own feed after closing the composer.
       if (result.kind === "created" && !isResponse && !isGust) {
         revealPublishedPost(result.post, viewerId);
       }
@@ -518,6 +544,14 @@ export function PostEditor({
         title: isResponse ? "Response Posted" : "Posted",
       });
       onPublished?.();
+      if (!isResponse && isGust) {
+        router.push({
+          params: {
+            id: result.kind === "created" ? result.post.id : result.postId,
+          },
+          pathname: "/gusts",
+        });
+      }
     } catch (error) {
       toast({
         description:
@@ -581,6 +615,105 @@ export function PostEditor({
   }
 
   const inline = variant === "feed";
+  const captionBlock = (
+    <>
+      <View
+        style={[
+          styles.inputBox,
+          { backgroundColor: input.background, boxShadow: input.shadows },
+        ]}
+      >
+        <TextInput
+          accessibilityLabel={isGust ? "Gust caption" : "Post text"}
+          autoFocus={!inline}
+          multiline
+          onBlur={() => setFocused(false)}
+          onChangeText={(value) => setDraft({ text: value })}
+          onFocus={() => setFocused(true)}
+          onSelectionChange={(event) => {
+            setSelection(event.nativeEvent.selection);
+            setForcedSelection(null);
+          }}
+          placeholder={
+            isGust
+              ? "Add a caption for your gust..."
+              : "What's crack-a-lackin'?"
+          }
+          placeholderTextColor={input.placeholder}
+          selection={forcedSelection ?? undefined}
+          style={[styles.input, { color: input.text }]}
+          textAlignVertical="top"
+          value={draft.text}
+        />
+      </View>
+      <InlineSuggestions
+        active={trigger}
+        excludedTags={draft.tags}
+        excludedUserIds={draft.mentions.map((mention) => mention.id)}
+        onPickTag={(tag) =>
+          insertToken(tag, () =>
+            setDraft({
+              tags: draft.tags.includes(tag)
+                ? draft.tags
+                : [...draft.tags, tag],
+            })
+          )
+        }
+        onPickUser={(user) =>
+          insertToken(user.username, () =>
+            setDraft({
+              mentions: draft.mentions.some((m) => m.id === user.id)
+                ? draft.mentions
+                : [...draft.mentions, user],
+            })
+          )
+        }
+      />
+    </>
+  );
+  const publishControls = (
+    <>
+      <ModeToggle
+        disabled={modeLocked}
+        isGust={isGust}
+        onChange={(gust) => {
+          setMoreAnchor(null);
+          setMode(gust ? "gust" : "post");
+        }}
+      />
+      <PublishButton
+        disabled={!canPublish}
+        label={isGust ? "Gust" : "Fleet"}
+        loading={publishing}
+        onPress={() => {
+          void submit();
+        }}
+      />
+    </>
+  );
+  if (isGust && gustVideo) {
+    return (
+      <GustEditor
+        attachment={gustVideo}
+        caption={captionBlock}
+        footer={publishControls}
+        viewerAvatar={viewerAvatar}
+        counter={
+          gustNearLimit ? (
+            <View style={styles.counterRow}>
+              <AnimatedWordCounter
+                current={words}
+                max={GUST_CAPTION_MAX_WORDS}
+              />
+              <Text style={[styles.counter, { color: text.muted }]}>
+                {draft.text.length}/{GUST_CAPTION_MAX_CHARS} chars
+              </Text>
+            </View>
+          ) : null
+        }
+      />
+    );
+  }
 
   return (
     <View
@@ -608,58 +741,7 @@ export function PostEditor({
       <View style={styles.row}>
         <UserAvatar radius={16} size={48} url={viewerAvatar} />
         <View style={styles.column}>
-          <View
-            style={[
-              styles.inputBox,
-              { backgroundColor: input.background, boxShadow: input.shadows },
-            ]}
-          >
-            <TextInput
-              accessibilityLabel={isGust ? "Gust caption" : "Post text"}
-              autoFocus={!inline}
-              multiline
-              onBlur={() => setFocused(false)}
-              onChangeText={(value) => setDraft({ text: value })}
-              onFocus={() => setFocused(true)}
-              onSelectionChange={(event) => {
-                setSelection(event.nativeEvent.selection);
-                setForcedSelection(null);
-              }}
-              placeholder={
-                isGust
-                  ? "Add a caption for your gust..."
-                  : "What's crack-a-lackin'?"
-              }
-              placeholderTextColor={input.placeholder}
-              selection={forcedSelection ?? undefined}
-              style={[styles.input, { color: input.text }]}
-              textAlignVertical="top"
-              value={draft.text}
-            />
-          </View>
-          <InlineSuggestions
-            active={trigger}
-            excludedTags={draft.tags}
-            excludedUserIds={draft.mentions.map((mention) => mention.id)}
-            onPickTag={(tag) =>
-              insertToken(tag, () =>
-                setDraft({
-                  tags: draft.tags.includes(tag)
-                    ? draft.tags
-                    : [...draft.tags, tag],
-                })
-              )
-            }
-            onPickUser={(user) =>
-              insertToken(user.username, () =>
-                setDraft({
-                  mentions: draft.mentions.some((m) => m.id === user.id)
-                    ? draft.mentions
-                    : [...draft.mentions, user],
-                })
-              )
-            }
-          />
+          {captionBlock}
 
           {gifOpen && !isGust ? (
             <View
@@ -727,6 +809,7 @@ export function PostEditor({
                         setAltTarget(null);
                       }
                       attachmentActions.remove(item.localId);
+                      clearGustOptions(item.localId);
                     }}
                     onRetry={() => attachmentActions.retry(item.localId)}
                   />
@@ -865,24 +948,7 @@ export function PostEditor({
                 </>
               )}
             </View>
-            <View style={styles.toolbarRight}>
-              <ModeToggle
-                disabled={modeLocked}
-                isGust={isGust}
-                onChange={(gust) => {
-                  setMoreAnchor(null);
-                  setMode(gust ? "gust" : "post");
-                }}
-              />
-              <PublishButton
-                disabled={!canPublish}
-                label={isGust ? "Gust" : "Fleet"}
-                loading={publishing}
-                onPress={() => {
-                  void submit();
-                }}
-              />
-            </View>
+            <View style={styles.toolbarRight}>{publishControls}</View>
           </View>
         </View>
       </View>

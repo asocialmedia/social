@@ -33,7 +33,7 @@ function withExtension(name: string, fallback: string): string {
 export function pickedFromCapture(
   uri: string,
   kind: "photo" | "video",
-  extra?: { height?: number; width?: number }
+  extra?: { height?: number; size?: number; width?: number }
 ): PickedMedia {
   const stamp = Date.now().toString(36);
   if (kind === "video") {
@@ -43,7 +43,7 @@ export function pickedFromCapture(
       height: extra?.height,
       mimeType: "video/mp4",
       name,
-      size: 0,
+      size: extra?.size ?? 0,
       uri,
       width: extra?.width,
     };
@@ -54,7 +54,7 @@ export function pickedFromCapture(
     height: extra?.height,
     mimeType: "image/jpeg",
     name,
-    size: 0,
+    size: extra?.size ?? 0,
     uri,
     width: extra?.width,
   };

@@ -25,10 +25,19 @@ describe("targetAllowsKind", () => {
 
 describe("pickedFromCapture", () => {
   test("photos map to jpeg and videos to mp4 with usable names", () => {
-    const photo = pickedFromCapture("file:///cache/photo.jpg", "photo");
+    const photo = pickedFromCapture("file:///cache/photo.jpg", "photo", {
+      height: 1920,
+      size: 950_000,
+      width: 1080,
+    });
+    expect(photo.size).toBe(950_000);
+    expect(photo.width).toBe(1080);
     expect(photo.mimeType).toBe("image/jpeg");
     expect(photo.uri).toBe("file:///cache/photo.jpg");
-    const video = pickedFromCapture("file:///cache/clip", "video");
+    const video = pickedFromCapture("file:///cache/clip", "video", {
+      size: 2_400_000,
+    });
+    expect(video.size).toBe(2_400_000);
     expect(video.mimeType).toBe("video/mp4");
     expect(video.name.endsWith(".mp4")).toBe(true);
   });
