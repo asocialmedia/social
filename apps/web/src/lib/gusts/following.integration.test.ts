@@ -37,12 +37,21 @@ beforeAll(async () => {
       followingId,
     });
   }
-  let order = 0;
-  for (const [kind, id] of Object.entries(posts)) {
+  const fixtureCreatedAt = Date.now();
+  const fixtureOrder = [
+    "authored",
+    "amplified",
+    "fleet",
+    "moderated",
+    "muted",
+    "unrelated",
+  ] as const;
+  for (const [order, kind] of fixtureOrder.entries()) {
+    const id = posts[kind];
     // oxlint-disable-next-line no-await-in-loop -- media below depends on this post
     await prisma.orm.public.Posts.create({
       content: kind,
-      createdAt: toPrismaDateTime(new Date(Date.now() - order * 1000)),
+      createdAt: toPrismaDateTime(new Date(fixtureCreatedAt - order * 1000)),
       id,
       isGust: kind !== "fleet",
       moderated: kind === "moderated",
@@ -51,7 +60,6 @@ beforeAll(async () => {
           ? ids.author
           : ids.outsider,
     });
-    order += 1;
     // oxlint-disable-next-line no-await-in-loop -- each fixture media belongs to its post
     await prisma.orm.public.PostMedia.create({
       _type: "VIDEO",

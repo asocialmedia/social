@@ -659,22 +659,6 @@ export const GustCard: React.FC<GustCardProps> = ({
           />
         )}
 
-        {commentsOpen ? (
-          <button
-            aria-label={isMuted ? "Unmute video" : "Mute video"}
-            className="rail-3d-btn absolute right-4 z-20 flex size-10 items-center justify-center rounded-full"
-            onClick={onToggleMute}
-            style={{ top: viewport.height / 2 - 56 }}
-            type="button"
-          >
-            {isMuted ? (
-              <VolumeX className="size-5" />
-            ) : (
-              <Volume2 className="size-5" />
-            )}
-          </button>
-        ) : null}
-
         {/* Play/Pause Pulse Overlay */}
         <AnimatePresence>
           {showPlayPauseIcon ? (

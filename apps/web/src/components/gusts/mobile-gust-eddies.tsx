@@ -11,6 +11,7 @@ import {
   DrawerSurface,
   DrawerTitle,
 } from "@asm/ui/shadui/drawer";
+import { Volume2, VolumeX } from "lucide-react";
 import { useState } from "react";
 
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -21,10 +22,14 @@ const SNAP_POINTS = [0.5, 1];
 
 export function MobileGustEddies({
   open,
+  isMuted,
+  onToggleMute,
   onClose,
   post,
 }: {
   open: boolean;
+  isMuted: boolean;
+  onToggleMute: () => void;
   onClose: () => void;
   post: PostData;
 }) {
@@ -57,13 +62,25 @@ export function MobileGustEddies({
         <DrawerOverlay className="bg-transparent" />
         <DrawerSurface
           aria-describedby={undefined}
-          className="panel-3d fixed inset-x-0 bottom-0 z-50 flex h-[calc(100dvh-env(safe-area-inset-top))] max-h-dvh flex-col overflow-hidden rounded-t-3xl! rounded-b-none! outline-none motion-reduce:transition-none"
+          className="panel-3d fixed inset-x-0 bottom-0 z-50 flex h-[calc(100dvh-env(safe-area-inset-top))] max-h-dvh flex-col rounded-t-3xl! rounded-b-none! outline-none motion-reduce:transition-none"
           style={{ transitionDuration: "300ms" }}
           data-testid="gust-eddies-sheet"
         >
           <DrawerTitle className="sr-only">Eddies</DrawerTitle>
+          <button
+            aria-label={isMuted ? "Unmute video" : "Mute video"}
+            className="rail-3d-btn absolute -top-14 right-4 flex size-10 items-center justify-center rounded-full"
+            onClick={onToggleMute}
+            type="button"
+          >
+            {isMuted ? (
+              <VolumeX className="size-5" />
+            ) : (
+              <Volume2 className="size-5" />
+            )}
+          </button>
           <div
-            className="flex min-h-0 flex-col pb-[env(safe-area-inset-bottom)]"
+            className="flex min-h-0 flex-col overflow-hidden rounded-t-3xl pb-[env(safe-area-inset-bottom)]"
             style={{ height: expanded ? "100%" : "50dvh" }}
           >
             <DrawerHandle

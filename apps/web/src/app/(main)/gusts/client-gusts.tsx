@@ -876,6 +876,8 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
         {posts[activeIndex] ? (
           <MobileGustEddies
+            isMuted={isMuted}
+            onToggleMute={handleToggleMute}
             onClose={() => setIsCommentsOpen(false)}
             open={isCommentsOpen}
             post={posts[activeIndex]}
