@@ -15,8 +15,8 @@ import { Clapperboard, ImageIcon, SendHorizonal, X } from "lucide-react-native";
 import { useEffect, useState, useRef } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -41,6 +41,7 @@ import {
   themeText,
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
+import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
 import { useAppTheme } from "@/theme";
 
 import { useEddieComposerStore } from "../state/eddie-composer-store";
@@ -142,9 +143,11 @@ function SendPill({
 export function FloatingEddieBar({
   onHeightChange,
   postId,
+  viewportBottom,
 }: {
   onHeightChange?: (height: number) => void;
   postId: string;
+  viewportBottom: number;
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
@@ -167,7 +170,13 @@ export function FloatingEddieBar({
   }, [params.eddie]);
   const [focused, setFocused] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const restingBottomInset = useRef(insets.bottom);
+  useEffect(() => {
+    if (keyboardTop === null) {
+      restingBottomInset.current = insets.bottom;
+    }
+  }, [insets.bottom, keyboardTop]);
   const input = premiumInput(isDark, focused);
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
 
@@ -176,11 +185,21 @@ export function FloatingEddieBar({
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, () => {
-      setKeyboardVisible(true);
+    const show = Keyboard.addListener(showEvent, (event) => {
+      Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardTop(
+        keyboardScreenTop({
+          bottomInset: restingBottomInset.current,
+          height: event.endCoordinates.height,
+          platform: Platform.OS,
+          screenHeight: Dimensions.get("screen").height,
+          screenY: event.endCoordinates.screenY,
+        })
+      );
     });
-    const hide = Keyboard.addListener(hideEvent, () => {
-      setKeyboardVisible(false);
+    const hide = Keyboard.addListener(hideEvent, (event) => {
+      Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardTop(null);
     });
     return () => {
       show.remove();
@@ -203,15 +222,16 @@ export function FloatingEddieBar({
     }
   };
   return (
-    <KeyboardAvoidingView
-      // Android already resizes the native viewport; only iOS needs avoidance.
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={styles.anchor}
+    <View
+      onLayout={(event) => {
+        onHeightChange?.(event.nativeEvent.layout.height);
+      }}
+      style={[
+        styles.anchor,
+        { paddingBottom: keyboardOverlap(viewportBottom, keyboardTop) },
+      ]}
     >
       <View
-        onLayout={(event) => {
-          onHeightChange?.(event.nativeEvent.layout.height);
-        }}
         style={[
           styles.bar,
           {
@@ -221,7 +241,7 @@ export function FloatingEddieBar({
             borderTopColor: isDark
               ? "rgba(255, 255, 255, 0.1)"
               : "rgba(0, 0, 0, 0.08)",
-            paddingBottom: 8 + (keyboardVisible ? 0 : insets.bottom),
+            paddingBottom: 8 + (keyboardTop === null ? insets.bottom : 0),
           },
         ]}
       >
@@ -390,7 +410,7 @@ export function FloatingEddieBar({
           ) : null}
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -117,6 +118,15 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     feedBottomPad = eddieBarHeight + 12;
   }
   const scrollRef = useRef<ScrollView>(null);
+  const viewportRef = useRef<View>(null);
+  const [viewportBottom, setViewportBottom] = useState(
+    () => Dimensions.get("window").height
+  );
+  const measureViewport = useCallback(() => {
+    viewportRef.current?.measureInWindow((_x, y, _width, height) => {
+      setViewportBottom(y + height);
+    });
+  }, []);
   // Web's ?comment= deep scroll: the thread reports where the eddie sits
   // inside itself, and the thread's own offset inside this scroll view turns
   // that into a scroll position. Both are measured, never guessed, so a
@@ -510,7 +520,11 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
+    <View
+      onLayout={measureViewport}
+      ref={viewportRef}
+      style={[styles.root, { backgroundColor: theme.containerBg }]}
+    >
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable
           accessibilityLabel="Go back"
@@ -594,7 +608,11 @@ export function PostDetailScreen({ postId }: { postId: string }) {
         </Animated.View>
       ) : null}
       {showEddies && viewerId ? (
-        <FloatingEddieBar onHeightChange={setEddieBarHeight} postId={post.id} />
+        <FloatingEddieBar
+          onHeightChange={setEddieBarHeight}
+          postId={post.id}
+          viewportBottom={viewportBottom}
+        />
       ) : null}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
       <MoreMenu
