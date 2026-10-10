@@ -9,13 +9,14 @@
 // - expanded while focused: the attachment tile, round Image / GIF buttons
 //   (purple while the picker is open), the length counter, "Send", the GIF
 //   picker
-// It sits above the floating nav dock and rises above the keyboard.
+// It sits flush with the post viewport and rises above the keyboard.
 import { useLocalSearchParams } from "expo-router";
 import { Clapperboard, ImageIcon, SendHorizonal, X } from "lucide-react-native";
 import { useEffect, useState, useRef } from "react";
 import {
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -52,9 +53,6 @@ import {
 
 const PURPLE_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(70, 40, 170, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)";
-
-// Height of the floating nav dock plus its gap, so the bar clears it.
-export const FLOATING_DOCK_CLEARANCE = 76;
 
 function RoundIconButton({
   active,
@@ -141,7 +139,13 @@ function SendPill({
   );
 }
 
-export function FloatingEddieBar({ postId }: { postId: string }) {
+export function FloatingEddieBar({
+  onHeightChange,
+  postId,
+}: {
+  onHeightChange?: (height: number) => void;
+  postId: string;
+}) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
   const insets = useSafeAreaInsets();
@@ -163,7 +167,7 @@ export function FloatingEddieBar({ postId }: { postId: string }) {
   }, [params.eddie]);
   const [focused, setFocused] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const input = premiumInput(isDark, focused);
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
 
@@ -172,11 +176,11 @@ export function FloatingEddieBar({ postId }: { postId: string }) {
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
+    const show = Keyboard.addListener(showEvent, () => {
+      setKeyboardVisible(true);
     });
     const hide = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
+      setKeyboardVisible(false);
     });
     return () => {
       show.remove();
@@ -198,191 +202,206 @@ export function FloatingEddieBar({ postId }: { postId: string }) {
       Keyboard.dismiss();
     }
   };
-  const bottom =
-    keyboardHeight > 0
-      ? keyboardHeight
-      : insets.bottom + FLOATING_DOCK_CLEARANCE;
-
   return (
-    <View
-      style={[
-        styles.bar,
-        {
-          backgroundColor: isDark
-            ? "rgba(31, 31, 31, 0.95)"
-            : "rgba(249, 249, 249, 0.95)",
-          borderTopColor: isDark
-            ? "rgba(255, 255, 255, 0.1)"
-            : "rgba(0, 0, 0, 0.08)",
-          bottom,
-        },
-      ]}
+    <KeyboardAvoidingView
+      // Android already resizes the native viewport; only iOS needs avoidance.
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.anchor}
     >
-      <View style={styles.inner}>
-        {replyingTo ? (
-          <View
-            style={[
-              styles.replyChip,
-              {
-                backgroundColor: isDark
-                  ? "rgba(255, 255, 255, 0.05)"
-                  : "rgba(0, 0, 0, 0.05)",
-              },
-            ]}
-          >
-            <View style={styles.replyCopy}>
-              <Text style={[styles.replyLabel, { color: text.muted }]}>
-                Replying to{" "}
-                <Text style={styles.replyHandle}>@{replyingTo.username}</Text>
-              </Text>
-              {replyingTo.preview ? (
-                <Text
-                  numberOfLines={1}
-                  style={[styles.replyPreview, { color: text.muted }]}
-                >
-                  {replyingTo.preview}
-                </Text>
-              ) : null}
-            </View>
-            <Pressable
-              accessibilityLabel="Cancel reply"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => setReplyingTo(null)}
-              style={styles.replyClose}
+      <View
+        onLayout={(event) => {
+          onHeightChange?.(event.nativeEvent.layout.height);
+        }}
+        style={[
+          styles.bar,
+          {
+            backgroundColor: isDark
+              ? "rgba(31, 31, 31, 0.95)"
+              : "rgba(249, 249, 249, 0.95)",
+            borderTopColor: isDark
+              ? "rgba(255, 255, 255, 0.1)"
+              : "rgba(0, 0, 0, 0.08)",
+            paddingBottom: 8 + (keyboardVisible ? 0 : insets.bottom),
+          },
+        ]}
+      >
+        <View style={styles.inner}>
+          {replyingTo ? (
+            <View
+              style={[
+                styles.replyChip,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255, 255, 255, 0.05)"
+                    : "rgba(0, 0, 0, 0.05)",
+                },
+              ]}
             >
-              <X color={text.muted} size={14} />
-            </Pressable>
-          </View>
-        ) : null}
-        <View style={styles.row}>
-          <UserAvatar radius={10} size={36} url={viewerAvatar} />
-          <TextInput
-            ref={fieldRef}
-            accessibilityLabel="Eddie"
-            editable={!sender.sending}
-            multiline
-            onBlur={() => setFocused(false)}
-            onChangeText={(value) => sender.setText(value)}
-            onFocus={() => setFocused(true)}
-            onSubmitEditing={() => {
-              void submit();
-            }}
-            placeholder={
-              replyingTo
-                ? `Reply to @${replyingTo.username}...`
-                : "Add your Eddie to the flow..."
-            }
-            placeholderTextColor={input.placeholder}
-            returnKeyType="send"
-            style={[
-              styles.field,
-              {
-                backgroundColor: input.background,
-                boxShadow: input.shadows,
-                color: input.text,
-              },
-            ]}
-            submitBehavior="submit"
-            value={sender.text}
-          />
-          {expanded ? null : (
-            <SendPill
-              disabled={!sender.canSubmit}
-              height={36}
-              onPress={() => {
-                void submit();
-              }}
-              sending={sender.sending}
-            />
-          )}
-        </View>
-        {expanded ? (
-          <View>
-            {sender.attachments.length > 0 ? (
-              <View style={styles.attachments}>
-                {sender.attachments.map((attachment) => (
-                  <EddieAttachmentTile
-                    attachment={attachment}
-                    key={attachment.localId}
-                    onRemove={() => sender.removeAttachment(attachment.localId)}
-                    onRetry={() => sender.retryAttachment(attachment.localId)}
-                  />
-                ))}
-              </View>
-            ) : null}
-            <View style={styles.expandedRow}>
-              <View style={styles.expandedLeft}>
-                {sender.attachments.length === 0 ? (
-                  <View style={styles.iconCluster}>
-                    <RoundIconButton
-                      disabled={busy}
-                      icon={ImageIcon}
-                      label="Add image or GIF"
-                      onPress={() => {
-                        void sender.pickImage();
-                      }}
-                    />
-                    <RoundIconButton
-                      active={gifOpen}
-                      disabled={busy}
-                      icon={Clapperboard}
-                      label="Search and add a GIF"
-                      onPress={() => setGifOpen((open) => !open)}
-                    />
-                  </View>
-                ) : null}
-                {sender.nearLimit ? (
+              <View style={styles.replyCopy}>
+                <Text style={[styles.replyLabel, { color: text.muted }]}>
+                  Replying to{" "}
+                  <Text style={styles.replyHandle}>@{replyingTo.username}</Text>
+                </Text>
+                {replyingTo.preview ? (
                   <Text
-                    style={[
-                      styles.counter,
-                      {
-                        color: sender.exceeded ? text.destructive : text.muted,
-                      },
-                    ]}
+                    numberOfLines={1}
+                    style={[styles.replyPreview, { color: text.muted }]}
                   >
-                    {sender.words}/{MAX_EDDIE_WORDS}w · {sender.text.length}/
-                    {MAX_EDDIE_CHARS}c
+                    {replyingTo.preview}
                   </Text>
                 ) : null}
               </View>
+              <Pressable
+                accessibilityLabel="Cancel reply"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => setReplyingTo(null)}
+                style={styles.replyClose}
+              >
+                <X color={text.muted} size={14} />
+              </Pressable>
+            </View>
+          ) : null}
+          <View style={styles.row}>
+            <UserAvatar radius={10} size={36} url={viewerAvatar} />
+            <TextInput
+              ref={fieldRef}
+              accessibilityLabel="Eddie"
+              editable={!sender.sending}
+              multiline
+              onBlur={() => setFocused(false)}
+              onChangeText={(value) => sender.setText(value)}
+              onFocus={() => setFocused(true)}
+              onSubmitEditing={() => {
+                void submit();
+              }}
+              placeholder={
+                replyingTo
+                  ? `Reply to @${replyingTo.username}...`
+                  : "Add your Eddie to the flow..."
+              }
+              placeholderTextColor={input.placeholder}
+              returnKeyType="send"
+              style={[
+                styles.field,
+                {
+                  backgroundColor: input.background,
+                  boxShadow: input.shadows,
+                  color: input.text,
+                },
+              ]}
+              submitBehavior="submit"
+              value={sender.text}
+            />
+            {expanded ? null : (
               <SendPill
                 disabled={!sender.canSubmit}
-                height={32}
+                height={36}
                 onPress={() => {
                   void submit();
                 }}
                 sending={sender.sending}
               />
-            </View>
-            {gifOpen ? (
-              <View
-                style={[
-                  styles.gifPanel,
-                  {
-                    backgroundColor: panel.background,
-                    borderColor: panel.border,
-                    boxShadow: panel.shadows,
-                  },
-                ]}
-              >
-                <GifPicker
-                  disabled={busy}
-                  onSelect={(gif) => {
-                    setGifOpen(false);
-                    void sender.pickGif(gif);
+            )}
+          </View>
+          {expanded ? (
+            <View>
+              {sender.attachments.length > 0 ? (
+                <View style={styles.attachments}>
+                  {sender.attachments.map((attachment) => (
+                    <EddieAttachmentTile
+                      attachment={attachment}
+                      key={attachment.localId}
+                      onRemove={() =>
+                        sender.removeAttachment(attachment.localId)
+                      }
+                      onRetry={() => sender.retryAttachment(attachment.localId)}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              <View style={styles.expandedRow}>
+                <View style={styles.expandedLeft}>
+                  {sender.attachments.length === 0 ? (
+                    <View style={styles.iconCluster}>
+                      <RoundIconButton
+                        disabled={busy}
+                        icon={ImageIcon}
+                        label="Add image or GIF"
+                        onPress={() => {
+                          void sender.pickImage();
+                        }}
+                      />
+                      <RoundIconButton
+                        active={gifOpen}
+                        disabled={busy}
+                        icon={Clapperboard}
+                        label="Search and add a GIF"
+                        onPress={() => setGifOpen((open) => !open)}
+                      />
+                    </View>
+                  ) : null}
+                  {sender.nearLimit ? (
+                    <Text
+                      style={[
+                        styles.counter,
+                        {
+                          color: sender.exceeded
+                            ? text.destructive
+                            : text.muted,
+                        },
+                      ]}
+                    >
+                      {sender.words}/{MAX_EDDIE_WORDS}w · {sender.text.length}/
+                      {MAX_EDDIE_CHARS}c
+                    </Text>
+                  ) : null}
+                </View>
+                <SendPill
+                  disabled={!sender.canSubmit}
+                  height={32}
+                  onPress={() => {
+                    void submit();
                   }}
+                  sending={sender.sending}
                 />
               </View>
-            ) : null}
-          </View>
-        ) : null}
+              {gifOpen ? (
+                <View
+                  style={[
+                    styles.gifPanel,
+                    {
+                      backgroundColor: panel.background,
+                      borderColor: panel.border,
+                      boxShadow: panel.shadows,
+                    },
+                  ]}
+                >
+                  <GifPicker
+                    disabled={busy}
+                    onSelect={(gif) => {
+                      setGifOpen(false);
+                      void sender.pickGif(gif);
+                    }}
+                  />
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  anchor: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 40,
+  },
   attachments: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -392,11 +411,7 @@ const styles = StyleSheet.create({
   bar: {
     borderTopWidth: 1,
     boxShadow: "0 -4px 20px rgba(0, 0, 0, 0.15)",
-    left: 0,
     padding: 8,
-    position: "absolute",
-    right: 0,
-    zIndex: 40,
   },
   counter: {
     fontFamily: "SofiaProMed",
