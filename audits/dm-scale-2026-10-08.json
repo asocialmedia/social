@@ -1,0 +1,73 @@
+{
+  "scope": "Synthetic Bun CPU/correctness checks; not browser performance or production data",
+  "queryCpu": [
+    {
+      "matchedRows": 100000,
+      "returnedRows": 20,
+      "samples": 7,
+      "medianMs": 19.22,
+      "maxMs": 20.43
+    },
+    {
+      "matchedRows": 200000,
+      "returnedRows": 20,
+      "samples": 7,
+      "medianMs": 38.09,
+      "maxMs": 49.02
+    },
+    {
+      "matchedRows": 1000000,
+      "returnedRows": 20,
+      "samples": 7,
+      "medianMs": 319.89,
+      "maxMs": 336.1
+    }
+  ],
+  "postingRewriteModel": [
+    {
+      "rowCount": 100000,
+      "chunks": 1600,
+      "serializedPostingRows": 80058400,
+      "cumulativeArrayMiB": 916.2,
+      "finalArrayMiB": 1.14
+    },
+    {
+      "rowCount": 200000,
+      "chunks": 3200,
+      "serializedPostingRows": 320116800,
+      "cumulativeArrayMiB": 3663.45,
+      "finalArrayMiB": 2.29
+    }
+  ],
+  "heavyUserCache": {
+    "conversations": 20,
+    "rowsPerConversation": 100000,
+    "evicted": 18,
+    "remainingRows": 200000
+  },
+  "oldestBoundaryRetention": {
+    "loadedPages": 1000,
+    "pagesDropped": 0
+  },
+  "writerLifecycle": {
+    "createdWriters": 20,
+    "retainedListeners": 20,
+    "unsubscribeCalls": 0
+  },
+  "pendingOverflow": {
+    "unindexedReported": 6000,
+    "durableOnDisk": 5000,
+    "lostAfterReload": 1000,
+    "flushReportsFailure": false
+  },
+  "refsVerdict": {
+    "refsReachedStart": true,
+    "pendingCount": 1,
+    "storedLinks": 0
+  },
+  "matchingSemantics": {
+    "localSubstringMatches": 1,
+    "persistedPrefixMatches": 0,
+    "prefixExpansionsWith65Terms": 0
+  }
+}
